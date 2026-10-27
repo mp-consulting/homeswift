@@ -91,8 +91,6 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     private var pairingDeadline: ContinuousClock.Instant?
     /// The task that finds the bridge and polls it.
     private var poller: Task<Void, Never>?
-    /// The bridge moved to another address: its key is sent there only once `/api/config` names the same bridge.
-    private var checkBridge = false
     /// Counts reads of the bridge: a read that finishes after a later one began (the poll's, overtaken by the one after
     /// a recall) is not applied, so the older state never comes back.
     private var refreshes = 0
@@ -207,36 +205,19 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
 
     private func connect(host: String) {
         if stored.host != host, stored.host != nil {
-            // Another bridge, or the same one at a new address: the certificate is checked again on first use.
+            // Another bridge, or the same one at a new address: its certificate is trusted again on first use. The key
+            // is never sent to an address that is not already trusted (a bridge ID is public, so it proves nothing): the
+            // plugin pairs again from its page.
             if configuration.host != nil { trust.reset() }
-            if stored.applicationKey != nil { checkBridge = true }
+            if stored.applicationKey != nil {
+                stored.applicationKey = nil
+                logger.warning("The Hue Bridge address changed to \(host): pair with it from the plugin's page")
+                lastError = "The Hue Bridge address changed: pair with it from the plugin's page."
+            }
         }
         stored.host = host
         save()
-        client = HueClient(host: host, applicationKey: checkBridge ? nil : stored.applicationKey, transport: dependencies.transport(trust))
-    }
-
-    /// At a new address, the key goes only to the bridge it belongs to: another one (or anything else answering there,
-    /// its certificate trusted on first use) loses it, and the plugin pairs again from the page.
-    private func checkMovedBridge(_ client: HueClient) async -> Bool {
-        guard checkBridge else { return true }
-        let answered: String?
-        do {
-            answered = try await client.configuration()["bridgeid"]?.stringValue
-        } catch {
-            lastError = "\(error)"
-            return false
-        }
-        checkBridge = false
-        if let answered, let known = stored.bridgeID, answered.lowercased() == known.lowercased() {
-            await client.setApplicationKey(stored.applicationKey)
-            return true
-        }
-        logger.warning("Another Hue Bridge answers at \(client.host): pair with it from the plugin's page")
-        lastError = "Another Hue Bridge answers at \(client.host): pair with it from the plugin's page."
-        stored.applicationKey = nil
-        save()
-        return false
+        client = HueClient(host: host, applicationKey: stored.applicationKey, transport: dependencies.transport(trust))
     }
 
     private func save() {
@@ -249,6 +230,8 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     @discardableResult
     func pair() async -> Bool {
         if let pairing { return await pairing.value }
+        // A fresh pairing starts from no pin: a certificate pinned earlier (a bad first connection) is not kept.
+        trust.reset()
         let task = Task { await self.pairLoop() }
         pairing = task
         let paired = await task.value
@@ -290,7 +273,7 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     /// Reads every resource in one request, adds the lights and scenes that are new, shows the values of the others
     /// and drops what is gone.
     func refresh() async {
-        guard let client, stored.applicationKey != nil, await checkMovedBridge(client) else { return }
+        guard let client, stored.applicationKey != nil else { return }
         refreshes += 1
         let read = refreshes
         let resources: [JSONValue]
@@ -364,7 +347,7 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         let shape = shape(of: light)
         if let services = lights[light.id], services.shape == shape {
             services.accessory.isUnavailable = !light.reachable
-            if let sent = await services.writer.lastSent, ContinuousClock.now - sent < Self.settleTime { return }
+            if await services.writer.isSettling(within: Self.settleTime) { return }
             Self.showValues(light, on: services, keeping: services.command.lastColour)
             return
         }
@@ -593,7 +576,7 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
 
     /// The room's on and brightness as the bridge sums them up; left alone just after a command, as a light's are.
     static func showRoomValues(_ group: HueGroup, on bulb: Service, writer: LightChangeBatcher) async {
-        if let sent = await writer.lastSent, ContinuousClock.now - sent < settleTime { return }
+        if await writer.isSettling(within: settleTime) { return }
         bulb.characteristic(.on).value = .bool(group.on)
         // A room switched off may say 0: the brightness it comes back on at stays.
         if let brightness = group.brightness, brightness >= 1 { bulb[.brightness]?.value = .int(Int(brightness.rounded())) }
@@ -659,7 +642,10 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         poller?.cancel()
         if stored.host != host {
             trust.reset()
-            if stored.applicationKey != nil { checkBridge = true }
+            if stored.applicationKey != nil {
+                stored.applicationKey = nil
+                lastError = "The Hue Bridge address changed: pair with it from the plugin's page."
+            }
         }
         stored.host = host
         save()

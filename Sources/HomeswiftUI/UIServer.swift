@@ -625,6 +625,10 @@ public final class UIServer: Sendable {
                 // `from` (and `to`, now when left out) as ISO 8601: that span, from the archive on disk; else the latest lines.
                 // `accessory`, `bridge` (a device ID, or `all`), `plugin` (a block's name): only the lines about them,
                 // picked before the limit.
+                // A bridge's lines or a plugin's, not both: the page sends one of the two.
+                if request.query["bridge"] != nil, request.query["plugin"] != nil {
+                    return .error(400, "bridge and plugin cannot both filter the log")
+                }
                 let found = request.query["accessory"].flatMap { catalog.find(id: $0) }
                 let bridges = catalog.host.bridges
                 let chosen = request.query["bridge"].map { id in id == "all" ? bridges : bridges.filter { $0.server.deviceID == id } }

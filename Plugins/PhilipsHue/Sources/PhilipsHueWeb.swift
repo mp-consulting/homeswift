@@ -108,6 +108,7 @@ extension PhilipsHuePlugin {
             "effects": .array(light.effects.map(JSONValue.string)), "effect": light.effect.map(JSONValue.string) ?? .null,
             "canFlash": .bool(light.canFlash), "gradient": .array(light.gradientPoints.map { .string(Self.hex($0, gamut: gamut)) }),
             "hidden": .bool(isExcluded(light)), "firmware": .string(light.firmware),
+            "roomID": light.roomID.map(JSONValue.string) ?? .null, "room": light.room.map(JSONValue.string) ?? .null,
         ]
     }
 

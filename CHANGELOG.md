@@ -6,8 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-27
+
 ### Added
 
+- **Settings › Overview**, the default Settings page: headline counts, then a radial graph of homeswift at the centre,
+  each bridge a pill on the first ring, its plugins on the second, each device type as a node, and each accessory a
+  disc with its device-type icon on the outer ring. Click a bridge or plugin to zoom into its branch (Ctrl-scroll,
+  pinch, drag and zoom buttons too). Click any node for its facts, status and readings; a table gives the same rows.
 - **Philips Hue** plugin (`PhilipsHue`): lights, scenes and effects through a Hue Bridge's local API v2, no cloud.
   Each light with brightness, colour and white, a switch per effect (candle, fireplace, prism…), each room's and
   zone's scenes as switches (smart scenes too), optional Flash switches and gradient points. A light's changes go in
@@ -29,6 +35,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Settings: the Bridge page moves to `/settings/bridge`; `/settings` opens the Overview.
+- Philips Hue and IKEA DIRIGERA: a moved bridge loses its key until it is paired again from the plugin's page (a bridge
+  ID is public, so it proves nothing), and a fresh pairing starts from no pinned certificate.
+- Philips Hue: a scene's writes go in one group per step, colours first and then On; the search filters once typing
+  pauses; the page redraws only when the bridge's answer changes.
+- The logs route refuses a `bridge` and a `plugin` filter together (400), rather than silently dropping one.
 - Accessories: a group whose members differ shows it plainly rather than "Mixed" beside a switch that moved: the
   switch half lit with its thumb between and "2 of 5 on" under its name (a tap turns them all on), and each slider
   the spread of its members, "40–80 %", solid to the lowest and lighter to the highest.
@@ -41,6 +53,14 @@ All notable changes to this project are documented here. The format follows
   includes its writes, and the lights are put back all at once.
 
 ### Fixed
+
+- A password in a URL is masked up to its last `@`, also when the user name holds an `@` or the password a `/`; a
+  structured URL with such a password counts as a credential.
+- Passcode, `pwd`, `pw` and `auth` fields count as secrets; an `adminTokens` key no longer passes as a token count.
+- The first use of the secret key is serialised, so two saves at once cannot each write a key.
+- A new scene picture is written before the other formats are removed, so a failed upload keeps the old picture.
+- Restored files are owner-only (0600), whatever mode the archive gave them.
+- Restore replaces an existing file by removing it and moving the staged copy in, which works on Linux too.
 
 - Moods write saturation before hue, so a plugin that sends the colour when the hue arrives no longer uses the
   previous saturation.
@@ -957,7 +977,8 @@ All notable changes to this project are documented here. The format follows
   SIGTERM; Homebrew formula `mp-consulting/tap/homeswift` with a `brew services` entry.
 - CI on macOS and Linux for every push and pull request.
 
-[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/mp-consulting/homeswift/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/mp-consulting/homeswift/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/mp-consulting/homeswift/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/mp-consulting/homeswift/compare/v0.9.0...v0.10.0

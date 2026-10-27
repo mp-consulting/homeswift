@@ -350,7 +350,7 @@ public struct InstanceBackups: Sendable {
         if let data = try? Data(contentsOf: pending.appendingPathComponent("config.json")), let config = try? JSONValue(data: data) {
             do {
                 let backupKey = (try? Data(contentsOf: pending.appendingPathComponent(SecretBox.fileName))).flatMap { try? SecretBox.fromKeyFile($0) }
-                let opened = try backupKey?.opening(config) ?? config
+                let opened = try backupKey?.revealing(json: config) ?? config
                 let box = try SecretBox.load(storage: storage, create: true)
                 let sealed = try SecretBox.sealingSecrets(keepingPorts(of: current, in: opened)) { try box.seal($0) }
                 try OwnerOnlyFile.write(sealed.encoded(pretty: true), to: configURL)
@@ -366,11 +366,11 @@ public struct InstanceBackups: Sendable {
             let target = storage.appendingPathComponent(relative)
             do {
                 try manager.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-                if manager.fileExists(atPath: target.path) {
-                    _ = try manager.replaceItemAt(target, withItemAt: url)
-                } else {
-                    try manager.moveItem(at: url, to: target)
-                }
+                // Remove, then move: replaceItemAt is not reliable on every platform (Linux drops the target without the move).
+                if manager.fileExists(atPath: target.path) { try manager.removeItem(at: target) }
+                try manager.moveItem(at: url, to: target)
+                // The bridge keeps its files owner-only, as OwnerOnlyFile.write makes them, whatever mode the archive gave.
+                try manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: target.path)
                 restored += 1
             } catch {
                 logger.error("Could not restore a file", metadata: ["file": "\(relative)", "error": "\(error)"])

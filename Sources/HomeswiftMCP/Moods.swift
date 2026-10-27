@@ -621,6 +621,7 @@ extension HomeswiftCatalog {
             for (index, step) in mood.steps.enumerated() {
                 if Task.isCancelled { break outer }
                 let stepStart = Date()
+                let lightsByKey = Dictionary(active.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
                 for (key, outcome) in await paintAll(step, on: active, lastOn: lastOn) {
                     switch outcome {
                     case .success(let on):
@@ -628,7 +629,7 @@ extension HomeswiftCatalog {
                         failures[key] = 0
                     case .failure(let error):
                         failures[key, default: 0] += 1
-                        if failures[key, default: 0] >= MoodRules.maxFailures, let light = active.first(where: { $0.key == key }) {
+                        if failures[key, default: 0] >= MoodRules.maxFailures, let light = lightsByKey[key] {
                             logger.warning("Mood \"\(mood.name)\": \(light.name) left the show after \(MoodRules.maxFailures) failed writes: \(error)")
                         }
                     }
@@ -666,22 +667,73 @@ extension HomeswiftCatalog {
     /// Paints a step on every light at the same time, so a fast step flashes the room at once rather than light by
     /// light. By light: the On it now has (`lastOn` after), or why it failed.
     private func paintAll(_ step: MoodStep, on lights: [MoodLight], lastOn: [String: Bool]) async -> [String: Result<Bool?, any Error>] {
-        await withTaskGroup(of: (String, Result<Bool?, any Error>).self) { group in
-            for (position, light) in lights.enumerated() {
-                let color = Self.pick(step, for: position)
-                let wasOn = lastOn[light.key]
-                group.addTask {
-                    do {
-                        return (light.key, .success(try await self.paint(light, color, jitter: step.jitter ?? 0, lastOn: wasOn)))
-                    } catch {
-                        return (light.key, .failure(error))
+        // What each light is to be given: its colour writes, or its Off when it is to go off (only when it was on).
+        let plans = lights.enumerated().map { position, light -> PaintPlan in
+            let color = Self.pick(step, for: position)
+            let wasOn = lastOn[light.key]
+            let writes: [(Characteristic, HAPValue)]
+            if color.isOff {
+                writes = wasOn != false ? [(light.on, .bool(false))] : []
+            } else {
+                writes = paintValues(light, color, jitter: step.jitter ?? 0)
+            }
+            return PaintPlan(light: light, color: color, wasOn: wasOn, writes: writes)
+        }
+        // First every colour write of every light, in one group, so a fast step flashes the room at once.
+        var failures: [String: any Error] = [:]
+        await withTaskGroup(of: (String, (any Error)?).self) { group in
+            for plan in plans {
+                for (characteristic, value) in plan.writes {
+                    group.addTask {
+                        do {
+                            try await self.write(plan.light, characteristic, value)
+                            return (plan.light.key, nil)
+                        } catch {
+                            return (plan.light.key, error)
+                        }
                     }
                 }
             }
-            var outcomes: [String: Result<Bool?, any Error>] = [:]
-            for await (key, outcome) in group { outcomes[key] = outcome }
-            return outcomes
+            for await (key, error) in group where failures[key] == nil {
+                if let error { failures[key] = error }
+            }
         }
+        // Then On, for the lights that are to be on, were not on, and had no failed write; one group again.
+        let turningOn = plans.filter { plan in
+            !plan.color.isOff && failures[plan.light.key] == nil && plan.wasOn != true && plan.light.on.value.boolValue != true
+        }
+        await withTaskGroup(of: (String, (any Error)?).self) { group in
+            for plan in turningOn {
+                group.addTask {
+                    do {
+                        try await self.write(plan.light, plan.light.on, .bool(true))
+                        return (plan.light.key, nil)
+                    } catch {
+                        return (plan.light.key, error)
+                    }
+                }
+            }
+            for await (key, error) in group where failures[key] == nil {
+                if let error { failures[key] = error }
+            }
+        }
+        var outcomes: [String: Result<Bool?, any Error>] = [:]
+        for plan in plans {
+            if let error = failures[plan.light.key] {
+                outcomes[plan.light.key] = .failure(error)
+            } else {
+                outcomes[plan.light.key] = .success(plan.color.isOff ? false : true)
+            }
+        }
+        return outcomes
+    }
+
+    /// One light's part of a step: the writes that paint it, and whether it is to be on.
+    private struct PaintPlan {
+        let light: MoodLight
+        let color: MoodColor
+        let wasOn: Bool?
+        let writes: [(Characteristic, HAPValue)]
     }
 
     static func pick(_ step: MoodStep, for position: Int) -> MoodColor {
@@ -715,21 +767,6 @@ extension HomeswiftCatalog {
     /// Writes a colour to a light, turning it on last so it lights up in the new colour. Its values go at the same
     /// time, as the Home app sends them, so a plugin that gathers a moment's changes sends them as one command.
     /// `lastOn` is what this mood last set, so On is written only when it changes; answers what it is now.
-    private func paint(_ light: MoodLight, _ color: MoodColor, jitter: Double, lastOn: Bool?) async throws -> Bool? {
-        if color.isOff {
-            if lastOn != false { try await write(light, light.on, .bool(false)) }
-            return false
-        }
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            for (characteristic, value) in paintValues(light, color, jitter: jitter) {
-                group.addTask { try await self.write(light, characteristic, value) }
-            }
-            try await group.waitForAll()
-        }
-        if lastOn != true, light.on.value.boolValue != true { try await write(light, light.on, .bool(true)) }
-        return true
-    }
-
     private func write(_ light: MoodLight, _ characteristic: Characteristic, _ value: HAPValue) async throws {
         do {
             try await characteristic.write(value)

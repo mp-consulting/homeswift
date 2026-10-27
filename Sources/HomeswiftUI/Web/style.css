@@ -5,6 +5,8 @@
   color-scheme: light dark;
   --bg: #e9edf6; --bg-warm: #ffe9d6; --bg-cool: #dcefff; --bg-mint: #e2f7ee;
   --material-thick: rgba(255, 255, 255, 0.7); --material: rgba(255, 255, 255, 0.52); --material-thin: rgba(255, 255, 255, 0.38);
+  /* The floating header's glass: thicker than a card's, so its text reads over the palest or darkest tile under it. */
+  --material-chrome: rgba(255, 255, 255, 0.84);
   --material-solid: #f7f8fb;
   --control: rgba(255, 255, 255, 0.82); --field: rgba(255, 255, 255, 0.6);
   /* A search field's fill, as iOS's search bars: grey, so it reads on a white card too. */
@@ -32,6 +34,7 @@
   :root:not(:where([data-theme="light"])) {
     --bg: #0f1218; --bg-warm: #3a2a1e; --bg-cool: #15243a; --bg-mint: #14302a;
     --material-thick: rgba(28, 31, 40, 0.74); --material: rgba(34, 38, 48, 0.54); --material-thin: rgba(255, 255, 255, 0.06);
+    --material-chrome: rgba(24, 27, 35, 0.88);
     --material-solid: #1d2129;
     --control: rgba(70, 76, 92, 0.75); --field: rgba(0, 0, 0, 0.28);
     --search-fill: rgba(118, 118, 128, 0.26); --search-glyph: rgba(235, 235, 245, 0.6);
@@ -50,6 +53,7 @@
   color-scheme: dark;
   --bg: #0f1218; --bg-warm: #3a2a1e; --bg-cool: #15243a; --bg-mint: #14302a;
   --material-thick: rgba(28, 31, 40, 0.74); --material: rgba(34, 38, 48, 0.54); --material-thin: rgba(255, 255, 255, 0.06);
+  --material-chrome: rgba(24, 27, 35, 0.88);
   --material-solid: #1d2129;
   --control: rgba(70, 76, 92, 0.75); --field: rgba(0, 0, 0, 0.28);
   --search-fill: rgba(118, 118, 128, 0.26); --search-glyph: rgba(235, 235, 245, 0.6);
@@ -90,7 +94,7 @@ body::before {
 header {
   position: sticky; top: 12px; z-index: 2; margin: 12px auto 0; max-width: 1100px; width: calc(100% - 24px);
   display: flex; align-items: center; gap: 14px; padding: 8px 10px 8px 20px; border-radius: 999px;
-  background-color: var(--material-thick); background-image: var(--sheen);
+  background-color: var(--material-chrome); background-image: var(--sheen);
   -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
   border: 1px solid var(--edge); box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
 }
@@ -1315,11 +1319,11 @@ dd { margin: 0; }
   .switch input:checked:active + span::before { transform: translateX(20px); }
 }
 @media (prefers-reduced-transparency: reduce) {
-  :root { --material: var(--material-solid); --material-thick: var(--material-solid); --material-thin: var(--field); --sheen: none; }
+  :root { --material: var(--material-solid); --material-thick: var(--material-solid); --material-chrome: var(--material-solid); --material-thin: var(--field); --sheen: none; }
   .card, header, .log, .banner { -webkit-backdrop-filter: none; backdrop-filter: none; }
 }
 @media (prefers-contrast: more) {
-  :root { --material: var(--material-solid); --material-thick: var(--material-solid); --sheen: none; --edge: rgba(20, 30, 50, 0.55); --line: rgba(20, 30, 50, 0.3); --muted: #3a4150; }
+  :root { --material: var(--material-solid); --material-thick: var(--material-solid); --material-chrome: var(--material-solid); --sheen: none; --edge: rgba(20, 30, 50, 0.55); --line: rgba(20, 30, 50, 0.3); --muted: #3a4150; }
   @media (prefers-color-scheme: dark) { :root:not(:where([data-theme="light"])) { --edge: rgba(255, 255, 255, 0.6); --line: rgba(255, 255, 255, 0.3); --muted: #cfd4dc; } }
   :root:where([data-theme="dark"]) { --edge: rgba(255, 255, 255, 0.6); --line: rgba(255, 255, 255, 0.3); --muted: #cfd4dc; }
   .card, header, .log, .banner { -webkit-backdrop-filter: none; backdrop-filter: none; }
@@ -2254,17 +2258,21 @@ select:disabled { opacity: .5; cursor: not-allowed; }
 .plugin-instance .meta { padding: 16px 0; gap: 16px; flex-wrap: wrap; }
 .plugin-instance .card-foot { gap: 12px; align-items: center; }
 .plugin-card-actions { display: flex; align-items: center; gap: 10px; flex: none; }
+/* Finding a plugin to add: the search and the order on one row; how many a search keeps under it, with the way back
+   (finder-status, shared with the lighting pages' toolbars). */
+.catalog-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; margin: 0 0 12px; }
+.catalog-toolbar .search { width: 100%; max-width: none; }
+.catalog-toolbar .popup { margin: 0; }
+.finder-status { display: flex; align-items: center; gap: 10px; margin: -4px 0 14px; padding: 0 6px; font-size: 0.8125rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.finder-status:empty { display: none; }
 .plugin-catalog { gap: 14px; }
 .plugin-catalog .catalog { padding: 20px; }
 .plugin-catalog .catalog[hidden] { display: none; }
 .plugin-catalog .server-head { margin-bottom: 20px; }
 .plugin-catalog .actions { justify-content: flex-end; }
-.section-head:has(+ .plugin-catalog) { flex-wrap: wrap; gap: 12px; }
-.section-head:has(+ .plugin-catalog) .search { margin-left: auto; max-width: 320px; }
 @media (max-width: 600px) {
   .plugin-instance .card-foot { flex-wrap: wrap; }
   .plugin-card-actions { margin-left: auto; }
-  .section-head:has(+ .plugin-catalog) .search { width: 100%; max-width: none; }
 }
 
 /* Compact plugin management: keep each catalog entry on a single row. */
@@ -2839,7 +2847,7 @@ select option:disabled { color: var(--muted); }
 
 /* Scene tiles: a scene's palette as a gradient, or its picture, under a scrim that keeps the name readable. */
 .scene-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 168px), 1fr)); gap: 10px; margin-bottom: 28px; }
-.scene { position: relative; display: grid; align-content: end; min-height: 96px; padding: 12px 14px; border-radius: 18px; border: 1px solid var(--edge); color: #fff; text-align: left; cursor: pointer; overflow: hidden; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); transition: transform var(--fast) var(--ease-out), box-shadow var(--fast) var(--ease-out); }
+.scene { position: relative; isolation: isolate; display: grid; align-content: end; min-height: 96px; padding: 12px 14px; border-radius: 18px; border: 1px solid var(--edge); color: #fff; text-align: left; cursor: pointer; overflow: hidden; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); transition: transform var(--fast) var(--ease-out), box-shadow var(--fast) var(--ease-out); }
 .scene::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 35%, rgba(0, 0, 0, 0.42)); pointer-events: none; }
 @media (hover: hover) and (pointer: fine) { .scene:hover { box-shadow: 0 6px 18px rgba(0, 0, 0, 0.14); } }
 .scene:active { transform: scale(0.98); }
@@ -2986,3 +2994,91 @@ select option:disabled { color: var(--muted); }
   .import-summary { gap: 8px; }
   .import-count b { font-size: 1.25rem; }
 }
+
+/* Settings › Overview: the headline counts, then the graph of bridges, plugins and accessories, its legend and table. */
+:root { --viz-1: #2a78d6; --viz-2: #eb6834; --viz-3: #1baf7a; --viz-4: #eda100; --viz-5: #e87ba4; --viz-6: #008300; --viz-7: #6250d6; --viz-8: #e34948; }
+@media (prefers-color-scheme: dark) { :root:not(:where([data-theme="light"])) { --viz-1: #3987e5; --viz-2: #d95926; --viz-3: #199e70; --viz-4: #c98500; --viz-5: #d55181; --viz-6: #008300; --viz-7: #9085e9; --viz-8: #e66767; } }
+:root[data-theme="dark"] { --viz-1: #3987e5; --viz-2: #d95926; --viz-3: #199e70; --viz-4: #c98500; --viz-5: #d55181; --viz-6: #008300; --viz-7: #9085e9; --viz-8: #e66767; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.kpi { margin: 0; padding: 16px 18px; display: grid; gap: 2px; align-content: start; }
+.kpi b { font-size: 1.75rem; line-height: 1.1; font-weight: 650; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.kpi span { font-size: 0.8125rem; }
+.kpi.warn b { color: var(--warn); }
+.overview-card { display: grid; gap: 12px; }
+.overview-card .who { min-width: 0; }
+.overview-card .chart-head .muted { font-size: 0.8125rem; }
+.overview-frame { position: relative; }
+.overview-graph { display: block; width: 100%; max-width: 820px; height: auto; margin: 0 auto; touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab; }
+.overview-graph:focus { outline: none; }
+.overview-graph.deep { cursor: default; }
+.overview-graph .zoom-layer { transition: none; }
+.overview-graph .edge { fill: none; stroke: var(--branch, var(--muted)); stroke-opacity: 0.42; stroke-width: 1.2; }
+.overview-graph .edge.trunk { stroke-width: 2.2; stroke-opacity: 0.6; }
+.overview-graph .edge.leaf { stroke-width: 0.8; stroke-opacity: 0.22; }
+.overview-graph .edge.paused { stroke-dasharray: 3 3; }
+.overview-graph .dot-disc { fill: var(--material-solid); stroke: var(--branch); stroke-width: 1.4; }
+.overview-graph .dot svg { color: var(--branch); }
+.overview-graph .dot { cursor: pointer; outline: none; }
+.overview-graph .dot:hover .dot-disc, .overview-graph .dot:focus-visible .dot-disc { stroke-width: 2.4; }
+.overview-graph .dot:focus-visible .dot-disc { stroke: var(--accent); }
+.overview-graph .dot.unavailable .dot-disc { stroke-dasharray: 2 1.6; stroke-opacity: 0.7; }
+.overview-graph .dot.unavailable svg { opacity: 0.4; }
+.overview-graph .pill { cursor: pointer; outline: none; }
+.overview-graph .pill-box { fill: var(--material-solid); stroke: var(--line); stroke-width: 1; filter: drop-shadow(0 2px 6px rgba(20, 30, 50, 0.14)); }
+.overview-graph .pill.unpaired .pill-box { stroke: var(--warn); stroke-width: 1.6; }
+.overview-graph .pill.built-in .pill-box { stroke-dasharray: 3 2; }
+.overview-graph .pill-name { fill: var(--text); font: 650 13px var(--font); }
+.overview-graph .pill:focus-visible .pill-box, .overview-graph .plugin-node:focus-visible .plugin-dot { stroke: var(--accent); stroke-width: 2.5; }
+.overview-graph .plugin-node { cursor: pointer; outline: none; }
+.overview-graph .plugin-dot { fill: var(--material-solid); stroke: var(--branch); stroke-width: 2.6; }
+.overview-graph .plugin-node svg, .overview-graph .pill svg { color: var(--branch); }
+.overview-graph .plugin-node.paused .plugin-dot { stroke-dasharray: 3 2; }
+.overview-graph .plugin-label { fill: var(--text); font: 600 12px var(--font); opacity: 0; transition: opacity var(--normal) var(--ease-out); pointer-events: none; paint-order: stroke; stroke: var(--material-solid); stroke-width: 4px; stroke-linejoin: round; }
+.overview-graph.deep .plugin-label { opacity: 1; }
+.overview-graph .root { cursor: pointer; outline: none; }
+.overview-graph .root:focus-visible .root-name { fill: var(--accent); }
+.overview-graph .root-name { fill: var(--text); font: 650 24px var(--font); paint-order: stroke; stroke: var(--material-solid); stroke-width: 4px; stroke-linejoin: round; }
+.overview-zoom { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.overview-zoom button svg { width: 16px; height: 16px; }
+.overview-tip { position: fixed; z-index: 50; max-width: 260px; padding: 6px 10px; border-radius: 10px; font-size: 0.8125rem; line-height: 1.3; color: var(--text); background: var(--material-solid); box-shadow: var(--shadow-control), 0 0 0 1px var(--line); transform: translate(-50%, calc(-100% - 10px)); pointer-events: none; }
+.overview-tip[hidden] { display: none; }
+.overview-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0; padding: 0; list-style: none; font-size: 0.8125rem; color: var(--muted); }
+.overview-legend li { display: inline-flex; align-items: center; gap: 6px; }
+.legend-mark { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--mark); }
+.legend-mark.hollow { background: none; border: 1.6px solid var(--muted); }
+.legend-mark.status { background: var(--paused); }
+.legend-mark.status.warn { background: var(--warn); }
+.overview-more { margin: 0; }
+.overview-more > summary { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; color: var(--muted); font-size: 0.875rem; }
+.overview-more > summary svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.overview-table-wrap { overflow-x: auto; margin-top: 10px; }
+.overview-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+.overview-table th, .overview-table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--line); }
+.overview-table thead th { color: var(--muted); font-weight: 600; font-size: 0.8125rem; }
+.overview-table .overview-plugin th { padding-left: 26px; font-weight: 500; }
+.overview-table .overview-bridge th { font-weight: 650; }
+
+/* The accessory's detail, beside its icon: what it is, its status, and every reading it reports. */
+.overview-detail { position: absolute; z-index: 20; width: min(300px, calc(100% - 16px)); max-height: 380px; overflow: auto; padding: 14px 16px; border-radius: 18px; background: var(--material-solid); box-shadow: var(--shadow), 0 0 0 1px var(--line); display: grid; gap: 12px; align-content: start; }
+.overview-detail[hidden] { display: none; }
+.detail-head { display: flex; align-items: flex-start; gap: 10px; }
+.detail-head .who { min-width: 0; flex: 1; }
+.detail-head strong { overflow-wrap: anywhere; }
+.detail-glyph svg { width: 28px; height: 28px; color: var(--branch); }
+.detail-glyph img { width: 28px; height: 28px; border-radius: 8px; }
+.detail-status { font-size: 0.8125rem; color: var(--muted); }
+.detail-status.warn { color: var(--warn); }
+.detail-close { flex: none; align-self: flex-start; width: 32px; height: 32px; min-height: 32px; padding: 0; display: inline-grid; place-items: center; }
+@media (max-width: 640px) { .overview-detail { position: static; width: 100%; max-height: none; margin-top: 12px; box-shadow: var(--shadow-control); } }
+.detail-facts, .detail-readings { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 5px 14px; margin: 0; font-size: 0.8125rem; }
+.detail-facts dt, .detail-readings dt { color: var(--muted); }
+.detail-facts dd, .detail-readings dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+/* A device-type node between a plugin and its accessories, named when zoomed in like the plugins. */
+.overview-graph .group-node { cursor: pointer; outline: none; }
+.overview-graph .group-dot { fill: var(--material-solid); stroke: var(--branch); stroke-width: 2; }
+.overview-graph .group-node svg { color: var(--branch); }
+.overview-graph .group-node:hover .group-dot, .overview-graph .group-node:focus-visible .group-dot { stroke-width: 2.8; }
+.overview-graph .group-node:focus-visible .group-dot { stroke: var(--accent); }
+.overview-graph .group-label { fill: var(--text); font: 600 12px var(--font); opacity: 0; transition: opacity var(--normal) var(--ease-out); pointer-events: none; paint-order: stroke; stroke: var(--material-solid); stroke-width: 4px; stroke-linejoin: round; }
+.overview-graph.deep .group-label { opacity: 1; }

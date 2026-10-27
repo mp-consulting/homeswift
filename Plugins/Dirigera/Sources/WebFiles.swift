@@ -52,7 +52,7 @@ h2 { margin: 0 0 10px; }
   // The card plugin.js draws for both lighting pages: a block per hub (config.json's, paired ones, and the ones found
   // on the network), its pairing, and the address form.
   const card = homeswift.bridgePairing({
-    card: $("#hubs"), tone: "blue", button: "hub",
+    card: $("#hubs"), tone: "blue", button: "bridge",
     texts: {
       name: t("DIRIGERA hub"), pairTitle: t("Pair Homeswift with the hub."), press: t("Press the action button under the hub."),
       pairHelp: t("Pair, then press the action button under the hub within a minute. The token stays in the plugin's folder, not in config.json."),
@@ -117,14 +117,9 @@ h2 { margin: 0 0 10px; }
     accessories = all.filter((accessory) => accessory.platform === "Dirigera" && accessory.platformName === homeswift.name && !accessory.id.startsWith("Dirigera:scenes:"));
   }
 
-  /// The devices left out of the Home app, as buttons that bring one back; drawn again only when they change.
+  /// The devices left out of the Home app, as buttons that bring one back.
   function drawHidden(names) {
-    const hidden = $("#hidden-devices");
-    const key = JSON.stringify(names);
-    if (hidden.dataset.json === key) return;
-    hidden.dataset.json = key;
-    hidden.replaceChildren(...(names.length ? [el("span", { class: "muted", text: t("Not in the Home app:") }),
-      ...names.map((name) => el("button", { actionIcon: "eye", text: name, title: t("Show in the Home app"), onclick: () => toggleList("excludeDevices", name) }))] : []));
+    homeswift.drawHidden($("#hidden-devices"), names, (name) => toggleList("excludeDevices", name));
   }
 
   let listening = false;

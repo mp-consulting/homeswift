@@ -12,6 +12,7 @@ import HomeswiftAI
 public struct SecretBox: Sendable {
     public static let prefix = Redaction.sealedPrefix
     public static let fileName = "secrets.key"
+    private static let creationLock = NSLock()
 
     private let key: SymmetricKey
 
@@ -35,6 +36,12 @@ public struct SecretBox: Sendable {
             return try fromKeyFile(Data(contentsOf: url), path: url.path)
         }
         guard create else { throw SecretBoxError.missingKeyFile(url.path) }
+        // Two saves at once must not each write a key: the second one waits and then uses the first one's.
+        creationLock.lock()
+        defer { creationLock.unlock() }
+        if FileManager.default.fileExists(atPath: url.path) {
+            return try fromKeyFile(Data(contentsOf: url), path: url.path)
+        }
         let raw = Secrets.randomBytes(32)
         let data = try JSONEncoder().encode(StoredKey(version: 1, key: raw.base64EncodedString()))
         try OwnerOnlyFile.write(data, to: url)
@@ -112,7 +119,7 @@ public struct SecretBox: Sendable {
     /// `config` (a config.json value) with its sealed secrets opened from `storage`'s key; unchanged when none is sealed.
     public static func revealed(_ config: JSONValue, storage: URL) throws -> JSONValue {
         guard holdsSealed(config) else { return config }
-        return try load(storage: storage, create: false).revealing(config)
+        return try load(storage: storage, create: false).revealing(json: config)
     }
 
     /// Whether a sealed secret is in `configuration`: a platform block that carries the prefix (the child bridge's PIN
@@ -132,7 +139,7 @@ public struct SecretBox: Sendable {
         result.bridge.pin = try result.bridge.pin.map(revealText)
         for index in result.platforms.indices {
             let block = try JSONValue(data: result.platforms[index].json)
-            let revealed = try revealing(block)
+            let revealed = try revealing(json: block)
             result.platforms[index].json = revealed.encoded()
             if var child = result.platforms[index].childBridge {
                 child.pin = try child.pin.map(revealText)
@@ -147,16 +154,12 @@ public struct SecretBox: Sendable {
         Self.isSealed(text) ? try open(text) : text
     }
 
-    /// `config` (a config.json value) with the sealed secrets this key opens: a backup's, opened with its own key.
-    public func opening(_ config: JSONValue) throws -> JSONValue {
-        try revealing(config)
-    }
-
-    private func revealing(_ value: JSONValue) throws -> JSONValue {
+    /// `value` (a config.json value) with every sealed string this key opens.
+    public func revealing(json value: JSONValue) throws -> JSONValue {
         switch value {
         case .string(let text) where Self.isSealed(text): return .string(try open(text))
-        case .array(let items): return .array(try items.map(revealing))
-        case .object(let object): return .object(try object.mapValues(revealing))
+        case .array(let items): return .array(try items.map { try revealing(json: $0) })
+        case .object(let object): return .object(try object.mapValues { try revealing(json: $0) })
         default: return value
         }
     }

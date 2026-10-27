@@ -28,8 +28,3 @@ struct DirigeraLightCommands: Sendable {
         return commands
     }
 }
-
-extension LightChangeBatcher {
-    /// Whether a command went within `DirigeraLightCommands.settleTime`, when the hub's events may still be old.
-    var isSettling: Bool { lastSent.map { ContinuousClock.now - $0 < DirigeraLightCommands.settleTime } ?? false }
-}

@@ -87,6 +87,26 @@ HomeswiftI18n.add({
 
 Errors a plugin's `handleWebRequest` answers go in the same file, as for the server's.
 
+## Forms
+
+A settings form is drawn from a schema: a plugin's `config.schema.json`, or the Assistant's and the web UI's own
+(`AIConfiguration.schemaJSON`, `UIConfiguration.schemaJSON`). Its words travel with it, in a top-level `i18n` next to
+`schema` and `layout`, keyed by the English as written (Homebridge ignores the key):
+
+```json
+"i18n": {
+  "fr": { "Transition": "Transition", "How long a light takes to reach a new colour or brightness.": "…" },
+  "es": { … },
+  "pt": { … }
+}
+```
+
+The form looks up every field's `title`, `description` and `placeholder`, each choice's `title` (a `oneOf` of
+titled enums, never a bare `enum`), a list's `items.title` (one entry, for its Add button) and each layout group's
+`title`. Every field explains itself with a `description`. `TranslationTests.formsAreExplainedAndTranslated` fails
+on a field without one, a bare enum, a list without an item title, or a word without its three translations. The
+MCP server's `get_plugin_config_schema` gives the schema without `i18n`.
+
 ## Style
 
 Translations follow the English's tone: short, plain and concrete, in sentence case. Product names, config keys

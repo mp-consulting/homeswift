@@ -12,8 +12,8 @@ public enum Redaction {
 
     /// Keys whose values are secrets: password, mqttPass, apiKey, clientSecret, bridge.pin.
     /// The key rule as a pattern: the server sends it to the page, so the page never keeps its own copy.
-    public static let secretKeyPattern = #"pass$|pass(word|wd|phrase)|secret|token|api[-_]?key|private[-_]?key|credential|^pin$|authorization|cookie|session[-_]?(id|key)$|^sid$|signature|^otp$"#
-    public static let notSecretKeyPattern = #"(max|min|context|input|output|total|daily|monthly)\w*tokens$"#
+    public static let secretKeyPattern = #"pass$|pass(word|wd|phrase|code)|^pwd$|^pw$|secret|token|api[-_]?key|private[-_]?key|credential|^pin$|authorization|^auth$|cookie|session[-_]?(id|key)$|^sid$|signature|^otp$"#
+    public static let notSecretKeyPattern = #"^(max|min|context|input|output|total|daily|monthly)\w*tokens$"#
     private static let secretKey = try! NSRegularExpression(pattern: secretKeyPattern, options: [.caseInsensitive])
     /// Keys that look secret but hold token counts: maxOutputTokens, contextTokens, a budget's dailyTokens.
     private static let notSecretKey = try! NSRegularExpression(pattern: notSecretKeyPattern, options: [.caseInsensitive])
@@ -58,9 +58,10 @@ public enum Redaction {
     /// A URL with a user name and password in it (`rtsp://user:pass@host/stream`): a credential whatever its key.
     public static func isCredentialURL(_ text: String) -> Bool {
         guard let scheme = text.range(of: "://") else { return false }
-        let rest = text[scheme.upperBound...]
-        let authority = rest.prefix { $0 != "/" && $0 != "?" }
-        return authority.contains("@")
+        // The user:password part ends at the last `@` of the address (a password may hold `/` or `?`, a user name `@`).
+        let run = text[scheme.upperBound...].prefix { !$0.isWhitespace }
+        guard let at = run.lastIndex(of: "@") else { return false }
+        return run[..<at].contains(":")
     }
 
     /// The placeholder, or a `SecretVault` handle: a value that already hides a secret.
@@ -288,10 +289,12 @@ public enum Redaction {
     }
 
     /// `scheme://user:password@host` with the password replaced by the placeholder.
-    private static let urlPassword = try! NSRegularExpression(pattern: #"([A-Za-z][A-Za-z0-9+.-]*://[^:/@\s]+:)[^@\s/]+(@)"#)
+    // The password runs to the last `@` before a space: a password may hold `@` or `/` unencoded (cameras accept them so).
+    private static let urlPassword = try! NSRegularExpression(pattern: #"([A-Za-z][A-Za-z0-9+.-]*://[^\s/]*?:)\S+(@)"#)
 
     private static func maskURLPasswords(_ text: String) -> String {
-        urlPassword.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1\(placeholder)$2")
+        guard text.contains("://") else { return text }
+        return urlPassword.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1\(placeholder)$2")
     }
 
     /// `prefilter: false` runs every expression: what the tests compare the shortcut with.

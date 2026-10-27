@@ -14,30 +14,34 @@ extension EWeLinkPlugin {
     "properties": {
       "name": {
         "title": "Name",
+        "description": "The name of this platform in the log.",
         "type": "string",
         "default": "eWeLink",
         "required": true
       },
       "username": {
         "title": "Username",
-        "type": "string",
-        "description": "Your eWeLink username, please use your main eWeLink credentials (not a secondary/shared account)."
+        "description": "The eWeLink account's email or phone number. Use the main account, not a shared one.",
+        "type": "string"
       },
       "password": {
         "title": "Password",
-        "type": "string", "x-schema-form": { "type": "password" },
-        "description": "Your eWeLink password, can also be a base64 encoded version of your password."
+        "description": "The eWeLink account's password, or its base64 encoding.",
+        "type": "string",
+        "x-schema-form": {
+          "type": "password"
+        }
       },
       "countryCode": {
         "title": "Country Code",
+        "description": "The account's country dial code (+1 for the US, +44 for the UK, +86 for China): it picks the eWeLink API region.",
         "type": "string",
-        "description": "Your country code (e.g. +1 for US, +44 for UK, +86 for China).",
         "default": "+1"
       },
       "mode": {
         "title": "Connection Mode",
+        "description": "How the plugin reaches devices. Auto tries the local network first, then the cloud.",
         "type": "string",
-        "description": "This setting defines how the plugin communicates with your devices.",
         "default": "auto",
         "oneOf": [
           {
@@ -62,45 +66,50 @@ extension EWeLinkPlugin {
       },
       "debug": {
         "title": "Debug Mode",
+        "description": "Accessories write their debug lines to the log.",
         "type": "boolean",
-        "description": "Enable debug logging.",
         "default": false
       },
       "disableDeviceLogging": {
         "title": "Disable Device Logging",
+        "description": "Leaves each device's state changes out of the log.",
         "type": "boolean",
-        "description": "Disable logging for individual device updates.",
         "default": false
       },
       "offlineAsOff": {
         "title": "Show Offline Devices as Off",
+        "description": "Offline devices read as off in the Home app instead of \"No Response\".",
         "type": "boolean",
-        "description": "When enabled, offline devices will show as 'Off' instead of 'No Response'.",
         "default": false
       },
       "outlineInLog": {
         "title": "Outline Messages in Log",
+        "description": "Kept for the Homebridge plugin; it has no effect here.",
         "type": "boolean",
-        "description": "Add visual outline to log messages.",
         "default": true
       },
       "singleDevices": {
         "title": "Single Switch Devices",
+        "description": "Settings for single-channel devices, each by its device ID.",
         "type": "array",
         "items": {
           "type": "object",
+          "title": "Single switch device",
           "properties": {
             "deviceId": {
               "title": "Device ID",
+              "description": "The eWeLink device ID these settings apply to, such as 1000abcdef.",
               "type": "string",
               "required": true
             },
             "label": {
               "title": "Custom Label",
+              "description": "A name to recognise this entry; it has no effect on the device.",
               "type": "string"
             },
             "showAs": {
               "title": "Show As",
+              "description": "The accessory the device appears as in the Home app.",
               "type": "string",
               "default": "default",
               "oneOf": [
@@ -162,16 +171,18 @@ extension EWeLinkPlugin {
             },
             "ipAddress": {
               "title": "IP Address",
-              "type": "string",
-              "description": "Manually set the IP address for LAN control."
+              "description": "Kept for the Homebridge plugin; it has no effect here: the address comes from mDNS and the cloud.",
+              "type": "string"
             },
             "ignoreDevice": {
               "title": "Ignore Device",
+              "description": "Kept for the Homebridge plugin; it has no effect here. Add the device ID to Ignored Devices to leave the device out.",
               "type": "boolean",
               "default": false
             },
             "disableDeviceLogging": {
               "title": "Disable Logging",
+              "description": "Kept for the Homebridge plugin; it has no effect here. Disable Device Logging applies to every device.",
               "type": "boolean",
               "default": false
             }
@@ -180,21 +191,26 @@ extension EWeLinkPlugin {
       },
       "multiDevices": {
         "title": "Multi-Switch Devices",
+        "description": "Settings for multi-channel devices, each by its device ID.",
         "type": "array",
         "items": {
           "type": "object",
+          "title": "Multi-switch device",
           "properties": {
             "deviceId": {
               "title": "Device ID",
+              "description": "The eWeLink device ID these settings apply to, such as 1000abcdef.",
               "type": "string",
               "required": true
             },
             "label": {
               "title": "Custom Label",
+              "description": "A name to recognise this entry; it has no effect on the device.",
               "type": "string"
             },
             "showAs": {
               "title": "Show As",
+              "description": "The accessory the device appears as in the Home app.",
               "type": "string",
               "default": "default",
               "oneOf": [
@@ -232,11 +248,12 @@ extension EWeLinkPlugin {
             },
             "hideChannels": {
               "title": "Hide Channels",
-              "type": "string",
-              "description": "Comma-separated list of channel numbers to hide (0-indexed)."
+              "description": "Channels to hide from the Home app, by number (1, 2...; 0 is the master switch) or full ID (1000abcdefSW1), separated by commas.",
+              "type": "string"
             },
             "ignoreDevice": {
               "title": "Ignore Device",
+              "description": "Kept for the Homebridge plugin; it has no effect here. Add the device ID to Ignored Devices to leave the device out.",
               "type": "boolean",
               "default": false
             }
@@ -245,33 +262,38 @@ extension EWeLinkPlugin {
       },
       "thDevices": {
         "title": "Thermostat Devices",
+        "description": "Settings for temperature and humidity devices (TH10, TH16 and similar), each by its device ID.",
         "type": "array",
         "items": {
           "type": "object",
+          "title": "Thermostat device",
           "properties": {
             "deviceId": {
               "title": "Device ID",
+              "description": "The eWeLink device ID these settings apply to, such as 1000abcdef.",
               "type": "string",
               "required": true
             },
             "label": {
               "title": "Custom Label",
+              "description": "A name to recognise this entry; it has no effect on the device.",
               "type": "string"
             },
             "tempOffset": {
               "title": "Temperature Offset",
+              "description": "Degrees added to the temperature the device reports; a negative value lowers it.",
               "type": "number",
-              "description": "Offset to apply to temperature readings.",
               "default": 0
             },
             "humidityOffset": {
               "title": "Humidity Offset",
+              "description": "Percentage points added to the humidity the device reports; a negative value lowers it.",
               "type": "number",
-              "description": "Offset to apply to humidity readings.",
               "default": 0
             },
             "ignoreDevice": {
               "title": "Ignore Device",
+              "description": "Kept for the Homebridge plugin; it has no effect here. Add the device ID to Ignored Devices to leave the device out.",
               "type": "boolean",
               "default": false
             }
@@ -280,35 +302,40 @@ extension EWeLinkPlugin {
       },
       "lightDevices": {
         "title": "Light Devices",
+        "description": "Settings for lights, each by its device ID.",
         "type": "array",
         "items": {
           "type": "object",
+          "title": "Light device",
           "properties": {
             "deviceId": {
               "title": "Device ID",
+              "description": "The eWeLink device ID these settings apply to, such as 1000abcdef.",
               "type": "string",
               "required": true
             },
             "label": {
               "title": "Custom Label",
+              "description": "A name to recognise this entry; it has no effect on the device.",
               "type": "string"
             },
             "brightnessStep": {
               "title": "Brightness Step",
+              "description": "The step of the speed slider, 1 to 100, when a dimmer is shown as a fan.",
               "type": "integer",
-              "description": "Step size for brightness adjustments.",
               "default": 1,
               "minimum": 1,
               "maximum": 100
             },
             "adaptiveLightingShift": {
               "title": "Adaptive Lighting Shift",
+              "description": "Kept for the Homebridge plugin; it has no effect here.",
               "type": "integer",
-              "description": "Color temperature shift for adaptive lighting.",
               "default": 0
             },
             "ignoreDevice": {
               "title": "Ignore Device",
+              "description": "Kept for the Homebridge plugin; it has no effect here. Add the device ID to Ignored Devices to leave the device out.",
               "type": "boolean",
               "default": false
             }
@@ -317,27 +344,32 @@ extension EWeLinkPlugin {
       },
       "fanDevices": {
         "title": "Fan Devices",
+        "description": "Settings for fans, each by its device ID.",
         "type": "array",
         "items": {
           "type": "object",
+          "title": "Fan device",
           "properties": {
             "deviceId": {
               "title": "Device ID",
+              "description": "The eWeLink device ID these settings apply to, such as 1000abcdef.",
               "type": "string",
               "required": true
             },
             "label": {
               "title": "Custom Label",
+              "description": "A name to recognise this entry; it has no effect on the device.",
               "type": "string"
             },
             "hideLight": {
               "title": "Hide Light",
+              "description": "Hides the fan's built-in light from the Home app.",
               "type": "boolean",
-              "description": "Hide the integrated light control.",
               "default": false
             },
             "ignoreDevice": {
               "title": "Ignore Device",
+              "description": "Kept for the Homebridge plugin; it has no effect here. Add the device ID to Ignored Devices to leave the device out.",
               "type": "boolean",
               "default": false
             }
@@ -346,41 +378,50 @@ extension EWeLinkPlugin {
       },
       "sensorDevices": {
         "title": "Sensor Devices",
+        "description": "Settings for sensors, each by its device ID.",
         "type": "array",
         "items": {
           "type": "object",
+          "title": "Sensor device",
           "properties": {
             "deviceId": {
               "title": "Device ID",
+              "description": "The eWeLink device ID these settings apply to, such as 1000abcdef.",
               "type": "string",
               "required": true
             },
             "label": {
               "title": "Custom Label",
+              "description": "A name to recognise this entry; it has no effect on the device.",
               "type": "string"
             },
             "hideTemp": {
               "title": "Hide Temperature",
+              "description": "Hides the temperature reading from the Home app.",
               "type": "boolean",
               "default": false
             },
             "hideHumidity": {
               "title": "Hide Humidity",
+              "description": "Hides the humidity reading from the Home app.",
               "type": "boolean",
               "default": false
             },
             "tempOffset": {
               "title": "Temperature Offset",
+              "description": "Degrees added to the temperature the device reports; a negative value lowers it.",
               "type": "number",
               "default": 0
             },
             "humidityOffset": {
               "title": "Humidity Offset",
+              "description": "Percentage points added to the humidity the device reports; a negative value lowers it.",
               "type": "number",
               "default": 0
             },
             "lowBattery": {
               "title": "Low Battery Threshold",
+              "description": "The battery level, in percent, below which the Home app shows the battery as low.",
               "type": "integer",
               "default": 20,
               "minimum": 0,
@@ -388,6 +429,7 @@ extension EWeLinkPlugin {
             },
             "ignoreDevice": {
               "title": "Ignore Device",
+              "description": "Kept for the Homebridge plugin; it has no effect here. Add the device ID to Ignored Devices to leave the device out.",
               "type": "boolean",
               "default": false
             }
@@ -396,21 +438,26 @@ extension EWeLinkPlugin {
       },
       "rfDevices": {
         "title": "RF Bridge Devices",
+        "description": "Settings for RF Bridges, each by its device ID.",
         "type": "array",
         "items": {
           "type": "object",
+          "title": "RF Bridge device",
           "properties": {
             "deviceId": {
               "title": "Device ID",
+              "description": "The eWeLink device ID these settings apply to, such as 1000abcdef.",
               "type": "string",
               "required": true
             },
             "label": {
               "title": "Custom Label",
+              "description": "A name to recognise this entry; it has no effect on the device.",
               "type": "string"
             },
             "ignoreDevice": {
               "title": "Ignore Device",
+              "description": "Kept for the Homebridge plugin; it has no effect here. Add the device ID to Ignored Devices to leave the device out.",
               "type": "boolean",
               "default": false
             }
@@ -419,12 +466,15 @@ extension EWeLinkPlugin {
       },
       "groups": {
         "title": "Device Groups",
+        "description": "Kept for the Homebridge plugin; it has no effect here: eWeLink's own groups come from the account.",
         "type": "array",
         "items": {
           "type": "object",
+          "title": "Group",
           "properties": {
             "type": {
               "title": "Group Type",
+              "description": "The accessory the group would appear as. Groups have no effect here.",
               "type": "string",
               "required": true,
               "oneOf": [
@@ -456,54 +506,58 @@ extension EWeLinkPlugin {
             },
             "deviceIds": {
               "title": "Device IDs",
+              "description": "The devices in the group. Groups have no effect here.",
               "type": "array",
               "items": {
                 "type": "string"
-              },
-              "description": "Device IDs to include in this group."
+              }
             },
             "label": {
               "title": "Group Label",
+              "description": "A name for the group. Groups have no effect here.",
               "type": "string"
             },
             "operationTime": {
               "title": "Operation Time (seconds)",
-              "type": "integer",
-              "description": "Time for full operation (open/close)."
+              "description": "Seconds for a full open or close. Groups have no effect here.",
+              "type": "integer"
             }
           }
         }
       },
       "ignoredDevices": {
         "title": "Ignored Devices",
+        "description": "Device IDs to leave out: their accessories leave HomeKit.",
         "type": "array",
         "items": {
           "type": "string",
           "description": "Device ID to ignore"
-        },
-        "description": "List of device IDs to completely ignore."
+        }
       },
       "bridgeSensors": {
         "title": "RF Bridge Sensors",
+        "description": "Settings for the RF sub-devices an RF Bridge learned, each by its full device ID.",
         "type": "array",
         "items": {
           "type": "object",
+          "title": "RF sub-device",
           "properties": {
             "fullDeviceId": {
               "title": "Sensor Device ID",
+              "description": "The sub-device's full ID: the RF Bridge's device ID, SW and the sub-device's number, such as 1000ab23cdSW2.",
               "type": "string",
               "required": true,
               "minLength": 13,
-              "maxLength": 15,
-              "description": "Enter the Device ID of the sensor (13 digits normally in the format 1000ab23cdSW2)."
+              "maxLength": 15
             },
             "label": {
               "title": "Label",
-              "type": "string",
-              "description": "This setting has no effect except to help identify this device."
+              "description": "A name to recognise this entry; it has no effect on the device.",
+              "type": "string"
             },
             "deviceType": {
               "title": "Sensor Type",
+              "description": "Kept for the Homebridge plugin; it has no effect here.",
               "type": "string",
               "default": "button",
               "oneOf": [
@@ -565,6 +619,7 @@ extension EWeLinkPlugin {
             },
             "curtainType": {
               "title": "Curtain Type",
+              "description": "The curtain remote's buttons. The curtain appears as its buttons in the Home app whichever is chosen.",
               "type": "string",
               "default": "oneButton",
               "condition": {
@@ -593,49 +648,49 @@ extension EWeLinkPlugin {
             },
             "operationTime": {
               "title": "Operation Time (Up, seconds)",
+              "description": "Kept for the Homebridge plugin; it has no effect here.",
               "type": "integer",
               "default": 100,
               "minimum": 0,
               "maximum": 300,
               "condition": {
                 "functionBody": "return model.bridgeSensors && model.bridgeSensors[arrayIndices] && model.bridgeSensors[arrayIndices].deviceType === 'curtain';"
-              },
-              "description": "Time to fully open the curtain."
+              }
             },
             "operationTimeDown": {
               "title": "Operation Time (Down, seconds)",
+              "description": "Kept for the Homebridge plugin; it has no effect here.",
               "type": "integer",
               "default": 100,
               "minimum": 0,
               "maximum": 300,
               "condition": {
                 "functionBody": "return model.bridgeSensors && model.bridgeSensors[arrayIndices] && model.bridgeSensors[arrayIndices].deviceType === 'curtain';"
-              },
-              "description": "Time to fully close the curtain."
+              }
             },
             "sensorTimeLength": {
               "title": "Sensor Active Time (seconds)",
+              "description": "Kept for the Homebridge plugin; it has no effect here.",
               "type": "integer",
               "default": 60,
               "minimum": 1,
               "maximum": 300,
               "condition": {
                 "functionBody": "return model.bridgeSensors && model.bridgeSensors[arrayIndices] && ['motion', 'smoke', 'co', 'water', 'fire'].includes(model.bridgeSensors[arrayIndices].deviceType);"
-              },
-              "description": "How long the sensor stays active before resetting."
+              }
             },
             "sensorTimeDifference": {
               "title": "Sensor Time Difference (seconds)",
+              "description": "Kept for the Homebridge plugin; it has no effect here.",
               "type": "integer",
               "default": 60,
               "minimum": 1,
-              "maximum": 300,
-              "description": "Minimum time between sensor triggers to prevent duplicates."
+              "maximum": 300
             },
             "sensorWebHook": {
               "title": "Sensor Webhook URL",
-              "type": "string",
-              "description": "Optional webhook URL to call when sensor is triggered."
+              "description": "Kept for the Homebridge plugin; it has no effect here.",
+              "type": "string"
             }
           }
         }
@@ -769,7 +824,396 @@ extension EWeLinkPlugin {
         }
       ]
     }
-  ]
+  ],
+  "i18n": {
+    "fr": {
+      "A name for the group. Groups have no effect here.": "Un nom pour le groupe. Les groupes sont sans effet ici.",
+      "A name to recognise this entry; it has no effect on the device.": "Un nom pour reconnaître cette entrée ; sans effet sur l'appareil.",
+      "Accessories write their debug lines to the log.": "Les accessoires écrivent leurs lignes de débogage dans le journal.",
+      "Account Settings": "Compte",
+      "Adaptive Lighting Shift": "Décalage de l'éclairage adaptatif",
+      "Auto (LAN + Cloud)": "Auto (LAN + cloud)",
+      "Blind": "Store",
+      "Brightness Step": "Pas de luminosité",
+      "Button": "Bouton",
+      "CO Sensor": "Détecteur de CO",
+      "Channels to hide from the Home app, by number (1, 2...; 0 is the master switch) or full ID (1000abcdefSW1), separated by commas.": "Les canaux à masquer dans l'app Maison, par numéro (1, 2... ; 0 est l'interrupteur principal) ou par identifiant complet (1000abcdefSW1), séparés par des virgules.",
+      "Cloud Only": "Cloud uniquement",
+      "Connection Mode": "Mode de connexion",
+      "Connection Settings": "Connexion",
+      "Contact Sensor": "Capteur de contact",
+      "Cooler": "Climatiseur",
+      "Country Code": "Indicatif du pays",
+      "Curtain": "Rideau",
+      "Curtain Type": "Type de rideau",
+      "Custom Label": "Libellé personnalisé",
+      "Debug Mode": "Mode débogage",
+      "Degrees added to the temperature the device reports; a negative value lowers it.": "Degrés ajoutés à la température que l'appareil indique ; une valeur négative la baisse.",
+      "Device Configuration": "Configuration des appareils",
+      "Device Groups": "Groupes d'appareils",
+      "Device ID": "Identifiant de l'appareil",
+      "Device ID to ignore": "Identifiant d'un appareil à ignorer",
+      "Device IDs": "Identifiants d'appareils",
+      "Device IDs to leave out: their accessories leave HomeKit.": "Les identifiants des appareils à exclure : leurs accessoires quittent HomeKit.",
+      "Disable Device Logging": "Désactiver le journal des appareils",
+      "Disable Logging": "Désactiver le journal",
+      "Doorbell": "Sonnette",
+      "Fan Devices": "Ventilateurs",
+      "Fan device": "Ventilateur",
+      "Fire Sensor": "Détecteur d'incendie",
+      "Garage Door": "Porte de garage",
+      "General Settings": "Général",
+      "Group": "Groupe",
+      "Group Label": "Libellé du groupe",
+      "Group Type": "Type de groupe",
+      "Heater": "Chauffage",
+      "Hide Channels": "Masquer des canaux",
+      "Hide Humidity": "Masquer l'humidité",
+      "Hide Light": "Masquer la lampe",
+      "Hide Temperature": "Masquer la température",
+      "Hides the fan's built-in light from the Home app.": "Masque la lampe intégrée du ventilateur dans l'app Maison.",
+      "Hides the humidity reading from the Home app.": "Masque l'humidité dans l'app Maison.",
+      "Hides the temperature reading from the Home app.": "Masque la température dans l'app Maison.",
+      "How the plugin reaches devices. Auto tries the local network first, then the cloud.": "Comment le plugin joint les appareils. Auto essaie d'abord le réseau local, puis le cloud.",
+      "Humidity Offset": "Correction d'humidité",
+      "IP Address": "Adresse IP",
+      "Ignore Device": "Ignorer l'appareil",
+      "Ignored Devices": "Appareils ignorés",
+      "Kept for the Homebridge plugin; it has no effect here.": "Conservé pour le plugin Homebridge ; sans effet ici.",
+      "Kept for the Homebridge plugin; it has no effect here. Add the device ID to Ignored Devices to leave the device out.": "Conservé pour le plugin Homebridge ; sans effet ici. Ajoutez l'identifiant de l'appareil aux appareils ignorés pour l'exclure.",
+      "Kept for the Homebridge plugin; it has no effect here. Disable Device Logging applies to every device.": "Conservé pour le plugin Homebridge ; sans effet ici. Désactiver le journal des appareils s'applique à tous les appareils.",
+      "Kept for the Homebridge plugin; it has no effect here: eWeLink's own groups come from the account.": "Conservé pour le plugin Homebridge ; sans effet ici : les groupes eWeLink viennent du compte.",
+      "Kept for the Homebridge plugin; it has no effect here: the address comes from mDNS and the cloud.": "Conservé pour le plugin Homebridge ; sans effet ici : l'adresse vient de mDNS et du cloud.",
+      "LAN Only": "LAN uniquement",
+      "Label": "Libellé",
+      "Leaves each device's state changes out of the log.": "N'inscrit pas les changements d'état de chaque appareil dans le journal.",
+      "Light Devices": "Lampes",
+      "Light device": "Lampe",
+      "Lock": "Serrure",
+      "Low Battery Threshold": "Seuil de batterie faible",
+      "Motion Sensor": "Détecteur de mouvement",
+      "Multi-Switch Devices": "Interrupteurs multiples",
+      "Multi-switch device": "Interrupteur multiple",
+      "Name": "Nom",
+      "Offline devices read as off in the Home app instead of \"No Response\".": "Les appareils hors ligne apparaissent éteints dans l'app Maison au lieu de « Pas de réponse ».",
+      "One Button": "Un bouton",
+      "Operation Time (Down, seconds)": "Durée de descente (secondes)",
+      "Operation Time (Up, seconds)": "Durée de montée (secondes)",
+      "Operation Time (seconds)": "Durée de manœuvre (secondes)",
+      "Outlet": "Prise",
+      "Outline Messages in Log": "Encadrer les messages du journal",
+      "Password": "Mot de passe",
+      "Percentage points added to the humidity the device reports; a negative value lowers it.": "Points de pourcentage ajoutés à l'humidité que l'appareil indique ; une valeur négative la baisse.",
+      "Purifier": "Purificateur",
+      "RF Bridge Devices": "Appareils RF Bridge",
+      "RF Bridge Sensors": "Capteurs RF Bridge",
+      "RF Bridge device": "RF Bridge",
+      "RF Subdevices": "Sous-appareils RF",
+      "RF sub-device": "Sous-appareil RF",
+      "Seconds for a full open or close. Groups have no effect here.": "Secondes pour une ouverture ou une fermeture complète. Les groupes sont sans effet ici.",
+      "Sensor": "Capteur",
+      "Sensor Active Time (seconds)": "Durée d'activation du capteur (secondes)",
+      "Sensor Device ID": "Identifiant du capteur",
+      "Sensor Devices": "Capteurs",
+      "Sensor Time Difference (seconds)": "Écart de temps du capteur (secondes)",
+      "Sensor Type": "Type de capteur",
+      "Sensor Webhook URL": "URL du webhook du capteur",
+      "Sensor device": "Capteur",
+      "Settings for RF Bridges, each by its device ID.": "Réglages des RF Bridge, chacun par son identifiant d'appareil.",
+      "Settings for fans, each by its device ID.": "Réglages des ventilateurs, chacun par son identifiant d'appareil.",
+      "Settings for lights, each by its device ID.": "Réglages des lampes, chacune par son identifiant d'appareil.",
+      "Settings for multi-channel devices, each by its device ID.": "Réglages des appareils à plusieurs canaux, chacun par son identifiant d'appareil.",
+      "Settings for sensors, each by its device ID.": "Réglages des capteurs, chacun par son identifiant d'appareil.",
+      "Settings for single-channel devices, each by its device ID.": "Réglages des appareils à un canal, chacun par son identifiant d'appareil.",
+      "Settings for temperature and humidity devices (TH10, TH16 and similar), each by its device ID.": "Réglages des appareils de température et d'humidité (TH10, TH16 et similaires), chacun par son identifiant d'appareil.",
+      "Settings for the RF sub-devices an RF Bridge learned, each by its full device ID.": "Réglages des sous-appareils RF appris par un RF Bridge, chacun par son identifiant complet.",
+      "Show As": "Afficher comme",
+      "Show Offline Devices as Off": "Afficher les appareils hors ligne comme éteints",
+      "Single Switch Devices": "Interrupteurs simples",
+      "Single switch device": "Interrupteur simple",
+      "Smoke Sensor": "Détecteur de fumée",
+      "Switch (Default)": "Interrupteur (par défaut)",
+      "Tap": "Robinet",
+      "Temperature Offset": "Correction de température",
+      "The accessory the device appears as in the Home app.": "L'accessoire sous lequel l'appareil apparaît dans l'app Maison.",
+      "The accessory the group would appear as. Groups have no effect here.": "L'accessoire sous lequel le groupe apparaîtrait. Les groupes sont sans effet ici.",
+      "The account's country dial code (+1 for the US, +44 for the UK, +86 for China): it picks the eWeLink API region.": "L'indicatif téléphonique du pays du compte (+1 pour les États-Unis, +44 pour le Royaume-Uni, +86 pour la Chine) : il choisit la région de l'API eWeLink.",
+      "The battery level, in percent, below which the Home app shows the battery as low.": "Le niveau de batterie, en pourcentage, sous lequel l'app Maison indique une batterie faible.",
+      "The curtain remote's buttons. The curtain appears as its buttons in the Home app whichever is chosen.": "Les boutons de la télécommande du rideau. Le rideau apparaît dans l'app Maison sous forme de boutons, quel que soit le choix.",
+      "The devices in the group. Groups have no effect here.": "Les appareils du groupe. Les groupes sont sans effet ici.",
+      "The eWeLink account's email or phone number. Use the main account, not a shared one.": "L'adresse e-mail ou le numéro de téléphone du compte eWeLink. Utilisez le compte principal, pas un compte partagé.",
+      "The eWeLink account's password, or its base64 encoding.": "Le mot de passe du compte eWeLink, ou son encodage base64.",
+      "The eWeLink device ID these settings apply to, such as 1000abcdef.": "L'identifiant eWeLink de l'appareil concerné par ces réglages, par exemple 1000abcdef.",
+      "The name of this platform in the log.": "Le nom de cette plateforme dans le journal.",
+      "The step of the speed slider, 1 to 100, when a dimmer is shown as a fan.": "Le pas du curseur de vitesse, de 1 à 100, quand un variateur est affiché comme ventilateur.",
+      "The sub-device's full ID: the RF Bridge's device ID, SW and the sub-device's number, such as 1000ab23cdSW2.": "L'identifiant complet du sous-appareil : l'identifiant du RF Bridge, SW et le numéro du sous-appareil, par exemple 1000ab23cdSW2.",
+      "Thermostat Devices": "Thermostats",
+      "Thermostat device": "Thermostat",
+      "Three Buttons": "Trois boutons",
+      "Two Buttons": "Deux boutons",
+      "Username": "Nom d'utilisateur",
+      "Valve": "Vanne",
+      "Water Sensor": "Détecteur d'eau"
+    },
+    "es": {
+      "A name for the group. Groups have no effect here.": "Un nombre para el grupo. Los grupos no tienen efecto aquí.",
+      "A name to recognise this entry; it has no effect on the device.": "Un nombre para reconocer esta entrada; no afecta al dispositivo.",
+      "Accessories write their debug lines to the log.": "Los accesorios escriben sus líneas de depuración en el registro.",
+      "Account Settings": "Cuenta",
+      "Adaptive Lighting Shift": "Desfase de la iluminación adaptativa",
+      "Auto (LAN + Cloud)": "Automático (LAN + nube)",
+      "Blind": "Persiana",
+      "Brightness Step": "Paso de brillo",
+      "Button": "Botón",
+      "CO Sensor": "Sensor de CO",
+      "Channels to hide from the Home app, by number (1, 2...; 0 is the master switch) or full ID (1000abcdefSW1), separated by commas.": "Los canales que ocultar en la app Casa, por número (1, 2...; 0 es el interruptor principal) o por ID completo (1000abcdefSW1), separados por comas.",
+      "Cloud Only": "Solo nube",
+      "Connection Mode": "Modo de conexión",
+      "Connection Settings": "Conexión",
+      "Contact Sensor": "Sensor de contacto",
+      "Cooler": "Enfriador",
+      "Country Code": "Prefijo del país",
+      "Curtain": "Cortina",
+      "Curtain Type": "Tipo de cortina",
+      "Custom Label": "Etiqueta personalizada",
+      "Debug Mode": "Modo de depuración",
+      "Degrees added to the temperature the device reports; a negative value lowers it.": "Grados que se suman a la temperatura que indica el dispositivo; un valor negativo la baja.",
+      "Device Configuration": "Configuración de dispositivos",
+      "Device Groups": "Grupos de dispositivos",
+      "Device ID": "ID del dispositivo",
+      "Device ID to ignore": "ID de un dispositivo que ignorar",
+      "Device IDs": "IDs de dispositivos",
+      "Device IDs to leave out: their accessories leave HomeKit.": "Los IDs de los dispositivos que excluir: sus accesorios salen de HomeKit.",
+      "Disable Device Logging": "Desactivar el registro de dispositivos",
+      "Disable Logging": "Desactivar el registro",
+      "Doorbell": "Timbre",
+      "Fan Devices": "Ventiladores",
+      "Fan device": "Ventilador",
+      "Fire Sensor": "Sensor de incendio",
+      "Garage Door": "Puerta de garaje",
+      "General Settings": "General",
+      "Group": "Grupo",
+      "Group Label": "Etiqueta del grupo",
+      "Group Type": "Tipo de grupo",
+      "Heater": "Calefactor",
+      "Hide Channels": "Ocultar canales",
+      "Hide Humidity": "Ocultar la humedad",
+      "Hide Light": "Ocultar la luz",
+      "Hide Temperature": "Ocultar la temperatura",
+      "Hides the fan's built-in light from the Home app.": "Oculta la luz integrada del ventilador en la app Casa.",
+      "Hides the humidity reading from the Home app.": "Oculta la humedad en la app Casa.",
+      "Hides the temperature reading from the Home app.": "Oculta la temperatura en la app Casa.",
+      "How the plugin reaches devices. Auto tries the local network first, then the cloud.": "Cómo llega el plugin a los dispositivos. Automático prueba primero la red local y luego la nube.",
+      "Humidity Offset": "Ajuste de humedad",
+      "IP Address": "Dirección IP",
+      "Ignore Device": "Ignorar el dispositivo",
+      "Ignored Devices": "Dispositivos ignorados",
+      "Kept for the Homebridge plugin; it has no effect here.": "Se conserva por el plugin de Homebridge; aquí no tiene efecto.",
+      "Kept for the Homebridge plugin; it has no effect here. Add the device ID to Ignored Devices to leave the device out.": "Se conserva por el plugin de Homebridge; aquí no tiene efecto. Añade el ID del dispositivo a Dispositivos ignorados para excluirlo.",
+      "Kept for the Homebridge plugin; it has no effect here. Disable Device Logging applies to every device.": "Se conserva por el plugin de Homebridge; aquí no tiene efecto. Desactivar el registro de dispositivos se aplica a todos los dispositivos.",
+      "Kept for the Homebridge plugin; it has no effect here: eWeLink's own groups come from the account.": "Se conserva por el plugin de Homebridge; aquí no tiene efecto: los grupos de eWeLink llegan de la cuenta.",
+      "Kept for the Homebridge plugin; it has no effect here: the address comes from mDNS and the cloud.": "Se conserva por el plugin de Homebridge; aquí no tiene efecto: la dirección llega de mDNS y de la nube.",
+      "LAN Only": "Solo LAN",
+      "Label": "Etiqueta",
+      "Leaves each device's state changes out of the log.": "Deja fuera del registro los cambios de estado de cada dispositivo.",
+      "Light Devices": "Luces",
+      "Light device": "Luz",
+      "Lock": "Cerradura",
+      "Low Battery Threshold": "Umbral de batería baja",
+      "Motion Sensor": "Sensor de movimiento",
+      "Multi-Switch Devices": "Interruptores múltiples",
+      "Multi-switch device": "Interruptor múltiple",
+      "Name": "Nombre",
+      "Offline devices read as off in the Home app instead of \"No Response\".": "Los dispositivos sin conexión aparecen apagados en la app Casa en lugar de «Sin respuesta».",
+      "One Button": "Un botón",
+      "Operation Time (Down, seconds)": "Tiempo de bajada (segundos)",
+      "Operation Time (Up, seconds)": "Tiempo de subida (segundos)",
+      "Operation Time (seconds)": "Tiempo de maniobra (segundos)",
+      "Outlet": "Enchufe",
+      "Outline Messages in Log": "Enmarcar los mensajes del registro",
+      "Password": "Contraseña",
+      "Percentage points added to the humidity the device reports; a negative value lowers it.": "Puntos porcentuales que se suman a la humedad que indica el dispositivo; un valor negativo la baja.",
+      "Purifier": "Purificador",
+      "RF Bridge Devices": "Dispositivos RF Bridge",
+      "RF Bridge Sensors": "Sensores RF Bridge",
+      "RF Bridge device": "RF Bridge",
+      "RF Subdevices": "Subdispositivos RF",
+      "RF sub-device": "Subdispositivo RF",
+      "Seconds for a full open or close. Groups have no effect here.": "Segundos para abrir o cerrar del todo. Los grupos no tienen efecto aquí.",
+      "Sensor": "Sensor",
+      "Sensor Active Time (seconds)": "Tiempo activo del sensor (segundos)",
+      "Sensor Device ID": "ID del sensor",
+      "Sensor Devices": "Sensores",
+      "Sensor Time Difference (seconds)": "Diferencia de tiempo del sensor (segundos)",
+      "Sensor Type": "Tipo de sensor",
+      "Sensor Webhook URL": "URL del webhook del sensor",
+      "Sensor device": "Sensor",
+      "Settings for RF Bridges, each by its device ID.": "Ajustes de los RF Bridge, cada uno por su ID de dispositivo.",
+      "Settings for fans, each by its device ID.": "Ajustes de los ventiladores, cada uno por su ID de dispositivo.",
+      "Settings for lights, each by its device ID.": "Ajustes de las luces, cada una por su ID de dispositivo.",
+      "Settings for multi-channel devices, each by its device ID.": "Ajustes de los dispositivos de varios canales, cada uno por su ID de dispositivo.",
+      "Settings for sensors, each by its device ID.": "Ajustes de los sensores, cada uno por su ID de dispositivo.",
+      "Settings for single-channel devices, each by its device ID.": "Ajustes de los dispositivos de un canal, cada uno por su ID de dispositivo.",
+      "Settings for temperature and humidity devices (TH10, TH16 and similar), each by its device ID.": "Ajustes de los dispositivos de temperatura y humedad (TH10, TH16 y similares), cada uno por su ID de dispositivo.",
+      "Settings for the RF sub-devices an RF Bridge learned, each by its full device ID.": "Ajustes de los subdispositivos RF que aprendió un RF Bridge, cada uno por su ID completo.",
+      "Show As": "Mostrar como",
+      "Show Offline Devices as Off": "Mostrar los dispositivos sin conexión como apagados",
+      "Single Switch Devices": "Interruptores simples",
+      "Single switch device": "Interruptor simple",
+      "Smoke Sensor": "Sensor de humo",
+      "Switch (Default)": "Interruptor (predeterminado)",
+      "Tap": "Grifo",
+      "Temperature Offset": "Ajuste de temperatura",
+      "The accessory the device appears as in the Home app.": "El accesorio con el que aparece el dispositivo en la app Casa.",
+      "The accessory the group would appear as. Groups have no effect here.": "El accesorio con el que aparecería el grupo. Los grupos no tienen efecto aquí.",
+      "The account's country dial code (+1 for the US, +44 for the UK, +86 for China): it picks the eWeLink API region.": "El prefijo telefónico del país de la cuenta (+1 para EE. UU., +44 para el Reino Unido, +86 para China): elige la región de la API de eWeLink.",
+      "The battery level, in percent, below which the Home app shows the battery as low.": "El nivel de batería, en porcentaje, por debajo del cual la app Casa muestra la batería baja.",
+      "The curtain remote's buttons. The curtain appears as its buttons in the Home app whichever is chosen.": "Los botones del mando de la cortina. La cortina aparece en la app Casa como sus botones, elijas lo que elijas.",
+      "The devices in the group. Groups have no effect here.": "Los dispositivos del grupo. Los grupos no tienen efecto aquí.",
+      "The eWeLink account's email or phone number. Use the main account, not a shared one.": "El correo electrónico o el número de teléfono de la cuenta eWeLink. Usa la cuenta principal, no una compartida.",
+      "The eWeLink account's password, or its base64 encoding.": "La contraseña de la cuenta eWeLink, o su codificación base64.",
+      "The eWeLink device ID these settings apply to, such as 1000abcdef.": "El ID de eWeLink del dispositivo al que se aplican estos ajustes, por ejemplo 1000abcdef.",
+      "The name of this platform in the log.": "El nombre de esta plataforma en el registro.",
+      "The step of the speed slider, 1 to 100, when a dimmer is shown as a fan.": "El paso del control de velocidad, de 1 a 100, cuando un regulador se muestra como ventilador.",
+      "The sub-device's full ID: the RF Bridge's device ID, SW and the sub-device's number, such as 1000ab23cdSW2.": "El ID completo del subdispositivo: el ID del RF Bridge, SW y el número del subdispositivo, por ejemplo 1000ab23cdSW2.",
+      "Thermostat Devices": "Termostatos",
+      "Thermostat device": "Termostato",
+      "Three Buttons": "Tres botones",
+      "Two Buttons": "Dos botones",
+      "Username": "Nombre de usuario",
+      "Valve": "Válvula",
+      "Water Sensor": "Sensor de agua"
+    },
+    "pt": {
+      "A name for the group. Groups have no effect here.": "Um nome para o grupo. Os grupos não têm efeito aqui.",
+      "A name to recognise this entry; it has no effect on the device.": "Um nome para reconhecer esta entrada; não afeta o dispositivo.",
+      "Accessories write their debug lines to the log.": "Os acessórios escrevem as suas linhas de depuração no registo.",
+      "Account Settings": "Conta",
+      "Adaptive Lighting Shift": "Desvio da iluminação adaptativa",
+      "Auto (LAN + Cloud)": "Automático (LAN + nuvem)",
+      "Blind": "Estore",
+      "Brightness Step": "Passo de brilho",
+      "Button": "Botão",
+      "CO Sensor": "Sensor de CO",
+      "Channels to hide from the Home app, by number (1, 2...; 0 is the master switch) or full ID (1000abcdefSW1), separated by commas.": "Os canais a ocultar na app Casa, por número (1, 2...; 0 é o interruptor principal) ou por ID completo (1000abcdefSW1), separados por vírgulas.",
+      "Cloud Only": "Apenas nuvem",
+      "Connection Mode": "Modo de ligação",
+      "Connection Settings": "Ligação",
+      "Contact Sensor": "Sensor de contacto",
+      "Cooler": "Arrefecedor",
+      "Country Code": "Indicativo do país",
+      "Curtain": "Cortina",
+      "Curtain Type": "Tipo de cortina",
+      "Custom Label": "Etiqueta personalizada",
+      "Debug Mode": "Modo de depuração",
+      "Degrees added to the temperature the device reports; a negative value lowers it.": "Graus somados à temperatura que o dispositivo indica; um valor negativo baixa-a.",
+      "Device Configuration": "Configuração dos dispositivos",
+      "Device Groups": "Grupos de dispositivos",
+      "Device ID": "ID do dispositivo",
+      "Device ID to ignore": "ID de um dispositivo a ignorar",
+      "Device IDs": "IDs de dispositivos",
+      "Device IDs to leave out: their accessories leave HomeKit.": "Os IDs dos dispositivos a excluir: os seus acessórios saem do HomeKit.",
+      "Disable Device Logging": "Desativar o registo dos dispositivos",
+      "Disable Logging": "Desativar o registo",
+      "Doorbell": "Campainha",
+      "Fan Devices": "Ventoinhas",
+      "Fan device": "Ventoinha",
+      "Fire Sensor": "Sensor de incêndio",
+      "Garage Door": "Porta de garagem",
+      "General Settings": "Geral",
+      "Group": "Grupo",
+      "Group Label": "Etiqueta do grupo",
+      "Group Type": "Tipo de grupo",
+      "Heater": "Aquecedor",
+      "Hide Channels": "Ocultar canais",
+      "Hide Humidity": "Ocultar a humidade",
+      "Hide Light": "Ocultar a luz",
+      "Hide Temperature": "Ocultar a temperatura",
+      "Hides the fan's built-in light from the Home app.": "Oculta a luz integrada da ventoinha na app Casa.",
+      "Hides the humidity reading from the Home app.": "Oculta a humidade na app Casa.",
+      "Hides the temperature reading from the Home app.": "Oculta a temperatura na app Casa.",
+      "How the plugin reaches devices. Auto tries the local network first, then the cloud.": "Como o plugin chega aos dispositivos. Automático tenta primeiro a rede local e depois a nuvem.",
+      "Humidity Offset": "Correção de humidade",
+      "IP Address": "Endereço IP",
+      "Ignore Device": "Ignorar o dispositivo",
+      "Ignored Devices": "Dispositivos ignorados",
+      "Kept for the Homebridge plugin; it has no effect here.": "Mantido pelo plugin Homebridge; aqui não tem efeito.",
+      "Kept for the Homebridge plugin; it has no effect here. Add the device ID to Ignored Devices to leave the device out.": "Mantido pelo plugin Homebridge; aqui não tem efeito. Para excluir o dispositivo, adicione o seu ID a Dispositivos ignorados.",
+      "Kept for the Homebridge plugin; it has no effect here. Disable Device Logging applies to every device.": "Mantido pelo plugin Homebridge; aqui não tem efeito. Desativar o registo dos dispositivos aplica-se a todos os dispositivos.",
+      "Kept for the Homebridge plugin; it has no effect here: eWeLink's own groups come from the account.": "Mantido pelo plugin Homebridge; aqui não tem efeito: os grupos eWeLink vêm da conta.",
+      "Kept for the Homebridge plugin; it has no effect here: the address comes from mDNS and the cloud.": "Mantido pelo plugin Homebridge; aqui não tem efeito: o endereço vem do mDNS e da nuvem.",
+      "LAN Only": "Apenas LAN",
+      "Label": "Etiqueta",
+      "Leaves each device's state changes out of the log.": "Deixa fora do registo as mudanças de estado de cada dispositivo.",
+      "Light Devices": "Luzes",
+      "Light device": "Luz",
+      "Lock": "Fechadura",
+      "Low Battery Threshold": "Limiar de bateria fraca",
+      "Motion Sensor": "Sensor de movimento",
+      "Multi-Switch Devices": "Interruptores múltiplos",
+      "Multi-switch device": "Interruptor múltiplo",
+      "Name": "Nome",
+      "Offline devices read as off in the Home app instead of \"No Response\".": "Os dispositivos offline aparecem desligados na app Casa em vez de «Sem resposta».",
+      "One Button": "Um botão",
+      "Operation Time (Down, seconds)": "Tempo de descida (segundos)",
+      "Operation Time (Up, seconds)": "Tempo de subida (segundos)",
+      "Operation Time (seconds)": "Tempo de manobra (segundos)",
+      "Outlet": "Tomada",
+      "Outline Messages in Log": "Destacar as mensagens no registo",
+      "Password": "Palavra-passe",
+      "Percentage points added to the humidity the device reports; a negative value lowers it.": "Pontos percentuais somados à humidade que o dispositivo indica; um valor negativo baixa-a.",
+      "Purifier": "Purificador",
+      "RF Bridge Devices": "Dispositivos RF Bridge",
+      "RF Bridge Sensors": "Sensores RF Bridge",
+      "RF Bridge device": "RF Bridge",
+      "RF Subdevices": "Subdispositivos RF",
+      "RF sub-device": "Subdispositivo RF",
+      "Seconds for a full open or close. Groups have no effect here.": "Segundos para abrir ou fechar por completo. Os grupos não têm efeito aqui.",
+      "Sensor": "Sensor",
+      "Sensor Active Time (seconds)": "Tempo ativo do sensor (segundos)",
+      "Sensor Device ID": "ID do sensor",
+      "Sensor Devices": "Sensores",
+      "Sensor Time Difference (seconds)": "Diferença de tempo do sensor (segundos)",
+      "Sensor Type": "Tipo de sensor",
+      "Sensor Webhook URL": "URL do webhook do sensor",
+      "Sensor device": "Sensor",
+      "Settings for RF Bridges, each by its device ID.": "Definições dos RF Bridge, cada um pelo seu ID de dispositivo.",
+      "Settings for fans, each by its device ID.": "Definições das ventoinhas, cada uma pelo seu ID de dispositivo.",
+      "Settings for lights, each by its device ID.": "Definições das luzes, cada uma pelo seu ID de dispositivo.",
+      "Settings for multi-channel devices, each by its device ID.": "Definições dos dispositivos de vários canais, cada um pelo seu ID de dispositivo.",
+      "Settings for sensors, each by its device ID.": "Definições dos sensores, cada um pelo seu ID de dispositivo.",
+      "Settings for single-channel devices, each by its device ID.": "Definições dos dispositivos de um canal, cada um pelo seu ID de dispositivo.",
+      "Settings for temperature and humidity devices (TH10, TH16 and similar), each by its device ID.": "Definições dos dispositivos de temperatura e humidade (TH10, TH16 e semelhantes), cada um pelo seu ID de dispositivo.",
+      "Settings for the RF sub-devices an RF Bridge learned, each by its full device ID.": "Definições dos subdispositivos RF que um RF Bridge aprendeu, cada um pelo seu ID completo.",
+      "Show As": "Mostrar como",
+      "Show Offline Devices as Off": "Mostrar os dispositivos offline como desligados",
+      "Single Switch Devices": "Interruptores simples",
+      "Single switch device": "Interruptor simples",
+      "Smoke Sensor": "Sensor de fumo",
+      "Switch (Default)": "Interruptor (predefinição)",
+      "Tap": "Torneira",
+      "Temperature Offset": "Correção de temperatura",
+      "The accessory the device appears as in the Home app.": "O acessório com que o dispositivo aparece na app Casa.",
+      "The accessory the group would appear as. Groups have no effect here.": "O acessório com que o grupo apareceria. Os grupos não têm efeito aqui.",
+      "The account's country dial code (+1 for the US, +44 for the UK, +86 for China): it picks the eWeLink API region.": "O indicativo telefónico do país da conta (+1 para os EUA, +44 para o Reino Unido, +86 para a China): escolhe a região da API eWeLink.",
+      "The battery level, in percent, below which the Home app shows the battery as low.": "O nível de bateria, em percentagem, abaixo do qual a app Casa mostra a bateria fraca.",
+      "The curtain remote's buttons. The curtain appears as its buttons in the Home app whichever is chosen.": "Os botões do comando da cortina. A cortina aparece na app Casa como os seus botões, seja qual for a escolha.",
+      "The devices in the group. Groups have no effect here.": "Os dispositivos do grupo. Os grupos não têm efeito aqui.",
+      "The eWeLink account's email or phone number. Use the main account, not a shared one.": "O e-mail ou o número de telefone da conta eWeLink. Deve ser usada a conta principal, não uma partilhada.",
+      "The eWeLink account's password, or its base64 encoding.": "A palavra-passe da conta eWeLink, ou a sua codificação base64.",
+      "The eWeLink device ID these settings apply to, such as 1000abcdef.": "O ID eWeLink do dispositivo a que estas definições se aplicam, por exemplo 1000abcdef.",
+      "The name of this platform in the log.": "O nome desta plataforma no registo.",
+      "The step of the speed slider, 1 to 100, when a dimmer is shown as a fan.": "O passo do controlo de velocidade, de 1 a 100, quando um regulador é mostrado como ventoinha.",
+      "The sub-device's full ID: the RF Bridge's device ID, SW and the sub-device's number, such as 1000ab23cdSW2.": "O ID completo do subdispositivo: o ID do RF Bridge, SW e o número do subdispositivo, por exemplo 1000ab23cdSW2.",
+      "Thermostat Devices": "Termóstatos",
+      "Thermostat device": "Termóstato",
+      "Three Buttons": "Três botões",
+      "Two Buttons": "Dois botões",
+      "Username": "Nome de utilizador",
+      "Valve": "Válvula",
+      "Water Sensor": "Sensor de água"
+    }
+  }
 }
 """#
 }

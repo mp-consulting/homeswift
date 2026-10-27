@@ -42,9 +42,8 @@
     sparkle: '<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z"/><path d="M18.5 15.5l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z"/>',
     ungroup: '<rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><path d="M3 9V3h6M3 3l5 5M15 21h6v-6M21 21l-5-5"/>',
     group: '<rect x="3" y="8" width="13" height="13" rx="3"/><path d="M8 8V6a3 3 0 0 1 3-3h7a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3h-2M7 14.5h5M9.5 12v5"/>',
-    bridge: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/><path d="M10 20v-5h4v5"/>',
-    // A lighting bridge or hub (Hue Bridge, DIRIGERA): the box on the shelf, its light, and the radio it speaks.
-    hub: '<rect x="4" y="13" width="16" height="7.5" rx="2.5"/><path d="M8 16.75h.01M8.5 9.5a5 5 0 0 1 7 0M6 7a8.5 8.5 0 0 1 12 0"/>',
+    // A bridge, Homeswift's own or a Hue Bridge or DIRIGERA hub: the box on the shelf, its light, the radio it speaks.
+    bridge: '<rect x="4" y="13" width="16" height="7.5" rx="2.5"/><path d="M8 16.75h.01M8.5 9.5a5 5 0 0 1 7 0M6 7a8.5 8.5 0 0 1 12 0"/>',
     // Plays again and again: a scene's Autoplay, a play inside a turning arrow.
     loop: '<path d="M19.8 16.5A9 9 0 1 1 18.4 5.6"/><path d="M20.5 3v5.5H15z" fill="currentColor"/><path d="M10 8.5v7l5.5-3.5z" fill="currentColor"/>',
     // Pairing: two links of a chain on the diagonal.
@@ -92,6 +91,7 @@
     link: '<path d="M9.5 14.5l5-5M8 11l-2 2a3.5 3.5 0 0 0 5 5l2-2M16 13l2-2a3.5 3.5 0 0 0-5-5l-2 2"/>',
     shield: '<path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z"/><path d="m9 12 2 2 4-4"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
+    minus: '<path d="M5 12h14"/>',
     close: '<path d="m6 6 12 12M18 6 6 18"/>',
     search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
     copy: '<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M15 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h3"/>',
@@ -122,17 +122,22 @@
     node.classList.add("action-with-icon");
     let url = actionIconURLs.get(name);
     if (!url) {
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${icons[name] ?? icons.generic}</svg>`;
+      const attributes = Object.entries(iconAttributes(1.8, "black")).map(([key, value]) => `${key}="${value}"`).join(" ");
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" ${attributes}>${icons[name] ?? icons.generic}</svg>`;
       url = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
       actionIconURLs.set(name, url);
     }
     node.style.setProperty("--action-icon", url);
   }
 
-  /// An icon as an SVG element.
+  /// The attributes of an icon: a line drawing (no fill) of `stroke` (the current colour by default) at `strokeWidth`.
+  const iconAttributes = (strokeWidth, stroke = "currentColor") => ({ viewBox: "0 0 24 24", fill: "none", stroke, "stroke-width": String(strokeWidth), "stroke-linecap": "round", "stroke-linejoin": "round" });
+
+  /// An icon as an SVG element, drawn as the UI's icons are (lines of the current colour) by its own attributes, so
+  /// one placed where no style sizes and strokes it is still a line drawing, not a filled shape; a style overrides them.
   function icon(name) {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "0 0 24 24");
+    for (const [key, value] of Object.entries(iconAttributes(2))) svg.setAttribute(key, value);
     svg.classList.add(`icon-${name}`);
     svg.innerHTML = icons[name] ?? icons.generic;
     return svg;
@@ -1067,7 +1072,45 @@
   document.addEventListener("keydown", (event) => { if (event.key === "Escape") hideFilterTip(); });
   window.addEventListener("resize", hideFilterTip);
 
+  /// Runs `work` with `button` busy: disabled, and its spinner shown after `delay` ms, so a quick action shows none. An
+  /// error goes to `report` (the default alerts it); `report` null rethrows it.
+  async function busyButton(button, work, { report = (e) => alert(e.message), delay = 0 } = {}) {
+    if (button) button.disabled = true;
+    const spin = button ? setTimeout(() => button.classList.add("busy"), delay) : null;
+    try {
+      return await work();
+    } catch (e) {
+      if (report === null) throw e;
+      report(e);
+    } finally {
+      clearTimeout(spin);
+      if (button) { button.classList.remove("busy"); button.disabled = false; }
+    }
+  }
+
+  /// A picture drawn on a canvas, its longer side at most `max` pixels: the canvas to encode.
+  function scaledCanvas(bitmap, max) {
+    const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    return canvas;
+  }
+
+  /// A byte count as every page shows sizes: whole KB under a megabyte, one decimal MB or GB. `scale` picks the unit
+  /// (the largest value a list shows, so its rows agree); it defaults to the count itself.
+  function byteSize(bytes, scale = bytes) {
+    const decimal = new Intl.NumberFormat(HomeswiftI18n.locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    const whole = new Intl.NumberFormat(HomeswiftI18n.locale, { maximumFractionDigits: 0 });
+    if (scale >= 1024 ** 3) return `${decimal.format(bytes / 1024 ** 3)} GB`;
+    if (scale >= 1024 ** 2) return `${decimal.format(bytes / 1024 ** 2)} MB`;
+    if (scale >= 1024) return `${whole.format(Math.round(bytes / 1024))} KB`;
+    return `${whole.format(bytes)} B`;
+  }
+
   window.HomeswiftCommon = {
+    busyButton, scaledCanvas, byteSize,
     $, el, icon, tile, clearFilters, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
