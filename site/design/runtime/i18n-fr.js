@@ -2215,5 +2215,6 @@ HomeswiftI18n.add("fr", {
   "Not split": "Non réparti",
   "Energy by month": "Énergie par mois",
   "Nothing recorded in this period": "Rien d’enregistré sur cette période",
-  "Imported hours have no grid or battery figures: the rest of their home use is not split by source.": "Les heures importées n’ont pas de chiffres de réseau ni de batterie : le reste de leur consommation n’est pas réparti par source."
+  "Imported hours have no grid or battery figures: the rest of their home use is not split by source.": "Les heures importées n’ont pas de chiffres de réseau ni de batterie : le reste de leur consommation n’est pas réparti par source.",
+  "Recorded days only": "Jours enregistrés seulement"
 });

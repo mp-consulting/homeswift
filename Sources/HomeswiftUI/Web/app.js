@@ -898,9 +898,12 @@
     const previous = el("button", { type: "button", class: "menu-button", "aria-label": t("Previous period"), onclick: () => move(-1) }, HomeswiftCommon.icon("back"));
     const next = el("button", { type: "button", class: "menu-button", "aria-label": t("Next period"), onclick: () => move(1) }, HomeswiftCommon.icon("forward"));
     const periodLabel = el("strong", { class: "energy-period", "aria-live": "polite" });
+    // The period's totals, over the bars.
+    const summary = el("div", { class: "energy-totals" });
     days.node.insertBefore(el("div", { class: "energy-history-bar" },
       el("div", { class: "group", role: "radiogroup", "aria-label": t("Period") }, viewButtons),
       el("div", { class: "energy-period-nav" }, previous, periodLabel, next)), days.body);
+    days.node.insertBefore(summary, days.body);
     let earliest = null, historyAsked = 0;
     const today = el("div", { class: "energy-today" });
     // The charts' points as a table, folded until asked for (the colours alone are not enough to read them by).
@@ -1036,7 +1039,8 @@
       const chartBars = bars.map((bar) => ({
         label: monthly ? shortMonth.format(dateOf(bar)) : view === "month" ? String(dateOf(bar).getDate()) : name(bar, shortDay),
         narrow: monthly ? narrowMonth.format(dateOf(bar)) : String(dateOf(bar).getDate()),
-        title: name(bar, monthly ? monthYear : dayFormat), values: known(bar) ? bar : null }));
+        title: name(bar, monthly ? monthYear : dayFormat), values: known(bar) ? bar : null,
+        current: monthly ? bar.date === today.slice(0, 7) : bar.date === today }));
       const key = view + "\n" + segments.map((one) => one.label).join("\n");
       days.titleNode.textContent = monthly ? t("Energy by month") : t("Energy by day");
       if (days.view && days.key === key) days.view.update(chartBars);
@@ -1044,7 +1048,7 @@
         days.body.replaceChildren();
         days.key = key;
         days.view = HomeswiftChart.stackedBars(days.body, { title: days.titleNode.textContent, legend, bars: chartBars, format: formatKWh, unit: () => 1,
-          segments: segments.map((one) => ({ ...one, value: (values) => values ? (one.below ? -1 : 1) * (values[one.field] ?? 0) : 0 })) });
+          segments: segments.map((one) => ({ ...one, value: (values) => values?.[one.field] == null ? null : (one.below ? -1 : 1) * values[one.field] })) });
         days.body.append(dayTable);
       }
 
@@ -1054,14 +1058,26 @@
       previous.disabled = !earliest || first <= earliest;
       next.disabled = !anchor;
 
-      // The period's totals, and why imported hours have their home use not split.
+      // The period's totals, each labelled with its colour, over the bars; under them, why imported hours have their
+      // home use not split.
       const sum = (field) => bars.filter(known).reduce((total, bar) => bar[field] == null ? total : (total ?? 0) + bar[field], null);
-      const solar = sum("solar"), home = sum("home"), fromSolar = sum("homeFromSolar");
-      const totals = [solar != null ? `${t("Solar produced")} ${formatKWh(solar)}` : null, home != null ? `${t("Home used")} ${formatKWh(home)}` : null,
-        home > 0 && fromSolar != null ? `${t("Home from solar")} ${formatPercent(fromSolar / home * 100)}` : null].filter(Boolean).join(" · ");
-      days.detail.replaceChildren(
-        el("div", { text: totals || t("Nothing recorded in this period") }),
-        bars.some((bar) => bar.importedHours) ? el("div", { text: t("Imported hours have no grid or battery figures: the rest of their home use is not split by source.") }) : null);
+      const solar = sum("solar"), home = sum("home"), fromSolar = sum("homeFromSolar"), imported = sum("gridImport"), exported = sum("gridExport");
+      // A key only for a colour the bars draw; the grid's figures, known for the days the bridge recorded only, say so
+      // when the period has imported days too.
+      const partly = bars.some((bar) => bar.importedHours);
+      const total = (tone, label, value, note) => el("div", { class: "energy-total" },
+        el("span", {}, tone ? el("i", { class: `key bar tone-${tone}`, "aria-hidden": "true" }) : null, label), el("b", { text: value }),
+        note ? el("small", { text: note }) : null);
+      const totals = [
+        solar != null ? total(4, t("Solar produced"), formatKWh(solar)) : null,
+        home != null ? total(null, t("Home used"), formatKWh(home)) : null,
+        home > 0 && fromSolar != null ? total(null, t("Home from solar"), formatPercent(fromSolar / home * 100)) : null,
+        imported != null ? total(7, t("Grid import"), formatKWh(imported), partly ? t("Recorded days only") : null) : null,
+        exported != null ? total(7, t("Grid export"), formatKWh(exported), partly ? t("Recorded days only") : null) : null,
+      ].filter(Boolean);
+      summary.replaceChildren(...(totals.length ? totals : [el("span", { class: "muted", text: t("Nothing recorded in this period") })]));
+      days.detail.replaceChildren(...[bars.some((bar) => bar.importedHours)
+        ? el("div", { text: t("Imported hours have no grid or battery figures: the rest of their home use is not split by source.") }) : null].filter(Boolean));
 
       const columns = [
         has("solar") ? [t("Solar produced"), "solar", formatKWh] : null,

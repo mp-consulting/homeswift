@@ -2275,9 +2275,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const previous = el("button", { type: "button", class: "menu-button", "aria-label": t("Previous period"), onclick: () => move(-1) }, HomeswiftCommon.icon("back"));
     const next = el("button", { type: "button", class: "menu-button", "aria-label": t("Next period"), onclick: () => move(1) }, HomeswiftCommon.icon("forward"));
     const periodLabel = el("strong", { class: "energy-period", "aria-live": "polite" });
+    // The period's totals, over the bars.
+    const summary = el("div", { class: "energy-totals" });
     days.node.insertBefore(el("div", { class: "energy-history-bar" },
       el("div", { class: "group", role: "radiogroup", "aria-label": t("Period") }, viewButtons),
       el("div", { class: "energy-period-nav" }, previous, periodLabel, next)), days.body);
+    days.node.insertBefore(summary, days.body);
     let earliest = null, historyAsked = 0;
     const today = el("div", { class: "energy-today" });
     // The charts' points as a table, folded until asked for (the colours alone are not enough to read them by).
@@ -2413,7 +2416,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const chartBars = bars.map((bar) => ({
         label: monthly ? shortMonth.format(dateOf(bar)) : view === "month" ? String(dateOf(bar).getDate()) : name(bar, shortDay),
         narrow: monthly ? narrowMonth.format(dateOf(bar)) : String(dateOf(bar).getDate()),
-        title: name(bar, monthly ? monthYear : dayFormat), values: known(bar) ? bar : null }));
+        title: name(bar, monthly ? monthYear : dayFormat), values: known(bar) ? bar : null,
+        current: monthly ? bar.date === today.slice(0, 7) : bar.date === today }));
       const key = view + "\n" + segments.map((one) => one.label).join("\n");
       days.titleNode.textContent = monthly ? t("Energy by month") : t("Energy by day");
       if (days.view && days.key === key) days.view.update(chartBars);
@@ -2421,7 +2425,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         days.body.replaceChildren();
         days.key = key;
         days.view = HomeswiftChart.stackedBars(days.body, { title: days.titleNode.textContent, legend, bars: chartBars, format: formatKWh, unit: () => 1,
-          segments: segments.map((one) => ({ ...one, value: (values) => values ? (one.below ? -1 : 1) * (values[one.field] ?? 0) : 0 })) });
+          segments: segments.map((one) => ({ ...one, value: (values) => values?.[one.field] == null ? null : (one.below ? -1 : 1) * values[one.field] })) });
         days.body.append(dayTable);
       }
 
@@ -2431,14 +2435,26 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       previous.disabled = !earliest || first <= earliest;
       next.disabled = !anchor;
 
-      // The period's totals, and why imported hours have their home use not split.
+      // The period's totals, each labelled with its colour, over the bars; under them, why imported hours have their
+      // home use not split.
       const sum = (field) => bars.filter(known).reduce((total, bar) => bar[field] == null ? total : (total ?? 0) + bar[field], null);
-      const solar = sum("solar"), home = sum("home"), fromSolar = sum("homeFromSolar");
-      const totals = [solar != null ? `${t("Solar produced")} ${formatKWh(solar)}` : null, home != null ? `${t("Home used")} ${formatKWh(home)}` : null,
-        home > 0 && fromSolar != null ? `${t("Home from solar")} ${formatPercent(fromSolar / home * 100)}` : null].filter(Boolean).join(" · ");
-      days.detail.replaceChildren(
-        el("div", { text: totals || t("Nothing recorded in this period") }),
-        bars.some((bar) => bar.importedHours) ? el("div", { text: t("Imported hours have no grid or battery figures: the rest of their home use is not split by source.") }) : null);
+      const solar = sum("solar"), home = sum("home"), fromSolar = sum("homeFromSolar"), imported = sum("gridImport"), exported = sum("gridExport");
+      // A key only for a colour the bars draw; the grid's figures, known for the days the bridge recorded only, say so
+      // when the period has imported days too.
+      const partly = bars.some((bar) => bar.importedHours);
+      const total = (tone, label, value, note) => el("div", { class: "energy-total" },
+        el("span", {}, tone ? el("i", { class: `key bar tone-${tone}`, "aria-hidden": "true" }) : null, label), el("b", { text: value }),
+        note ? el("small", { text: note }) : null);
+      const totals = [
+        solar != null ? total(4, t("Solar produced"), formatKWh(solar)) : null,
+        home != null ? total(null, t("Home used"), formatKWh(home)) : null,
+        home > 0 && fromSolar != null ? total(null, t("Home from solar"), formatPercent(fromSolar / home * 100)) : null,
+        imported != null ? total(7, t("Grid import"), formatKWh(imported), partly ? t("Recorded days only") : null) : null,
+        exported != null ? total(7, t("Grid export"), formatKWh(exported), partly ? t("Recorded days only") : null) : null,
+      ].filter(Boolean);
+      summary.replaceChildren(...(totals.length ? totals : [el("span", { class: "muted", text: t("Nothing recorded in this period") })]));
+      days.detail.replaceChildren(...[bars.some((bar) => bar.importedHours)
+        ? el("div", { text: t("Imported hours have no grid or battery figures: the rest of their home use is not split by source.") }) : null].filter(Boolean));
 
       const columns = [
         has("solar") ? [t("Solar produced"), "solar", formatKWh] : null,
@@ -5855,10 +5871,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     };
   }
 
-  /// Stacked bars in `container`, one per item of `bars` (`{ label, narrow, title, values }`, oldest first; `narrow` under a
-  /// bar too narrow for its label): `segments` are
+  /// Stacked bars in `container`, one per item of `bars` (`{ label, narrow, title, values, current }`, oldest first;
+  /// `narrow` under a bar too narrow for its label, `current` the period of today, its label emphasised): `segments` are
   /// `{ label, tone, value(values) }`, stacked up from zero for a positive value and down for a negative one, so a bar
-  /// can show what came in above the line and what went out below it. `format` writes a value with its unit and
+  /// can show what came in above the line and what went out below it. A value of null is not known: it draws nothing
+  /// and the tooltip shows a dash, not a zero. `format` writes a value with its unit and
   /// `unit(max)` sizes the ticks, as for `lineChart`. A tooltip lists a bar's segments, on hover and with the arrow keys.
   /// Returns `update(bars)`.
   /// `legend` (`{ label, tone }`) names the colours when segments share one (an entity above and below the line).
@@ -5883,7 +5900,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const width = Math.max(frame.clientWidth, 240);
       const bars = state;
       const plotWidth = width - pad.left - pad.right, plotHeight = height - pad.top - pad.bottom;
-      const sums = bars.map((bar) => segments.map((one) => one.value(bar.values) ?? 0));
+      const known = bars.map((bar) => segments.map((one) => one.value(bar.values)));
+      const sums = known.map((values) => values.map((value) => value ?? 0));
       const highest = Math.max(0, ...sums.map((list) => list.filter((v) => v > 0).reduce((a, b) => a + b, 0)));
       const lowest = Math.min(0, ...sums.map((list) => list.filter((v) => v < 0).reduce((a, b) => a + b, 0)));
       const size = Math.max(highest, -lowest);
@@ -5937,7 +5955,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         // Bars too narrow for every label (a month's days on a phone) label one in `every`, the last always.
         const every = slot < 24 ? Math.ceil(24 / slot) : 1;
         if (index % every !== 0 && index !== bars.length - 1) return;
-        const label = svg("text", { x: x(index), y: height - 6, class: "tick", "text-anchor": "middle" });
+        const label = svg("text", { x: x(index), y: height - 6, class: bar.current ? "tick current" : "tick", "text-anchor": "middle" });
         label.textContent = slot < 64 && bar.narrow ? bar.narrow : bar.label;
         root.append(label);
       });
@@ -5953,7 +5971,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         tooltip.replaceChildren(html("div", "chart-time", bars[index].title ?? bars[index].label));
         segments.forEach((one, i) => {
           const row = html("div", "chart-row");
-          row.append(html("i", `key bar tone-${one.tone}`), html("b", "", format(Math.abs(sums[index][i]))), html("span", "muted", one.label));
+          const value = known[index][i];
+          row.append(html("i", `key bar tone-${one.tone}`), html("b", "", value == null ? "–" : format(Math.abs(value))), html("span", "muted", one.label));
           tooltip.append(row);
         });
         tooltip.classList.remove("hidden");
@@ -11790,7 +11809,8 @@ HomeswiftI18n.add("es", {
   "Not split": "Sin desglose",
   "Energy by month": "Energía por mes",
   "Nothing recorded in this period": "Nada registrado en este periodo",
-  "Imported hours have no grid or battery figures: the rest of their home use is not split by source.": "Las horas importadas no tienen datos de red ni de batería: el resto de su consumo no se desglosa por fuente."
+  "Imported hours have no grid or battery figures: the rest of their home use is not split by source.": "Las horas importadas no tienen datos de red ni de batería: el resto de su consumo no se desglosa por fuente.",
+  "Recorded days only": "Solo días registrados"
 });
 
 """#),
@@ -14012,7 +14032,8 @@ HomeswiftI18n.add("fr", {
   "Not split": "Non réparti",
   "Energy by month": "Énergie par mois",
   "Nothing recorded in this period": "Rien d’enregistré sur cette période",
-  "Imported hours have no grid or battery figures: the rest of their home use is not split by source.": "Les heures importées n’ont pas de chiffres de réseau ni de batterie : le reste de leur consommation n’est pas réparti par source."
+  "Imported hours have no grid or battery figures: the rest of their home use is not split by source.": "Les heures importées n’ont pas de chiffres de réseau ni de batterie : le reste de leur consommation n’est pas réparti par source.",
+  "Recorded days only": "Jours enregistrés seulement"
 });
 
 """#),
@@ -16234,7 +16255,8 @@ HomeswiftI18n.add("pt", {
   "Not split": "Sem divisão",
   "Energy by month": "Energia por mês",
   "Nothing recorded in this period": "Nada registado neste período",
-  "Imported hours have no grid or battery figures: the rest of their home use is not split by source.": "As horas importadas não têm valores de rede nem de bateria: o resto do seu consumo não é dividido por fonte."
+  "Imported hours have no grid or battery figures: the rest of their home use is not split by source.": "As horas importadas não têm valores de rede nem de bateria: o resto do seu consumo não é dividido por fonte.",
+  "Recorded days only": "Só dias registados"
 });
 
 """#),
@@ -19138,6 +19160,11 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
   .energy .chart-head .tile svg { width: 18px; height: 18px; }
   .energy .chart-head .muted { font-size: 0.75rem; }
   .energy .range-control { display: flex; width: 100%; }
+  .energy-history-bar > .group { display: flex; width: 100%; }
+  .energy-history-bar > .group button { flex: 1; }
+  .energy-period-nav { width: 100%; justify-content: space-between; }
+  .energy-totals { gap: 8px 18px; }
+  .energy-total b { font-size: 1rem; }
   .energy .range-control button { flex: 1 0 auto; padding-inline: 10px; }
 }
 .energy .chart-table { margin-top: 12px; }
@@ -19146,6 +19173,14 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .energy-history-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .energy-period-nav { display: flex; align-items: center; gap: 6px; }
 .energy-period { min-width: 12ch; text-align: center; font-size: 0.9375rem; font-variant-numeric: tabular-nums; }
+/* The period's totals over the bars: a muted label with its colour key over a proportional figure. */
+.energy-totals { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 28px; padding: 2px 0 4px; }
+.energy-total { display: grid; gap: 2px; align-content: start; }
+.energy-total span { display: inline-flex; align-items: center; gap: 6px; font-size: 0.75rem; color: var(--muted); }
+.energy-total .key { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
+.energy-total b { font-size: 1.125rem; font-weight: 650; letter-spacing: -0.01em; }
+.energy-total small { font-size: 0.6875rem; color: var(--muted); }
+.chart .tick.current { fill: var(--text); font-weight: 650; }
 .energy-period-nav .menu-button svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .energy-days .chart-table { margin-top: 0; }
 .energy-days .chart-table thead th.time { text-align: left; }

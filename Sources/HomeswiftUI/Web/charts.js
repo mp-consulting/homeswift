@@ -229,10 +229,11 @@
     };
   }
 
-  /// Stacked bars in `container`, one per item of `bars` (`{ label, narrow, title, values }`, oldest first; `narrow` under a
-  /// bar too narrow for its label): `segments` are
+  /// Stacked bars in `container`, one per item of `bars` (`{ label, narrow, title, values, current }`, oldest first;
+  /// `narrow` under a bar too narrow for its label, `current` the period of today, its label emphasised): `segments` are
   /// `{ label, tone, value(values) }`, stacked up from zero for a positive value and down for a negative one, so a bar
-  /// can show what came in above the line and what went out below it. `format` writes a value with its unit and
+  /// can show what came in above the line and what went out below it. A value of null is not known: it draws nothing
+  /// and the tooltip shows a dash, not a zero. `format` writes a value with its unit and
   /// `unit(max)` sizes the ticks, as for `lineChart`. A tooltip lists a bar's segments, on hover and with the arrow keys.
   /// Returns `update(bars)`.
   /// `legend` (`{ label, tone }`) names the colours when segments share one (an entity above and below the line).
@@ -257,7 +258,8 @@
       const width = Math.max(frame.clientWidth, 240);
       const bars = state;
       const plotWidth = width - pad.left - pad.right, plotHeight = height - pad.top - pad.bottom;
-      const sums = bars.map((bar) => segments.map((one) => one.value(bar.values) ?? 0));
+      const known = bars.map((bar) => segments.map((one) => one.value(bar.values)));
+      const sums = known.map((values) => values.map((value) => value ?? 0));
       const highest = Math.max(0, ...sums.map((list) => list.filter((v) => v > 0).reduce((a, b) => a + b, 0)));
       const lowest = Math.min(0, ...sums.map((list) => list.filter((v) => v < 0).reduce((a, b) => a + b, 0)));
       const size = Math.max(highest, -lowest);
@@ -311,7 +313,7 @@
         // Bars too narrow for every label (a month's days on a phone) label one in `every`, the last always.
         const every = slot < 24 ? Math.ceil(24 / slot) : 1;
         if (index % every !== 0 && index !== bars.length - 1) return;
-        const label = svg("text", { x: x(index), y: height - 6, class: "tick", "text-anchor": "middle" });
+        const label = svg("text", { x: x(index), y: height - 6, class: bar.current ? "tick current" : "tick", "text-anchor": "middle" });
         label.textContent = slot < 64 && bar.narrow ? bar.narrow : bar.label;
         root.append(label);
       });
@@ -327,7 +329,8 @@
         tooltip.replaceChildren(html("div", "chart-time", bars[index].title ?? bars[index].label));
         segments.forEach((one, i) => {
           const row = html("div", "chart-row");
-          row.append(html("i", `key bar tone-${one.tone}`), html("b", "", format(Math.abs(sums[index][i]))), html("span", "muted", one.label));
+          const value = known[index][i];
+          row.append(html("i", `key bar tone-${one.tone}`), html("b", "", value == null ? "–" : format(Math.abs(value))), html("span", "muted", one.label));
           tooltip.append(row);
         });
         tooltip.classList.remove("hidden");

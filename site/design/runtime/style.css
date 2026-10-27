@@ -1236,6 +1236,11 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
   .energy .chart-head .tile svg { width: 18px; height: 18px; }
   .energy .chart-head .muted { font-size: 0.75rem; }
   .energy .range-control { display: flex; width: 100%; }
+  .energy-history-bar > .group { display: flex; width: 100%; }
+  .energy-history-bar > .group button { flex: 1; }
+  .energy-period-nav { width: 100%; justify-content: space-between; }
+  .energy-totals { gap: 8px 18px; }
+  .energy-total b { font-size: 1rem; }
   .energy .range-control button { flex: 1 0 auto; padding-inline: 10px; }
 }
 .energy .chart-table { margin-top: 12px; }
@@ -1244,6 +1249,14 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .energy-history-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .energy-period-nav { display: flex; align-items: center; gap: 6px; }
 .energy-period { min-width: 12ch; text-align: center; font-size: 0.9375rem; font-variant-numeric: tabular-nums; }
+/* The period's totals over the bars: a muted label with its colour key over a proportional figure. */
+.energy-totals { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 28px; padding: 2px 0 4px; }
+.energy-total { display: grid; gap: 2px; align-content: start; }
+.energy-total span { display: inline-flex; align-items: center; gap: 6px; font-size: 0.75rem; color: var(--muted); }
+.energy-total .key { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
+.energy-total b { font-size: 1.125rem; font-weight: 650; letter-spacing: -0.01em; }
+.energy-total small { font-size: 0.6875rem; color: var(--muted); }
+.chart .tick.current { fill: var(--text); font-weight: 650; }
 .energy-period-nav .menu-button svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .energy-days .chart-table { margin-top: 0; }
 .energy-days .chart-table thead th.time { text-align: left; }
