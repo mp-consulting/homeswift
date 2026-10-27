@@ -283,12 +283,33 @@ public final class PluginContext: @unchecked Sendable {
     private let storageURL: URL
     private let assistantBox: NIOLockedValueBox<AssistantService?>
     private let assistantBackground: String?
-    private let recordSink: @Sendable (String, Double) -> Void
+    private let recordSink: @Sendable (String, Double, EnergyTag?) -> Void
+    private let energyImportSink: @Sendable ([EnergyHourImport]) -> Void
+    private let energyProgressSink: @Sendable (EnergyImportProgress) -> Void
 
     /// Records a reading for the Status page's history: a minute keeps the count, sum, lowest and highest of each
     /// series. The series is `plugin:<platform>:<series>`, so two plugins cannot collide. Cheap; call it per reading.
-    public func recordValue(_ value: Double, series: String) {
-        recordSink("plugin:\(platform):\(series)", value)
+    /// `energy` puts the series in the Status page's Energy section: its role (solar, home, grid, battery power or
+    /// level, in watts or percent, with the signs `EnergyRole` gives) and the device's name.
+    public func recordValue(_ value: Double, series: String, energy: EnergyTag? = nil) {
+        recordSink("plugin:\(platform):\(series)", value, energy)
+    }
+
+    /// Hands the long-term energy history (the Status page's month and year views) hours the bridge did not record: a
+    /// cloud's record of the days before it ran. Each hour replaces what this plugin imported for it before; an hour
+    /// the bridge recorded itself keeps its own figures. Watt-hours; leave out (nil) what the history does not have.
+    public func importEnergy(_ hours: [EnergyHourImport]) {
+        energyImportSink(hours)
+    }
+
+    /// Says where an energy import stands, for the Status page's history: as it runs (`done` of `total`), when it is done
+    /// (what it covers) and when it fails (why). The latest report is shown; a plugin that imports again reports again.
+    public func reportEnergyImport(_ progress: EnergyImportProgress) {
+        var progress = progress
+        progress.source = key
+        progress.name = name
+        progress.updated = Date()
+        energyProgressSink(progress)
     }
     // Mutable state is behind the lock; the class is otherwise immutable.
     private let list = NIOLockedValueBox<Entries>(Entries())
@@ -323,9 +344,13 @@ public final class PluginContext: @unchecked Sendable {
     init(
         platform: String, name: String, key: String, logger: Logger, bridge: PluginHost.Bridge, cache: AccessoryCache, storageURL: URL,
         assistant: NIOLockedValueBox<AssistantService?>, externals: ExternalAccessories, assistantBackground: String? = nil,
-        recordSink: @escaping @Sendable (String, Double) -> Void = { _, _ in }
+        recordSink: @escaping @Sendable (String, Double, EnergyTag?) -> Void = { _, _, _ in },
+        energyImportSink: @escaping @Sendable ([EnergyHourImport]) -> Void = { _ in },
+        energyProgressSink: @escaping @Sendable (EnergyImportProgress) -> Void = { _ in }
     ) {
+        self.energyProgressSink = energyProgressSink
         self.recordSink = recordSink
+        self.energyImportSink = energyImportSink
         self.assistantBackground = assistantBackground
         self.platform = platform
         self.name = name

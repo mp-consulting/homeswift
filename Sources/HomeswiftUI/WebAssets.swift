@@ -1879,6 +1879,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       quick: () => window.HomeswiftHome?.quickSection(accessories),
       digest: () => status.assistant ? digestWidget() : null,
       activity: () => activity(accessories, withSlugs(status.bridges, "bridge")),
+      energy: () => energy(),
       bridges: () => [el("h2", { text: status.bridges.length === 1 ? t("Bridge") : t("Bridges and accessories") }),
       el("div", { class: "servers" }, ...bridges)],
       system: () => [el("h2", { text: t("System") }),
@@ -1964,7 +1965,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // Each user's own, kept on the server with their other preferences (/api/preferences, `dashboard`).
 
   const dashboardWidgets = [["overview", t("Overview"), t("Health, accessories, plugins, uptime")], ["quick", t("Quick controls"), t("Favourite accessories and scenes")], ["digest", t("Daily digest"), t("The Assistant's summary of the day")],
-    ["activity", t("Activity"), t("Memory, CPU and response times")], ["bridges", t("Bridges"), t("Pairing codes and what each bridge runs")], ["system", t("System"), t("The machine, and Restart")]];
+    ["activity", t("Activity"), t("Memory, CPU and response times")], ["energy", t("Energy"), t("Solar, home, grid and batteries")], ["bridges", t("Bridges"), t("Pairing codes and what each bridge runs")], ["system", t("System"), t("The machine, and Restart")]];
 
   /// The widgets in the user's order (new ones last), and those hidden.
   function dashboardLayout() {
@@ -2103,7 +2104,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// Logs page's). A range that ends now refreshes every minute; while new data loads the charts stay, faded.
   function activity(accessories, bridges) {
     const params = new URLSearchParams(location.search);
-    const range = rangeFilter(params, { changed: () => load() });
+    const range = HomeswiftCommon.rangeControl(params, { presets: [["1h", t("1 hour")], ["6h", t("6 hours")], ["24h", t("24 hours")], ["today", t("Today")], ["yesterday", t("Yesterday")], ["7d", t("7 days")]],
+      fallback: "1h", changed: () => load() });
     const sources = sourceFilter(accessories, bridges, initialSource(accessories, bridges, params.get("accessory"), params.get("bridge")), {
       label: t("Whose requests"), everything: t("All servers"), changed: () => load() });
     const byID = new Map(accessories.map((accessory) => [accessory.id, accessory]));
@@ -2130,14 +2132,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     table.addEventListener("toggle", () => { if (table.open) fillTable(); });
     const section = el("section", { class: "activity" },
       el("h2", { text: t("Activity") }),
-      el("div", { class: "filter-bar" }, range.picker, sources.picker, HomeswiftCommon.clearFilters([[range.picker, "1h"], [sources.picker, ""]]), range.customRow),
+      el("div", { class: "filter-bar" }, range.control, sources.picker,
+        HomeswiftCommon.clearFilters([[sources.picker, ""]], { active: () => range.chosen(), reset: () => range.reset(), events: [[range.control, "change"]] })),
       el("div", { class: "chart-grid" }, charts.map((chart) => chart.card)),
       table);
     let shown = null;   // the last history loaded, for the table
     let refresh = null;
 
     function keepAddress() {
-      const query = new URLSearchParams();
+      // The Energy section's choices stay in the address.
+      const query = new URLSearchParams([...new URLSearchParams(location.search)].filter(([key]) => key.startsWith("energy")));
       range.address(query);
       const { kind, value } = sources.source();
       if (kind === "bridge") query.set("bridge", bridges.find((bridge) => bridge.deviceId === value)?.slug ?? value);
@@ -2216,6 +2220,351 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     load();
     return section;
+  }
+
+  /// The Status page's Energy section, from the readings plugins record with a role (`EnergyTag`): the power of solar,
+  /// the home, the grid (importing above zero) and the batteries (charging above zero), added up across devices; each
+  /// battery's level; and each day's energy in kWh. Hidden until some plugin records such readings. Its own range
+  /// (`energy` in the address, the last 24 hours by default); a range that ends now refreshes every minute.
+  function energy() {
+    const params = new URLSearchParams(location.search);
+    const range = HomeswiftCommon.rangeControl(params, { presets: [["24h", t("24 hours")], ["today", t("Today")], ["yesterday", t("Yesterday")], ["7d", t("7 days")]],
+      fallback: "24h", names: { since: "energy", from: "energy-from", to: "energy-to" }, changed: () => load() });
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    // A colour per entity, the same in every chart: solar yellow, the home blue, the batteries aqua, the grid violet
+    // (the palette's slots, validated for colour blindness in both modes). The lines' devices take the slots in order.
+    const roles = [
+      { id: "solar", label: t("Solar"), tone: 4 },
+      { id: "home", label: t("Home [use]"), tone: 1 },
+      { id: "battery", label: t("Battery"), tone: 3 },
+      { id: "grid", label: t("Grid"), tone: 7 },
+    ];
+    const levelTones = [1, 2, 3, 4, 5, 6];
+    const card = (title, note, icon, tone) => {
+      const figure = el("b", { class: "chart-figure" });
+      const detail = el("div", { class: "muted chart-detail" });
+      const body = el("div", { class: "chart-body" });
+      const titleNode = el("strong", { text: title });
+      const node = el("div", { class: "card chart-card" },
+        el("div", { class: "chart-head" }, tile(icon, tone), el("div", { class: "who" }, titleNode, el("div", { class: "muted", text: note })), figure),
+        body, detail);
+      return { title, titleNode, node, figure, detail, body, view: null, key: "" };
+    };
+    const power = card(t("Power [watts]"), t("Added up across devices: the grid above zero is imported, the battery above zero is charging"), "bolt", "orange");
+    const levels = card(t("Battery level"), t("Each device's charge"), "battery", "teal");
+    const days = card(t("Energy by day"), t("Where the home's energy came from, above the line, and where the rest went, below it"), "chart", "grey");
+    // Folded until asked for; it stays open across refreshes.
+    const dayTable = el("details", { class: "more chart-table" }, el("summary", { text: t("Show as a table") }));
+    // The history, from the bridge's long-term archive (its own hours and imports such as a cloud's): a week, a month or a
+    // year at a time (`energy-view` and `energy-date` in the address), with the periods before and after.
+    const views = [["week", t("Week")], ["month", t("Month")], ["year", t("Year")]];
+    let view = views.some(([one]) => one === params.get("energy-view")) ? params.get("energy-view") : "week";
+    let anchor = parseDay(params.get("energy-date"));   // null: the period of today
+    const viewButtons = views.map(([one, text]) => el("button", { type: "button", role: "radio", text, onclick: () => {
+      if (one === view) return;
+      view = one;
+      anchor = null;
+      markView();
+      loadHistory();
+    } }));
+    const markView = () => viewButtons.forEach((button, index) => {
+      button.classList.toggle("on", views[index][0] === view);
+      button.setAttribute("aria-checked", String(views[index][0] === view));
+    });
+    markView();
+    const previous = el("button", { type: "button", class: "menu-button", "aria-label": t("Previous period"), onclick: () => move(-1) }, HomeswiftCommon.icon("back"));
+    const next = el("button", { type: "button", class: "menu-button", "aria-label": t("Next period"), onclick: () => move(1) }, HomeswiftCommon.icon("forward"));
+    const periodLabel = el("strong", { class: "energy-period", "aria-live": "polite" });
+    // Where each plugin's import of the history stands, then the period's totals, over the bars.
+    const importsNode = el("div", { class: "energy-imports", role: "status" });
+    const summary = el("div", { class: "energy-totals" });
+    let importPoll = null;
+    days.node.insertBefore(el("div", { class: "energy-history-bar" },
+      el("div", { class: "group", role: "radiogroup", "aria-label": t("Period") }, viewButtons),
+      el("div", { class: "energy-period-nav" }, previous, periodLabel, next)), days.body);
+    days.node.insertBefore(importsNode, days.body);
+    days.node.insertBefore(summary, days.body);
+    let earliest = null, historyAsked = 0;
+    const today = el("div", { class: "energy-today" });
+    // The charts' points as a table, folded until asked for (the colours alone are not enough to read them by).
+    const pointTable = el("details", { class: "more chart-table" }, el("summary", { text: t("Show as a table") }));
+    pointTable.addEventListener("toggle", () => { if (pointTable.open) fillPoints(); });
+    const section = el("section", { class: "activity energy", hidden: true },
+      el("h2", { text: t("Energy") }),
+      today,
+      el("div", { class: "filter-bar" }, range.control),
+      el("div", { class: "chart-grid" }, power.node, levels.node),
+      pointTable,
+      el("div", { class: "chart-grid energy-days" }, days.node));
+    let lastReport = null;   // for the table
+    let refresh = null;
+
+    function keepAddress() {
+      const query = new URLSearchParams([...new URLSearchParams(location.search)].filter(([key]) => !key.startsWith("energy")));
+      range.address(query);
+      if (view !== "week") query.set("energy-view", view);
+      if (anchor) query.set("energy-date", isoDay(anchor));
+      const path = `${location.pathname}${query.size ? `?${query}` : ""}`;
+      if (path !== location.pathname + location.search) history.replaceState(null, "", path);
+    }
+    /// A chart drawn again with new points, made anew when its lines change (a device or a role appears).
+    function draw(chart, series, points, from, to, step, format) {
+      const key = series.map((one) => one.label).join("\n");
+      if (chart.view && chart.key === key) { chart.view.update(points, from, to, step); return; }
+      chart.body.replaceChildren();
+      chart.key = key;
+      chart.view = HomeswiftChart.lineChart(chart.body, { title: chart.title, series, format, unit: (max) => max >= 1000 ? 1000 : 1, points, from, to, step });
+    }
+    async function load() {
+      clearTimeout(refresh);
+      keepAddress();
+      const [from, end] = range.span() ?? [new Date(Date.now() - 86400000), null];
+      const to = end ?? new Date();
+      section.classList.add("loading");
+      let report;
+      try {
+        report = await api(`/api/metrics/energy?${new URLSearchParams({ from: from.toISOString(), to: to.toISOString(), timeZone })}`);
+      } catch (e) {
+        if (e.status === 404) { section.remove(); return; }
+        power.detail.textContent = e.message;
+        section.classList.remove("loading");
+        return;
+      }
+      section.classList.remove("loading");
+      // No plugin records energy: the section stays hidden, and looks again with the next refresh.
+      section.hidden = !report.roles.length;
+      const step = report.step * 1000;
+      const shown = roles.filter((role) => report.roles.includes(role.id));
+      power.node.hidden = !shown.length;
+      if (shown.length) {
+        const points = report.power.map((point) => ({ ...point, time: point.t * 1000 }));
+        draw(power, shown.map((role) => ({ label: role.label, tone: role.tone, value: (point) => point[role.id] ?? null })), points, from.getTime(), to.getTime(), step, formatWatts);
+        const last = points.at(-1);
+        power.detail.textContent = last ? t("Latest: {values}", { values: shown.filter((role) => last[role.id] != null).map((role) => `${role.label} ${formatWatts(last[role.id])}`).join(" · ") }) : "";
+      }
+      levels.node.hidden = !report.levels.length;
+      if (report.levels.length) {
+        const byTime = new Map();
+        for (const level of report.levels) {
+          for (const [time, percent] of level.points) {
+            const point = byTime.get(time) ?? { time: time * 1000 };
+            point[level.series] = percent;
+            byTime.set(time, point);
+          }
+        }
+        const points = [...byTime.values()].sort((a, b) => a.time - b.time);
+        draw(levels, report.levels.map((level, index) => ({ label: level.device, tone: levelTones[index % levelTones.length], value: (point) => point[level.series] ?? null })),
+          points, from.getTime(), to.getTime(), step, formatPercent);
+        levels.detail.textContent = report.levels.filter((level) => level.points.length).map((level) => `${level.device} ${formatPercent(level.points.at(-1)[1])}`).join(" · ");
+      }
+      lastReport = report;
+      if (pointTable.open) fillPoints();
+      fillToday(report.days[0], report.roles);
+      // The history moves on with today; a period in the past stays as it is.
+      if (!anchor || !historyAsked) loadHistory();
+      if (!end) refresh = setTimeout(() => { if (section.isConnected && !document.hidden) load(); }, 60000);
+    }
+
+    /// One period earlier (-1) or later (1): 7 days, a month or a year. The period of today is the latest.
+    function move(direction) {
+      const base = anchor ?? new Date();
+      const date = view === "week" ? new Date(base.getFullYear(), base.getMonth(), base.getDate() + 7 * direction)
+        : view === "month" ? new Date(base.getFullYear(), base.getMonth() + direction, 1) : new Date(base.getFullYear() + direction, 0, 1);
+      anchor = containsToday(date) ? null : date;
+      loadHistory();
+    }
+    function containsToday(date) {
+      const now = new Date();
+      if (view === "year") return date.getFullYear() >= now.getFullYear();
+      if (view === "month") return date.getFullYear() * 12 + date.getMonth() >= now.getFullYear() * 12 + now.getMonth();
+      return date >= new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    }
+    async function loadHistory() {
+      clearTimeout(importPoll);
+      const asked = ++historyAsked;
+      keepAddress();
+      let history;
+      try {
+        history = await api(`/api/metrics/energy/history?${new URLSearchParams({ period: view, date: isoDay(anchor ?? new Date()), timeZone })}`);
+      } catch (e) {
+        days.detail.textContent = e.message;
+        return;
+      }
+      if (asked !== historyAsked) return;
+      fillHistory(history);
+      fillImports(history.imports ?? []);
+    }
+
+    /// An import under way: its progress, the bars filling in as it goes (the history is asked again every few
+    /// seconds); one done: what it covers and when it last ran, quietly; one failed: why.
+    function fillImports(imports) {
+      clearTimeout(importPoll);
+      const longDay = new Intl.DateTimeFormat(HomeswiftI18n.locale, { day: "numeric", month: "long", year: "numeric" });
+      const day = (text) => longDay.format(parseDay(text));
+      importsNode.replaceChildren(...imports.map((one) => {
+        if (one.state === "running") {
+          return el("div", { class: "energy-import running" },
+            el("div", { class: "energy-import-line" }, el("span", { text: t("Importing the {name} history", { name: one.name }) }),
+              one.total ? el("b", { text: t("{done} of {total}", { done: one.done, total: one.total }) }) : null),
+            el("progress", { max: Math.max(one.total, 1), value: one.total ? one.done : null, "aria-label": t("Importing the {name} history", { name: one.name }) }));
+        }
+        if (one.state === "failed") {
+          return el("div", { class: "energy-import failed" }, HomeswiftCommon.icon("warning"),
+            el("span", { text: t("The {name} history could not be imported: {message}", { name: one.name, message: one.message ?? "" }) }));
+        }
+        return el("div", { class: "energy-import done muted" }, HomeswiftCommon.icon("history"),
+          el("span", { text: one.from ? t("History from {name} since {date}, updated {ago}", { name: one.name, date: day(one.from), ago: HomeswiftCommon.ago(one.updated) })
+            : t("History from {name}, updated {ago}", { name: one.name, ago: HomeswiftCommon.ago(one.updated) }) }));
+      }));
+      if (imports.some((one) => one.state === "running")) importPoll = setTimeout(() => { if (section.isConnected && !document.hidden) loadHistory(); }, 3000);
+    }
+
+    /// The period's energy as bars, oldest first: above zero where the home's energy came from (solar as it was
+    /// produced, the batteries, the grid, or not split: an imported hour has no grid or battery), below zero where the
+    /// rest went (into the batteries, out to the grid); only what some bar knows. The same figures as a table, folded.
+    function fillHistory(history) {
+      earliest = history.earliest ? parseDay(history.earliest) : null;
+      const bars = history.bars;
+      const known = (bar) => bar.recordedHours + bar.importedHours > 0;
+      const has = (field) => bars.some((bar) => known(bar) && bar[field] != null);
+      const monthly = view === "year";
+      const segments = [
+        has("homeFromSolar") ? { label: t("Home from solar"), tone: 4, field: "homeFromSolar" } : null,
+        has("homeFromBattery") ? { label: t("Home from batteries"), tone: 3, field: "homeFromBattery" } : null,
+        has("homeFromGrid") ? { label: t("Home from the grid"), tone: 7, field: "homeFromGrid" } : null,
+        has("homeNotSplit") ? { label: t("Home, not split by source"), tone: 8, field: "homeNotSplit" } : null,
+        !has("home") && has("solar") ? { label: t("Solar produced"), tone: 4, field: "solar" } : null,
+        has("batteryCharge") ? { label: t("Into batteries"), tone: 3, field: "batteryCharge", below: true } : null,
+        has("gridExport") ? { label: t("Exported to the grid"), tone: 7, field: "gridExport", below: true } : null,
+      ].filter(Boolean);
+      // The legend names each colour once: an entity is the same colour above the line and below it.
+      const legend = [...new Map(segments.map((one) => [one.tone, { tone: one.tone, label: { 4: t("Solar"), 3: t("Batteries"), 7: t("Grid"), 8: t("Not split") }[one.tone] }])).values()];
+      const today = isoDay(new Date()), yesterday = isoDay(new Date(Date.now() - 86400000));
+      const dateOf = (bar) => { const [year, month, day] = bar.date.split("-").map(Number); return new Date(year, month - 1, day || 1); };
+      const name = (bar, format) => monthly ? format.format(dateOf(bar))
+        : bar.date === today ? t("Today") : bar.date === yesterday && format === dayFormat ? t("Yesterday") : format.format(dateOf(bar));
+      const chartBars = bars.map((bar) => ({
+        label: monthly ? shortMonth.format(dateOf(bar)) : view === "month" ? String(dateOf(bar).getDate()) : name(bar, shortDay),
+        narrow: monthly ? narrowMonth.format(dateOf(bar)) : String(dateOf(bar).getDate()),
+        title: name(bar, monthly ? monthYear : dayFormat), values: known(bar) ? bar : null,
+        current: monthly ? bar.date === today.slice(0, 7) : bar.date === today }));
+      const key = view + "\n" + segments.map((one) => one.label).join("\n");
+      days.titleNode.textContent = monthly ? t("Energy by month") : t("Energy by day");
+      if (days.view && days.key === key) days.view.update(chartBars);
+      else {
+        days.body.replaceChildren();
+        days.key = key;
+        days.view = HomeswiftChart.stackedBars(days.body, { title: days.titleNode.textContent, legend, bars: chartBars, format: formatKWh, unit: () => 1,
+          segments: segments.map((one) => ({ ...one, value: (values) => values?.[one.field] == null ? null : (one.below ? -1 : 1) * values[one.field] })) });
+        days.body.append(dayTable);
+      }
+
+      // The period, and the way to the ones around it: none before the history's first hour, none after today.
+      const first = dateOf(bars[0]), last = dateOf(bars.at(-1));
+      periodLabel.textContent = monthly ? String(first.getFullYear()) : view === "month" ? monthYear.format(first) : rangeFormat.formatRange(first, last);
+      previous.disabled = !earliest || first <= earliest;
+      next.disabled = !anchor;
+
+      // The period's totals, each labelled with its colour, over the bars; under them, why imported hours have their
+      // home use not split.
+      const sum = (field) => bars.filter(known).reduce((total, bar) => bar[field] == null ? total : (total ?? 0) + bar[field], null);
+      const solar = sum("solar"), home = sum("home"), fromSolar = sum("homeFromSolar"), imported = sum("gridImport"), exported = sum("gridExport");
+      // A key only for a colour the bars draw; the grid's figures, known for the days the bridge recorded only, say so
+      // when the period has imported days too.
+      const partly = bars.some((bar) => bar.importedHours);
+      const total = (tone, label, value, note) => el("div", { class: "energy-total" },
+        el("span", {}, tone ? el("i", { class: `key bar tone-${tone}`, "aria-hidden": "true" }) : null, label), el("b", { text: value }),
+        note ? el("small", { text: note }) : null);
+      const totals = [
+        solar != null ? total(4, t("Solar produced"), formatKWh(solar)) : null,
+        home != null ? total(null, t("Home used"), formatKWh(home)) : null,
+        home > 0 && fromSolar != null ? total(null, t("Home from solar"), formatPercent(fromSolar / home * 100)) : null,
+        imported != null ? total(7, t("Grid import"), formatKWh(imported), partly ? t("Recorded days only") : null) : null,
+        exported != null ? total(7, t("Grid export"), formatKWh(exported), partly ? t("Recorded days only") : null) : null,
+      ].filter(Boolean);
+      summary.replaceChildren(...(totals.length ? totals : [el("span", { class: "muted", text: t("Nothing recorded in this period") })]));
+      days.detail.replaceChildren(...[bars.some((bar) => bar.importedHours)
+        ? el("div", { text: t("Imported hours have no grid or battery figures: the rest of their home use is not split by source.") }) : null].filter(Boolean));
+
+      const columns = [
+        has("solar") ? [t("Solar produced"), "solar", formatKWh] : null,
+        has("home") ? [t("Home used"), "home", formatKWh] : null,
+        has("gridImport") ? [t("Grid import"), "gridImport", formatKWh] : null,
+        has("gridExport") ? [t("Grid export"), "gridExport", formatKWh] : null,
+        has("batteryCharge") ? [t("Battery charged"), "batteryCharge", formatKWh] : null,
+        has("batteryDischarge") ? [t("Battery discharged"), "batteryDischarge", formatKWh] : null,
+        has("solarShare") ? [t("Home from solar"), "solarShare", (share) => formatPercent(share * 100)] : null,
+      ].filter(Boolean);
+      dayTable.replaceChildren(dayTable.firstChild, el("div", { class: "table-scroll" }, el("table", {},
+        el("thead", {}, el("tr", {}, el("th", { scope: "col", class: "time", text: monthly ? t("Month") : t("Day") }), columns.map(([title]) => el("th", { scope: "col", text: title })))),
+        el("tbody", {}, [...bars].reverse().map((bar) => el("tr", {},
+          el("th", { scope: "row", class: "time", text: name(bar, monthly ? monthYear : dayFormat) }),
+          columns.map(([, field, format]) => {
+            const one = known(bar) ? bar[field] : null;
+            return el("td", { class: one == null ? "empty" : "", text: one == null ? "–" : format(one) });
+          })))))));
+    }
+
+    /// Today's figures, each with its label: solar produced, the home's use, the share solar covered, the grid's import.
+    function fillToday(day, present) {
+      const has = (role) => present.includes(role);
+      // Each with its entity's icon and colour, as the charts draw it.
+      const figure = (icon, tone, label, value, note) => el("div", { class: "card" }, tile(icon, tone),
+        el("div", {}, el("span", { text: label }), el("b", { text: value }), note ? el("small", { text: note }) : null));
+      const known = Boolean(day?.minutes);
+      const kWh = (value) => known ? formatKWh(value) : "–";
+      today.replaceChildren(...[
+        has("solar") ? figure("sun", "yellow", t("Solar today"), kWh(day?.solar)) : null,
+        has("home") ? figure("house", "blue", t("Home used today"), kWh(day?.home)) : null,
+        has("solar") && has("home") ? figure("leaf", "green", t("Home from solar"), known && day.solarShare != null ? formatPercent(day.solarShare * 100) : "–", t("As it was produced")) : null,
+        has("grid") ? figure("pylon", "violet", t("Grid import today"), kWh(day?.gridImport), known ? t("{value} exported", { value: formatKWh(day.gridExport) }) : null) : null,
+      ].filter(Boolean));
+    }
+
+    /// The power and levels at each point, newest first.
+    function fillPoints() {
+      if (!lastReport) return;
+      const time = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+      const present = roles.filter((role) => lastReport.roles.includes(role.id));
+      const rows = new Map();
+      for (const point of lastReport.power) rows.set(point.t, { ...point });
+      for (const level of lastReport.levels) for (const [t0, percent] of level.points) rows.set(t0, { ...(rows.get(t0) ?? { t: t0 }), [level.series]: percent });
+      const cell = (value, format) => el("td", { class: value == null ? "empty" : "", text: value == null ? "–" : format(value) });
+      pointTable.replaceChildren(pointTable.firstChild, el("div", { class: "table-scroll" }, el("table", {},
+        el("thead", {}, el("tr", {}, el("th", { scope: "col", class: "time", text: t("Time") }),
+          present.map((role) => el("th", { scope: "col", text: role.label })), lastReport.levels.map((level) => el("th", { scope: "col", text: level.device })))),
+        el("tbody", {}, [...rows.values()].sort((a, b) => b.t - a.t).map((row) => el("tr", {},
+          el("th", { scope: "row", class: "time", text: time.format(row.t * 1000) }),
+          present.map((role) => cell(row[role.id], formatWatts)), lastReport.levels.map((level) => cell(row[level.series], formatPercent))))))));
+    }
+
+    load();
+    return section;
+  }
+  const dayFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric", month: "short" });
+  const shortMonth = new Intl.DateTimeFormat(HomeswiftI18n.locale, { month: "short" });
+  const narrowMonth = new Intl.DateTimeFormat(HomeswiftI18n.locale, { month: "narrow" });
+  const monthYear = new Intl.DateTimeFormat(HomeswiftI18n.locale, { month: "long", year: "numeric" });
+  const rangeFormat = new Intl.DateTimeFormat(HomeswiftI18n.locale, { day: "numeric", month: "short" });
+  /// A local day as YYYY-MM-DD, and back (null for anything else).
+  const isoDay = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  function parseDay(text) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text ?? "");
+    return match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])) : null;
+  }
+  const shortDay = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric" });
+
+  /// Watts, as kW from 1 kW (or when `top`, the axis's highest, is); a minus sign below zero.
+  function formatWatts(watts, top = Math.abs(watts)) {
+    const kilo = Math.max(Math.abs(watts), top) >= 1000;
+    const value = kilo ? watts / 1000 : watts;
+    const digits = kilo && Math.abs(value) < 10 ? (Number.isInteger(value) ? 0 : 1) : 0;
+    return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} ${kilo ? "kW" : "W"}`;
+  }
+  /// Kilowatt-hours, two decimals under 10; an axis's tick (with `top`) a whole number when it is one.
+  function formatKWh(kWh, top) {
+    const digits = top != null && Number.isInteger(kWh) ? 0 : Math.abs(kWh) < 10 ? 2 : 1;
+    return `${kWh.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} kWh`;
   }
 
   /// Bytes as MB, or GB from 1 GB; `top`, the axis's highest, keeps a chart's ticks in one unit.
@@ -4414,55 +4763,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   let logState = null;
 
   // The Logs and Status pages' filters, in one row above what they scope.
-  const rangeChoices = [["latest", t("Latest lines")], ["1h", t("Last hour")], ["6h", t("Last 6 hours")], ["24h", t("Last 24 hours")],
-    ["today", t("Today")], ["yesterday", t("Yesterday")], ["7d", t("Last 7 days")], ["custom", t("Custom range…")]];
-
-  /// A time range menu whose first choice is the default (`latest`, the Logs page's latest lines, only when asked
-  /// for), with the From and To of a custom range in `customRow`. `changed` runs on a choice.
-  function rangeFilter(params, { latest = false, changed }) {
-    const choices = rangeChoices.filter(([value]) => latest || value !== "latest");
-    const fallback = choices[0][0];
-    const since = choices.some(([value]) => value === params.get("since")) ? params.get("since") : fallback;
-    const picker = el("select", { class: `popup ${since === fallback ? "" : "chosen"}`, "aria-label": t("Time range") }, choices.map(([value, text]) => el("option", { value, text, selected: value === since })));
-    const localInput = (date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-    const fromInput = el("input", { type: "datetime-local", "aria-label": t("From"), value: params.get("from") ?? localInput(new Date(Date.now() - 3600000)) });
-    const toInput = el("input", { type: "datetime-local", "aria-label": t("To"), value: params.get("to") ?? localInput(new Date()) });
-    const customRow = el("div", { class: `log-range ${since === "custom" ? "" : "hidden"}` },
-      el("label", {}, t("From"), fromInput), el("label", {}, t("To"), toInput),
-      el("button", { actionIcon: "eye", text: t("Show"), onclick: () => changed() }));
-    picker.addEventListener("change", () => {
-      customRow.classList.toggle("hidden", picker.value !== "custom");
-      picker.classList.toggle("chosen", picker.value !== fallback);
-      if (picker.value === "custom") fromInput.focus(); else changed();
-    });
-    return {
-      picker, customRow,
-      /// The span chosen, `[from, to]` with `to` null when it ends now; null for the latest lines.
-      span() {
-        const now = new Date();
-        const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        switch (picker.value) {
-        case "1h": return [new Date(now - 3600000), null];
-        case "6h": return [new Date(now - 6 * 3600000), null];
-        case "24h": return [new Date(now - 86400000), null];
-        case "today": return [midnight, null];
-        case "yesterday": return [new Date(midnight - 86400000), midnight];
-        case "7d": return [new Date(now - 7 * 86400000), null];
-        case "custom": {
-          const from = new Date(fromInput.value), to = new Date(toInput.value);
-          return isNaN(from) ? null : [from, isNaN(to) || to > now ? null : to];
-        }
-        default: return null;
-        }
-      },
-      /// Adds the choice to a page's address: `since`, and `from` and `to` for a custom range.
-      address(query) {
-        if (picker.value !== fallback) query.set("since", picker.value);
-        if (picker.value === "custom") { query.set("from", fromInput.value); if (toInput.value) query.set("to", toInput.value); }
-      },
-    };
-  }
-
   /// What the data is about, one menu: everything (`everything` names it); the bridges, every bridge's own lines
   /// (`allBridges`) or one's; or one accessory, grouped by plugin. Values: "", "bridge:all", "bridge:<device ID>",
   /// "accessory:<id>". `changed` runs on a choice; `source()` reads it as a kind and a value.
@@ -4579,9 +4879,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     filter.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(() => { render(); keepAddress(); }, 120); });
     follow.addEventListener("change", () => { if (follow.checked) output.scrollTop = output.scrollHeight; });
 
-    // A time range (rangeFilter): the latest lines from memory, or a span from the log the bridge keeps on disk
+    // A time range (HomeswiftCommon.rangeControl): the latest lines from memory, or a span from the log the bridge keeps on disk
     // (rotated, a week at most). A span that ends now keeps following; one in the past stays as it is.
-    const range = rangeFilter(params, { latest: true, changed: () => load() });
+    const range = HomeswiftCommon.rangeControl(params, { presets: [["latest", t("Latest lines")], ["1h", t("1 hour")], ["6h", t("6 hours")], ["24h", t("24 hours")],
+      ["today", t("Today")], ["yesterday", t("Yesterday")], ["7d", t("7 days")]], fallback: "latest", earliestDays: 7, changed: () => load() });
     /// The address of what is shown, in place: no new history entry per choice.
     function keepAddress() {
       const query = new URLSearchParams();
@@ -4688,10 +4989,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       pageHead(t("Logs"), t("This homeswift's log, live, and up to a week back.")),
       el("div", { class: "card log-card" },
         el("div", { class: "log-filter-panel" },
-          el("div", { class: "log-level-row" }, levels, filter, HomeswiftCommon.clearFilters([[filter, ""], [range.picker, "latest"], [sources.picker, ""]], {
-            active: () => logState.level !== "info", events: [[levels, "click"]],
+          el("div", { class: "log-level-row" }, levels, filter, HomeswiftCommon.clearFilters([[filter, ""], [sources.picker, ""]], {
+            active: () => logState.level !== "info" || range.chosen(), events: [[levels, "click"], [range.control, "change"]],
             reset: () => {
               clearTimeout(typing);
+              range.reset();
               logState.level = "info";
               for (const [index, button] of [...levels.children].entries()) {
                 const selected = levelChoices[index][0] === "info";
@@ -4699,10 +5001,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
               }
             },
           })),
+          // A div, not a label: a label would press the control's first choice when its text is clicked.
           el("div", { class: "log-scope-row" },
-            el("label", {}, el("span", { text: t("Time range") }), range.picker),
-            el("label", {}, el("span", { text: t("What the lines are about") }), sources.picker)),
-          range.customRow),
+            el("div", { class: "log-time" }, el("span", { text: t("Time range") }), range.control),
+            el("label", {}, el("span", { text: t("What the lines are about") }), sources.picker))),
         el("div", { class: "editor-bar log-action-bar" }, count, el("span", { class: "spacer" }), doctor.button, copy,
           el("label", { class: "toggle compact" }, el("span", { class: "switch" }, follow, el("span")), el("span", { text: t("Follow") })),
           saveToggle, actions),
@@ -5368,7 +5670,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
 """#),
         "charts.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
-// Line charts over time for the Status page: memory, CPU, request durations. One axis each, 2px lines, an area wash
+// Line charts over time (and stacked bars, a bar per day) for the Status page: memory, CPU, request durations, energy. One axis each (below zero too,
+// with a zero line, for a power that flows both ways), 2px lines, an area wash
 // under a single series, a legend once there are two, hairline grid. A crosshair snaps to the nearest point and a
 // tooltip lists every series there, on hover and with the arrow keys once the chart has focus. Points further apart
 // than a step and a half leave a gap: nothing was recorded (homeswift was not running); a point without a value for a
@@ -5402,6 +5705,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return step * 4 * unit;
   }
 
+  /// A round step at or above `raw`: 1, 2, 2.5 or 5 times a power of ten of `unit`.
+  function niceStep(raw, unit = 1) {
+    if (!(raw > 0)) return unit;
+    const power = 10 ** Math.floor(Math.log10(raw / unit));
+    return [1, 2, 2.5, 5, 10].map((m) => m * power).find((s) => s >= raw / unit) * unit;
+  }
+
   /// Times along the x axis: whole minutes, hours or days, about `count` of them.
   function timeTicks(from, to, count) {
     const span = to - from;
@@ -5429,7 +5739,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const dayName = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric" });
   const fullTime = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
 
-  /// A chart in `container`: `series` are `{ label, value(point), tone }` (tone 1 or 2, the palette's slots),
+  /// A chart in `container`: `series` are `{ label, value(point), tone }` (tone 1 to 6, the palette's slots),
   /// `points` have `time` (a Date), `from` and `to` bound the x axis, `step` is the points' spacing in ms and
   /// `format` writes a value with its unit and `unit(max)` is the size of that unit, so ticks fall on round values
   /// of it. Returns `update(points, from, to, step)`.
@@ -5457,18 +5767,28 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const { points, from, to, step } = state;
       const plotWidth = width - pad.left - pad.right, plotHeight = height - pad.top - pad.bottom;
       const values = points.flatMap((point) => series.map((one) => one.value(point))).filter((v) => v != null);
-      const highest = Math.max(0, ...values);
-      const top = niceMax(highest, unit(highest));
+      const highest = Math.max(0, ...values), lowest = Math.min(0, ...values);
+      // From zero to four round steps up; with values below zero, round steps from below the lowest to above the highest.
+      let top = niceMax(highest, unit(highest)), bottom = 0, ticks = [0, 1, 2, 3, 4].map((i) => top / 4 * i);
+      if (lowest < 0) {
+        const size = Math.max(highest, -lowest);
+        const step = niceStep((highest - lowest) / 4, unit(size));
+        top = Math.max(step, Math.ceil(highest / step) * step);
+        bottom = Math.floor(lowest / step) * step;
+        ticks = [];
+        for (let value = bottom; value <= top + step / 2; value += step) ticks.push(value);
+      }
+      const scale = Math.max(top, -bottom);
       const x = (time) => pad.left + (time - from) / Math.max(to - from, 1) * plotWidth;
-      const y = (value) => pad.top + plotHeight - value / top * plotHeight;
+      const y = (value) => pad.top + plotHeight - (value - bottom) / (top - bottom) * plotHeight;
 
       const root = svg("svg", { width, height, viewBox: `0 0 ${width} ${height}`, class: "chart", role: "img", "aria-label": points.length ? t("{title}, drawn over time", { title }) : t("{title}, nothing recorded", { title }) });
       root.setAttribute("tabindex", "0");
-      for (let i = 0; i <= 4; i++) {
-        const value = top / 4 * i, at = y(value);
-        root.append(svg("line", { x1: pad.left, x2: width - pad.right, y1: at, y2: at, class: "grid" }));
+      for (const value of ticks) {
+        const at = y(value);
+        root.append(svg("line", { x1: pad.left, x2: width - pad.right, y1: at, y2: at, class: value === 0 && bottom < 0 ? "grid zero" : "grid" }));
         const label = svg("text", { x: pad.left - 8, y: at + 4, class: "tick", "text-anchor": "end" });
-        label.textContent = format(value, top);
+        label.textContent = format(value, scale);
         root.append(label);
       }
       for (const tick of timeTicks(from, to, Math.max(2, Math.floor(plotWidth / 90)))) {
@@ -5581,7 +5901,137 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     };
   }
 
-  window.HomeswiftChart = { lineChart };
+  /// Stacked bars in `container`, one per item of `bars` (`{ label, narrow, title, values, current }`, oldest first;
+  /// `narrow` under a bar too narrow for its label, `current` the period of today, its label emphasised): `segments` are
+  /// `{ label, tone, value(values) }`, stacked up from zero for a positive value and down for a negative one, so a bar
+  /// can show what came in above the line and what went out below it. A value of null is not known: it draws nothing
+  /// and the tooltip shows a dash, not a zero. `format` writes a value with its unit and
+  /// `unit(max)` sizes the ticks, as for `lineChart`. A tooltip lists a bar's segments, on hover and with the arrow keys.
+  /// Returns `update(bars)`.
+  /// `legend` (`{ label, tone }`) names the colours when segments share one (an entity above and below the line).
+  function stackedBars(container, { title, segments, bars, format, unit = () => 1, legend: keys = segments }) {
+    const frame = html("div", "chart-frame");
+    const tooltip = html("div", "chart-tooltip hidden");
+    tooltip.setAttribute("role", "status");
+    frame.append(tooltip);
+    container.append(frame);
+    const legend = html("div", "chart-legend");
+    for (const one of keys) {
+      const item = html("span", "", null);
+      item.append(html("i", `key bar tone-${one.tone}`), document.createTextNode(one.label));
+      legend.append(item);
+    }
+    container.append(legend);
+    let state = bars;
+    let chosen = null;
+    let drawn = null;
+
+    function draw() {
+      const width = Math.max(frame.clientWidth, 240);
+      const bars = state;
+      const plotWidth = width - pad.left - pad.right, plotHeight = height - pad.top - pad.bottom;
+      const known = bars.map((bar) => segments.map((one) => one.value(bar.values)));
+      const sums = known.map((values) => values.map((value) => value ?? 0));
+      const highest = Math.max(0, ...sums.map((list) => list.filter((v) => v > 0).reduce((a, b) => a + b, 0)));
+      const lowest = Math.min(0, ...sums.map((list) => list.filter((v) => v < 0).reduce((a, b) => a + b, 0)));
+      const size = Math.max(highest, -lowest);
+      const step = niceStep((highest - lowest) / 5 || 1, unit(size));
+      const top = Math.max(lowest < 0 ? 0 : step, Math.ceil(highest / step) * step), bottom = Math.floor(lowest / step) * step;
+      const y = (value) => pad.top + plotHeight - (value - bottom) / Math.max(top - bottom, 1e-9) * plotHeight;
+      const slot = plotWidth / Math.max(bars.length, 1), barWidth = Math.min(24, slot * 0.6);
+      const x = (index) => pad.left + slot * index + slot / 2;
+
+      const root = svg("svg", { width, height, viewBox: `0 0 ${width} ${height}`, class: "chart", role: "img", "aria-label": t("{title}, a bar per day", { title }) });
+      root.setAttribute("tabindex", "0");
+      for (let value = bottom; value <= top + step / 2; value += step) {
+        const at = y(value);
+        root.append(svg("line", { x1: pad.left, x2: width - pad.right, y1: at, y2: at, class: value === 0 && bottom < 0 ? "grid zero" : "grid" }));
+        const label = svg("text", { x: pad.left - 8, y: at + 4, class: "tick", "text-anchor": "end" });
+        label.textContent = format(value, size);
+        root.append(label);
+      }
+      const hover = svg("rect", { y: pad.top, height: plotHeight, width: slot, class: "bar-hover hidden", rx: 6 });
+      root.append(hover);
+      // Segments stack out from the baseline with a 2px gap between them; the outermost on each side has 4px
+      // rounded corners at its free end, square at the baseline.
+      const gap = 2, radius = 4;
+      bars.forEach((bar, index) => {
+        let up = 0, down = 0;
+        const placed = [];
+        segments.forEach((one, i) => {
+          const value = sums[index][i];
+          if (!value) return;
+          const from = value > 0 ? up : down, to = from + value;
+          if (value > 0) up = to; else down = to;
+          placed.push({ one, from, to, positive: value > 0 });
+        });
+        const outer = { true: placed.filter((p) => p.positive).at(-1), false: placed.filter((p) => !p.positive).at(-1) };
+        for (const part of placed) {
+          const near = y(part.from), far = y(part.to);
+          // The gap comes off the end nearer the baseline, except for the segment that sits on it.
+          const onBase = part.from === 0;
+          const start = onBase ? near : near + (part.positive ? -gap / 2 : gap / 2);
+          const end = far + (part.positive ? gap / 2 : -gap / 2) * (outer[part.positive] === part ? 0 : 1);
+          const length = Math.abs(end - start);
+          if (length < 0.5) continue;
+          const left = x(index) - barWidth / 2, r = outer[part.positive] === part ? Math.min(radius, length, barWidth / 2) : 0;
+          const top = Math.min(start, end), bottom = Math.max(start, end);
+          // Rounded at the free end only: the top for a positive bar, the bottom for a negative one.
+          const d = part.positive
+            ? `M${left},${bottom}V${top + r}Q${left},${top} ${left + r},${top}H${left + barWidth - r}Q${left + barWidth},${top} ${left + barWidth},${top + r}V${bottom}Z`
+            : `M${left},${top}V${bottom - r}Q${left},${bottom} ${left + r},${bottom}H${left + barWidth - r}Q${left + barWidth},${bottom} ${left + barWidth},${bottom - r}V${top}Z`;
+          root.append(svg("path", { d, class: `bar tone-${part.one.tone}` }));
+        }
+        // Bars too narrow for every label (a month's days on a phone) label one in `every`, the last always.
+        const every = slot < 24 ? Math.ceil(24 / slot) : 1;
+        if (index % every !== 0 && index !== bars.length - 1) return;
+        const label = svg("text", { x: x(index), y: height - 6, class: bar.current ? "tick current" : "tick", "text-anchor": "middle" });
+        label.textContent = slot < 64 && bar.narrow ? bar.narrow : bar.label;
+        root.append(label);
+      });
+      frame.querySelector("svg")?.remove();
+      frame.prepend(root);
+      drawn = { root };
+
+      const show = (index) => {
+        chosen = index;
+        if (index == null || !bars[index]) { hover.classList.add("hidden"); tooltip.classList.add("hidden"); return; }
+        hover.setAttribute("x", x(index) - slot / 2);
+        hover.classList.remove("hidden");
+        tooltip.replaceChildren(html("div", "chart-time", bars[index].title ?? bars[index].label));
+        segments.forEach((one, i) => {
+          const row = html("div", "chart-row");
+          const value = known[index][i];
+          row.append(html("i", `key bar tone-${one.tone}`), html("b", "", value == null ? "–" : format(Math.abs(value))), html("span", "muted", one.label));
+          tooltip.append(row);
+        });
+        tooltip.classList.remove("hidden");
+        const px = x(index), left = px + slot / 2 + 8 + tooltip.offsetWidth > width ? px - slot / 2 - 8 - tooltip.offsetWidth : px + slot / 2 + 8;
+        tooltip.style.left = `${Math.max(0, left)}px`;
+      };
+      const nearest = (clientX) => bars.length ? Math.min(bars.length - 1, Math.max(0, Math.floor((clientX - root.getBoundingClientRect().left - pad.left) / slot))) : null;
+      root.addEventListener("pointermove", (event) => show(nearest(event.clientX)));
+      root.addEventListener("pointerleave", () => { if (document.activeElement !== root) show(null); });
+      root.addEventListener("blur", () => show(null));
+      root.addEventListener("focus", () => show(chosen ?? (bars.length ? bars.length - 1 : null)));
+      root.addEventListener("keydown", (event) => {
+        const moves = { ArrowLeft: -1, ArrowRight: 1, Home: -Infinity, End: Infinity };
+        if (!bars.length || !(event.key in moves)) return;
+        event.preventDefault();
+        show(Math.min(bars.length - 1, Math.max(0, (chosen ?? bars.length - 1) + moves[event.key])));
+      });
+    }
+
+    const resize = new ResizeObserver(() => {
+      if (!frame.isConnected) { resize.disconnect(); return; }
+      if (frame.clientWidth && Math.abs(frame.clientWidth - (drawn ? Number(drawn.root.getAttribute("width")) : 0)) > 1) draw();
+    });
+    resize.observe(frame);
+    draw();
+    return { update(bars) { state = bars; chosen = null; tooltip.classList.add("hidden"); draw(); } };
+  }
+
+  window.HomeswiftChart = { lineChart, stackedBars };
 })();
 
 """#),
@@ -6464,6 +6914,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     up: '<path d="M6 15l6-6 6 6"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     down: '<path d="M6 9l6 6 6-6"/>',
+    // Energy (the Status page's Energy section): solar, the home, a battery, the grid's pylon, power, solar's share.
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>',
+    house: '<path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1z"/>',
+    battery: '<rect x="2.5" y="7" width="16.5" height="10" rx="2.5"/><path d="M21.5 10.5v3M6 10.5v3M9.5 10.5v3"/>',
+    pylon: '<path d="M9 21l3-18 3 18M6 7.5h12M7.5 12.5h9M10.3 12.5 14.2 21M13.7 12.5 9.8 21"/>',
+    bolt: '<path d="M13 2.5 5 13.5h6l-1 8 8-11h-6z"/>',
+    leaf: '<path d="M5 19c0-8 5-14 15-14 0 10-6 15-14 15M5 19l7-7"/>',
   };
 
   /// A button's icon before its text (`actionIcon`, `data-action-icon`): the icon as an SVG data: URL in
@@ -7702,6 +8159,180 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return button;
   }
 
+  /// A time range, the one control every page uses for it (the Status page's Activity and Energy, the Logs page): a
+  /// segmented control of `presets` (`[value, label]`: `latest`, `1h`, `6h`, `24h`, `today`, `yesterday`, `7d`), then
+  /// Custom…, which opens a pop-over anchored to it, in the app's own material: a month to pick the first and the last
+  /// day, and the From and To times (no browser calendar). Days more than `earliestDays` back, older than what is kept,
+  /// are not offered. `span()` is `[from, to]`, `to` null when it ends now, or null for `latest`; `address(query)` keeps
+  /// a choice other than `fallback` under `names` (`since`, `from`, `to`); `chosen()` says one is; `reset()` goes back to
+  /// `fallback` without `changed`. The control sends `change` when its choice changes, for Clear filters.
+  function rangeControl(params, { presets, fallback, names = { since: "since", from: "from", to: "to" }, earliestDays = 8, changed }) {
+    const parse = (text) => { const date = text ? new Date(text) : null; return date && !isNaN(date) ? date : null; };
+    const asked = params.get(names.since);
+    let value = presets.some(([one]) => one === asked) || (asked === "custom" && parse(params.get(names.from))) ? asked : fallback;
+    let custom = { from: parse(params.get(names.from)) ?? new Date(Date.now() - 3600000), to: parse(params.get(names.to)) };
+    const presetButtons = presets.map(([one, text]) => el("button", { type: "button", role: "radio", text, onclick: () => choose(one) }));
+    const customButton = el("button", { type: "button", role: "radio", class: "range-custom", "aria-haspopup": "dialog", "aria-expanded": "false", onclick: (event) => open(event.currentTarget) });
+    const control = el("div", { class: "group range-control", role: "radiogroup", "aria-label": t("Time range") }, presetButtons, customButton);
+    const shortTime = new Intl.DateTimeFormat(HomeswiftI18n.locale, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+    const describe = () => custom.to ? shortTime.formatRange(custom.from, custom.to) : t("Since {time}", { time: shortTime.format(custom.from) });
+
+    function mark() {
+      presetButtons.forEach((button, index) => {
+        const on = presets[index][0] === value;
+        button.classList.toggle("on", on);
+        button.setAttribute("aria-checked", String(on));
+      });
+      customButton.classList.toggle("on", value === "custom");
+      customButton.setAttribute("aria-checked", String(value === "custom"));
+      customButton.textContent = value === "custom" ? describe() : t("Custom…");
+      reveal();
+    }
+    // Where the choices outgrow the width (a phone), they scroll sideways: the edge with more fades out, and the chosen
+    // one is kept in view, without scrolling the page.
+    function edges() {
+      control.classList.toggle("more-before", control.scrollLeft > 2);
+      control.classList.toggle("more-after", control.scrollLeft + control.clientWidth < control.scrollWidth - 2);
+    }
+    function reveal() {
+      const on = control.querySelector(".on");
+      if (!on || control.scrollWidth <= control.clientWidth) return;
+      const start = on.offsetLeft - control.offsetLeft, end = start + on.offsetWidth;
+      if (start < control.scrollLeft) control.scrollLeft = start - 24;
+      else if (end > control.scrollLeft + control.clientWidth) control.scrollLeft = end - control.clientWidth + 24;
+    }
+    control.addEventListener("scroll", edges, { passive: true });
+    new ResizeObserver(() => { reveal(); edges(); }).observe(control);
+    function choose(one, quiet = false) {
+      if (one === value && one !== "custom") return;
+      value = one;
+      mark();
+      control.dispatchEvent(new Event("change"));
+      if (!quiet) changed();
+    }
+    mark();
+
+    let popover = null;
+    function close() {
+      if (!popover) return;
+      const node = popover;
+      popover = null;
+      customButton.setAttribute("aria-expanded", "false");
+      document.removeEventListener("pointerdown", outside, true);
+      node.classList.add("closing");
+      node.addEventListener("animationend", () => node.remove(), { once: true });
+      setTimeout(() => node.remove(), 200);
+    }
+    const outside = (event) => { if (popover && !popover.contains(event.target) && !customButton.contains(event.target)) close(); };
+
+    function open(anchor) {
+      if (popover) { close(); return; }
+      const midnight = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+      const today = midnight(new Date());
+      const earliest = new Date(today.getFullYear(), today.getMonth(), today.getDate() - earliestDays);
+      const pad = (n) => String(n).padStart(2, "0");
+      const clock = (date) => `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+      let start = midnight(custom.from), end = midnight(custom.to ?? new Date()), picking = false;
+      let month = new Date(end.getFullYear(), end.getMonth(), 1);
+      const fromTime = el("input", { type: "time", value: clock(custom.from), "aria-label": t("From") });
+      const toTime = el("input", { type: "time", value: clock(custom.to ?? new Date()), "aria-label": t("To"), disabled: !custom.to });
+      const untilNow = el("input", { type: "checkbox", checked: !custom.to });
+      untilNow.addEventListener("change", () => { toTime.disabled = untilNow.checked; });
+      const title = el("strong", { class: "range-month" });
+      const grid = el("div", { class: "range-days", role: "grid" });
+      const message = el("p", { class: "range-message muted", text: t("Pick the first day, then the last."), role: "status" });
+      const weekday = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "narrow" });
+      const monthName = new Intl.DateTimeFormat(HomeswiftI18n.locale, { month: "long", year: "numeric" });
+      const dayName = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "long", day: "numeric", month: "long" });
+      const step = (months) => { month = new Date(month.getFullYear(), month.getMonth() + months, 1); render(); };
+      const previous = el("button", { type: "button", class: "menu-button", "aria-label": t("Previous month"), onclick: () => step(-1) }, icon("back"));
+      const next = el("button", { type: "button", class: "menu-button", "aria-label": t("Next month"), onclick: () => step(1) }, icon("forward"));
+
+      function render() {
+        title.textContent = monthName.format(month);
+        previous.disabled = month <= new Date(earliest.getFullYear(), earliest.getMonth(), 1);
+        next.disabled = month >= new Date(today.getFullYear(), today.getMonth(), 1);
+        // Weeks start on Monday; the days of the months around fill the first and last weeks.
+        const first = new Date(month.getFullYear(), month.getMonth(), 1 - (month.getDay() + 6) % 7);
+        const heads = [...Array(7)].map((_, index) => el("span", { class: "range-weekday", "aria-hidden": "true", text: weekday.format(new Date(2024, 0, 1 + index)) }));
+        const days = [...Array(42)].map((_, index) => {
+          const date = new Date(first.getFullYear(), first.getMonth(), first.getDate() + index);
+          const time = date.getTime();
+          const classes = ["range-day",
+            date.getMonth() !== month.getMonth() ? "outside" : "",
+            time === today.getTime() ? "today" : "",
+            time >= start.getTime() && time <= end.getTime() ? "in" : "",
+            time === start.getTime() ? "start" : "", time === end.getTime() ? "end" : "",
+            index % 7 === 0 ? "row-start" : "", index % 7 === 6 ? "row-end" : ""].filter(Boolean).join(" ");
+          return el("button", { type: "button", class: classes, text: date.getDate(), disabled: date > today || date < earliest,
+            "aria-label": dayName.format(date), "aria-pressed": String(time >= start.getTime() && time <= end.getTime()),
+            onclick: () => pick(date) });
+        });
+        grid.replaceChildren(...heads, ...days);
+      }
+      function pick(date) {
+        if (!picking) { start = end = date; picking = true; message.textContent = t("Pick the first day, then the last."); }
+        else { if (date < start) [start, end] = [date, start]; else end = date; picking = false; }
+        render();
+      }
+      function apply() {
+        const at = (day, text) => { const [h, m] = text.split(":").map(Number); return new Date(day.getFullYear(), day.getMonth(), day.getDate(), h || 0, m || 0); };
+        const from = at(start, fromTime.value), to = untilNow.checked ? null : at(end, toTime.value);
+        if (from >= (to ?? new Date())) { message.textContent = t("The start must be before the end."); message.classList.add("error"); return; }
+        custom = { from, to };
+        close();
+        choose("custom");
+        customButton.focus();
+      }
+
+      popover = el("div", { class: "range-popover", role: "dialog", "aria-label": t("Custom range…") },
+        el("div", { class: "range-head" }, previous, title, next),
+        grid,
+        el("div", { class: "range-times" },
+          el("label", {}, el("span", { text: t("From") }), fromTime),
+          el("label", {}, el("span", { text: t("To") }), toTime),
+          el("label", { class: "range-now" }, untilNow, el("span", { text: t("Until now") }))),
+        message,
+        el("div", { class: "range-actions" },
+          el("button", { type: "button", actionIcon: "close", text: t("Cancel"), onclick: () => { close(); customButton.focus(); } }),
+          el("button", { type: "button", class: "primary", actionIcon: "eye", text: t("Show"), onclick: apply })));
+      popover.addEventListener("keydown", (event) => { if (event.key === "Escape") { event.stopPropagation(); close(); customButton.focus(); } });
+      render();
+      document.body.append(popover);
+      // Under the Custom segment, kept on screen, growing from it.
+      const box = anchor.getBoundingClientRect(), width = popover.offsetWidth, height = popover.offsetHeight;
+      const left = Math.min(Math.max(8, box.left + box.width / 2 - width / 2), innerWidth - width - 8);
+      const below = box.bottom + 8 + height <= innerHeight - 8;
+      popover.style.left = `${left}px`;
+      popover.style.top = `${below ? box.bottom + 8 : Math.max(8, box.top - 8 - height)}px`;
+      popover.style.transformOrigin = `${box.left + box.width / 2 - left}px ${below ? "0" : "100%"}`;
+      customButton.setAttribute("aria-expanded", "true");
+      document.addEventListener("pointerdown", outside, true);
+      (grid.querySelector(".range-day.end") ?? grid.querySelector(".range-day:not(:disabled)"))?.focus();
+    }
+
+    return {
+      control,
+      span() {
+        const now = new Date(), midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        if (value === "latest") return null;
+        if (value === "custom") return [custom.from, custom.to && custom.to < now ? custom.to : null];
+        return { "1h": [new Date(now - 3600000), null], "6h": [new Date(now - 6 * 3600000), null], "24h": [new Date(now - 86400000), null],
+          today: [midnight, null], yesterday: [new Date(midnight - 86400000), midnight], "7d": [new Date(now - 7 * 86400000), null] }[value];
+      },
+      address(query) {
+        if (value === fallback) return;
+        query.set(names.since, value);
+        if (value !== "custom") return;
+        const local = (date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+        query.set(names.from, local(custom.from));
+        if (custom.to) query.set(names.to, local(custom.to));
+      },
+      chosen: () => value !== fallback,
+      reset() { close(); choose(fallback, true); },
+    };
+  }
+
   // Native disabled buttons suppress click events. Pointer events still let a tap
   // explain the disabled state without enabling the control or running its action.
   let filterTip = null, filterTipTimer = null, filterTap = null;
@@ -7782,7 +8413,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   window.HomeswiftCommon = {
     busyButton, scaledCanvas, byteSize,
-    $, el, icon, subnav, tile, clearFilters, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
+    $, el, icon, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
 })();
@@ -11211,7 +11842,65 @@ HomeswiftI18n.add("es", {
   "Categories": "Categorías",
   "Yes": "Sí",
   "No": "No",
-  "Not in the Home app:": "No están en la app Casa:"
+  "Not in the Home app:": "No están en la app Casa:",
+
+  "Energy": "Energía",
+  "Solar, home, grid and batteries": "Solar, casa, red y baterías",
+  "Solar": "Solar",
+  "Home [use]": "Casa",
+  "Grid": "Red",
+  "Added up across devices: the grid above zero is imported, the battery above zero is charging": "Sumada entre todos los dispositivos: la red por encima de cero se importa, la batería por encima de cero se carga",
+  "Battery level": "Nivel de batería",
+  "Each device's charge": "La carga de cada dispositivo",
+  "Energy by day": "Energía por día",
+  "Latest: {values}": "Últimos valores: {values}",
+  "Solar produced": "Solar producida",
+  "Home used": "Consumo de la casa",
+  "Grid import": "Importación de la red",
+  "Grid export": "Exportación a la red",
+  "Battery charged": "Batería cargada",
+  "Battery discharged": "Batería descargada",
+  "Home from solar": "Casa cubierta por solar",
+  "Day": "Día",
+  "Home from batteries": "Casa desde las baterías",
+  "Home from the grid": "Casa desde la red",
+  "Other sources": "Otras fuentes",
+  "Into batteries": "Hacia las baterías",
+  "Exported to the grid": "Exportado a la red",
+  "{title}, a bar per day": "{title}, una barra por día",
+  "Batteries": "Baterías",
+  "Solar today": "Solar hoy",
+  "Home used today": "Consumo de hoy",
+  "As it was produced": "En el momento de producirse",
+  "Grid import today": "Importación de la red hoy",
+  "{value} exported": "{value} exportados",
+  "1 hour": "1 hora",
+  "6 hours": "6 horas",
+  "Custom…": "Personalizado…",
+  "Previous month": "Mes anterior",
+  "Next month": "Mes siguiente",
+  "Until now": "Hasta ahora",
+  "Since {time}": "Desde {time}",
+  "Pick the first day, then the last.": "Elige el primer día y luego el último.",
+  "The start must be before the end.": "El inicio debe ser anterior al final.",
+  "Where the home's energy came from, above the line, and where the rest went, below it": "De dónde vino la energía de la casa, por encima de la línea, y adónde fue el resto, por debajo",
+  "Week": "Semana",
+  "Month": "Mes",
+  "Year": "Año",
+  "Period": "Periodo",
+  "Previous period": "Periodo anterior",
+  "Next period": "Periodo siguiente",
+  "Home, not split by source": "Casa, sin desglose por fuente",
+  "Not split": "Sin desglose",
+  "Energy by month": "Energía por mes",
+  "Nothing recorded in this period": "Nada registrado en este periodo",
+  "Imported hours have no grid or battery figures: the rest of their home use is not split by source.": "Las horas importadas no tienen datos de red ni de batería: el resto de su consumo no se desglosa por fuente.",
+  "Recorded days only": "Solo días registrados",
+  "Importing the {name} history": "Importando el historial de {name}",
+  "{done} of {total}": "{done} de {total}",
+  "The {name} history could not be imported: {message}": "No se pudo importar el historial de {name}: {message}",
+  "History from {name} since {date}, updated {ago}": "Historial de {name} desde el {date}, actualizado {ago}",
+  "History from {name}, updated {ago}": "Historial de {name}, actualizado {ago}"
 });
 
 """#),
@@ -13385,7 +14074,65 @@ HomeswiftI18n.add("fr", {
   "Categories": "Catégories",
   "Yes": "Oui",
   "No": "Non",
-  "Not in the Home app:": "Absents de l'app Maison :"
+  "Not in the Home app:": "Absents de l'app Maison :",
+
+  "Energy": "Énergie",
+  "Solar, home, grid and batteries": "Solaire, maison, réseau et batteries",
+  "Solar": "Solaire",
+  "Home [use]": "Maison",
+  "Grid": "Réseau",
+  "Added up across devices: the grid above zero is imported, the battery above zero is charging": "Additionnée sur tous les appareils : le réseau au-dessus de zéro est importé, la batterie au-dessus de zéro se charge",
+  "Battery level": "Niveau de batterie",
+  "Each device's charge": "La charge de chaque appareil",
+  "Energy by day": "Énergie par jour",
+  "Latest: {values}": "Dernières valeurs : {values}",
+  "Solar produced": "Solaire produit",
+  "Home used": "Consommation de la maison",
+  "Grid import": "Import du réseau",
+  "Grid export": "Export vers le réseau",
+  "Battery charged": "Batterie chargée",
+  "Battery discharged": "Batterie déchargée",
+  "Home from solar": "Maison couverte par le solaire",
+  "Day": "Jour",
+  "Home from batteries": "Maison depuis les batteries",
+  "Home from the grid": "Maison depuis le réseau",
+  "Other sources": "Autres sources",
+  "Into batteries": "Vers les batteries",
+  "Exported to the grid": "Exporté vers le réseau",
+  "{title}, a bar per day": "{title}, une barre par jour",
+  "Batteries": "Batteries",
+  "Solar today": "Solaire aujourd’hui",
+  "Home used today": "Consommation aujourd’hui",
+  "As it was produced": "Au moment de la production",
+  "Grid import today": "Import du réseau aujourd’hui",
+  "{value} exported": "{value} exportés",
+  "1 hour": "1 heure",
+  "6 hours": "6 heures",
+  "Custom…": "Personnalisé…",
+  "Previous month": "Mois précédent",
+  "Next month": "Mois suivant",
+  "Until now": "Jusqu’à maintenant",
+  "Since {time}": "Depuis {time}",
+  "Pick the first day, then the last.": "Choisissez le premier jour, puis le dernier.",
+  "The start must be before the end.": "Le début doit précéder la fin.",
+  "Where the home's energy came from, above the line, and where the rest went, below it": "D’où venait l’énergie de la maison, au-dessus de la ligne, et où est allé le reste, en dessous",
+  "Week": "Semaine",
+  "Month": "Mois",
+  "Year": "Année",
+  "Period": "Période",
+  "Previous period": "Période précédente",
+  "Next period": "Période suivante",
+  "Home, not split by source": "Maison, sans répartition par source",
+  "Not split": "Non réparti",
+  "Energy by month": "Énergie par mois",
+  "Nothing recorded in this period": "Rien d’enregistré sur cette période",
+  "Imported hours have no grid or battery figures: the rest of their home use is not split by source.": "Les heures importées n’ont pas de chiffres de réseau ni de batterie : le reste de leur consommation n’est pas réparti par source.",
+  "Recorded days only": "Jours enregistrés seulement",
+  "Importing the {name} history": "Import de l’historique {name}",
+  "{done} of {total}": "{done} sur {total}",
+  "The {name} history could not be imported: {message}": "L’historique {name} n’a pas pu être importé : {message}",
+  "History from {name} since {date}, updated {ago}": "Historique {name} depuis le {date}, mis à jour {ago}",
+  "History from {name}, updated {ago}": "Historique {name}, mis à jour {ago}"
 });
 
 """#),
@@ -15559,7 +16306,65 @@ HomeswiftI18n.add("pt", {
   "Categories": "Categorias",
   "Yes": "Sim",
   "No": "Não",
-  "Not in the Home app:": "Fora da app Casa:"
+  "Not in the Home app:": "Fora da app Casa:",
+
+  "Energy": "Energia",
+  "Solar, home, grid and batteries": "Solar, casa, rede e baterias",
+  "Solar": "Solar",
+  "Home [use]": "Casa",
+  "Grid": "Rede",
+  "Added up across devices: the grid above zero is imported, the battery above zero is charging": "Somada em todos os dispositivos: a rede acima de zero é importada, a bateria acima de zero está a carregar",
+  "Battery level": "Nível da bateria",
+  "Each device's charge": "A carga de cada dispositivo",
+  "Energy by day": "Energia por dia",
+  "Latest: {values}": "Últimos valores: {values}",
+  "Solar produced": "Solar produzida",
+  "Home used": "Consumo da casa",
+  "Grid import": "Importação da rede",
+  "Grid export": "Exportação para a rede",
+  "Battery charged": "Bateria carregada",
+  "Battery discharged": "Bateria descarregada",
+  "Home from solar": "Casa coberta pelo solar",
+  "Day": "Dia",
+  "Home from batteries": "Casa a partir das baterias",
+  "Home from the grid": "Casa a partir da rede",
+  "Other sources": "Outras fontes",
+  "Into batteries": "Para as baterias",
+  "Exported to the grid": "Exportado para a rede",
+  "{title}, a bar per day": "{title}, uma barra por dia",
+  "Batteries": "Baterias",
+  "Solar today": "Solar hoje",
+  "Home used today": "Consumo de hoje",
+  "As it was produced": "No momento da produção",
+  "Grid import today": "Importação da rede hoje",
+  "{value} exported": "{value} exportados",
+  "1 hour": "1 hora",
+  "6 hours": "6 horas",
+  "Custom…": "Personalizado…",
+  "Previous month": "Mês anterior",
+  "Next month": "Mês seguinte",
+  "Until now": "Até agora",
+  "Since {time}": "Desde {time}",
+  "Pick the first day, then the last.": "Escolha o primeiro dia e depois o último.",
+  "The start must be before the end.": "O início tem de ser anterior ao fim.",
+  "Where the home's energy came from, above the line, and where the rest went, below it": "De onde veio a energia da casa, acima da linha, e para onde foi o resto, abaixo",
+  "Week": "Semana",
+  "Month": "Mês",
+  "Year": "Ano",
+  "Period": "Período",
+  "Previous period": "Período anterior",
+  "Next period": "Período seguinte",
+  "Home, not split by source": "Casa, sem divisão por fonte",
+  "Not split": "Sem divisão",
+  "Energy by month": "Energia por mês",
+  "Nothing recorded in this period": "Nada registado neste período",
+  "Imported hours have no grid or battery figures: the rest of their home use is not split by source.": "As horas importadas não têm valores de rede nem de bateria: o resto do seu consumo não é dividido por fonte.",
+  "Recorded days only": "Só dias registados",
+  "Importing the {name} history": "A importar o histórico de {name}",
+  "{done} of {total}": "{done} de {total}",
+  "The {name} history could not be imported: {message}": "Não foi possível importar o histórico de {name}: {message}",
+  "History from {name} since {date}, updated {ago}": "Histórico de {name} desde {date}, atualizado {ago}",
+  "History from {name}, updated {ago}": "Histórico de {name}, atualizado {ago}"
 });
 
 """#),
@@ -17250,6 +18055,9 @@ HomeswiftI18n.add("pt", {
   --accent-ink: #b0460a; --accent-fill-top: #c4500c; --accent-fill: #ab3f0a;
   /* Chart series, slots 1 and 2 of a palette checked for colour-blind separation and contrast, each mode its own step. */
   --series-1: #2a78d6; --series-2: #eb6834;
+  /* Slots 3 to 7, the same validated palette (aqua, yellow, magenta, green, violet), for the Energy section's roles and
+     its battery lines; each mode its own step. */
+  --series-3: #1baf7a; --series-4: #eda100; --series-5: #e87ba4; --series-6: #008300; --series-7: #6250d6;
   /* Blue that carries small text (the Encrypted pill) at 4.5:1 on its tint; --series-1 stays for marks and bars. */
   --series-1-ink: #1d5fae;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -17272,6 +18080,7 @@ HomeswiftI18n.add("pt", {
     --text: #f3f4f7; --muted: #a2a9b5; --line: rgba(255, 255, 255, 0.1);
     --warn: #e9a04a; --paused: #8e8cff; --ok: #3ccf7a; --error: #ff6b6b; --accent-ink: #ff8f3d;
     --series-1: #3987e5; --series-2: #d95926; --series-1-ink: #6aa6ee;
+    --series-3: #199e70; --series-4: #c98500; --series-5: #d55181; --series-6: #008300; --series-7: #9085e9;
   }
 }
 /* A theme chosen in the web UI (/appearance) rather than the system's: common.js sets data-theme. */
@@ -17291,6 +18100,7 @@ HomeswiftI18n.add("pt", {
   --text: #f3f4f7; --muted: #a2a9b5; --line: rgba(255, 255, 255, 0.1);
   --warn: #e9a04a; --paused: #8e8cff; --ok: #3ccf7a; --error: #ff6b6b; --accent-ink: #ff8f3d;
   --series-1: #3987e5; --series-2: #d95926; --series-1-ink: #6aa6ee;
+  --series-3: #199e70; --series-4: #c98500; --series-5: #d55181; --series-6: #008300; --series-7: #9085e9;
 }
 * { box-sizing: border-box; }
 /* Hidden means hidden, whatever display a component's class gives it. */
@@ -18330,9 +19140,6 @@ textarea.short { min-height: 220px; }
 @media (prefers-reduced-motion: reduce) { .menu, .menu.closing, .menu.sheet-menu, .menu.sheet-menu.closing { animation-name: fade; } }
 @media (prefers-reduced-transparency: reduce) { .menu { background: var(--material-solid); -webkit-backdrop-filter: none; backdrop-filter: none; } }
 /* A custom time range: from and to, under the toolbar, as the material arriving. */
-.log-range { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; width: 100%; animation: fade var(--normal) var(--ease-out); }
-.log-range label { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 0.8125rem; color: var(--muted); }
-.log-range input { width: auto; padding: 6px 12px; border-radius: 999px; font-variant-numeric: tabular-nums; }
 .editor-bar .count { font-size: 0.8125rem; font-variant-numeric: tabular-nums; }
 .editor-card textarea { display: block; border: 0; border-radius: 0; box-shadow: none; background: transparent; min-height: 62vh; padding: 16px 18px; resize: vertical; tab-size: 2; line-height: 1.55; }
 .editor-card textarea:focus { box-shadow: none; }
@@ -18384,6 +19191,121 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .filter-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 12px; }
 .filter-bar .popup { max-width: 260px; }
 .chart-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 14px; transition: opacity var(--normal) var(--ease-out); }
+/* A Status section's time range (app.js's rangeControl): the segmented control, scrolling sideways when its choices
+   outgrow a phone, and Custom…'s pop-over in the menus' material, growing from the segment. A day range is one band,
+   rounded at its first and last day; today is ringed; days without history are dimmed. */
+.range-control { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.range-control::-webkit-scrollbar { display: none; }
+.range-control.more-after { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent); }
+.range-control.more-before { -webkit-mask-image: linear-gradient(90deg, transparent, #000 32px); mask-image: linear-gradient(90deg, transparent, #000 32px); }
+.range-control.more-before.more-after { -webkit-mask-image: linear-gradient(90deg, transparent, #000 32px, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(90deg, transparent, #000 32px, #000 calc(100% - 32px), transparent); }
+.range-control .range-custom { font-variant-numeric: tabular-nums; }
+.range-popover {
+  position: fixed; z-index: 30; width: min(320px, calc(100vw - 16px)); padding: 14px; display: grid; gap: 12px; border-radius: 20px;
+  background-color: var(--material-thick); background-image: var(--sheen);
+  -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
+  border: 1px solid var(--edge); box-shadow: 0 18px 44px rgba(25, 34, 56, 0.24), inset 0 1px 0 var(--edge-light);
+  animation: menu-in 180ms var(--ease-out);
+}
+.range-popover.closing { animation: menu-out 140ms var(--ease-out) forwards; pointer-events: none; }
+.range-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.range-month { font-size: 0.9375rem; text-transform: capitalize; }
+.range-head .menu-button svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.range-days { display: grid; grid-template-columns: repeat(7, 1fr); row-gap: 2px; }
+.range-weekday { text-align: center; font-size: 0.6875rem; font-weight: 600; color: var(--muted); padding-bottom: 4px; text-transform: uppercase; }
+.range-day {
+  height: 36px; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; color: var(--text);
+  font-size: 0.875rem; font-variant-numeric: tabular-nums; position: relative; z-index: 0;
+}
+.range-day::after { content: ""; position: absolute; inset: 2px; border-radius: 50%; z-index: -1; transition: background-color var(--fast) var(--ease-out); }
+.range-day:hover:not(:disabled)::after { background: var(--material-thin); }
+.range-day.outside { color: var(--muted); }
+.range-day:disabled { opacity: 0.35; }
+.range-day.today::after { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.range-day.in { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.range-day.start { border-radius: 18px 0 0 18px; }
+.range-day.end { border-radius: 0 18px 18px 0; }
+.range-day.start.end { border-radius: 18px; }
+.range-day.in.row-start { border-top-left-radius: 18px; border-bottom-left-radius: 18px; }
+.range-day.in.row-end { border-top-right-radius: 18px; border-bottom-right-radius: 18px; }
+.range-day.start::after, .range-day.end::after { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); }
+.range-day.start, .range-day.end { color: var(--accent-text); font-weight: 650; }
+.range-day:active:not(:disabled) { transform: none; }
+.range-day:active:not(:disabled)::after { transform: scale(0.92); }
+.range-times { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
+.range-times label { display: grid; gap: 4px; margin: 0; font-size: 0.75rem; color: var(--muted); }
+.range-times input[type=time] { padding: 7px 12px; border-radius: 12px; font-variant-numeric: tabular-nums; }
+.range-times input[type=time]::-webkit-calendar-picker-indicator { display: none; }
+.range-times input:disabled { opacity: 0.45; }
+.range-times .range-now { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; font-size: 0.8125rem; color: var(--text); }
+.range-message { margin: 0; font-size: 0.75rem; min-height: 1.2em; }
+.range-message.error { color: var(--error); }
+.range-actions { display: flex; justify-content: flex-end; gap: 8px; }
+@media (prefers-reduced-motion: reduce) { .range-popover, .range-popover.closing { animation-duration: 1ms; } }
+
+/* The Energy section's days: one card the width of the row, its table under the head. */
+/* Today's figures above the charts: a small tile and the label on one row, the proportional figure the card's width
+   under them, a note in muted ink. */
+.energy-today { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 14px; }
+.energy-today .card { margin: 0; padding: 14px 16px; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px 10px; align-content: start; }
+.energy-today .card > div { display: contents; }
+.energy-today .tile { width: 30px; height: 30px; border-radius: 9px; }
+.energy-today .tile svg { width: 17px; height: 17px; }
+.energy-today span { font-size: 0.8125rem; color: var(--muted); }
+.energy-today b, .energy-today small { grid-column: 1 / -1; }
+.energy-today b { font-size: 1.75rem; line-height: 1.1; font-weight: 650; letter-spacing: -0.02em; white-space: nowrap; }
+.energy-today small { font-size: 0.75rem; color: var(--muted); margin-top: -4px; }
+.energy .chart-head .who { flex: 1; min-width: 0; }
+/* A phone: two figures a row, tighter cards, smaller tiles, the range across the width. */
+@media (max-width: 640px) {
+  .energy-today { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+  .energy-today .card { padding: 12px 14px; }
+  .energy-today b { font-size: 1.375rem; }
+  .energy .chart-grid { gap: 10px; }
+  .energy .chart-card { padding: 14px; gap: 8px; }
+  .energy .chart-head { gap: 10px; }
+  .energy .chart-head .tile { width: 32px; height: 32px; border-radius: 10px; }
+  .energy .chart-head .tile svg { width: 18px; height: 18px; }
+  .energy .chart-head .muted { font-size: 0.75rem; }
+  .energy .range-control { display: flex; width: 100%; }
+  .energy-history-bar > .group { display: flex; width: 100%; }
+  .energy-history-bar > .group button { flex: 1; }
+  .energy-period-nav { width: 100%; justify-content: space-between; }
+  .energy-totals { gap: 8px 18px; }
+  .energy-total b { font-size: 1rem; }
+  .energy .range-control button { flex: 1 0 auto; padding-inline: 10px; }
+}
+.energy .chart-table { margin-top: 12px; }
+.chart-grid.energy-days { grid-template-columns: minmax(0, 1fr); margin-top: 14px; }
+/* The history's period: Week, Month or Year on the left, the period with its arrows on the right. */
+.energy-history-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.energy-period-nav { display: flex; align-items: center; gap: 6px; }
+.energy-period { min-width: 12ch; text-align: center; font-size: 0.9375rem; font-variant-numeric: tabular-nums; }
+/* An import of the history: while it runs, its progress in a thin accent bar; done, one quiet line; failed, a warning. */
+.energy-imports { display: grid; gap: 8px; }
+.energy-imports:empty { display: none; }
+.energy-import { display: flex; align-items: center; gap: 8px; font-size: 0.8125rem; }
+.energy-import > svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.energy-import.running { display: grid; gap: 6px; padding: 10px 12px; border-radius: 12px; background: var(--material-thin); }
+.energy-import-line { display: flex; justify-content: space-between; gap: 12px; }
+.energy-import-line b { font-variant-numeric: tabular-nums; font-weight: 600; }
+.energy-import progress { -webkit-appearance: none; appearance: none; width: 100%; height: 6px; border: 0; border-radius: 3px; overflow: hidden; background: var(--line); }
+.energy-import progress::-webkit-progress-bar { background: var(--line); border-radius: 3px; }
+.energy-import progress::-webkit-progress-value { background: var(--accent); border-radius: 3px; transition: width var(--normal) var(--ease-out); }
+.energy-import progress::-moz-progress-bar { background: var(--accent); border-radius: 3px; }
+.energy-import.failed { color: var(--warn); }
+
+/* The period's totals over the bars: a muted label with its colour key over a proportional figure. */
+.energy-totals { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 28px; padding: 2px 0 4px; }
+.energy-total { display: grid; gap: 2px; align-content: start; }
+.energy-total span { display: inline-flex; align-items: center; gap: 6px; font-size: 0.75rem; color: var(--muted); }
+.energy-total .key { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
+.energy-total b { font-size: 1.125rem; font-weight: 650; letter-spacing: -0.01em; }
+.energy-total small { font-size: 0.6875rem; color: var(--muted); }
+.chart .tick.current { fill: var(--text); font-weight: 650; }
+.energy-period-nav .menu-button svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.energy-days .chart-table { margin-top: 0; }
+.energy-days .chart-table thead th.time { text-align: left; }
 .chart-card { margin: 0; display: grid; gap: 10px; align-content: start; min-width: 0; }
 .chart-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .chart-head .muted { font-size: 0.8125rem; }
@@ -18399,15 +19321,43 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .chart .area { stroke: none; opacity: 0.1; }
 .chart .dot { stroke: var(--material-solid); stroke-width: 2; }
 .chart .crosshair { stroke: var(--muted); stroke-width: 1; opacity: 0.6; }
+.chart .grid.zero { stroke: var(--muted); opacity: 0.5; }
 .chart .line.tone-1 { stroke: var(--series-1); }
 .chart .line.tone-2 { stroke: var(--series-2); }
+.chart .line.tone-3 { stroke: var(--series-3); }
+.chart .line.tone-4 { stroke: var(--series-4); }
+.chart .line.tone-5 { stroke: var(--series-5); }
+.chart .line.tone-6 { stroke: var(--series-6); }
+.chart .line.tone-7 { stroke: var(--series-7); }
 .chart .area.tone-1, .chart .dot.tone-1 { fill: var(--series-1); }
 .chart .area.tone-2, .chart .dot.tone-2 { fill: var(--series-2); }
-.chart-legend { display: flex; gap: 14px; font-size: 0.8125rem; color: var(--muted); }
-.chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.chart .area.tone-3, .chart .dot.tone-3 { fill: var(--series-3); }
+.chart .area.tone-4, .chart .dot.tone-4 { fill: var(--series-4); }
+.chart .area.tone-5, .chart .dot.tone-5 { fill: var(--series-5); }
+.chart .area.tone-6, .chart .dot.tone-6 { fill: var(--series-6); }
+.chart .area.tone-7, .chart .dot.tone-7 { fill: var(--series-7); }
+.chart .bar.tone-1 { fill: var(--series-1); }
+.chart .bar.tone-2 { fill: var(--series-2); }
+.chart .bar.tone-3 { fill: var(--series-3); }
+.chart .bar.tone-4 { fill: var(--series-4); }
+.chart .bar.tone-5 { fill: var(--series-5); }
+.chart .bar.tone-6 { fill: var(--series-6); }
+.chart .bar.tone-7 { fill: var(--series-7); }
+/* A part with no source (an imported hour's home use not split): neutral, never a series colour. */
+.chart .bar.tone-8 { fill: var(--muted); opacity: 0.45; }
+.chart .bar-hover { fill: var(--material-thin); }
+.chart-legend .key.bar, .chart-tooltip .key.bar { width: 10px; height: 10px; border-radius: 3px; }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.8125rem; color: var(--muted); }
+.chart-legend span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .chart-legend .key, .chart-tooltip .key { display: inline-block; width: 12px; height: 2px; border-radius: 1px; }
 .key.tone-1 { background: var(--series-1); }
 .key.tone-2 { background: var(--series-2); }
+.key.tone-3 { background: var(--series-3); }
+.key.tone-4 { background: var(--series-4); }
+.key.tone-5 { background: var(--series-5); }
+.key.tone-6 { background: var(--series-6); }
+.key.tone-7 { background: var(--series-7); }
+.key.tone-8 { background: var(--muted); opacity: 0.45; }
 .chart-tooltip {
   position: absolute; top: 4px; z-index: 2; pointer-events: none; padding: 8px 10px; border-radius: 12px; min-width: 132px;
   background: var(--material-solid); border: 1px solid var(--edge); box-shadow: var(--shadow-control); font-size: 0.8125rem;
@@ -18918,7 +19868,6 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
   .log-card .editor-bar > .count + * { margin-left: 0; }
   .log-card .editor-bar > label.toggle { margin: 0 0 0 auto; }
   .log-card .editor-bar > .save-payloads { display: none; }
-  .log-card .editor-bar > .log-range { flex: 1 1 100%; }
   .log-card .log { height: 60dvh; min-height: 260px; }
   /* Two figures a row, so a label such as "Home app controllers" reads on one or two lines, not three; a
      bridge's device ID, the longest fact, across. */
@@ -18936,7 +19885,6 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
   /* The activity's two menus side by side, the custom range under them. */
   .filter-bar { gap: 8px; }
   .filter-bar > .popup { flex: 1 1 40%; min-width: 0; max-width: none; }
-  .filter-bar > .log-range { flex: 1 1 100%; }
   /* The config editor's bar on one line: the page says which file it is. */
   .editor-card .editor-bar { gap: 8px; padding: 10px 10px 10px 14px; }
   .editor-card .editor-bar > .file-name { display: none; }
@@ -19475,8 +20423,10 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
 .log-level-row .search { flex: 1; max-width: 440px; min-width: 180px; }
 .log-level-row > .group { max-width: 100%; }
 .log-scope-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 16px; }
-.log-scope-row label { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.log-scope-row label > span { font-size: .75rem; font-weight: 600; color: var(--muted); }
+.log-scope-row label, .log-scope-row .log-time { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; }
+.log-scope-row label { align-items: stretch; }
+.log-scope-row .log-time { grid-column: 1 / -1; }
+.log-scope-row label > span, .log-scope-row .log-time > span { font-size: .75rem; font-weight: 600; color: var(--muted); }
 .log-scope-row select.popup { width: 100%; max-width: none; min-width: 0; }
 .log-card .log-action-bar { border-top: 1px solid var(--line); padding: 12px 20px; gap: 14px; }
 .log-action-bar .count { font-variant-numeric: tabular-nums; font-size: .8125rem; }
@@ -19499,9 +20449,9 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
   .log-level-row .search { flex: 1 1 0; width: auto; max-width: none; min-width: 0; }
   .log-level-row .clear-filters { flex: none; width: 40px; height: 40px; margin: 0; padding: 0; gap: 0; font-size: 0; }
   .log-level-row .clear-filters:disabled { display: none; }
-  .log-scope-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+  .log-scope-row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .log-scope-row label { gap: 0; margin: 0; }
-  .log-scope-row label > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .log-scope-row label > span, .log-scope-row .log-time > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .log-scope-row select.popup { margin: 0; padding-block: 8px; }
   /* The action bar on one row: the count, then Copy as an icon, Follow and the menu (which has Save payloads). */
   .log-card .log-action-bar { padding: 8px 12px; gap: 8px; }

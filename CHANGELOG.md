@@ -11,6 +11,19 @@ All notable changes to this project are documented here. The format follows
 - Plugins record readings for the Status page's history (`PluginContext.recordValue`, series
   `plugin:<platform>:<series>`): each minute keeps the count, sum, lowest and highest, for 8 days, and
   `/api/metrics/values` answers a series over a range.
+- The Status page's **Energy** section, fed by readings plugins tag with a role (`recordValue(_:series:energy:)`,
+  `EnergyTag`: solar, home, grid, battery power, battery level; a figure several devices report alike counts once):
+  the power of each role added up across devices (the grid's export and the batteries' discharge below zero), each
+  device's battery level, and each day's energy in kWh for today and the 7 days before as stacked bars (where the
+  home's energy came from above the line, where the rest went below it), with today's figures above and tables on demand. Its own time range; `/api/metrics/energy` answers it in one request. Line charts draw values below zero, with a zero line; `HomeswiftChart.stackedBars` draws stacked bars.
+- A long-term energy history (`EnergyArchive`, `metrics/energy-hours.json`, kept for years): each hour's watt-hours of
+  solar, home use, grid import and export and battery charge and discharge, from the bridge's own minutes as they close
+  and from plugins' imports (`PluginContext.importEnergy`); an hour the bridge recorded most of keeps its own figures.
+  The Energy section's history shows a **Week**, **Month** or **Year** at a time, with the periods before and after and
+  their totals; an imported hour's home use without a grid or battery split shows as **Not split**.
+  `/api/metrics/energy/history` answers it.
+- A plugin's energy import reports its progress (`PluginContext.reportEnergyImport`): the Energy history
+  shows it running, with the bars filling in, then what it covers and when it last ran, or why it failed.
 - A battery on its own accessory (a power station) has its own widget on the Accessories page: the battery graphic
   (bars for the level, a bolt while charging) and its level at every size.
 - The Assistant's chat copies the whole conversation from a button in its header, as Markdown (the messages, the
@@ -23,6 +36,11 @@ All notable changes to this project are documented here. The format follows
   hub's schedule, so they cannot be run there and stay out of HomeKit.
 
 ### Changed
+
+- Every time range is one control, `HomeswiftCommon.rangeControl` (the Status page's Activity and Energy, the Logs
+  page): presets in a segmented control, then **Custom…**, a pop-over in the app's material with a month to pick the
+  first and last day and the From and To times, in place of a menu and the browser's date picker. The design explorer
+  shows it under Foundations.
 
 - The JSON editors (Config, a plugin's JSON) fold a block that spans lines from a chevron beside it.
 - The JSON editors mark each key that holds a secret (the bridge's redaction rule) with a lock, in gold.

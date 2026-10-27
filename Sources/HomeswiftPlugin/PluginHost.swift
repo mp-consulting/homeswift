@@ -164,6 +164,9 @@ public final class PluginHost: @unchecked Sendable {
     // How long requests and handlers take on every server, for the Status page's charts.
     private let timings: TimingFeed
     private let values = ValueFeed()
+    private let energyImports = EnergyImportFeed()
+    /// Each plugin's latest energy import report, by plugin key.
+    private let energyProgress = NIOLockedValueBox<[String: EnergyImportProgress]>([:])
     // The tail of the reloads, so two quick saves apply one after the other.
     let reloadTail = NIOLockedValueBox<Task<Void, Never>?>(nil)
 
@@ -337,6 +340,24 @@ public final class PluginHost: @unchecked Sendable {
     /// Calls `observer` with each reading a plugin records (`series` is `plugin:<platform>:<series>`), until the
     /// observation is cancelled. The metrics store follows these to keep the Status page's history.
     public func observeValues(_ observer: @escaping @Sendable (String, Double) -> Void) -> Observation {
+        values.add { series, value, _ in observer(series, value) }
+    }
+
+    /// Where each plugin's energy import stands, by its latest report (`PluginContext.reportEnergyImport`), the
+    /// plugins' order; a plugin no longer running is left out.
+    public var energyImportProgress: [EnergyImportProgress] {
+        let keys = Set(instances.map(\.context.key))
+        return energyProgress.withLockedValue { $0.values.filter { keys.contains($0.source) } }.sorted { $0.name < $1.name }
+    }
+
+    /// Calls `observer` with each energy history a plugin imports (`PluginContext.importEnergy`), with the plugin's key
+    /// as its source; imports made before anyone followed come first. The metrics store's archive follows these.
+    public func observeEnergyImports(_ observer: @escaping @Sendable (String, [EnergyHourImport]) -> Void) -> Observation {
+        energyImports.add(observer)
+    }
+
+    /// `observeValues` with the reading's role in the Energy section, when the plugin gave it one.
+    public func observeReadings(_ observer: @escaping @Sendable (String, Double, EnergyTag?) -> Void) -> Observation {
         values.add(observer)
     }
 
@@ -511,7 +532,7 @@ public final class PluginHost: @unchecked Sendable {
         if let child = block.childBridge {
             bridge = try Self.makeBridge(child.bridge(named: block.name), storageName: "child-bridges/\(key)", isChild: true, storageDirectory: storageDirectory, options: options)
         }
-        let context = Self.makeContext(block: block, key: key, bridge: bridge, storageDirectory: storageDirectory, logLevel: logger.logLevel, assistant: assistantBox, externals: externals, values: values, assistantBackground: entry.assistantBackground)
+        let context = Self.makeContext(block: block, key: key, bridge: bridge, storageDirectory: storageDirectory, logLevel: logger.logLevel, assistant: assistantBox, externals: externals, values: values, energyImports: energyImports, energyProgress: energyProgress, assistantBackground: entry.assistantBackground)
         context.publishedAccessories = { [weak self] in self?.bridges.flatMap(\.server.accessories) ?? [] }
         return Instance(entry: entry, block: block, context: context)
     }
@@ -536,7 +557,8 @@ public final class PluginHost: @unchecked Sendable {
 
     private static func makeContext(
         block: HomeswiftConfiguration.Platform, key: String, bridge: Bridge, storageDirectory: URL, logLevel: Logger.Level,
-        assistant: NIOLockedValueBox<AssistantService?>, externals: ExternalAccessories, values: ValueFeed, assistantBackground: String?
+        assistant: NIOLockedValueBox<AssistantService?>, externals: ExternalAccessories, values: ValueFeed, energyImports: EnergyImportFeed,
+        energyProgress: NIOLockedValueBox<[String: EnergyImportProgress]>, assistantBackground: String?
     ) -> PluginContext {
         var pluginLogger = Logger(label: block.name)
         pluginLogger.logLevel = logLevel
@@ -545,7 +567,9 @@ public final class PluginHost: @unchecked Sendable {
             cache: AccessoryCache(url: storageDirectory.appendingPathComponent("accessories").appendingPathComponent("\(key).json")),
             storageURL: storageDirectory.appendingPathComponent("plugins").appendingPathComponent(key),
             assistant: assistant, externals: externals, assistantBackground: assistantBackground,
-            recordSink: { series, value in values.publish(series, value) })
+            recordSink: { series, value, tag in values.publish(series, value, tag) },
+            energyImportSink: { hours in energyImports.publish(key, hours) },
+            energyProgressSink: { progress in energyProgress.withLockedValue { $0[key] = progress } })
     }
 
     func launch(_ instance: Instance, as verb: String = "Started") async {

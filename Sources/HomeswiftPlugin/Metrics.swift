@@ -14,7 +14,9 @@ import Darwin
 /// for each series, how many calls there were, their total and the longest. A series is `all` (every
 /// server), `bridge:<device ID>` (one server) or `accessory:<id>` (one accessory). Closed minutes go to a file
 /// per day under `directory` (`metrics-20261023.jsonl`, the day in UTC, a JSON object per line, owner-only),
-/// which is read back at start; minutes and files older than `days` go.
+/// which is read back at start; minutes and files older than `days` go. The roles plugins give their readings for
+/// the Energy section (`EnergyTag`) are kept in `energy-tags.json` beside them, and the energy of each hour, for years,
+/// in the archive (`EnergyArchive`, `energy-hours.json`): each closed minute adds to its hour.
 public final class Metrics: @unchecked Sendable {
     /// The calls of one series in a span: how many, their total and the longest, in milliseconds.
     public struct Durations: Sendable, Equatable {
@@ -119,6 +121,8 @@ public final class Metrics: @unchecked Sendable {
     static let prefix = "metrics-"
 
     public let directory: URL?
+    /// Each hour's energy, for years: the bridge's own minutes and plugins' imports.
+    public let archive: EnergyArchive
     public let days: Int
     public let interval: Duration
 
@@ -132,11 +136,14 @@ public final class Metrics: @unchecked Sendable {
         var latest: (memory: UInt64?, cpu: Double?) = (nil, nil)
         var observation: Observation?
         var sampler: Task<Void, Never>?
+        /// The Energy section's series, by series name.
+        var tags: [String: EnergyTag] = [:]
     }
 
     private let state = NIOLockedValueBox(State())
     private let queue = DispatchQueue(label: "homeswift.metrics")
-    private let now: @Sendable () -> Date
+    let now: @Sendable () -> Date
+    static let tagsName = "energy-tags.json"
 
     /// `directory` nil keeps the history in memory only. `now` is for tests.
     public init(directory: URL?, days: Int = 8, interval: Duration = .seconds(10), now: @escaping @Sendable () -> Date = { Date() }) {
@@ -145,14 +152,32 @@ public final class Metrics: @unchecked Sendable {
         self.interval = interval
         self.now = now
         let loaded = directory.map { Self.load(from: $0, since: now().addingTimeInterval(-Double(days) * 86_400)) } ?? []
-        state.withLockedValue { $0.minutes = loaded }
+        // Tags of series with nothing left in the history go with it.
+        let recorded = Set(loaded.flatMap(\.values.keys))
+        let tags = directory.map { Self.loadTags(from: $0) }?.filter { recorded.contains($0.key) } ?? [:]
+        state.withLockedValue {
+            $0.minutes = loaded
+            $0.tags = tags
+        }
+        // The hours the kept minutes cover whole are made again from them: a minute counted before a restart is not
+        // counted twice, and one the archive missed (a crash before its write) is back.
+        archive = EnergyArchive(url: directory?.appendingPathComponent(EnergyArchive.fileName))
+        if let first = loaded.first?.start {
+            let hour = TimeInterval(EnergyArchive.hourStart(first))
+            let from = Date(timeIntervalSince1970: hour == first.timeIntervalSince1970 ? hour : hour + 3600)
+            archive.rebuildRecorded(Self.energyMinutes(loaded.map { ($0.start, $0.values) }, tags: tags).map { ($0.start, $0.watts) }, from: from)
+        }
     }
 
     /// Follows the host's servers and samples the process until `stop()`.
     public func start(following host: PluginHost) {
         let timings = host.observeTimings { [weak self] bridge, timing in self?.record(timing, server: bridge.server.deviceID) }
-        let readings = host.observeValues { [weak self] series, value in self?.record(value, series: series) }
-        let observation = Observation { timings.cancel(); readings.cancel() }
+        let readings = host.observeReadings { [weak self] series, value, tag in
+            self?.record(value, series: series)
+            if let tag { self?.tag(series, tag) }
+        }
+        let imports = host.observeEnergyImports { [archive] source, hours in archive.importHours(hours, source: source) }
+        let observation = Observation { timings.cancel(); readings.cancel(); imports.cancel() }
         let interval = interval
         // The first sample before returning, so the Status page has memory and CPU from the start.
         sample()
@@ -179,6 +204,7 @@ public final class Metrics: @unchecked Sendable {
         let closed = state.withLockedValue { Self.close(&$0) }
         if let closed { persist(closed) }
         queue.sync {}
+        archive.flush()
     }
 
     /// The latest sample: memory in bytes, CPU in percent of one core.
@@ -236,6 +262,41 @@ public final class Metrics: @unchecked Sendable {
             return closed
         }
         if let closed { persist(closed) }
+    }
+
+    /// Gives `series` a role in the Energy section; kept on disk when it changes.
+    public func tag(_ series: String, _ tag: EnergyTag) {
+        let tags = state.withLockedValue { state -> [String: EnergyTag]? in
+            guard state.tags[series] != tag else { return nil }
+            state.tags[series] = tag
+            return state.tags
+        }
+        guard let tags, let directory else { return }
+        queue.async {
+            guard let data = try? JSONEncoder().encode(tags) else { return }
+            try? OwnerOnlyFile.write(data, to: directory.appendingPathComponent(Self.tagsName))
+        }
+    }
+
+    /// The Energy section's series and their roles, by series name.
+    public var energyTags: [String: EnergyTag] { state.withLockedValue { $0.tags } }
+
+    static func loadTags(from directory: URL) -> [String: EnergyTag] {
+        guard let data = try? Data(contentsOf: directory.appendingPathComponent(tagsName)) else { return [:] }
+        return (try? JSONDecoder().decode([String: EnergyTag].self, from: data)) ?? [:]
+    }
+
+    /// The readings of `series` in each minute from `from` to `to`, oldest first, the minute under way last
+    /// (`current`). Minutes with none of them are left out.
+    func valueMinutes(from: Date, to: Date, series: Set<String>) -> [(start: Date, values: [String: Values], current: Bool)] {
+        state.withLockedValue { state in
+            var minutes = state.minutes.filter { $0.start >= from && $0.start <= to }.map { ($0, false) }
+            if let current = state.current, current.start >= from, current.start <= to { minutes.append((current, true)) }
+            return minutes.compactMap { minute, current in
+                let values = minute.values.filter { series.contains($0.key) }
+                return values.isEmpty ? nil : (minute.start, values, current)
+            }
+        }
     }
 
     /// Adds a closed minute, as if recorded; for tests.
@@ -326,6 +387,9 @@ public final class Metrics: @unchecked Sendable {
     // MARK: Files
 
     private func persist(_ minute: Minute) {
+        // The minute's energy, into its hour of the archive.
+        let tags = state.withLockedValue { $0.tags }
+        if let watts = Self.energyMinutes([(minute.start, minute.values)], tags: tags).first?.watts { archive.addRecorded(minute.start, watts: watts) }
         guard let directory else { return }
         let line = Self.entry(minute) + [0x0A]
         let name = "\(Self.prefix)\(Self.day(minute.start)).jsonl"

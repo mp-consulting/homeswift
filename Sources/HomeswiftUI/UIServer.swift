@@ -382,7 +382,7 @@ public final class UIServer: Sendable {
     static func requiredScope(_ method: HTTPMethod, _ route: [String]) -> Scope {
         switch method {
         case .GET:
-            if [["status"], ["accessories"], ["plugins"], ["metrics"], ["events"], ["assistant"]].contains(route) { return .read }
+            if [["status"], ["accessories"], ["plugins"], ["metrics"], ["metrics", "energy"], ["metrics", "energy", "history"], ["events"], ["assistant"]].contains(route) { return .read }
             if route.count == 3, route[0] == "cameras" { return .read }
             if route.count == 3, route[0] == "accessories", route[2] == "history" { return .read }
             // The rooms, scenes and Quick Controls the Accessories and Status pages show; this browser's Web Push.
@@ -680,6 +680,29 @@ public final class UIServer: Sendable {
                         ])
                     }),
                 ]))
+            case ["metrics", "energy", "history"]:
+                // The long-term energy history (the archive: the bridge's own hours and plugins' imports): `period` week
+                // (the 8 days to `date`), month (the days of `date`'s month) or year (its months); `date` YYYY-MM-DD,
+                // today without it; days and months in `timeZone`.
+                guard let metrics = catalog.metrics else { return .error(404, "this homeswift records no metrics") }
+                let timeZone = request.query["timeZone"].flatMap(TimeZone.init(identifier:)) ?? .current
+                let period = request.query["period"] ?? "week"
+                guard let span = Self.energySpan(period: period, date: request.query["date"], timeZone: timeZone) else {
+                    return .error(400, "period is week, month or year, and date YYYY-MM-DD")
+                }
+                let periods = metrics.archive.periods(period == "year" ? .month : .day, from: span.from, to: span.to, timeZone: timeZone)
+                return .json(Self.energyHistoryJSON(periods, period: period, earliest: metrics.archive.earliest, timeZone: timeZone,
+                                                    imports: catalog.host.energyImportProgress))
+            case ["metrics", "energy"]:
+                // The Energy section: the readings plugins tag with a role (`EnergyTag`), from `from` to `to` (the last
+                // hour without them), and the energy of today and the 7 days before, midnight to midnight in `timeZone`
+                // (an IANA name, the server's without one).
+                guard let metrics = catalog.metrics else { return .error(404, "this homeswift records no metrics") }
+                let to = request.query["to"].flatMap(Self.date(iso:)) ?? Date()
+                let from = request.query["from"].flatMap(Self.date(iso:)) ?? to.addingTimeInterval(-3600)
+                guard from < to else { return .error(400, "from must be before to") }
+                let timeZone = request.query["timeZone"].flatMap(TimeZone.init(identifier:)) ?? .current
+                return .json(Self.energyJSON(metrics.energy(from: from, to: to, timeZone: timeZone), timeZone: timeZone))
             case ["metrics"]:
                 // `from` and `to` (now when left out) as ISO 8601, the last hour without them; `bridge` (a device ID,
                 // or `all`) or `accessory`: whose request and handler durations. Memory and CPU are the process's.
@@ -1250,6 +1273,103 @@ public final class UIServer: Sendable {
         }
         return ["step": .number(history.step), "points": .array(points),
                 "latest": ["memory": latest.memory.map { .number(Double($0)) } ?? .null, "cpu": latest.cpu.map(JSONValue.number) ?? .null]]
+    }
+
+    /// The Energy section: the roles some series has; the power chart's points (`t` in seconds, a role's watts, summed
+    /// across devices); a line of battery levels per device; and each day's energy in kWh, newest first (`date` the
+    /// day in `timeZone`, `solarShare` 0 to 1 or null).
+    static func energyJSON(_ report: EnergyReport, timeZone: TimeZone) -> JSONValue {
+        let roles = EnergyRole.allCases.filter(report.roles.contains)
+        let day = DateFormatter()
+        day.locale = Locale(identifier: "en_US_POSIX")
+        day.timeZone = timeZone
+        day.dateFormat = "yyyy-MM-dd"
+        let kWh = { (value: Double) in JSONValue.number((value * 1000).rounded() / 1000) }
+        return [
+            "roles": .array(roles.map { .string($0.rawValue) }),
+            "step": .number(report.step),
+            "power": .array(report.power.map { point in
+                var object: [String: JSONValue] = ["t": .number(point.start.timeIntervalSince1970)]
+                for (role, watts) in point.watts { object[role.rawValue] = .number((watts * 10).rounded() / 10) }
+                return .object(object)
+            }),
+            "levels": .array(report.levels.map { level in
+                ["series": .string(level.series), "device": .string(level.device),
+                 "points": .array(level.points.map { .array([.number($0.start.timeIntervalSince1970), .number(($0.percent * 10).rounded() / 10)]) })]
+            }),
+            "days": .array(report.days.map { one in
+                ["date": .string(day.string(from: one.start)), "minutes": .number(Double(one.minutes)),
+                 "solar": kWh(one.solar), "home": kWh(one.home), "gridImport": kWh(one.gridImport), "gridExport": kWh(one.gridExport),
+                 "batteryCharge": kWh(one.batteryCharge), "batteryDischarge": kWh(one.batteryDischarge), "homeFromSolar": kWh(one.homeFromSolar),
+                 "solarShare": one.solarShare.map { .number(($0 * 1000).rounded() / 1000) } ?? .null]
+            }),
+        ]
+    }
+
+    /// The span of a history `period` around `date` (YYYY-MM-DD, today without it) in `timeZone`: the 8 days to it, its
+    /// month, or its year; nil for anything else.
+    static func energySpan(period: String, date: String?, timeZone: TimeZone, now: Date = Date()) -> (from: Date, to: Date)? {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let day: Date
+        if let date {
+            let parts = date.split(separator: "-").compactMap { Int($0) }
+            guard parts.count == 3, (1...12).contains(parts[1]), (1...31).contains(parts[2]),
+                  let parsed = calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2])) else { return nil }
+            day = parsed
+        } else {
+            day = calendar.startOfDay(for: now)
+        }
+        switch period {
+        case "week": return (calendar.date(byAdding: .day, value: -7, to: day)!, day)
+        case "month":
+            let start = calendar.date(from: calendar.dateComponents([.year, .month], from: day))!
+            return (start, calendar.date(byAdding: DateComponents(month: 1, day: -1), to: start)!)
+        case "year":
+            let start = calendar.date(from: calendar.dateComponents([.year], from: day))!
+            return (start, calendar.date(byAdding: DateComponents(year: 1, day: -1), to: start)!)
+        default: return nil
+        }
+    }
+
+    /// The history's bars: each day (`date` YYYY-MM-DD) or month (YYYY-MM) with its kWh, null where nothing is known (an
+    /// import has no grid or battery), where the home's use came from, and how many hours were recorded or imported.
+    /// `imports`: where each plugin's import stands (`state` running, done or failed; `done` of `total` steps; `from`
+    /// and `through` the days it covers; `updated`, ISO 8601; `message` why it failed).
+    static func energyHistoryJSON(_ periods: [EnergyPeriod], period: String, earliest: Date?, timeZone: TimeZone,
+                                  imports: [EnergyImportProgress] = []) -> JSONValue {
+        let format = DateFormatter()
+        format.locale = Locale(identifier: "en_US_POSIX")
+        format.timeZone = timeZone
+        let kWh = { (wattHours: Double?) in wattHours.map { JSONValue.number(($0).rounded() / 1000) } ?? .null }
+        let label = { (date: Date, monthly: Bool) -> JSONValue in
+            format.dateFormat = monthly ? "yyyy-MM" : "yyyy-MM-dd"
+            return .string(format.string(from: date))
+        }
+        return [
+            "period": .string(period),
+            "earliest": earliest.map { label($0, false) } ?? .null,
+            "imports": .array(imports.map { one in
+                [
+                    "name": .string(one.name), "state": .string(one.state.rawValue),
+                    "done": .number(Double(one.done)), "total": .number(Double(one.total)),
+                    "from": one.from.map { label($0, false) } ?? .null, "through": one.through.map { label($0, false) } ?? .null,
+                    "updated": .string(Timestamp.iso8601(one.updated)), "message": one.message.map(JSONValue.string) ?? .null,
+                ]
+            }),
+            "bars": .array(periods.map { one in
+                let flows = one.flows
+                return [
+                    "date": label(one.start, period == "year"),
+                    "solar": kWh(flows.solar), "home": kWh(flows.home), "homeFromSolar": kWh(flows.homeFromSolar),
+                    "homeFromBattery": kWh(one.homeFromBattery), "homeFromGrid": kWh(one.homeFromGrid), "homeNotSplit": kWh(one.homeNotSplit),
+                    "gridImport": kWh(flows.gridImport), "gridExport": kWh(flows.gridExport),
+                    "batteryCharge": kWh(flows.batteryCharge), "batteryDischarge": kWh(flows.batteryDischarge),
+                    "solarShare": one.solarShare.map { .number(($0 * 1000).rounded() / 1000) } ?? .null,
+                    "recordedHours": .number(Double(one.recordedHours)), "importedHours": .number(Double(one.importedHours)),
+                ]
+            }),
+        ]
     }
 
     /// A line for the Logs page; `details`, the JSON taken out of it, as compact text for the page to expand.

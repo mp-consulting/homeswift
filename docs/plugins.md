@@ -122,6 +122,25 @@ public actor MyDevicesPlugin: HomeswiftPlugin {
   `PersistedDictionary` and `context.jsonFile(_:as:)` keep values in owner-only JSON files, `context.pictures(_:)` keeps
 pictures a page uploads (`data:` URLs of JPEG, PNG or WebP, checked by their bytes; the Hue and DIRIGERA scene tiles), and `EveHistory` is
   fakegato-history for the Eve app.
+- **History and energy.** `context.recordValue(_:series:)` records a reading for the Status page's history (a minute
+  keeps its count, sum, lowest and highest, for 8 days; `/api/metrics/values?series=plugin:<platform>:<series>`
+  answers it over a range, for a plugin's page). `recordValue(_:series:energy:)` with an `EnergyTag` also puts it in
+  the Status page's Energy section, whatever the plugin: its `EnergyRole` (`.solar` and `.home` in watts, `.grid`
+  positive while importing, `.battery` positive while charging, `.batteryLevel` in percent) and the device's name.
+  A figure several devices report alike (a system's home use, reported by each of its units) takes the same
+  `shared` name on each, so it counts once instead of adding up. `context.importEnergy(_:)` hands
+  the long-term archive (the Status page's month and year views) a history the bridge did not record, such as a cloud's
+  hours before the bridge ran: `EnergyHourImport`s of watt-hours (`EnergyFlows`, nil for what the history lacks). Each
+  import replaces what the plugin imported for those hours; an hour the bridge recorded itself keeps its own figures.
+  `context.reportEnergyImport(EnergyImportProgress(state: .running, done: 3, total: 10))` shows the import's progress
+  on the Status page (then `.done` with `from` and `through`, or `.failed` with a `message` a person can act on);
+  import in parts and report after each, so the history fills in as it goes.
+  `Metrics.energy(from:to:)` and `Metrics.archive.periods(_:from:to:timeZone:)` give the same figures
+  (charted power, levels, each day's kWh) to other code, such as the Assistant.
+  ```swift
+  context.recordValue(watts, series: "\(id):solar", energy: EnergyTag(role: .solar, device: name))
+  context.recordValue(load, series: "\(id):home", energy: EnergyTag(role: .home, device: name, shared: "system"))
+  ```
 - **Cameras.** `CameraController` (and `DoorbellController`) mirror HAP-NodeJS's: implement
   `CameraStreamingDelegate` (`handleSnapshotRequest`, `prepareStream`, `handleStreamRequest`, async instead of
   callbacks) and, for HomeKit Secure Video, `CameraRecordingDelegate` (`handleRecordingStreamRequest` returns an

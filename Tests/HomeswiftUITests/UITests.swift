@@ -546,6 +546,85 @@ struct MetricsAPITests {
         #expect(try await browser.get("/api/metrics?from=2030-01-01T00:00:00Z&to=2029-01-01T00:00:00Z").status == 400)
     }
 
+    /// The Energy section: the roles some series has, the power added up, a line of levels per device and the days.
+    @Test func servesTheEnergySection() async throws {
+        let minute = Date(timeIntervalSince1970: (Date().timeIntervalSince1970 / 60).rounded(.down) * 60)
+        let clock = NIOLockedValueBox(minute.addingTimeInterval(-120))
+        let metrics = Metrics(directory: nil, now: { clock.withLockedValue { $0 } })
+        let environment = try UITestEnvironment(auth: .none, metrics: metrics)
+        let base = try await environment.start()
+        defer { Task { await environment.stop() } }
+        let browser = Browser(base: base)
+        #expect(try await browser.get("/api/metrics/energy").json?["roles"]?.arrayValue == [])
+
+        metrics.tag("plugin:Test:a:solar", EnergyTag(role: .solar, device: "A"))
+        metrics.tag("plugin:Test:b:solar", EnergyTag(role: .solar, device: "B"))
+        metrics.tag("plugin:Test:a:grid", EnergyTag(role: .grid, device: "A"))
+        metrics.tag("plugin:Test:a:level", EnergyTag(role: .batteryLevel, device: "A"))
+        metrics.record(600, series: "plugin:Test:a:solar")
+        metrics.record(300, series: "plugin:Test:b:solar")
+        metrics.record(-480, series: "plugin:Test:a:grid")
+        metrics.record(64, series: "plugin:Test:a:level")
+        clock.withLockedValue { $0 = minute }
+        metrics.record(1, series: "plugin:Test:untagged")
+
+        let energy = try #require(try await browser.get("/api/metrics/energy?timeZone=UTC").json)
+        #expect(energy["roles"]?.arrayValue == [.string("solar"), .string("grid"), .string("batteryLevel")])
+        #expect(energy["step"]?.doubleValue == 60)
+        let point = try #require(energy["power"]?.arrayValue?.first)
+        #expect(point["solar"]?.doubleValue == 900)
+        #expect(point["grid"]?.doubleValue == -480)
+        #expect(energy["levels"]?.arrayValue?.first?["device"]?.stringValue == "A")
+        #expect(energy["levels"]?.arrayValue?.first?["points"]?.arrayValue?.first?.arrayValue?.last?.doubleValue == 64)
+        let days = try #require(energy["days"]?.arrayValue)
+        #expect(days.count == 8)
+        // The minute just closed counts in today's energy, unless it was yesterday's last.
+        let today = days.first { $0["minutes"]?.doubleValue == 1 }
+        #expect(today?["solar"]?.doubleValue == 0.015)
+        #expect(today?["gridExport"]?.doubleValue == 0.008)
+        #expect(today?["solarShare"] == .null)
+        #expect(try await browser.get("/api/metrics/energy?from=2030-01-01T00:00:00Z&to=2029-01-01T00:00:00Z").status == 400)
+    }
+
+    /// The long-term history: days or months of the archive, null where an import knows nothing.
+    @Test func servesTheEnergyHistory() async throws {
+        let metrics = Metrics(directory: nil)
+        let environment = try UITestEnvironment(auth: .none, metrics: metrics)
+        let base = try await environment.start()
+        defer { Task { await environment.stop() } }
+        // 3 and 4 March 2026, 10:00 UTC: an imported hour each.
+        let march3 = Date(timeIntervalSince1970: 1_772_532_000)
+        metrics.archive.importHours([EnergyHourImport(start: march3, flows: EnergyFlows(solar: 1500, home: 1000)),
+                                     EnergyHourImport(start: march3.addingTimeInterval(86_400), flows: EnergyFlows(solar: 0, home: 2000))], source: "Test")
+        let browser = Browser(base: base)
+
+        let month = try #require(try await browser.get("/api/metrics/energy/history?period=month&date=2026-03-15&timeZone=UTC").json)
+        let bars = try #require(month["bars"]?.arrayValue)
+        #expect(bars.count == 31)
+        #expect(month["earliest"]?.stringValue == "2026-03-03")
+        // No plugin has imported: no import to show.
+        #expect(month["imports"]?.arrayValue == [])
+        let third = bars[2]
+        #expect(third["date"]?.stringValue == "2026-03-03")
+        #expect(third["solar"]?.doubleValue == 1.5)
+        #expect(third["homeFromSolar"]?.doubleValue == 1)
+        #expect(third["solarShare"]?.doubleValue == 1)
+        #expect(third["gridImport"] == .null)
+        #expect(bars[3]["homeNotSplit"]?.doubleValue == 2)
+        #expect(bars[3]["importedHours"]?.doubleValue == 1)
+        #expect(bars[0]["home"] == .null)
+
+        let year = try #require(try await browser.get("/api/metrics/energy/history?period=year&date=2026-03-15&timeZone=UTC").json)
+        #expect(year["bars"]?.arrayValue?.count == 12)
+        #expect(year["bars"]?.arrayValue?[2]["date"]?.stringValue == "2026-03")
+        #expect(year["bars"]?.arrayValue?[2]["home"]?.doubleValue == 3)
+        let week = try #require(try await browser.get("/api/metrics/energy/history?period=week&date=2026-03-04&timeZone=UTC").json)
+        #expect(week["bars"]?.arrayValue?.map { $0["date"]?.stringValue ?? "" }.last == "2026-03-04")
+        #expect(week["bars"]?.arrayValue?.count == 8)
+        #expect(try await browser.get("/api/metrics/energy/history?period=decade").status == 400)
+        #expect(try await browser.get("/api/metrics/energy/history?period=month&date=2026-13-01").status == 400)
+    }
+
     @Test func answersNotFoundWithoutARecorder() async throws {
         let environment = try UITestEnvironment(auth: .none)
         let base = try await environment.start()

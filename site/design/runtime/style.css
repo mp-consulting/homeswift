@@ -23,6 +23,9 @@
   --accent-ink: #b0460a; --accent-fill-top: #c4500c; --accent-fill: #ab3f0a;
   /* Chart series, slots 1 and 2 of a palette checked for colour-blind separation and contrast, each mode its own step. */
   --series-1: #2a78d6; --series-2: #eb6834;
+  /* Slots 3 to 7, the same validated palette (aqua, yellow, magenta, green, violet), for the Energy section's roles and
+     its battery lines; each mode its own step. */
+  --series-3: #1baf7a; --series-4: #eda100; --series-5: #e87ba4; --series-6: #008300; --series-7: #6250d6;
   /* Blue that carries small text (the Encrypted pill) at 4.5:1 on its tint; --series-1 stays for marks and bars. */
   --series-1-ink: #1d5fae;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -45,6 +48,7 @@
     --text: #f3f4f7; --muted: #a2a9b5; --line: rgba(255, 255, 255, 0.1);
     --warn: #e9a04a; --paused: #8e8cff; --ok: #3ccf7a; --error: #ff6b6b; --accent-ink: #ff8f3d;
     --series-1: #3987e5; --series-2: #d95926; --series-1-ink: #6aa6ee;
+    --series-3: #199e70; --series-4: #c98500; --series-5: #d55181; --series-6: #008300; --series-7: #9085e9;
   }
 }
 /* A theme chosen in the web UI (/appearance) rather than the system's: common.js sets data-theme. */
@@ -64,6 +68,7 @@
   --text: #f3f4f7; --muted: #a2a9b5; --line: rgba(255, 255, 255, 0.1);
   --warn: #e9a04a; --paused: #8e8cff; --ok: #3ccf7a; --error: #ff6b6b; --accent-ink: #ff8f3d;
   --series-1: #3987e5; --series-2: #d95926; --series-1-ink: #6aa6ee;
+  --series-3: #199e70; --series-4: #c98500; --series-5: #d55181; --series-6: #008300; --series-7: #9085e9;
 }
 * { box-sizing: border-box; }
 /* Hidden means hidden, whatever display a component's class gives it. */
@@ -1103,9 +1108,6 @@ textarea.short { min-height: 220px; }
 @media (prefers-reduced-motion: reduce) { .menu, .menu.closing, .menu.sheet-menu, .menu.sheet-menu.closing { animation-name: fade; } }
 @media (prefers-reduced-transparency: reduce) { .menu { background: var(--material-solid); -webkit-backdrop-filter: none; backdrop-filter: none; } }
 /* A custom time range: from and to, under the toolbar, as the material arriving. */
-.log-range { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; width: 100%; animation: fade var(--normal) var(--ease-out); }
-.log-range label { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 0.8125rem; color: var(--muted); }
-.log-range input { width: auto; padding: 6px 12px; border-radius: 999px; font-variant-numeric: tabular-nums; }
 .editor-bar .count { font-size: 0.8125rem; font-variant-numeric: tabular-nums; }
 .editor-card textarea { display: block; border: 0; border-radius: 0; box-shadow: none; background: transparent; min-height: 62vh; padding: 16px 18px; resize: vertical; tab-size: 2; line-height: 1.55; }
 .editor-card textarea:focus { box-shadow: none; }
@@ -1157,6 +1159,121 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .filter-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 12px; }
 .filter-bar .popup { max-width: 260px; }
 .chart-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 14px; transition: opacity var(--normal) var(--ease-out); }
+/* A Status section's time range (app.js's rangeControl): the segmented control, scrolling sideways when its choices
+   outgrow a phone, and Custom…'s pop-over in the menus' material, growing from the segment. A day range is one band,
+   rounded at its first and last day; today is ringed; days without history are dimmed. */
+.range-control { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.range-control::-webkit-scrollbar { display: none; }
+.range-control.more-after { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent); }
+.range-control.more-before { -webkit-mask-image: linear-gradient(90deg, transparent, #000 32px); mask-image: linear-gradient(90deg, transparent, #000 32px); }
+.range-control.more-before.more-after { -webkit-mask-image: linear-gradient(90deg, transparent, #000 32px, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(90deg, transparent, #000 32px, #000 calc(100% - 32px), transparent); }
+.range-control .range-custom { font-variant-numeric: tabular-nums; }
+.range-popover {
+  position: fixed; z-index: 30; width: min(320px, calc(100vw - 16px)); padding: 14px; display: grid; gap: 12px; border-radius: 20px;
+  background-color: var(--material-thick); background-image: var(--sheen);
+  -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
+  border: 1px solid var(--edge); box-shadow: 0 18px 44px rgba(25, 34, 56, 0.24), inset 0 1px 0 var(--edge-light);
+  animation: menu-in 180ms var(--ease-out);
+}
+.range-popover.closing { animation: menu-out 140ms var(--ease-out) forwards; pointer-events: none; }
+.range-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.range-month { font-size: 0.9375rem; text-transform: capitalize; }
+.range-head .menu-button svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.range-days { display: grid; grid-template-columns: repeat(7, 1fr); row-gap: 2px; }
+.range-weekday { text-align: center; font-size: 0.6875rem; font-weight: 600; color: var(--muted); padding-bottom: 4px; text-transform: uppercase; }
+.range-day {
+  height: 36px; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; color: var(--text);
+  font-size: 0.875rem; font-variant-numeric: tabular-nums; position: relative; z-index: 0;
+}
+.range-day::after { content: ""; position: absolute; inset: 2px; border-radius: 50%; z-index: -1; transition: background-color var(--fast) var(--ease-out); }
+.range-day:hover:not(:disabled)::after { background: var(--material-thin); }
+.range-day.outside { color: var(--muted); }
+.range-day:disabled { opacity: 0.35; }
+.range-day.today::after { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.range-day.in { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.range-day.start { border-radius: 18px 0 0 18px; }
+.range-day.end { border-radius: 0 18px 18px 0; }
+.range-day.start.end { border-radius: 18px; }
+.range-day.in.row-start { border-top-left-radius: 18px; border-bottom-left-radius: 18px; }
+.range-day.in.row-end { border-top-right-radius: 18px; border-bottom-right-radius: 18px; }
+.range-day.start::after, .range-day.end::after { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); }
+.range-day.start, .range-day.end { color: var(--accent-text); font-weight: 650; }
+.range-day:active:not(:disabled) { transform: none; }
+.range-day:active:not(:disabled)::after { transform: scale(0.92); }
+.range-times { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
+.range-times label { display: grid; gap: 4px; margin: 0; font-size: 0.75rem; color: var(--muted); }
+.range-times input[type=time] { padding: 7px 12px; border-radius: 12px; font-variant-numeric: tabular-nums; }
+.range-times input[type=time]::-webkit-calendar-picker-indicator { display: none; }
+.range-times input:disabled { opacity: 0.45; }
+.range-times .range-now { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; font-size: 0.8125rem; color: var(--text); }
+.range-message { margin: 0; font-size: 0.75rem; min-height: 1.2em; }
+.range-message.error { color: var(--error); }
+.range-actions { display: flex; justify-content: flex-end; gap: 8px; }
+@media (prefers-reduced-motion: reduce) { .range-popover, .range-popover.closing { animation-duration: 1ms; } }
+
+/* The Energy section's days: one card the width of the row, its table under the head. */
+/* Today's figures above the charts: a small tile and the label on one row, the proportional figure the card's width
+   under them, a note in muted ink. */
+.energy-today { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 14px; }
+.energy-today .card { margin: 0; padding: 14px 16px; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px 10px; align-content: start; }
+.energy-today .card > div { display: contents; }
+.energy-today .tile { width: 30px; height: 30px; border-radius: 9px; }
+.energy-today .tile svg { width: 17px; height: 17px; }
+.energy-today span { font-size: 0.8125rem; color: var(--muted); }
+.energy-today b, .energy-today small { grid-column: 1 / -1; }
+.energy-today b { font-size: 1.75rem; line-height: 1.1; font-weight: 650; letter-spacing: -0.02em; white-space: nowrap; }
+.energy-today small { font-size: 0.75rem; color: var(--muted); margin-top: -4px; }
+.energy .chart-head .who { flex: 1; min-width: 0; }
+/* A phone: two figures a row, tighter cards, smaller tiles, the range across the width. */
+@media (max-width: 640px) {
+  .energy-today { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+  .energy-today .card { padding: 12px 14px; }
+  .energy-today b { font-size: 1.375rem; }
+  .energy .chart-grid { gap: 10px; }
+  .energy .chart-card { padding: 14px; gap: 8px; }
+  .energy .chart-head { gap: 10px; }
+  .energy .chart-head .tile { width: 32px; height: 32px; border-radius: 10px; }
+  .energy .chart-head .tile svg { width: 18px; height: 18px; }
+  .energy .chart-head .muted { font-size: 0.75rem; }
+  .energy .range-control { display: flex; width: 100%; }
+  .energy-history-bar > .group { display: flex; width: 100%; }
+  .energy-history-bar > .group button { flex: 1; }
+  .energy-period-nav { width: 100%; justify-content: space-between; }
+  .energy-totals { gap: 8px 18px; }
+  .energy-total b { font-size: 1rem; }
+  .energy .range-control button { flex: 1 0 auto; padding-inline: 10px; }
+}
+.energy .chart-table { margin-top: 12px; }
+.chart-grid.energy-days { grid-template-columns: minmax(0, 1fr); margin-top: 14px; }
+/* The history's period: Week, Month or Year on the left, the period with its arrows on the right. */
+.energy-history-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.energy-period-nav { display: flex; align-items: center; gap: 6px; }
+.energy-period { min-width: 12ch; text-align: center; font-size: 0.9375rem; font-variant-numeric: tabular-nums; }
+/* An import of the history: while it runs, its progress in a thin accent bar; done, one quiet line; failed, a warning. */
+.energy-imports { display: grid; gap: 8px; }
+.energy-imports:empty { display: none; }
+.energy-import { display: flex; align-items: center; gap: 8px; font-size: 0.8125rem; }
+.energy-import > svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.energy-import.running { display: grid; gap: 6px; padding: 10px 12px; border-radius: 12px; background: var(--material-thin); }
+.energy-import-line { display: flex; justify-content: space-between; gap: 12px; }
+.energy-import-line b { font-variant-numeric: tabular-nums; font-weight: 600; }
+.energy-import progress { -webkit-appearance: none; appearance: none; width: 100%; height: 6px; border: 0; border-radius: 3px; overflow: hidden; background: var(--line); }
+.energy-import progress::-webkit-progress-bar { background: var(--line); border-radius: 3px; }
+.energy-import progress::-webkit-progress-value { background: var(--accent); border-radius: 3px; transition: width var(--normal) var(--ease-out); }
+.energy-import progress::-moz-progress-bar { background: var(--accent); border-radius: 3px; }
+.energy-import.failed { color: var(--warn); }
+
+/* The period's totals over the bars: a muted label with its colour key over a proportional figure. */
+.energy-totals { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 28px; padding: 2px 0 4px; }
+.energy-total { display: grid; gap: 2px; align-content: start; }
+.energy-total span { display: inline-flex; align-items: center; gap: 6px; font-size: 0.75rem; color: var(--muted); }
+.energy-total .key { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
+.energy-total b { font-size: 1.125rem; font-weight: 650; letter-spacing: -0.01em; }
+.energy-total small { font-size: 0.6875rem; color: var(--muted); }
+.chart .tick.current { fill: var(--text); font-weight: 650; }
+.energy-period-nav .menu-button svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.energy-days .chart-table { margin-top: 0; }
+.energy-days .chart-table thead th.time { text-align: left; }
 .chart-card { margin: 0; display: grid; gap: 10px; align-content: start; min-width: 0; }
 .chart-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .chart-head .muted { font-size: 0.8125rem; }
@@ -1172,15 +1289,43 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .chart .area { stroke: none; opacity: 0.1; }
 .chart .dot { stroke: var(--material-solid); stroke-width: 2; }
 .chart .crosshair { stroke: var(--muted); stroke-width: 1; opacity: 0.6; }
+.chart .grid.zero { stroke: var(--muted); opacity: 0.5; }
 .chart .line.tone-1 { stroke: var(--series-1); }
 .chart .line.tone-2 { stroke: var(--series-2); }
+.chart .line.tone-3 { stroke: var(--series-3); }
+.chart .line.tone-4 { stroke: var(--series-4); }
+.chart .line.tone-5 { stroke: var(--series-5); }
+.chart .line.tone-6 { stroke: var(--series-6); }
+.chart .line.tone-7 { stroke: var(--series-7); }
 .chart .area.tone-1, .chart .dot.tone-1 { fill: var(--series-1); }
 .chart .area.tone-2, .chart .dot.tone-2 { fill: var(--series-2); }
-.chart-legend { display: flex; gap: 14px; font-size: 0.8125rem; color: var(--muted); }
-.chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.chart .area.tone-3, .chart .dot.tone-3 { fill: var(--series-3); }
+.chart .area.tone-4, .chart .dot.tone-4 { fill: var(--series-4); }
+.chart .area.tone-5, .chart .dot.tone-5 { fill: var(--series-5); }
+.chart .area.tone-6, .chart .dot.tone-6 { fill: var(--series-6); }
+.chart .area.tone-7, .chart .dot.tone-7 { fill: var(--series-7); }
+.chart .bar.tone-1 { fill: var(--series-1); }
+.chart .bar.tone-2 { fill: var(--series-2); }
+.chart .bar.tone-3 { fill: var(--series-3); }
+.chart .bar.tone-4 { fill: var(--series-4); }
+.chart .bar.tone-5 { fill: var(--series-5); }
+.chart .bar.tone-6 { fill: var(--series-6); }
+.chart .bar.tone-7 { fill: var(--series-7); }
+/* A part with no source (an imported hour's home use not split): neutral, never a series colour. */
+.chart .bar.tone-8 { fill: var(--muted); opacity: 0.45; }
+.chart .bar-hover { fill: var(--material-thin); }
+.chart-legend .key.bar, .chart-tooltip .key.bar { width: 10px; height: 10px; border-radius: 3px; }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.8125rem; color: var(--muted); }
+.chart-legend span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .chart-legend .key, .chart-tooltip .key { display: inline-block; width: 12px; height: 2px; border-radius: 1px; }
 .key.tone-1 { background: var(--series-1); }
 .key.tone-2 { background: var(--series-2); }
+.key.tone-3 { background: var(--series-3); }
+.key.tone-4 { background: var(--series-4); }
+.key.tone-5 { background: var(--series-5); }
+.key.tone-6 { background: var(--series-6); }
+.key.tone-7 { background: var(--series-7); }
+.key.tone-8 { background: var(--muted); opacity: 0.45; }
 .chart-tooltip {
   position: absolute; top: 4px; z-index: 2; pointer-events: none; padding: 8px 10px; border-radius: 12px; min-width: 132px;
   background: var(--material-solid); border: 1px solid var(--edge); box-shadow: var(--shadow-control); font-size: 0.8125rem;
@@ -1691,7 +1836,6 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
   .log-card .editor-bar > .count + * { margin-left: 0; }
   .log-card .editor-bar > label.toggle { margin: 0 0 0 auto; }
   .log-card .editor-bar > .save-payloads { display: none; }
-  .log-card .editor-bar > .log-range { flex: 1 1 100%; }
   .log-card .log { height: 60dvh; min-height: 260px; }
   /* Two figures a row, so a label such as "Home app controllers" reads on one or two lines, not three; a
      bridge's device ID, the longest fact, across. */
@@ -1709,7 +1853,6 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
   /* The activity's two menus side by side, the custom range under them. */
   .filter-bar { gap: 8px; }
   .filter-bar > .popup { flex: 1 1 40%; min-width: 0; max-width: none; }
-  .filter-bar > .log-range { flex: 1 1 100%; }
   /* The config editor's bar on one line: the page says which file it is. */
   .editor-card .editor-bar { gap: 8px; padding: 10px 10px 10px 14px; }
   .editor-card .editor-bar > .file-name { display: none; }
@@ -2248,8 +2391,10 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
 .log-level-row .search { flex: 1; max-width: 440px; min-width: 180px; }
 .log-level-row > .group { max-width: 100%; }
 .log-scope-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 16px; }
-.log-scope-row label { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.log-scope-row label > span { font-size: .75rem; font-weight: 600; color: var(--muted); }
+.log-scope-row label, .log-scope-row .log-time { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; }
+.log-scope-row label { align-items: stretch; }
+.log-scope-row .log-time { grid-column: 1 / -1; }
+.log-scope-row label > span, .log-scope-row .log-time > span { font-size: .75rem; font-weight: 600; color: var(--muted); }
 .log-scope-row select.popup { width: 100%; max-width: none; min-width: 0; }
 .log-card .log-action-bar { border-top: 1px solid var(--line); padding: 12px 20px; gap: 14px; }
 .log-action-bar .count { font-variant-numeric: tabular-nums; font-size: .8125rem; }
@@ -2272,9 +2417,9 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
   .log-level-row .search { flex: 1 1 0; width: auto; max-width: none; min-width: 0; }
   .log-level-row .clear-filters { flex: none; width: 40px; height: 40px; margin: 0; padding: 0; gap: 0; font-size: 0; }
   .log-level-row .clear-filters:disabled { display: none; }
-  .log-scope-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+  .log-scope-row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .log-scope-row label { gap: 0; margin: 0; }
-  .log-scope-row label > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .log-scope-row label > span, .log-scope-row .log-time > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .log-scope-row select.popup { margin: 0; padding-block: 8px; }
   /* The action bar on one row: the count, then Copy as an icon, Follow and the menu (which has Save payloads). */
   .log-card .log-action-bar { padding: 8px 12px; gap: 8px; }

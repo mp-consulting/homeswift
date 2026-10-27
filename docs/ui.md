@@ -34,16 +34,39 @@ with a new code). More users are added on the **Users** page (see below).
   not paired yet, the setup code and its QR code for the Home app's camera; the Assistant's provider;
   version, uptime, machine; a **Restart homeswift** button. **Activity** charts the homeswift process's
   memory and CPU, how long the bridge takes to answer the Home app's reads and writes, and how long plugins
-  take to reach their devices (average and longest), over the Logs page's time ranges (from the last hour
-  to 7 days, or a custom range) and, for the durations, for every server, one bridge or one accessory. A
+  take to reach their devices (average and longest), over a time range (1 hour, 6 hours, 24 hours, today,
+  yesterday or 7 days in a segmented control, or **Custom…**, a pop-over with a month to pick the first and last
+  day and the From and To times; the Energy section has the same control) and, for the durations, for every server, one bridge or one accessory. A
   range that ends now refreshes every minute; a gap is a time homeswift was not running; **Show as a table**
   lists the values. The bridge samples memory and CPU every 10 seconds and keeps a record per minute under
   `metrics/` next to config.json (a file per day, 8 days), so the charts survive a restart. The view is
   `/status?since=24h&bridge=<bridge>&accessory=<accessory>`. With the Assistant on, a **Daily digest** says
   what needs attention today, from the day's warnings and errors and the accessories: **Write today's
   digest** streams it, the bridge keeps it for the day (`ai-digest.json`, owner-only), and the card's **⋯**
-  writes it again; any user reads today's digest, an administrator writes it. **Customise this page**, at the bottom, opens the same pop-up menu as accessory actions, with switches to show or hide each part (overview, digest,
-  activity, bridges, system) and drag handles on the left to reorder them. Changes apply immediately without a page reload; the layout is each user's own, on every browser.
+  writes it again; any user reads today's digest, an administrator writes it. **Energy**, once a plugin records
+  readings with an energy role (`EnergyTag`, docs/plugins.md): today's solar, home use, share of it solar covered and grid import as figures;
+  the power of solar, the home, the grid (importing above zero, exporting below)
+  and the batteries (charging above zero) added up across devices, each device's battery level, and the energy history
+  in kWh as stacked bars, a **Week**, **Month** (a bar per day) or **Year** (a bar per month) at a time, with the
+  periods before and after (`?energy-view=month&energy-date=2026-05-01`): above the line where the home's energy came
+  from (solar as it was produced, the batteries, the grid), below it where the rest went (into the batteries, out to
+  the grid), and the period's totals under it. The history is the bridge's long-term archive (`metrics/energy-hours.json`,
+  kept for years): each hour of what it recorded, and what plugins import, such as a device cloud's solar and home use
+  since a system was set up. An hour the bridge recorded most of keeps its own figures; an imported hour has no grid or
+  battery figures, so the rest of its home use shows as **Not split**, in grey. While a plugin imports, the card shows
+  its progress (**Importing the … history**, 4 of 10) and the bars fill in as each part arrives; once done, one
+  line says what the history covers and when it last ran, and a failed import says why.
+  Each entity keeps one colour in every chart (solar yellow, the home blue, the batteries aqua, the grid violet), from
+  the charts' palette checked for colour blindness in both modes. **Show as a table** lists the points and the days (solar produced, home used, grid import and export, battery charged and
+  discharged, the share of the home's use solar covered). Days are counted from each minute's average power, midnight
+  to midnight in the browser's time zone. Its own range, a segmented control (24 hours, the
+  default, today, yesterday or 7 days; `?energy=7d`); `/api/metrics/energy?from=…&to=…&timeZone=…` answers it in one request, and
+  `/api/metrics/energy/history?period=week|month|year&date=…&timeZone=…` the history, for any signed-in user.
+
+  ![The Energy section: power and battery charts over a day, and each day's energy](images/status/energy.png)
+
+  **Customise this page**, at the bottom, opens the same pop-up menu as accessory actions, with switches to show or hide each part (overview, digest,
+  activity, energy, bridges, system) and drag handles on the left to reorder them. Changes apply immediately without a page reload; the layout is each user's own, on every browser.
   When GitHub has a newer release, a card under the summary says
   so, with its notes and how to upgrade this install: the `.spk` to download on a Synology NAS, the image tag
   to pull in Docker, `brew upgrade` or the tag to check out. The bridge asks GitHub's API a minute after it
@@ -227,7 +250,7 @@ with a new code). More users are added on the **Users** page (see below).
   every line; the bridges' own lines (their servers' connections, pairings and controllers), every bridge's or
   one's; a plugin's own lines (its pairing, devices, clouds and errors: the lines it writes); or an accessory's
   (those of its own server and those that name it, its id or its address), the accessories grouped by plugin. The time: the latest lines, the last hour, 6 or 24 hours, today,
-  yesterday, the last 7 days, or a custom range. The bridge keeps its log on disk for that, under `logs/`
+  yesterday, the last 7 days, or **Custom…** (the same time range control as the Status page). The bridge keeps its log on disk for that, under `logs/`
   next to config.json: segments of 8 MB at most, a new one each day, the oldest removed past 64 MB or 7
   days, written in batches once a second so logging never waits for the disk. **Copy** puts the lines shown
   on the clipboard as text. **Diagnose** (Log Doctor, with the Assistant on) sends the lines shown, the latest
@@ -436,7 +459,8 @@ signed-in users only (anyone else gets the sign-in page, then this one); the pag
 relative files and a `<meta name="homeswift-plugin">` naming its platform and instance, which `plugin.js`
 reads. The page is a full document: link `/style.css` for the look of the rest of the UI, then `/common.js` and
 `/plugin.js` for the helpers. The content security policy allows scripts and styles from files only, no
-inline script.
+inline script. A page that asks for a time range uses `HomeswiftCommon.rangeControl(params, { presets, fallback,
+changed })`, the control the UI's own pages use (presets, then Custom…'s pop-over), never an `<input type=datetime-local>`.
 
 The page talks to its instance through `homeswift.request(path, { method, body })`, which sends
 `/api/plugins/<platform>/<name>/<path>` with the session cookie and parses the JSON answer; the plugin
