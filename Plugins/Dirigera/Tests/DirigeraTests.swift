@@ -17,6 +17,18 @@ let testLogger: Logger = {
 
 /// A DIRIGERA hub in memory: pairing (403 until `pressButton`), devices, scenes, the requests it was sent, and an
 /// event stream the test feeds.
+/// The hub as a transport, recording each certificate it answers with (as the real pinning transport does).
+struct PinnedHub: HomeswiftNetwork.HTTPSending {
+    let hub: FakeHub
+    let trust: HomeswiftNetwork.HTTPClient.TrustOnFirstUse
+
+    func send(_ request: HomeswiftNetwork.HTTPRequest) async throws -> HomeswiftNetwork.HTTPResponse {
+        let response = try await hub.send(request)
+        _ = trust.observe(response.certificateFingerprint)
+        return response
+    }
+}
+
 final class FakeHub: HTTPSending, @unchecked Sendable {
     struct Sent: Equatable {
         var method: String
@@ -41,7 +53,7 @@ final class FakeHub: HTTPSending, @unchecked Sendable {
             state.sent.append(Sent(method: request.method, path: path, body: body))
             return state
         }
-        func json(_ value: JSONValue, status: Int = 200) -> HomeswiftNetwork.HTTPResponse { .init(status: status, body: value.encoded(), certificateFingerprint: "cc:dd") }
+        func json(_ value: JSONValue, status: Int = 200) -> HomeswiftNetwork.HTTPResponse { .init(status: status, body: value.encoded(), certificateFingerprint: String(repeating: "cc", count: 32)) }
         switch (request.method, path) {
         case ("GET", "/v1/oauth/authorize"):
             let challenge = URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "code_challenge" }?.value
@@ -102,7 +114,7 @@ final class TestEnvironment: Sendable {
         registry.register(platform: DirigeraPlugin.platform, name: DirigeraPlugin.name) { json, context in
             let configuration = try JSONDecoder().decode(DirigeraPlugin.Configuration.self, from: json)
             let dependencies = DirigeraPlugin.Dependencies(
-                transport: { _ in hub }, events: { _, _, _ in hub.events.stream }, discover: { ["192.0.2.20"] }, reconnectDelay: .milliseconds(50))
+                transport: { trust in PinnedHub(hub: hub, trust: trust) }, events: { _, _, _ in hub.events.stream }, discover: { ["192.0.2.20"] }, reconnectDelay: .milliseconds(50))
             let plugin = DirigeraPlugin(configuration: configuration, context: context, dependencies: dependencies)
             self.plugins.withLockedValue { $0.append(plugin) }
             return plugin
