@@ -2182,7 +2182,6 @@ HomeswiftI18n.add("es", {
   "Battery charged": "Batería cargada",
   "Battery discharged": "Batería descargada",
   "Home from solar": "Casa cubierta por solar",
-  "Solar produced today": "Solar producida hoy",
   "Day": "Día",
   "A minute with nothing recorded counts as none.": "Un minuto sin datos cuenta como cero.",
   "Where the home's energy came from, above the line, and where the rest went, below it: today and the 7 days before": "De dónde vino la energía de la casa, por encima de la línea, y adónde fue el resto, por debajo: hoy y los 7 días anteriores",
@@ -2191,5 +2190,11 @@ HomeswiftI18n.add("es", {
   "Other sources": "Otras fuentes",
   "Into batteries": "Hacia las baterías",
   "Exported to the grid": "Exportado a la red",
-  "{title}, a bar per day": "{title}, una barra por día"
+  "{title}, a bar per day": "{title}, una barra por día",
+  "Batteries": "Baterías",
+  "Solar today": "Solar hoy",
+  "Home used today": "Consumo de hoy",
+  "As it was produced": "En el momento de producirse",
+  "Grid import today": "Importación de la red hoy",
+  "{value} exported": "{value} exportados"
 });

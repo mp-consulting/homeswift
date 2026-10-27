@@ -2228,13 +2228,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const params = new URLSearchParams(location.search);
     const range = rangeFilter(params, { key: "energy", fallback: "24h", changed: () => load() });
     const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    // A colour per entity, the same in every chart: solar yellow, the home blue, the batteries aqua, the grid violet
+    // (the palette's slots, validated for colour blindness in both modes). The lines' devices take the slots in order.
     const roles = [
-      { id: "solar", label: t("Solar"), tone: 5 },
+      { id: "solar", label: t("Solar"), tone: 4 },
       { id: "home", label: t("Home [use]"), tone: 1 },
-      { id: "grid", label: t("Grid"), tone: 4 },
       { id: "battery", label: t("Battery"), tone: 3 },
+      { id: "grid", label: t("Grid"), tone: 7 },
     ];
-    const levelTones = [3, 1, 5, 4, 6, 2];
+    const levelTones = [1, 2, 3, 4, 5, 6];
     const card = (title, note) => {
       const figure = el("b", { class: "chart-figure" });
       const detail = el("div", { class: "muted chart-detail" });
@@ -2249,11 +2251,18 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const days = card(t("Energy by day"), t("Where the home's energy came from, above the line, and where the rest went, below it: today and the 7 days before"));
     // Folded until asked for; it stays open across refreshes.
     const dayTable = el("details", { class: "more chart-table" }, el("summary", { text: t("Show as a table") }));
+    const today = el("div", { class: "energy-today" });
+    // The charts' points as a table, folded until asked for (the colours alone are not enough to read them by).
+    const pointTable = el("details", { class: "more chart-table" }, el("summary", { text: t("Show as a table") }));
+    pointTable.addEventListener("toggle", () => { if (pointTable.open) fillPoints(); });
     const section = el("section", { class: "activity energy", hidden: true },
       el("h2", { text: t("Energy") }),
+      today,
       el("div", { class: "filter-bar" }, range.picker, HomeswiftCommon.clearFilters([[range.picker, "24h"]]), range.customRow),
       el("div", { class: "chart-grid" }, power.node, levels.node),
+      pointTable,
       el("div", { class: "chart-grid energy-days" }, days.node));
+    let lastReport = null;   // for the table
     let refresh = null;
 
     function keepAddress() {
@@ -2312,6 +2321,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           points, from.getTime(), to.getTime(), step, formatPercent);
         levels.detail.textContent = report.levels.filter((level) => level.points.length).map((level) => `${level.device} ${formatPercent(level.points.at(-1)[1])}`).join(" · ");
       }
+      lastReport = report;
+      if (pointTable.open) fillPoints();
+      fillToday(report.days[0], report.roles);
       fillDays(report.days, report.roles);
       if (!end) refresh = setTimeout(() => { if (section.isConnected && !document.hidden) load(); }, 60000);
     }
@@ -2324,14 +2336,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const has = (role) => present.includes(role);
       const rest = (day) => Math.max(0, day.home - (has("solar") ? day.homeFromSolar : 0) - (has("grid") ? day.gridImport : 0));
       const segments = [
-        has("home") && has("solar") ? { label: t("Home from solar"), tone: 5, value: (day) => day.homeFromSolar } : null,
+        has("home") && has("solar") ? { label: t("Home from solar"), tone: 4, value: (day) => day.homeFromSolar } : null,
         has("home") && has("battery") ? { label: t("Home from batteries"), tone: 3, value: rest } : null,
-        has("home") && has("grid") ? { label: t("Home from the grid"), tone: 4, value: (day) => day.gridImport } : null,
+        has("home") && has("grid") ? { label: t("Home from the grid"), tone: 7, value: (day) => day.gridImport } : null,
         has("home") && !has("battery") ? { label: has("solar") || has("grid") ? t("Other sources") : t("Home used"), tone: 1, value: rest } : null,
-        !has("home") && has("solar") ? { label: t("Solar produced"), tone: 5, value: (day) => day.solar } : null,
-        has("battery") ? { label: t("Into batteries"), tone: 1, value: (day) => -day.batteryCharge } : null,
-        has("grid") ? { label: t("Exported to the grid"), tone: 2, value: (day) => -day.gridExport } : null,
+        !has("home") && has("solar") ? { label: t("Solar produced"), tone: 4, value: (day) => day.solar } : null,
+        has("battery") ? { label: t("Into batteries"), tone: 3, value: (day) => -day.batteryCharge } : null,
+        has("grid") ? { label: t("Exported to the grid"), tone: 7, value: (day) => -day.gridExport } : null,
       ].filter(Boolean);
+      // The legend names each colour once: an entity is the same colour above the line and below it.
+      const legend = [...new Map(segments.map((one) => [one.tone, { tone: one.tone, label: { 4: t("Solar"), 3: t("Batteries"), 7: t("Grid") }[one.tone] ?? one.label }])).values()];
       const name = (date, index, format) => {
         if (index === 0) return t("Today");
         if (index === 1 && format === dayFormat) return t("Yesterday");
@@ -2340,16 +2354,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       };
       const bars = list.map((day, index) => ({ label: name(day.date, index, shortDay), narrow: String(Number(day.date.slice(8))), title: name(day.date, index, dayFormat), values: day.minutes ? day : null })).reverse();
       const key = segments.map((one) => one.label).join("\n");
-      if (days.view && days.key === key) days.view.update(bars);
+      if (days.view && days.key === key + "\n" + legend.map((one) => one.label).join("\n")) days.view.update(bars);
       else {
         days.body.replaceChildren();
-        days.key = key;
-        days.view = HomeswiftChart.stackedBars(days.body, { title: days.title, segments: segments.map((one) => ({ ...one, value: (values) => values ? one.value(values) : 0 })), bars, format: formatKWh, unit: () => 1 });
+        days.key = key + "\n" + legend.map((one) => one.label).join("\n");
+        days.view = HomeswiftChart.stackedBars(days.body, { title: days.title, segments: segments.map((one) => ({ ...one, value: (values) => values ? one.value(values) : 0 })), legend, bars, format: formatKWh, unit: () => 1 });
         days.body.append(dayTable);
       }
-      const today = list[0];
-      days.figure.textContent = today?.minutes && has("solar") ? formatKWh(today.solar) : "";
-      days.figure.title = today?.minutes && has("solar") ? t("Solar produced today") : "";
       days.detail.textContent = t("A minute with nothing recorded counts as none.");
 
       const columns = [
@@ -2369,6 +2380,37 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             const one = day.minutes ? value(day) : null;
             return el("td", { class: one == null ? "empty" : "", text: one == null ? "–" : format(one) });
           })))))));
+    }
+
+    /// Today's figures, each with its label: solar produced, the home's use, the share solar covered, the grid's import.
+    function fillToday(day, present) {
+      const has = (role) => present.includes(role);
+      const tile = (label, value, note) => el("div", { class: "card" }, el("span", { text: label }), el("b", { text: value }), note ? el("small", { text: note }) : null);
+      const known = Boolean(day?.minutes);
+      const kWh = (value) => known ? formatKWh(value) : "–";
+      today.replaceChildren(...[
+        has("solar") ? tile(t("Solar today"), kWh(day?.solar)) : null,
+        has("home") ? tile(t("Home used today"), kWh(day?.home)) : null,
+        has("solar") && has("home") ? tile(t("Home from solar"), known && day.solarShare != null ? formatPercent(day.solarShare * 100) : "–", t("As it was produced")) : null,
+        has("grid") ? tile(t("Grid import today"), kWh(day?.gridImport), known ? t("{value} exported", { value: formatKWh(day.gridExport) }) : null) : null,
+      ].filter(Boolean));
+    }
+
+    /// The power and levels at each point, newest first.
+    function fillPoints() {
+      if (!lastReport) return;
+      const time = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+      const present = roles.filter((role) => lastReport.roles.includes(role.id));
+      const rows = new Map();
+      for (const point of lastReport.power) rows.set(point.t, { ...point });
+      for (const level of lastReport.levels) for (const [t0, percent] of level.points) rows.set(t0, { ...(rows.get(t0) ?? { t: t0 }), [level.series]: percent });
+      const cell = (value, format) => el("td", { class: value == null ? "empty" : "", text: value == null ? "–" : format(value) });
+      pointTable.replaceChildren(pointTable.firstChild, el("div", { class: "table-scroll" }, el("table", {},
+        el("thead", {}, el("tr", {}, el("th", { scope: "col", class: "time", text: t("Time") }),
+          present.map((role) => el("th", { scope: "col", text: role.label })), lastReport.levels.map((level) => el("th", { scope: "col", text: level.device })))),
+        el("tbody", {}, [...rows.values()].sort((a, b) => b.t - a.t).map((row) => el("tr", {},
+          el("th", { scope: "row", class: "time", text: time.format(row.t * 1000) }),
+          present.map((role) => cell(row[role.id], formatWatts)), lastReport.levels.map((level) => cell(row[level.series], formatPercent))))))));
     }
 
     load();
@@ -5780,14 +5822,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// can show what came in above the line and what went out below it. `format` writes a value with its unit and
   /// `unit(max)` sizes the ticks, as for `lineChart`. A tooltip lists a bar's segments, on hover and with the arrow keys.
   /// Returns `update(bars)`.
-  function stackedBars(container, { title, segments, bars, format, unit = () => 1 }) {
+  /// `legend` (`{ label, tone }`) names the colours when segments share one (an entity above and below the line).
+  function stackedBars(container, { title, segments, bars, format, unit = () => 1, legend: keys = segments }) {
     const frame = html("div", "chart-frame");
     const tooltip = html("div", "chart-tooltip hidden");
     tooltip.setAttribute("role", "status");
     frame.append(tooltip);
     container.append(frame);
     const legend = html("div", "chart-legend");
-    for (const one of segments) {
+    for (const one of keys) {
       const item = html("span", "", null);
       item.append(html("i", `key bar tone-${one.tone}`), document.createTextNode(one.label));
       legend.append(item);
@@ -5808,7 +5851,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const step = niceStep((highest - lowest) / 5 || 1, unit(size));
       const top = Math.max(lowest < 0 ? 0 : step, Math.ceil(highest / step) * step), bottom = Math.floor(lowest / step) * step;
       const y = (value) => pad.top + plotHeight - (value - bottom) / Math.max(top - bottom, 1e-9) * plotHeight;
-      const slot = plotWidth / Math.max(bars.length, 1), barWidth = Math.min(44, slot * 0.62);
+      const slot = plotWidth / Math.max(bars.length, 1), barWidth = Math.min(24, slot * 0.6);
       const x = (index) => pad.left + slot * index + slot / 2;
 
       const root = svg("svg", { width, height, viewBox: `0 0 ${width} ${height}`, class: "chart", role: "img", "aria-label": t("{title}, a bar per day", { title }) });
@@ -5822,15 +5865,36 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
       const hover = svg("rect", { y: pad.top, height: plotHeight, width: slot, class: "bar-hover hidden", rx: 6 });
       root.append(hover);
+      // Segments stack out from the baseline with a 2px gap between them; the outermost on each side has 4px
+      // rounded corners at its free end, square at the baseline.
+      const gap = 2, radius = 4;
       bars.forEach((bar, index) => {
         let up = 0, down = 0;
+        const placed = [];
         segments.forEach((one, i) => {
           const value = sums[index][i];
           if (!value) return;
           const from = value > 0 ? up : down, to = from + value;
           if (value > 0) up = to; else down = to;
-          root.append(svg("rect", { x: x(index) - barWidth / 2, width: barWidth, y: Math.min(y(from), y(to)), height: Math.max(0.5, Math.abs(y(to) - y(from))), class: `bar tone-${one.tone}` }));
+          placed.push({ one, from, to, positive: value > 0 });
         });
+        const outer = { true: placed.filter((p) => p.positive).at(-1), false: placed.filter((p) => !p.positive).at(-1) };
+        for (const part of placed) {
+          const near = y(part.from), far = y(part.to);
+          // The gap comes off the end nearer the baseline, except for the segment that sits on it.
+          const onBase = part.from === 0;
+          const start = onBase ? near : near + (part.positive ? -gap / 2 : gap / 2);
+          const end = far + (part.positive ? gap / 2 : -gap / 2) * (outer[part.positive] === part ? 0 : 1);
+          const length = Math.abs(end - start);
+          if (length < 0.5) continue;
+          const left = x(index) - barWidth / 2, r = outer[part.positive] === part ? Math.min(radius, length, barWidth / 2) : 0;
+          const top = Math.min(start, end), bottom = Math.max(start, end);
+          // Rounded at the free end only: the top for a positive bar, the bottom for a negative one.
+          const d = part.positive
+            ? `M${left},${bottom}V${top + r}Q${left},${top} ${left + r},${top}H${left + barWidth - r}Q${left + barWidth},${top} ${left + barWidth},${top + r}V${bottom}Z`
+            : `M${left},${top}V${bottom - r}Q${left},${bottom} ${left + r},${bottom}H${left + barWidth - r}Q${left + barWidth},${bottom} ${left + barWidth},${bottom - r}V${top}Z`;
+          root.append(svg("path", { d, class: `bar tone-${part.one.tone}` }));
+        }
         const label = svg("text", { x: x(index), y: height - 6, class: "tick", "text-anchor": "middle" });
         label.textContent = slot < 64 && bar.narrow ? bar.narrow : bar.label;
         root.append(label);
@@ -11470,7 +11534,6 @@ HomeswiftI18n.add("es", {
   "Battery charged": "Batería cargada",
   "Battery discharged": "Batería descargada",
   "Home from solar": "Casa cubierta por solar",
-  "Solar produced today": "Solar producida hoy",
   "Day": "Día",
   "A minute with nothing recorded counts as none.": "Un minuto sin datos cuenta como cero.",
   "Where the home's energy came from, above the line, and where the rest went, below it: today and the 7 days before": "De dónde vino la energía de la casa, por encima de la línea, y adónde fue el resto, por debajo: hoy y los 7 días anteriores",
@@ -11479,7 +11542,13 @@ HomeswiftI18n.add("es", {
   "Other sources": "Otras fuentes",
   "Into batteries": "Hacia las baterías",
   "Exported to the grid": "Exportado a la red",
-  "{title}, a bar per day": "{title}, una barra por día"
+  "{title}, a bar per day": "{title}, una barra por día",
+  "Batteries": "Baterías",
+  "Solar today": "Solar hoy",
+  "Home used today": "Consumo de hoy",
+  "As it was produced": "En el momento de producirse",
+  "Grid import today": "Importación de la red hoy",
+  "{value} exported": "{value} exportados"
 });
 
 """#),
@@ -13668,7 +13737,6 @@ HomeswiftI18n.add("fr", {
   "Battery charged": "Batterie chargée",
   "Battery discharged": "Batterie déchargée",
   "Home from solar": "Maison couverte par le solaire",
-  "Solar produced today": "Solaire produit aujourd’hui",
   "Day": "Jour",
   "A minute with nothing recorded counts as none.": "Une minute sans relevé compte pour zéro.",
   "Where the home's energy came from, above the line, and where the rest went, below it: today and the 7 days before": "D’où venait l’énergie de la maison, au-dessus de la ligne, et où est allé le reste, en dessous : aujourd’hui et les 7 jours précédents",
@@ -13677,7 +13745,13 @@ HomeswiftI18n.add("fr", {
   "Other sources": "Autres sources",
   "Into batteries": "Vers les batteries",
   "Exported to the grid": "Exporté vers le réseau",
-  "{title}, a bar per day": "{title}, une barre par jour"
+  "{title}, a bar per day": "{title}, une barre par jour",
+  "Batteries": "Batteries",
+  "Solar today": "Solaire aujourd’hui",
+  "Home used today": "Consommation aujourd’hui",
+  "As it was produced": "Au moment de la production",
+  "Grid import today": "Import du réseau aujourd’hui",
+  "{value} exported": "{value} exportés"
 });
 
 """#),
@@ -15866,7 +15940,6 @@ HomeswiftI18n.add("pt", {
   "Battery charged": "Bateria carregada",
   "Battery discharged": "Bateria descarregada",
   "Home from solar": "Casa coberta pelo solar",
-  "Solar produced today": "Solar produzida hoje",
   "Day": "Dia",
   "A minute with nothing recorded counts as none.": "Um minuto sem registos conta como zero.",
   "Where the home's energy came from, above the line, and where the rest went, below it: today and the 7 days before": "De onde veio a energia da casa, acima da linha, e para onde foi o resto, abaixo: hoje e os 7 dias anteriores",
@@ -15875,7 +15948,13 @@ HomeswiftI18n.add("pt", {
   "Other sources": "Outras fontes",
   "Into batteries": "Para as baterias",
   "Exported to the grid": "Exportado para a rede",
-  "{title}, a bar per day": "{title}, uma barra por dia"
+  "{title}, a bar per day": "{title}, uma barra por dia",
+  "Batteries": "Baterias",
+  "Solar today": "Solar hoje",
+  "Home used today": "Consumo de hoje",
+  "As it was produced": "No momento da produção",
+  "Grid import today": "Importação da rede hoje",
+  "{value} exported": "{value} exportados"
 });
 
 """#),
@@ -17566,8 +17645,9 @@ HomeswiftI18n.add("pt", {
   --accent-ink: #b0460a; --accent-fill-top: #c4500c; --accent-fill: #ab3f0a;
   /* Chart series, slots 1 and 2 of a palette checked for colour-blind separation and contrast, each mode its own step. */
   --series-1: #2a78d6; --series-2: #eb6834;
-  /* Slots 3 to 6 for the Energy section's roles and its battery lines: green, violet, amber, teal. */
-  --series-3: #2a9a58; --series-4: #8a5cd6; --series-5: #c98f00; --series-6: #18958b;
+  /* Slots 3 to 7, the same validated palette (aqua, yellow, magenta, green, violet), for the Energy section's roles and
+     its battery lines; each mode its own step. */
+  --series-3: #1baf7a; --series-4: #eda100; --series-5: #e87ba4; --series-6: #008300; --series-7: #6250d6;
   /* Blue that carries small text (the Encrypted pill) at 4.5:1 on its tint; --series-1 stays for marks and bars. */
   --series-1-ink: #1d5fae;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -17590,7 +17670,7 @@ HomeswiftI18n.add("pt", {
     --text: #f3f4f7; --muted: #a2a9b5; --line: rgba(255, 255, 255, 0.1);
     --warn: #e9a04a; --paused: #8e8cff; --ok: #3ccf7a; --error: #ff6b6b; --accent-ink: #ff8f3d;
     --series-1: #3987e5; --series-2: #d95926; --series-1-ink: #6aa6ee;
-    --series-3: #3fb46c; --series-4: #a27fea; --series-5: #e3ae2a; --series-6: #34b5a9;
+    --series-3: #199e70; --series-4: #c98500; --series-5: #d55181; --series-6: #008300; --series-7: #9085e9;
   }
 }
 /* A theme chosen in the web UI (/appearance) rather than the system's: common.js sets data-theme. */
@@ -17610,7 +17690,7 @@ HomeswiftI18n.add("pt", {
   --text: #f3f4f7; --muted: #a2a9b5; --line: rgba(255, 255, 255, 0.1);
   --warn: #e9a04a; --paused: #8e8cff; --ok: #3ccf7a; --error: #ff6b6b; --accent-ink: #ff8f3d;
   --series-1: #3987e5; --series-2: #d95926; --series-1-ink: #6aa6ee;
-  --series-3: #3fb46c; --series-4: #a27fea; --series-5: #e3ae2a; --series-6: #34b5a9;
+  --series-3: #199e70; --series-4: #c98500; --series-5: #d55181; --series-6: #008300; --series-7: #9085e9;
 }
 * { box-sizing: border-box; }
 /* Hidden means hidden, whatever display a component's class gives it. */
@@ -18705,6 +18785,13 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .filter-bar .popup { max-width: 260px; }
 .chart-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 14px; transition: opacity var(--normal) var(--ease-out); }
 /* The Energy section's days: one card the width of the row, its table under the head. */
+/* Today's figures above the charts: a label in muted ink over a proportional figure. */
+.energy-today { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 14px; }
+.energy-today .card { margin: 0; padding: 14px 16px; display: grid; gap: 4px; align-content: start; }
+.energy-today span { font-size: 0.8125rem; color: var(--muted); }
+.energy-today b { font-size: 1.75rem; line-height: 1.1; font-weight: 650; letter-spacing: -0.02em; }
+.energy-today small { font-size: 0.75rem; color: var(--muted); }
+.energy .chart-table { margin-top: 12px; }
 .chart-grid.energy-days { grid-template-columns: minmax(0, 1fr); margin-top: 14px; }
 .energy-days .chart-table { margin-top: 0; }
 .energy-days .chart-table thead th.time { text-align: left; }
@@ -18730,18 +18817,21 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .chart .line.tone-4 { stroke: var(--series-4); }
 .chart .line.tone-5 { stroke: var(--series-5); }
 .chart .line.tone-6 { stroke: var(--series-6); }
+.chart .line.tone-7 { stroke: var(--series-7); }
 .chart .area.tone-1, .chart .dot.tone-1 { fill: var(--series-1); }
 .chart .area.tone-2, .chart .dot.tone-2 { fill: var(--series-2); }
 .chart .area.tone-3, .chart .dot.tone-3 { fill: var(--series-3); }
 .chart .area.tone-4, .chart .dot.tone-4 { fill: var(--series-4); }
 .chart .area.tone-5, .chart .dot.tone-5 { fill: var(--series-5); }
 .chart .area.tone-6, .chart .dot.tone-6 { fill: var(--series-6); }
+.chart .area.tone-7, .chart .dot.tone-7 { fill: var(--series-7); }
 .chart .bar.tone-1 { fill: var(--series-1); }
 .chart .bar.tone-2 { fill: var(--series-2); }
 .chart .bar.tone-3 { fill: var(--series-3); }
 .chart .bar.tone-4 { fill: var(--series-4); }
 .chart .bar.tone-5 { fill: var(--series-5); }
 .chart .bar.tone-6 { fill: var(--series-6); }
+.chart .bar.tone-7 { fill: var(--series-7); }
 .chart .bar-hover { fill: var(--material-thin); }
 .chart-legend .key.bar, .chart-tooltip .key.bar { width: 10px; height: 10px; border-radius: 3px; }
 .chart-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.8125rem; color: var(--muted); }
@@ -18753,6 +18843,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .key.tone-4 { background: var(--series-4); }
 .key.tone-5 { background: var(--series-5); }
 .key.tone-6 { background: var(--series-6); }
+.key.tone-7 { background: var(--series-7); }
 .chart-tooltip {
   position: absolute; top: 4px; z-index: 2; pointer-events: none; padding: 8px 10px; border-radius: 12px; min-width: 132px;
   background: var(--material-solid); border: 1px solid var(--edge); box-shadow: var(--shadow-control); font-size: 0.8125rem;

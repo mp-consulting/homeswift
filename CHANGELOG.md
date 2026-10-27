@@ -15,7 +15,7 @@ All notable changes to this project are documented here. The format follows
   `EnergyTag`: solar, home, grid, battery power, battery level; a figure several devices report alike counts once):
   the power of each role added up across devices (the grid's export and the batteries' discharge below zero), each
   device's battery level, and each day's energy in kWh for today and the 7 days before as stacked bars (where the
-  home's energy came from above the line, where the rest went below it), with a table on demand. Its own time range; `/api/metrics/energy` answers it in one request. Line charts draw values below zero, with a zero line; `HomeswiftChart.stackedBars` draws stacked bars.
+  home's energy came from above the line, where the rest went below it), with today's figures above and tables on demand. Its own time range; `/api/metrics/energy` answers it in one request. Line charts draw values below zero, with a zero line; `HomeswiftChart.stackedBars` draws stacked bars.
 - A battery on its own accessory (a power station) has its own widget on the Accessories page: the battery graphic
   (bars for the level, a bolt while charging) and its level at every size.
 

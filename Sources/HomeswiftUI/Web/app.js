@@ -851,13 +851,15 @@
     const params = new URLSearchParams(location.search);
     const range = rangeFilter(params, { key: "energy", fallback: "24h", changed: () => load() });
     const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    // A colour per entity, the same in every chart: solar yellow, the home blue, the batteries aqua, the grid violet
+    // (the palette's slots, validated for colour blindness in both modes). The lines' devices take the slots in order.
     const roles = [
-      { id: "solar", label: t("Solar"), tone: 5 },
+      { id: "solar", label: t("Solar"), tone: 4 },
       { id: "home", label: t("Home [use]"), tone: 1 },
-      { id: "grid", label: t("Grid"), tone: 4 },
       { id: "battery", label: t("Battery"), tone: 3 },
+      { id: "grid", label: t("Grid"), tone: 7 },
     ];
-    const levelTones = [3, 1, 5, 4, 6, 2];
+    const levelTones = [1, 2, 3, 4, 5, 6];
     const card = (title, note) => {
       const figure = el("b", { class: "chart-figure" });
       const detail = el("div", { class: "muted chart-detail" });
@@ -872,11 +874,18 @@
     const days = card(t("Energy by day"), t("Where the home's energy came from, above the line, and where the rest went, below it: today and the 7 days before"));
     // Folded until asked for; it stays open across refreshes.
     const dayTable = el("details", { class: "more chart-table" }, el("summary", { text: t("Show as a table") }));
+    const today = el("div", { class: "energy-today" });
+    // The charts' points as a table, folded until asked for (the colours alone are not enough to read them by).
+    const pointTable = el("details", { class: "more chart-table" }, el("summary", { text: t("Show as a table") }));
+    pointTable.addEventListener("toggle", () => { if (pointTable.open) fillPoints(); });
     const section = el("section", { class: "activity energy", hidden: true },
       el("h2", { text: t("Energy") }),
+      today,
       el("div", { class: "filter-bar" }, range.picker, HomeswiftCommon.clearFilters([[range.picker, "24h"]]), range.customRow),
       el("div", { class: "chart-grid" }, power.node, levels.node),
+      pointTable,
       el("div", { class: "chart-grid energy-days" }, days.node));
+    let lastReport = null;   // for the table
     let refresh = null;
 
     function keepAddress() {
@@ -935,6 +944,9 @@
           points, from.getTime(), to.getTime(), step, formatPercent);
         levels.detail.textContent = report.levels.filter((level) => level.points.length).map((level) => `${level.device} ${formatPercent(level.points.at(-1)[1])}`).join(" · ");
       }
+      lastReport = report;
+      if (pointTable.open) fillPoints();
+      fillToday(report.days[0], report.roles);
       fillDays(report.days, report.roles);
       if (!end) refresh = setTimeout(() => { if (section.isConnected && !document.hidden) load(); }, 60000);
     }
@@ -947,14 +959,16 @@
       const has = (role) => present.includes(role);
       const rest = (day) => Math.max(0, day.home - (has("solar") ? day.homeFromSolar : 0) - (has("grid") ? day.gridImport : 0));
       const segments = [
-        has("home") && has("solar") ? { label: t("Home from solar"), tone: 5, value: (day) => day.homeFromSolar } : null,
+        has("home") && has("solar") ? { label: t("Home from solar"), tone: 4, value: (day) => day.homeFromSolar } : null,
         has("home") && has("battery") ? { label: t("Home from batteries"), tone: 3, value: rest } : null,
-        has("home") && has("grid") ? { label: t("Home from the grid"), tone: 4, value: (day) => day.gridImport } : null,
+        has("home") && has("grid") ? { label: t("Home from the grid"), tone: 7, value: (day) => day.gridImport } : null,
         has("home") && !has("battery") ? { label: has("solar") || has("grid") ? t("Other sources") : t("Home used"), tone: 1, value: rest } : null,
-        !has("home") && has("solar") ? { label: t("Solar produced"), tone: 5, value: (day) => day.solar } : null,
-        has("battery") ? { label: t("Into batteries"), tone: 1, value: (day) => -day.batteryCharge } : null,
-        has("grid") ? { label: t("Exported to the grid"), tone: 2, value: (day) => -day.gridExport } : null,
+        !has("home") && has("solar") ? { label: t("Solar produced"), tone: 4, value: (day) => day.solar } : null,
+        has("battery") ? { label: t("Into batteries"), tone: 3, value: (day) => -day.batteryCharge } : null,
+        has("grid") ? { label: t("Exported to the grid"), tone: 7, value: (day) => -day.gridExport } : null,
       ].filter(Boolean);
+      // The legend names each colour once: an entity is the same colour above the line and below it.
+      const legend = [...new Map(segments.map((one) => [one.tone, { tone: one.tone, label: { 4: t("Solar"), 3: t("Batteries"), 7: t("Grid") }[one.tone] ?? one.label }])).values()];
       const name = (date, index, format) => {
         if (index === 0) return t("Today");
         if (index === 1 && format === dayFormat) return t("Yesterday");
@@ -963,16 +977,13 @@
       };
       const bars = list.map((day, index) => ({ label: name(day.date, index, shortDay), narrow: String(Number(day.date.slice(8))), title: name(day.date, index, dayFormat), values: day.minutes ? day : null })).reverse();
       const key = segments.map((one) => one.label).join("\n");
-      if (days.view && days.key === key) days.view.update(bars);
+      if (days.view && days.key === key + "\n" + legend.map((one) => one.label).join("\n")) days.view.update(bars);
       else {
         days.body.replaceChildren();
-        days.key = key;
-        days.view = HomeswiftChart.stackedBars(days.body, { title: days.title, segments: segments.map((one) => ({ ...one, value: (values) => values ? one.value(values) : 0 })), bars, format: formatKWh, unit: () => 1 });
+        days.key = key + "\n" + legend.map((one) => one.label).join("\n");
+        days.view = HomeswiftChart.stackedBars(days.body, { title: days.title, segments: segments.map((one) => ({ ...one, value: (values) => values ? one.value(values) : 0 })), legend, bars, format: formatKWh, unit: () => 1 });
         days.body.append(dayTable);
       }
-      const today = list[0];
-      days.figure.textContent = today?.minutes && has("solar") ? formatKWh(today.solar) : "";
-      days.figure.title = today?.minutes && has("solar") ? t("Solar produced today") : "";
       days.detail.textContent = t("A minute with nothing recorded counts as none.");
 
       const columns = [
@@ -992,6 +1003,37 @@
             const one = day.minutes ? value(day) : null;
             return el("td", { class: one == null ? "empty" : "", text: one == null ? "–" : format(one) });
           })))))));
+    }
+
+    /// Today's figures, each with its label: solar produced, the home's use, the share solar covered, the grid's import.
+    function fillToday(day, present) {
+      const has = (role) => present.includes(role);
+      const tile = (label, value, note) => el("div", { class: "card" }, el("span", { text: label }), el("b", { text: value }), note ? el("small", { text: note }) : null);
+      const known = Boolean(day?.minutes);
+      const kWh = (value) => known ? formatKWh(value) : "–";
+      today.replaceChildren(...[
+        has("solar") ? tile(t("Solar today"), kWh(day?.solar)) : null,
+        has("home") ? tile(t("Home used today"), kWh(day?.home)) : null,
+        has("solar") && has("home") ? tile(t("Home from solar"), known && day.solarShare != null ? formatPercent(day.solarShare * 100) : "–", t("As it was produced")) : null,
+        has("grid") ? tile(t("Grid import today"), kWh(day?.gridImport), known ? t("{value} exported", { value: formatKWh(day.gridExport) }) : null) : null,
+      ].filter(Boolean));
+    }
+
+    /// The power and levels at each point, newest first.
+    function fillPoints() {
+      if (!lastReport) return;
+      const time = new Intl.DateTimeFormat(HomeswiftI18n.locale, { weekday: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+      const present = roles.filter((role) => lastReport.roles.includes(role.id));
+      const rows = new Map();
+      for (const point of lastReport.power) rows.set(point.t, { ...point });
+      for (const level of lastReport.levels) for (const [t0, percent] of level.points) rows.set(t0, { ...(rows.get(t0) ?? { t: t0 }), [level.series]: percent });
+      const cell = (value, format) => el("td", { class: value == null ? "empty" : "", text: value == null ? "–" : format(value) });
+      pointTable.replaceChildren(pointTable.firstChild, el("div", { class: "table-scroll" }, el("table", {},
+        el("thead", {}, el("tr", {}, el("th", { scope: "col", class: "time", text: t("Time") }),
+          present.map((role) => el("th", { scope: "col", text: role.label })), lastReport.levels.map((level) => el("th", { scope: "col", text: level.device })))),
+        el("tbody", {}, [...rows.values()].sort((a, b) => b.t - a.t).map((row) => el("tr", {},
+          el("th", { scope: "row", class: "time", text: time.format(row.t * 1000) }),
+          present.map((role) => cell(row[role.id], formatWatts)), lastReport.levels.map((level) => cell(row[level.series], formatPercent))))))));
     }
 
     load();

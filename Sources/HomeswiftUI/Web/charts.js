@@ -235,14 +235,15 @@
   /// can show what came in above the line and what went out below it. `format` writes a value with its unit and
   /// `unit(max)` sizes the ticks, as for `lineChart`. A tooltip lists a bar's segments, on hover and with the arrow keys.
   /// Returns `update(bars)`.
-  function stackedBars(container, { title, segments, bars, format, unit = () => 1 }) {
+  /// `legend` (`{ label, tone }`) names the colours when segments share one (an entity above and below the line).
+  function stackedBars(container, { title, segments, bars, format, unit = () => 1, legend: keys = segments }) {
     const frame = html("div", "chart-frame");
     const tooltip = html("div", "chart-tooltip hidden");
     tooltip.setAttribute("role", "status");
     frame.append(tooltip);
     container.append(frame);
     const legend = html("div", "chart-legend");
-    for (const one of segments) {
+    for (const one of keys) {
       const item = html("span", "", null);
       item.append(html("i", `key bar tone-${one.tone}`), document.createTextNode(one.label));
       legend.append(item);
@@ -263,7 +264,7 @@
       const step = niceStep((highest - lowest) / 5 || 1, unit(size));
       const top = Math.max(lowest < 0 ? 0 : step, Math.ceil(highest / step) * step), bottom = Math.floor(lowest / step) * step;
       const y = (value) => pad.top + plotHeight - (value - bottom) / Math.max(top - bottom, 1e-9) * plotHeight;
-      const slot = plotWidth / Math.max(bars.length, 1), barWidth = Math.min(44, slot * 0.62);
+      const slot = plotWidth / Math.max(bars.length, 1), barWidth = Math.min(24, slot * 0.6);
       const x = (index) => pad.left + slot * index + slot / 2;
 
       const root = svg("svg", { width, height, viewBox: `0 0 ${width} ${height}`, class: "chart", role: "img", "aria-label": t("{title}, a bar per day", { title }) });
@@ -277,15 +278,36 @@
       }
       const hover = svg("rect", { y: pad.top, height: plotHeight, width: slot, class: "bar-hover hidden", rx: 6 });
       root.append(hover);
+      // Segments stack out from the baseline with a 2px gap between them; the outermost on each side has 4px
+      // rounded corners at its free end, square at the baseline.
+      const gap = 2, radius = 4;
       bars.forEach((bar, index) => {
         let up = 0, down = 0;
+        const placed = [];
         segments.forEach((one, i) => {
           const value = sums[index][i];
           if (!value) return;
           const from = value > 0 ? up : down, to = from + value;
           if (value > 0) up = to; else down = to;
-          root.append(svg("rect", { x: x(index) - barWidth / 2, width: barWidth, y: Math.min(y(from), y(to)), height: Math.max(0.5, Math.abs(y(to) - y(from))), class: `bar tone-${one.tone}` }));
+          placed.push({ one, from, to, positive: value > 0 });
         });
+        const outer = { true: placed.filter((p) => p.positive).at(-1), false: placed.filter((p) => !p.positive).at(-1) };
+        for (const part of placed) {
+          const near = y(part.from), far = y(part.to);
+          // The gap comes off the end nearer the baseline, except for the segment that sits on it.
+          const onBase = part.from === 0;
+          const start = onBase ? near : near + (part.positive ? -gap / 2 : gap / 2);
+          const end = far + (part.positive ? gap / 2 : -gap / 2) * (outer[part.positive] === part ? 0 : 1);
+          const length = Math.abs(end - start);
+          if (length < 0.5) continue;
+          const left = x(index) - barWidth / 2, r = outer[part.positive] === part ? Math.min(radius, length, barWidth / 2) : 0;
+          const top = Math.min(start, end), bottom = Math.max(start, end);
+          // Rounded at the free end only: the top for a positive bar, the bottom for a negative one.
+          const d = part.positive
+            ? `M${left},${bottom}V${top + r}Q${left},${top} ${left + r},${top}H${left + barWidth - r}Q${left + barWidth},${top} ${left + barWidth},${top + r}V${bottom}Z`
+            : `M${left},${top}V${bottom - r}Q${left},${bottom} ${left + r},${bottom}H${left + barWidth - r}Q${left + barWidth},${bottom} ${left + barWidth},${bottom - r}V${top}Z`;
+          root.append(svg("path", { d, class: `bar tone-${part.one.tone}` }));
+        }
         const label = svg("text", { x: x(index), y: height - 6, class: "tick", "text-anchor": "middle" });
         label.textContent = slot < 64 && bar.narrow ? bar.narrow : bar.label;
         root.append(label);

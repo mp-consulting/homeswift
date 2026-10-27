@@ -23,8 +23,9 @@
   --accent-ink: #b0460a; --accent-fill-top: #c4500c; --accent-fill: #ab3f0a;
   /* Chart series, slots 1 and 2 of a palette checked for colour-blind separation and contrast, each mode its own step. */
   --series-1: #2a78d6; --series-2: #eb6834;
-  /* Slots 3 to 6 for the Energy section's roles and its battery lines: green, violet, amber, teal. */
-  --series-3: #2a9a58; --series-4: #8a5cd6; --series-5: #c98f00; --series-6: #18958b;
+  /* Slots 3 to 7, the same validated palette (aqua, yellow, magenta, green, violet), for the Energy section's roles and
+     its battery lines; each mode its own step. */
+  --series-3: #1baf7a; --series-4: #eda100; --series-5: #e87ba4; --series-6: #008300; --series-7: #6250d6;
   /* Blue that carries small text (the Encrypted pill) at 4.5:1 on its tint; --series-1 stays for marks and bars. */
   --series-1-ink: #1d5fae;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -47,7 +48,7 @@
     --text: #f3f4f7; --muted: #a2a9b5; --line: rgba(255, 255, 255, 0.1);
     --warn: #e9a04a; --paused: #8e8cff; --ok: #3ccf7a; --error: #ff6b6b; --accent-ink: #ff8f3d;
     --series-1: #3987e5; --series-2: #d95926; --series-1-ink: #6aa6ee;
-    --series-3: #3fb46c; --series-4: #a27fea; --series-5: #e3ae2a; --series-6: #34b5a9;
+    --series-3: #199e70; --series-4: #c98500; --series-5: #d55181; --series-6: #008300; --series-7: #9085e9;
   }
 }
 /* A theme chosen in the web UI (/appearance) rather than the system's: common.js sets data-theme. */
@@ -67,7 +68,7 @@
   --text: #f3f4f7; --muted: #a2a9b5; --line: rgba(255, 255, 255, 0.1);
   --warn: #e9a04a; --paused: #8e8cff; --ok: #3ccf7a; --error: #ff6b6b; --accent-ink: #ff8f3d;
   --series-1: #3987e5; --series-2: #d95926; --series-1-ink: #6aa6ee;
-  --series-3: #3fb46c; --series-4: #a27fea; --series-5: #e3ae2a; --series-6: #34b5a9;
+  --series-3: #199e70; --series-4: #c98500; --series-5: #d55181; --series-6: #008300; --series-7: #9085e9;
 }
 * { box-sizing: border-box; }
 /* Hidden means hidden, whatever display a component's class gives it. */
@@ -1162,6 +1163,13 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .filter-bar .popup { max-width: 260px; }
 .chart-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 14px; transition: opacity var(--normal) var(--ease-out); }
 /* The Energy section's days: one card the width of the row, its table under the head. */
+/* Today's figures above the charts: a label in muted ink over a proportional figure. */
+.energy-today { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 14px; }
+.energy-today .card { margin: 0; padding: 14px 16px; display: grid; gap: 4px; align-content: start; }
+.energy-today span { font-size: 0.8125rem; color: var(--muted); }
+.energy-today b { font-size: 1.75rem; line-height: 1.1; font-weight: 650; letter-spacing: -0.02em; }
+.energy-today small { font-size: 0.75rem; color: var(--muted); }
+.energy .chart-table { margin-top: 12px; }
 .chart-grid.energy-days { grid-template-columns: minmax(0, 1fr); margin-top: 14px; }
 .energy-days .chart-table { margin-top: 0; }
 .energy-days .chart-table thead th.time { text-align: left; }
@@ -1187,18 +1195,21 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .chart .line.tone-4 { stroke: var(--series-4); }
 .chart .line.tone-5 { stroke: var(--series-5); }
 .chart .line.tone-6 { stroke: var(--series-6); }
+.chart .line.tone-7 { stroke: var(--series-7); }
 .chart .area.tone-1, .chart .dot.tone-1 { fill: var(--series-1); }
 .chart .area.tone-2, .chart .dot.tone-2 { fill: var(--series-2); }
 .chart .area.tone-3, .chart .dot.tone-3 { fill: var(--series-3); }
 .chart .area.tone-4, .chart .dot.tone-4 { fill: var(--series-4); }
 .chart .area.tone-5, .chart .dot.tone-5 { fill: var(--series-5); }
 .chart .area.tone-6, .chart .dot.tone-6 { fill: var(--series-6); }
+.chart .area.tone-7, .chart .dot.tone-7 { fill: var(--series-7); }
 .chart .bar.tone-1 { fill: var(--series-1); }
 .chart .bar.tone-2 { fill: var(--series-2); }
 .chart .bar.tone-3 { fill: var(--series-3); }
 .chart .bar.tone-4 { fill: var(--series-4); }
 .chart .bar.tone-5 { fill: var(--series-5); }
 .chart .bar.tone-6 { fill: var(--series-6); }
+.chart .bar.tone-7 { fill: var(--series-7); }
 .chart .bar-hover { fill: var(--material-thin); }
 .chart-legend .key.bar, .chart-tooltip .key.bar { width: 10px; height: 10px; border-radius: 3px; }
 .chart-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.8125rem; color: var(--muted); }
@@ -1210,6 +1221,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .key.tone-4 { background: var(--series-4); }
 .key.tone-5 { background: var(--series-5); }
 .key.tone-6 { background: var(--series-6); }
+.key.tone-7 { background: var(--series-7); }
 .chart-tooltip {
   position: absolute; top: 4px; z-index: 2; pointer-events: none; padding: 8px 10px; border-radius: 12px; min-width: 132px;
   background: var(--material-solid); border: 1px solid var(--edge); box-shadow: var(--shadow-control); font-size: 0.8125rem;
