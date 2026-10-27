@@ -567,16 +567,18 @@
       renderControls();
       return;
     }
-    if (running) return;
+    // A press while an answer runs still listens: the words wait in the field until the answer is done.
+    if (recognition) return;   // the last one is still finishing
     voiceNote = "";
     window.speechSynthesis?.cancel();
-    recognition = new Recognition();
-    recognition.lang = voiceLanguage();
-    recognition.interimResults = true;
-    recognition.continuous = false;
+    const current = new Recognition();
+    recognition = current;
+    current.lang = voiceLanguage();
+    current.interimResults = true;
+    current.continuous = false;
     const before = panel.input.value ? `${panel.input.value} ` : "";
     let finalText = "";
-    recognition.onresult = (event) => {
+    current.onresult = (event) => {
       let interim = "";
       finalText = "";
       for (const result of event.results) {
@@ -585,23 +587,26 @@
       panel.input.value = before + finalText + interim;
       grow();
     };
-    recognition.onerror = (event) => {
+    current.onerror = (event) => {
       voiceNote = event.error === "not-allowed" || event.error === "service-not-allowed"
         ? t("The browser did not allow the microphone for this page.")
         : event.error === "no-speech" ? t("Nothing was heard. Tap the mic and speak.") : t("Voice stopped: {error}.", { error: event.error });
     };
-    recognition.onend = () => {
-      const send = recognition?.sendWhenDone !== false;
+    current.onend = () => {
+      if (recognition !== current) return;
+      const send = current.sendWhenDone !== false;
       listening = false;
       recognition = null;
       panel.sheet.classList.remove("listening");
+      if (send && finalText.trim() && running) voiceNote = t("Your words are in the field: send them once the answer is done.");
       renderControls();
       const text = panel.input.value.trim();
-      if (send && finalText.trim() && text) submit(text, true);
+      if (send && finalText.trim() && text && !running) submit(text, true);
     };
     try {
-      recognition.start();
+      current.start();
     } catch (e) {
+      recognition = null;
       voiceNote = t("Voice did not start: {error}", { error: e.message });
       renderControls();
       return;

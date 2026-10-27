@@ -1945,6 +1945,7 @@ HomeswiftI18n.add("pt", {
   "VOC Density": "COV",
   "Voice": "Voz",
   "Voice did not start: {error}": "A voz não iniciou: {error}",
+  "Your words are in the field: send them once the answer is done.": "As suas palavras estão no campo: envie-as quando a resposta terminar.",
   "Voice language": "Idioma da voz",
   "Voice needs HTTPS here: turn on https in Plugins › HomeswiftUI › Settings (or open the page on localhost).": "A voz requer HTTPS aqui: ative https em Plugins › HomeswiftUI › Definições (ou abra a página em localhost).",
   "Voice needs HTTPS: turn on https in the HomeswiftUI settings, or open this page on localhost.": "A voz requer HTTPS: ative https nas definições do HomeswiftUI, ou abra esta página em localhost.",

@@ -6150,16 +6150,18 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       renderControls();
       return;
     }
-    if (running) return;
+    // A press while an answer runs still listens: the words wait in the field until the answer is done.
+    if (recognition) return;   // the last one is still finishing
     voiceNote = "";
     window.speechSynthesis?.cancel();
-    recognition = new Recognition();
-    recognition.lang = voiceLanguage();
-    recognition.interimResults = true;
-    recognition.continuous = false;
+    const current = new Recognition();
+    recognition = current;
+    current.lang = voiceLanguage();
+    current.interimResults = true;
+    current.continuous = false;
     const before = panel.input.value ? `${panel.input.value} ` : "";
     let finalText = "";
-    recognition.onresult = (event) => {
+    current.onresult = (event) => {
       let interim = "";
       finalText = "";
       for (const result of event.results) {
@@ -6168,23 +6170,26 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       panel.input.value = before + finalText + interim;
       grow();
     };
-    recognition.onerror = (event) => {
+    current.onerror = (event) => {
       voiceNote = event.error === "not-allowed" || event.error === "service-not-allowed"
         ? t("The browser did not allow the microphone for this page.")
         : event.error === "no-speech" ? t("Nothing was heard. Tap the mic and speak.") : t("Voice stopped: {error}.", { error: event.error });
     };
-    recognition.onend = () => {
-      const send = recognition?.sendWhenDone !== false;
+    current.onend = () => {
+      if (recognition !== current) return;
+      const send = current.sendWhenDone !== false;
       listening = false;
       recognition = null;
       panel.sheet.classList.remove("listening");
+      if (send && finalText.trim() && running) voiceNote = t("Your words are in the field: send them once the answer is done.");
       renderControls();
       const text = panel.input.value.trim();
-      if (send && finalText.trim() && text) submit(text, true);
+      if (send && finalText.trim() && text && !running) submit(text, true);
     };
     try {
-      recognition.start();
+      current.start();
     } catch (e) {
+      recognition = null;
       voiceNote = t("Voice did not start: {error}", { error: e.message });
       renderControls();
       return;
@@ -10928,6 +10933,7 @@ HomeswiftI18n.add("es", {
   "VOC Density": "COV",
   "Voice": "Voz",
   "Voice did not start: {error}": "La voz no se ha iniciado: {error}",
+  "Your words are in the field: send them once the answer is done.": "Tus palabras están en el campo: envíalas cuando termine la respuesta.",
   "Voice language": "Idioma de voz",
   "Voice needs HTTPS here: turn on https in Plugins › HomeswiftUI › Settings (or open the page on localhost).": "La voz necesita HTTPS aquí: activa https en Plugins › HomeswiftUI › Ajustes (o abre la página en localhost).",
   "Voice needs HTTPS: turn on https in the HomeswiftUI settings, or open this page on localhost.": "La voz necesita HTTPS: activa https en los ajustes de HomeswiftUI, o abre esta página en localhost.",
@@ -13097,6 +13103,7 @@ HomeswiftI18n.add("fr", {
   "VOC Density": "COV",
   "Voice": "Voix",
   "Voice did not start: {error}": "La voix n'a pas démarré : {error}",
+  "Your words are in the field: send them once the answer is done.": "Vos mots sont dans le champ : envoyez-les une fois la réponse terminée.",
   "Voice language": "Langue de la voix",
   "Voice needs HTTPS here: turn on https in Plugins › HomeswiftUI › Settings (or open the page on localhost).": "La voix nécessite HTTPS ici : activez https dans Plugins › HomeswiftUI › Réglages (ou ouvrez la page sur localhost).",
   "Voice needs HTTPS: turn on https in the HomeswiftUI settings, or open this page on localhost.": "La voix nécessite HTTPS : activez https dans les réglages de HomeswiftUI, ou ouvrez cette page sur localhost.",
@@ -15266,6 +15273,7 @@ HomeswiftI18n.add("pt", {
   "VOC Density": "COV",
   "Voice": "Voz",
   "Voice did not start: {error}": "A voz não iniciou: {error}",
+  "Your words are in the field: send them once the answer is done.": "As suas palavras estão no campo: envie-as quando a resposta terminar.",
   "Voice language": "Idioma da voz",
   "Voice needs HTTPS here: turn on https in Plugins › HomeswiftUI › Settings (or open the page on localhost).": "A voz requer HTTPS aqui: ative https em Plugins › HomeswiftUI › Definições (ou abra a página em localhost).",
   "Voice needs HTTPS: turn on https in the HomeswiftUI settings, or open this page on localhost.": "A voz requer HTTPS: ative https nas definições do HomeswiftUI, ou abra esta página em localhost.",
