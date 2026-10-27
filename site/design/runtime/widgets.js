@@ -304,11 +304,14 @@
     if (gradient) node.style.setProperty("--track", gradient);
     if (fill) node.style.setProperty("--fill", fill);
     const bar = gradient ? el("span", { class: "level-mark" }) : el("span", { class: "level-fill" });
+    // Several values at once (a group's lights): the span from the lowest to the highest.
+    const band = el("span", { class: "level-range" });
     const text = el("span", { class: "level-text" });
     // append() writes a null as the text "null": "" when there is no label.
-    node.append(bar, showLabel ? el("span", { class: "level-label", text: label }) : "", text);
+    node.append(band, bar, showLabel ? el("span", { class: "level-label", text: label }) : "", text);
     let value = min, dragging = false, keyTimer = null;
     function show(next) {
+      node.classList.remove("ranged");
       value = clamp(Math.round((next - min) / step) * step + min, min, max);
       const share = max > min ? (value - min) / (max - min) : 0;
       if (gradient && vertical) bar.style.top = `calc(100% - 10px - ${share} * (100% - 20px))`;
@@ -344,7 +347,25 @@
       keyTimer = setTimeout(() => { keyTimer = null; onCommit(value); }, 350);
     });
     show(min);
-    return { node, set: (next) => { if (!dragging && !keyTimer) show(next); } };
+    /// Shows `low` to `high` rather than one value, read as `reading`: solid up to the lowest, lighter up to the highest
+    /// (a band between them on a gradient track). Moving the slider shows one value again.
+    function range(low, high, reading) {
+      if (dragging || keyTimer) return;
+      const share = (one) => max > min ? clamp((one - min) / (max - min), 0, 1) : 0;
+      const [from, to] = [share(Math.min(low, high)), share(Math.max(low, high))];
+      show(Math.min(low, high));
+      if (gradient) {
+        band.style.left = `calc(10px + ${from} * (100% - 20px) - 3px)`;
+        band.style.width = `calc(${to - from} * (100% - 20px) + 6px)`;
+      } else {
+        band.style.left = `${from * 100}%`;
+        band.style.width = `${(to - from) * 100}%`;
+      }
+      node.classList.add("ranged");
+      text.textContent = reading;
+      node.setAttribute("aria-valuetext", reading);
+    }
+    return { node, set: (next) => { if (!dragging && !keyTimer) show(next); }, range };
   }
 
   /// A few positions as rising bars, as a fan's speeds read: the bar pressed and those under it lit.

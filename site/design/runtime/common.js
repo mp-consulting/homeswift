@@ -39,10 +39,15 @@
   const icons = {
     wingman: '<g transform="translate(0 4.32) scale(.048)"><g fill="currentColor" stroke="none"><path d="M8 12C65 48 155 88 180 110C198 121 204 136 195 148L165 177C180 144 170 131 149 121C47 95 6 88 8 12Z M36 112L150 152L132 177C64 163 42 161 36 112Z M58 177L121 193L109 221C77 220 63 203 58 177Z"/><g transform="translate(500 0) scale(-1 1)"><path d="M8 12C65 48 155 88 180 110C198 121 204 136 195 148L165 177C180 144 170 131 149 121C47 95 6 88 8 12Z M36 112L150 152L132 177C64 163 42 161 36 112Z M58 177L121 193L109 221C77 220 63 203 58 177Z"/></g></g><path d="M136 220L250 104L364 220M153 205V305H347V205" fill="none" stroke="currentColor" stroke-width="29" stroke-linecap="round" stroke-linejoin="round"/></g>',
     power: '<path d="M12 3v9M6.3 5.8a8 8 0 1 0 11.4 0"/>',
+    sparkle: '<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z"/><path d="M18.5 15.5l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z"/>',
     ungroup: '<rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><path d="M3 9V3h6M3 3l5 5M15 21h6v-6M21 21l-5-5"/>',
     group: '<rect x="3" y="8" width="13" height="13" rx="3"/><path d="M8 8V6a3 3 0 0 1 3-3h7a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3h-2M7 14.5h5M9.5 12v5"/>',
     // A bridge, Homeswift's own or a Hue Bridge or DIRIGERA hub: the box on the shelf, its light, the radio it speaks.
     bridge: '<rect x="4" y="13" width="16" height="7.5" rx="2.5"/><path d="M8 16.75h.01M8.5 9.5a5 5 0 0 1 7 0M6 7a8.5 8.5 0 0 1 12 0"/>',
+    // Plays again and again: a scene's Autoplay, a play inside a turning arrow.
+    loop: '<path d="M19.8 16.5A9 9 0 1 1 18.4 5.6"/><path d="M20.5 3v5.5H15z" fill="currentColor"/><path d="M10 8.5v7l5.5-3.5z" fill="currentColor"/>',
+    // Pairing: two links of a chain on the diagonal.
+    pair: '<g transform="rotate(-45 12 12)"><rect x="10.5" y="8" width="12.5" height="8" rx="4"/><rect x="1" y="8" width="12.5" height="8" rx="4"/></g>',
     child: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><path d="M10 6.5h4a3 3 0 0 1 3 3V14"/>',
     accessory: '<rect x="2.5" y="4" width="19" height="13" rx="2.5"/><path d="M8.5 20.5h7"/>',
     system: '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>',
@@ -83,8 +88,10 @@
     chart: '<path d="M4 4v16h16"/><path d="m7 15 4-5 3 3 5-6"/>',
     archive: '<rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"/>',
     key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l2 2M15 8l2 2"/>',
+    link: '<path d="M9.5 14.5l5-5M8 11l-2 2a3.5 3.5 0 0 0 5 5l2-2M16 13l2-2a3.5 3.5 0 0 0-5-5l-2 2"/>',
     shield: '<path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z"/><path d="m9 12 2 2 4-4"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
+    minus: '<path d="M5 12h14"/>',
     close: '<path d="m6 6 12 12M18 6 6 18"/>',
     search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
     copy: '<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M15 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h3"/>',
@@ -93,25 +100,44 @@
     check: '<path d="m5 12 4.5 4.5L19 7"/>',
     warning: '<path d="m12 3 10 18H2zM12 9v5M12 17h.01"/>',
     download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
+    image: '<rect x="3" y="4.5" width="18" height="15" rx="2.5"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="m21 15.5-4.5-4.5L7 19.5"/>',
     restore: '<path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.6"/><path d="M4 4v4.6h4.6"/>',
     history: '<path d="M3.5 12a8.5 8.5 0 1 0 2.5-6M3.5 4.5V9H8"/><path d="M12 7.5V12l3 2"/>',
     sliders: '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
+    upload: '<path d="M12 15V4"/><path d="M7 9l5-5 5 5"/><path d="M5 20h14"/>',
+    folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+    file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
+    clipboard: '<rect x="8" y="3" width="8" height="4" rx="1"/><path d="M16 5h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2"/>',
+    back: '<path d="M15 18l-6-6 6-6"/>',
+    forward: '<path d="M9 6l6 6-6 6"/>',
     up: '<path d="M6 15l6-6 6 6"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     down: '<path d="M6 9l6 6 6-6"/>',
   };
 
-  /// An icon as an SVG element.
+  /// A button's icon before its text (`actionIcon`, `data-action-icon`): the icon as an SVG data: URL in
+  /// `--action-icon`, which the stylesheet uses as a mask. Each icon's URL is made once.
+  const actionIconURLs = new Map();
   function decorateAction(node, name) {
     node.classList.add("action-with-icon");
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${icons[name] ?? icons.generic}</svg>`;
-    node.style.setProperty("--action-icon", `url("data:image/svg+xml,${encodeURIComponent(svg)}")`);
+    let url = actionIconURLs.get(name);
+    if (!url) {
+      const attributes = Object.entries(iconAttributes(1.8, "black")).map(([key, value]) => `${key}="${value}"`).join(" ");
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" ${attributes}>${icons[name] ?? icons.generic}</svg>`;
+      url = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+      actionIconURLs.set(name, url);
+    }
+    node.style.setProperty("--action-icon", url);
   }
 
+  /// The attributes of an icon: a line drawing (no fill) of `stroke` (the current colour by default) at `strokeWidth`.
+  const iconAttributes = (strokeWidth, stroke = "currentColor") => ({ viewBox: "0 0 24 24", fill: "none", stroke, "stroke-width": String(strokeWidth), "stroke-linecap": "round", "stroke-linejoin": "round" });
+
+  /// An icon as an SVG element, drawn as the UI's icons are (lines of the current colour) by its own attributes, so
+  /// one placed where no style sizes and strokes it is still a line drawing, not a filled shape; a style overrides them.
   function icon(name) {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "0 0 24 24");
-    for (const [key, value] of [["fill", "none"], ["stroke", "currentColor"], ["stroke-width", "2"], ["stroke-linecap", "round"], ["stroke-linejoin", "round"]]) svg.setAttribute(key, value);
+    for (const [key, value] of Object.entries(iconAttributes(2))) svg.setAttribute(key, value);
     svg.classList.add(`icon-${name}`);
     svg.innerHTML = icons[name] ?? icons.generic;
     return svg;
@@ -865,7 +891,9 @@
   /// Applies the user's choices to this page (and remembers them in this browser): `data-theme` and
   /// `data-wallpaper` on the root element, which the stylesheet reads, and the unit temperatures show in.
   function applyPreferences(next) {
-    if (next) preferences = { ...preferences, ...next };
+    // The bridge answers all of the user's choices: they replace the page's, so a key it dropped (the version of
+    // a removed wallpaper) goes too.
+    if (next) preferences = { ...next };
     const root = document.documentElement;
     if (preferences.theme === "light" || preferences.theme === "dark") root.dataset.theme = preferences.theme; else delete root.dataset.theme;
     if (preferences.wallpaper && preferences.wallpaper !== "none") root.dataset.wallpaper = preferences.wallpaper; else delete root.dataset.wallpaper;
@@ -1044,7 +1072,45 @@
   document.addEventListener("keydown", (event) => { if (event.key === "Escape") hideFilterTip(); });
   window.addEventListener("resize", hideFilterTip);
 
+  /// Runs `work` with `button` busy: disabled, and its spinner shown after `delay` ms, so a quick action shows none. An
+  /// error goes to `report` (the default alerts it); `report` null rethrows it.
+  async function busyButton(button, work, { report = (e) => alert(e.message), delay = 0 } = {}) {
+    if (button) button.disabled = true;
+    const spin = button ? setTimeout(() => button.classList.add("busy"), delay) : null;
+    try {
+      return await work();
+    } catch (e) {
+      if (report === null) throw e;
+      report(e);
+    } finally {
+      clearTimeout(spin);
+      if (button) { button.classList.remove("busy"); button.disabled = false; }
+    }
+  }
+
+  /// A picture drawn on a canvas, its longer side at most `max` pixels: the canvas to encode.
+  function scaledCanvas(bitmap, max) {
+    const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    return canvas;
+  }
+
+  /// A byte count as every page shows sizes: whole KB under a megabyte, one decimal MB or GB. `scale` picks the unit
+  /// (the largest value a list shows, so its rows agree); it defaults to the count itself.
+  function byteSize(bytes, scale = bytes) {
+    const decimal = new Intl.NumberFormat(HomeswiftI18n.locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    const whole = new Intl.NumberFormat(HomeswiftI18n.locale, { maximumFractionDigits: 0 });
+    if (scale >= 1024 ** 3) return `${decimal.format(bytes / 1024 ** 3)} GB`;
+    if (scale >= 1024 ** 2) return `${decimal.format(bytes / 1024 ** 2)} MB`;
+    if (scale >= 1024) return `${whole.format(Math.round(bytes / 1024))} KB`;
+    return `${whole.format(bytes)} B`;
+  }
+
   window.HomeswiftCommon = {
+    busyButton, scaledCanvas, byteSize,
     $, el, icon, tile, clearFilters, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
