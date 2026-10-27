@@ -659,6 +659,27 @@ public final class UIServer: Sendable {
                 let stamp = Timestamp.iso8601(Date()).prefix(19).replacingOccurrences(of: ":", with: "-")
                 return .data(status: 200, contentType: "text/plain; charset=utf-8", body: Data((text.isEmpty ? "" : text + "\n").utf8),
                              headers: ["Content-Disposition": "attachment; filename=\"homeswift-\(stamp).log\""])
+            case ["metrics", "values"]:
+                // A plugin's reading over time (`series` is `plugin:<platform>:<series>`) from `from` to `to` (the last hour
+                // without them), in whole steps: each point with how many readings it averages, the average, the lowest and the highest.
+                guard let metrics = catalog.metrics else { return .error(404, "this homeswift records no metrics") }
+                guard let series = request.query["series"], series.hasPrefix("plugin:") else { return .error(400, "series must be a plugin's reading") }
+                let to = request.query["to"].flatMap(Self.date(iso:)) ?? Date()
+                let from = request.query["from"].flatMap(Self.date(iso:)) ?? to.addingTimeInterval(-3600)
+                guard from < to else { return .error(400, "from must be before to") }
+                let history = metrics.valueHistory(from: from, to: to, series: series)
+                return .json(.object([
+                    "step": .number(history.step),
+                    "points": .array(history.points.map { point in
+                        .object([
+                            "t": .number(point.start.timeIntervalSince1970),
+                            "count": .number(Double(point.values.count)),
+                            "average": point.values.average.map { .number($0) } ?? .null,
+                            "low": .number(point.values.low),
+                            "high": .number(point.values.high),
+                        ])
+                    }),
+                ]))
             case ["metrics"]:
                 // `from` and `to` (now when left out) as ISO 8601, the last hour without them; `bridge` (a device ID,
                 // or `all`) or `accessory`: whose request and handler durations. Memory and CPU are the process's.

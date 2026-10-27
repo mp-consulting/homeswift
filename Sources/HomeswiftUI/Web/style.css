@@ -157,7 +157,8 @@ nav a.active { background: linear-gradient(180deg, var(--accent-fill-top), var(-
 /* A plugin card's name opens its page; Pause sits at the right of a plugin page's breadcrumb. */
 .card-title { color: inherit; text-decoration: none; }
 .card-title:hover strong { text-decoration: underline; }
-.pause-toggle { flex: none; }
+button.small.pause-toggle { flex: none; min-height: 0; height: 28px; padding: 0 11px; gap: 6px; font-size: 0.75rem; }
+button.small.pause-toggle.action-with-icon::before { width: 12px; height: 12px; }
 
 /* A tooltip: `data-tip` on a control, shown under it on hover and on keyboard focus; `data-tip-align="end"` lines it
    up with the control's end, for one at the edge of the page. */
@@ -712,8 +713,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget.size-small .tile { width: 40px; height: 40px; border-radius: 50%; }
 .widget.size-medium { justify-content: space-between; }
 .widget.size-medium .tile { width: 40px; height: 40px; border-radius: 50%; }
-.size-small .w-bottom .menu-button { position: absolute; right: -6px; bottom: -6px; width: 24px; height: 24px; margin: 0; opacity: 0; }
-.size-small:hover .w-bottom .menu-button, .size-small:focus-within .w-bottom .menu-button { opacity: 1; }
+.size-small .w-bottom .menu-button { position: absolute; right: -6px; bottom: -6px; width: 26px; height: 26px; margin: 0; opacity: 1; color: var(--text); background: rgba(255, 255, 255, 0.92); border: 1px solid var(--line); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18); }
 /* Another controller's accessory (Apple Home's, through Wingman): a house badge on the tile's corner, ringed with the
    card's material so it reads as sitting on the tile. */
 .widget .tile { position: relative; }
@@ -3151,3 +3151,57 @@ select option:disabled { color: var(--muted); }
 .detail-item.warn .detail-item-status { color: var(--warn); }
 .detail-item > svg:last-child { flex: none; width: 14px; height: 14px; color: var(--muted); opacity: 0.6; }
 @media (hover: hover) { .detail-item:hover .detail-item-name { color: var(--accent-ink); } }
+
+
+/* The battery widget at every size: the design's battery with its three bars, the level filling them, and a bolt
+   beside it while charging, which pulses while the bar being filled flickers. Low turns it amber. */
+.battery-gauge { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; flex: none; align-self: center; }
+.battery-gauge.low .battery-graphic { color: var(--warn); }
+.battery-graphic { position: relative; display: flex; align-items: center; justify-content: center; gap: 4px; color: var(--ok); }
+.battery-graphic .bat-icon { width: 34px; height: 34px; overflow: visible; }
+.size-medium .battery-graphic .bat-icon { width: 28px; height: 28px; }
+.size-large .battery-graphic .bat-icon { width: 56px; height: 56px; }
+.size-xlarge .battery-graphic .bat-icon { width: 72px; height: 72px; }
+.battery-graphic rect.bat-body, .battery-graphic path.bat-terminal { fill: none; stroke: currentColor; stroke-width: 1.6; }
+.battery-graphic path.bat-terminal { stroke-linecap: round; }
+.battery-graphic .bat-bar { fill: currentColor; opacity: 0.2; transition: opacity var(--normal) var(--ease-out); }
+.battery-graphic .bat-bar.on { opacity: 1; }
+/* The bolt sits outside the battery's box, beside it, so the battery stays centred. */
+.battery-graphic .bat-bolt { display: none; position: absolute; left: calc(100% + 2px); top: 50%; margin-top: -10px; width: 20px; height: 20px; fill: currentColor; }
+.size-medium .battery-graphic .bat-bolt { width: 16px; height: 16px; margin-top: -8px; }
+.battery-graphic.charging .bat-bolt { display: block; animation: bat-bolt 1.8s ease-in-out infinite; }
+.battery-graphic.charging .bat-bar.live { animation: bat-flicker 1.1s steps(1, end) infinite; }
+@keyframes bat-flicker { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0.15; } }
+@keyframes bat-bolt { 0%, 100% { opacity: 0.55; transform: scale(0.92); } 50% { opacity: 1; transform: scale(1.05); } }
+@media (prefers-reduced-motion: reduce) {
+  .battery-graphic.charging .bat-bar.live, .battery-graphic.charging .bat-bolt { animation: none; }
+}
+.gauge-figure { font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: 0; }
+.size-medium .gauge-figure { display: block; font-size: 16px; }
+.size-large .gauge-figure { font-size: 18px; letter-spacing: -0.01em; }
+.size-xlarge .gauge-figure { font-size: 26px; letter-spacing: -0.02em; line-height: 1; }
+.battery-gauge .gauge-figure small { display: inline; margin-top: 0; font-size: 0.6em; font-weight: 500; opacity: 0.7; }
+
+/* Battery tiles: the menu button is a round, bordered control at every size. */
+.widget.widget-battery:not(.widget-full) .menu-button { width: 28px; height: 28px; margin: 0; opacity: 1; color: var(--text); background: rgba(255, 255, 255, 0.92); border: 1px solid var(--line); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18); }
+.widget.widget-battery:not(.widget-full) .menu-button svg { width: 18px; height: 18px; stroke-width: 2.2; }
+
+/* A small battery tile: the icon on the left, the name and status beside it, and the level as a subtitle under the
+   name, so the name is never cut; the graphic has a fixed box, the bolt in its right part while charging. */
+.widget-battery.size-small { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "icon bottom" "icon sub"; column-gap: 12px; align-items: center; }
+.widget-battery.size-small .w-top { display: contents; }
+.widget-battery.size-small .w-top > .tile { grid-area: icon; }
+.widget-battery.size-small .w-top > .w-hero:has(> .battery-gauge) { grid-area: sub; display: flex; align-items: center; justify-self: start; min-width: 0; white-space: nowrap; }
+.widget-battery.size-small .w-bottom { grid-area: bottom; min-width: 0; position: static; }
+.widget-battery.size-small .w-bottom .menu-button { position: absolute; top: auto; left: auto; right: 6px; bottom: 6px; }
+.widget-battery.size-small .battery-gauge { flex-direction: row; gap: 6px; }
+.widget-battery.size-small .battery-graphic { width: 42px; flex: none; justify-content: flex-start; }
+.widget-battery.size-small .battery-graphic .bat-icon { width: 20px; height: 20px; }
+.widget-battery.size-small .battery-graphic .bat-bolt { left: 24px; width: 12px; height: 12px; margin-top: -12px; }
+.widget-battery.size-small .gauge-figure { display: block; font-size: 13px; line-height: 1; white-space: nowrap; }
+.widget-battery.size-small .gauge-figure small { font-size: 0.8em; }
+
+/* A medium battery tile: the gauge centred on the card, not on the top row that holds the icon. */
+.widget-battery.size-medium { position: relative; }
+.widget-battery.size-medium .w-top { position: static; }
+.widget-battery.size-medium .w-top > .w-hero:has(> .battery-gauge) { position: absolute; left: 50%; top: 36%; transform: translate(-50%, -50%); display: flex; align-items: center; justify-content: center; }

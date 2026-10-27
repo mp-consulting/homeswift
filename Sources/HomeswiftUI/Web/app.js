@@ -164,9 +164,13 @@
   }
 
   // The sign-in page's flags: the language before anyone signs in.
-  $("#auth-form").append(el("div", { class: "auth-languages", role: "group", "aria-label": t("Language") },
-    HomeswiftI18n.languages.map((code) => el("button", { type: "button", text: HomeswiftI18n.flags[code], title: HomeswiftI18n.names[code], "aria-label": HomeswiftI18n.names[code],
-      "aria-pressed": String(code === HomeswiftI18n.language), onclick: () => HomeswiftI18n.choose(code) }))));
+  // Automatic first: the browser's language, unless one is chosen here.
+  const languageSelect = el("select", { class: "language-select", "aria-label": t("Language"),
+    onchange: (event) => HomeswiftI18n.choose(event.target.value) },
+    el("option", { value: "auto", text: `🌐 ${t("Automatic")}` }),
+    HomeswiftI18n.languages.map((code) => el("option", { value: code, text: `${HomeswiftI18n.flags[code]} ${HomeswiftI18n.names[code]}` })));
+  languageSelect.value = HomeswiftCommon.preferences().language || "auto";
+  $("#auth-form").append(el("div", { class: "auth-languages" }, languageSelect));
 
   /// What a save did: applied at once, homeswift restarting by itself (the bridge block), or, when it
   /// cannot, what still waits for a restart (which also shows the banner).
@@ -1369,7 +1373,7 @@
       return el("div", { class: "card server plugin-instance" },
         el("div", { class: "server-head" },
           tile(block.icon ?? (block.system ? "gear" : "plugin"), block.system ? "grey" : "orange"),
-          el("div", { class: "who" }, el("a", { class: "card-title", href: opens }, el("strong", { text: block.name })),
+          el("div", { class: "who" }, el("a", { class: "card-title", href: opens }, el("strong", { text: block.platform === "HomeswiftUI" && block.name === "HomeswiftUI" ? "Homeswift UI" : block.name })),
             el("div", { class: "muted", text: [kindName, block.childBridge ? t("child bridge") : null].filter(Boolean).join(" · ") })),
           // In this dense list, running is the usual state: a quiet dot; the others (paused, no plugin, built in) say so
           // in words, as the plugin's own page and the bridges do for every state.
@@ -2319,7 +2323,8 @@
     if (Array.isArray(root.layout)) for (const item of root.layout) { const node = layoutItem(item); if (node) container.append(...[node].flat()); }
     const restKeys = Object.keys(properties).filter((key) => !fields.has(key));
     const rest = restKeys.map((key) => ({ key, element: render(key) })).filter((entry) => entry.element)
-      .map(({ key, element }) => ({ element, required: requiredTop.has(key) || properties[key].required === true, value: value[key] }));
+      // A field with a condition is shown in the main part while its condition holds, not under More options.
+      .map(({ key, element }) => ({ element, required: requiredTop.has(key) || properties[key].required === true || Boolean(properties[key].condition ?? properties[key]["x-schema-form"]?.condition), value: value[key] }));
     if (rest.length) {
       const split = splitFields(rest);
       container.append(el("div", { class: "fields" }, split.filter((node) => !node.classList?.contains("more-options"))),

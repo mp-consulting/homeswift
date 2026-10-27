@@ -56,3 +56,18 @@ final class TimingFeed: Sendable {
         return Observation { [self] in _ = observers.withLockedValue { $0.removeValue(forKey: id) } }
     }
 }
+
+/// The readings plugins record with `PluginContext.recordValue`, to whoever follows them (the metrics store).
+final class ValueFeed: Sendable {
+    private let observers = NIOLockedValueBox<[UUID: @Sendable (String, Double) -> Void]>([:])
+
+    func publish(_ series: String, _ value: Double) {
+        for observer in observers.withLockedValue({ Array($0.values) }) { observer(series, value) }
+    }
+
+    func add(_ observer: @escaping @Sendable (String, Double) -> Void) -> Observation {
+        let id = UUID()
+        observers.withLockedValue { $0[id] = observer }
+        return Observation { [self] in _ = observers.withLockedValue { $0.removeValue(forKey: id) } }
+    }
+}

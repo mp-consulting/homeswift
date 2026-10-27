@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Plugins record readings for the Status page's history (`PluginContext.recordValue`, series
+  `plugin:<platform>:<series>`): each minute keeps the count, sum, lowest and highest, for 8 days, and
+  `/api/metrics/values` answers a series over a range.
+- A battery on its own accessory (a power station) has its own widget on the Accessories page: the battery graphic
+  (bars for the level, a bolt while charging) and its level at every size.
+
 ### Changed
 
 - The JSON editors (Config, a plugin's JSON) fold a block that spans lines from a chevron beside it.

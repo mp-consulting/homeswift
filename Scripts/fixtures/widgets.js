@@ -11,7 +11,9 @@ const climate=A('climate','Living Room','airConditioner',[S('HeaterCooler',[C('A
 const purifier=A('purifier','Studio Air','airPurifier',[S('AirPurifier',[C('Active',1),C('Current Air Purifier State',2),C('Target Air Purifier State',1),C('Rotation Speed',35,'float',{minValue:0,maxValue:100,minStep:1})]),S('AirQualitySensor',[C('Air Quality',1)],{primary:false}),S('HumiditySensor',[C('Current Relative Humidity',48,'float',{unit:'percentage'})],{primary:false})]);
 const valve=A('valve','Garden Water','sprinkler',[S('Valve',[C('Active',0),C('In Use',0),C('Valve Type',1),C('Set Duration',600,'uint32',{minValue:0,maxValue:3600,minStep:60}),C('Remaining Duration',0,'uint32')])]);
 const sensor=A('sensor','Hall Temperature','sensor',[S('TemperatureSensor',[C('Current Temperature',22,'float',{unit:'celsius'})])]);
-const accessories=[gate,lock,light('spots','Ceiling Spots',false),light('hall','Hallway Spots',false),plug,light('pendant','Dining Pendant'),cover,sensor,climate,purifier,valve];
+// A battery on its own accessory, as a battery pack reports it: the level, charging (0 not, 1 charging) and low.
+const battery=A('battery','Garage Battery','other',[S('Battery',[C('Battery Level',72,'uint8',{minValue:0,maxValue:100,minStep:1,unit:'percentage'}),C('Charging State',1,'uint8',{validValues:[0,1,2]}),C('Status Low Battery',0,'uint8',{validValues:[0,1]})])]);
+const accessories=[gate,lock,light('spots','Ceiling Spots',false),light('hall','Hallway Spots',false),plug,light('pendant','Dining Pendant'),cover,sensor,climate,purifier,valve,battery];
 window.previewAccessories=accessories;
 const e=HomeswiftCommon.el,main=document.querySelector('main');
 const add=(a,size,wall)=>{
@@ -30,6 +32,8 @@ window.preview=(mode='wall')=>{
  const wall=e('div',{class:'wall'});main.append(wall);
  if(mode==='adaptive'){const a=structuredClone(accessories[5]);a.services[0].adaptiveLighting={resumable:true};a.services[0].characteristics.push(C('Characteristic Value Active Transition Count',1));add(a,'xlarge',wall);}
  else add(cover,'medium',wall);
+ }else if(mode==='battery'){
+  for(const size of HomeswiftWidgets.sizes){const wall=e('div',{class:`wall battery-${size}`});main.append(wall);add(battery,size,wall);}
  }else if(mode==='sizes'||mode==='sizes-more'){
   for(const a of mode==='sizes'?[accessories[5],climate,cover]:[purifier,valve,gate]){
    main.append(e('h2',{text:a.name}));const wall=e('div',{class:'wall'});main.append(wall);for(const size of HomeswiftWidgets.sizes)add(a,size,wall);

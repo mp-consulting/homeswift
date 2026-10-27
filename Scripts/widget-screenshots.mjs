@@ -125,6 +125,18 @@ try {
   await sleep(150);
   if (await evaluate("document.querySelector('.size-xlarge').offsetHeight") !== natural.height) throw new Error('XL did not shrink after optional controls disappeared');
   if (await evaluate("!!document.querySelector('.widget-measuring')")) throw new Error('Measurement copy was left on the page');
+  // The battery tile at each size, light and dark; a tap opens All controls (it is read only).
+  await open("battery");
+  await evaluate("document.querySelector('.wall.battery-small .w-hit').click()");
+  await sleep(250);
+  if (!(await evaluate("!!document.querySelector('dialog.widget-sheet[open]')"))) throw new Error('Battery tile tap did not open All controls');
+  await evaluate("document.querySelector('dialog.widget-sheet').close()");
+  for (const [theme, suffix] of [["light", ""], ["dark", "-dark"]]) {
+    await appearance(theme);
+    await open("battery");
+    for (const size of ["small", "medium", "large", "xlarge"]) await shot(`battery-${size}${suffix}`, `.wall.battery-${size} .widget`);
+  }
+  await appearance("light");
   console.log('PASS: XL fits its contents and grows/shrinks with optional controls');
   if (process.argv[2]) { await open("sizes", 1272); await shot("s-m-l-xl", ".wall"); }
   await open("wall");

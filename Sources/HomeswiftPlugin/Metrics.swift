@@ -43,6 +43,35 @@ public final class Metrics: @unchecked Sendable {
         }
     }
 
+    /// The readings of one value series in a span: how many, their sum, and the lowest and highest.
+    public struct Values: Sendable, Equatable {
+        public var count = 0
+        public var sum = 0.0
+        public var low = 0.0
+        public var high = 0.0
+
+        public init(count: Int = 0, sum: Double = 0, low: Double = 0, high: Double = 0) {
+            self.count = count
+            self.sum = sum
+            self.low = low
+            self.high = high
+        }
+
+        public var average: Double? { count > 0 ? sum / Double(count) : nil }
+
+        mutating func add(_ value: Double) {
+            merge(Values(count: 1, sum: value, low: value, high: value))
+        }
+
+        mutating func merge(_ other: Values) {
+            guard other.count > 0 else { return }
+            low = count == 0 ? other.low : min(low, other.low)
+            high = count == 0 ? other.high : max(high, other.high)
+            count += other.count
+            sum += other.sum
+        }
+    }
+
     /// One minute, or a span of several when a history is merged into fewer points.
     public struct Minute: Sendable, Equatable {
         public var start: Date
@@ -54,6 +83,8 @@ public final class Metrics: @unchecked Sendable {
         public var requests: [String: Durations] = [:]
         /// The plugins' read and write handlers, by series.
         public var handlers: [String: Durations] = [:]
+        /// The readings plugins recorded, by series (`plugin:<platform>:<series>`).
+        public var values: [String: Values] = [:]
 
         public init(start: Date, memory: UInt64? = nil, cpu: Double? = nil, requests: [String: Durations] = [:], handlers: [String: Durations] = [:]) {
             self.start = start
@@ -76,6 +107,12 @@ public final class Metrics: @unchecked Sendable {
         public var cpu: Double?
         public var requests: Durations
         public var handlers: Durations
+    }
+
+    /// One point of a value series' history: the readings of a span of minutes.
+    public struct ValuePoint: Sendable, Equatable {
+        public var start: Date
+        public var values: Values
     }
 
     public static let allSeries = "all"
@@ -113,7 +150,9 @@ public final class Metrics: @unchecked Sendable {
 
     /// Follows the host's servers and samples the process until `stop()`.
     public func start(following host: PluginHost) {
-        let observation = host.observeTimings { [weak self] bridge, timing in self?.record(timing, server: bridge.server.deviceID) }
+        let timings = host.observeTimings { [weak self] bridge, timing in self?.record(timing, server: bridge.server.deviceID) }
+        let readings = host.observeValues { [weak self] series, value in self?.record(value, series: series) }
+        let observation = Observation { timings.cancel(); readings.cancel() }
         let interval = interval
         // The first sample before returning, so the Status page has memory and CPU from the start.
         sample()
@@ -187,6 +226,18 @@ public final class Metrics: @unchecked Sendable {
         if let closed { persist(closed) }
     }
 
+    /// Records a reading of a value series, into the minute under way. A minute keeps the count, sum, lowest and
+    /// highest of each series. Non-finite values are left out.
+    public func record(_ value: Double, series: String) {
+        guard value.isFinite else { return }
+        let closed = state.withLockedValue { state -> Minute? in
+            let closed = roll(&state)
+            state.current?.values[series, default: Values()].add(value)
+            return closed
+        }
+        if let closed { persist(closed) }
+    }
+
     /// Adds a closed minute, as if recorded; for tests.
     func add(_ minute: Minute) {
         state.withLockedValue { $0.minutes.append(minute) }
@@ -210,7 +261,7 @@ public final class Metrics: @unchecked Sendable {
         state.current = nil
         state.cpuTotal = 0
         state.cpuSamples = 0
-        guard minute.memory != nil || minute.cpu != nil || !minute.requests.isEmpty || !minute.handlers.isEmpty else { return nil }
+        guard minute.memory != nil || minute.cpu != nil || !minute.requests.isEmpty || !minute.handlers.isEmpty || !minute.values.isEmpty else { return nil }
         state.minutes.append(minute)
         return minute
     }
@@ -249,6 +300,29 @@ public final class Metrics: @unchecked Sendable {
         return History(step: step, points: buckets.keys.sorted().compactMap { buckets[$0]?.point })
     }
 
+    /// The history of one value series (a plugin's reading, `plugin:<platform>:<series>`) from `from` to `to`, in
+    /// points of whole steps, the same steps as `history`. Points with no reading are left out.
+    public func valueHistory(from: Date, to: Date, series: String, points: Int = 240) -> (step: TimeInterval, points: [ValuePoint]) {
+        let span = max(to.timeIntervalSince(from), 60)
+        let step = max(60, (span / Double(max(points, 1)) / 60).rounded(.up) * 60)
+        let base = Date(timeIntervalSince1970: (from.timeIntervalSince1970 / step).rounded(.down) * step)
+        let minutes = state.withLockedValue { state -> [Minute] in
+            var minutes = state.minutes.filter { $0.start >= base && $0.start <= to }
+            if let current = state.current, current.start <= to { minutes.append(current) }
+            return minutes
+        }
+        var buckets: [Int: Values] = [:]
+        for minute in minutes {
+            guard let values = minute.values[series] else { continue }
+            let index = max(0, Int(minute.start.timeIntervalSince(base) / step))
+            buckets[index, default: Values()].merge(values)
+        }
+        let result = buckets.keys.sorted().map { index in
+            ValuePoint(start: base.addingTimeInterval(Double(index) * step), values: buckets[index] ?? Values())
+        }
+        return (step, result)
+    }
+
     // MARK: Files
 
     private func persist(_ minute: Minute) {
@@ -282,6 +356,9 @@ public final class Metrics: @unchecked Sendable {
         if let cpu = minute.cpu { object["c"] = .number(rounded(cpu)) }
         if !minute.requests.isEmpty { object["r"] = durations(minute.requests) }
         if !minute.handlers.isEmpty { object["h"] = durations(minute.handlers) }
+        if !minute.values.isEmpty {
+            object["v"] = .object(minute.values.mapValues { .array([.number(Double($0.count)), .number(rounded($0.sum)), .number(rounded($0.low)), .number(rounded($0.high))]) })
+        }
         return JSONValue.object(object).encoded()
     }
 
@@ -295,9 +372,15 @@ public final class Metrics: @unchecked Sendable {
                 return Durations(count: Int(saturating: count) ?? 0, total: total, longest: longest)
             }
         }
-        return Minute(
+        var minute = Minute(
             start: Date(timeIntervalSince1970: time), memory: entry["m"]?.doubleValue.flatMap { UInt64(saturating: $0) }, cpu: entry["c"]?.doubleValue,
             requests: durations(entry["r"]), handlers: durations(entry["h"]))
+        minute.values = (entry["v"]?.objectValue ?? [:]).compactMapValues { item in
+            guard let parts = item.arrayValue, parts.count == 4, let count = parts[0].doubleValue, let sum = parts[1].doubleValue,
+                  let low = parts[2].doubleValue, let high = parts[3].doubleValue else { return nil }
+            return Values(count: Int(saturating: count) ?? 0, sum: sum, low: low, high: high)
+        }
+        return minute
     }
 
     private static func rounded(_ value: Double) -> Double { (value * 100).rounded() / 100 }

@@ -279,6 +279,13 @@ public final class PluginContext: @unchecked Sendable {
     private let storageURL: URL
     private let assistantBox: NIOLockedValueBox<AssistantService?>
     private let assistantBackground: String?
+    private let recordSink: @Sendable (String, Double) -> Void
+
+    /// Records a reading for the Status page's history: a minute keeps the count, sum, lowest and highest of each
+    /// series. The series is `plugin:<platform>:<series>`, so two plugins cannot collide. Cheap; call it per reading.
+    public func recordValue(_ value: Double, series: String) {
+        recordSink("plugin:\(platform):\(series)", value)
+    }
     // Mutable state is behind the lock; the class is otherwise immutable.
     private let list = NIOLockedValueBox<Entries>(Entries())
     /// A save of the cache is due: changes in a burst (a plugin adding its devices at launch) write it once.
@@ -311,8 +318,10 @@ public final class PluginContext: @unchecked Sendable {
 
     init(
         platform: String, name: String, key: String, logger: Logger, bridge: PluginHost.Bridge, cache: AccessoryCache, storageURL: URL,
-        assistant: NIOLockedValueBox<AssistantService?>, externals: ExternalAccessories, assistantBackground: String? = nil
+        assistant: NIOLockedValueBox<AssistantService?>, externals: ExternalAccessories, assistantBackground: String? = nil,
+        recordSink: @escaping @Sendable (String, Double) -> Void = { _, _ in }
     ) {
+        self.recordSink = recordSink
         self.assistantBackground = assistantBackground
         self.platform = platform
         self.name = name
