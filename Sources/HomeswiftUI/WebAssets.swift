@@ -1409,6 +1409,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   let auth = null;
   // The server's secret-key rule (see the settings page): set with the plugin list, read by the JSON secret note.
   let secretRule = null;
+  /// The server's rule (Redaction): whether a key holds a secret.
+  const isSecretKey = (key) => Boolean(secretRule) && secretRule.keys.test(key) && !secretRule.except.test(key);
+  const readSecretRule = (plugins) => plugins.secretRule ? { keys: new RegExp(plugins.secretRule.keys, "i"), except: new RegExp(plugins.secretRule.except, "i"), placeholder: plugins.secretRule.placeholder } : null;
 
   async function loadAuth() {
     auth = await api("/api/auth/state");
@@ -2894,7 +2897,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const isNew = first === "add";
     const [plugins, config] = await Promise.all([api("/api/plugins"), api("/api/config", { raw: true }).then(JSON.parse)]);
     // A bridge that does not send the rule (an older build) leaves the note off, rather than failing the page.
-    secretRule = plugins.secretRule ? { keys: new RegExp(plugins.secretRule.keys, "i"), except: new RegExp(plugins.secretRule.except, "i"), placeholder: plugins.secretRule.placeholder } : null;
+    secretRule = readSecretRule(plugins);
     const found = isNew ? null : plugins.blocks.find((b) => b.slug === first);
     if (!isNew && !found) {
       show(main, breadcrumb([t("Plugins"), "/plugins"], [t("Settings")]),
@@ -2936,12 +2939,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     let body;
     let useSuggestion = null;
     const textarea = el("textarea", { class: "short", value: JSON.stringify(current, null, 2), spellcheck: false, "aria-label": t("The block as JSON") });
-    const editor = jsonEditor(textarea);
+    const editor = jsonEditor(textarea, { secretKey: isSecretKey });
     const fromJSON = () => { const value = JSON.parse(textarea.value); delete value.platform; return value; };
     // The same key names the server seals (Redaction's rule). A secret typed in JSON is encrypted on save, so the note
     // says where it is easier to set one; it shows only while the JSON on screen holds a secret.
     // The server's rule (Redaction): the page reads it from /api/plugins, set when the settings page loads them.
-    const isSecretKey = (key) => Boolean(secretRule) && secretRule.keys.test(key) && !secretRule.except.test(key);
     const holdsSecret = (value, underSecret = false) => {
       if (typeof value === "string") return underSecret && value !== "" && value !== secretRule?.placeholder;
       if (Array.isArray(value)) return value.some((item) => holdsSecret(item, underSecret));
@@ -4313,7 +4315,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const problemList = (items, editor) => el("ul", { class: "schema-problems" }, items.map((item) => el("li", {}, ...lineLink(item, editor), item.text)));
 
   views.config = async (main) => {
-    let saved = await api("/api/config", { raw: true });
+    let saved;
+    // The plugins' list for the secret rule only; an older bridge without it leaves the keys unmarked.
+    [saved, secretRule] = await Promise.all([api("/api/config", { raw: true }), api("/api/plugins").then(readSecretRule, () => null)]);
     const textarea = el("textarea", { value: saved, spellcheck: false, "aria-label": "config.json" });
     const check = el("span", { class: "muted" });
     const message = el("p", { class: "status-line muted" });
@@ -4367,14 +4371,28 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     save.addEventListener("click", () => doSave());
     force.addEventListener("click", () => { save.disabled = false; doSave(true); });
     revert.addEventListener("click", () => { textarea.value = saved; message.textContent = ""; force.classList.add("hidden"); editor.repaint(); update(); });
-    const editor = jsonEditor(textarea);
+    const editor = jsonEditor(textarea, { secretKey: isSecretKey });
+    // Secrets only: everything else folded, a second press (or Show all) opens it all again. The editor says when it
+    // holds, so opening a fold, Format or Revert turn the button off and the strip above the text goes.
+    const secretsOnly = el("button", { class: "settings-action secrets-only", "aria-pressed": "false", title: t("Fold everything that holds no secret"), hidden: !secretRule,
+      onclick: () => (secretsOnly.getAttribute("aria-pressed") === "true" ? editor.openAll() : editor.foldAllButSecrets()) },
+      HomeswiftCommon.icon("lock"), el("span", { text: t("Secrets only") }));
+    const secretsNote = el("span");
+    const secretsBanner = el("div", { class: "secrets-banner", role: "status", hidden: true }, HomeswiftCommon.icon("lock"), secretsNote,
+      el("button", { type: "button", actionIcon: "eye", text: t("Show all"), onclick: () => { editor.openAll(); textarea.focus({ preventScroll: true }); } }));
+    editor.addEventListener("folds", ({ detail }) => {
+      secretsOnly.setAttribute("aria-pressed", String(detail.secretsOnly));
+      secretsOnly.title = detail.secretsOnly ? t("Show all") : t("Fold everything that holds no secret");
+      secretsNote.textContent = detail.secrets ? tn("{n} secret shown, the rest folded", "{n} secrets shown, the rest folded", detail.secrets) : t("No secrets in this file");
+      secretsBanner.hidden = !detail.secretsOnly;
+    });
     format.addEventListener("click", () => { try { textarea.value = JSON.stringify(JSON.parse(textarea.value), null, 2); editor.repaint(); update(); } catch {} });
     update();
     show(main,
       pageHead(t("Configuration"), t("The whole config.json. Saving validates it, keeps a backup of the previous file (the last 20 under backups/), and applies it at once.")),
       el("div", { class: "card editor-card" },
-        el("div", { class: "editor-bar" }, el("span", { class: "mono muted file-name", text: "config.json" }), check, el("span", { class: "spacer" }), format, revert, force, save),
-        editor, message));
+        el("div", { class: "editor-bar" }, el("span", { class: "mono muted file-name", text: "config.json" }), check, el("span", { class: "spacer" }), secretsOnly, format, revert, force, save),
+        secretsBanner, editor, message));
   };
 
   // ---- Logs ----------------------------------------------------------------
@@ -6860,15 +6878,23 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   const jsonToken = /("(?:[^"\\]|\\.)*")(\s*:)?|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|\b(true|false)\b|\b(null)\b|([{}[\],:])/g;
 
-  /// `text` (JSON, or almost: it is being typed) as coloured spans.
-  function jsonHighlight(text) {
+  /// `text` (JSON, or almost: it is being typed) as coloured spans. A key `secretKey(name)` says is a secret is
+  /// marked, a lock before it, and so is its value when it is a string.
+  function jsonHighlight(text, { secretKey } = {}) {
     const fragment = document.createDocumentFragment();
-    let last = 0;
+    let last = 0, secretValue = false;
+    const isSecret = (key) => { try { return Boolean(secretKey?.(JSON.parse(key))); } catch { return false; } };
     for (const match of text.matchAll(jsonToken)) {
       if (match.index > last) fragment.append(text.slice(last, match.index));
       const [whole, string, colon, number, boolean, nil] = match;
       const kind = string ? (colon ? "key" : "string") : number ? "number" : boolean ? "bool" : nil ? "null" : "punct";
-      fragment.append(el("span", { class: `json-${kind}`, text: string && colon ? string : whole }));
+      if (string && colon && isSecret(string)) {
+        fragment.append(el("span", { class: "json-key json-secret" }, icon("lock"), string));
+        secretValue = true;
+      } else {
+        fragment.append(el("span", { class: `json-${kind}${secretValue && kind === "string" ? " json-secret-value" : ""}`, text: string && colon ? string : whole }));
+        secretValue = false;
+      }
       if (string && colon) fragment.append(el("span", { class: "json-punct", text: colon }));
       last = match.index + whole.length;
     }
@@ -6982,13 +7008,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// Colours a JSON textarea as it is typed: a coloured copy of its text sits under it, the textarea's own
   /// text transparent, so editing, selection and undo stay the browser's. Returns the wrapper to show, with
   /// `check()` (parses the text and marks the line of a syntax error), `markPaths(paths)` (marks where each
-  /// path is, or its nearest parent; returns `{ offset, line }` for each) and `reveal(offset)`.
+  /// path is, or its nearest parent; returns `{ offset, line }` for each) and `reveal(offset)`. `secretKey(name)`
+  /// marks the keys that hold secrets (the server's rule, as Redaction reads it).
   ///
   /// A block that spans lines folds from the chevron beside its first line (Option-click: every block at its
   /// indentation; ⌘⌥[ and ⌘⌥] at the caret): its inside becomes one "…" in the textarea, the text kept aside.
   /// The textarea's `value` and `setRangeText` are the whole text, so the page reads, sets and saves it as before;
   /// an edit that would reach into a fold opens it first, and one that damages a fold anyway is undone.
-  function jsonEditor(textarea) {
+  function jsonEditor(textarea, { secretKey } = {}) {
     const layer = el("pre", { class: "code-layer", "aria-hidden": "true" });
     const rail = el("div", { class: "code-folds" });
     const gutter = el("div", { class: "code-gutter" }, rail);
@@ -6998,6 +7025,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const shown = () => native.get.call(textarea);
     // Each fold: where its "…" is in the text on screen, and the text it stands for. Sorted by place.
     let folds = [];
+    // Secrets only (foldAllButSecrets) holds until a fold opens or closes otherwise, or the text is set: the editor
+    // says so with a `folds` event, `{ secretsOnly, secrets }`, so the page's toggle never shows a state that is not.
+    let secretsOnly = false, applyingSecrets = false, secretCount = 0;
+    const report = () => wrapper.dispatchEvent(new CustomEvent("folds", { detail: { secretsOnly, secrets: secretCount } }));
+    const leaveSecretsOnly = () => { if (secretsOnly && !applyingSecrets) { secretsOnly = false; report(); } };
     const expand = (text, list = folds, from = 0) => {
       let out = "", last = 0;
       for (const fold of list) { out += text.slice(last, fold.at - from) + fold.hidden; last = fold.at - from + 1; }
@@ -7024,6 +7056,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       textarea.scrollLeft = scrollLeft;
       before = shown();
       schedule();
+      leaveSecretsOnly();
     };
     const open = (chosen) => {
       if (!chosen.length) return;
@@ -7040,30 +7073,32 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       folds = moved;
       replace(out + text.slice(last), (offset) => offset + opened.filter((fold) => fold.at < offset).reduce((sum, fold) => sum + fold.hidden.length - 1, 0));
     };
-    /// Folds the blocks `[start, end]` (the offsets of their brackets on screen), last first so the others hold.
-    const close = (blocks) => {
+    /// Folds the ranges `[from, to)` of the text on screen into a "…" each, last first so the others hold.
+    const fold = (ranges) => {
       let text = shown();
-      for (const { start, end } of [...blocks].sort((a, b) => b.start - a.start)) {
-        if (end - start < 2) continue;
-        const inside = folds.filter((fold) => fold.at > start && fold.at < end);
-        const hidden = expand(text.slice(start + 1, end), inside, start + 1);
-        const shrink = end - start - 2;
-        folds = folds.filter((fold) => !inside.includes(fold)).map((fold) => (fold.at > end ? { ...fold, at: fold.at - shrink } : fold));
-        folds.push({ at: start + 1, hidden });
+      ranges = ranges.filter((range) => range.to > range.from);
+      for (const { from, to } of [...ranges].sort((a, b) => b.from - a.from)) {
+        const inside = folds.filter((one) => one.at >= from && one.at < to);
+        const hidden = expand(text.slice(from, to), inside, from);
+        const shrink = to - from - 1;
+        folds = folds.filter((one) => !inside.includes(one)).map((one) => (one.at >= to ? { ...one, at: one.at - shrink } : one));
+        folds.push({ at: from, hidden });
         folds.sort((a, b) => a.at - b.at);
-        text = text.slice(0, start + 1) + "…" + text.slice(end);
+        text = text.slice(0, from) + "…" + text.slice(to);
       }
-      // The caret inside a block that folds goes to its "…"; one after it moves back with the text.
+      // The caret inside a range that folds goes to its "…"; one after it moves back with the text.
       replace(text, (offset) => {
         let at = offset;
-        for (const { start, end } of blocks) at -= offset >= end ? end - start - 2 : offset > start + 1 ? offset - start - 1 : 0;
+        for (const { from, to } of ranges) at -= offset >= to ? to - from - 1 : offset > from ? offset - from : 0;
         return at;
       });
     };
+    /// Folds the insides of the blocks `{ start, end }` (the offsets of their brackets on screen).
+    const close = (blocks) => fold(blocks.map(({ start, end }) => ({ from: start + 1, to: end })));
     Object.defineProperty(textarea, "value", {
       configurable: true,
       get: () => expand(shown()),
-      set: (text) => { folds = []; native.set.call(textarea, text); before = shown(); },
+      set: (text) => { folds = []; native.set.call(textarea, text); before = shown(); leaveSecretsOnly(); },
     });
     textarea.setRangeText = (text, start = textarea.selectionStart, end = textarea.selectionEnd, mode = "preserve") => {
       // A fold in the range opens first, and the range takes in its text.
@@ -7176,11 +7211,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const content = document.createDocumentFragment();
       let last = 0;
       for (const fold of folds) {
-        content.append(jsonHighlight(text.slice(last, fold.at)), el("span", { class: "code-fold", text: "…" }));
+        content.append(jsonHighlight(text.slice(last, fold.at), { secretKey }), el("span", { class: "code-fold", text: "…" }));
         last = fold.at + 1;
       }
       // A final newline needs a character after it to take its line.
-      content.append(jsonHighlight(text.slice(last)), "\n");
+      content.append(jsonHighlight(text.slice(last), { secretKey }), "\n");
       layer.replaceChildren(content);
       // A marked line: a band under its text, as many line heights down as the line is from the top.
       const top = "var(--code-pad)";
@@ -7221,6 +7256,55 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     });
     // After the text is set in code: the problems' places no longer hold.
     wrapper.repaint = () => { placed = []; paint(); };
+    /// Opens every fold.
+    wrapper.openAll = () => { open([...folds]); leaveSecretsOnly(); };
+    /// Folds everything that holds no secret: each block without one, then each run of lines left between the
+    /// secret keys and the brackets on the way down to them, so what stays open is the secrets and their places. The
+    /// value of a secret key stays whole (an object of credentials). Returns how many secret keys there are.
+    wrapper.foldAllButSecrets = () => {
+      applyingSecrets = true;
+      try { secretCount = foldSecrets(); } finally { applyingSecrets = false; }
+      secretsOnly = true;
+      report();
+      return secretCount;
+    };
+    const foldSecrets = () => {
+      open([...folds]);
+      const secretsIn = (text) => {
+        const found = [];
+        for (const match of text.matchAll(jsonToken)) {
+          if (!match[1] || !match[2]) continue;
+          try { if (secretKey?.(JSON.parse(match[1]))) found.push({ start: match.index, end: match.index + match[0].length }); } catch {}
+        }
+        return found;
+      };
+      const isValueOf = (key, block, text) => key.end <= block.start && !text.slice(key.end, block.start).trim();
+      const holds = (block, keys, text) => keys.some((key) => (key.start > block.start && key.start < block.end) || isValueOf(key, block, text));
+      let text = shown(), keys = secretsIn(text);
+      const bare = [...findBlocks(text).values()].filter((block) => !holds(block, keys, text));
+      close(bare.filter((block) => !bare.some((outer) => outer !== block && outer.start < block.start && outer.end > block.end)));
+      // The lines to keep: a secret key's (and its value's), and the first and last of each block on the way to one.
+      text = shown();
+      keys = secretsIn(text);
+      const kept = new Set();
+      for (const key of keys) kept.add(lineOf(text, key.start));
+      for (const block of findBlocks(text).values()) {
+        if (!holds(block, keys, text)) continue;
+        if (keys.some((key) => isValueOf(key, block, text))) for (let line = lineOf(text, block.start); line <= lineOf(text, block.end); line++) kept.add(line);
+        kept.add(lineOf(text, block.start));
+        kept.add(lineOf(text, block.end));
+      }
+      const starts = lineStarts(text), runs = [];
+      let run = null;
+      for (let line = 1; line <= starts.length; line++) {
+        const from = starts[line - 1], to = line < starts.length ? starts[line] - 1 : text.length;
+        if (kept.has(line) || !text.slice(from, to).trim()) { run = null; continue; }
+        const first = from + (text.slice(from, to).length - text.slice(from, to).trimStart().length);
+        if (run) run.to = to; else runs.push(run = { from: first, to });
+      }
+      fold(runs);
+      return keys.length;
+    };
     wrapper.check = () => {
       const result = jsonCheck(textarea.value);
       const next = result.offset ?? null;
@@ -9661,6 +9745,7 @@ HomeswiftI18n.add("es", {
   "Firmware Revision": "Versión del firmware",
   "Firmware Update": "Actualización del firmware",
   "Focus": "Concentración",
+  "Fold everything that holds no secret": "Contraer todo lo que no contiene ningún secreto",
   "Folder": "Carpeta",
   "Follow": "Seguir",
   "for {time}": "durante {time}",
@@ -9866,6 +9951,11 @@ HomeswiftI18n.add("es", {
   "Range extender": "Repetidor",
   "Programmable switch": "Interruptor programable",
   "Window covering": "Persiana",
+  "{n} secret shown, the rest folded": "{n} secreto visible, el resto contraído",
+  "{n} secrets shown, the rest folded": "{n} secretos visibles, el resto contraído",
+  "No secrets in this file": "Ningún secreto en este archivo",
+  "Show all": "Mostrar todo",
+  "Secrets only": "Solo secretos",
   "Security system": "Sistema de seguridad",
   "Sensor": "Sensor",
   "Garage door": "Puerta de garaje",
@@ -11824,6 +11914,7 @@ HomeswiftI18n.add("fr", {
   "Firmware Revision": "Version du firmware",
   "Firmware Update": "Mise à jour du firmware",
   "Focus": "Concentration",
+  "Fold everything that holds no secret": "Replier tout ce qui ne contient aucun secret",
   "Folder": "Dossier",
   "Follow": "Suivre",
   "for {time}": "pendant {time}",
@@ -12029,6 +12120,11 @@ HomeswiftI18n.add("fr", {
   "Range extender": "Répéteur",
   "Programmable switch": "Interrupteur programmable",
   "Window covering": "Store",
+  "{n} secret shown, the rest folded": "{n} secret affiché, le reste replié",
+  "{n} secrets shown, the rest folded": "{n} secrets affichés, le reste replié",
+  "No secrets in this file": "Aucun secret dans ce fichier",
+  "Show all": "Tout afficher",
+  "Secrets only": "Secrets seulement",
   "Security system": "Système de sécurité",
   "Sensor": "Capteur",
   "Garage door": "Porte de garage",
@@ -13987,6 +14083,7 @@ HomeswiftI18n.add("pt", {
   "Firmware Revision": "Versão do firmware",
   "Firmware Update": "Atualização do firmware",
   "Focus": "Concentração",
+  "Fold everything that holds no secret": "Recolher tudo o que não contém nenhum segredo",
   "Folder": "Pasta",
   "Follow": "Seguir",
   "for {time}": "durante {time}",
@@ -14192,6 +14289,11 @@ HomeswiftI18n.add("pt", {
   "Range extender": "Repetidor",
   "Programmable switch": "Interruptor programável",
   "Window covering": "Estore",
+  "{n} secret shown, the rest folded": "{n} segredo visível, o resto recolhido",
+  "{n} secrets shown, the rest folded": "{n} segredos visíveis, o resto recolhido",
+  "No secrets in this file": "Nenhum segredo neste ficheiro",
+  "Show all": "Mostrar tudo",
+  "Secrets only": "Só segredos",
   "Security system": "Sistema de segurança",
   "Sensor": "Sensor",
   "Garage door": "Porta de garagem",
@@ -18565,7 +18667,7 @@ dd { margin: 0; }
 
 /* JSON in colour (common.js): keys, strings, numbers, booleans and null each their own hue, punctuation quiet;
    a read-only block (.json) and an editor whose coloured layer sits under a transparent textarea. */
-:root { --json-key: #6f42c1; --json-string: #1a7f37; --json-number: #a8440a; --json-bool: #0a63c9; --json-null: #8a8f98; }
+:root { --json-key: #6f42c1; --json-string: #1a7f37; --json-number: #a8440a; --json-bool: #0a63c9; --json-null: #8a8f98; --json-secret: #9a6700; }
 @media (prefers-color-scheme: dark) {
   :root:not(:where([data-theme="light"])) { --json-key: #c8a2ff; --json-string: #8ddc8f; --json-number: #ffb06b; --json-bool: #79b8ff; --json-null: #8b949e; }
 }
@@ -18576,6 +18678,14 @@ dd { margin: 0; }
 .json-bool { color: var(--json-bool); }
 .json-null { color: var(--json-null); font-style: italic; }
 .json-punct { color: var(--muted); }
+/* A key that holds a secret (the server's Redaction rule): gold, a lock in the indentation before it, so nothing moves
+   and the caret stays on its character; its value sits on a faint gold pill, as a sealed field would. */
+.json-secret { position: relative; color: var(--json-secret); }
+.json-secret > svg {
+  position: absolute; right: calc(100% + 0.3ch); top: 50%; width: 0.9em; height: 0.9em; translate: 0 -55%;
+  fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;
+}
+.json-secret-value { color: var(--json-secret); background: rgba(242, 193, 78, 0.12); border-radius: 4px; box-shadow: 0 0 0 1px rgba(242, 193, 78, 0.22); }
 pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5 var(--mono); background: var(--material-thin); border: 1px solid var(--line); overflow: auto; tab-size: 2; }
 .code-editor { display: grid; position: relative; }
 .code-editor > .code-layer, .code-editor > .code-input {
@@ -18633,6 +18743,7 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
   --material-thin: rgba(255, 255, 255, 0.06); --field: rgba(255, 255, 255, 0.04);
   --warn: #e9a04a; --ok: #3ccf7a; --error: #ff6b6b; --accent-ink: #ff8f3d;
   --json-key: #c8a2ff; --json-string: #8ddc8f; --json-number: #ffb06b; --json-bool: #79b8ff; --json-null: #8b949e;
+  --json-secret: #f2c14e;
 }
 .log-card .log, pre.json, pre.diff, .code-editor, .form-card .code-editor { background: var(--console); }
 .log pre.json { background: var(--material-thin); }
@@ -18700,6 +18811,9 @@ pre.json { margin: 0; padding: 10px 12px; border-radius: 12px; font: 0.75rem/1.5
   /* Revert as an icon, so the status, Revert and Save fit on one row beside the menu button. */
   .settings-bar > .settings-action:not(.primary) { width: 40px; height: 40px; padding: 0; justify-content: center; }
   .settings-bar > .settings-action:not(.primary) > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  /* Config's Secrets only: its lock alone, the label kept for assistive technology, so the bar stays on one line. */
+  .editor-bar > .secrets-only { width: 40px; height: 40px; padding: 0; position: relative; }
+  .editor-bar > .secrets-only > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   /* Fields at 16px: smaller, and Safari zooms the page into them on focus. */
   input, select, textarea, .code-editor > .code-layer, .code-editor > .code-input, .code-editor > .code-gutter { font-size: 16px; }
   /* Comfortable targets, near Apple's 44pt: every button at least 40px tall, a text button too (its hit area
@@ -19702,6 +19816,26 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
 .expert-links > .button > svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
 .settings-action { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+/* Secrets only: off, a plain button; on, filled with the gold the secret keys take, so the state reads at a glance and
+   on a phone, where only its lock shows. Pressing it gives way at once. */
+.secrets-only { transition: background-color var(--fast) var(--ease-out), color var(--fast) var(--ease-out), transform 100ms var(--ease-out); }
+.secrets-only:active { transform: scale(0.96); }
+.secrets-only[aria-pressed="true"] {
+  color: #3b2a00; background: linear-gradient(180deg, #f7d067, #e6ae2c); border-color: transparent;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 1px 2px rgba(120, 80, 0, 0.25);
+}
+.secrets-only[aria-pressed="true"] > svg { stroke-width: 2.2; }
+/* While it holds: a gold strip at the top of the text says so, with the way out. */
+.secrets-banner {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px 8px 16px; font-size: 0.8125rem; font-weight: 500;
+  color: #f2c14e; background: linear-gradient(rgba(242, 193, 78, 0.06), rgba(242, 193, 78, 0.06)), var(--console);
+  border-bottom: 1px solid rgba(242, 193, 78, 0.22); transition: opacity var(--normal) var(--ease-out);
+}
+@starting-style { .secrets-banner { opacity: 0; } }
+.secrets-banner > svg { flex: none; width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.secrets-banner > span { flex: 1; min-width: 0; }
+.secrets-banner > button { padding: 4px 10px; font-size: 0.8125rem; color: #f3f4f7; background: rgba(255, 255, 255, 0.1); border: 0; box-shadow: none; }
+.secrets-banner > button:hover { background: rgba(255, 255, 255, 0.16); }
 .settings-action > svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
 /* Decorative action icons survive loading/success label changes. */

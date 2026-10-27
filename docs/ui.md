@@ -189,6 +189,10 @@ with a new code). More users are added on the **Users** page (see below).
   syntax error's line is marked as you type. A block that spans lines folds from the chevron beside its first line
   (Option-click folds or opens every block at that indentation; ⌘⌥[ and ⌘⌥] at the caret), and a click on its ⋯
   opens it; what is saved, copied or formatted is always the whole text. A plugin's JSON block folds the same way.
+  A key that holds a secret (the bridge's redaction rule: passwords, tokens, keys, the setup code) is gold with a lock
+  before it, its value on a gold pill, in both editors. **Secrets only** (the lock in Config's bar) folds everything
+  else, leaving the secrets and the way down to each; while it holds, the button is gold and a strip above the text
+  says how many secrets show, with **Show all**. Opening a fold, Format or Revert end it.
 - **Settings**, for administrators, after the Homebridge UI's settings, child bridges, config backups and
   restart pages:
   - **Bridge** (`/settings/bridge`, where `/settings` opens): config.json's `bridge` block as a form (name, port, setup code, manufacturer, model, firmware;

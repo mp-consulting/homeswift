@@ -593,15 +593,23 @@
 
   const jsonToken = /("(?:[^"\\]|\\.)*")(\s*:)?|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|\b(true|false)\b|\b(null)\b|([{}[\],:])/g;
 
-  /// `text` (JSON, or almost: it is being typed) as coloured spans.
-  function jsonHighlight(text) {
+  /// `text` (JSON, or almost: it is being typed) as coloured spans. A key `secretKey(name)` says is a secret is
+  /// marked, a lock before it, and so is its value when it is a string.
+  function jsonHighlight(text, { secretKey } = {}) {
     const fragment = document.createDocumentFragment();
-    let last = 0;
+    let last = 0, secretValue = false;
+    const isSecret = (key) => { try { return Boolean(secretKey?.(JSON.parse(key))); } catch { return false; } };
     for (const match of text.matchAll(jsonToken)) {
       if (match.index > last) fragment.append(text.slice(last, match.index));
       const [whole, string, colon, number, boolean, nil] = match;
       const kind = string ? (colon ? "key" : "string") : number ? "number" : boolean ? "bool" : nil ? "null" : "punct";
-      fragment.append(el("span", { class: `json-${kind}`, text: string && colon ? string : whole }));
+      if (string && colon && isSecret(string)) {
+        fragment.append(el("span", { class: "json-key json-secret" }, icon("lock"), string));
+        secretValue = true;
+      } else {
+        fragment.append(el("span", { class: `json-${kind}${secretValue && kind === "string" ? " json-secret-value" : ""}`, text: string && colon ? string : whole }));
+        secretValue = false;
+      }
       if (string && colon) fragment.append(el("span", { class: "json-punct", text: colon }));
       last = match.index + whole.length;
     }
@@ -715,13 +723,14 @@
   /// Colours a JSON textarea as it is typed: a coloured copy of its text sits under it, the textarea's own
   /// text transparent, so editing, selection and undo stay the browser's. Returns the wrapper to show, with
   /// `check()` (parses the text and marks the line of a syntax error), `markPaths(paths)` (marks where each
-  /// path is, or its nearest parent; returns `{ offset, line }` for each) and `reveal(offset)`.
+  /// path is, or its nearest parent; returns `{ offset, line }` for each) and `reveal(offset)`. `secretKey(name)`
+  /// marks the keys that hold secrets (the server's rule, as Redaction reads it).
   ///
   /// A block that spans lines folds from the chevron beside its first line (Option-click: every block at its
   /// indentation; ⌘⌥[ and ⌘⌥] at the caret): its inside becomes one "…" in the textarea, the text kept aside.
   /// The textarea's `value` and `setRangeText` are the whole text, so the page reads, sets and saves it as before;
   /// an edit that would reach into a fold opens it first, and one that damages a fold anyway is undone.
-  function jsonEditor(textarea) {
+  function jsonEditor(textarea, { secretKey } = {}) {
     const layer = el("pre", { class: "code-layer", "aria-hidden": "true" });
     const rail = el("div", { class: "code-folds" });
     const gutter = el("div", { class: "code-gutter" }, rail);
@@ -731,6 +740,11 @@
     const shown = () => native.get.call(textarea);
     // Each fold: where its "…" is in the text on screen, and the text it stands for. Sorted by place.
     let folds = [];
+    // Secrets only (foldAllButSecrets) holds until a fold opens or closes otherwise, or the text is set: the editor
+    // says so with a `folds` event, `{ secretsOnly, secrets }`, so the page's toggle never shows a state that is not.
+    let secretsOnly = false, applyingSecrets = false, secretCount = 0;
+    const report = () => wrapper.dispatchEvent(new CustomEvent("folds", { detail: { secretsOnly, secrets: secretCount } }));
+    const leaveSecretsOnly = () => { if (secretsOnly && !applyingSecrets) { secretsOnly = false; report(); } };
     const expand = (text, list = folds, from = 0) => {
       let out = "", last = 0;
       for (const fold of list) { out += text.slice(last, fold.at - from) + fold.hidden; last = fold.at - from + 1; }
@@ -757,6 +771,7 @@
       textarea.scrollLeft = scrollLeft;
       before = shown();
       schedule();
+      leaveSecretsOnly();
     };
     const open = (chosen) => {
       if (!chosen.length) return;
@@ -773,30 +788,32 @@
       folds = moved;
       replace(out + text.slice(last), (offset) => offset + opened.filter((fold) => fold.at < offset).reduce((sum, fold) => sum + fold.hidden.length - 1, 0));
     };
-    /// Folds the blocks `[start, end]` (the offsets of their brackets on screen), last first so the others hold.
-    const close = (blocks) => {
+    /// Folds the ranges `[from, to)` of the text on screen into a "…" each, last first so the others hold.
+    const fold = (ranges) => {
       let text = shown();
-      for (const { start, end } of [...blocks].sort((a, b) => b.start - a.start)) {
-        if (end - start < 2) continue;
-        const inside = folds.filter((fold) => fold.at > start && fold.at < end);
-        const hidden = expand(text.slice(start + 1, end), inside, start + 1);
-        const shrink = end - start - 2;
-        folds = folds.filter((fold) => !inside.includes(fold)).map((fold) => (fold.at > end ? { ...fold, at: fold.at - shrink } : fold));
-        folds.push({ at: start + 1, hidden });
+      ranges = ranges.filter((range) => range.to > range.from);
+      for (const { from, to } of [...ranges].sort((a, b) => b.from - a.from)) {
+        const inside = folds.filter((one) => one.at >= from && one.at < to);
+        const hidden = expand(text.slice(from, to), inside, from);
+        const shrink = to - from - 1;
+        folds = folds.filter((one) => !inside.includes(one)).map((one) => (one.at >= to ? { ...one, at: one.at - shrink } : one));
+        folds.push({ at: from, hidden });
         folds.sort((a, b) => a.at - b.at);
-        text = text.slice(0, start + 1) + "…" + text.slice(end);
+        text = text.slice(0, from) + "…" + text.slice(to);
       }
-      // The caret inside a block that folds goes to its "…"; one after it moves back with the text.
+      // The caret inside a range that folds goes to its "…"; one after it moves back with the text.
       replace(text, (offset) => {
         let at = offset;
-        for (const { start, end } of blocks) at -= offset >= end ? end - start - 2 : offset > start + 1 ? offset - start - 1 : 0;
+        for (const { from, to } of ranges) at -= offset >= to ? to - from - 1 : offset > from ? offset - from : 0;
         return at;
       });
     };
+    /// Folds the insides of the blocks `{ start, end }` (the offsets of their brackets on screen).
+    const close = (blocks) => fold(blocks.map(({ start, end }) => ({ from: start + 1, to: end })));
     Object.defineProperty(textarea, "value", {
       configurable: true,
       get: () => expand(shown()),
-      set: (text) => { folds = []; native.set.call(textarea, text); before = shown(); },
+      set: (text) => { folds = []; native.set.call(textarea, text); before = shown(); leaveSecretsOnly(); },
     });
     textarea.setRangeText = (text, start = textarea.selectionStart, end = textarea.selectionEnd, mode = "preserve") => {
       // A fold in the range opens first, and the range takes in its text.
@@ -909,11 +926,11 @@
       const content = document.createDocumentFragment();
       let last = 0;
       for (const fold of folds) {
-        content.append(jsonHighlight(text.slice(last, fold.at)), el("span", { class: "code-fold", text: "…" }));
+        content.append(jsonHighlight(text.slice(last, fold.at), { secretKey }), el("span", { class: "code-fold", text: "…" }));
         last = fold.at + 1;
       }
       // A final newline needs a character after it to take its line.
-      content.append(jsonHighlight(text.slice(last)), "\n");
+      content.append(jsonHighlight(text.slice(last), { secretKey }), "\n");
       layer.replaceChildren(content);
       // A marked line: a band under its text, as many line heights down as the line is from the top.
       const top = "var(--code-pad)";
@@ -954,6 +971,55 @@
     });
     // After the text is set in code: the problems' places no longer hold.
     wrapper.repaint = () => { placed = []; paint(); };
+    /// Opens every fold.
+    wrapper.openAll = () => { open([...folds]); leaveSecretsOnly(); };
+    /// Folds everything that holds no secret: each block without one, then each run of lines left between the
+    /// secret keys and the brackets on the way down to them, so what stays open is the secrets and their places. The
+    /// value of a secret key stays whole (an object of credentials). Returns how many secret keys there are.
+    wrapper.foldAllButSecrets = () => {
+      applyingSecrets = true;
+      try { secretCount = foldSecrets(); } finally { applyingSecrets = false; }
+      secretsOnly = true;
+      report();
+      return secretCount;
+    };
+    const foldSecrets = () => {
+      open([...folds]);
+      const secretsIn = (text) => {
+        const found = [];
+        for (const match of text.matchAll(jsonToken)) {
+          if (!match[1] || !match[2]) continue;
+          try { if (secretKey?.(JSON.parse(match[1]))) found.push({ start: match.index, end: match.index + match[0].length }); } catch {}
+        }
+        return found;
+      };
+      const isValueOf = (key, block, text) => key.end <= block.start && !text.slice(key.end, block.start).trim();
+      const holds = (block, keys, text) => keys.some((key) => (key.start > block.start && key.start < block.end) || isValueOf(key, block, text));
+      let text = shown(), keys = secretsIn(text);
+      const bare = [...findBlocks(text).values()].filter((block) => !holds(block, keys, text));
+      close(bare.filter((block) => !bare.some((outer) => outer !== block && outer.start < block.start && outer.end > block.end)));
+      // The lines to keep: a secret key's (and its value's), and the first and last of each block on the way to one.
+      text = shown();
+      keys = secretsIn(text);
+      const kept = new Set();
+      for (const key of keys) kept.add(lineOf(text, key.start));
+      for (const block of findBlocks(text).values()) {
+        if (!holds(block, keys, text)) continue;
+        if (keys.some((key) => isValueOf(key, block, text))) for (let line = lineOf(text, block.start); line <= lineOf(text, block.end); line++) kept.add(line);
+        kept.add(lineOf(text, block.start));
+        kept.add(lineOf(text, block.end));
+      }
+      const starts = lineStarts(text), runs = [];
+      let run = null;
+      for (let line = 1; line <= starts.length; line++) {
+        const from = starts[line - 1], to = line < starts.length ? starts[line] - 1 : text.length;
+        if (kept.has(line) || !text.slice(from, to).trim()) { run = null; continue; }
+        const first = from + (text.slice(from, to).length - text.slice(from, to).trimStart().length);
+        if (run) run.to = to; else runs.push(run = { from: first, to });
+      }
+      fold(runs);
+      return keys.length;
+    };
     wrapper.check = () => {
       const result = jsonCheck(textarea.value);
       const next = result.offset ?? null;
