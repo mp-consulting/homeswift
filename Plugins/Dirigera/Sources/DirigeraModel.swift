@@ -84,25 +84,29 @@ struct DirigeraDevice: Sendable, Equatable {
     }
 }
 
-/// A scene of the hub (`GET /v1/scenes`): user scenes, which a switch triggers.
+/// A scene of the hub (`GET /v1/scenes`). User and custom scenes are the ones a person runs, which a switch
+/// triggers; wake-up and playlist scenes run on their own schedule, so the page shows them without running them.
 struct DirigeraScene: Sendable, Equatable {
     var id: String
     var name: String
     var icon: String?
+    /// The hub's `type`: `userScene`, `customScene`, `wakeUpScene`…
+    var type: String
+
+    var isRunnable: Bool { type == "userScene" || type == "customScene" }
 
     init?(_ json: JSONValue) {
         guard let id = json["id"]?.stringValue, let name = json["info"]?["name"]?.stringValue else { return nil }
-        // Wake-up and playlist scenes run on their own schedule; the ones a person triggers are user and custom scenes.
-        let type = json["type"]?.stringValue ?? "userScene"
-        guard type == "userScene" || type == "customScene" else { return nil }
         self.id = id
         self.name = name
         icon = json["info"]?["icon"]?.stringValue
+        type = json["type"]?.stringValue ?? "userScene"
     }
 
-    init(id: String, name: String, icon: String? = nil) {
+    init(id: String, name: String, icon: String? = nil, type: String = "userScene") {
         self.id = id
         self.name = name
         self.icon = icon
+        self.type = type
     }
 }

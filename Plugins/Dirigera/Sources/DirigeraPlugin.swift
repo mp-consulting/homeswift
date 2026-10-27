@@ -257,7 +257,7 @@ public actor DirigeraPlugin: HomeswiftPlugin {
     }
 
     func visibleScenes(_ hub: Hub) -> [DirigeraScene] {
-        hub.scenes.filter { !excludedScenes.contains($0.name.lowercased()) && !excludedScenes.contains($0.id.lowercased()) }
+        hub.scenes.filter { $0.isRunnable && !excludedScenes.contains($0.name.lowercased()) && !excludedScenes.contains($0.id.lowercased()) }
     }
 
     private func show(_ hub: Hub) async {
@@ -476,7 +476,8 @@ public actor DirigeraPlugin: HomeswiftPlugin {
     /// Runs one of the hub's scenes: only an id the hub listed, as the page's and the Assistant's ids come from outside.
     func trigger(host: String, sceneID: String) async throws {
         guard let hub = hubs[host] else { throw DirigeraClient.Failure.status(404, "no such hub") }
-        guard hub.scenes.contains(where: { $0.id == sceneID }) else { throw DirigeraClient.Failure.status(404, "no such scene") }
+        guard let scene = hub.scenes.first(where: { $0.id == sceneID }) else { throw DirigeraClient.Failure.status(404, "no such scene") }
+        guard scene.isRunnable else { throw DirigeraClient.Failure.status(409, "\(scene.name) runs on its own schedule and cannot be run") }
         try await hub.client.trigger(sceneID: sceneID)
         triggered(sceneID)
     }

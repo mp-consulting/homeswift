@@ -154,7 +154,24 @@
   // Home app, by name.
   const pictures = homeswift.scenePictures({ refresh: () => refresh(), toggleHidden: (name) => toggleList("excludeScenes", name) });
 
+  // Wake-up and playlist scenes run on the hub's schedule: shown greyed with a badge, they neither run nor reach the
+  // Home app.
+  function scheduledTile(scene) {
+    const { glyph, gradient, text } = sceneStyle(scene);
+    const art = document.createElement("span");
+    art.className = "glyph";
+    art.innerHTML = `<svg viewBox="0 0 24 24">${glyph}</svg>`;
+    const badge = document.createElement("span");
+    badge.className = "badge scheduled";
+    badge.innerHTML = '<svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M5 3 2 6M19 3l3 3"/></svg>';
+    badge.append(scene.type === "wakeUpScene" ? t("Wake-up") : t("Scheduled"));
+    const why = t("Runs on the hub's schedule: it cannot be run from here or from the Home app.");
+    return el("div", { class: `scene unusable ${text}`, title: why, "aria-disabled": "true", style: `background: ${gradient}`, "aria-label": `${scene.name}. ${why}` },
+      art, badge, el("span", { class: "name", text: scene.name }));
+  }
+
   function sceneTile(scene) {
+    if (scene.runnable === false) return scheduledTile(scene);
     const { glyph, gradient, text } = sceneStyle(scene);
     const art = document.createElement("span");
     art.className = "glyph";

@@ -6,8 +6,8 @@ extension DirigeraPlugin {
     public static let assistantActions: [AssistantAction] = [
         AssistantAction(
             name: "list_scenes", title: "Look at the IKEA scenes",
-            description: "Every scene of the DIRIGERA hubs: its id, the hub's host, its name and its icon (scenes_tv, scenes_moon, scenes_sun…). "
-                + "To set an ambiance the user describes (movie, bedtime, morning, dinner), list the scenes, pick the one whose name and icon "
+            description: "Every scene of the DIRIGERA hubs: its id, the hub's host, its name, its icon (scenes_tv, scenes_moon, scenes_sun…) and whether it can be run "
+                + "(runnable: wake-up scenes run on the hub's schedule and cannot). To set an ambiance the user describes (movie, bedtime, morning, dinner), list the scenes, pick the runnable one whose name and icon "
                 + "fit best, then call run_scene with its host and id.",
             path: "scenes", access: .read),
         AssistantAction(

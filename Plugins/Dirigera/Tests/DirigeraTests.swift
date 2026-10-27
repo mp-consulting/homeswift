@@ -298,12 +298,15 @@ struct DirigeraTests {
         #expect(sofa["room"] == "Living Room")
         #expect(sofa["type"] == "colour")
         let scenes = try await plugin.handleWebRequest(PluginWebRequest(method: "GET", path: "scenes", user: "admin"))
-        #expect(scenes.json["scenes"]?.arrayValue?.map { $0["name"] } == ["Movie night"])
+        // A wake-up scene is listed for the page, marked as one nobody runs.
+        #expect(scenes.json["scenes"]?.arrayValue?.map { $0["name"] } == ["Movie night", "Wake up"])
+        #expect(scenes.json["scenes"]?.arrayValue?.map { $0["runnable"] } == [true, false])
+        #expect(scenes.json["scenes"]?[1]?["type"] == "wakeUpScene")
         _ = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "trigger", body: ["host": "192.0.2.20", "id": "scene-1"], user: "admin"))
         #expect(environment.hub.sent.contains { $0.path == "/v1/scenes/scene-1/trigger" })
-        // Only an id the hub listed reaches it, as one path segment.
+        // Only a runnable scene the hub listed reaches it, its id as one path segment.
         let sentBefore = environment.hub.sent.count
-        for id in ["scene-9", "../devices/bulb-1", "scene-1/../x?y"] {
+        for id in ["scene-9", "scene-2", "../devices/bulb-1", "scene-1/../x?y"] {
             await #expect(throws: (any Error).self) {
                 _ = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "trigger", body: ["host": "192.0.2.20", "id": .string(id)], user: "admin"))
             }

@@ -54,6 +54,7 @@ extension DirigeraPlugin {
                 for scene in hub.scenes {
                     list.append([
                         "host": .string(host), "id": .string(scene.id), "name": .string(scene.name), "icon": scene.icon.map(JSONValue.string) ?? .null,
+                        "type": .string(scene.type), "runnable": .bool(scene.isRunnable),
                         "hidden": .bool(!visible.contains(scene.id)), "picture": versions[scene.id].map(JSONValue.string) ?? .null,
                     ])
                 }
