@@ -16,6 +16,8 @@ public struct PluginRegistry: Sendable {
     public struct Entry: Sendable {
         public let platform: String
         public let name: String
+        /// The web UI's icon for it (`HomeswiftPlugin.icon`).
+        public let icon: String?
         /// The plugin's config.schema.json as text, when it has one.
         public let configurationSchemaJSON: String?
         /// The plugin's web pages, when it has any.
@@ -39,7 +41,7 @@ public struct PluginRegistry: Sendable {
     }
 
     public mutating func register<P: HomeswiftPlugin>(_ type: P.Type) {
-        register(platform: P.platform, name: P.name, configurationSchemaJSON: P.configurationSchemaJSON, webFiles: P.webFiles, assistantActions: P.assistantActions, assistantBackground: P.assistantBackground) { json, context in
+        register(platform: P.platform, name: P.name, icon: P.icon, configurationSchemaJSON: P.configurationSchemaJSON, webFiles: P.webFiles, assistantActions: P.assistantActions, assistantBackground: P.assistantBackground) { json, context in
             let configuration = try JSONDecoder().decode(P.Configuration.self, from: json)
             return try await P(configuration: configuration, context: context)
         }
@@ -53,13 +55,13 @@ public struct PluginRegistry: Sendable {
     }
 
     public mutating func register(
-        platform: String, name: String, configurationSchemaJSON: String? = nil, webFiles: [String: WebFile] = [:], assistantActions: [AssistantAction] = [],
+        platform: String, name: String, icon: String? = nil, configurationSchemaJSON: String? = nil, webFiles: [String: WebFile] = [:], assistantActions: [AssistantAction] = [],
         assistantBackground: String? = nil,
         make: @escaping @Sendable (_ configuration: Data, _ context: PluginContext) async throws -> any HomeswiftPlugin
     ) {
         if byPlatform[platform] == nil { order.append(platform) }
         byPlatform[platform] = Entry(
-            platform: platform, name: name, configurationSchemaJSON: configurationSchemaJSON, webFiles: webFiles, assistantActions: assistantActions, assistantBackground: assistantBackground, make: make)
+            platform: platform, name: name, icon: icon, configurationSchemaJSON: configurationSchemaJSON, webFiles: webFiles, assistantActions: assistantActions, assistantBackground: assistantBackground, make: make)
     }
 
     /// In registration order.

@@ -41,6 +41,8 @@ public actor WingmanPlugin: HomeswiftPlugin {
     }
 
     public static let platform = "Wingman"
+
+    public static let icon: String? = "wingman"
     public static let name = "Wingman"
     // `configurationSchemaJSON` is in ConfigurationSchema.swift, generated from ../config.schema.json;
     // `webFiles` in WebFiles.swift, generated from ../Web.

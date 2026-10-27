@@ -13,6 +13,7 @@ import Logging
 /// plugin's page in the web UI, or with the Homebridge plugin's settings page. See README.md.
 public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
     public static let platform = "PhilipsAmbilightTV"
+    public static let icon: String? = "tv"
     public static let name = "Philips Ambilight TV"
     // `configurationSchemaJSON` is in ConfigurationSchema.swift, generated from ../config.schema.json;
     // `webFiles` in WebFiles.swift, generated from ../Web.

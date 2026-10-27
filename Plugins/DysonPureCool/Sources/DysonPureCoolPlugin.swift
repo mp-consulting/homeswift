@@ -12,6 +12,7 @@ import Logging
 /// unchanged; the plugin's page in the web UI is the Homebridge plugin's setup wizard.
 public actor DysonPureCoolPlugin: HomeswiftPlugin {
     public static let platform = "DysonPureCool"
+    public static let icon: String? = "wind"
     public static let name = "Dyson Pure Cool"
     // `configurationSchemaJSON` is in ConfigurationSchema.swift, generated from ../config.schema.json;
     // `webFiles` in WebFiles.swift, generated from ../Web.

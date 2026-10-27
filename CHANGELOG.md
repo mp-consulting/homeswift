@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- A plugin declares its web UI icon in Swift (`HomeswiftPlugin.icon`, a name from common.js's icons such as
+  `"logo-elgato"` or `"bulb"`), which `/api/plugins` reports for each plugin and each block; the web UI no longer lists
+  them itself. A Homebridge block the import renames takes its new plugin's icon (AI Kit, the Assistant's sparkle).
+- A doorbell's category icon is a bell everywhere, not a camera.
+- A camera that sends no picture shows television snow behind its message.
 - The graph of bridges, plugins and accessories moves from Settings › Overview to a **Graph** tab of the Accessories
   page (`/accessories/graph`, for every signed-in user). Settings › Overview goes, and `/settings` opens Bridge. Every value of a
   node's card has a tooltip saying what it is; an accessory's readings are grouped by service and worded as on the

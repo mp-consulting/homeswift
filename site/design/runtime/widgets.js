@@ -34,6 +34,7 @@
     "Motion Detected": [t("No motion"), t("Motion")], "Occupancy Detected": [t("Not occupied"), t("Occupied")], "Mute": [t("Off [setting]"), t("On [setting]")],
     "Position State": [t("Closing"), t("Opening"), t("Stopped")], "Filter Change Indication": [t("OK"), t("Replace [filter]")], "In Use": [t("Not in use"), t("In use")],
     "Lock Physical Controls": [t("Unlocked"), t("Locked")], "Valve Type": [t("Valve"), t("Irrigation"), t("Shower head"), t("Faucet")],
+    "Status Tampered": [t("Not tampered"), t("Tampered")], "Status Fault": [t("No fault"), t("Fault")],
   };
   // What HomeKit needs to describe an accessory rather than a state a person reads or changes: kept off the page.
   const plumbing = new Set([
@@ -124,6 +125,34 @@
   }
   /// A service type from HomeKit's definitions ("Temperature Sensor"), translated when the catalog knows it.
   const serviceName = (text) => HomeswiftI18n.message(text);
+
+  /// An accessory's values as a person reads them, service by service (its name in the card): each characteristic named
+  /// and worded as the rows under All controls ("Active", "No motion", "21,5 °C"; a 0 or 1 switch as Off or On), with a
+  /// tooltip saying which service holds it, its raw HomeKit value and whether it can be changed. Services alike (a
+  /// camera's ten streams) make one group with their count. What only HomeKit needs is left out.
+  /// A service type's title: a camera's by what it does, else the type's words ("TemperatureSensor" reads "Temperature Sensor").
+  const cameraServiceNames = { CameraRTPStreamManagement: t("Video stream"), CameraRecordingManagement: t("Recording"), CameraOperatingMode: t("Camera"),
+    Microphone: t("Microphone"), Speaker: t("Speaker") };
+  const serviceTitle = (type) => cameraServiceNames[type] ?? serviceName(type.replace(/([a-z])([A-Z])/g, "$1 $2"));
+  function valueSections(accessory) {
+    const word = (one) => enumLabels[one.type] ? labelFor(one.type, one.value)
+      : one.format !== "float" && (one.minValue === 0 && one.maxValue === 1 || String(one.validValues) === "0,1") ? (one.value ? t("On [setting]") : t("Off [setting]")) : formatValue(one);
+    const sections = [];
+    for (const service of accessory.services ?? []) {
+      if (quietServices.has(service.type) || service.type === "AccessoryInformation") continue;
+      const named = shortName(accessory, service);
+      // A camera's services by what they do; streams and the like, told apart by a number alone, after their type.
+      const name = cameraServiceNames[service.type] || /^\d+$/.test(named) ? serviceTitle(service.type) : named;
+      const rows = (service.characteristics ?? [])
+        .filter((one) => !plumbing.has(one.type) && one.value !== null && one.value !== undefined && typeof one.value !== "object")
+        .map((one) => [rowLabels[one.type] ?? typeName(one.type), word(one),
+          `${t("{service} · HomeKit {characteristic}: {value}", { service: name, characteristic: one.type, value: String(one.value) })} · ${canWrite(one) ? t("Can be changed") : t("Read only")}`]);
+      if (!rows.length) continue;
+      const same = sections.find((section) => section.name === name && JSON.stringify(section.rows) === JSON.stringify(rows));
+      if (same) same.count += 1; else sections.push({ name, rows, count: 1 });
+    }
+    return sections.map(({ name, rows, count }) => ({ name: count > 1 ? `${name} ×${count}` : name, rows }));
+  }
 
   // ---- An accessory on the page: its values, writes and painters --------------------------------------
 
@@ -524,11 +553,7 @@
   const glyphs = {
     minus: '<path d="M6 12h12"/>', plus: '<path d="M12 6v12M6 12h12"/>',
     blind: '<rect x="4" y="3" width="16" height="18" rx="1.5"/><path d="M4 8h16M4 12h16M12 12v5"/>',
-    drop: '<path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z"/>',
-    gate: '<path d="M3 21V9l9-5 9 5v12M7 21v-8h10v8M7 17h10"/>',
-    wind: '<path d="M3 8h11a3 3 0 1 0-3-3M3 12h16a3 3 0 1 1-3 3M3 16h8"/>',
     shield: '<path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z"/>',
-    tv: '<rect x="2.5" y="4" width="19" height="13" rx="2.5"/><path d="M8.5 20.5h7"/>',
     up: '<path d="m6 15 6-6 6 6"/>', down: '<path d="m6 9 6 6 6-6"/>', stop: '<rect x="7" y="7" width="10" height="10" rx="2"/>',
     power: '<path d="M12 3v9"/><path d="M6.3 7.2a8 8 0 1 0 11.4 0"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>', mute: '<path d="M11 5 6 9H3v6h3l5 4z"/><path d="m16 9 5 6M21 9l-5 6"/>',
@@ -1559,7 +1584,7 @@
     sensor: ["sensor", "teal"], fan: ["fan", "teal"], airPurifier: ["wind", "teal"], speaker: ["speaker", "blue"], homePod: ["speaker", "blue"],
     audioReceiver: ["speaker", "blue"], doorLock: ["lock", "violet"], thermostat: ["thermo", "yellow"], heater: ["thermo", "yellow"], airConditioner: ["thermo", "teal"],
     garageDoorOpener: ["gate", "violet"], door: ["door", "violet"], window: ["door", "violet"], windowCovering: ["blind", "violet"],
-    ipCamera: ["camera", "grey"], videoDoorbell: ["camera", "grey"], faucet: ["drop", "blue"], sprinkler: ["drop", "blue"], securitySystem: ["shield", "violet"],
+    ipCamera: ["camera", "grey"], videoDoorbell: ["bell", "grey"], faucet: ["drop", "blue"], sprinkler: ["drop", "blue"], securitySystem: ["shield", "violet"],
   };
 
   /// What no widget claims: the power in the header and the primary service's rows; in full, the rest under More.
@@ -1868,7 +1893,6 @@
   // Under a camera's video: its light (a package camera's flashlight), switches and HomeKit camera setting;
   // sensors and the rest under "More".
   const cameraFirst = new Set(["Lightbulb", "Switch", "Outlet", "CameraOperatingMode"]);
-  const cameraServiceNames = { CameraOperatingMode: t("Camera"), Microphone: t("Microphone"), Speaker: t("Speaker") };
 
   function cameraView(ctx) {
     const { accessory } = ctx;
@@ -1899,7 +1923,7 @@
     // A camera's sensors carry its own name: they read as what they are.
     const named = (service) => {
       const own = !service.name || service.name === accessory.name;
-      return own ? { ...service, name: cameraServiceNames[service.type] || serviceName(service.type.replace(/([a-z])([A-Z])/g, "$1 $2")) } : service;
+      return own ? { ...service, name: serviceTitle(service.type) } : service;
     };
     const first = leftovers(ctx, ctx.services.filter((s) => cameraFirst.has(s.type)).map(named));
     const more = leftovers(ctx, ctx.services.filter((s) => !cameraFirst.has(s.type)).map(named));
@@ -2004,7 +2028,11 @@
   for (const node of expandedIn(view)) watchExpanded(node);
 
   window.HomeswiftWidgets = {
-    card, open, kindOf, sizes, searchText, event, snapshot, reconcileAccessory, listen, describeModel, labelFor, enumLabels,
+    /// The icon a device's category stands for on its tile (common.js's icons), when it has one.
+    categoryIcon: (category) => categoryIcons[category]?.[0],
+    /// A camera's picture (camera.js): live while on screen, else snapshots, its name and state over it.
+    cameraView: (accessory) => cameraView({ accessory }).element,
+    card, open, kindOf, sizes, searchText, valueSections, event, snapshot, reconcileAccessory, listen, describeModel, labelFor, enumLabels,
     /// The same fallback characteristic row used under All controls, for live documentation and plugin pages.
     characteristicRow(accessory, service, characteristic) {
       const ctx = context(accessory);

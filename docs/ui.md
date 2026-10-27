@@ -87,7 +87,8 @@ with a new code). More users are added on the **Users** page (see below).
   the card is on screen and the page visible, it plays the live feed muted (`GET /api/cameras/<id>/live`, fMP4
   through Media Source Extensions, ManagedMediaSource on iOS Safari), when the plugin has one; otherwise a
   snapshot every 3 seconds (`/api/cameras/<id>/snapshot?width=&height=`). Off screen it fetches nothing. A camera
-  has four live viewers at most, and one turned off in the Home app, or whose plugin is paused, shows nothing.
+  has four live viewers at most, and one turned off in the Home app, or whose plugin is paused, shows nothing; one
+  that sends no picture shows television snow behind its message (a still frame under reduced motion).
   Plugin pages can show the same view: load `/camera.js` and call `HomeswiftCamera.view({ id, name })`.
 - **Rooms** (Glass UI's accessory layout): a card's **⋯** menu puts the accessory in a room (a new name adds
   the room), gives it a name for these pages (the Home app keeps its own), adds it to the Quick Controls, or

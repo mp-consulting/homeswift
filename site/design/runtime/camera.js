@@ -55,6 +55,8 @@
     const ringBadge = el("span", { class: "camera-badge ring hidden" });
     const recordingBadge = el("span", { class: "camera-badge recording hidden", text: t("Recording"), title: t("HomeKit Secure Video records this camera's events") });
     const message = el("div", { class: "camera-message", text: t("Connecting…") });
+    // No picture from the camera: an old television's snow behind the message, drawn small and scaled up.
+    const snow = el("canvas", { class: "camera-snow", width: 160, height: 90, "aria-hidden": "true" });
     const sound = button("muted", t("Unmute"), () => {
       video.muted = !video.muted;
       sound.replaceChildren(glyph(video.muted ? "muted" : "sound"));
@@ -72,7 +74,7 @@
     });
     const refresh = button("refresh", t("Refresh"), () => { state.noLive = false; restart(); });
     const element = el("div", { class: "camera-view", "data-camera": camera.id },
-      still, video, message,
+      still, video, snow, message,
       el("div", { class: "camera-top" },
         el("strong", { class: "camera-name", text: camera.name }),
         el("span", { class: "camera-badges" }, liveBadge, stillBadge, recordingBadge, motionBadge, ringBadge)),
@@ -88,8 +90,27 @@
     });
     const url = (what, query = "") => `/api/cameras/${encodeURIComponent(camera.id)}/${what}${query}`;
 
-    function show(what, text = "") {
-      // "live" the video, "still" the snapshot, "message" a line over a dim picture.
+    // The snow's frames, a few a second while the view runs; one frame under reduced motion.
+    let snowFrame = 0, snowDrawn = 0;
+    function drawSnow(now) {
+      if (!element.classList.contains("no-signal") || !state.running) { snowFrame = 0; return; }
+      if (now - snowDrawn > 60) {
+        snowDrawn = now;
+        const context = snow.getContext("2d"), image = context.createImageData(snow.width, snow.height);
+        const pixels = new Uint32Array(image.data.buffer);
+        for (let i = 0; i < pixels.length; i++) { const v = (Math.random() * 256) | 0; pixels[i] = 0xff000000 | (v << 16) | (v << 8) | v; }
+        context.putImageData(image, 0, 0);
+      }
+      snowFrame = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : requestAnimationFrame(drawSnow);
+    }
+    function snowing(on) {
+      element.classList.toggle("no-signal", on);
+      if (on && !snowFrame) snowFrame = requestAnimationFrame(drawSnow);
+    }
+
+    function show(what, text = "", { noSignal = false } = {}) {
+      // "live" the video, "still" the snapshot, "message" a line over a dim picture (over snow when the camera sends none).
+      snowing(what === "message" && noSignal && !still.src);
       element.classList.toggle("is-live", what === "live");
       element.classList.toggle("has-still", !!still.src);
       message.textContent = text;
@@ -131,7 +152,8 @@
           await sleep(SNAPSHOT_EVERY, signal);
         } catch (error) {
           if (signal.aborted) return;
-          show("message", error.status === 409 ? t("Turned off in the Home app") : error.status === 503 ? t("Paused") : t("No picture from the camera"));
+          const unavailable = error.status !== 409 && error.status !== 503;
+          show("message", error.status === 409 ? t("Turned off in the Home app") : error.status === 503 ? t("Paused") : t("No picture from the camera"), { noSignal: unavailable });
           // A camera that fails is asked less often.
           await sleep(SNAPSHOT_EVERY * 4, signal);
         }

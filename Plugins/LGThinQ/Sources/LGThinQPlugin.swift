@@ -10,6 +10,7 @@ import Logging
 /// the Homebridge plugin's; the sign-in and the device list are on the plugin's page in the web UI. See README.md.
 public actor LGThinQPlugin: HomeswiftPlugin {
     public static let platform = "LGThinQ"
+    public static let icon: String? = "logo-lg"
     public static let name = "LG ThinQ"
     // `configurationSchemaJSON` is in ConfigurationSchema.swift, generated from ../config.schema.json;
     // `webFiles` in WebFiles.swift, generated from ../Web.

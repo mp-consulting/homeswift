@@ -652,6 +652,8 @@ public actor __NAME__Plugin: HomeswiftPlugin {
 
     public static let platform = "__PLATFORM__"
     public static let name = "__DISPLAY__"
+    /// The web UI's icon: a name from Sources/HomeswiftUI/Web/common.js's icons, its brand's logo where there is one.
+    public static let icon: String? = "plugin"
     // `configurationSchemaJSON` is in ConfigurationSchema.swift, generated from ../config.schema.json.
 
     static let defaultPollingInterval = 30

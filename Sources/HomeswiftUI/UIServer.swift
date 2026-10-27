@@ -605,7 +605,8 @@ public final class UIServer: Sendable {
                 let slugs = Slug.unique(platforms.map(\.name), fallback: "plugin")
                 let blocks = platforms.enumerated().map { index, block -> JSONValue in
                     ["index": .number(Double(index)), "platform": .string(block.platform), "name": .string(block.name), "childBridge": .bool(block.childBridge != nil),
-                     "system": .bool(HomeswiftCatalog.systemPlatforms.contains(block.platform)), "slug": .string(slugs[index])]
+                     "system": .bool(HomeswiftCatalog.systemPlatforms.contains(block.platform)), "slug": .string(slugs[index]),
+                     "icon": catalog.pluginIcon(platform: block.platform).map(JSONValue.string) ?? .null]
                 }
                 var plugins = catalog.pluginsJSON().objectValue ?? [:]
                 plugins["blocks"] = .array(blocks)

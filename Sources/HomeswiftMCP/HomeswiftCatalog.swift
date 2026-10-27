@@ -442,6 +442,16 @@ public struct HomeswiftCatalog: Sendable {
         ]
     }
 
+    /// The Assistant's icon in the web UI, as a plugin's would be.
+    static let assistantIcon = "sparkle"
+
+    /// The web UI's icon for a config block's platform: its plugin's (`HomeswiftPlugin.icon`), a Homebridge block's
+    /// under the platform it runs as (HomebridgeAiKit as the Assistant), else nil.
+    public func pluginIcon(platform: String) -> String? {
+        let canonical = HomebridgeImport.renamedPlatforms[platform] ?? platform
+        return host.registry.entry(for: canonical)?.icon ?? (canonical == AIConfiguration.platform ? Self.assistantIcon : nil)
+    }
+
     public func pluginsJSON() -> JSONValue {
         let configured = Set(host.configuration.platforms.map(\.platform))
         let running = host.platforms
@@ -454,9 +464,11 @@ public struct HomeswiftCatalog: Sendable {
             "plugins": .array(host.registry.entries.map { entry in
                 [
                     "platform": .string(entry.platform), "name": .string(entry.name), "hasSchema": .bool(entry.configurationSchemaJSON != nil), "hasPages": .bool(entry.hasPages),
+                    "icon": entry.icon.map(JSONValue.string) ?? .null,
                     "tools": .array(entry.assistantActions.map { .string(Self.actionToolName(platform: entry.platform, action: $0.name)) }),
                 ]
-            } + (host.registry.entry(for: AIConfiguration.platform) == nil ? [["platform": .string(AIConfiguration.platform), "name": .string("Assistant"), "hasSchema": .bool(true), "hasPages": .bool(false), "tools": .array([])]] : [])),
+            } + (host.registry.entry(for: AIConfiguration.platform) == nil ? [["platform": .string(AIConfiguration.platform), "name": .string("Assistant"), "hasSchema": .bool(true), "hasPages": .bool(false),
+                                                                              "icon": .string(Self.assistantIcon), "tools": .array([])]] : [])),
         ]
     }
 
