@@ -253,7 +253,9 @@ and how a plugin's own page draws its accessories with the same widgets.
 an MCP client) can find, check or pair a device the way the plugin's page does. Each becomes the tool
 `<platform>_<name>`, with an `instance` argument when the platform has several blocks; arguments go in the
 query of a `GET` and in the JSON body otherwise (`queryKeys` puts some in the query of a `POST`). `access`
-sets the MCP scope it needs (`configure` is admin), and `confirm: true` asks the user before it runs.
+sets the MCP scope it needs (`configure` is admin), and `confirm: true` asks the user before it runs. An action that
+changes lights on the device's own hub (a scene) sets `changesLights: true`: the bridge keeps how the lights it changed were,
+and `stop_mood` puts them back, as for a mood.
 
 ```swift
 public static let assistantActions = [

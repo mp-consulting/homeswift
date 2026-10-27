@@ -134,10 +134,13 @@ public struct AssistantAction: Sendable {
     public var queryKeys: Set<String>
     /// The user confirms before it runs.
     public var confirm: Bool
+    /// It may change lights (a scene recalled on the device's own hub): the bridge keeps how the lights it changed
+    /// were, and `stop_mood` puts them back, as for a mood.
+    public var changesLights: Bool
 
     public init(
         name: String, title: String, description: String, method: String = "GET", path: String, access: Access,
-        inputSchema: JSONValue = ["type": "object", "properties": [:]], queryKeys: Set<String> = [], confirm: Bool = false
+        inputSchema: JSONValue = ["type": "object", "properties": [:]], queryKeys: Set<String> = [], confirm: Bool = false, changesLights: Bool = false
     ) {
         self.name = name
         self.title = title
@@ -148,6 +151,7 @@ public struct AssistantAction: Sendable {
         self.inputSchema = inputSchema
         self.queryKeys = queryKeys
         self.confirm = confirm
+        self.changesLights = changesLights
     }
 
     /// The request for these arguments.

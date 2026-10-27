@@ -15,6 +15,8 @@ All notable changes to this project are documented here. The format follows
   (bars for the level, a bolt while charging) and its level at every size.
 - The Assistant's chat copies the whole conversation from a button in its header, as Markdown (the messages, the
   steps it took, the changes it asked for), to paste in a report; the tools' arguments and answers stay out.
+- A plugin action the Assistant or an MCP client runs that changes lights (a Hue or IKEA scene recalled on its own
+  bridge) can be undone like a mood: the lights it changed are held, and `stop_mood` puts them back for 12 hours.
 - The IKEA DIRIGERA page shows the hub's wake-up scenes, greyed and dashed with a Wake-up badge: they run on the
   hub's schedule, so they cannot be run there and stay out of HomeKit.
 

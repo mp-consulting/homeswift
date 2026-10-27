@@ -1166,13 +1166,28 @@ public struct HomeswiftCatalog: Sendable {
                     var arguments = call.arguments.objectValue ?? [:]
                     arguments.removeValue(forKey: "instance")
                     let request = action.request(arguments: .object(arguments), user: call.session.principal.name)
-                    guard let response = try await catalog.host.handleWebRequest(platform: entry.platform, name: instance.name, request) else {
-                        return .error("\(instance.name) is not running")
+                    var sent: PluginWebResponse?
+                    let send = { () async throws -> Bool in
+                        sent = try await catalog.host.handleWebRequest(platform: entry.platform, name: instance.name, request)
+                        return (sent?.status ?? 500) < 400
                     }
+                    // A scene recalled on the plugin's own hub: what its lights were before is kept, as for a mood, so
+                    // stop_mood can put them back.
+                    var held: MoodRun?
+                    if action.changesLights {
+                        held = try await catalog.holdLightChanges("\(entry.name): \(action.title)", platform: instance, by: "MCP \(call.session.principal.name)", during: send)
+                    } else {
+                        _ = try await send()
+                    }
+                    guard let response = sent else { return .error("\(instance.name) is not running") }
                     guard response.status < 400 else { return .error(response.json["error"]?.stringValue ?? "HTTP \(response.status)") }
                     // What a device or the network said (a TV's name, a light's): data, never instructions.
                     let answer = call.session.vault.conceal(response.json)
-                    return ToolResult(text: "<untrusted-data source=\"\(entry.platform)\">\n\(answer.text(pretty: true))\n</untrusted-data>")
+                    var text = "<untrusted-data source=\"\(entry.platform)\">\n\(answer.text(pretty: true))\n</untrusted-data>"
+                    if let held {
+                        text += "\nThe bridge kept how \(held.lights.count) light(s) were before this: stop_mood with run \(held.id) puts them back, for \(Int(MoodRules.undoSeconds / 3600)) hours."
+                    }
+                    return ToolResult(text: text)
                 }
             }
         }

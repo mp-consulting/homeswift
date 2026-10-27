@@ -110,10 +110,25 @@ actor DevicesPlugin: HomeswiftPlugin {
             name: "pair", title: "Pair a device", description: "Pairs the device at an address; answers its entry for the devices list.",
             method: "POST", path: "pair", access: .configure,
             inputSchema: ["type": "object", "required": ["ip"], "properties": ["ip": ["type": "string"]]]),
+        AssistantAction(
+            name: "scene", title: "Recall a scene", description: "Recalls the colour bulbs' scene on the devices' own bridge.",
+            method: "POST", path: "scene", access: .control,
+            inputSchema: ["type": "object", "properties": ["fail": ["type": "boolean", "description": "The hub does not answer"]]], changesLights: true),
     ]
 
-    /// `POST pair` hands out a password, as a TV does when it pairs.
+    /// `POST pair` hands out a password, as a TV does when it pairs; `POST scene` turns the colour bulbs magenta, as a
+    /// scene recalled on a hub reports back its lights' new values.
     func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
+        if request.method == "POST", request.path == "scene" {
+            if request.body["fail"] == true { return .error(502, "the hub did not answer") }
+            for number in 1...(configuration.colourBulbs ?? 0) {
+                guard let light = context.accessory(id: "Devices:bulb\(number)")?.services.first(where: { $0.type.uuid == ServiceType.lightbulb.uuid }) else { continue }
+                light.characteristic(.on).value = .bool(true)
+                light.characteristic(.brightness).value = .int(80)
+                light.characteristic(.hue).value = .double(300)
+            }
+            return PluginWebResponse(["recalled": "Magenta"])
+        }
         guard request.method == "POST", request.path == "pair", let ip = request.body["ip"]?.stringValue else { return .error(404, "nothing there") }
         return PluginWebResponse(["device": ["ip": .string(ip), "mac": "AA:BB:CC:00:11:22", "username": "homeswift", "password": "s3cret-pass"]])
     }

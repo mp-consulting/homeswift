@@ -99,6 +99,8 @@ enum MoodRules {
     static let maxFailures = 3
     /// How long a mood that set the lights once can be undone (stop_mood puts the lights back).
     static let undoSeconds: TimeInterval = 12 * 3600
+    /// How long a plugin action's light changes may take to arrive and settle before what changed is held for undo.
+    static let pluginSettle = Duration.seconds(4)
 
     /// A mood from a request body or the Assistant's reply, checked: every value in range, the steps long enough
     /// for lights that fade.
@@ -307,6 +309,18 @@ struct MoodLight: Sendable {
 
     var hasColour: Bool { hue != nil && saturation != nil }
 
+    /// What it shows now, for a held change's swatch.
+    var color: MoodColor {
+        var color = MoodColor(on: on.value.boolValue, brightness: brightness?.value.doubleValue)
+        if let hue = hue?.value.doubleValue, let saturation = saturation?.value.doubleValue {
+            color.hue = hue
+            color.saturation = saturation
+        } else {
+            color.colorTemperature = colorTemperature?.value.doubleValue
+        }
+        return color
+    }
+
     func snapshot() -> MoodSnapshot {
         MoodSnapshot(on: on.value, brightness: brightness?.value, hue: hue?.value, saturation: saturation?.value, colorTemperature: colorTemperature?.value,
                      adaptive: service.adaptiveLighting?.isAdaptiveLightingActive == true)
@@ -329,6 +343,11 @@ struct MoodSnapshot: Sendable {
     var colorTemperature: HAPValue?
     /// Adaptive Lighting ran: it resumes afterwards.
     var adaptive: Bool
+
+    /// Whether a light's values moved from these (Adaptive Lighting aside).
+    func differs(from other: MoodSnapshot) -> Bool {
+        on != other.on || brightness != other.brightness || hue != other.hue || saturation != other.saturation || colorTemperature != other.colorTemperature
+    }
 }
 
 /// A mood playing in the background, or one that set the lights and can still be undone (`isHeld`).
@@ -396,7 +415,15 @@ extension HomeswiftCatalog {
         } else {
             throw CatalogError("Name the lights: a room, ids or a filter")
         }
-        let lights = accessories.flatMap { located in
+        let lights = Self.lights(of: accessories)
+        guard !lights.isEmpty else { throw CatalogError("No light there: moods change lightbulbs only") }
+        guard lights.count <= MoodRules.maxLights else { throw CatalogError("That is \(lights.count) lights; a mood changes at most \(MoodRules.maxLights). Pick a room or fewer lights.") }
+        return lights
+    }
+
+    /// The lightbulbs of these accessories that a mood can write.
+    static func lights(of accessories: [Located]) -> [MoodLight] {
+        accessories.flatMap { located in
             located.accessory.services.filter { $0.type.uuid == ServiceType.lightbulb.uuid }.enumerated().compactMap { index, service -> MoodLight? in
                 guard let on = service[.on], !on.isSecurityControl, on.type.permissions.contains(.pairedWrite) else { return nil }
                 func writable(_ type: CharacteristicType) -> Characteristic? {
@@ -406,9 +433,38 @@ extension HomeswiftCatalog {
                                  hue: writable(.hue), saturation: writable(.saturation), colorTemperature: writable(.colorTemperature))
             }
         }
-        guard !lights.isEmpty else { throw CatalogError("No light there: moods change lightbulbs only") }
-        guard lights.count <= MoodRules.maxLights else { throw CatalogError("That is \(lights.count) lights; a mood changes at most \(MoodRules.maxLights). Pick a room or fewer lights.") }
-        return lights
+    }
+
+    // MARK: Undoing a plugin's change
+
+    /// Runs a plugin action that changes lights (`AssistantAction.changesLights`: a scene recalled on the device's own
+    /// hub) so that it can be undone like a mood. The plugin's lights are read before; their changes are followed until
+    /// they stop for a moment (`MoodRules.pluginSettle` at most), and the lights that changed are held as a run that
+    /// stop_mood undoes. `action` answers whether it went through; nil when it did not or no light changed.
+    func holdLightChanges(_ name: String, platform: PluginHost.PlatformInstance, by: String, during action: () async throws -> Bool) async rethrows -> MoodRun? {
+        let lights = Self.lights(of: located().filter { $0.platform?.name == platform.name && $0.platform?.platform == platform.platform })
+        guard !lights.isEmpty else { _ = try await action(); return nil }
+        let before = Dictionary(uniqueKeysWithValues: lights.map { ($0.key, $0.snapshot()) })
+        let ids = Set(lights.map(\.located.accessory.id))
+        let lastChange = NIOLockedValueBox<ContinuousClock.Instant?>(nil)
+        let observation = host.observeChanges { accessory, _, _ in
+            if ids.contains(accessory.id) { lastChange.withLockedValue { $0 = .now } }
+        }
+        defer { observation.cancel() }
+        guard try await action() else { return nil }
+        // The hub reports the new values over a moment: wait until they have been quiet for a while.
+        let deadline = ContinuousClock.now + MoodRules.pluginSettle
+        while ContinuousClock.now < deadline {
+            if let last = lastChange.withLockedValue({ $0 }), ContinuousClock.now - last >= .milliseconds(750) { break }
+            try? await Task.sleep(for: .milliseconds(250))
+        }
+        let changed = lights.filter { before[$0.key].map($0.snapshot().differs) ?? false }
+        guard !changed.isEmpty else { return nil }
+        let snapshots = await takeOver(changed, before: before)
+        let mood = Mood(name: name, steps: [MoodStep(changed.map(\.color), seconds: MoodRules.minSeconds)])
+        let run = hold(mood, on: changed, snapshots: snapshots, by: by, room: nil)
+        logger.info("\(name) changed \(changed.count) light(s); stop_mood undoes it", metadata: ["by": "\(by)", "run": "\(run.id)"])
+        return run
     }
 
     // MARK: Starting and stopping
@@ -453,9 +509,7 @@ extension HomeswiftCatalog {
         guard mood.isAnimated else {
             // Moods playing there stop without putting these lights back; what the lights were before (before the
             // mood it replaces, if any) is kept, so stop_mood can undo this one.
-            let inherited = await takeOver(lights)
-            var snapshots: [String: MoodSnapshot] = [:]
-            for light in lights { snapshots[light.key] = inherited[light.key] ?? light.snapshot() }
+            let snapshots = await takeOver(lights)
             let failures = await applyOnce(mood.steps[0], to: lights)
             let run = hold(mood, on: lights, snapshots: snapshots, by: by, room: filter.room)
             logger.info("Mood \"\(mood.name)\" set on \(lights.count) light(s)", metadata: ["by": "\(by)", "run": "\(run.id)"])
@@ -544,9 +598,7 @@ extension HomeswiftCatalog {
     /// Starts an animated mood in the background; lights another mood was playing on change hands without a flash
     /// back to their old values.
     private func play(_ mood: Mood, on lights: [MoodLight], by: String, room: String?) async -> MoodRun {
-        let inherited = await takeOver(lights)
-        var snapshots: [String: MoodSnapshot] = [:]
-        for light in lights { snapshots[light.key] = inherited[light.key] ?? light.snapshot() }
+        let snapshots = await takeOver(lights)
         let now = Date()
         let total = mood.loop == true ? (mood.durationSeconds ?? MoodRules.defaultDuration) : mood.steps.reduce(0) { $0 + $1.seconds }
         let run = MoodRun(id: MoodRules.newID(), mood: mood, lights: lights, startedAt: now, endsAt: now.addingTimeInterval(total), by: by, room: room, snapshots: snapshots)
@@ -560,10 +612,10 @@ extension HomeswiftCatalog {
         return run
     }
 
-    /// Stops the moods playing on any of these lights; their snapshots of those lights come back, to restore when
-    /// the new mood ends or is undone. A held mood only gives up those lights: its others stay as it set them, still
-    /// to undo; it ends when it has none left.
-    private func takeOver(_ lights: [MoodLight]) async -> [String: MoodSnapshot] {
+    /// Stops the moods playing on any of these lights and answers what each light was before: a mood's snapshot of it,
+    /// else `before`'s, else what it shows now; to restore when the new change ends or is undone. A held mood only
+    /// gives up those lights: its others stay as it set them, still to undo; it ends when it has none left.
+    private func takeOver(_ lights: [MoodLight], before: [String: MoodSnapshot] = [:]) async -> [String: MoodSnapshot] {
         let keys = Set(lights.map(\.key))
         let runs = home.runningMoods.withLockedValue { running in running.values.filter { !keys.isDisjoint(with: $0.lights.map(\.key)) } }
         var inherited: [String: MoodSnapshot] = [:]
@@ -577,7 +629,7 @@ extension HomeswiftCatalog {
             task?.cancel()
             await task?.value
         }
-        return inherited
+        return Dictionary(uniqueKeysWithValues: lights.map { ($0.key, inherited[$0.key] ?? before[$0.key] ?? $0.snapshot()) })
     }
 
     /// Keeps a mood that set the lights once, for `MoodRules.undoSeconds`: stopping it in that time puts the lights
@@ -842,7 +894,8 @@ extension HomeswiftCatalog {
             MCPTool(
                 name: "list_moods", title: "List moods",
                 description: "The collection of moods for the lights (calm ambiances set once, slow animations such as candle flicker or fireplace, party effects such as disco "
-                    + "or a police siren, signals such as an alert flash), the moods playing now, and those that set the lights and can still be undone (held: true).",
+                    + "or a police siren, signals such as an alert flash), the moods playing now, and those that set the lights and can still be undone (held: true), "
+                    + "plugin actions that changed lights (a Hue or IKEA scene) included.",
                 outputSchema: Output.object(["moods": ["type": "array"], "running": ["type": "array"]], required: ["moods", "running"]),
                 scope: .read, idempotent: true
             ) { _ in .json(catalog.moodsJSON()) },
@@ -871,7 +924,8 @@ extension HomeswiftCatalog {
             MCPTool(
                 name: "stop_mood", title: "Stop a mood",
                 description: "Stops a mood playing (run, from list_moods or start_mood), or every one, and undoes a mood that set the lights (held: true, for 12 hours): "
-                    + "the lights go back to how they were before it.",
+                    + "the lights go back to how they were before it. A plugin action that changed lights (a Hue or IKEA scene) is held the same way, "
+                    + "its run in the action's answer and in list_moods: to put the lights back as they were, stop that run.",
                 inputSchema: ["type": "object", "properties": ["run": ["type": "string", "description": "The run id; every mood when left out"]]],
                 scope: .control, idempotent: true
             ) { call in

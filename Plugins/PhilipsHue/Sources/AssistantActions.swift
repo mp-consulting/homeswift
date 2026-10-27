@@ -18,7 +18,8 @@ extension PhilipsHuePlugin {
             description: "Recalls a scene by its id from list_scenes: its room's or zone's lights take the scene, with the plugin's transition. "
                 + "Smart scenes (natural light) are activated.",
             method: "POST", path: "recall", access: .control,
-            inputSchema: ["type": "object", "required": ["id"], "properties": ["id": ["type": "string", "description": "The scene's id"]]]),
+            inputSchema: ["type": "object", "required": ["id"], "properties": ["id": ["type": "string", "description": "The scene's id"]]],
+            changesLights: true),
         AssistantAction(
             name: "list_lights", title: "Look at the Hue lights",
             description: "Every light of the Hue Bridge: id, name, product, on, brightness, colour, effects, whether it answers.",

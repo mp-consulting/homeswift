@@ -17,7 +17,8 @@ extension DirigeraPlugin {
             inputSchema: [
                 "type": "object", "required": ["host", "id"],
                 "properties": ["host": ["type": "string", "description": "The hub's host"], "id": ["type": "string", "description": "The scene's id"]],
-            ]),
+            ],
+            changesLights: true),
         AssistantAction(
             name: "list_devices", title: "Look at the IKEA devices",
             description: "Every light, outlet and door or window sensor of the DIRIGERA hubs: id, host, name, room, on, brightness, colour, open.",

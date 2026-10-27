@@ -228,6 +228,10 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   quarter of a second a step since many lights fade, and puts the lights back when it ends (when it loops,
   or with `restore`) or when `stop_mood` stops it. A mood started on lights another plays on takes them over, and
   restores them as they were before the first; one that takes only some of a held mood's lights leaves it the others; a light that fails three writes in a row leaves the show.
+  A plugin action marked `changesLights` (`<platform>_<action>`: Hue's `recall_scene`, DIRIGERA's `run_scene`) is held
+  the same way: the bridge reads the plugin's lights before it, follows their changes until they are quiet (4 seconds
+  at most), and holds the lights that changed as a run named after the action, given in its answer and in
+  `list_moods`, that `stop_mood` undoes for 12 hours.
 - **Notifications.** `send_test_notification` sends a test through the channels that are on (`channel` for one:
   `webhook`, `ntfy`, `pushover`, `telegram`, `browser`) and answers per channel, 5 a minute at most. The channels
   are set up on the web UI's Notifications page, in a file of their own that no tool reads.

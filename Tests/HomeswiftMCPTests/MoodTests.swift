@@ -171,6 +171,42 @@ struct MoodTests {
         #expect(list["structuredContent"]?["running"]?.arrayValue?.isEmpty == true)
     }
 
+    /// A scene a plugin recalls on its own bridge is held like a calm mood: the lights it changed, and only those,
+    /// go back with stop_mood.
+    @Test func aPluginSceneIsUndone() async throws {
+        let (environment, client) = try await den()
+        defer { Task { await environment.stop() } }
+        let lampBefore = value(environment, "Devices:lamp", .brightness)
+
+        let recalled = try await client.tool("Devices_scene")
+        #expect(recalled["isError"] != true)
+        #expect(recalled["content"]?[0]?["text"]?.stringValue?.contains("stop_mood with run") == true)
+        #expect(value(environment, "Devices:bulb1", .hue)?.doubleValue == 300)
+        let held = try #require(try await client.tool("list_moods")["structuredContent"]?["running"]?[0])
+        #expect(held["held"] == true)
+        #expect(held["name"]?.stringValue?.hasSuffix("Recall a scene") == true)
+        #expect(held["lights"]?.arrayValue?.compactMap { $0["id"]?.stringValue }.sorted() == ["Devices:bulb1", "Devices:bulb2"])
+
+        _ = try await client.tool("stop_mood", ["run": try #require(held["id"])])
+        for bulb in ["Devices:bulb1", "Devices:bulb2"] {
+            #expect(value(environment, bulb, .on) == .bool(false))
+            #expect(value(environment, bulb, .brightness) == .int(40))
+            #expect(value(environment, bulb, .hue)?.doubleValue == 10)
+        }
+        #expect(value(environment, "Devices:lamp", .brightness) == lampBefore)
+    }
+
+    /// A scene the hub refuses changes nothing: no run is held, and the answer comes without waiting for the lights.
+    @Test func aFailedPluginSceneHoldsNothing() async throws {
+        let (environment, client) = try await den()
+        defer { Task { await environment.stop() } }
+        let started = ContinuousClock.now
+        let failed = try await client.tool("Devices_scene", ["fail": true])
+        #expect(failed["isError"] == true)
+        #expect(ContinuousClock.now - started < .seconds(1))
+        #expect(try await client.tool("list_moods")["structuredContent"]?["running"]?.arrayValue?.isEmpty == true)
+    }
+
     /// A mood on some of a calm mood's lights takes only those: the others stay as the calm mood set them, still to
     /// undo, and undoing both brings everything back to how it was before the first.
     @Test func aNewMoodTakesSomeOfACalmMoodsLights() async throws {
