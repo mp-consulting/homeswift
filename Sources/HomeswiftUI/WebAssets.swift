@@ -18445,6 +18445,9 @@ button.busy::after {
   background: var(--material-thin); border: 1px solid var(--line); font-weight: 600; font-variant-numeric: tabular-nums;
   transition: background-color 600ms var(--ease-out), color 600ms var(--ease-out), transform 300ms var(--ease-out);
 }
+/* On a medium tile the keys sit between its icon and its name, above the tile's tap target like its other lines. */
+.widget-summary > .remote-key-row { position: relative; z-index: 1; pointer-events: none; gap: 6px; }
+.widget-summary > .remote-key-row .remote-key { min-width: 32px; height: 32px; border-radius: 10px; }
 .remote-key.pressed { background: var(--accent); color: var(--accent-text); transform: scale(0.94); transition-duration: 60ms; }
 .widget .tile.pressed { transform: scale(0.94); transition: transform 60ms var(--ease-out); }
 @media (prefers-reduced-motion: reduce) { .remote-key.pressed, .widget .tile.pressed { transform: none; } }
@@ -23231,7 +23234,7 @@ self.addEventListener("notificationclick", (event) => {
 
   // A remote's buttons (a dimmer switch, a Tap, an IKEA remote): read only, a press is an event and nothing HomeKit
   // sends back. The tile gives a little press and the status line says which button and how until the next; from
-  // large up a key per button lights for a moment as it is pressed. Tapping it opens All controls.
+  // medium up a key per button lights for a moment as it is pressed. Tapping it opens All controls.
   register({
     name: "remote", types: ["StatelessProgrammableSwitch"], icon: "switch", tone: "green",
     size: (ctx) => ctx.all("StatelessProgrammableSwitch").length > 1 ? "medium" : "small",
@@ -23265,6 +23268,8 @@ self.addEventListener("notificationclick", (event) => {
           if (isOn(low)) return [t("Low battery"), "warn"];
           return [buttons.length > 1 ? t("Press a button to see it here") : t("Press it to see it here")];
         },
+        // A tall tile shows the keys between its icon and its name, in place of the count they make plain.
+        middle: size === "small" ? el("div", { class: "remote-key-row", "aria-hidden": "true" }, keys) : null,
         body: size === "small" ? [] : [el("div", { class: "remote-keys" }, el("div", { class: "remote-key-row", "aria-hidden": "true" }, keys), battery)],
       };
     },
@@ -23500,7 +23505,8 @@ self.addEventListener("notificationclick", (event) => {
   }
 
   /// Compact and tall summary tiles share their tap/hold actions; large and extra-large cards keep inline controls.
-  /// The ⋯ menu opens all controls at every size.
+  /// The ⋯ menu opens all controls at every size. A tall tile shows its widget's `middle`, when it gives one, between
+  /// its icon and its name, in place of the hero value.
   function frame(ctx, widget, built, primary, size) {
     const { accessory } = ctx;
     const [glyph, paintGlyph] = glyphFor(ctx, widget, built, primary);
@@ -23589,11 +23595,12 @@ self.addEventListener("notificationclick", (event) => {
         // Once a finger has held still, the page does not scroll under it.
         hit.addEventListener("touchmove", (event) => { if (armed) event.preventDefault(); }, { passive: false });
       }
-      node.append(shade ?? "", hit, el("div", { class: "w-top" }, glyph, hero), el("div", { class: "w-bottom" }, who, menu));
+      const middle = size === "medium" ? built.middle : null;
+      node.append(shade ?? "", hit, el("div", { class: "w-top" }, glyph, hero), middle ?? "", el("div", { class: "w-bottom" }, who, menu));
       ctx.watch(() => {
         const on = built.on ? built.on() : false;
         node.classList.toggle("on", on);
-        const value = sliding !== null ? `${sliding}%` : built.hero ? built.hero() : "";
+        const value = sliding !== null ? `${sliding}%` : built.hero && !middle ? built.hero() : "";
         hero.replaceChildren(...(value ? [value] : []));
         if (shade) {
           const { min, max } = built.slide ?? { min: 0, max: 100 };

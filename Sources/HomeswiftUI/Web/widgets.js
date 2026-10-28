@@ -1591,7 +1591,7 @@
 
   // A remote's buttons (a dimmer switch, a Tap, an IKEA remote): read only, a press is an event and nothing HomeKit
   // sends back. The tile gives a little press and the status line says which button and how until the next; from
-  // large up a key per button lights for a moment as it is pressed. Tapping it opens All controls.
+  // medium up a key per button lights for a moment as it is pressed. Tapping it opens All controls.
   register({
     name: "remote", types: ["StatelessProgrammableSwitch"], icon: "switch", tone: "green",
     size: (ctx) => ctx.all("StatelessProgrammableSwitch").length > 1 ? "medium" : "small",
@@ -1625,6 +1625,8 @@
           if (isOn(low)) return [t("Low battery"), "warn"];
           return [buttons.length > 1 ? t("Press a button to see it here") : t("Press it to see it here")];
         },
+        // A tall tile shows the keys between its icon and its name, in place of the count they make plain.
+        middle: size === "small" ? el("div", { class: "remote-key-row", "aria-hidden": "true" }, keys) : null,
         body: size === "small" ? [] : [el("div", { class: "remote-keys" }, el("div", { class: "remote-key-row", "aria-hidden": "true" }, keys), battery)],
       };
     },
@@ -1860,7 +1862,8 @@
   }
 
   /// Compact and tall summary tiles share their tap/hold actions; large and extra-large cards keep inline controls.
-  /// The ⋯ menu opens all controls at every size.
+  /// The ⋯ menu opens all controls at every size. A tall tile shows its widget's `middle`, when it gives one, between
+  /// its icon and its name, in place of the hero value.
   function frame(ctx, widget, built, primary, size) {
     const { accessory } = ctx;
     const [glyph, paintGlyph] = glyphFor(ctx, widget, built, primary);
@@ -1949,11 +1952,12 @@
         // Once a finger has held still, the page does not scroll under it.
         hit.addEventListener("touchmove", (event) => { if (armed) event.preventDefault(); }, { passive: false });
       }
-      node.append(shade ?? "", hit, el("div", { class: "w-top" }, glyph, hero), el("div", { class: "w-bottom" }, who, menu));
+      const middle = size === "medium" ? built.middle : null;
+      node.append(shade ?? "", hit, el("div", { class: "w-top" }, glyph, hero), middle ?? "", el("div", { class: "w-bottom" }, who, menu));
       ctx.watch(() => {
         const on = built.on ? built.on() : false;
         node.classList.toggle("on", on);
-        const value = sliding !== null ? `${sliding}%` : built.hero ? built.hero() : "";
+        const value = sliding !== null ? `${sliding}%` : built.hero && !middle ? built.hero() : "";
         hero.replaceChildren(...(value ? [value] : []));
         if (shade) {
           const { min, max } = built.slide ?? { min: 0, max: 100 };

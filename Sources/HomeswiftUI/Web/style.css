@@ -235,6 +235,9 @@ button.busy::after {
   background: var(--material-thin); border: 1px solid var(--line); font-weight: 600; font-variant-numeric: tabular-nums;
   transition: background-color 600ms var(--ease-out), color 600ms var(--ease-out), transform 300ms var(--ease-out);
 }
+/* On a medium tile the keys sit between its icon and its name, above the tile's tap target like its other lines. */
+.widget-summary > .remote-key-row { position: relative; z-index: 1; pointer-events: none; gap: 6px; }
+.widget-summary > .remote-key-row .remote-key { min-width: 32px; height: 32px; border-radius: 10px; }
 .remote-key.pressed { background: var(--accent); color: var(--accent-text); transform: scale(0.94); transition-duration: 60ms; }
 .widget .tile.pressed { transform: scale(0.94); transition: transform 60ms var(--ease-out); }
 @media (prefers-reduced-motion: reduce) { .remote-key.pressed, .widget .tile.pressed { transform: none; } }

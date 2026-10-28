@@ -131,13 +131,13 @@ list below that it has):
 | Switch, Outlet (one) | Switch | on and off | on and off | a big switch | a power button, its facets |
 | Switch, Outlet (several) | Group of switches | how many are on | how many are on | chips | a tile each |
 | Sensors | Sensor | the reading | the main reading | the readings | the readings, battery |
-| StatelessProgrammableSwitch | Remote | the last press | how many buttons, the last press | a key per button, lit as it is pressed; low battery | the same |
+| StatelessProgrammableSwitch | Remote | the last press | a key per button, the last press | a key per button, lit as it is pressed; low battery | the same |
 | (a camera) | Camera | the picture | the picture | the picture | the picture with its buttons |
 | anything else | Rows | power | power, status | its first rows | more rows |
 
 A remote's buttons (a Hue dimmer or Tap, an IKEA STYRBAR) send presses, which HomeKit cannot send back, so its widget
 only shows them: the tile gives a small press and the status line names the button and how it was pressed
-("Button 2 · Double press") until the next; from large up, a key per button (in its Service Label Index order) lights
+("Button 2 · Double press") until the next; from medium up, a key per button (in its Service Label Index order) lights
 at once and fades out. Under reduced motion only the colour changes.
 
 ![Sensors and a remote at their sizes, and a remote's press](images/widgets/remote.png)

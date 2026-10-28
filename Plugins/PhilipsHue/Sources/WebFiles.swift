@@ -180,8 +180,8 @@ h2 { margin: 0 0 10px; }
 
   // MARK: Sensors and switches, as the Accessories page draws them
 
+  // No room pill here: whether a room's lights are on says nothing about its sensors.
   const sensorFinder = homeswift.finder({
-    roomPill,
     toolbar: $("#sensor-toolbar"), placeholder: t("Search sensors"), prefix: "s", foldKey: "hue-folded-sensor-rooms", draw: () => drawSensors(),
     items: () => sensorAccessories.map((accessory) => {
       const sensor = sensors.find((entry) => `PhilipsHue:device:${entry.id}` === accessory.id);
@@ -334,8 +334,6 @@ h2 { margin: 0 0 10px; }
     if (!group) return null;
     return el("span", { class: `pill status ${group.on ? "on" : "standby"}`, text: group.kind === "zone" ? (group.on ? t("Zone on") : t("Zone off")) : (group.on ? t("Room on") : t("Room off")) });
   }
-
-
 
   // The scenes' finder: Colour scenes leaves out the whites of Hue's standard scenes.
   const sceneFinder = homeswift.finder({ roomPill,
