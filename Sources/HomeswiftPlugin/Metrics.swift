@@ -181,10 +181,7 @@ public final class Metrics: @unchecked Sendable {
     /// Follows the host's servers and samples the process until `stop()`.
     public func start(following host: PluginHost) {
         let timings = host.observeTimings { [weak self] bridge, timing in self?.record(timing, server: bridge.server.deviceID) }
-        let readings = host.observeReadings { [weak self] series, value, tag in
-            self?.record(value, series: series)
-            if let tag { self?.tag(series, tag) }
-        }
+        let readings = host.observeReadings { [weak self] series, value, tag in self?.record(value, series: series, tag: tag) }
         let imports = host.observeEnergyImports { [archive] source, hours in archive.importHours(hours, source: source) }
         let observation = Observation { timings.cancel(); readings.cancel(); imports.cancel() }
         let interval = interval
@@ -264,12 +261,19 @@ public final class Metrics: @unchecked Sendable {
     /// Records a reading of a value series, into the minute under way. A minute keeps the count, sum, lowest and
     /// highest of each series. Non-finite values are left out.
     public func record(_ value: Double, series: String) {
-        guard value.isFinite else { return }
-        let closed = state.withLockedValue { state -> Minute? in
+        record(value, series: series, tag: nil)
+    }
+
+    /// A reading and its role, under one lock: the tag is only compared, and changed (`tag`) when it differs.
+    func record(_ value: Double, series: String, tag: EnergyTag?) {
+        let (closed, retag) = state.withLockedValue { state -> (Minute?, Bool) in
+            let retag = tag.map { state.tags[series] != $0 } ?? false
+            guard value.isFinite else { return (nil, retag) }
             let closed = roll(&state)
             state.current?.values[series, default: Values()].add(value)
-            return closed
+            return (closed, retag)
         }
+        if retag, let tag { self.tag(series, tag) }
         if let closed { persist(closed) }
     }
 

@@ -92,7 +92,8 @@ final class ValueFeed: Sendable {
     private let observers = NIOLockedValueBox<[UUID: @Sendable (String, Double, EnergyTag?) -> Void]>([:])
 
     func publish(_ series: String, _ value: Double, _ tag: EnergyTag?) {
-        for observer in observers.withLockedValue({ Array($0.values) }) { observer(series, value, tag) }
+        // The dictionary itself, not an array of it: a plugin publishes dozens of readings every few seconds.
+        for observer in observers.withLockedValue({ $0 }).values { observer(series, value, tag) }
     }
 
     func add(_ observer: @escaping @Sendable (String, Double, EnergyTag?) -> Void) -> Observation {
