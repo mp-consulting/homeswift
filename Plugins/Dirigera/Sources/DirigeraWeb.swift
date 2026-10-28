@@ -86,7 +86,7 @@ extension DirigeraPlugin {
             colour = Self.hex(hue: white.hue, saturation: white.saturation)
         }
         return [
-            "host": .string(host), "id": .string(device.id), "kind": .string(device.kind.rawValue), "name": .string(device.name),
+            "host": .string(host), "id": .string(device.id), "group": .string(device.groupID), "kind": .string(device.kind.rawValue), "name": .string(device.name),
             "model": .string(device.model), "room": device.room.map(JSONValue.string) ?? .null, "reachable": .bool(device.reachable),
             "on": .bool(device.on), "brightness": device.brightness.map { .number(Double($0)) } ?? .null,
             "colour": colour.map(JSONValue.string) ?? .null, "hidden": .bool(isExcluded(device)),

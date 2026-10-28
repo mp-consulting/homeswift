@@ -4,10 +4,12 @@ import HomeswiftNetwork
 import HomeswiftPlugin
 import Logging
 
-/// IKEA lights, outlets, door and window sensors and scenes through DIRIGERA hubs' local API, without the cloud.
+/// IKEA lights, outlets, sensors, blinds, air purifiers, remotes and scenes through DIRIGERA hubs' local API, without
+/// the cloud.
 ///
 /// Each light is a lightbulb (brightness, colour, white temperature as the bulb takes them), each outlet an outlet,
-/// each door and window sensor (PARASOLL) a contact sensor with its battery,
+/// each door and window sensor (PARASOLL) a contact sensor with its battery; motion, light, air and water sensors,
+/// blinds, air purifiers and remotes' buttons are in DirigeraSensors.swift,
 /// and each hub's scenes a switch apiece on one accessory: On triggers the scene, the switch goes back off, and Off
 /// within the hub's undo window undoes it. A light's changes of one moment are sent in order (on, brightness, then
 /// colour, as the hub wants them one at a time) with the transition of `transitionMs`. The hub pushes changes over its
@@ -63,12 +65,12 @@ public actor DirigeraPlugin: HomeswiftPlugin {
 
     let configuration: Configuration
     /// `excludeDevices` and `excludeScenes`, lowercased once: every refresh checks each device and scene against them.
-    private let excludedDevices: Set<String>
+    let excludedDevices: Set<String>
     private let excludedScenes: Set<String>
     let context: PluginContext
     let dependencies: Dependencies
     private let tasks = TaskBag()
-    private var logger: Logger { context.logger }
+    var logger: Logger { context.logger }
     private let store: JSONFile<[String: StoredHub]>
     /// The pictures people gave scenes on the page, by scene id.
     let pictures: PluginPictures
@@ -96,6 +98,8 @@ public actor DirigeraPlugin: HomeswiftPlugin {
     private(set) var hubs: [String: Hub] = [:]
     private var accessories: [String: DeviceServices] = [:]
     private var sceneAccessories: [String: SceneServices] = [:]
+    /// The sensors', blinds', purifiers' and remotes' accessories, by group id (DirigeraSensors.swift).
+    var groupAccessories: [String: GroupServices] = [:]
     private var lastTriggered: [String: ContinuousClock.Instant] = [:]
 
     struct DeviceServices {
@@ -230,7 +234,10 @@ public actor DirigeraPlugin: HomeswiftPlugin {
     }
 
     private func markUnavailable(_ hub: Hub) {
-        for id in hub.devices.keys { accessories[id]?.accessory.isUnavailable = true }
+        for device in hub.devices.values {
+            accessories[device.id]?.accessory.isUnavailable = true
+            groupAccessories[device.groupID]?.accessory.isUnavailable = true
+        }
     }
 
     private func handle(_ event: JSONValue, from hub: Hub) async {
@@ -239,10 +246,14 @@ public actor DirigeraPlugin: HomeswiftPlugin {
             guard let id = event["data"]?["id"]?.stringValue, var device = hub.devices[id] else { return }
             device.apply(event["data"]?["attributes"], reachable: event["data"]?["isReachable"]?.boolValue)
             hub.devices[id] = device
+            if !device.isStandalone { return showGroupChange(device) }
             if let services = accessories[id] {
                 if let writer = services.writer, await writer.isSettling(within: DirigeraLightCommands.settleTime) { return }
                 Self.showValues(device, on: services)
             }
+        case "remotePressEvent":
+            guard let id = event["data"]?["id"]?.stringValue, let click = event["data"]?["clickPattern"]?.stringValue else { return }
+            press(deviceID: id, clickPattern: click, on: hub)
         case "deviceAdded", "deviceRemoved", "sceneCreated", "sceneUpdated", "sceneDeleted", "deviceConfigurationChanged":
             await refresh(hub)
         default:
@@ -263,10 +274,13 @@ public actor DirigeraPlugin: HomeswiftPlugin {
     private func show(_ hub: Hub) async {
         var keep: Set<String> = []
         for hub in hubs.values {
-            keep.formUnion(hub.devices.values.filter { !isExcluded($0) }.map { Self.accessoryID(deviceID: $0.id) })
+            keep.formUnion(hub.devices.values.filter { $0.isStandalone && !isExcluded($0) }.map { Self.accessoryID(deviceID: $0.id) })
+            for group in Self.groups(of: Array(hub.devices.values)) where !isExcluded(group: group.devices, id: group.id) {
+                keep.insert(Self.accessoryID(deviceID: group.id))
+            }
             if !visibleScenes(hub).isEmpty { keep.insert(Self.sceneAccessoryID(host: hub.host)) }
         }
-        for device in hub.devices.values.sorted(by: { $0.name < $1.name }) where !isExcluded(device) {
+        for device in hub.devices.values.sorted(by: { $0.name < $1.name }) where device.isStandalone && !isExcluded(device) {
             let shape = Self.shape(of: device)
             if let services = accessories[device.id], services.shape == shape {
                 services.accessory.isUnavailable = !device.reachable
@@ -276,8 +290,10 @@ public actor DirigeraPlugin: HomeswiftPlugin {
             }
             do { try add(device, on: hub, shape: shape) } catch { logger.error("Could not add \(device.name): \(error)") }
         }
+        _ = showGroups(hub)
         showScenes(hub)
         accessories = accessories.filter { keep.contains(Self.accessoryID(deviceID: $0.key)) }
+        groupAccessories = groupAccessories.filter { keep.contains(Self.accessoryID(deviceID: $0.key)) }
         _ = await context.removeAccessories(keeping: keep, message: "Removing an IKEA device or scene the hub no longer has")
     }
 
@@ -360,6 +376,9 @@ public actor DirigeraPlugin: HomeswiftPlugin {
             }
             service = bulb
             writer = lightWriter
+        case .motion, .lightSensor, .environment, .leak, .blinds, .airPurifier, .controller:
+            // Shown on their group's accessory (DirigeraSensors.swift).
+            return
         }
         let accessory = Accessory(
             id: Self.accessoryID(deviceID: device.id), name: device.name, manufacturer: device.manufacturer, model: device.model,
@@ -483,8 +502,10 @@ public actor DirigeraPlugin: HomeswiftPlugin {
 
     func identify(host: String, deviceID: String) async throws {
         guard let hub = hubs[host] else { throw DirigeraClient.Failure.status(404, "no such hub") }
-        guard hub.devices[deviceID] != nil else { throw DirigeraClient.Failure.status(404, "no such device") }
-        try await hub.client.identify(deviceID: deviceID)
+        // A device's id, or a group's (a remote, a VALLHORN): the group's first part blinks.
+        let device = hub.devices[deviceID] ?? Self.groups(of: Array(hub.devices.values)).first { $0.id == deviceID }?.devices.first
+        guard let device else { throw DirigeraClient.Failure.status(404, "no such device") }
+        try await hub.client.identify(deviceID: device.id)
     }
 }
 

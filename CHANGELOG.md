@@ -8,6 +8,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- IKEA DIRIGERA: motion, light, air quality and water leak sensors, blinds, the STARKVIND air purifier and remotes.
+  VALLHORN and MYGGSPRAY are motion sensors (with VALLHORN's light sensor on the same accessory), VINDSTYRKA, ALPSTUGA
+  and TIMMERFLOTTE temperature, humidity, air quality and CO₂ sensors as they measure, BADRING and KLIPPBOK leak
+  sensors, FYRTUR, KADRILJ, PRAKTLYSING and TREDANSEN window coverings, STARKVIND an air purifier with its filter, and
+  each button of a STYRBAR, RODRET, SOMRIG or BILRESA a programmable switch fired by the hub's press events. Parts of
+  one product share an accessory; batteries are shown.
 - Philips Hue: sensors and switches. Each Hue device with sensors or buttons is an accessory: motion, temperature,
   light level and contact sensors, its battery, and a programmable switch per button of a dimmer, Tap, Tap dial or
   smart button (single, double and long press). The plugin follows the bridge's event stream, so presses reach the Home

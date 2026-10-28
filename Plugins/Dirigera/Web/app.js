@@ -1,5 +1,5 @@
 // The IKEA DIRIGERA page: the hubs (from config.json and found on the network), each paired with its action button;
-// the lights, outlets and sensors as the Accessories page draws them (its widgets); the hubs' scenes as tiles (a tap
+// the lights, outlets, sensors, blinds, air purifiers and remotes as the Accessories page draws them (its widgets); the hubs' scenes as tiles (a tap
 // runs one, the eye leaves it out of the Home app); and the settings. Refreshed every two seconds while visible;
 // saving writes this instance's block. The hub card (the Hue page's bridge card), tabs, scene pictures, speed scale
 // and tile text come from plugin.js.
@@ -95,7 +95,7 @@
   async function drawDevices() {
     const list = $("#devices");
     if (!hubs.some((hub) => hub.paired)) {
-      list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: t("Pair a hub to see its lights and outlets.") })));
+      list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: t("Pair a hub to see its devices.") })));
       drawHidden([]);
       return;
     }
@@ -105,7 +105,7 @@
       await loadAccessories().catch(() => {});
     }
     if (!accessories.length) {
-      list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: t("The hub has no lights or outlets yet: add them in the IKEA Home smart app.") })));
+      list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: t("The hub has no devices yet: add them in the IKEA Home smart app.") })));
     } else {
       if (list.querySelector(".card.empty")) list.replaceChildren();
       // A widget per accessory, drawn once: its values follow the bridge's event stream.
@@ -113,13 +113,15 @@
         (item) => HomeswiftWidgets.card(accessories.find((accessory) => accessory.id === item.id), { size: "large", actions: actionsFor }));
       if (!listening) { HomeswiftWidgets.listen(); listening = true; }
     }
-    drawHidden(devices.filter((item) => item.hidden).map((item) => item.name));
+    // A product's parts (a VALLHORN's two sensors) share a name: it shows once.
+    drawHidden([...new Set(devices.filter((item) => item.hidden).map((item) => item.name))]);
   }
 
   /// The widget's ⋯ menu, after All controls: what this page adds.
   function actionsFor(accessory) {
+    // A device's id, or a group's (a remote's buttons, a VALLHORN's sensors): its first part stands for it.
     const id = accessory.id.slice("Dirigera:".length);
-    const item = devices.find((entry) => entry.id === id);
+    const item = devices.find((entry) => entry.id === id) ?? devices.find((entry) => entry.group === id);
     return [
       { label: t("Identify"), icon: "identify", onSelect: () => request("identify", { method: "POST", body: { host: item?.host, id } }).catch((e) => alert(e.message)) },
       item ? { label: t("Leave out of the Home app"), icon: "eye", onSelect: () => toggleList("excludeDevices", item.name) } : null,

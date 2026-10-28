@@ -35,7 +35,7 @@ h2 { margin: 0 0 10px; }
 """#),
         "app.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The IKEA DIRIGERA page: the hubs (from config.json and found on the network), each paired with its action button;
-// the lights, outlets and sensors as the Accessories page draws them (its widgets); the hubs' scenes as tiles (a tap
+// the lights, outlets, sensors, blinds, air purifiers and remotes as the Accessories page draws them (its widgets); the hubs' scenes as tiles (a tap
 // runs one, the eye leaves it out of the Home app); and the settings. Refreshed every two seconds while visible;
 // saving writes this instance's block. The hub card (the Hue page's bridge card), tabs, scene pictures, speed scale
 // and tile text come from plugin.js.
@@ -131,7 +131,7 @@ h2 { margin: 0 0 10px; }
   async function drawDevices() {
     const list = $("#devices");
     if (!hubs.some((hub) => hub.paired)) {
-      list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: t("Pair a hub to see its lights and outlets.") })));
+      list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: t("Pair a hub to see its devices.") })));
       drawHidden([]);
       return;
     }
@@ -141,7 +141,7 @@ h2 { margin: 0 0 10px; }
       await loadAccessories().catch(() => {});
     }
     if (!accessories.length) {
-      list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: t("The hub has no lights or outlets yet: add them in the IKEA Home smart app.") })));
+      list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: t("The hub has no devices yet: add them in the IKEA Home smart app.") })));
     } else {
       if (list.querySelector(".card.empty")) list.replaceChildren();
       // A widget per accessory, drawn once: its values follow the bridge's event stream.
@@ -149,13 +149,15 @@ h2 { margin: 0 0 10px; }
         (item) => HomeswiftWidgets.card(accessories.find((accessory) => accessory.id === item.id), { size: "large", actions: actionsFor }));
       if (!listening) { HomeswiftWidgets.listen(); listening = true; }
     }
-    drawHidden(devices.filter((item) => item.hidden).map((item) => item.name));
+    // A product's parts (a VALLHORN's two sensors) share a name: it shows once.
+    drawHidden([...new Set(devices.filter((item) => item.hidden).map((item) => item.name))]);
   }
 
   /// The widget's ⋯ menu, after All controls: what this page adds.
   function actionsFor(accessory) {
+    // A device's id, or a group's (a remote's buttons, a VALLHORN's sensors): its first part stands for it.
     const id = accessory.id.slice("Dirigera:".length);
-    const item = devices.find((entry) => entry.id === id);
+    const item = devices.find((entry) => entry.id === id) ?? devices.find((entry) => entry.group === id);
     return [
       { label: t("Identify"), icon: "identify", onSelect: () => request("identify", { method: "POST", body: { host: item?.host, id } }).catch((e) => alert(e.message)) },
       item ? { label: t("Leave out of the Home app"), icon: "eye", onSelect: () => toggleList("excludeDevices", item.name) } : null,
@@ -319,8 +321,8 @@ HomeswiftI18n.add({
     "Add a hub": "Ajouter un hub",
     "No hub answered on the network.": "Aucun hub n'a répondu sur le réseau.",
     "Remove the hub at {host} from config.json?": "Retirer le hub à {host} de config.json ?",
-    "Pair a hub to see its lights and outlets.": "Jumelez un hub pour voir ses lampes et ses prises.",
-    "The hub has no lights or outlets yet: add them in the IKEA Home smart app.": "Le hub n'a pas encore de lampes ni de prises : ajoutez-les dans l'app IKEA Home smart.",
+    "Pair a hub to see its devices.": "Jumelez un hub pour voir ses appareils.",
+    "The hub has no devices yet: add them in the IKEA Home smart app.": "Le hub n'a pas encore d'appareils : ajoutez-les dans l'app IKEA Home smart.",
     "Run {name}": "Lancer {name}",
     "Wake-up": "Réveil",
     "Scheduled": "Programmée",
@@ -362,8 +364,8 @@ HomeswiftI18n.add({
     "Add a hub": "Añadir un hub",
     "No hub answered on the network.": "Ningún hub ha respondido en la red.",
     "Remove the hub at {host} from config.json?": "¿Quitar el hub de {host} de config.json?",
-    "Pair a hub to see its lights and outlets.": "Empareja un hub para ver sus luces y enchufes.",
-    "The hub has no lights or outlets yet: add them in the IKEA Home smart app.": "El hub aún no tiene luces ni enchufes: añádelos en la app IKEA Home smart.",
+    "Pair a hub to see its devices.": "Empareja un hub para ver sus dispositivos.",
+    "The hub has no devices yet: add them in the IKEA Home smart app.": "El hub aún no tiene dispositivos: añádelos en la app IKEA Home smart.",
     "Run {name}": "Activar {name}",
     "Wake-up": "Despertar",
     "Scheduled": "Programada",
@@ -405,8 +407,8 @@ HomeswiftI18n.add({
     "Add a hub": "Adicionar um hub",
     "No hub answered on the network.": "Nenhum hub respondeu na rede.",
     "Remove the hub at {host} from config.json?": "Remover o hub em {host} de config.json?",
-    "Pair a hub to see its lights and outlets.": "Emparelhe um hub para ver as luzes e tomadas.",
-    "The hub has no lights or outlets yet: add them in the IKEA Home smart app.": "O hub ainda não tem luzes nem tomadas: adicione-as na app IKEA Home smart.",
+    "Pair a hub to see its devices.": "Emparelhe um hub para ver os seus dispositivos.",
+    "The hub has no devices yet: add them in the IKEA Home smart app.": "O hub ainda não tem dispositivos: adicione-os na app IKEA Home smart.",
     "Run {name}": "Ativar {name}",
     "Wake-up": "Despertar",
     "Scheduled": "Programada",

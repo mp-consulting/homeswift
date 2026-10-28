@@ -1,9 +1,10 @@
 import Foundation
 import HomeswiftPlugin
 
-/// A light, an outlet or a door and window sensor of the hub, in HomeKit's units.
+/// A device of the hub, in HomeKit's units: a light, an outlet, a door and window sensor, or (DirigeraSensors.swift) a
+/// motion, light, air or water sensor, a blind, an air purifier or a remote's button.
 struct DirigeraDevice: Sendable, Equatable {
-    enum Kind: String, Sendable { case light, outlet, contact }
+    enum Kind: String, Sendable { case light, outlet, contact, motion, lightSensor, environment, leak, blinds, airPurifier, controller }
 
     var id: String
     var kind: Kind
@@ -26,10 +27,41 @@ struct DirigeraDevice: Sendable, Equatable {
     /// A sensor's: whether the door or window is open, and its battery (0-100).
     var open = false
     var battery: Int?
+    /// The device it is part of (a VALLHORN's motion and light sensors, a remote's buttons): one accessory for them all.
+    var relationID: String?
+    /// A motion or occupancy sensor's, a water sensor's.
+    var detected = false
+    var leak = false
+    /// A light sensor's, in lux.
+    var illuminance: Double?
+    /// An environment sensor's, each only when it measures it: °C, %, µg/m³, Sensirion's VOC index (100 is average), ppm.
+    var temperature: Double?
+    var humidity: Double?
+    var pm25: Double?
+    var vocIndex: Double?
+    var co2: Double?
+    /// A blind's: IKEA's level, 0 fully open to 100 fully closed, and whether it moves (`up`, `down`, `stopped`).
+    var blindsLevel: Int?
+    var blindsTarget: Int?
+    var blindsState: String?
+    /// An air purifier's: its mode (`auto`, `low`, `medium`, `high`, `on`, `off`), its motor (0 to 50), its filter
+    /// (in minutes) and its child lock.
+    var fanMode: String?
+    var motorState: Int?
+    var filterAlarm = false
+    var filterElapsed: Double?
+    var filterLifetime: Double?
+    var childLock: Bool?
+    /// A button's place on its remote (BILRESA's `switchGroup`), for its number.
+    var switchGroup: Int?
 
     var hasColour: Bool { hue != nil }
+    /// The kinds that have an accessory of their own, by device id (the ones this plugin started with).
+    var isStandalone: Bool { kind == .light || kind == .outlet || kind == .contact }
+    /// The accessory a part-of-something device shows on: its relation's.
+    var groupID: String { relationID ?? id }
 
-    /// A device of `GET /v1/devices`, or nil for one this plugin does not show (sensors, remotes, the hub).
+    /// A device of `GET /v1/devices`, or nil for one this plugin does not show (speakers, repeaters, the hub).
     init?(_ json: JSONValue) {
         guard let id = json["id"]?.stringValue else { return nil }
         let kind: Kind
@@ -37,6 +69,13 @@ struct DirigeraDevice: Sendable, Equatable {
         case ("light", _): kind = .light
         case ("outlet", _): kind = .outlet
         case ("sensor", "openCloseSensor"): kind = .contact
+        case (_, "motionSensor"), (_, "occupancySensor"): kind = .motion
+        case (_, "lightSensor"): kind = .lightSensor
+        case (_, "environmentSensor"): kind = .environment
+        case (_, "waterSensor"): kind = .leak
+        case ("blinds", _): kind = .blinds
+        case ("airPurifier", _): kind = .airPurifier
+        case ("controller", _): kind = .controller
         default: return nil
         }
         let attributes = json["attributes"]
@@ -53,6 +92,9 @@ struct DirigeraDevice: Sendable, Equatable {
         on = attributes?["isOn"]?.boolValue ?? false
         open = attributes?["isOpen"]?.boolValue ?? false
         battery = attributes?["batteryPercentage"]?.intValue
+        relationID = json["relationId"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        switchGroup = attributes?["switchGroup"]?.intValue
+        applySensors(attributes)
         // Plugs list lightLevel too, though they only switch: a level is a light's.
         if kind == .light, writable.contains("lightLevel"), let level = attributes?["lightLevel"]?.doubleValue { brightness = Int(level.rounded()) }
         if writable.contains("colorHue"), let hue = attributes?["colorHue"]?.doubleValue {
@@ -81,6 +123,30 @@ struct DirigeraDevice: Sendable, Equatable {
         if let saturation = attributes["colorSaturation"]?.doubleValue, self.saturation != nil { self.saturation = saturation * 100 }
         if let kelvin = attributes["colorTemperature"]?.doubleValue, kelvin > 0, mirekRange != nil { mirek = Int((1_000_000 / kelvin).rounded()) }
         if let name = attributes["customName"]?.stringValue, !name.isEmpty { self.name = name }
+        applySensors(attributes)
+    }
+
+    /// The attributes of sensors, blinds and air purifiers that `attributes` has (all of them in a read, the changed
+    /// ones in an event).
+    private mutating func applySensors(_ attributes: JSONValue?) {
+        guard let attributes else { return }
+        if let detected = attributes["isDetected"]?.boolValue { self.detected = detected }
+        if let leak = attributes["waterLeakDetected"]?.boolValue { self.leak = leak }
+        if let lux = attributes["illuminance"]?.doubleValue { illuminance = lux }
+        if let value = attributes["currentTemperature"]?.doubleValue { temperature = value }
+        if let value = attributes["currentRH"]?.doubleValue { humidity = value }
+        if let value = attributes["currentPM25"]?.doubleValue { pm25 = value }
+        if let value = attributes["vocIndex"]?.doubleValue { vocIndex = value }
+        if let value = attributes["currentCO2"]?.doubleValue { co2 = value }
+        if let level = attributes["blindsCurrentLevel"]?.intValue { blindsLevel = level }
+        if let level = attributes["blindsTargetLevel"]?.intValue { blindsTarget = level }
+        if let state = attributes["blindsState"]?.stringValue { blindsState = state }
+        if let mode = attributes["fanMode"]?.stringValue { fanMode = mode }
+        if let motor = attributes["motorState"]?.intValue { motorState = motor }
+        if let alarm = attributes["filterAlarmStatus"]?.boolValue { filterAlarm = alarm }
+        if let elapsed = attributes["filterElapsedTime"]?.doubleValue { filterElapsed = elapsed }
+        if let lifetime = attributes["filterLifetime"]?.doubleValue { filterLifetime = lifetime }
+        if let lock = attributes["childLock"]?.boolValue { childLock = lock }
     }
 }
 

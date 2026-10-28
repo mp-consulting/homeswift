@@ -93,6 +93,25 @@ final class FakeHub: HTTPSending, @unchecked Sendable {
         ["id": "door-1", "type": "sensor", "deviceType": "openCloseSensor", "isReachable": true,
          "attributes": ["customName": "Front Door", "model": "PARASOLL Door/Window Sensor", "isOpen": false, "batteryPercentage": 8],
          "capabilities": ["canReceive": ["customName"]]],
+        // A VALLHORN (a motion and a light sensor, one product), a VINDSTYRKA, a BADRING, a FYRTUR, a STARKVIND and a
+        // STYRBAR's two buttons.
+        ["id": "vallhorn-motion", "relationId": "vallhorn-1", "type": "sensor", "deviceType": "motionSensor", "isReachable": true,
+         "attributes": ["customName": "Hall Motion", "model": "VALLHORN Wireless Motion Sensor", "isDetected": false, "isOn": false, "batteryPercentage": 64]],
+        ["id": "vallhorn-light", "relationId": "vallhorn-1", "type": "unknown", "deviceType": "lightSensor", "isReachable": true,
+         "attributes": ["customName": "Hall Motion", "model": "VALLHORN Wireless Motion Sensor", "illuminance": 120]],
+        ["id": "air-1", "type": "sensor", "deviceType": "environmentSensor", "isReachable": true,
+         "attributes": ["customName": "Office Air", "model": "VINDSTYRKA", "currentTemperature": 22.5, "currentRH": 41, "currentPM25": 18, "vocIndex": 210]],
+        ["id": "leak-1", "type": "sensor", "deviceType": "waterSensor", "isReachable": true,
+         "attributes": ["customName": "Sink", "model": "BADRING Water Leakage Sensor", "waterLeakDetected": false, "batteryPercentage": 90]],
+        ["id": "blind-1", "type": "blinds", "deviceType": "blinds", "isReachable": true,
+         "attributes": ["customName": "Bedroom Blind", "model": "FYRTUR block-out roller blind", "blindsCurrentLevel": 30, "blindsTargetLevel": 30, "blindsState": "stopped", "batteryPercentage": 55]],
+        ["id": "purifier-1", "type": "airPurifier", "deviceType": "airPurifier", "isReachable": true,
+         "attributes": ["customName": "Air Purifier", "model": "STARKVIND Air purifier", "fanMode": "auto", "motorState": 10, "filterAlarmStatus": false,
+                        "filterElapsedTime": 129600, "filterLifetime": 259200, "childLock": false, "statusLight": true, "currentPM25": 4]],
+        ["id": "styrbar-up", "relationId": "styrbar-1", "type": "controller", "deviceType": "lightController", "isReachable": true,
+         "attributes": ["customName": "Kitchen Remote", "model": "STYRBAR remote control", "batteryPercentage": 70]],
+        ["id": "styrbar-down", "relationId": "styrbar-1", "type": "controller", "deviceType": "lightController", "isReachable": true,
+         "attributes": ["customName": "Kitchen Remote", "model": "STYRBAR remote control"]],
     ]
 
     static let scenes: JSONValue = [
@@ -199,7 +218,8 @@ struct DirigeraTests {
         let hall = try await accessory(host, hallID)
         #expect(hall.service(.lightbulb)?[.hue] == nil)
         #expect(try await accessory(host, plugID).service(.outlet) != nil)
-        #expect(!host.mainBridge.server.accessories.contains { $0.id == DirigeraPlugin.accessoryID(deviceID: "remote-1") })
+        // A remote is a programmable switch now; the hub itself, and speakers, stay out.
+        #expect(try await accessory(host, DirigeraPlugin.accessoryID(deviceID: "remote-1")).category == .programmableSwitch)
         let scenes = try await accessory(host, scenesID)
         #expect(scenes.service(.switch, subtype: "scene:scene-1") != nil)
         #expect(scenes.service(.switch, subtype: "scene:scene-2") == nil)
@@ -292,7 +312,7 @@ struct DirigeraTests {
         let plugin = try #require(environment.plugin)
         let hubs = try await plugin.handleWebRequest(PluginWebRequest(method: "GET", path: "hubs", user: "admin"))
         #expect(hubs.json["hubs"]?[0]?["paired"] == true)
-        #expect(hubs.json["hubs"]?[0]?["devices"] == 4)
+        #expect(hubs.json["hubs"]?[0]?["devices"] == 13)
         let devices = try await plugin.handleWebRequest(PluginWebRequest(method: "GET", path: "devices", user: "admin"))
         let sofa = try #require(devices.json["devices"]?.arrayValue?.first { $0["id"] == "bulb-1" })
         #expect(sofa["room"] == "Living Room")
@@ -357,5 +377,100 @@ struct DirigeraTests {
             "run: swift Scripts/embed-assets.swift plugin Plugins/Dirigera DirigeraPlugin")
         let schema = try JSONValue(string: try #require(DirigeraPlugin.configurationSchemaJSON))
         #expect(schema["pluginAlias"] == "Dirigera")
+    }
+}
+
+@Suite(.timeLimit(.minutes(1)))
+struct DirigeraSensorTests {
+    let environment = TestEnvironment()
+
+    func accessory(_ host: PluginHost, _ id: String) async throws -> Accessory {
+        #expect(await eventually { host.mainBridge.server.accessories.contains { $0.id == id } })
+        return try #require(host.mainBridge.server.accessories.first { $0.id == id })
+    }
+
+    @Test func readsAirQualityAndClicks() {
+        #expect(DirigeraPlugin.airQuality(pm25: 4, vocIndex: nil) == 1)
+        #expect(DirigeraPlugin.airQuality(pm25: 18, vocIndex: 210) == 3)
+        #expect(DirigeraPlugin.airQuality(pm25: nil, vocIndex: nil) == 0)
+        #expect(DirigeraPlugin.switchEvent("singlePress") == 0 && DirigeraPlugin.switchEvent("doublePress") == 1 && DirigeraPlugin.switchEvent("longPress") == 2)
+        #expect(DirigeraPlugin.position(level: 0) == 100 && DirigeraPlugin.position(level: 100) == 0)
+        // A product's parts are one group, a remote's buttons in order.
+        let devices = (FakeHub.devices.arrayValue ?? []).compactMap(DirigeraDevice.init)
+        let groups = DirigeraPlugin.groups(of: devices)
+        #expect(groups.first { $0.id == "vallhorn-1" }?.devices.map(\.kind) == [.motion, .lightSensor])
+        #expect(groups.first { $0.id == "styrbar-1" }?.devices.count == 2)
+    }
+
+    @Test func sensorsBlindsPurifiersAndRemotesBecomeAccessories() async throws {
+        let host = try await environment.start()
+        let vallhorn = try await accessory(host, DirigeraPlugin.accessoryID(deviceID: "vallhorn-1"))
+        #expect(vallhorn.service(.motionSensor)?[.motionDetected]?.value == false)
+        #expect(vallhorn.service(.lightSensor)?[.currentAmbientLightLevel]?.value.doubleValue == 120)
+        #expect(vallhorn.service(.battery)?[.batteryLevel]?.value == 64)
+        let air = try await accessory(host, DirigeraPlugin.accessoryID(deviceID: "air-1"))
+        #expect(air.service(.temperatureSensor)?[.currentTemperature]?.value == 22.5)
+        #expect(air.service(.humiditySensor)?[.currentRelativeHumidity]?.value.doubleValue == 41)
+        #expect(air.service(.airQualitySensor)?[.airQuality]?.value == 3)
+        #expect(air.service(.airQualitySensor)?[.pm2_5Density]?.value.doubleValue == 18)
+        #expect(air.service(.battery) == nil)
+        let leak = try await accessory(host, DirigeraPlugin.accessoryID(deviceID: "leak-1"))
+        #expect(leak.service(.leakSensor)?[.leakDetected]?.value == 0)
+        let blind = try await accessory(host, DirigeraPlugin.accessoryID(deviceID: "blind-1"))
+        #expect(blind.category == .windowCovering)
+        #expect(blind.service(.windowCovering)?[.currentPosition]?.value == 70)
+        #expect(blind.service(.windowCovering)?[.positionState]?.value == 2)
+        let purifier = try await accessory(host, DirigeraPlugin.accessoryID(deviceID: "purifier-1"))
+        #expect(purifier.service(.airPurifier)?[.active]?.value == 1)
+        #expect(purifier.service(.airPurifier)?[.targetAirPurifierState]?.value == 1)
+        #expect(purifier.service(.airPurifier)?[.rotationSpeed]?.value.doubleValue == 20)
+        #expect(purifier.service(.filterMaintenance)?[.filterLifeLevel]?.value.doubleValue == 50)
+        let remote = try await accessory(host, DirigeraPlugin.accessoryID(deviceID: "styrbar-1"))
+        #expect(remote.category == .programmableSwitch)
+        #expect(remote.services.filter { $0.type == .statelessProgrammableSwitch }.map { $0[.serviceLabelIndex]?.value } == [1, 2])
+        #expect(remote.service(.battery)?[.batteryLevel]?.value == 70)
+        await host.stop()
+    }
+
+    @Test func blindsAndPurifiersTakeWrites() async throws {
+        let host = try await environment.start()
+        let blind = try #require(try await accessory(host, DirigeraPlugin.accessoryID(deviceID: "blind-1")).service(.windowCovering))
+        try await blind.characteristic(.targetPosition).write(.int(100))
+        #expect(environment.hub.patches.last?.path == "/v1/devices/blind-1")
+        #expect(environment.hub.patches.last?.body.contains(#""blindsTargetLevel":0"#) == true)
+        let purifier = try #require(try await accessory(host, DirigeraPlugin.accessoryID(deviceID: "purifier-1")).service(.airPurifier))
+        try await purifier.characteristic(.rotationSpeed).write(.double(50))
+        #expect(environment.hub.patches.last?.body.contains(#""motorState":25"#) == true)
+        try await purifier.characteristic(.active).write(.int(0))
+        #expect(environment.hub.patches.last?.body.contains(#""fanMode":"off""#) == true)
+        await host.stop()
+    }
+
+    @Test func eventsFireButtonsAndShowSensors() async throws {
+        let host = try await environment.start()
+        let remote = try await accessory(host, DirigeraPlugin.accessoryID(deviceID: "styrbar-1"))
+        let vallhorn = try await accessory(host, DirigeraPlugin.accessoryID(deviceID: "vallhorn-1"))
+        // Buttons are numbered by their place on the remote, then by id: styrbar-down is the first.
+        let second = try #require(remote.services.first { $0.subtype == "button:styrbar-down" })
+        #expect(second[.serviceLabelIndex]?.value == 1)
+        let presses = NIOLockedValueBox<[HAPValue]>([])
+        _ = second.characteristic(.programmableSwitchEvent).observe { change in
+            if change.reason == .event { presses.withLockedValue { $0.append(change.newValue) } }
+        }
+        let events = environment.hub.events.continuation
+        events.yield(["type": "remotePressEvent", "data": ["id": "styrbar-down", "clickPattern": "singlePress"]])
+        events.yield(["type": "remotePressEvent", "data": ["id": "styrbar-down", "clickPattern": "singlePress"]])
+        events.yield(["type": "remotePressEvent", "data": ["id": "styrbar-down", "clickPattern": "longPress"]])
+        #expect(await eventually { presses.withLockedValue { $0 } == [0, 0, 2] })
+        events.yield(["type": "deviceStateChanged", "data": ["id": "vallhorn-motion", "attributes": ["isDetected": true]]])
+        #expect(await eventually { vallhorn.service(.motionSensor)?[.motionDetected]?.value == true })
+        await host.stop()
+    }
+
+    @Test func anExcludedRemoteStaysOut() async throws {
+        let host = try await environment.start(settings: ["hubs": [["host": "192.0.2.20", "token": FakeHub.token]], "excludeDevices": ["Kitchen Remote"]])
+        _ = try await accessory(host, DirigeraPlugin.accessoryID(deviceID: "vallhorn-1"))
+        #expect(!host.mainBridge.server.accessories.contains { $0.id == DirigeraPlugin.accessoryID(deviceID: "styrbar-1") })
+        await host.stop()
     }
 }
