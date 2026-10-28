@@ -295,6 +295,17 @@ public final class PluginContext: @unchecked Sendable {
         recordSink("plugin:\(platform):\(series)", value, energy)
     }
 
+    /// A series named once, for a plugin that records many readings every few seconds: `recordValue(_:series:energy:)`
+    /// with it skips naming the series again (`plugin:<platform>:<series>`).
+    public func series(_ series: String) -> RecordedSeries {
+        RecordedSeries(name: "plugin:\(platform):\(series)")
+    }
+
+    /// Records a reading of a series named with `series(_:)`.
+    public func recordValue(_ value: Double, series: RecordedSeries, energy: EnergyTag? = nil) {
+        recordSink(series.name, value, energy)
+    }
+
     /// Hands the long-term energy history (the Status page's month and year views) hours the bridge did not record: a
     /// cloud's record of the days before it ran. Each hour replaces what this plugin imported for it before; an hour
     /// the bridge recorded itself keeps its own figures. Watt-hours; leave out (nil) what the history does not have.
@@ -564,4 +575,9 @@ public final class PluginContext: @unchecked Sendable {
             logger.warning("Could not save the accessory cache", metadata: ["path": "\(cache.url.path)", "error": "\(error)"])
         }
     }
+}
+
+/// A series of readings with its full name made once (`PluginContext.series(_:)`).
+public struct RecordedSeries: Sendable, Hashable {
+    let name: String
 }
