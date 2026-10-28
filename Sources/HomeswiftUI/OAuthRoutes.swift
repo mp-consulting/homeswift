@@ -24,8 +24,21 @@ extension UIServer {
 
     /// The address clients reach this server by, as the request says: `https` with a certificate or behind a trusted
     /// proxy that was reached over HTTPS. The issuer and every endpoint in the metadata derive from it.
+    /// On the MCP connector's shared host name (`publicURL`), that address, path included.
     func publicBase(_ request: Request) -> String {
-        "\(isSecure(request) ? "https" : "http")://\(request.headers["host"] ?? "localhost")"
+        if let url = publicURL(for: request) { return url.address }
+        return "\(isSecure(request) ? "https" : "http")://\(request.headers["host"] ?? "localhost")"
+    }
+
+    /// The MCP endpoint as clients name it: `<base>/mcp`, or the connector address itself on its shared host name.
+    func mcpResource(_ request: Request) -> String {
+        publicURL(for: request)?.address ?? publicBase(request) + "/mcp"
+    }
+
+    /// Where the protected resource metadata is (RFC 9728: the root's `.well-known`, the resource's path appended).
+    func resourceMetadataAddress(_ request: Request) -> String {
+        if let url = publicURL(for: request) { return url.origin + "/.well-known/oauth-protected-resource" + url.path }
+        return publicBase(request) + "/.well-known/oauth-protected-resource/mcp"
     }
 
     /// The bridge's MCP server, when the HomeswiftAiKit block turns it on.
@@ -46,7 +59,7 @@ extension UIServer {
         switch (request.method, parts) {
         case (.GET, [".well-known", "oauth-protected-resource"]), (.GET, [".well-known", "oauth-protected-resource", "mcp"]):
             reply = .json([
-                "resource": .string(base + "/mcp"), "authorization_servers": [.string(base)], "scopes_supported": Self.scopesSupported,
+                "resource": .string(mcpResource(request)), "authorization_servers": [.string(base)], "scopes_supported": Self.scopesSupported,
                 "bearer_methods_supported": ["header"], "resource_name": "Homeswift",
             ])
         case (.GET, [".well-known", "oauth-authorization-server"]):
@@ -111,7 +124,7 @@ extension UIServer {
             switch form["grant_type"] {
             case "authorization_code":
                 guard let code = form["code"] else { throw OAuthError.invalidRequest("code is missing") }
-                if let resource = form["resource"], !Self.isMCPResource(resource) { throw OAuthError.invalidRequest("resource is not this server's /mcp") }
+                if let resource = form["resource"], !Self.isMCPResource(resource, publicPath: configuration.publicURL?.path) { throw OAuthError.invalidRequest("resource is not this server's /mcp") }
                 tokens = try oauth.exchange(code: code, client: client, redirectURI: form["redirect_uri"], verifier: form["code_verifier"])
                 logger.info("OAuth client signed in", metadata: ["client": "\(client.name)", "username": "\(tokens.grant.username)", "scope": "\(tokens.grant.scope.rawValue)"])
             case "refresh_token":
@@ -161,10 +174,12 @@ extension UIServer {
     /// An `application/x-www-form-urlencoded` body.
     static func form(_ body: Data) -> [String: String] { URLEncoding.fields(String(decoding: body, as: UTF8.self)) }
 
-    /// RFC 8707's `resource`, when a client sends one: this server's `/mcp`, or its origin.
-    static func isMCPResource(_ resource: String) -> Bool {
+    /// RFC 8707's `resource`, when a client sends one: this server's `/mcp`, its origin, or the connector address
+    /// on a shared host name (`publicURL`'s path).
+    static func isMCPResource(_ resource: String, publicPath: String? = nil) -> Bool {
         guard let components = URLComponents(string: resource), components.scheme != nil, components.host != nil, components.fragment == nil else { return false }
-        return ["", "/", "/mcp", "/mcp/"].contains(components.path)
+        let own = publicPath.map { [$0, $0 + "/", $0 + "/mcp"] } ?? []
+        return (["", "/", "/mcp", "/mcp/"] + own).contains(components.path)
     }
 
     // MARK: Approval
@@ -210,7 +225,7 @@ extension UIServer {
         guard let challenge = text("code_challenge"), text("code_challenge_method") == "S256", OAuthStore.challengeIsValid(challenge) else {
             return back("invalid_request", "PKCE with S256 is required")
         }
-        if let resource = text("resource"), !Self.isMCPResource(resource) { return back("invalid_target", "resource is not this server's /mcp") }
+        if let resource = text("resource"), !Self.isMCPResource(resource, publicPath: configuration.publicURL?.path) { return back("invalid_target", "resource is not this server's /mcp") }
         let requested = OAuthStore.scope(from: text("scope"))
         if text("scope") != nil, requested == nil { return back("invalid_scope", "the scopes are read, control and admin") }
         return .valid(AuthorizationRequest(
@@ -345,7 +360,7 @@ extension UIServer {
             logger.warning("MCP request from a forbidden origin", metadata: ["origin": "\(origin)", "remote": "\(request.remote)"])
             return .error(403, "origin not allowed")
         }
-        let metadata = publicBase(request) + "/.well-known/oauth-protected-resource/mcp"
+        let metadata = resourceMetadataAddress(request)
         let principal: Principal
         let grant: String
         switch mcpCaller(request, transport: transport) {

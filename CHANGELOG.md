@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `publicURL` in the HomeswiftUI block: the MCP connector on a path of a host name other servers share behind one
+  tunnel (`https://mcp.example.com/homeswift`). Requests for that host name under that path, and the OAuth discovery
+  documents for it, are answered as `/mcp`, `/oauth` and the sign-in page, whose files and API calls stay under the
+  path. Off without it.
+
 ## [0.14.0] - 2026-10-28
 
 ### Added

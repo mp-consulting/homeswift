@@ -98,6 +98,26 @@ request, so demoting a user narrows the apps they connected, and `readOnly` caps
 `Claude (rosaly)`. **Account › Connected apps** lists a user's apps, with what each may do and when it last
 came, and disconnects one at once.
 
+### On a path of a shared host name
+
+Several MCP servers can sit behind one tunnel on one host name, each on its own path: Homeswift at
+`https://mcp.example.com/homeswift`, other servers at `/me/mail` or `/me/calendar`. Set `publicURL` in the
+HomeswiftUI block to that address (the settings page has it under **Behind a reverse proxy**):
+
+```json
+{ "platform": "HomeswiftUI", "port": 8581, "allowedHosts": ["home.example.com"], "publicURL": "https://mcp.example.com/homeswift" }
+```
+
+The option is off without it, and the UI's own address keeps working as above. With it, requests for that host
+name are mapped onto the UI's routes: `/homeswift` is `/mcp`, `/homeswift/oauth/…` the OAuth endpoints, and the
+discovery documents RFC 9728 and RFC 8414 put at the root with the path appended
+(`/.well-known/oauth-protected-resource/homeswift`, `/.well-known/oauth-authorization-server/homeswift`) are the
+UI's own. The metadata then names `https://mcp.example.com/homeswift` as the resource and the issuer, and the
+sign-in page loads its files and calls the API under the path too. The host name is allowed without an
+`allowedHosts` entry. In cloudflared, the route is that host name with the path pattern
+`^/(\.well-known/[^/]+/)?homeswift(/.*)?$`, to the UI's address. The connector URL in claude.ai is
+`https://mcp.example.com/homeswift`. Only the connector lives there: the rest of the web UI stays at its own address.
+
 ### How the sign-in goes
 
 ```mermaid

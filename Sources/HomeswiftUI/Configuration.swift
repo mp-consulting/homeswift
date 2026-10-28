@@ -30,6 +30,7 @@ public struct UIConfiguration: Sendable, Equatable {
               "certificate": { "title": "Certificate file", "type": "string", "placeholder": "~/certs/homeswift.pem", "x-schema-form": { "type": "file", "accept": ".pem,.crt,.cer" }, "description": "A PEM certificate (with its chain) to use instead of the self-signed one: a path, or drop the file." },
               "privateKey": { "title": "Private key file", "type": "string", "placeholder": "~/certs/homeswift-key.pem", "x-schema-form": { "type": "file", "accept": ".pem,.key" }, "description": "The certificate's PEM private key: a path, or drop the file." },
               "trustProxy": { "title": "Trusted reverse proxies", "type": "array", "items": { "type": "string" }, "description": "Addresses or CIDR ranges (127.0.0.1, 10.0.0.0/8) of reverse proxies in front of the UI, or loopback, linklocal, uniquelocal. Only these may say who the client is (X-Forwarded-For, for the login throttle and the log) and that it came over HTTPS (X-Forwarded-Proto, for a secure cookie). Empty: the headers are ignored." },
+              "publicURL": { "title": "MCP connector address", "type": "string", "placeholder": "https://mcp.example.com/homeswift", "description": "The address an MCP connector (claude.ai) uses when the bridge is published on a path of a shared host name, such as https://mcp.example.com/homeswift. Requests for that host name under that path, and the OAuth discovery documents for it, are answered as /mcp, /oauth and the sign-in page. Empty: the connector uses the web UI's own address and /mcp." },
               "scheduledRestartCron": { "title": "Scheduled restart", "type": "string", "placeholder": "0 4 * * 1", "x-schema-form": { "type": "schedule" }, "description": "Restart homeswift by itself, in this machine's time zone: at a time on the days ticked (none: every day), or under Custom a cron expression of five fields (minute hour day month weekday; 0 4 * * 1 is Mondays at 4:00)." },
               "scheduledBackupDisable": { "title": "Turn on the daily backup", "type": "boolean", "default": false, "x-schema-form": { "invert": true }, "description": "The web UI backs up the whole instance once a day, at a random time between midnight and 7:00. Off: scheduledBackupDisable is true." },
               "scheduledBackupPath": { "title": "Backup folder", "type": "string", "placeholder": "instance-backups next to config.json", "description": "Where the daily and manual backups are kept: a folder that exists, a network share for a copy off this machine. Empty: instance-backups next to config.json." },
@@ -38,7 +39,7 @@ public struct UIConfiguration: Sendable, Equatable {
             }
           },
           "layout": ["port", "host", "auth", "sessionDays", "allowedHosts", "https", "certificate", "privateKey", "checkForUpdates",
-            { "type": "fieldset", "title": "Behind a reverse proxy", "expandable": true, "expanded": false, "items": ["trustProxy"] },
+            { "type": "fieldset", "title": "Behind a reverse proxy", "expandable": true, "expanded": false, "items": ["trustProxy", "publicURL"] },
             { "type": "fieldset", "title": "Schedules", "expandable": true, "expanded": false, "items": ["scheduledRestartCron", "scheduledBackupDisable", "scheduledBackupPath", "scheduledBackupDays"] }],
           "i18n": {
             "fr": {
@@ -61,6 +62,8 @@ public struct UIConfiguration: Sendable, Equatable {
               "A PEM certificate (with its chain) to use instead of the self-signed one: a path, or drop the file.": "Un certificat PEM (avec sa chaîne) à utiliser au lieu de l'autosigné : un chemin, ou déposez le fichier.",
               "Private key file": "Fichier de clé privée",
               "The certificate's PEM private key: a path, or drop the file.": "La clé privée PEM du certificat : un chemin, ou déposez le fichier.",
+              "MCP connector address": "Adresse du connecteur MCP",
+              "The address an MCP connector (claude.ai) uses when the bridge is published on a path of a shared host name, such as https://mcp.example.com/homeswift. Requests for that host name under that path, and the OAuth discovery documents for it, are answered as /mcp, /oauth and the sign-in page. Empty: the connector uses the web UI's own address and /mcp.": "L'adresse qu'utilise un connecteur MCP (claude.ai) quand le pont est publié sur un chemin d'un nom d'hôte partagé, comme https://mcp.example.com/homeswift. Les requêtes pour ce nom d'hôte sous ce chemin, et les documents de découverte OAuth qui le concernent, reçoivent la réponse de /mcp, /oauth et de la page de connexion. Vide : le connecteur utilise l'adresse de l'interface web et /mcp.",
               "Trusted reverse proxies": "Proxys inverses de confiance",
               "Addresses or CIDR ranges (127.0.0.1, 10.0.0.0/8) of reverse proxies in front of the UI, or loopback, linklocal, uniquelocal. Only these may say who the client is (X-Forwarded-For, for the login throttle and the log) and that it came over HTTPS (X-Forwarded-Proto, for a secure cookie). Empty: the headers are ignored.": "Adresses ou plages CIDR (127.0.0.1, 10.0.0.0/8) des proxys inverses devant l'interface, ou loopback, linklocal, uniquelocal. Eux seuls peuvent dire qui est le client (X-Forwarded-For, pour la limitation des connexions et le journal) et qu'il est venu en HTTPS (X-Forwarded-Proto, pour un cookie sécurisé). Vide : ces en-têtes sont ignorés.",
               "Scheduled restart": "Redémarrage planifié",
@@ -96,6 +99,8 @@ public struct UIConfiguration: Sendable, Equatable {
               "A PEM certificate (with its chain) to use instead of the self-signed one: a path, or drop the file.": "Un certificado PEM (con su cadena) para usar en lugar del autofirmado: una ruta, o suelta el archivo.",
               "Private key file": "Archivo de clave privada",
               "The certificate's PEM private key: a path, or drop the file.": "La clave privada PEM del certificado: una ruta, o suelta el archivo.",
+              "MCP connector address": "Dirección del conector MCP",
+              "The address an MCP connector (claude.ai) uses when the bridge is published on a path of a shared host name, such as https://mcp.example.com/homeswift. Requests for that host name under that path, and the OAuth discovery documents for it, are answered as /mcp, /oauth and the sign-in page. Empty: the connector uses the web UI's own address and /mcp.": "La dirección que usa un conector MCP (claude.ai) cuando el puente se publica en una ruta de un nombre de host compartido, como https://mcp.example.com/homeswift. Las solicitudes para ese nombre de host bajo esa ruta, y los documentos de descubrimiento OAuth que le corresponden, reciben la respuesta de /mcp, /oauth y la página de inicio de sesión. Vacío: el conector usa la dirección de la interfaz web y /mcp.",
               "Trusted reverse proxies": "Proxies inversos de confianza",
               "Addresses or CIDR ranges (127.0.0.1, 10.0.0.0/8) of reverse proxies in front of the UI, or loopback, linklocal, uniquelocal. Only these may say who the client is (X-Forwarded-For, for the login throttle and the log) and that it came over HTTPS (X-Forwarded-Proto, for a secure cookie). Empty: the headers are ignored.": "Direcciones o rangos CIDR (127.0.0.1, 10.0.0.0/8) de los proxies inversos delante de la interfaz, o loopback, linklocal, uniquelocal. Solo ellos pueden decir quién es el cliente (X-Forwarded-For, para el límite de inicios de sesión y el registro) y que llegó por HTTPS (X-Forwarded-Proto, para una cookie segura). Vacío: se ignoran las cabeceras.",
               "Scheduled restart": "Reinicio programado",
@@ -131,6 +136,8 @@ public struct UIConfiguration: Sendable, Equatable {
               "A PEM certificate (with its chain) to use instead of the self-signed one: a path, or drop the file.": "Um certificado PEM (com a sua cadeia) a usar em vez do autoassinado: um caminho, ou largue o ficheiro.",
               "Private key file": "Ficheiro de chave privada",
               "The certificate's PEM private key: a path, or drop the file.": "A chave privada PEM do certificado: um caminho, ou largue o ficheiro.",
+              "MCP connector address": "Endereço do conector MCP",
+              "The address an MCP connector (claude.ai) uses when the bridge is published on a path of a shared host name, such as https://mcp.example.com/homeswift. Requests for that host name under that path, and the OAuth discovery documents for it, are answered as /mcp, /oauth and the sign-in page. Empty: the connector uses the web UI's own address and /mcp.": "O endereço que um conector MCP (claude.ai) usa quando a ponte é publicada num caminho de um nome de anfitrião partilhado, como https://mcp.example.com/homeswift. Os pedidos para esse nome de anfitrião sob esse caminho, e os documentos de descoberta OAuth que lhe dizem respeito, recebem a resposta de /mcp, /oauth e da página de início de sessão. Vazio: o conector usa o endereço da interface web e /mcp.",
               "Trusted reverse proxies": "Proxies inversos de confiança",
               "Addresses or CIDR ranges (127.0.0.1, 10.0.0.0/8) of reverse proxies in front of the UI, or loopback, linklocal, uniquelocal. Only these may say who the client is (X-Forwarded-For, for the login throttle and the log) and that it came over HTTPS (X-Forwarded-Proto, for a secure cookie). Empty: the headers are ignored.": "Endereços ou intervalos CIDR (127.0.0.1, 10.0.0.0/8) dos proxies inversos à frente da interface, ou loopback, linklocal, uniquelocal. Só estes podem dizer quem é o cliente (X-Forwarded-For, para o limite de inícios de sessão e o registo) e que chegou por HTTPS (X-Forwarded-Proto, para um cookie seguro). Vazio: os cabeçalhos são ignorados.",
               "Scheduled restart": "Reinício agendado",
@@ -179,6 +186,8 @@ public struct UIConfiguration: Sendable, Equatable {
     public var scheduledBackupPath: String?
     /// How many days daily backups are kept (`scheduledBackupDays`).
     public var scheduledBackupDays = 7
+    /// The address an MCP connector uses when the bridge is published on a path of a shared host name (`publicURL`).
+    public var publicURL: PublicURL?
     /// Whether the Status page says when a newer Homeswift is out (`ReleaseWatcher`, GitHub twice a day).
     public var checkForUpdates = true
 
@@ -243,9 +252,53 @@ public struct UIConfiguration: Sendable, Equatable {
             guard let value = days.intValue, value > 0 else { throw UIConfigurationError.invalid(key: "scheduledBackupDays", expected: "a positive number of days") }
             scheduledBackupDays = value
         }
+        if let text = block["publicURL"]?.stringValue?.trimmingCharacters(in: .whitespaces), !text.isEmpty {
+            guard let url = PublicURL(text) else {
+                throw UIConfigurationError.invalid(key: "publicURL", expected: "an https address with a path, such as https://mcp.example.com/homeswift")
+            }
+            publicURL = url
+        }
         guard (certificate == nil) == (privateKey == nil) else {
             throw UIConfigurationError.invalid(key: certificate == nil ? "certificate" : "privateKey", expected: "given with the other: a certificate needs its private key")
         }
+    }
+}
+
+/// `publicURL`: an MCP connector's address on a path of a host name other servers share behind one tunnel or proxy
+/// (`https://mcp.example.com/homeswift`). The proxy passes the path on as it is; the UI maps it back to its own routes.
+public struct PublicURL: Sendable, Equatable {
+    /// `https://mcp.example.com`
+    public let origin: String
+    /// `mcp.example.com`, as `HostName.of` gives it.
+    public let host: String
+    /// `/homeswift`: never empty, no final slash.
+    public let path: String
+
+    public init?(_ text: String) {
+        guard let components = URLComponents(string: text), let scheme = components.scheme?.lowercased(), ["https", "http"].contains(scheme),
+              let name = components.host?.lowercased(), !name.isEmpty, components.query == nil, components.fragment == nil else { return nil }
+        var path = components.path
+        while path.hasSuffix("/") { path.removeLast() }
+        guard !path.isEmpty else { return nil }
+        host = name
+        origin = "\(scheme)://\(name)" + (components.port.map { ":\($0)" } ?? "")
+        self.path = path
+    }
+
+    /// The connector URL, which is also the OAuth issuer and the protected resource.
+    public var address: String { origin + path }
+
+    /// The UI's own path for a request on this host: `<path>` is `/mcp`, `<path>/<rest>` is `/<rest>`, and the
+    /// discovery documents RFC 9728 and RFC 8414 put at the root with the path appended are the UI's own. Nil for a
+    /// path outside this address.
+    public func route(_ requested: String) -> String? {
+        if requested == path || requested == path + "/" { return "/mcp" }
+        if requested.hasPrefix(path + "/") { return String(requested.dropFirst(path.count)) }
+        for suffix in ["", "/mcp"] where requested == "/.well-known/oauth-protected-resource" + path + suffix {
+            return "/.well-known/oauth-protected-resource/mcp"
+        }
+        if requested == "/.well-known/oauth-authorization-server" + path { return "/.well-known/oauth-authorization-server" }
+        return nil
     }
 }
 

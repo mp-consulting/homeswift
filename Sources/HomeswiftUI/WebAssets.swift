@@ -5299,14 +5299,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 <meta name="theme-color" content="#0f1218" media="(prefers-color-scheme: dark)">
 <meta name="referrer" content="no-referrer">
 <title>Connect to Homeswift</title>
-<link rel="icon" href="/icon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="/style.css">
-<script src="/i18n.js"></script>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+<script src="i18n.js"></script>
 </head>
 <body>
 <div class="auth">
   <div class="card authorize">
-    <img src="/icon.svg" class="logo large" alt="">
+    <img src="icon.svg" class="logo large" alt="">
     <h1 id="title" data-i18n>Connect to Homeswift</h1>
     <p id="lead" class="muted" data-i18n>Checking the request…</p>
     <form id="login" class="hidden">
@@ -5329,7 +5329,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     </form>
   </div>
 </div>
-<script src="/authorize.js"></script>
+<script src="authorize.js"></script>
 </body>
 </html>
 
@@ -5373,7 +5373,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   async function start() {
     let state;
-    try { state = await api("/api/auth/state"); } catch (e) { stop(t("The bridge did not answer: {error}", { error: e.message })); return; }
+    try { state = await api("api/auth/state"); } catch (e) { stop(t("The bridge did not answer: {error}", { error: e.message })); return; }
     if (state.setupNeeded) { stop(t("This bridge has no account yet. Open its web UI and create the administrator first.")); return; }
     if (!state.authenticated) {
       show("login", t("Sign in with your Homeswift account to connect an app."));
@@ -5381,7 +5381,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       return;
     }
     let request;
-    try { request = await api(`/api/oauth/request?${new URLSearchParams(query)}`); } catch (e) { stop(e.message); return; }
+    try { request = await api(`api/oauth/request?${new URLSearchParams(query)}`); } catch (e) { stop(e.message); return; }
     if (request.redirect) { location.replace(request.redirect); return; }
     $("#title").textContent = t("Connect {client}", { client: request.client });
     show("consent", state.mode === "form"
@@ -5432,7 +5432,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const body = { username: login.username.value, password: login.password.value };
     if (!$("#login-otp").classList.contains("hidden")) body.otp = login.otp.value;
     try {
-      await api("/api/auth/login", { method: "POST", body });
+      await api("api/auth/login", { method: "POST", body });
       login.password.value = "";
       askCode(false);
       await start();
@@ -5456,7 +5456,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const chosen = $("#scopes input:checked");
     if (approve) $("#allow").textContent = t("Connecting…");
     try {
-      const answer = await api("/api/oauth/decision", { method: "POST", body: { ...query, approve, scope_granted: chosen ? chosen.value : null } });
+      const answer = await api("api/oauth/decision", { method: "POST", body: { ...query, approve, scope_granted: chosen ? chosen.value : null } });
       location.assign(answer.redirect);
     } catch (e) {
       $("#consent-error").textContent = e.message;
@@ -5467,7 +5467,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   $("#consent").addEventListener("submit", (event) => { event.preventDefault(); decide(true); });
   $("#deny").addEventListener("click", () => decide(false));
   $("#switch-user").addEventListener("click", async () => {
-    try { await api("/api/auth/logout", { method: "POST" }); } catch {}
+    try { await api("api/auth/logout", { method: "POST" }); } catch {}
     $("#title").textContent = t("Connect to Homeswift");
     await start();
   });

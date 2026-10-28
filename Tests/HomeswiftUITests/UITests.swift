@@ -77,7 +77,7 @@ final class UITestEnvironment: @unchecked Sendable {
     /// `assistant`: a HomeswiftAiKit block whose provider nothing answers for (it is never reached in the tests);
     /// `model`: one whose provider answers through this transport.
     init(auth: UIConfiguration.AuthMode = .form, webRoot: URL? = nil, https: Bool = false, metrics: Metrics? = nil, assistant: Bool = false,
-         model: (any HTTPTransport)? = nil, mcp: MCPConfiguration? = nil, trustProxy: String? = nil, options configure: (inout UIServer.Options) -> Void = { _ in }) throws {
+         model: (any HTTPTransport)? = nil, mcp: MCPConfiguration? = nil, trustProxy: String? = nil, publicURL: String? = nil, options configure: (inout UIServer.Options) -> Void = { _ in }) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let ai = assistant || model != nil ? #",{ "platform": "HomeswiftAiKit", "provider": "openai-compatible", "model": "llama3.1", "baseUrl": "http://127.0.0.1:9/v1", "maxRetries": 0 }"# : ""
         let config = """
@@ -106,6 +106,7 @@ final class UITestEnvironment: @unchecked Sendable {
         configuration.port = 0
         configuration.auth = auth
         configuration.https = https
+        configuration.publicURL = publicURL.flatMap(PublicURL.init)
         if let trustProxy { configuration.trustProxy = try UIConfiguration(block: ["trustProxy": .string(trustProxy)]).trustProxy }
         var serverOptions = UIServer.Options()
         serverOptions.hashIterations = 1000

@@ -222,7 +222,9 @@ public final class UIServer: Sendable {
         if request.truncated {
             return .error(413, Self.acceptsArchive(request) ? "the upload is larger than \(InstanceBackups.maxArchiveSize / 1_048_576) MB" : "the request is too large")
         }
-        let parts = request.path.split(separator: "/").map { String($0).removingPercentEncoding ?? String($0) }
+        // On the MCP connector's shared host name (`publicURL`), its path stands for the UI's own routes.
+        let path = publicURL(for: request).flatMap { $0.route(request.path) } ?? request.path
+        let parts = path.split(separator: "/").map { String($0).removingPercentEncoding ?? String($0) }
         if parts == ["robots.txt"] { return .text("User-agent: *\nDisallow: /\n", contentType: "text/plain; charset=utf-8") }
         if let reply = await oauthEndpoint(parts, request) { return reply }
         guard parts.first == "api" else { return page(for: parts, request) }
@@ -307,6 +309,12 @@ public final class UIServer: Sendable {
                 let base64 = icon.isBase64 ? icon.body : icon.data.base64EncodedString()
                 body = body.replacingOccurrences(of: link, with: #"<link rel="apple-touch-icon" href="data:image/png;base64,\#(base64)">"#)
             }
+        }
+        if platform == nil, name == "authorize.html" {
+            // The sign-in page's files and API are relative to its <base>: the UI's root, or the MCP connector's path
+            // on a shared host name (`publicURL`), where the proxy routes nothing else.
+            let head = #"<base href="\#(Self.attribute((publicURL(for: request)?.path ?? "") + "/"))">"#
+            body = body.range(of: "<head>").map { body.replacingCharacters(in: $0, with: "<head>" + head) } ?? head + body
         }
         if let instance, let platform {
             // Its files are beside it (`app.js` is /plugins/<slug>/app.js), plugin.js reads which instance it is, and
@@ -1666,6 +1674,12 @@ extension UIServer {
         return HostName.isLoopback(host) || HostName.isIPAddress(host)
     }
 
+    /// `publicURL`, when the request came for its host name.
+    func publicURL(for request: Request) -> PublicURL? {
+        guard let url = configuration.publicURL, let host = request.headers["host"], HostName.of(host) == HostName.of(url.host) else { return nil }
+        return url
+    }
+
     static func allowedHosts(for configuration: UIConfiguration) -> Set<String> {
         var hosts: Set<String> = ["localhost"]
         let machine = HomeswiftCatalog.machineName()
@@ -1678,6 +1692,7 @@ extension UIServer {
         let bound = configuration.host.lowercased()
         if !["", "0.0.0.0", "::", "[::]"].contains(bound) { hosts.insert(HostName.of(bound)) }
         for entry in configuration.allowedHosts { hosts.insert(HostName.of(entry)) }
+        if let url = configuration.publicURL { hosts.insert(HostName.of(url.host)) }
         return hosts
     }
 

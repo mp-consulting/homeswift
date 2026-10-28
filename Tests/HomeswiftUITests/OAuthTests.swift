@@ -226,7 +226,9 @@ struct OAuthServerTests {
         #expect(plusQuery.contains("scope=read+control+admin"))
         let page = try await browser.get("/oauth/authorize?\(plusQuery)")
         #expect(page.status == 200)
-        #expect(page.body.contains("/authorize.js"))
+        // Its files are relative to a <base> of the UI's root (or of `publicURL`'s path, below).
+        #expect(page.body.contains(#"<base href="/">"#))
+        #expect(page.body.contains(#"src="authorize.js""#))
         #expect(page.headers["x-frame-options"] == "DENY")
         #expect(try await browser.get("/api/oauth/request?\(queryString)").status == 401)
         #expect(try await browser.post("/api/auth/login", ["username": "sam", "password": "correct horse battery"]).status == 200)
@@ -323,6 +325,82 @@ struct OAuthServerTests {
         #expect(listed["scope"] == "control")
         #expect(try await browser.send("DELETE", "/api/account/apps/\(listed["id"]!.stringValue!)").status == 200)
         #expect(try await app.send("POST", "/mcp", body: Self.initialize.text(), headers: ["Authorization": "Bearer \(newAccess)", "Accept": "application/json"]).status == 401)
+    }
+
+    /// `publicURL`: the connector on a path of a host name other servers share (`mcp.example.com/homeswift`). The
+    /// test's own address stands for that host: the port does not count, so every request here comes "for it".
+    @Test func servesTheConnectorOnAPathOfASharedHostName() async throws {
+        let environment = try UITestEnvironment(mcp: Self.mcpConfiguration(), publicURL: "https://127.0.0.1/homeswift")
+        let base = try await environment.start()
+        defer { Task { await environment.stop() } }
+        let own = base.absoluteString.hasSuffix("/") ? String(base.absoluteString.dropLast()) : base.absoluteString
+        let address = "https://127.0.0.1/homeswift"
+        _ = try environment.server.users.createFirst(username: "rosaly", password: "correct horse battery")
+
+        let app = Browser(base: base)
+        let refused = try await app.send("POST", "/homeswift", body: Self.initialize.text(), headers: ["Accept": "application/json"])
+        #expect(refused.status == 401)
+        #expect(refused.headers["www-authenticate"] == #"Bearer resource_metadata="https://127.0.0.1/.well-known/oauth-protected-resource/homeswift""#)
+        let resource = try #require(try await app.get("/.well-known/oauth-protected-resource/homeswift").json)
+        #expect(resource["resource"] == .string(address))
+        #expect(resource["authorization_servers"] == [.string(address)])
+        let metadata = try #require(try await app.get("/.well-known/oauth-authorization-server/homeswift").json)
+        #expect(metadata["issuer"] == .string(address))
+        #expect(metadata["token_endpoint"] == .string(address + "/oauth/token"))
+        #expect(metadata["authorization_endpoint"] == .string(address + "/oauth/authorize"))
+        // Another server's path on the shared name is not this one's.
+        #expect(try await app.get("/.well-known/oauth-authorization-server/mail").status == 404)
+
+        let registered = try await app.post("/homeswift/oauth/register", ["redirect_uris": ["https://claude.ai/api/mcp/auth_callback"], "token_endpoint_auth_method": "none", "client_name": "Claude"])
+        let clientID = try #require(registered.json?["client_id"]?.stringValue)
+
+        // The sign-in page and everything it loads stay under the path.
+        let verifier = Secrets.randomToken()
+        let request: [String: String] = [
+            "response_type": "code", "client_id": clientID, "redirect_uri": "https://claude.ai/api/mcp/auth_callback", "state": "s",
+            "code_challenge": OAuthStore.challenge(for: verifier), "code_challenge_method": "S256", "resource": address,
+        ]
+        let queryString = URLEncoding.query(request.sorted { $0.key < $1.key }.map { ($0.key, $0.value) })
+        let browser = Browser(base: base)
+        browser.origin = own
+        let page = try await browser.get("/homeswift/oauth/authorize?\(queryString)")
+        #expect(page.status == 200)
+        #expect(page.body.contains(#"<base href="/homeswift/">"#))
+        #expect(page.body.contains(#"src="authorize.js""#))
+        #expect(try await browser.get("/homeswift/authorize.js").status == 200)
+        #expect(try await browser.post("/homeswift/api/auth/login", ["username": "rosaly", "password": "correct horse battery"]).status == 200)
+        let decision: JSONValue = .object(request.mapValues(JSONValue.string).merging(["approve": true, "scope_granted": "control"]) { _, new in new })
+        let approved = try #require(try await browser.post("/homeswift/api/oauth/decision", decision).json?["redirect"]?.stringValue)
+        #expect(Self.query(approved)["iss"] == address)
+        let code = try #require(Self.query(approved)["code"])
+
+        app.contentType = "application/x-www-form-urlencoded"
+        let traded = try await app.send("POST", "/homeswift/oauth/token", body: Self.form(["grant_type": "authorization_code", "code": code, "client_id": clientID,
+            "redirect_uri": "https://claude.ai/api/mcp/auth_callback", "code_verifier": verifier, "resource": address]))
+        #expect(traded.status == 200)
+        let access = try #require(traded.json?["access_token"]?.stringValue)
+        app.contentType = "application/json"
+        let session = try await app.send("POST", "/homeswift", body: Self.initialize.text(), headers: ["Authorization": "Bearer \(access)", "Accept": "application/json"])
+        #expect(session.status == 200)
+        #expect(session.json?["result"]?["serverInfo"] != nil)
+    }
+
+    @Test func mapsAPublicURLsPathsToTheUIsRoutes() throws {
+        let url = try #require(PublicURL("https://MCP.example.com/homeswift/"))
+        #expect(url.address == "https://mcp.example.com/homeswift")
+        #expect(url.route("/homeswift") == "/mcp")
+        #expect(url.route("/homeswift/mcp") == "/mcp")
+        #expect(url.route("/homeswift/oauth/token") == "/oauth/token")
+        #expect(url.route("/.well-known/oauth-protected-resource/homeswift") == "/.well-known/oauth-protected-resource/mcp")
+        #expect(url.route("/.well-known/oauth-authorization-server/homeswift") == "/.well-known/oauth-authorization-server")
+        #expect(url.route("/homeswiftx") == nil)
+        #expect(url.route("/.well-known/oauth-authorization-server/mail") == nil)
+        #expect(PublicURL("https://mcp.example.com") == nil)
+        #expect(PublicURL("https://mcp.example.com/x?y=1") == nil)
+        #expect(throws: UIConfigurationError.self) { try UIConfiguration(block: ["publicURL": "mcp.example.com/homeswift"]) }
+        #expect(try UIConfiguration(block: ["publicURL": "https://mcp.example.com/homeswift"]).publicURL == url)
+        #expect(UIServer.isMCPResource("https://mcp.example.com/homeswift", publicPath: "/homeswift"))
+        #expect(!UIServer.isMCPResource("https://mcp.example.com/homeswift"))
     }
 
     @Test func capsAGrantByTheUsersRoleNow() async throws {
