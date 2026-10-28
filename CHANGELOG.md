@@ -62,6 +62,10 @@ All notable changes to this project are documented here. The format follows
   segmented control's thumb follows its track's curve. homeswift.dev uses the same scale. The design explorer's
   Foundations shows the shapes, the type ramp and the weights live; docs/design-system.md lists every token family,
   and a test keeps the stylesheet on them.
+- A widget's ⋯ menu is grouped as a context menu: All controls, then History, Identify and the Assistant, then how
+  it sits on the wall (its size as one segmented control across the menu, the size for every accessory of the kind,
+  room, name, Quick Controls, Hide), then its log and plugin settings. The ⋯ button is an ellipsis in a tinted
+  circle, so it shows on any tile, light or dark.
 
 - The JSON editors (Config, a plugin's JSON) fold a block that spans lines from a chevron beside it.
 - The JSON editors mark each key that holds a secret (the bridge's redaction rule) with a lock, in gold.

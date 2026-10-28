@@ -2594,19 +2594,26 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   };
 
   /// What the menu of an accessory's widget offers, after its sizes.
-  function accessoryActions(accessory) {
-    return [
+  /// An accessory's ⋯ menu after All controls, in groups as a context menu orders them: what to look at or do with
+  /// it, how it sits on the wall (`arrange`, the wall's size choices, first), then the administrator's way to its
+  /// plugin. A separator between groups, none around an empty one.
+  function accessoryActions(accessory, arrange = []) {
+    const use = [
+      accessory.history ? { label: t("History"), icon: "chart", onSelect: () => HomeswiftAdmin.history(accessory) } : null,
       accessory.supportsIdentify ? { label: t("Identify"), icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(accessory.id)}/identify`, { method: "POST" }).catch((e) => alert(e.message)) } : null,
-      isAdmin() ? { label: t("Show its log"), icon: "logs", href: `/logs/${accessory.slug ?? encodeURIComponent(accessory.id)}` } : null,
       window.HomeswiftChat?.available() ? { label: t("Ask the Assistant"), icon: sparkle(), onSelect: () => HomeswiftChat.ask(t("About {name}: ", { name: accessory.name })) } : null,
-      accessory.platform && isAdmin() ? { label: t("Plugin settings"), icon: "gear", href: `/plugins/${slug(accessory.platformName || accessory.platform)}` } : null,
+    ];
+    const layout = [...arrange, ...(isAdmin() ? window.HomeswiftHome?.layoutActions(accessory) ?? [] : [])];
+    const manage = [
       // A paused plugin's accessories do nothing until it runs again.
       accessory.paused && isAdmin() ? { label: t("Resume {name}", { name: accessory.platformName }), icon: "play", onSelect: async () => {
         try { await setPaused(accessory.platform, accessory.platformName, false); route(); } catch (e) { alert(e.message); }
       } } : null,
-      ...(isAdmin() ? window.HomeswiftHome?.layoutActions(accessory) ?? [] : []),
-      accessory.history ? { label: t("History"), icon: "chart", onSelect: () => HomeswiftAdmin.history(accessory) } : null,
+      isAdmin() ? { label: t("Show its log"), icon: "logs", href: `/logs/${accessory.slug ?? encodeURIComponent(accessory.id)}` } : null,
+      accessory.platform && isAdmin() ? { label: t("Plugin settings"), icon: "gear", href: `/plugins/${slug(accessory.platformName || accessory.platform)}` } : null,
     ];
+    return [use, layout, manage].map((group) => group.filter(Boolean)).filter((group) => group.length)
+      .flatMap((group, index) => index ? [{ separator: true }, ...group] : group);
   }
 
   // /accessories?group=room|plugin&hidden=1&from=<source>: sections per room (once there are rooms) or per plugin; hidden
@@ -2677,13 +2684,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const nodes = new Map();
     const actions = (accessory) => {
       const size = sizeOf(accessory), kind = kindOf(accessory);
-      return [
+      return accessoryActions(accessory, [
         { label: t("Size"), choices: HomeswiftWidgets.sizes.map((one) => ({ label: sizeNames[one],
           badge: one === "xlarge" ? t("XL") : sizeNames[one][0].toUpperCase(), checked: one === size, onSelect: () => resize(accessory, one) })) },
-        { label: kindNames[kind] ? t("{size} for every {kind}", { size: sizeNames[size], kind: kindNames[kind] }) : t("{size} for every accessory like it", { size: sizeNames[size] }), icon: "edit", onSelect: () => resizeKind(kind, size) },
-        { separator: true },
-        ...accessoryActions(accessory),
-      ];
+        { label: kindNames[kind] ? t("{size} for every {kind}", { size: sizeNames[size], kind: kindNames[kind] }) : t("{size} for every accessory like it", { size: sizeNames[size] }), icon: "grid", onSelect: () => resizeKind(kind, size) },
+      ]);
     };
     function widget(accessory) {
       const node = accessory.members ? groupingControls.card(accessory, editing) : HomeswiftWidgets.card(accessory, { size: sizeOf(accessory), actions });
@@ -6862,7 +6867,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     generic: '<rect x="4" y="4" width="16" height="16" rx="4"/>',
     plugin: '<g transform="translate(12 12) scale(1.18) rotate(45) translate(-12 -12)" fill="currentColor" stroke="none"><rect x="8" y="4" width="1.8" height="6" rx=".9"/><rect x="14.2" y="4" width="1.8" height="6" rx=".9"/><path d="M7 9h10v3a5 5 0 0 1-10 0Z"/><rect x="10.9" y="15" width="2.2" height="5" rx="1"/></g>',
     gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/>',
-    more: '<circle cx="5.5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18.5" cy="12" r="1.3"/>',
+    more: '<circle cx="6" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="18" cy="12" r="1.6"/>',
     logs: '<path d="M8 6h12M8 12h12M8 18h8M4 6h.01M4 12h.01M4 18h.01"/>',
     code: '<path d="M8 4c-2 0-3 1-3 3v2c0 1.5-1 3-2.5 3C4 12 5 13.5 5 15v2c0 2 1 3 3 3M16 4c2 0 3 1 3 3v2c0 1.5 1 3 2.5 3-1.5 0-2.5 1.5-2.5 3v2c0 2-1 3-3 3"/>',
     trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
@@ -18995,8 +19000,14 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .powered-off .w-body, .powered-off .w-main { opacity: 0.55; transition: opacity var(--normal) var(--ease-out); }
 /* The menu at the bottom right of the box, over its content's corner. */
 .w-corner { position: absolute; right: 6px; bottom: 6px; z-index: 2; }
-.widget:not(.widget-full) .menu-button { width: 28px; height: 28px; background: none; border-color: transparent; box-shadow: none; color: inherit; }
-.widget:not(.widget-full) .menu-button svg { width: 16px; height: 16px; }
+/* An ellipsis in a circle, as iOS's ⋯ buttons: a chip tinted from the text, so it reads on a light, dark or lit tile
+   alike, firmer under the pointer and while its menu is open. */
+.widget:not(.widget-full) .menu-button { width: 28px; height: 28px; background: color-mix(in srgb, currentColor 10%, transparent); border-color: transparent; box-shadow: none; color: inherit;
+  transition: background-color var(--fast) var(--ease-out), transform var(--fast) var(--ease-out); }
+.widget:not(.widget-full) .menu-button:hover { background: color-mix(in srgb, currentColor 17%, transparent); }
+.widget:not(.widget-full) .menu-button[aria-expanded="true"] { background: color-mix(in srgb, currentColor 22%, transparent); }
+.widget:not(.widget-full) .menu-button svg { width: 18px; height: 18px; }
+@media (prefers-contrast: more) { .widget:not(.widget-full) .menu-button { border: 1px solid currentColor; } }
 /* A phone holds every button to 40px tall (the phone rules below); a widget's own controls keep their shapes,
    a swatch round, a step a bar, the corner's glyph 28px, its hit area grown under a finger instead. */
 .widget .swatch, .widget .steps > button, .widget .seg > button, .widget .round, .widget .w-hit, .widget:not(.widget-full) .menu-button, .edit-bar button { min-height: 0; }
@@ -19329,14 +19340,21 @@ textarea.short { min-height: 220px; }
 .menu [role="menuitemradio"]:hover .menu-check, .menu [role="menuitemradio"]:focus-visible .menu-check { color: inherit; }
 /* Choices without a glyph (Small, Medium) line up with the items that have one. */
 .menu:has([role="menuitem"] svg) [role="menuitemradio"]:not(.menu-choice-badge):not(:has(svg))::before { content: ""; flex: none; width: 17px; }
-/* Widget sizes sit together as square badges rather than four separate menu rows. */
-.menu-choices { display: grid; gap: var(--space-8); padding: var(--space-8) var(--space-12); }
-.menu-choice-label { font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--muted); }
-.menu-choice-row { display: flex; gap: var(--space-8); }
-.menu .menu-choice-badge { display: grid; place-items: center; flex: 0 0 40px; width: 40px; height: 40px; min-height: 40px;
-  padding: 0; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--material-thin); font-weight: var(--weight-figure); text-align: center; }
-.menu .menu-choice-badge[aria-checked="true"] { background: var(--accent-fill); border-color: transparent; color: var(--accent-text); }
-.menu .menu-choice-badge:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Widget sizes: one segmented control across the menu, as the widgets' own (.seg), the current size on a raised
+   thumb; its caption lines up with the items' labels. */
+.menu-choices { display: grid; gap: var(--space-6); padding: var(--space-6) var(--space-6) var(--space-8); }
+.menu-choice-label { padding: 0 var(--space-6); font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--muted); }
+.menu-choice-row { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 2px; padding: 3px; border-radius: var(--radius-md); background: var(--track, var(--search-fill)); }
+.menu .menu-choice-badge { display: grid; place-items: center; height: 32px; min-height: 0; padding: 0; border: 0; border-radius: calc(var(--radius-md) - 3px);
+  background: none; box-shadow: none; color: var(--muted); font-weight: var(--weight-semibold); font-size: var(--text-md); text-align: center; cursor: pointer;
+  transition: background-color var(--fast) var(--ease-out), color var(--fast) var(--ease-out), transform var(--fast) var(--ease-out); }
+.menu .menu-choice-badge:hover { background: var(--material-thin); color: var(--text); }
+.menu .menu-choice-badge:active { transform: scale(0.96); }
+.menu .menu-choice-badge[aria-checked="true"] { background: var(--control); color: var(--text); box-shadow: var(--shadow-control); }
+.menu .menu-choice-badge:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+@media (pointer: coarse) { .menu .menu-choice-badge { height: 40px; } }
+@media (prefers-reduced-motion: reduce) { .menu .menu-choice-badge:active { transform: none; } }
+@media (prefers-contrast: more) { .menu .menu-choice-badge[aria-checked="true"] { outline: 1px solid var(--text); } }
 .menu-separator { border: 0; border-top: 1px solid var(--line); margin: var(--space-4) var(--space-8); }
 .menu [role="menuitem"].danger { color: var(--error); }
 .menu [role="menuitem"].danger:hover, .menu [role="menuitem"].danger:focus-visible { background: var(--error); color: #fff; }
@@ -23420,7 +23438,7 @@ self.addEventListener("notificationclick", (event) => {
   /// The ⋯ menu: All controls (the full view), then what the page offers for the accessory, else Identify.
   function actionsButton(ctx, full) {
     const items = () => [
-      full ? null : { label: t("All controls"), icon: "edit", onSelect: () => open(ctx.accessory, ctx.options) },
+      full ? null : { label: t("All controls"), icon: "sliders", onSelect: () => open(ctx.accessory, ctx.options) },
       full ? null : { separator: true },
       ...(ctx.options.actions ? ctx.options.actions(ctx.accessory)
         : ctx.accessory.supportsIdentify ? [{ label: t("Identify"), icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(ctx.accessory.id)}/identify`, { method: "POST" }).catch((e) => alert(e.message)) }] : []),

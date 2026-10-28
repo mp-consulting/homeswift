@@ -40,7 +40,7 @@ At a 393-pixel phone width and 16-pixel page margins, a compact tile is about 17
 
 ### Choosing sizes and places
 
-A widget's **⋯** menu (revealed on hover or keyboard focus on a compact tile; also a right click) offers S, M, L and XL as square badges in one row,
+A widget's **⋯** menu (an ellipsis in a tinted circle at the corner of every widget; also a right click) offers S, M, L and XL as one segmented control,
 makes its size the one of every accessory
 of the kind ("Medium for every light"), and opens **All controls**. **Edit** shows the sizes and ‹ › arrows on
 every widget, and lets them be dragged: the widget lifts and follows the pointer or the finger, the others make

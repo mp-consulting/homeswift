@@ -16,7 +16,7 @@ The sidebar contains foundations, 14 widget stories, and one story for each of t
 Filters separate widgets, characteristics and foundations.
 
 - **Widgets** render the production accessory card. Select S, M, L or XL; change values in Controls or operate
-  the widget itself. The widget's option menu also offers the four size badges.
+  the widget itself. The widget's ⋯ menu also offers the four sizes as a segmented control.
 - **Characteristics** render the production inspector row for that characteristic, with its exact format,
   permissions, ranges, steps, units, enum values, maximum string length and supporting services. Fields the
   UI deliberately hides, including protocol payloads, explain why they have no standalone control.

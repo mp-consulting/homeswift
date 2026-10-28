@@ -1217,19 +1217,26 @@
   };
 
   /// What the menu of an accessory's widget offers, after its sizes.
-  function accessoryActions(accessory) {
-    return [
+  /// An accessory's ⋯ menu after All controls, in groups as a context menu orders them: what to look at or do with
+  /// it, how it sits on the wall (`arrange`, the wall's size choices, first), then the administrator's way to its
+  /// plugin. A separator between groups, none around an empty one.
+  function accessoryActions(accessory, arrange = []) {
+    const use = [
+      accessory.history ? { label: t("History"), icon: "chart", onSelect: () => HomeswiftAdmin.history(accessory) } : null,
       accessory.supportsIdentify ? { label: t("Identify"), icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(accessory.id)}/identify`, { method: "POST" }).catch((e) => alert(e.message)) } : null,
-      isAdmin() ? { label: t("Show its log"), icon: "logs", href: `/logs/${accessory.slug ?? encodeURIComponent(accessory.id)}` } : null,
       window.HomeswiftChat?.available() ? { label: t("Ask the Assistant"), icon: sparkle(), onSelect: () => HomeswiftChat.ask(t("About {name}: ", { name: accessory.name })) } : null,
-      accessory.platform && isAdmin() ? { label: t("Plugin settings"), icon: "gear", href: `/plugins/${slug(accessory.platformName || accessory.platform)}` } : null,
+    ];
+    const layout = [...arrange, ...(isAdmin() ? window.HomeswiftHome?.layoutActions(accessory) ?? [] : [])];
+    const manage = [
       // A paused plugin's accessories do nothing until it runs again.
       accessory.paused && isAdmin() ? { label: t("Resume {name}", { name: accessory.platformName }), icon: "play", onSelect: async () => {
         try { await setPaused(accessory.platform, accessory.platformName, false); route(); } catch (e) { alert(e.message); }
       } } : null,
-      ...(isAdmin() ? window.HomeswiftHome?.layoutActions(accessory) ?? [] : []),
-      accessory.history ? { label: t("History"), icon: "chart", onSelect: () => HomeswiftAdmin.history(accessory) } : null,
+      isAdmin() ? { label: t("Show its log"), icon: "logs", href: `/logs/${accessory.slug ?? encodeURIComponent(accessory.id)}` } : null,
+      accessory.platform && isAdmin() ? { label: t("Plugin settings"), icon: "gear", href: `/plugins/${slug(accessory.platformName || accessory.platform)}` } : null,
     ];
+    return [use, layout, manage].map((group) => group.filter(Boolean)).filter((group) => group.length)
+      .flatMap((group, index) => index ? [{ separator: true }, ...group] : group);
   }
 
   // /accessories?group=room|plugin&hidden=1&from=<source>: sections per room (once there are rooms) or per plugin; hidden
@@ -1300,13 +1307,11 @@
     const nodes = new Map();
     const actions = (accessory) => {
       const size = sizeOf(accessory), kind = kindOf(accessory);
-      return [
+      return accessoryActions(accessory, [
         { label: t("Size"), choices: HomeswiftWidgets.sizes.map((one) => ({ label: sizeNames[one],
           badge: one === "xlarge" ? t("XL") : sizeNames[one][0].toUpperCase(), checked: one === size, onSelect: () => resize(accessory, one) })) },
-        { label: kindNames[kind] ? t("{size} for every {kind}", { size: sizeNames[size], kind: kindNames[kind] }) : t("{size} for every accessory like it", { size: sizeNames[size] }), icon: "edit", onSelect: () => resizeKind(kind, size) },
-        { separator: true },
-        ...accessoryActions(accessory),
-      ];
+        { label: kindNames[kind] ? t("{size} for every {kind}", { size: sizeNames[size], kind: kindNames[kind] }) : t("{size} for every accessory like it", { size: sizeNames[size] }), icon: "grid", onSelect: () => resizeKind(kind, size) },
+      ]);
     };
     function widget(accessory) {
       const node = accessory.members ? groupingControls.card(accessory, editing) : HomeswiftWidgets.card(accessory, { size: sizeOf(accessory), actions });

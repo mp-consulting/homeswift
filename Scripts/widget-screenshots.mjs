@@ -246,23 +246,25 @@ try {
   await open("wall");
   await evaluate("document.querySelector('[data-id=pendant] .menu-button').click()");
   const badges = await evaluate("[...document.querySelectorAll('.menu-choice-badge')].map(node => ({label:node.textContent,checked:node.getAttribute('aria-checked'),width:node.offsetWidth,height:node.offsetHeight}))");
-  if (badges.length !== 4 || badges.map(one => one.label).join(',') !== 'S,M,L,XL' || badges[1].checked !== 'true' || badges.some(one => one.width !== one.height)) throw new Error('Size badge menu failed');
+  if (badges.length !== 4 || badges.map(one => one.label).join(',') !== 'S,M,L,XL' || badges[1].checked !== 'true' || badges.some(one => one.width !== badges[0].width || one.height !== badges[0].height || one.height < 32)) throw new Error('Size segmented control failed');
   await evaluate("document.querySelector('.menu-choice-badge').focus()");
   await send("Input.dispatchKeyEvent", {type:"keyDown", key:"ArrowRight", code:"ArrowRight"});
   if (await evaluate("document.activeElement.textContent") !== 'M') throw new Error('Size badge keyboard navigation failed');
   await evaluate("document.querySelector('.menu-choice-badge[aria-label=\"Extra large\"]').click()");
   if (!await evaluate("!!document.querySelector('[data-id=pendant].size-xlarge')")) throw new Error('XL menu selection failed');
-  console.log('PASS: four square size badges, selected state, keyboard navigation and XL selection');
+  console.log('PASS: four equal size segments, selected state, keyboard navigation and XL selection');
   await sleep(250);
   await evaluate("document.querySelector('[data-id=pendant] .menu-button').click()");
   await evaluate("document.querySelector('.menu:not(.closing)').focus()");
+  await sleep(300); // past the menu's entrance, so the shot is not taken half faded in
   await shot("menu", ".menu");
   if (process.argv[2]) {
     await open("phone", 393);
     await evaluate("document.querySelector('[data-id=pendant] .menu-button').click()");
     await evaluate("document.querySelector('.menu:not(.closing)').focus()");
     const phoneBadges = await evaluate("[...document.querySelectorAll('.menu-choice-badge')].map(node => [node.offsetWidth,node.offsetHeight])");
-    if (phoneBadges.length !== 4 || phoneBadges.some(([width,height]) => width !== height)) throw new Error('Phone size badges must be square');
+    if (phoneBadges.length !== 4 || phoneBadges.some(([width,height]) => width !== phoneBadges[0][0] || height !== phoneBadges[0][1])) throw new Error('Phone size segments must be equal');
+    await sleep(300);
     await shot("menu-phone", ".menu");
   }
   await open("slide");

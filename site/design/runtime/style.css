@@ -785,8 +785,14 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .powered-off .w-body, .powered-off .w-main { opacity: 0.55; transition: opacity var(--normal) var(--ease-out); }
 /* The menu at the bottom right of the box, over its content's corner. */
 .w-corner { position: absolute; right: 6px; bottom: 6px; z-index: 2; }
-.widget:not(.widget-full) .menu-button { width: 28px; height: 28px; background: none; border-color: transparent; box-shadow: none; color: inherit; }
-.widget:not(.widget-full) .menu-button svg { width: 16px; height: 16px; }
+/* An ellipsis in a circle, as iOS's ⋯ buttons: a chip tinted from the text, so it reads on a light, dark or lit tile
+   alike, firmer under the pointer and while its menu is open. */
+.widget:not(.widget-full) .menu-button { width: 28px; height: 28px; background: color-mix(in srgb, currentColor 10%, transparent); border-color: transparent; box-shadow: none; color: inherit;
+  transition: background-color var(--fast) var(--ease-out), transform var(--fast) var(--ease-out); }
+.widget:not(.widget-full) .menu-button:hover { background: color-mix(in srgb, currentColor 17%, transparent); }
+.widget:not(.widget-full) .menu-button[aria-expanded="true"] { background: color-mix(in srgb, currentColor 22%, transparent); }
+.widget:not(.widget-full) .menu-button svg { width: 18px; height: 18px; }
+@media (prefers-contrast: more) { .widget:not(.widget-full) .menu-button { border: 1px solid currentColor; } }
 /* A phone holds every button to 40px tall (the phone rules below); a widget's own controls keep their shapes,
    a swatch round, a step a bar, the corner's glyph 28px, its hit area grown under a finger instead. */
 .widget .swatch, .widget .steps > button, .widget .seg > button, .widget .round, .widget .w-hit, .widget:not(.widget-full) .menu-button, .edit-bar button { min-height: 0; }
@@ -1119,14 +1125,21 @@ textarea.short { min-height: 220px; }
 .menu [role="menuitemradio"]:hover .menu-check, .menu [role="menuitemradio"]:focus-visible .menu-check { color: inherit; }
 /* Choices without a glyph (Small, Medium) line up with the items that have one. */
 .menu:has([role="menuitem"] svg) [role="menuitemradio"]:not(.menu-choice-badge):not(:has(svg))::before { content: ""; flex: none; width: 17px; }
-/* Widget sizes sit together as square badges rather than four separate menu rows. */
-.menu-choices { display: grid; gap: var(--space-8); padding: var(--space-8) var(--space-12); }
-.menu-choice-label { font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--muted); }
-.menu-choice-row { display: flex; gap: var(--space-8); }
-.menu .menu-choice-badge { display: grid; place-items: center; flex: 0 0 40px; width: 40px; height: 40px; min-height: 40px;
-  padding: 0; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--material-thin); font-weight: var(--weight-figure); text-align: center; }
-.menu .menu-choice-badge[aria-checked="true"] { background: var(--accent-fill); border-color: transparent; color: var(--accent-text); }
-.menu .menu-choice-badge:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Widget sizes: one segmented control across the menu, as the widgets' own (.seg), the current size on a raised
+   thumb; its caption lines up with the items' labels. */
+.menu-choices { display: grid; gap: var(--space-6); padding: var(--space-6) var(--space-6) var(--space-8); }
+.menu-choice-label { padding: 0 var(--space-6); font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--muted); }
+.menu-choice-row { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 2px; padding: 3px; border-radius: var(--radius-md); background: var(--track, var(--search-fill)); }
+.menu .menu-choice-badge { display: grid; place-items: center; height: 32px; min-height: 0; padding: 0; border: 0; border-radius: calc(var(--radius-md) - 3px);
+  background: none; box-shadow: none; color: var(--muted); font-weight: var(--weight-semibold); font-size: var(--text-md); text-align: center; cursor: pointer;
+  transition: background-color var(--fast) var(--ease-out), color var(--fast) var(--ease-out), transform var(--fast) var(--ease-out); }
+.menu .menu-choice-badge:hover { background: var(--material-thin); color: var(--text); }
+.menu .menu-choice-badge:active { transform: scale(0.96); }
+.menu .menu-choice-badge[aria-checked="true"] { background: var(--control); color: var(--text); box-shadow: var(--shadow-control); }
+.menu .menu-choice-badge:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+@media (pointer: coarse) { .menu .menu-choice-badge { height: 40px; } }
+@media (prefers-reduced-motion: reduce) { .menu .menu-choice-badge:active { transform: none; } }
+@media (prefers-contrast: more) { .menu .menu-choice-badge[aria-checked="true"] { outline: 1px solid var(--text); } }
 .menu-separator { border: 0; border-top: 1px solid var(--line); margin: var(--space-4) var(--space-8); }
 .menu [role="menuitem"].danger { color: var(--error); }
 .menu [role="menuitem"].danger:hover, .menu [role="menuitem"].danger:focus-visible { background: var(--error); color: #fff; }
