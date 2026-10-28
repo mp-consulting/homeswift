@@ -74,7 +74,8 @@
   }
 
   // The lights' finder, over the plugin's widgets: each light with its room from the bridge.
-  const lightFinder = finder({
+  const lightFinder = homeswift.finder({
+    roomPill,
     toolbar: $("#light-toolbar"), placeholder: t("Search lights"), prefix: "l", foldKey: "hue-folded-light-rooms", draw: () => drawLights(),
     items: () => accessories.map((accessory) => {
       const light = lights.find((entry) => `PhilipsHue:${entry.id}` === accessory.id);
@@ -134,7 +135,8 @@
 
   // MARK: Sensors and switches, as the Accessories page draws them
 
-  const sensorFinder = finder({
+  const sensorFinder = homeswift.finder({
+    roomPill,
     toolbar: $("#sensor-toolbar"), placeholder: t("Search sensors"), prefix: "s", foldKey: "hue-folded-sensor-rooms", draw: () => drawSensors(),
     items: () => sensorAccessories.map((accessory) => {
       const sensor = sensors.find((entry) => `PhilipsHue:device:${entry.id}` === accessory.id);
@@ -280,8 +282,6 @@
 
   // MARK: Finding a light or a scene
 
-  const fold = (text) => String(text ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-
   /// The room or zone's pill, as the bridge has it: on or off.
   function roomPill(id) {
     const group = groups.find((entry) => entry.id === id);
@@ -289,156 +289,10 @@
     return el("span", { class: `pill status ${group.on ? "on" : "standby"}`, text: group.kind === "zone" ? (group.on ? t("Zone on") : t("Zone off")) : (group.on ? t("Room on") : t("Room off")) });
   }
 
-  /// What finds a light or a scene among dozens, the same on both tabs: a toolbar (a search of names and rooms,
-  /// accents aside; a room; by room or by name; Filters with their counts and Clear filters) kept in the page's
-  /// address under `prefix`, each tab its own; and the list it keeps, a section per room (its name folds it away,
-  /// remembered under `foldKey`, unless a search or a filter is on) or one list by name. `items()` answers the items,
-  /// each { id, name, room, roomID }; `filters` are [key, label, icon, predicate]; `draw()` draws the list again.
-  function finder({ toolbar, placeholder, prefix = "", items, filters, foldKey, draw }) {
-    const param = (key) => prefix + key;
-    const query = new URLSearchParams(location.search);
-    const active = new Set(filters.map(([key]) => key).filter((key) => query.has(param(key))));
-    const search = el("input", { type: "search", class: "search", placeholder, "aria-label": placeholder, value: query.get(param("q")) ?? "" });
-    const room = el("select", { class: "popup", "aria-label": t("Room") });
-    const order = el("select", { class: "popup", "aria-label": t("Order") },
-      el("option", { value: "room", text: t("By room") }), el("option", { value: "name", text: t("By name") }));
-    order.value = query.get(param("sort")) === "name" ? "name" : "room";
-    const button = el("button", { type: "button", actionIcon: "sliders", "aria-haspopup": "menu" });
-    toolbar.append(search, room, order, button);
-    // Under the toolbar while a search or a filter narrows the list: how many it keeps, and the way back.
-    const status = el("div", { class: "finder-status", "aria-live": "polite" });
-    toolbar.after(status);
-    let wantedRoom = query.get(param("room")) || "";
 
-    /// Writes this tab's search, room, order and filters into the address, the other tab's left as they are.
-    function keep() {
-      const next = new URLSearchParams(location.search);
-      for (const key of ["q", "room", "sort", ...filters.map(([key]) => key)]) next.delete(param(key));
-      if (search.value.trim()) next.set(param("q"), search.value.trim());
-      if (room.value) next.set(param("room"), room.value);
-      if (order.value === "name") next.set(param("sort"), "name");
-      for (const key of active) next.set(param(key), "1");
-      history.replaceState(history.state, "", `${location.pathname}${next.size ? `?${next}` : ""}`);
-    }
-    const changed = () => { wantedRoom = room.value; keep(); draw(); };
-    // A search filters once the typing pauses, not on every key.
-    let typing = 0;
-    search.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(changed, 120); });
-    room.addEventListener("change", changed);
-    order.addEventListener("change", changed);
-    function clear() {
-      search.value = "";
-      room.value = "";
-      active.clear();
-      changed();
-    }
-
-    /// Every item, those the search and room keep (what a filter counts in), and those shown.
-    function view() {
-      const text = fold(search.value.trim());
-      const all = items();
-      const base = all.filter((item) => (!room.value || item.roomID === room.value) && (!text || fold(item.name).includes(text) || fold(item.room).includes(text)));
-      const predicates = filters.filter(([key]) => active.has(key)).map(([, , , predicate]) => predicate);
-      const shown = base.filter((item) => predicates.every((predicate) => predicate(item)));
-      return { all, base, shown, narrowed: shown.length !== all.length };
-    }
-
-    /// The rooms, by name, with how many items each has: the room menu (drawn again only when they change; a room the
-    /// address names that is gone falls back to all) and the order of the sections.
-    let roomsKey = "";
-    function rooms() {
-      const found = new Map();
-      for (const item of items()) if (item.roomID) found.set(item.roomID, { name: item.room, count: (found.get(item.roomID)?.count ?? 0) + 1 });
-      return [...found].sort(([, a], [, b]) => a.name.localeCompare(b.name));
-    }
-    function drawRooms(list) {
-      const key = JSON.stringify(list);
-      if (key === roomsKey) return;
-      roomsKey = key;
-      room.replaceChildren(el("option", { value: "", text: t("All rooms") }), ...list.map(([id, entry]) => el("option", { value: id, text: `${entry.name} (${entry.count})` })));
-      room.value = list.some(([id]) => id === wantedRoom) ? wantedRoom : "";
-    }
-
-    button.addEventListener("click", () => {
-      const { base } = view();
-      HomeswiftCommon.menu(button, [
-        ...filters.map(([key, label, iconName, predicate]) => ({
-          label, icon: iconName, count: base.filter(predicate).length, checkbox: true, toggle: true, keepOpen: true, checked: active.has(key),
-          onSelect: () => {
-            if (active.has(key)) active.delete(key); else active.add(key);
-            changed();
-            return active.has(key);
-          },
-        })),
-        { separator: true },
-        { label: t("Clear filters"), clearFilters: true, icon: "restore", disabled: !search.value && !room.value && !active.size, onSelect: clear },
-      ]);
-    });
-
-    const folded = new Set((() => { try { return JSON.parse(localStorage.getItem(foldKey) || "[]"); } catch { return []; } })());
-    function toggleFold(id) {
-      if (folded.has(id)) folded.delete(id); else folded.add(id);
-      try { localStorage.setItem(foldKey, JSON.stringify([...folded])); } catch {}
-      draw();
-    }
-
-    return {
-      show(visible) {
-        toolbar.classList.toggle("hidden", !visible);
-        if (!visible) { status.replaceChildren(); delete status.dataset.key; }
-      },
-      /// Draws `list`: how many the search and filters keep (`countText(shown, total)`), `emptyText` with Clear
-      /// filters when none, else a
-      /// section per room (those without one last, under "No room") or one by name, each a `bodyClass` element
-      /// whose items `render(body, items)` draws.
-      draw(list, { countText, emptyText, bodyClass, render }) {
-        const roomList = rooms();
-        drawRooms(roomList);
-        const active_ = active.size;
-        button.classList.toggle("on", active_ > 0);
-        button.replaceChildren(...[el("span", { text: t("Filters") }), active_ ? el("span", { class: "toolbar-count", text: String(active_) }) : null].filter(Boolean));
-        const { all, shown, narrowed } = view();
-        const statusKey = narrowed ? `${shown.length}/${all.length}` : "";
-        if (status.dataset.key !== statusKey) {
-          status.dataset.key = statusKey;
-          status.replaceChildren(...(narrowed ? [el("span", { text: countText(shown.length, all.length) }),
-            el("button", { type: "button", class: "small", actionIcon: "restore", text: t("Clear filters"), onclick: clear })] : []));
-        }
-        if (!shown.length) {
-          list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: emptyText })));
-          return;
-        }
-        if (list.querySelector(":scope > .card.empty")) list.replaceChildren();
-        const byName = order.value === "name";
-        const sections = byName
-          ? [{ id: "*", name: null, items: [...shown].sort((a, b) => a.name.localeCompare(b.name) || fold(a.room).localeCompare(fold(b.room))) }]
-          : [...roomList.map(([id, entry]) => ({ id, name: entry.name, items: shown.filter((item) => item.roomID === id) })),
-            { id: "-", name: t("No room"), items: shown.filter((item) => !item.roomID) }].filter((section) => section.items.length);
-        renderKeyed(list, sections.map((section) => ({ id: section.id })), (section) => section.id,
-          () => el("section", { class: "room" }, el("div", { class: "room-head" }), el("div", { class: bodyClass })));
-        sections.forEach((section, index) => {
-          const node = list.children[index];
-          const [head, body] = node.children;
-          const isFolded = !narrowed && section.name !== null && folded.has(section.id);
-          node.classList.toggle("folded", isFolded);
-          head.classList.toggle("hidden", section.name === null);
-          const pill = roomPill(section.id);
-          const headKey = JSON.stringify([section.name, section.items.length, isFolded, pill?.outerHTML ?? null]);
-          if (section.name !== null && head.dataset.json !== headKey) {
-            head.dataset.json = headKey;
-            head.replaceChildren(...[
-              el("button", { type: "button", class: "room-fold", "aria-expanded": String(!isFolded), onclick: () => toggleFold(section.id) },
-                el("span", { class: "chevron", "aria-hidden": "true" }), el("h2", { text: section.name }), el("span", { class: "muted room-count", text: String(section.items.length) })),
-              pill].filter(Boolean));
-          }
-          render(body, isFolded ? [] : section.items.map((item) => ({ ...item, showRoom: byName })));
-        });
-      },
-    };
-  }
 
   // The scenes' finder: Colour scenes leaves out the whites of Hue's standard scenes.
-  const sceneFinder = finder({
+  const sceneFinder = homeswift.finder({ roomPill,
     toolbar: $("#scene-toolbar"), placeholder: t("Search scenes"), items: () => groups.flatMap((group) => group.scenes.map((scene) => ({ ...scene, room: group.name, roomID: group.id }))),
     foldKey: "hue-folded-rooms", draw: () => drawScenes(),
     filters: [

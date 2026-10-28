@@ -10143,6 +10143,9 @@ HomeswiftI18n.add("es", {
   "Browser's language": "Idioma del navegador",
   "Built in": "Integrado",
   "By plugin": "Por plugin",
+  "All rooms": "Todas las habitaciones",
+  "Order": "Orden",
+  "By name": "Por nombre",
   "By room": "Por habitación",
   "Cached accessories": "Accesorios en caché",
   "camera": "cámara",
@@ -12381,6 +12384,9 @@ HomeswiftI18n.add("fr", {
   "Browser's language": "Langue du navigateur",
   "Built in": "Intégré",
   "By plugin": "Par plugin",
+  "All rooms": "Toutes les pièces",
+  "Order": "Ordre",
+  "By name": "Par nom",
   "By room": "Par pièce",
   "Cached accessories": "Accessoires en cache",
   "camera": "caméra",
@@ -14619,6 +14625,9 @@ HomeswiftI18n.add("pt", {
   "Browser's language": "Idioma do navegador",
   "Built in": "Integrado",
   "By plugin": "Por plugin",
+  "All rooms": "Todas as divisões",
+  "Order": "Ordem",
+  "By name": "Por nome",
   "By room": "Por divisão",
   "Cached accessories": "Acessórios em cache",
   "camera": "câmara",
@@ -17932,10 +17941,161 @@ HomeswiftI18n.add("pt", {
       ...names.map((name) => el("button", { actionIcon: "eye", text: name, title: t("Show in the Home app"), onclick: () => onShow(name) }))] : []));
   }
 
+  /// Text as a search compares it: accents aside, any case.
+  const fold = (text) => String(text ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+  /// What finds a device or a scene among dozens, the same on every tab of the lighting pages: a toolbar (a search of
+  /// names and rooms, accents aside; a room; by room or by name; Filters with their counts and Clear filters) kept in the
+  /// page's address under `prefix`, each tab its own; and the list it keeps, a section per room (its name folds it away,
+  /// remembered under `foldKey`, unless a search or a filter is on) or one list by name. `items()` answers the items,
+  /// each { id, name, room, roomID }; `filters` are [key, label, icon, predicate]; `draw()` draws the list again;
+  /// `roomPill(roomID)` is an element beside a room's name (the Hue page's room on or off), or null.
+  function finder({ toolbar, placeholder, prefix = "", items, filters, foldKey, draw, roomPill = () => null }) {
+    const param = (key) => prefix + key;
+    const query = new URLSearchParams(location.search);
+    const active = new Set(filters.map(([key]) => key).filter((key) => query.has(param(key))));
+    const search = el("input", { type: "search", class: "search", placeholder, "aria-label": placeholder, value: query.get(param("q")) ?? "" });
+    const room = el("select", { class: "popup", "aria-label": t("Room") });
+    const order = el("select", { class: "popup", "aria-label": t("Order") },
+      el("option", { value: "room", text: t("By room") }), el("option", { value: "name", text: t("By name") }));
+    order.value = query.get(param("sort")) === "name" ? "name" : "room";
+    const button = el("button", { type: "button", actionIcon: "sliders", "aria-haspopup": "menu" });
+    toolbar.append(search, room, order, button);
+    // Under the toolbar while a search or a filter narrows the list: how many it keeps, and the way back.
+    const status = el("div", { class: "finder-status", "aria-live": "polite" });
+    toolbar.after(status);
+    let wantedRoom = query.get(param("room")) || "";
+
+    /// Writes this tab's search, room, order and filters into the address, the other tab's left as they are.
+    function keep() {
+      const next = new URLSearchParams(location.search);
+      for (const key of ["q", "room", "sort", ...filters.map(([key]) => key)]) next.delete(param(key));
+      if (search.value.trim()) next.set(param("q"), search.value.trim());
+      if (room.value) next.set(param("room"), room.value);
+      if (order.value === "name") next.set(param("sort"), "name");
+      for (const key of active) next.set(param(key), "1");
+      history.replaceState(history.state, "", `${location.pathname}${next.size ? `?${next}` : ""}`);
+    }
+    const changed = () => { wantedRoom = room.value; keep(); draw(); };
+    // A search filters once the typing pauses, not on every key.
+    let typing = 0;
+    search.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(changed, 120); });
+    room.addEventListener("change", changed);
+    order.addEventListener("change", changed);
+    function clear() {
+      search.value = "";
+      room.value = "";
+      active.clear();
+      changed();
+    }
+
+    /// Every item, those the search and room keep (what a filter counts in), and those shown.
+    function view() {
+      const text = fold(search.value.trim());
+      const all = items();
+      const base = all.filter((item) => (!room.value || item.roomID === room.value) && (!text || fold(item.name).includes(text) || fold(item.room).includes(text)));
+      const predicates = filters.filter(([key]) => active.has(key)).map(([, , , predicate]) => predicate);
+      const shown = base.filter((item) => predicates.every((predicate) => predicate(item)));
+      return { all, base, shown, narrowed: shown.length !== all.length };
+    }
+
+    /// The rooms, by name, with how many items each has: the room menu (drawn again only when they change; a room the
+    /// address names that is gone falls back to all) and the order of the sections.
+    let roomsKey = "";
+    function rooms() {
+      const found = new Map();
+      for (const item of items()) if (item.roomID) found.set(item.roomID, { name: item.room, count: (found.get(item.roomID)?.count ?? 0) + 1 });
+      return [...found].sort(([, a], [, b]) => a.name.localeCompare(b.name));
+    }
+    function drawRooms(list) {
+      const key = JSON.stringify(list);
+      if (key === roomsKey) return;
+      roomsKey = key;
+      room.replaceChildren(el("option", { value: "", text: t("All rooms") }), ...list.map(([id, entry]) => el("option", { value: id, text: `${entry.name} (${entry.count})` })));
+      room.value = list.some(([id]) => id === wantedRoom) ? wantedRoom : "";
+    }
+
+    button.addEventListener("click", () => {
+      const { base } = view();
+      HomeswiftCommon.menu(button, [
+        ...filters.map(([key, label, iconName, predicate]) => ({
+          label, icon: iconName, count: base.filter(predicate).length, checkbox: true, toggle: true, keepOpen: true, checked: active.has(key),
+          onSelect: () => {
+            if (active.has(key)) active.delete(key); else active.add(key);
+            changed();
+            return active.has(key);
+          },
+        })),
+        { separator: true },
+        { label: t("Clear filters"), clearFilters: true, icon: "restore", disabled: !search.value && !room.value && !active.size, onSelect: clear },
+      ]);
+    });
+
+    const folded = new Set((() => { try { return JSON.parse(localStorage.getItem(foldKey) || "[]"); } catch { return []; } })());
+    function toggleFold(id) {
+      if (folded.has(id)) folded.delete(id); else folded.add(id);
+      try { localStorage.setItem(foldKey, JSON.stringify([...folded])); } catch {}
+      draw();
+    }
+
+    return {
+      show(visible) {
+        toolbar.classList.toggle("hidden", !visible);
+        if (!visible) { status.replaceChildren(); delete status.dataset.key; }
+      },
+      /// Draws `list`: how many the search and filters keep (`countText(shown, total)`), `emptyText` with Clear
+      /// filters when none, else a
+      /// section per room (those without one last, under "No room") or one by name, each a `bodyClass` element
+      /// whose items `render(body, items)` draws.
+      draw(list, { countText, emptyText, bodyClass, render }) {
+        const roomList = rooms();
+        drawRooms(roomList);
+        const active_ = active.size;
+        button.classList.toggle("on", active_ > 0);
+        button.replaceChildren(...[el("span", { text: t("Filters") }), active_ ? el("span", { class: "toolbar-count", text: String(active_) }) : null].filter(Boolean));
+        const { all, shown, narrowed } = view();
+        const statusKey = narrowed ? `${shown.length}/${all.length}` : "";
+        if (status.dataset.key !== statusKey) {
+          status.dataset.key = statusKey;
+          status.replaceChildren(...(narrowed ? [el("span", { text: countText(shown.length, all.length) }),
+            el("button", { type: "button", class: "small", actionIcon: "restore", text: t("Clear filters"), onclick: clear })] : []));
+        }
+        if (!shown.length) {
+          list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: emptyText })));
+          return;
+        }
+        if (list.querySelector(":scope > .card.empty")) list.replaceChildren();
+        const byName = order.value === "name";
+        const sections = byName
+          ? [{ id: "*", name: null, items: [...shown].sort((a, b) => a.name.localeCompare(b.name) || fold(a.room).localeCompare(fold(b.room))) }]
+          : [...roomList.map(([id, entry]) => ({ id, name: entry.name, items: shown.filter((item) => item.roomID === id) })),
+            { id: "-", name: t("No room"), items: shown.filter((item) => !item.roomID) }].filter((section) => section.items.length);
+        renderKeyed(list, sections.map((section) => ({ id: section.id })), (section) => section.id,
+          () => el("section", { class: "room" }, el("div", { class: "room-head" }), el("div", { class: bodyClass })));
+        sections.forEach((section, index) => {
+          const node = list.children[index];
+          const [head, body] = node.children;
+          const isFolded = !narrowed && section.name !== null && folded.has(section.id);
+          node.classList.toggle("folded", isFolded);
+          head.classList.toggle("hidden", section.name === null);
+          const pill = roomPill(section.id);
+          const headKey = JSON.stringify([section.name, section.items.length, isFolded, pill?.outerHTML ?? null]);
+          if (section.name !== null && head.dataset.json !== headKey) {
+            head.dataset.json = headKey;
+            head.replaceChildren(...[
+              el("button", { type: "button", class: "room-fold", "aria-expanded": String(!isFolded), onclick: () => toggleFold(section.id) },
+                el("span", { class: "chevron", "aria-hidden": "true" }), el("h2", { text: section.name }), el("span", { class: "muted room-count", text: String(section.items.length) })),
+              pill].filter(Boolean));
+          }
+          render(body, isFolded ? [] : section.items.map((item) => ({ ...item, showRoom: byName })));
+        });
+      },
+    };
+  }
   window.homeswift = {
     platform, name, request, home: "/plugins", $, el, icon, tile, fact, assistant, explain, ask, breadcrumb, api, act, formatTemperature, temperature,
     readBlock, updateBlock, updateDevices, updateDevice, putDevice, findDevice, setKey, toggleList, drawHidden, poll, renderKeyed,
-    canonicalMAC, isMAC, sameMAC, tabs, textStyle, speedScale, scenePictures, bridgePairing,
+    canonicalMAC, isMAC, sameMAC, tabs, textStyle, speedScale, scenePictures, bridgePairing, finder,
   };
 })();
 
@@ -20518,6 +20678,36 @@ select:disabled { opacity: .5; cursor: not-allowed; }
 @media (max-width: 600px) { .catalog-toolbar { grid-template-columns: minmax(0, 1fr); } .catalog-toolbar .popup { justify-self: start; } }
 /* A running plugin's state: a green dot where the other states have a pill. */
 .status-dot { flex: none; align-self: center; width: 9px; height: 9px; margin: 0 6px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 18%, transparent); }
+/* The lighting pages' finder (plugin.js `finder`): one row (the search takes the room left), held under the header
+   while the list scrolls, in its glass; on a phone, the search over its three menus, scrolling with the page. While a
+   search or a filter narrows the list, how many it keeps and Clear filters under it; a section per room that folds. */
+.finder {
+  position: sticky; top: 84px; z-index: 1; display: grid; grid-template-columns: minmax(160px, 1fr) minmax(0, 200px) auto auto;
+  gap: 8px; align-items: center; margin: 0 0 14px; padding: 6px; border-radius: 999px;
+  background-color: var(--material-chrome); -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
+  border: 1px solid var(--edge); box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
+}
+.finder .search { width: 100%; min-width: 0; }
+.finder .popup { width: 100%; max-width: none; margin: 0; }
+.finder > button { white-space: nowrap; }
+@media (max-width: 640px) {
+  .finder { position: static; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 0; border-radius: 0; background: none; border: 0; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .finder .search { grid-column: 1 / -1; }
+  .finder > button { justify-content: center; }
+}
+@media (prefers-reduced-transparency: reduce) { .finder { -webkit-backdrop-filter: none; backdrop-filter: none; } }
+
+/* Scenes: a section per room, a tile per scene; a smart scene says so under its name. A room's name folds it away. */
+.room { margin-bottom: 22px; }
+.room-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 10px; }
+.room-head h2 { margin: 0; font-size: 1.0625rem; }
+.room-fold { display: inline-flex; align-items: center; gap: 8px; min-width: 0; padding: 4px 6px 4px 0; border: 0; background: none; box-shadow: none; color: var(--text); font: inherit; }
+.room-fold:active:not(:disabled) { transform: none; opacity: 0.7; }
+.room-fold .chevron { width: 8px; height: 8px; flex: none; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); rotate: 45deg; translate: 0 -2px; transition: rotate var(--fast) var(--ease-out); }
+.room.folded .room-fold .chevron { rotate: -45deg; translate: 0 0; }
+.room-fold .room-count { font-size: 0.8125rem; font-variant-numeric: tabular-nums; }
+.room.folded { margin-bottom: 6px; }
+@media (prefers-reduced-motion: reduce) { .room-fold .chevron { transition: none; } }
 .finder-status { display: flex; align-items: center; gap: 10px; margin: -4px 0 14px; padding: 0 6px; font-size: 0.8125rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 .finder-status:empty { display: none; }
 .plugin-catalog { gap: 14px; }

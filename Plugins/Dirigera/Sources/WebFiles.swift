@@ -127,30 +127,50 @@ h2 { margin: 0 0 10px; }
     homeswift.drawHidden($("#hidden-devices"), names, (name) => toggleList("excludeDevices", name));
   }
 
+  // The devices' finder, over the plugin's widgets (plugin.js, as the Hue page's): a search, a room, and filters by
+  // what a device is; each accessory takes its room and kind from its group's first part.
+  const kinds = { lights: ["light"], outlets: ["outlet"], sensors: ["contact", "motion", "lightSensor", "environment", "leak"], covers: ["blinds", "airPurifier"], remotes: ["controller"] };
+  const deviceFinder = homeswift.finder({
+    toolbar: $("#device-toolbar"), placeholder: t("Search devices"), prefix: "d", foldKey: "dirigera-folded-rooms", draw: () => drawDevices(),
+    items: () => accessories.map((accessory) => {
+      const device = devices.find((entry) => entry.group === accessory.id.slice("Dirigera:".length)) ?? {};
+      return { id: accessory.id, name: accessory.name, room: device.room ?? null, roomID: device.room ?? null, device };
+    }),
+    filters: [
+      ["lights", t("Lights"), "bulb", (item) => kinds.lights.includes(item.device.kind)],
+      ["outlets", t("Outlets"), "outlet", (item) => kinds.outlets.includes(item.device.kind)],
+      ["sensors", t("Sensors"), "sensor", (item) => kinds.sensors.includes(item.device.kind)],
+      ["covers", t("Blinds and air"), "blind", (item) => kinds.covers.includes(item.device.kind)],
+      ["remotes", t("Remotes"), "switch", (item) => kinds.remotes.includes(item.device.kind)],
+      ["battery", t("Low battery"), "warning", (item) => typeof item.device.battery === "number" && item.device.battery < 10],
+      ["unreachable", t("No Response"), "warning", (item) => item.device.reachable === false],
+    ],
+  });
+
   let listening = false;
   async function drawDevices() {
     const list = $("#devices");
-    if (!hubs.some((hub) => hub.paired)) {
-      list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: t("Pair a hub to see its devices.") })));
-      drawHidden([]);
-      return;
-    }
-    const key = devices.filter((item) => !item.hidden).map((item) => item.id).sort().join(",");
+    const empty = (text) => list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text })));
+    // A product's parts (a VALLHORN's two sensors) share a name: it shows once.
+    drawHidden([...new Set(devices.filter((item) => item.hidden).map((item) => item.name))]);
+    const paired = hubs.some((hub) => hub.paired);
+    deviceFinder.show(paired && accessories.length > 0);
+    if (!paired) return empty(t("Pair a hub to see its devices."));
+    const key = devices.filter((item) => !item.hidden).map((item) => item.group).sort().join(",");
     if (key !== shapeKey) {
       shapeKey = key;
       await loadAccessories().catch(() => {});
     }
-    if (!accessories.length) {
-      list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: t("The hub has no devices yet: add them in the IKEA Home smart app.") })));
-    } else {
-      if (list.querySelector(".card.empty")) list.replaceChildren();
-      // A widget per accessory, drawn once: its values follow the bridge's event stream.
-      renderKeyed(list, accessories.map((accessory) => ({ id: accessory.id, name: accessory.name, services: accessory.services.length })), (item) => item.id,
-        (item) => HomeswiftWidgets.card(accessories.find((accessory) => accessory.id === item.id), { size: "large", actions: actionsFor }));
-      if (!listening) { HomeswiftWidgets.listen(); listening = true; }
-    }
-    // A product's parts (a VALLHORN's two sensors) share a name: it shows once.
-    drawHidden([...new Set(devices.filter((item) => item.hidden).map((item) => item.name))]);
+    if (!accessories.length) return empty(t("The hub has no devices yet: add them in the IKEA Home smart app."));
+    deviceFinder.show(true);
+    // A widget per accessory, drawn once in its room's wall: its values follow the hub's event stream.
+    deviceFinder.draw(list, {
+      countText: (shown, total) => t("{shown} of {total} devices", { shown, total }),
+      emptyText: t("No device matches the search and filters."), bodyClass: "wall",
+      render: (body, items) => renderKeyed(body, items.map((item) => ({ id: item.id, name: item.name, services: accessories.find((accessory) => accessory.id === item.id)?.services.length })), (item) => item.id,
+        (item) => HomeswiftWidgets.card(accessories.find((accessory) => accessory.id === item.id), { actions: actionsFor })),
+    });
+    if (!listening) { HomeswiftWidgets.listen(); listening = true; }
   }
 
   /// The widget's ⋯ menu, after All controls: what this page adds.
@@ -312,6 +332,12 @@ h2 { margin: 0 0 10px; }
 // The IKEA DIRIGERA page in French, Spanish and Portuguese (docs/translations.md).
 HomeswiftI18n.add({
   "fr": {
+    "Search devices": "Rechercher des appareils",
+    "Sensors": "Capteurs",
+    "Blinds and air": "Stores et air",
+    "Remotes": "Télécommandes",
+    "{shown} of {total} devices": "{shown} appareils sur {total}",
+    "No device matches the search and filters.": "Aucun appareil ne correspond à la recherche et aux filtres.",
     "Pair Homeswift with the hub.": "Jumelez Homeswift avec le hub.",
     "Pair, then press the action button under the hub within a minute. The token stays in the plugin's folder, not in config.json.": "Jumelez, puis appuyez sur le bouton d'action sous le hub dans la minute. Le jeton reste dans le dossier du plugin, pas dans config.json.",
     "Hubs on the network show up above on their own; type the address of one that does not.": "Les hubs du réseau apparaissent ci-dessus d'eux-mêmes ; saisissez l'adresse de celui qui n'y est pas.",
@@ -355,6 +381,12 @@ HomeswiftI18n.add({
     "no picture for that scene": "aucune image pour cette scène"
   },
   "es": {
+    "Search devices": "Buscar dispositivos",
+    "Sensors": "Sensores",
+    "Blinds and air": "Persianas y aire",
+    "Remotes": "Mandos",
+    "{shown} of {total} devices": "{shown} de {total} dispositivos",
+    "No device matches the search and filters.": "Ningún dispositivo coincide con la búsqueda y los filtros.",
     "Pair Homeswift with the hub.": "Empareja Homeswift con el hub.",
     "Pair, then press the action button under the hub within a minute. The token stays in the plugin's folder, not in config.json.": "Empareja y pulsa el botón de acción de debajo del hub antes de un minuto. El token se queda en la carpeta del plugin, no en config.json.",
     "Hubs on the network show up above on their own; type the address of one that does not.": "Los hubs de la red aparecen arriba por sí solos; escribe la dirección del que no aparezca.",
@@ -398,6 +430,12 @@ HomeswiftI18n.add({
     "no picture for that scene": "no hay imagen para esa escena"
   },
   "pt": {
+    "Search devices": "Procurar dispositivos",
+    "Sensors": "Sensores",
+    "Blinds and air": "Estores e ar",
+    "Remotes": "Comandos",
+    "{shown} of {total} devices": "{shown} de {total} dispositivos",
+    "No device matches the search and filters.": "Nenhum dispositivo corresponde à pesquisa e aos filtros.",
     "Pair Homeswift with the hub.": "Emparelhe o Homeswift com o hub.",
     "Pair, then press the action button under the hub within a minute. The token stays in the plugin's folder, not in config.json.": "Emparelhe e prima o botão de ação por baixo do hub no espaço de um minuto. O token fica na pasta do plugin, não em config.json.",
     "Hubs on the network show up above on their own; type the address of one that does not.": "Os hubs da rede aparecem acima por si próprios; escreva o endereço de um que não apareça.",
@@ -474,7 +512,8 @@ HomeswiftI18n.add({
   </div>
 
   <section id="tab-devices" class="tab-pane" role="tabpanel">
-    <div class="accessory-walls"><div class="wall" id="devices"></div></div>
+    <div id="device-toolbar" class="finder"></div>
+    <div class="accessory-walls" id="devices"></div>
     <div id="hidden-devices" class="hidden-devices"></div>
   </section>
 

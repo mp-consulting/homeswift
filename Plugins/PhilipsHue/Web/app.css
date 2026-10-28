@@ -6,37 +6,8 @@
 h2 { margin: 0 0 10px; }
 .intro { margin: 0 0 14px; font-size: 0.875rem; }
 
-/* Finding a light or a scene: one row (the search takes the room left), held under the header while the list
-   scrolls, in its glass; on a phone, the search over its three menus, scrolling with the page. While a search or a
-   filter narrows the list, how many it keeps and Clear filters under it. */
-.finder {
-  position: sticky; top: 84px; z-index: 1; display: grid; grid-template-columns: minmax(160px, 1fr) minmax(0, 200px) auto auto;
-  gap: 8px; align-items: center; margin: 0 0 14px; padding: 6px; border-radius: 999px;
-  background-color: var(--material-chrome); -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
-  border: 1px solid var(--edge); box-shadow: var(--shadow-thick), inset 0 1px 0 var(--edge-light);
-}
-.finder .search { width: 100%; min-width: 0; }
-.finder .popup { width: 100%; max-width: none; margin: 0; }
-.finder > button { white-space: nowrap; }
-@media (max-width: 640px) {
-  .finder { position: static; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 0; border-radius: 0; background: none; border: 0; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
-  .finder .search { grid-column: 1 / -1; }
-  .finder > button { justify-content: center; }
-}
-@media (prefers-reduced-transparency: reduce) { .finder { -webkit-backdrop-filter: none; backdrop-filter: none; } }
-
-/* Scenes: a section per room, a tile per scene; a smart scene says so under its name. A room's name folds it away. */
-.room { margin-bottom: 22px; }
-.room-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 10px; }
-.room-head h2 { margin: 0; font-size: 1.0625rem; }
-.room-fold { display: inline-flex; align-items: center; gap: 8px; min-width: 0; padding: 4px 6px 4px 0; border: 0; background: none; box-shadow: none; color: var(--text); font: inherit; }
-.room-fold:active:not(:disabled) { transform: none; opacity: 0.7; }
-.room-fold .chevron { width: 8px; height: 8px; flex: none; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); rotate: 45deg; translate: 0 -2px; transition: rotate var(--fast) var(--ease-out); }
-.room.folded .room-fold .chevron { rotate: -45deg; translate: 0 0; }
-.room-fold .room-count { font-size: 0.8125rem; font-variant-numeric: tabular-nums; }
-.room.folded { margin-bottom: 6px; }
+/* The finder over the lights, sensors and scenes is style.css's (plugin.js `finder`); a folded room hides its tiles. */
 .room.folded .scene-tiles { display: none; }
-@media (prefers-reduced-motion: reduce) { .room-fold .chevron { transition: none; } }
 .scene .kind { position: relative; z-index: 1; font-size: 0.75rem; opacity: 0.85; }
 
 /* An active scene's play button, at the tile's centre; lit while the scene plays. */

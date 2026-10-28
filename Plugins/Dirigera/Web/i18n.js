@@ -1,6 +1,12 @@
 // The IKEA DIRIGERA page in French, Spanish and Portuguese (docs/translations.md).
 HomeswiftI18n.add({
   "fr": {
+    "Search devices": "Rechercher des appareils",
+    "Sensors": "Capteurs",
+    "Blinds and air": "Stores et air",
+    "Remotes": "Télécommandes",
+    "{shown} of {total} devices": "{shown} appareils sur {total}",
+    "No device matches the search and filters.": "Aucun appareil ne correspond à la recherche et aux filtres.",
     "Pair Homeswift with the hub.": "Jumelez Homeswift avec le hub.",
     "Pair, then press the action button under the hub within a minute. The token stays in the plugin's folder, not in config.json.": "Jumelez, puis appuyez sur le bouton d'action sous le hub dans la minute. Le jeton reste dans le dossier du plugin, pas dans config.json.",
     "Hubs on the network show up above on their own; type the address of one that does not.": "Les hubs du réseau apparaissent ci-dessus d'eux-mêmes ; saisissez l'adresse de celui qui n'y est pas.",
@@ -44,6 +50,12 @@ HomeswiftI18n.add({
     "no picture for that scene": "aucune image pour cette scène"
   },
   "es": {
+    "Search devices": "Buscar dispositivos",
+    "Sensors": "Sensores",
+    "Blinds and air": "Persianas y aire",
+    "Remotes": "Mandos",
+    "{shown} of {total} devices": "{shown} de {total} dispositivos",
+    "No device matches the search and filters.": "Ningún dispositivo coincide con la búsqueda y los filtros.",
     "Pair Homeswift with the hub.": "Empareja Homeswift con el hub.",
     "Pair, then press the action button under the hub within a minute. The token stays in the plugin's folder, not in config.json.": "Empareja y pulsa el botón de acción de debajo del hub antes de un minuto. El token se queda en la carpeta del plugin, no en config.json.",
     "Hubs on the network show up above on their own; type the address of one that does not.": "Los hubs de la red aparecen arriba por sí solos; escribe la dirección del que no aparezca.",
@@ -87,6 +99,12 @@ HomeswiftI18n.add({
     "no picture for that scene": "no hay imagen para esa escena"
   },
   "pt": {
+    "Search devices": "Procurar dispositivos",
+    "Sensors": "Sensores",
+    "Blinds and air": "Estores e ar",
+    "Remotes": "Comandos",
+    "{shown} of {total} devices": "{shown} de {total} dispositivos",
+    "No device matches the search and filters.": "Nenhum dispositivo corresponde à pesquisa e aos filtros.",
     "Pair Homeswift with the hub.": "Emparelhe o Homeswift com o hub.",
     "Pair, then press the action button under the hub within a minute. The token stays in the plugin's folder, not in config.json.": "Emparelhe e prima o botão de ação por baixo do hub no espaço de um minuto. O token fica na pasta do plugin, não em config.json.",
     "Hubs on the network show up above on their own; type the address of one that does not.": "Os hubs da rede aparecem acima por si próprios; escreva o endereço de um que não apareça.",
