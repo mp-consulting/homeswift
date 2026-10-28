@@ -235,9 +235,9 @@ button.busy::after {
   background: var(--material-thin); border: 1px solid var(--line); font-weight: 600; font-variant-numeric: tabular-nums;
   transition: background-color 600ms var(--ease-out), color 600ms var(--ease-out), transform 300ms var(--ease-out);
 }
-/* On a medium tile the keys sit between its icon and its name, above the tile's tap target like its other lines. */
-.widget-summary > .remote-key-row { position: relative; z-index: 1; pointer-events: none; gap: 6px; }
-.widget-summary > .remote-key-row .remote-key { min-width: 32px; height: 32px; border-radius: 10px; }
+/* On a tall tile the keys sit between its icon and its name (widgets.js `middle`). */
+.w-middle .remote-key-row { gap: 6px; flex-wrap: nowrap; }
+.w-middle .remote-key { min-width: 28px; height: 28px; padding: 0 8px; border-radius: 9px; font-size: .8125rem; }
 .remote-key.pressed { background: var(--accent); color: var(--accent-text); transform: scale(0.94); transition-duration: 60ms; }
 .widget .tile.pressed { transform: scale(0.94); transition: transform 60ms var(--ease-out); }
 @media (prefers-reduced-motion: reduce) { .remote-key.pressed, .widget .tile.pressed { transform: none; } }
@@ -787,6 +787,8 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget .w-hit:hover, .widget .w-hit:active:not(:disabled) { transform: none; }
 .w-hit:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .w-top, .w-bottom { position: relative; z-index: 1; display: flex; gap: 8px; min-width: 0; pointer-events: none; }
+/* A tall tile's middle line (a remote's keys), above the tap target like the others and shown only by it. */
+.w-middle { position: relative; z-index: 1; flex: none; min-width: 0; padding: 2px 0; overflow: hidden; pointer-events: none; }
 .w-top { align-items: flex-start; justify-content: space-between; }
 .w-bottom { align-items: flex-end; }
 .w-bottom .menu-button { pointer-events: auto; margin: 0 -6px -6px 0; flex: none; }
@@ -2964,7 +2966,7 @@ select option:disabled { color: var(--muted); }
 .wall.editing > .widget.size-small .edit-bar { bottom: 3px; padding: 2px; }
 .wall.editing > .widget.size-small .edit-bar button { height: 22px; }
 .wall.editing > .widget.size-small .resize-handle { bottom: 3px; }
-.wall.editing > .widget-summary > .w-bottom { visibility: hidden; }
+.wall.editing > .widget-summary > .w-bottom, .wall.editing > .widget-summary > .w-middle { visibility: hidden; }
 .wall.editing > .widget-summary > .w-top { position: absolute; left: 12px; right: 12px; top: 50%; transform: translateY(-50%); }
 .wall.editing > .widget.size-small > .w-top { visibility: hidden; }
 .wall.editing > .widget:not(.widget-summary) > .w-head { visibility: hidden; }
@@ -3076,10 +3078,12 @@ select option:disabled { color: var(--muted); }
    its address, scene tiles painted with their palette or a picture, the transition's speed scale and the save bar.
    plugin.js has their pieces (tabs, bridgePairing, scenePictures, textStyle, speedScale). */
 .main-tabs { margin: 18px 0 14px; }
-/* On a phone the tabs share the width, so four of them fit; a long name ends in an ellipsis. */
+/* On a phone the tabs share the width, so four of them fit; longer names (a translation) scroll the bar sideways
+   rather than be cut. */
 @media (max-width: 600px) {
-  .main-tabs { display: flex; width: 100%; }
-  .main-tabs > button { flex: 1 1 0; min-width: 0; padding: 5px 6px; justify-content: center; gap: 5px; overflow: hidden; text-overflow: ellipsis; }
+  .main-tabs { display: flex; width: 100%; overflow-x: auto; scrollbar-width: none; }
+  .main-tabs::-webkit-scrollbar { display: none; }
+  .main-tabs > button { flex: 1 0 auto; padding: 5px 8px; justify-content: center; gap: 5px; }
 }
 .tab-pane { animation: fade var(--normal) var(--ease-out); }
 

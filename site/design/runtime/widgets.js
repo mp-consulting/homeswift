@@ -1625,8 +1625,9 @@
           if (isOn(low)) return [t("Low battery"), "warn"];
           return [buttons.length > 1 ? t("Press a button to see it here") : t("Press it to see it here")];
         },
-        // A tall tile shows the keys between its icon and its name, in place of the count they make plain.
-        middle: size === "small" ? el("div", { class: "remote-key-row", "aria-hidden": "true" }, keys) : null,
+        // A tall tile shows the keys between its icon and its name, in place of the count they make plain; more than
+        // fit on one line keep the count.
+        middle: size === "small" && buttons.length <= 4 ? el("div", { class: "remote-key-row", "aria-hidden": "true" }, keys) : null,
         body: size === "small" ? [] : [el("div", { class: "remote-keys" }, el("div", { class: "remote-key-row", "aria-hidden": "true" }, keys), battery)],
       };
     },
@@ -1953,7 +1954,7 @@
         hit.addEventListener("touchmove", (event) => { if (armed) event.preventDefault(); }, { passive: false });
       }
       const middle = size === "medium" ? built.middle : null;
-      node.append(shade ?? "", hit, el("div", { class: "w-top" }, glyph, hero), middle ?? "", el("div", { class: "w-bottom" }, who, menu));
+      node.append(shade ?? "", hit, el("div", { class: "w-top" }, glyph, hero), middle ? el("div", { class: "w-middle" }, middle) : "", el("div", { class: "w-bottom" }, who, menu));
       ctx.watch(() => {
         const on = built.on ? built.on() : false;
         node.classList.toggle("on", on);
