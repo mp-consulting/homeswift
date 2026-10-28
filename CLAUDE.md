@@ -81,6 +81,11 @@ node Scripts/generate-definitions.js <hap-nodejs> > Sources/Homeswift/Model/Defi
 
 - **No Claude attribution in git.** Commit messages and pull request descriptions carry no `Co-Authored-By: Claude`
   trailer and no "Generated with Claude Code" line.
+- **Conventional Commits.** Commit messages and pull request titles follow https://www.conventionalcommits.org:
+  `<type>(<scope>): <summary>`, the type one of `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `build`, `ci`,
+  `chore`, `style`, `revert`; the scope the plugin or area, lowercase (`ecoflow`, `ui`, `mcp`, `hap`, `site`); the
+  summary in the imperative, without a final period. A breaking change gets a `!` after the scope and a
+  `BREAKING CHANGE:` footer.
 - Apple does not publish the HAP spec outside MFi. Follow HAP-NodeJS's behaviour and check crypto against known
   vectors; never guess byte layouts.
 - SRP stays on `CHAPMath`: a pure Swift big-integer library took minutes per pair setup in debug builds, which
