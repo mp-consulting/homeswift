@@ -419,9 +419,9 @@ struct TelevisionTests {
         await tv.set(power: "On")
         #expect(await eventually { bridge.server.primary.service(.television)?[.active]?.value == .int(1) })
         await tv.set(reachable: false)
-        #expect(await eventually(timeout: .seconds(8)) { bridge.server.primary.service(.television)?[.active]?.value == .int(0) })
+        #expect(await eventually { bridge.server.primary.service(.television)?[.active]?.value == .int(0) })
         await tv.set(reachable: true)
-        #expect(await eventually(timeout: .seconds(8)) { bridge.server.primary.service(.television)?[.active]?.value == .int(1) })
+        #expect(await eventually { bridge.server.primary.service(.television)?[.active]?.value == .int(1) })
     }
 
     @Test func keepsInputIdentifiersAndNamesAcrossLaunches() async throws {

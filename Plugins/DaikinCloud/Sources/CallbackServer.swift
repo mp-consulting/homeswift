@@ -72,7 +72,8 @@ final class CallbackServer: @unchecked Sendable {
                 let current = state.withLockedValue { state -> Bool in
                     guard state.generation == generation else { return false }
                     state.channel = channel
-                    state.port = port
+                    // The port bound (0 picks one).
+                    state.port = channel.localAddress?.port ?? port
                     return true
                 }
                 guard current else {

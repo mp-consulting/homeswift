@@ -3,6 +3,7 @@ import HomeswiftNetwork
 import HomeswiftPlugin
 import Logging
 import NIOConcurrencyHelpers
+import NIOPosix
 import Testing
 
 @testable import HomeswiftDaikinCloud
@@ -235,6 +236,15 @@ func eventually(timeout: Duration = .seconds(30), _ condition: @Sendable () asyn
         try? await Task.sleep(for: .milliseconds(20))
     }
     return await condition()
+}
+
+/// A port the system just handed out and nothing holds: for a test whose port has to be known before the server binds it (it
+/// goes into a redirect URI). A random pick in 40000...60000 overlaps the ephemeral range and collides under a parallel run.
+func freePort() async throws -> Int {
+    let channel = try await ServerBootstrap(group: MultiThreadedEventLoopGroup.singleton).bind(host: "127.0.0.1", port: 0).get()
+    let port = channel.localAddress?.port ?? 0
+    try await channel.close()
+    return port
 }
 
 func temporaryDirectory(_ name: String = "daikin") -> URL {

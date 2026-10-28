@@ -135,11 +135,10 @@ struct PlatformTests {
         #expect(environment.socket.commands.last == ["switches": [["outlet": 0, "switch": "off"], ["outlet": 1, "switch": "off"], ["outlet": 2, "switch": "off"], ["outlet": 3, "switch": "off"]]])
 
         environment.push("1000bbbbbb", ["switches": [["outlet": 0, "switch": "off"], ["outlet": 1, "switch": "off"], ["outlet": 2, "switch": "off"], ["outlet": 3, "switch": "on"]]])
-        #expect(await eventually { on(4) == nil && on(0) == true })
-        #expect(channel.value == false && on(3) == false)
+        // Each channel takes the push on its own: wait for all of them, not just the first to settle.
+        #expect(await eventually { on(4) == nil && on(0) == true && channel.value == false && on(3) == false })
         environment.push("1000bbbbbb", ["switches": [["outlet": 0, "switch": "on"], ["outlet": 1, "switch": "off"], ["outlet": 2, "switch": "off"], ["outlet": 3, "switch": "off"]]])
-        #expect(await eventually { channel.value == true })
-        #expect(on(2) == false && on(3) == false)
+        #expect(await eventually { channel.value == true && on(0) == true && on(2) == false && on(3) == false })
         await host.stop()
     }
 

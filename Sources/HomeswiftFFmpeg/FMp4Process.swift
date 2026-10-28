@@ -399,6 +399,8 @@ public final class FfmpegRecordingProcess: FfmpegFMp4Process, @unchecked Sendabl
     private let mp4box = AsyncSignal()
     /// Called by the segment generator after its end check, right before it waits for a box: lets tests stop the process there.
     let beforeBoxWait = NIOLockedValueBox<(@Sendable () -> Void)?>(nil)
+    /// Called with what that wait returned (false: it timed out): lets tests tell a stop seen at once from one waited out.
+    let afterBoxWait = NIOLockedValueBox<(@Sendable (Bool) -> Void)?>(nil)
 
     public init(
         _ options: FfmpegOptions, recordingConfig: CameraRecordingConfiguration, fMp4Options: FMp4RecordingOptions = FMp4RecordingOptions(),
@@ -466,9 +468,10 @@ public final class FfmpegRecordingProcess: FfmpegFMp4Process, @unchecked Sendabl
                     // Wait for FFmpeg to produce more boxes, within HKSV's timing. A stop since the check above is seen here too: it
                     // is flagged before its signal, and the flag is read under the signal's lock.
                     let recordingState = self.recordingState
-                    _ = await self.mp4box.wait(timeout: .milliseconds(HKSV_TIMEOUT)) {
+                    let woken = await self.mp4box.wait(timeout: .milliseconds(HKSV_TIMEOUT)) {
                         recordingState.withLockedValue { !$0.recordingBuffer.isEmpty || $0.isStopped }
                     }
+                    self.afterBoxWait.withLockedValue { $0 }?(woken)
                     // The consumer went away: that is neither a timeout nor more output to hand over.
                     if Task.isCancelled { break }
                     let box = recordingState.withLockedValue { state -> FMp4ParsedBox? in

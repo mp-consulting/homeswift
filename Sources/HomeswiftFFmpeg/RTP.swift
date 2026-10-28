@@ -42,9 +42,19 @@ public final class RtpDemuxer: Sendable {
     /// Binds `inputPort` (0 picks one; see `localPort`) on every interface of the family. A bind failure (or a port outside
     /// 0...65535) is logged and leaves the demuxer closed, with its `rtp` event fired as when it closes (TypeScript's socket
     /// error handler closes the demuxer).
-    public init(
+    public convenience init(
         ipFamily: IPAddressVersion, inputPort: Int, rtcpPort: Int, rtpPort: Int, log: Logger,
         group: any EventLoopGroup = MultiThreadedEventLoopGroup.singleton
+    ) async {
+        await self.init(
+            ipFamily: ipFamily, inputPort: inputPort, rtcpPort: rtcpPort, rtpPort: rtpPort, log: log, group: group,
+            heartbeatInterval: .seconds(Int64(TWOWAY_HEARTBEAT_INTERVAL)))
+    }
+
+    /// `heartbeatInterval`: tests that count packets set it beyond their length, so a slow run sees no heartbeat.
+    init(
+        ipFamily: IPAddressVersion, inputPort: Int, rtcpPort: Int, rtpPort: Int, log: Logger, group: any EventLoopGroup,
+        heartbeatInterval: TimeAmount
     ) async {
         self.log = log
         self.inputPort = inputPort
@@ -62,7 +72,7 @@ public final class RtpDemuxer: Sendable {
                 .channelInitializer { channel in
                     channel.eventLoop.makeCompletedFuture {
                         try channel.pipeline.syncOperations.addHandler(RtpDemuxerHandler(
-                            rtcpTarget: rtcpTarget, rtpTarget: rtpTarget, log: log,
+                            rtcpTarget: rtcpTarget, rtpTarget: rtpTarget, heartbeatInterval: heartbeatInterval, log: log,
                             onRtp: { events.emit() },
                             onError: { error in
                                 log.error("RtpDemuxer Error: \(error)")
@@ -111,12 +121,13 @@ public final class RtpDemuxer: Sendable {
 }
 
 /// Runs on the demuxer's event loop: forwards packets and owns the heartbeat timer.
-private final class RtpDemuxerHandler: ChannelInboundHandler {
+final class RtpDemuxerHandler: ChannelInboundHandler {
     typealias InboundIn = AddressedEnvelope<ByteBuffer>
     typealias OutboundOut = AddressedEnvelope<ByteBuffer>
 
     private let rtcpTarget: SocketAddress
     private let rtpTarget: SocketAddress
+    private let heartbeatInterval: TimeAmount
     private let log: Logger
     private let onRtp: @Sendable () -> Void
     private let onError: @Sendable (any Error) -> Void
@@ -124,11 +135,12 @@ private final class RtpDemuxerHandler: ChannelInboundHandler {
     private var heartbeatMessage: ByteBuffer?
 
     init(
-        rtcpTarget: SocketAddress, rtpTarget: SocketAddress, log: Logger, onRtp: @escaping @Sendable () -> Void,
-        onError: @escaping @Sendable (any Error) -> Void
+        rtcpTarget: SocketAddress, rtpTarget: SocketAddress, heartbeatInterval: TimeAmount, log: Logger,
+        onRtp: @escaping @Sendable () -> Void, onError: @escaping @Sendable (any Error) -> Void
     ) {
         self.rtcpTarget = rtcpTarget
         self.rtpTarget = rtpTarget
+        self.heartbeatInterval = heartbeatInterval
         self.log = log
         self.onRtp = onRtp
         self.onError = onError
@@ -153,7 +165,7 @@ private final class RtpDemuxerHandler: ChannelInboundHandler {
     private func heartbeat(context: ChannelHandlerContext) {
         heartbeatTimer?.cancel()
         let loopBound = NIOLoopBound((self, context), eventLoop: context.eventLoop)
-        heartbeatTimer = context.eventLoop.scheduleTask(in: .seconds(Int64(TWOWAY_HEARTBEAT_INTERVAL))) {
+        heartbeatTimer = context.eventLoop.scheduleTask(in: heartbeatInterval) {
             let (handler, context) = loopBound.value
             guard context.channel.isActive, let message = handler.heartbeatMessage else { return }
             handler.log.debug("Sending ffmpeg a heartbeat.")
