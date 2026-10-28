@@ -18944,6 +18944,8 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget.size-small .tile { width: 40px; height: 40px; border-radius: 50%; }
 .widget.size-medium { justify-content: space-between; }
 .widget.size-medium .tile { width: 40px; height: 40px; border-radius: 50%; }
+/* The ⋯ button sits over the compact tile's corner: the name and status end before it. */
+.size-small .w-bottom .who { padding-right: 22px; }
 .size-small .w-bottom .menu-button { position: absolute; right: -6px; bottom: -6px; width: 26px; height: 26px; margin: 0; opacity: 1; color: var(--text); background: rgba(255, 255, 255, 0.92); border: 1px solid var(--line); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18); }
 /* Another controller's accessory (Apple Home's, through Wingman): a house badge on the tile's corner, ringed with the
    card's material so it reads as sitting on the tile. */
