@@ -14,6 +14,25 @@ struct EnergyArchiveTests {
 
     func near(_ a: Double?, _ b: Double) -> Bool { a.map { abs($0 - b) < 1e-6 } ?? false }
 
+    /// The file is written without `JSONEncoder`, byte for byte as it wrote it: earlier files read back, later ones
+    /// read in an older version.
+    @Test func theFileIsWhatJSONEncoderWrote() throws {
+        struct Stored: Codable {
+            var version: Int
+            var hours: [String: EnergyArchive.Hour]
+        }
+        let hours: [Int: EnergyArchive.Hour] = [
+            1_800_000_000: .init(recorded: EnergyFlows(solar: 512.25, home: 1300, gridImport: 0.01, batteryDischarge: 788.5), minutes: 60),
+            1_800_003_600: .init(recorded: nil, minutes: nil,
+                                 imported: ["EcoFlow:EcoFlow": EnergyFlows(solar: 1e-2, home: 123_456.78), "Other": EnergyFlows()]),
+            1_800_007_200: .init(recorded: EnergyFlows(gridExport: 3, batteryCharge: 0.1, homeFromSolar: 99.99), minutes: 12, imported: [:]),
+        ]
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let expected = try encoder.encode(Stored(version: 1, hours: Dictionary(uniqueKeysWithValues: hours.map { (String($0.key), $0.value) })))
+        #expect(String(decoding: EnergyArchive.encoded(hours), as: UTF8.self) == String(decoding: expected, as: UTF8.self))
+    }
+
     @Test func closedMinutesAddUpInTheirHour() {
         let clock = NIOLockedValueBox(hour.addingTimeInterval(5))
         let metrics = Metrics(directory: nil, now: { clock.withLockedValue { $0 } })
@@ -107,6 +126,25 @@ struct EnergyArchiveTests {
         #expect(near(reread.periods(.day, from: hour, to: hour, timeZone: utc)[0].flows.solar, 321.12))
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+    }
+
+    /// A recorded minute waits for the hourly save (the kept minutes make it again after a crash); an import, which
+    /// nothing makes again, is saved after `saveDelay`; a stop writes what is pending.
+    @Test func aRecordedMinuteWaitsAnImportDoesNot() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("homeswift-archive-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent(EnergyArchive.fileName)
+        let archive = EnergyArchive(url: url, saveDelay: .milliseconds(50), recordedSaveDelay: .seconds(3600))
+        archive.addRecorded(hour, watts: [.home: 600])
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+        archive.importHours([EnergyHourImport(start: hour.addingTimeInterval(3600), flows: EnergyFlows(solar: 5))], source: "Cloud")
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(FileManager.default.fileExists(atPath: url.path))
+        archive.addRecorded(hour.addingTimeInterval(60), watts: [.home: 600])
+        archive.flush()
+        #expect(near(EnergyArchive(url: url).periods(.day, from: hour, to: hour, timeZone: utc)[0].flows.home, 20))
     }
 
     @Test func aRestartCountsNoMinuteTwice() throws {

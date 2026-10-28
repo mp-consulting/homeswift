@@ -181,10 +181,7 @@ public final class Metrics: @unchecked Sendable {
     /// Follows the host's servers and samples the process until `stop()`.
     public func start(following host: PluginHost) {
         let timings = host.observeTimings { [weak self] bridge, timing in self?.record(timing, server: bridge.server.deviceID) }
-        let readings = host.observeReadings { [weak self] series, value, tag in
-            self?.record(value, series: series)
-            if let tag { self?.tag(series, tag) }
-        }
+        let readings = host.observeReadings { [weak self] series, value, tag in self?.record(value, series: series, tag: tag) }
         let imports = host.observeEnergyImports { [archive] source, hours in archive.importHours(hours, source: source) }
         let observation = Observation { timings.cancel(); readings.cancel(); imports.cancel() }
         let interval = interval
@@ -264,12 +261,19 @@ public final class Metrics: @unchecked Sendable {
     /// Records a reading of a value series, into the minute under way. A minute keeps the count, sum, lowest and
     /// highest of each series. Non-finite values are left out.
     public func record(_ value: Double, series: String) {
-        guard value.isFinite else { return }
-        let closed = state.withLockedValue { state -> Minute? in
+        record(value, series: series, tag: nil)
+    }
+
+    /// A reading and its role, under one lock: the tag is only compared, and changed (`tag`) when it differs.
+    func record(_ value: Double, series: String, tag: EnergyTag?) {
+        let (closed, retag) = state.withLockedValue { state -> (Minute?, Bool) in
+            let retag = tag.map { state.tags[series] != $0 } ?? false
+            guard value.isFinite else { return (nil, retag) }
             let closed = roll(&state)
             state.current?.values[series, default: Values()].add(value)
-            return closed
+            return (closed, retag)
         }
+        if retag, let tag { self.tag(series, tag) }
         if let closed { persist(closed) }
     }
 
@@ -374,22 +378,37 @@ public final class Metrics: @unchecked Sendable {
     /// The history of one value series (a plugin's reading, `plugin:<platform>:<series>`) from `from` to `to`, in
     /// points of whole steps, the same steps as `history`. Points with no reading are left out.
     public func valueHistory(from: Date, to: Date, series: String, points: Int = 240) -> (step: TimeInterval, points: [ValuePoint]) {
+        let history = valueHistories(from: from, to: to, series: [series], points: points)
+        return (history.step, history.points[series] ?? [])
+    }
+
+    /// The histories of several value series at once, read in one pass over the minutes: a page that graphs many
+    /// readings asks once. Each series has its points, the same steps for all.
+    public func valueHistories(from: Date, to: Date, series: [String], points: Int = 240) -> (step: TimeInterval, points: [String: [ValuePoint]]) {
         let span = max(to.timeIntervalSince(from), 60)
         let step = max(60, (span / Double(max(points, 1)) / 60).rounded(.up) * 60)
         let base = Date(timeIntervalSince1970: (from.timeIntervalSince1970 / step).rounded(.down) * step)
-        let minutes = state.withLockedValue { state -> [Minute] in
-            var minutes = state.minutes.filter { $0.start >= base && $0.start <= to }
-            if let current = state.current, current.start <= to { minutes.append(current) }
+        // Only the wanted series' values leave the lock, not whole minutes.
+        let minutes = state.withLockedValue { state -> [(start: Date, values: [Values?])] in
+            var minutes = Array(state.minutes.lazy.filter { $0.start >= base && $0.start <= to }.map { minute in
+                (start: minute.start, values: series.map { minute.values[$0] })
+            })
+            if let current = state.current, current.start <= to { minutes.append((current.start, series.map { current.values[$0] })) }
             return minutes
         }
-        var buckets: [Int: Values] = [:]
+        var buckets = [[Int: Values]](repeating: [:], count: series.count)
         for minute in minutes {
-            guard let values = minute.values[series] else { continue }
             let index = max(0, Int(minute.start.timeIntervalSince(base) / step))
-            buckets[index, default: Values()].merge(values)
+            for (position, values) in minute.values.enumerated() {
+                guard let values else { continue }
+                buckets[position][index, default: Values()].merge(values)
+            }
         }
-        let result = buckets.keys.sorted().map { index in
-            ValuePoint(start: base.addingTimeInterval(Double(index) * step), values: buckets[index] ?? Values())
+        var result: [String: [ValuePoint]] = [:]
+        for (position, name) in series.enumerated() {
+            result[name] = buckets[position].keys.sorted().map { index in
+                ValuePoint(start: base.addingTimeInterval(Double(index) * step), values: buckets[position][index] ?? Values())
+            }
         }
         return (step, result)
     }

@@ -497,6 +497,8 @@ label > input, label > select { margin-top: 5px; }
 }
 /* A block of fixed size, centred by flexbox: Safari left an inline SVG at the top of a grid cell. */
 .tile svg { display: block; flex: none; width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+/* The EcoFlow letters are the platform's wordmark: larger than the symbols, to read on the tile. */
+.tile svg.icon-logo-ecoflow { width: 28px; height: 28px; }
 .tile.large { width: 48px; height: 48px; border-radius: var(--radius-md); }
 .tile.large svg { width: 26px; height: 26px; }
 .tile.tone-violet { background: linear-gradient(160deg, #a78bfa, #7c4ddb); }

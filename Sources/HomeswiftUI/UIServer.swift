@@ -662,15 +662,19 @@ public final class UIServer: Sendable {
             case ["metrics", "values"]:
                 // A plugin's reading over time (`series` is `plugin:<platform>:<series>`) from `from` to `to` (the last hour
                 // without them), in whole steps: each point with how many readings it averages, the average, the lowest and the highest.
+                // Several series separated by commas answer at once, as `series`: each one's points, by its name.
                 guard let metrics = catalog.metrics else { return .error(404, "this homeswift records no metrics") }
-                guard let series = request.query["series"], series.hasPrefix("plugin:") else { return .error(400, "series must be a plugin's reading") }
+                guard let query = request.query["series"] else { return .error(400, "series must be a plugin's reading") }
+                let names = query.split(separator: ",").map(String.init)
+                guard !names.isEmpty, names.count <= 200, names.allSatisfy({ $0.hasPrefix("plugin:") }) else {
+                    return .error(400, "series must be a plugin's reading")
+                }
                 let to = request.query["to"].flatMap(Self.date(iso:)) ?? Date()
                 let from = request.query["from"].flatMap(Self.date(iso:)) ?? to.addingTimeInterval(-3600)
                 guard from < to else { return .error(400, "from must be before to") }
-                let history = metrics.valueHistory(from: from, to: to, series: series)
-                return .json(.object([
-                    "step": .number(history.step),
-                    "points": .array(history.points.map { point in
+                let history = metrics.valueHistories(from: from, to: to, series: names)
+                func points(_ name: String) -> JSONValue {
+                    .array((history.points[name] ?? []).map { point in
                         .object([
                             "t": .number(point.start.timeIntervalSince1970),
                             "count": .number(Double(point.values.count)),
@@ -678,7 +682,12 @@ public final class UIServer: Sendable {
                             "low": .number(point.values.low),
                             "high": .number(point.values.high),
                         ])
-                    }),
+                    })
+                }
+                guard query.contains(",") else { return .json(.object(["step": .number(history.step), "points": points(query)])) }
+                return .json(.object([
+                    "step": .number(history.step),
+                    "series": .object(Dictionary(names.map { ($0, points($0)) }, uniquingKeysWith: { first, _ in first })),
                 ]))
             case ["metrics", "energy", "history"]:
                 // The long-term energy history (the archive: the bridge's own hours and plugins' imports): `period` week

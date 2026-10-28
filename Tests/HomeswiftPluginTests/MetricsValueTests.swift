@@ -32,6 +32,25 @@ struct MetricsValueTests {
         #expect(metrics.valueHistory(from: start, to: start.addingTimeInterval(60), series: "plugin:Test:grid").points.isEmpty)
     }
 
+    /// A page that graphs many readings reads them in one pass: each series gets what it would alone.
+    @Test func severalSeriesAreReadAtOnce() {
+        let clock = NIOLockedValueBox(start.addingTimeInterval(10))
+        let metrics = Metrics(directory: nil, now: { clock.withLockedValue { $0 } })
+        metrics.record(1, series: "plugin:Test:solar")
+        metrics.record(2, series: "plugin:Test:home")
+        clock.withLockedValue { $0 = start.addingTimeInterval(70) }
+        metrics.record(3, series: "plugin:Test:solar")
+        let names = ["plugin:Test:solar", "plugin:Test:home", "plugin:Test:grid"]
+        let all = metrics.valueHistories(from: start, to: start.addingTimeInterval(120), series: names)
+        for name in names {
+            let alone = metrics.valueHistory(from: start, to: start.addingTimeInterval(120), series: name)
+            #expect(all.step == alone.step)
+            #expect(all.points[name]?.map(\.values) == alone.points.map(\.values))
+        }
+        #expect(all.points["plugin:Test:solar"]?.map(\.values.sum) == [1, 3])
+        #expect(all.points["plugin:Test:grid"]?.isEmpty == true)
+    }
+
     @Test func nonFiniteReadingsAreLeftOut() {
         let metrics = Metrics(directory: nil, now: { [start] in start.addingTimeInterval(10) })
         metrics.record(.nan, series: "plugin:Test:solar")

@@ -124,7 +124,9 @@ pictures a page uploads (`data:` URLs of JPEG, PNG or WebP, checked by their byt
   fakegato-history for the Eve app.
 - **History and energy.** `context.recordValue(_:series:)` records a reading for the Status page's history (a minute
   keeps its count, sum, lowest and highest, for 8 days; `/api/metrics/values?series=plugin:<platform>:<series>`
-  answers it over a range, for a plugin's page). `recordValue(_:series:energy:)` with an `EnergyTag` also puts it in
+  answers it over a range, for a plugin's page; several series separated by commas answer at once, by name, under
+  `series`). A plugin that records many readings every few seconds names each series once with
+  `context.series(_:)` and records with that. `recordValue(_:series:energy:)` with an `EnergyTag` also puts it in
   the Status page's Energy section, whatever the plugin: its `EnergyRole` (`.solar` and `.home` in watts, `.grid`
   positive while importing, `.battery` positive while charging, `.batteryLevel` in percent) and the device's name.
   A figure several devices report alike (a system's home use, reported by each of its units) takes the same

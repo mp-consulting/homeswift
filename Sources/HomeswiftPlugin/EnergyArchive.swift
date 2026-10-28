@@ -1,5 +1,6 @@
 import Foundation
 import Homeswift
+import HomeswiftAI
 import NIOConcurrencyHelpers
 
 /// Watt-hours of each flow in an hour, or a span of hours; nil where the flow is not known (an import that has solar
@@ -162,14 +163,19 @@ public final class EnergyArchive: @unchecked Sendable {
 
     public let url: URL?
     private let hours: NIOLockedValueBox<[Int: Hour]>
-    private let saveDue = NIOLockedValueBox(false)
+    /// When the pending save runs; nil when nothing is to be written.
+    private let saveDue = NIOLockedValueBox<DispatchTime?>(nil)
     private let queue = DispatchQueue(label: "homeswift.energy-archive", qos: .utility)
     private let saveDelay: DispatchTimeInterval
+    /// The delay of a save after a recorded minute only. Years of hours are hundreds of kilobytes: written each minute,
+    /// they were the largest part of a busy bridge's work.
+    private let recordedSaveDelay: DispatchTimeInterval
 
     /// `url` nil keeps the archive in memory only.
-    public init(url: URL?, saveDelay: DispatchTimeInterval = .seconds(60)) {
+    public init(url: URL?, saveDelay: DispatchTimeInterval = .seconds(60), recordedSaveDelay: DispatchTimeInterval = .seconds(3600)) {
         self.url = url
         self.saveDelay = saveDelay
+        self.recordedSaveDelay = recordedSaveDelay
         var loaded: [Int: Hour] = [:]
         if let url, let data = try? Data(contentsOf: url), let stored = try? JSONDecoder().decode(Stored.self, from: data), stored.version == 1 {
             for (key, hour) in stored.hours { if let start = Int(key) { loaded[start] = hour } }
@@ -189,7 +195,8 @@ public final class EnergyArchive: @unchecked Sendable {
             hour.minutes = (hour.minutes ?? 0) + 1
             hours[Self.hourStart(start)] = hour
         }
-        scheduleSave()
+        // The kept minutes make these hours again at start (`rebuildRecorded`): a minute need not reach the file soon.
+        scheduleSave(after: recordedSaveDelay)
     }
 
     /// The recorded figures of whole hours, made again from the bridge's minutes (at start, from the days it keeps):
@@ -276,14 +283,17 @@ public final class EnergyArchive: @unchecked Sendable {
 
     // MARK: The file
 
-    private func scheduleSave() {
+    /// A save after `delay` (`saveDelay` by default), unless one is due sooner.
+    private func scheduleSave(after delay: DispatchTimeInterval? = nil) {
         guard url != nil else { return }
-        let due = saveDue.withLockedValue { due -> Bool in
-            defer { due = true }
-            return due
+        let deadline = DispatchTime.now() + (delay ?? saveDelay)
+        let schedule = saveDue.withLockedValue { due -> Bool in
+            if let due, due <= deadline { return false }
+            due = deadline
+            return true
         }
-        guard !due else { return }
-        queue.asyncAfter(deadline: .now() + saveDelay) { [weak self] in self?.write() }
+        guard schedule else { return }
+        queue.asyncAfter(deadline: deadline) { [weak self] in self?.write() }
     }
 
     /// Writes what changed now; the metrics store calls it when it stops.
@@ -292,22 +302,65 @@ public final class EnergyArchive: @unchecked Sendable {
     }
 
     private func write() {
-        guard let url, saveDue.withLockedValue({ due in defer { due = false }; return due }) else { return }
+        guard let url, saveDue.withLockedValue({ due in defer { due = nil }; return due != nil }) else { return }
         let snapshot = hours.withLockedValue { $0 }
-        let stored = Stored(version: 1, hours: Dictionary(uniqueKeysWithValues: snapshot.map { (String($0.key), Self.rounded($0.value)) }))
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        guard let data = try? encoder.encode(stored) else { return }
-        try? OwnerOnlyFile.write(data, to: url)
+        try? OwnerOnlyFile.write(Self.encoded(snapshot), to: url)
     }
 
-    /// Watt-hours to a hundredth: the file stays small, the sums exact enough.
-    private static func rounded(_ hour: Hour) -> Hour {
-        func round(_ flows: EnergyFlows?) -> EnergyFlows? {
-            guard var flows else { return nil }
-            for field in EnergyFlows.fields { flows[keyPath: field] = flows[keyPath: field].map { ($0 * 100).rounded() / 100 } }
-            return flows
+    /// The file's bytes: what `JSONEncoder` writes for `Stored` with sorted keys, written straight as bytes. Years of
+    /// hours are hundreds of kilobytes: the encoder's generic path was the slow part of a save.
+    static func encoded(_ hours: [Int: Hour]) -> Data {
+        // Watt-hours to a hundredth: the file stays small, the sums exact enough. The coding keys in the encoder's
+        // sorted order.
+        func write(_ flows: EnergyFlows, to json: inout JSONBytesWriter) {
+            func field(_ json: inout JSONBytesWriter, _ name: String, _ value: Double?) {
+                if let value { json.field(name, .number((value * 100).rounded() / 100)) }
+            }
+            json.object { json in
+                field(&json, "batteryCharge", flows.batteryCharge)
+                field(&json, "batteryDischarge", flows.batteryDischarge)
+                field(&json, "gridExport", flows.gridExport)
+                field(&json, "gridImport", flows.gridImport)
+                field(&json, "home", flows.home)
+                field(&json, "homeFromSolar", flows.homeFromSolar)
+                field(&json, "solar", flows.solar)
+            }
         }
-        return Hour(recorded: round(hour.recorded), minutes: hour.minutes, imported: hour.imported?.compactMapValues { round($0) })
+        // Sorted keys, as the encoder sorts them: by UTF-8 bytes. Hours as numbers of one length (every hour since 2001
+        // has ten digits) sort the same as numbers, far cheaper than comparing their text.
+        let starts = hours.keys.sorted()
+        // Sorted and not negative: all have one length when the first and the last have.
+        let sameLength = (starts.first ?? 0) >= 0 && String(starts.first ?? 0).utf8.count == String(starts.last ?? 0).utf8.count
+        let hourKeys = sameLength
+            ? starts.map { (String($0), $0) }
+            : hours.keys.map { (String($0), $0) }.sorted { $0.0.utf8.lexicographicallyPrecedes($1.0.utf8) }
+        var json = JSONBytesWriter(capacity: hours.count * 100)
+        json.object { json in
+            json.key("hours")
+            json.object { json in
+                for (key, start) in hourKeys {
+                    let hour = hours[start].unsafelyUnwrapped
+                    json.key(key)
+                    json.object { json in
+                        if let imported = hour.imported {
+                            json.key("imported")
+                            json.object { json in
+                                for source in imported.keys.sorted(by: { $0.utf8.lexicographicallyPrecedes($1.utf8) }) {
+                                    json.key(source)
+                                    write(imported[source].unsafelyUnwrapped, to: &json)
+                                }
+                            }
+                        }
+                        if let minutes = hour.minutes { json.field("minutes", .number(Double(minutes))) }
+                        if let recorded = hour.recorded {
+                            json.key("recorded")
+                            write(recorded, to: &json)
+                        }
+                    }
+                }
+            }
+            json.field("version", .number(1))
+        }
+        return Data(json.bytes)
     }
 }
