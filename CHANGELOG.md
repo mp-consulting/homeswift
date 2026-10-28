@@ -55,6 +55,13 @@ All notable changes to this project are documented here. The format follows
   page): presets in a segmented control, then **Custom…**, a pop-over in the app's material with a month to pick the
   first and last day and the From and To times, in place of a menu and the browser's date picker. The design explorer
   shows it under Foundations.
+- The web UI's stylesheet has shape, spacing, type, weight and layer tokens (`--radius-sm`, `--space-12`,
+  `--text-sm`, `--weight-figure`, `--layer-menu`…), and accent tints are `color-mix()` of `--accent`. About 1,500
+  literal values moved onto them. Corners now keep to one scale of 6, 10, 14, 18, 22 and 26 px: segmented controls,
+  readouts, menus and panels round by up to 2 px more or less, a capsule is a capsule at any height, and a
+  segmented control's thumb follows its track's curve. homeswift.dev uses the same scale. The design explorer's
+  Foundations shows the shapes, the type ramp and the weights live; docs/design-system.md lists every token family,
+  and a test keeps the stylesheet on them.
 
 - The JSON editors (Config, a plugin's JSON) fold a block that spans lines from a chevron beside it.
 - The JSON editors mark each key that holds a secret (the bridge's redaction rule) with a lock, in gold.

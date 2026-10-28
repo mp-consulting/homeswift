@@ -20,7 +20,7 @@ Filters separate widgets, characteristics and foundations.
 - **Characteristics** render the production inspector row for that characteristic, with its exact format,
   permissions, ranges, steps, units, enum values, maximum string length and supporting services. Fields the
   UI deliberately hides, including protocol payloads, explain why they have no standalone control.
-- **Foundations** show the live colour tokens and the rules for spacing, typography, shape and interaction, and
+- **Foundations** show the live colour, shape (radius), type-size and weight tokens, the rules for layout and interaction, and
   the time range control every page uses (`HomeswiftCommon.rangeControl`: presets, then Custom…'s pop-over), live.
 
 Use the canvas toolbar to choose a viewport or Fit, simulate a paused or unavailable accessory, or remove
@@ -64,7 +64,29 @@ widget does not reserve empty space. All controls remain available in the access
 The wall uses columns starting at 176 px on larger viewports, two flexible columns on phones, 10 px gaps and rows of at
 least 64 px. Accessories use a 22 px radius and 40 px summary icons. System type and a distinct name/status
 hierarchy keep the content readable. Active tiles use the bright tile surface; paused and unavailable states
-remain explicit. The foundations story reads colour tokens directly from the production stylesheet.
+remain explicit. The foundations story reads its tokens directly from the production stylesheet.
+
+### Tokens
+
+`Sources/HomeswiftUI/Web/style.css` defines every token on `:root`. Widgets, pages and plugin pages use these
+tokens, not literal values:
+
+| Family | Tokens | Use |
+|---|---|---|
+| Colour | `--text`, `--muted`, `--line`, `--accent`, `--accent-ink`, `--accent-fill`, `--ok`, `--warn`, `--error`, `--series-1`…`7` | Orange words take `--accent-ink`; white words on orange take `--accent-fill` (both WCAG AA); `--accent` is for marks, rings and glows. A tint of a colour is `color-mix(in srgb, var(--accent) 35%, transparent)`, not a copied `rgba()` |
+| Material | `--material-chrome`, `--material-thick`, `--material`, `--material-thin`, `--material-solid`, `--control`, `--field` | Header, cards, chips and groups, controls (see the comment above `.card`) |
+| Shape | `--radius-xs` 6, `--radius-sm` 10, `--radius-md` 14, `--radius-lg` 18, `--radius` 22, `--radius-xl` 26, `--radius-pill` | Chips and swatches; small controls and icon tiles; controls and rows; groups and menus; cards; sheets, panels and dialogs; capsules (a radius of half the height). A shape nested in another takes the outer radius minus the inset between them (`calc(var(--radius-md) - 3px)` for a segmented control's thumb), so the curves stay concentric. Only hairline marks (bars, ticks, grabbers) go under 6 px |
+| Spacing | `--space-4`, `-6`, `-8`, `-10`, `-12`, `-14`, `-16`, `-18`, `-20`, `-24` (named by size) | 4 to 8 inside a control, 10 to 14 between controls and rows, 16 to 24 around groups and cards. Odd and 1 to 3 px values are optical nudges and stay literal |
+| Type | `--text-2xs` 11 … `--text-base` 15 … `--text-3xl` 22 (in rem) | Sizes follow the browser's text size. Fields stay at 16 px on touch screens, where less makes iOS zoom |
+| Weight | `--weight-regular`, `-medium`, `-semibold`, `-figure` (650), `-bold` | `--weight-figure` is for numbers set large: stats, readings, chart figures |
+| Motion | `--ease-out`, `--fast` (120 ms), `--normal` (200 ms) | Every transition; under reduced motion a component drops its movement and keeps at most a fade |
+| Layer | `--layer-tabbar`, `--layer-panel`, `--layer-menu`, `--layer-drag`, `--layer-tip` | What floats over the page; a scrim takes `calc(var(--layer-…) - 1)`. Stacking inside a component keeps small local numbers |
+
+`DesignTokenTests` fails when a rule writes a value that has a token (a radius of 6 px or more outside `calc()`, a
+size of the type ramp, a weight, a spacing step, a copy of the accent's `rgba()`), and when the two dark blocks
+differ. The dark tokens are written twice, for the system's dark mode and for a theme chosen in the web UI:
+`light-dark()` would share them, but it is missing before iOS 17.5, where every colour would fall back. Widget
+figures in px, display sizes and fields' 16 px stay literal. homeswift.dev's `site.css` carries the same shape scale.
 
 HomeKit temperatures remain Celsius in the fixture; presentation follows the temperature preference.
 Colour temperature remains mireds in the fixture and appears as Kelvin in the light widget. Controls retain

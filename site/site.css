@@ -14,6 +14,8 @@
   --font: system-ui, -apple-system, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
   --radius: 22px; --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  /* The web UI's shape scale (Sources/HomeswiftUI/Web/style.css), so the pages draw its widgets and controls alike. */
+  --radius-xs: 6px; --radius-sm: 10px; --radius-md: 14px; --radius-lg: 18px; --radius-xl: 26px; --radius-pill: 999px;
   /* One spring for everything: critically damped, so nothing overshoots; 400 ms for a response of 0.3 s,
      540 ms for 0.4 s. Browsers without linear() get a curve close to it. */
   --spring: cubic-bezier(0.2, 0.9, 0.25, 1);
@@ -60,7 +62,7 @@ body {
 }
 body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--glass-solid); }
 a { color: inherit; }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: var(--radius-xs); }
 
 .band { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
 .wrap { max-width: 1080px; margin: 0 auto; }
@@ -147,7 +149,7 @@ code, pre { font-family: var(--mono); }
 .small .who strong { white-space: normal; }
 .status { font-size: 0.75rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 200ms var(--ease-out); }
 .status.heat { color: var(--accent-ink); } .status.cool { color: var(--cool); } .status.ok { color: var(--ok); }
-.icon { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; flex: none; color: #fff;
+.icon { width: 34px; height: 34px; border-radius: var(--radius-sm); display: grid; place-items: center; flex: none; color: #fff;
   background: var(--tile-off-icon); box-shadow: inset 0 1px 0 rgba(255,255,255,0.35); transition: background 200ms var(--ease-out), box-shadow 200ms var(--ease-out), color 200ms; }
 .icon svg { width: 19px; height: 19px; }
 .on .icon.light { background: linear-gradient(160deg, #ffd66b, #f0a01e); color: #3a2600; box-shadow: 0 4px 14px rgba(240,160,30,0.45), inset 0 1px 0 rgba(255,255,255,0.4); }
@@ -168,7 +170,7 @@ code, pre { font-family: var(--mono); }
 .switch[aria-checked="true"]:active::after { transform: translateX(12px); }
 
 /* Slider: a bar that tracks the finger 1:1 from where it was grabbed. */
-.slider { position: relative; height: 44px; border-radius: 14px; background: var(--track); overflow: hidden; cursor: ew-resize; touch-action: none; }
+.slider { position: relative; height: 44px; border-radius: var(--radius-md); background: var(--track); overflow: hidden; cursor: ew-resize; touch-action: none; }
 .slider .fill { position: absolute; inset: 0; transform-origin: left; background: linear-gradient(90deg, #b6e27a, #dff3a8); transform: scaleX(var(--v, 0.7)); }
 .off .slider .fill { background: linear-gradient(90deg, rgba(150,158,172,0.45), rgba(150,158,172,0.25)); }
 .slider .labels { position: relative; display: flex; justify-content: space-between; align-items: center; height: 100%; padding: 0 14px; font-size: 0.8125rem; font-weight: 600; color: #22300c; font-variant-numeric: tabular-nums; }
@@ -194,7 +196,7 @@ code, pre { font-family: var(--mono); }
 .lock .hold { position: absolute; left: 0; bottom: 0; height: 4px; width: 100%; background: var(--accent); transform: scaleX(0); transform-origin: left; transition: transform 180ms var(--ease-out); }
 .lock.holding .hold { transform: scaleX(1); transition: transform 650ms linear; }
 
-.wire { margin-top: 14px; display: flex; gap: 10px; align-items: baseline; font: 0.75rem/1.4 var(--mono); color: var(--muted); min-width: 0; padding: 10px 14px; border-radius: 14px; background: var(--glass); border: 1px solid var(--glass-edge); }
+.wire { margin-top: 14px; display: flex; gap: 10px; align-items: baseline; font: 0.75rem/1.4 var(--mono); color: var(--muted); min-width: 0; padding: 10px 14px; border-radius: var(--radius-md); background: var(--glass); border: 1px solid var(--glass-edge); }
 .wire b { color: var(--accent-ink); font-weight: 600; flex: none; }
 .wire span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .stage-note { margin-top: 8px; text-align: center; }
@@ -213,7 +215,7 @@ section { padding-block: clamp(56px, 8vw, 104px); }
 .row-label span { font-size: 0.75rem; color: var(--faint); }
 .bars { display: grid; gap: 6px; min-width: 0; }
 .bar { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 0.8125rem; font-variant-numeric: tabular-nums; }
-.bar i { display: block; height: 12px; border-radius: 6px; flex: none; min-width: 3px; }
+.bar i { display: block; height: 12px; border-radius: var(--radius-xs); flex: none; min-width: 3px; }
 .bar.us i { background: linear-gradient(90deg, var(--accent), var(--accent-deep)); }
 .bar.them i { background: var(--track); }
 .bar.them { color: var(--muted); }
@@ -228,7 +230,7 @@ section { padding-block: clamp(56px, 8vw, 104px); }
 .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
 .card { background: var(--bg-raised); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; display: grid; gap: 10px; align-content: start; min-width: 0; }
 .card p { color: var(--muted); font-size: 0.9375rem; }
-.card .glyph { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; color: #fff; margin-bottom: 6px; }
+.card .glyph { width: 40px; height: 40px; border-radius: var(--radius-sm); display: grid; place-items: center; color: #fff; margin-bottom: 6px; }
 .card .glyph svg { width: 21px; height: 21px; }
 .card.wide { grid-column: span 2; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 24px; }
 .card.wide > div { display: grid; gap: 10px; }
@@ -236,14 +238,14 @@ section { padding-block: clamp(56px, 8vw, 104px); }
 .card.span2 p { max-width: 36rem; }
 
 /* Setup code: HomeKit's label, 8 digits in two rows of four. */
-.code-label { justify-self: center; display: grid; grid-template-columns: auto auto; gap: 14px; align-items: center; padding: 16px 20px; border-radius: 14px; background: #fff; color: #111; border: 2px solid #111; box-shadow: var(--shadow); }
+.code-label { justify-self: center; display: grid; grid-template-columns: auto auto; gap: 14px; align-items: center; padding: 16px 20px; border-radius: var(--radius-md); background: #fff; color: #111; border: 2px solid #111; box-shadow: var(--shadow); }
 .code-label svg { width: 40px; height: 40px; }
 .code-label .digits { font: 600 1.6rem/1.15 var(--mono); letter-spacing: 0.08em; font-variant-numeric: tabular-nums; }
 
 /* Plugins */
 .plugins { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr)); gap: 10px; }
-.plugin { display: flex; gap: 12px; align-items: center; padding: 14px 16px; border-radius: 16px; background: var(--glass); border: 1px solid var(--glass-edge); min-width: 0; }
-.plugin .mono { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; font-weight: 700; font-size: 0.8125rem; letter-spacing: -0.02em; background: var(--track); color: var(--ink); flex: none; }
+.plugin { display: flex; gap: 12px; align-items: center; padding: 14px 16px; border-radius: var(--radius-lg); background: var(--glass); border: 1px solid var(--glass-edge); min-width: 0; }
+.plugin .mono { width: 36px; height: 36px; border-radius: var(--radius-sm); display: grid; place-items: center; font-weight: 700; font-size: 0.8125rem; letter-spacing: -0.02em; background: var(--track); color: var(--ink); flex: none; }
 .plugin div { display: grid; min-width: 0; }
 .plugin strong { font-size: 0.9375rem; font-weight: 600; }
 .plugin span { font-size: 0.8125rem; color: var(--muted); }
@@ -252,22 +254,22 @@ section { padding-block: clamp(56px, 8vw, 104px); }
 
 /* Install */
 .install { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 20px; align-items: start; }
-.seg { position: relative; display: inline-flex; padding: 3px; border-radius: 12px; background: var(--track); gap: 2px; margin-bottom: 14px; max-width: 100%; overflow-x: auto; }
-.seg button { position: relative; z-index: 1; font: 500 0.875rem/1 var(--font); border: 0; padding: 9px 16px; border-radius: 9px; background: none; color: var(--muted); cursor: pointer; white-space: nowrap;
+.seg { position: relative; display: inline-flex; padding: 3px; border-radius: var(--radius-md); background: var(--track); gap: 2px; margin-bottom: 14px; max-width: 100%; overflow-x: auto; }
+.seg button { position: relative; z-index: 1; font: 500 0.875rem/1 var(--font); border: 0; padding: 9px 16px; border-radius: calc(var(--radius-md) - 3px); background: none; color: var(--muted); cursor: pointer; white-space: nowrap;
   transition: background-color 200ms var(--ease-out), color 200ms var(--ease-out), transform 400ms var(--spring); -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 .seg button:active { transform: scale(0.96); transition: transform var(--press); }
 .seg button[aria-selected="true"] { background: var(--bg-raised); color: var(--ink); box-shadow: var(--shadow-small); }
 /* With site.js, the selection is one thumb that slides between the segments (--x and --w), springing from wherever it is. */
 .seg.thumb::before { content: ""; position: absolute; top: 3px; bottom: 3px; left: 0; width: var(--w, 0); transform: translateX(var(--x, 0));
-  border-radius: 9px; background: var(--bg-raised); box-shadow: var(--shadow-small); }
+  border-radius: calc(var(--radius-md) - 3px); background: var(--bg-raised); box-shadow: var(--shadow-small); }
 .seg.thumb.ready::before { transition: transform 400ms var(--spring), width 400ms var(--spring); }
 .seg.thumb button[aria-selected="true"] { background: none; box-shadow: none; }
 .term:not([hidden]) { animation: pane-in 280ms var(--ease-out); }
 @keyframes pane-in { from { opacity: 0; } }
-.term { position: relative; background: var(--code-bg); color: var(--code-ink); border-radius: 18px; padding: 18px 20px; overflow-x: auto; font-size: 0.8125rem; line-height: 1.7; }
+.term { position: relative; background: var(--code-bg); color: var(--code-ink); border-radius: var(--radius-lg); padding: 18px 20px; overflow-x: auto; font-size: 0.8125rem; line-height: 1.7; }
 .term pre { margin: 0; white-space: pre; }
 .term .c { color: var(--code-com); } .term .k { color: var(--code-kw); } .term .s { color: var(--code-str); } .term .t { color: var(--code-type); }
-.copy { position: absolute; top: 10px; right: 10px; font: 500 0.75rem/1 var(--font); color: var(--code-ink); background: color-mix(in srgb, var(--code-ink) 12%, var(--code-bg)); border: 0; border-radius: 8px; padding: 7px 10px; cursor: pointer;
+.copy { position: absolute; top: 10px; right: 10px; font: 500 0.75rem/1 var(--font); color: var(--code-ink); background: color-mix(in srgb, var(--code-ink) 12%, var(--code-bg)); border: 0; border-radius: var(--radius-sm); padding: 7px 10px; cursor: pointer;
   transition: transform 400ms var(--spring), background-color 160ms var(--ease-out); -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 @media (hover: hover) { .copy:hover { background: color-mix(in srgb, var(--code-ink) 18%, var(--code-bg)); } }
 .copy:active { transform: scale(0.96); background: color-mix(in srgb, var(--code-ink) 24%, var(--code-bg)); transition: transform var(--press), background-color var(--press); }
@@ -305,16 +307,16 @@ section { padding-block: clamp(56px, 8vw, 104px); }
 .graph-art .g-off circle { stroke-dasharray: 2 1.6; stroke-opacity: 0.7; }
 .graph-art .g-off use { opacity: 0.4; }
 .graph-art .g1 { --tone: #2a78d6; } .graph-art .g2 { --tone: #1baf7a; } .graph-art .g3 { --tone: #eb6834; } .graph-art .g4 { --tone: #6250d6; } .graph-art .g5 { --tone: #e87ba4; }
-.graph-card { position: absolute; right: clamp(12px, 3vw, 24px); bottom: clamp(12px, 3vw, 24px); width: min(230px, 46%); background: var(--bg-raised); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 12px; display: grid; gap: 8px; font-size: 0.75rem; }
+.graph-card { position: absolute; right: clamp(12px, 3vw, 24px); bottom: clamp(12px, 3vw, 24px); width: min(230px, 46%); background: var(--bg-raised); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow); padding: 12px; display: grid; gap: 8px; font-size: 0.75rem; }
 .graph-card-head { display: flex; gap: 8px; align-items: center; }
-.graph-card-head i { flex: none; width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; color: #1baf7a; background: color-mix(in srgb, #1baf7a 14%, transparent); }
+.graph-card-head i { flex: none; width: 28px; height: 28px; border-radius: var(--radius-sm); display: grid; place-items: center; color: #1baf7a; background: color-mix(in srgb, #1baf7a 14%, transparent); }
 .graph-card-head svg { width: 16px; height: 16px; }
 .graph-card-head b { display: block; font-size: 0.8125rem; }
 .graph-card-head small { color: var(--muted); }
-.graph-shot { position: relative; aspect-ratio: 16 / 9; border-radius: 10px; overflow: hidden; background: linear-gradient(160deg, #9fc6a8, #4f7f68 55%, #2d4a3e); }
+.graph-shot { position: relative; aspect-ratio: 16 / 9; border-radius: var(--radius-sm); overflow: hidden; background: linear-gradient(160deg, #9fc6a8, #4f7f68 55%, #2d4a3e); }
 .graph-shot img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .graph-shot span { position: absolute; top: 6px; right: 6px; font-size: 0.5625rem; font-weight: 700; letter-spacing: 0.04em; color: #fff; background: rgba(0, 0, 0, 0.45); padding: 2px 6px; border-radius: 999px; }
-.graph-card dl { margin: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 8px; padding: 8px 10px; border-radius: 10px; background: color-mix(in srgb, var(--ink) 4%, transparent); }
+.graph-card dl { margin: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 8px; padding: 8px 10px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--ink) 4%, transparent); }
 .graph-card dt { color: var(--muted); }
 .graph-card dd { margin: 0; }
 @media (max-width: 760px) { .graph-card { position: static; width: auto; margin-top: 10px; } }
