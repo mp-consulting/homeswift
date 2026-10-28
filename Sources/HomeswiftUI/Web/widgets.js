@@ -240,6 +240,8 @@
       const target = owner && owner.characteristics.find((c) => c.type === characteristic);
       if (!target) continue;
       target.value = value;
+      // Counted, for what repeats its value: a remote's button pressed twice the same way.
+      target.events = (target.events ?? 0) + 1;
       ctx.paint();
     }
   }
@@ -1574,6 +1576,57 @@
       built.body = [el("div", { class: `readouts${size === "medium" ? " three" : ""}` }, size === "medium" ? f.readouts.slice(0, 3) : f.readouts.slice(0, 6)), size !== "medium" ? f.meters[0] : null].filter(Boolean);
       if (size === "full") built.facets = { chips: f.chips, readouts: [], meters: f.meters.slice(1), blocks: f.blocks };
       return built;
+    },
+  });
+
+  /// Plays a key's or a tile's press once more (the class taken off and put back restarts its transition).
+  function pulse(node) {
+    if (!node) return;
+    node.classList.remove("pressed");
+    void node.offsetWidth;
+    node.classList.add("pressed");
+    clearTimeout(node.pressTimer);
+    node.pressTimer = setTimeout(() => node.classList.remove("pressed"), 160);
+  }
+
+  // A remote's buttons (a dimmer switch, a Tap, an IKEA remote): read only, a press is an event and nothing HomeKit
+  // sends back. The tile gives a little press and the status line says which button and how until the next; from
+  // large up a key per button lights for a moment as it is pressed. Tapping it opens All controls.
+  register({
+    name: "remote", types: ["StatelessProgrammableSwitch"], icon: "switch", tone: "green",
+    size: (ctx) => ctx.all("StatelessProgrammableSwitch").length > 1 ? "medium" : "small",
+    build(ctx, primary, size) {
+      const index = (service) => numberOf(ctx.char(service, "Service Label Index"), Number.MAX_SAFE_INTEGER);
+      const buttons = ctx.all("StatelessProgrammableSwitch").sort((a, b) => index(a) - index(b));
+      const presses = buttons.map((service) => { ctx.take(service, "Service Label Index"); return ctx.take(service, "Programmable Switch Event"); });
+      const low = ctx.take(ctx.find("Battery"), "Status Low Battery");
+      const name = (i) => buttons.length === 1 ? t("Button") : shortName(ctx.accessory, buttons[i]);
+      const keys = buttons.map((service, i) => el("span", { class: "remote-key", text: String(index(service) === Number.MAX_SAFE_INTEGER ? i + 1 : index(service)), title: name(i) }));
+      const seen = presses.map((c) => c?.events ?? 0);
+      let last = null;
+      // A low battery on the large tile, beside the keys; a press keeps the status line, which says it otherwise.
+      const battery = el("span", { class: "remote-battery hidden" });
+      ctx.watch(() => {
+        battery.textContent = t("Low battery");
+        battery.classList.toggle("hidden", !isOn(low));
+        presses.forEach((c, i) => {
+          if ((c?.events ?? 0) === seen[i]) return;
+          seen[i] = c.events;
+          last = { i, value: c.value };
+          pulse(keys[i]);
+          pulse(ctx.node?.querySelector(".tile"));
+        });
+      });
+      return {
+        on: () => false,
+        hero: () => buttons.length > 1 ? el("span", {}, String(buttons.length), el("small", { text: ` ${tn("button", "buttons", buttons.length)}` })) : t("Button"),
+        status: () => {
+          if (last) return [`${name(last.i)} · ${labelFor("Programmable Switch Event", last.value)}`];
+          if (isOn(low)) return [t("Low battery"), "warn"];
+          return [buttons.length > 1 ? t("Press a button to see it here") : t("Press it to see it here")];
+        },
+        body: size === "small" ? [] : [el("div", { class: "remote-keys" }, el("div", { class: "remote-key-row", "aria-hidden": "true" }, keys), battery)],
+      };
     },
   });
 

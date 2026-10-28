@@ -137,6 +137,16 @@ try {
     for (const size of ["small", "medium", "large", "xlarge"]) await shot(`battery-${size}${suffix}`, `.wall.battery-${size} .widget`);
   }
   await appearance("light");
+  // Sensors and a remote: a press lights its key and names it in the status line, and pressed twice the same way it
+  // counts twice (the event repeats its value).
+  await open("sensors");
+  const press = (n, value) => evaluate(`HomeswiftWidgets.event({ id: "remote", subtype: "button:${n}", characteristic: "Programmable Switch Event", value: ${value} })`);
+  await press(2, 1);
+  await sleep(30);
+  if (!(await evaluate("document.querySelector('.remote-sizes .size-large .remote-key:nth-child(2)').classList.contains('pressed')"))) throw new Error("A remote's press did not light its key");
+  if (!(await evaluate("document.querySelector('.remote-sizes .size-medium').textContent.includes('Button 2 · Double press')"))) throw new Error("A remote's press is not in its status line");
+  await shot("sensors", ".wall.sensors");
+  await shot("remote", ".wall.remote-sizes");
   console.log('PASS: XL fits its contents and grows/shrinks with optional controls');
   if (process.argv[2]) { await open("sizes", 1272); await shot("s-m-l-xl", ".wall"); }
   await open("wall");

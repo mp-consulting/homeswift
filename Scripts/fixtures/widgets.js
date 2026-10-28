@@ -13,8 +13,17 @@ const valve=A('valve','Garden Water','sprinkler',[S('Valve',[C('Active',0),C('In
 const sensor=A('sensor','Hall Temperature','sensor',[S('TemperatureSensor',[C('Current Temperature',22,'float',{unit:'celsius'})])]);
 // A battery on its own accessory, as a battery pack reports it: the level, charging (0 not, 1 charging) and low.
 const battery=A('battery','Garage Battery','other',[S('Battery',[C('Battery Level',72,'uint8',{minValue:0,maxValue:100,minStep:1,unit:'percentage'}),C('Charging State',1,'uint8',{validValues:[0,1,2]}),C('Status Low Battery',0,'uint8',{validValues:[0,1]})])]);
+// Sensors and a remote, as the Hue and IKEA plugins publish them: a motion sensor with its light level and battery,
+// a leak sensor, an air sensor, and a four-button remote (a Stateless Programmable Switch per button, numbered).
+const bat=(level,low=0)=>S('Battery',[C('Battery Level',level,'uint8',{minValue:0,maxValue:100,minStep:1,unit:'percentage'}),C('Charging State',2),C('Status Low Battery',low)],{primary:false});
+const motion=A('motion','Hall Sensor','sensor',[S('MotionSensor',[C('Motion Detected',true,'bool')]),S('LightSensor',[C('Current Ambient Light Level',120,'float',{unit:'lux'})],{primary:false}),bat(84)]);
+const leak=A('leak','Sink','sensor',[S('LeakSensor',[C('Leak Detected',0)]),bat(90)]);
+const air=A('air','Office Air','sensor',[S('AirQualitySensor',[C('Air Quality',3),C('PM2.5 Density',18,'float')]),S('TemperatureSensor',[C('Current Temperature',22.5,'float',{unit:'celsius'})],{primary:false}),S('HumiditySensor',[C('Current Relative Humidity',41,'float',{unit:'percentage'})],{primary:false})]);
+const button=(n,primary)=>S('StatelessProgrammableSwitch',[C('Programmable Switch Event',0,'uint8',{permissions:['pr','ev'],validValues:[0,1,2]}),C('Service Label Index',n)],{name:`Button ${n}`,subtype:`button:${n}`,primary});
+const remote=A('remote','Bedroom Dimmer','programmableSwitch',[button(1,true),button(2,false),button(3,false),button(4,false),bat(9,1)]);
 const accessories=[gate,lock,light('spots','Ceiling Spots',false),light('hall','Hallway Spots',false),plug,light('pendant','Dining Pendant'),cover,sensor,climate,purifier,valve,battery];
 window.previewAccessories=accessories;
+window.previewSensors=[motion,leak,air,remote];
 const e=HomeswiftCommon.el,main=document.querySelector('main');
 const add=(a,size,wall)=>{
  const options={size,actions:()=>[{label:'Size',choices:HomeswiftWidgets.sizes.map(one=>({
@@ -32,6 +41,10 @@ window.preview=(mode='wall')=>{
  const wall=e('div',{class:'wall'});main.append(wall);
  if(mode==='adaptive'){const a=structuredClone(accessories[5]);a.services[0].adaptiveLighting={resumable:true};a.services[0].characteristics.push(C('Characteristic Value Active Transition Count',1));add(a,'xlarge',wall);}
  else add(cover,'medium',wall);
+ }else if(mode==='sensors'){
+  // Each at its default size, then the remote at each size; ?press= presses a button (its number) for the shot.
+  const wall=e('div',{class:'wall sensors'});main.append(wall);for(const a of [motion,leak,air,remote])add(a,undefined,wall);
+  const sizes=e('div',{class:'wall remote-sizes'});main.append(sizes);for(const size of ['small','medium','large'])add(remote,size,sizes);
  }else if(mode==='battery'){
   for(const size of HomeswiftWidgets.sizes){const wall=e('div',{class:`wall battery-${size}`});main.append(wall);add(battery,size,wall);}
  }else if(mode==='sizes'||mode==='sizes-more'){

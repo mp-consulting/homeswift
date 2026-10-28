@@ -11164,6 +11164,12 @@ HomeswiftI18n.add("es", {
   "Signing in asks for the code your authenticator app shows, after the password.": "Al iniciar sesión se pide el código que muestra tu app de autenticación, después de la contraseña.",
   "Signing in…": "Iniciando sesión…",
   "since: an ISO time, or 1h, 24h, 7d": "since: una hora ISO, o 1h, 24h, 7d",
+  "button": "botón",
+  "buttons": "botones",
+  "Button": "Botón",
+  "Press a button to see it here": "Pulsa un botón para verlo aquí",
+  "Press it to see it here": "Púlsalo para verlo aquí",
+  "Low battery": "Batería baja",
   "Single press": "Pulsación simple",
   "Siri": "Siri",
   "Siri Enable": "Siri activado",
@@ -13396,6 +13402,12 @@ HomeswiftI18n.add("fr", {
   "Signing in asks for the code your authenticator app shows, after the password.": "La connexion demande le code affiché par votre app d'authentification, après le mot de passe.",
   "Signing in…": "Connexion…",
   "since: an ISO time, or 1h, 24h, 7d": "since : une heure ISO, ou 1h, 24h, 7d",
+  "button": "bouton",
+  "buttons": "boutons",
+  "Button": "Bouton",
+  "Press a button to see it here": "Appuyez sur un bouton pour le voir ici",
+  "Press it to see it here": "Appuyez dessus pour le voir ici",
+  "Low battery": "Batterie faible",
   "Single press": "Appui simple",
   "Siri": "Siri",
   "Siri Enable": "Siri activé",
@@ -15628,6 +15640,12 @@ HomeswiftI18n.add("pt", {
   "Signing in asks for the code your authenticator app shows, after the password.": "O início de sessão pede o código que a app de autenticação mostra, depois da palavra-passe.",
   "Signing in…": "A iniciar sessão…",
   "since: an ISO time, or 1h, 24h, 7d": "since: uma hora ISO, ou 1h, 24h, 7d",
+  "button": "botão",
+  "buttons": "botões",
+  "Button": "Botão",
+  "Press a button to see it here": "Prima um botão para o ver aqui",
+  "Press it to see it here": "Prima-o para o ver aqui",
+  "Low battery": "Bateria fraca",
   "Single press": "Pressão simples",
   "Siri": "Siri",
   "Siri Enable": "Siri ativada",
@@ -18257,6 +18275,19 @@ button.busy::after {
   border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin 0.8s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+/* A remote's keys (widgets.js "remote"): a key lights at once as its button is pressed and fades out slowly; the tile
+   gives a small press. Under reduced motion only the colour changes. */
+.remote-keys { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; margin-top: 12px; }
+.remote-key-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.remote-battery { font-size: 0.8125rem; font-weight: 500; color: var(--warn); }
+.remote-key {
+  min-width: 36px; height: 36px; padding: 0 10px; border-radius: 11px; display: inline-grid; place-items: center;
+  background: var(--material-thin); border: 1px solid var(--line); font-weight: 600; font-variant-numeric: tabular-nums;
+  transition: background-color 600ms var(--ease-out), color 600ms var(--ease-out), transform 300ms var(--ease-out);
+}
+.remote-key.pressed { background: var(--accent); color: var(--accent-text); transform: scale(0.94); transition-duration: 60ms; }
+.widget .tile.pressed { transform: scale(0.94); transition: transform 60ms var(--ease-out); }
+@media (prefers-reduced-motion: reduce) { .remote-key.pressed, .widget .tile.pressed { transform: none; } }
 /* Something loading: a ring that turns, faded in after 150 ms so a quick load does not flash it; a page's in the middle
    of the view. */
 .spinner {
@@ -18729,7 +18760,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget.size-medium { width: var(--unit); height: calc(var(--tile-row) * 2 + var(--unit-gap)); }
 .widget.size-large { width: calc(var(--unit) * 2 + var(--unit-gap)); height: calc(var(--tile-row) * var(--card-rows, 3) + var(--unit-gap) * (var(--card-rows, 3) - 1)); }
 .widget.size-xlarge { width: calc(var(--unit) * 2 + var(--unit-gap)); height: calc(var(--tile-row) * var(--card-rows, 5) + var(--unit-gap) * (var(--card-rows, 5) - 1)); }
-.widget .tile { transition: background var(--normal) var(--ease-out), box-shadow var(--normal) var(--ease-out), color var(--normal) var(--ease-out); }
+.widget .tile { transition: background var(--normal) var(--ease-out), box-shadow var(--normal) var(--ease-out), color var(--normal) var(--ease-out), transform 300ms var(--ease-out); }
 .widget:not(.widget-full) .tile { width: 34px; height: 34px; border-radius: 10px; }
 .widget:not(.widget-full) .tile svg { width: 19px; height: 19px; }
 .tile.tone-heat { background: linear-gradient(160deg, #ffb15c, #f2711c); }
@@ -21654,6 +21685,8 @@ self.addEventListener("notificationclick", (event) => {
       const target = owner && owner.characteristics.find((c) => c.type === characteristic);
       if (!target) continue;
       target.value = value;
+      // Counted, for what repeats its value: a remote's button pressed twice the same way.
+      target.events = (target.events ?? 0) + 1;
       ctx.paint();
     }
   }
@@ -22988,6 +23021,57 @@ self.addEventListener("notificationclick", (event) => {
       built.body = [el("div", { class: `readouts${size === "medium" ? " three" : ""}` }, size === "medium" ? f.readouts.slice(0, 3) : f.readouts.slice(0, 6)), size !== "medium" ? f.meters[0] : null].filter(Boolean);
       if (size === "full") built.facets = { chips: f.chips, readouts: [], meters: f.meters.slice(1), blocks: f.blocks };
       return built;
+    },
+  });
+
+  /// Plays a key's or a tile's press once more (the class taken off and put back restarts its transition).
+  function pulse(node) {
+    if (!node) return;
+    node.classList.remove("pressed");
+    void node.offsetWidth;
+    node.classList.add("pressed");
+    clearTimeout(node.pressTimer);
+    node.pressTimer = setTimeout(() => node.classList.remove("pressed"), 160);
+  }
+
+  // A remote's buttons (a dimmer switch, a Tap, an IKEA remote): read only, a press is an event and nothing HomeKit
+  // sends back. The tile gives a little press and the status line says which button and how until the next; from
+  // large up a key per button lights for a moment as it is pressed. Tapping it opens All controls.
+  register({
+    name: "remote", types: ["StatelessProgrammableSwitch"], icon: "switch", tone: "green",
+    size: (ctx) => ctx.all("StatelessProgrammableSwitch").length > 1 ? "medium" : "small",
+    build(ctx, primary, size) {
+      const index = (service) => numberOf(ctx.char(service, "Service Label Index"), Number.MAX_SAFE_INTEGER);
+      const buttons = ctx.all("StatelessProgrammableSwitch").sort((a, b) => index(a) - index(b));
+      const presses = buttons.map((service) => { ctx.take(service, "Service Label Index"); return ctx.take(service, "Programmable Switch Event"); });
+      const low = ctx.take(ctx.find("Battery"), "Status Low Battery");
+      const name = (i) => buttons.length === 1 ? t("Button") : shortName(ctx.accessory, buttons[i]);
+      const keys = buttons.map((service, i) => el("span", { class: "remote-key", text: String(index(service) === Number.MAX_SAFE_INTEGER ? i + 1 : index(service)), title: name(i) }));
+      const seen = presses.map((c) => c?.events ?? 0);
+      let last = null;
+      // A low battery on the large tile, beside the keys; a press keeps the status line, which says it otherwise.
+      const battery = el("span", { class: "remote-battery hidden" });
+      ctx.watch(() => {
+        battery.textContent = t("Low battery");
+        battery.classList.toggle("hidden", !isOn(low));
+        presses.forEach((c, i) => {
+          if ((c?.events ?? 0) === seen[i]) return;
+          seen[i] = c.events;
+          last = { i, value: c.value };
+          pulse(keys[i]);
+          pulse(ctx.node?.querySelector(".tile"));
+        });
+      });
+      return {
+        on: () => false,
+        hero: () => buttons.length > 1 ? el("span", {}, String(buttons.length), el("small", { text: ` ${tn("button", "buttons", buttons.length)}` })) : t("Button"),
+        status: () => {
+          if (last) return [`${name(last.i)} · ${labelFor("Programmable Switch Event", last.value)}`];
+          if (isOn(low)) return [t("Low battery"), "warn"];
+          return [buttons.length > 1 ? t("Press a button to see it here") : t("Press it to see it here")];
+        },
+        body: size === "small" ? [] : [el("div", { class: "remote-keys" }, el("div", { class: "remote-key-row", "aria-hidden": "true" }, keys), battery)],
+      };
     },
   });
 
