@@ -27,6 +27,9 @@ final class FakeBridge: HueTransport, @unchecked Sendable {
     private let state = NIOLockedValueBox<(linkButton: Bool, key: String, resources: [JSONValue], sent: [Sent], refuseKey: Bool, bridgeID: String)>(
         (false, "app-key-1", FakeBridge.resources, [], false, "C42996FFFEC76C08"))
 
+    /// How long a read of every resource takes, to have one still on its way when an event lands.
+    let readDelay = NIOLockedValueBox(Duration.zero)
+
     /// The open event streams' continuations.
     private let streams = NIOLockedValueBox<[AsyncThrowingStream<[UInt8], any Error>.Continuation]>([])
     var openStreams: Int { streams.withLockedValue { $0.count } }
@@ -90,7 +93,11 @@ final class FakeBridge: HueTransport, @unchecked Sendable {
         default:
             guard request.header("hue-application-key") == snapshot.key, !snapshot.refuseKey else { return json(["errors": [["description": "unauthorized user"]]], status: 403) }
         }
-        if request.method == "GET", path == "/clip/v2/resource" { return json(["errors": [], "data": .array(snapshot.resources)]) }
+        if request.method == "GET", path == "/clip/v2/resource" {
+            let delay = readDelay.withLockedValue { $0 }
+            if delay > .zero { try await Task.sleep(for: delay) }
+            return json(["errors": [], "data": .array(snapshot.resources)])
+        }
         if request.method == "PUT", path.hasPrefix("/clip/v2/resource/") {
             let parts = path.split(separator: "/")
             return json(["errors": [], "data": [["rid": .string(String(parts.last ?? "")), "rtype": .string(String(parts[parts.count - 2]))]]])
@@ -711,6 +718,34 @@ struct HueSensorTests {
         await plugin.refresh()
         #expect(presses.withLockedValue { $0 } == 1)
         #expect(first[.programmableSwitchEvent]?.value == 1)
+        await host.stop()
+    }
+
+    /// A read taken before an event and landing after it is dropped, not shown: the event's state stays.
+    @Test func aReadOlderThanAnEventIsDropped() async throws {
+        let host = try await environment.start(settings: ["host": "192.0.2.10", "pollingInterval": 60])
+        let desk = try await accessory(host, PhilipsHuePlugin.accessoryID(lightID: "light-2"))
+        let plugin = try #require(environment.plugin)
+        #expect(await eventually { environment.bridge.openStreams > 0 })
+        environment.bridge.readDelay.withLockedValue { $0 = .milliseconds(400) }
+        let read = Task { await plugin.refresh() }
+        try await Task.sleep(for: .milliseconds(100))
+        // The bridge's resources still say off (the read was taken before); the event says on.
+        environment.bridge.emit([["type": "update", "id": "e", "data": [["id": "light-2", "type": "light", "on": ["on": true]]]]])
+        #expect(await eventually { desk.service(.lightbulb)?[.on]?.value == true })
+        await read.value
+        #expect(desk.service(.lightbulb)?[.on]?.value == true)
+        await host.stop()
+    }
+
+    /// A change to a light left out of the Home app brings it back for no moment.
+    @Test func anEventForAnExcludedLightAddsNothing() async throws {
+        let host = try await environment.start(settings: ["host": "192.0.2.10", "excludeLights": ["Desk"]])
+        _ = try await accessory(host, PhilipsHuePlugin.accessoryID(lightID: "light-1"))
+        #expect(await eventually { environment.bridge.openStreams > 0 })
+        environment.bridge.emit([["type": "update", "id": "e", "data": [["id": "light-2", "type": "light", "on": ["on": true]]]]])
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(!host.mainBridge.server.accessories.contains { $0.id == PhilipsHuePlugin.accessoryID(lightID: "light-2") })
         await host.stop()
     }
 }

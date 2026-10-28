@@ -104,6 +104,8 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     /// Counts reads of the bridge: a read that finishes after a later one began (the poll's, overtaken by the one after
     /// a recall) is not applied, so the older state never comes back.
     private var refreshes = 0
+    /// Whether the last read landed stale (a later read, or an event, overtook it) and was not applied.
+    private(set) var lastReadDropped = false
     private var lights: [String: LightServices] = [:]
     var sceneAccessories: [String: SceneServices] = [:]
     /// The sensor devices' accessories, by device id (HueSensors.swift).
@@ -301,7 +303,8 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         let resources: [JSONValue]
         do {
             resources = try await client.resources()
-            guard read == refreshes else { return }
+            lastReadDropped = read != refreshes
+            guard !lastReadDropped else { return }
         } catch HueClient.Failure.unauthorized {
             lastError = "The Hue Bridge refused the application key: pair again from the plugin's page."
             logger.warning("The Hue Bridge refused the application key; pair again from the plugin's page")
@@ -309,6 +312,7 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
             await client.setApplicationKey(nil)
             save()
             for services in lights.values { services.accessory.isUnavailable = true }
+            for services in sensorAccessories.values { services.accessory.isUnavailable = true }
             return
         } catch {
             guard read == refreshes else { return }
@@ -605,10 +609,13 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     }
 
     /// A room's lightbulb (`roomLights`) from an event's brightness.
-    func showRoomLight(_ group: HueGroup) {
+    func showRoomLight(_ group: HueGroup) async {
         guard let services = sceneAccessories[group.id], let room = services.room, let writer = services.roomWriter else { return }
-        Task { await Self.showRoomValues(group, on: room, writer: writer) }
+        await Self.showRoomValues(group, on: room, writer: writer)
     }
+
+    /// Makes a read of the bridge already on its way stale: it is not applied when it lands.
+    func invalidateReads() { refreshes += 1 }
 
     /// The room's on and brightness as the bridge sums them up; left alone just after a command, as a light's are.
     static func showRoomValues(_ group: HueGroup, on bulb: Service, writer: LightChangeBatcher) async {

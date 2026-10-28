@@ -55,7 +55,8 @@ extension DirigeraPlugin {
                 continue
             }
             do {
-                groupAccessories[group.id] = try addGroup(group.devices, id: group.id, on: hub, shape: shape)
+                // A group with nothing to show yet (an air sensor that has reported no measure) waits for a later read.
+                if let built = try addGroup(group.devices, id: group.id, on: hub, shape: shape) { groupAccessories[group.id] = built } else { shown.remove(group.id) }
             } catch {
                 logger.error("Could not add \(group.devices[0].name): \(error)")
             }
@@ -230,7 +231,7 @@ extension DirigeraPlugin {
         }
     }
 
-    private func addGroup(_ devices: [DirigeraDevice], id: String, on hub: Hub, shape: String) throws -> GroupServices {
+    private func addGroup(_ devices: [DirigeraDevice], id: String, on hub: Hub, shape: String) throws -> GroupServices? {
         let client = hub.client
         let buttons = devices.filter { $0.kind == .controller }
         var byDevice: [String: [Service]] = [:]
@@ -241,6 +242,7 @@ extension DirigeraPlugin {
             byDevice[device.id] = services
             all += services
         }
+        guard !all.isEmpty else { return nil }
         if !buttons.isEmpty {
             let label = Service(.serviceLabel, subtype: "buttons")
             label.characteristic(.serviceLabelNamespace).value = .int(HAPConstants.ServiceLabelNamespace.arabicNumerals)

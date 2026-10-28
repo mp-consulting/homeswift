@@ -157,7 +157,7 @@ extension PhilipsHuePlugin {
                 let events = try await client.events()
                 streaming = true
                 failures = 0
-                for try await event in events { handle(eventData: event.data) }
+                for try await event in events { await handle(eventData: event.data) }
             } catch is CancellationError {
                 break
             } catch {
@@ -170,27 +170,33 @@ extension PhilipsHuePlugin {
         streaming = false
     }
 
-    /// One event's data: a JSON array of changes.
-    func handle(eventData: String) {
+    /// One event's data: a JSON array of changes. A change shown here makes a read already on its way stale (it was
+    /// taken before it), so that read is dropped rather than put the old state back.
+    func handle(eventData: String) async {
         guard let changes = try? JSONValue(data: Data(eventData.utf8)).arrayValue else { return }
         var readAgain = false
+        var applied = false
         for change in changes {
             guard change["type"]?.stringValue == "update" else { readAgain = true; continue }
-            for resource in change["data"]?.arrayValue ?? [] where !apply(change: resource) { readAgain = true }
+            for resource in change["data"]?.arrayValue ?? [] {
+                if await apply(change: resource) { applied = true } else { readAgain = true }
+            }
         }
+        if applied { invalidateReads() }
         if readAgain { scheduleRefresh() }
     }
 
     /// Takes in a changed part of a sensor's, a light's or a room's resource and shows it; false for any other, which a
     /// read of the bridge shows.
-    func apply(change resource: JSONValue) -> Bool {
+    func apply(change resource: JSONValue) async -> Bool {
         guard let rid = resource["id"]?.stringValue else { return false }
         switch resource["type"]?.stringValue {
         case "light":
             guard let index = snapshot.lights.firstIndex(where: { $0.id == rid }) else { return false }
             snapshot.lights[index].apply(resource)
             let light = snapshot.lights[index]
-            Task { await show(light) }
+            // Shown before the next event, so a burst lands in order; a light left out of the Home app stays out.
+            if !isExcluded(light) { await show(light) }
             return true
         case "grouped_light":
             guard let index = snapshot.groups.firstIndex(where: { $0.groupedLightID == rid }) else { return false }
@@ -198,7 +204,7 @@ extension PhilipsHuePlugin {
             if let level = resource["dimming"]?["brightness"]?.doubleValue { snapshot.groups[index].brightness = level }
             // A room switched on or off changes which of its scenes is on: the read shows those.
             if resource["on"] != nil { return false }
-            showRoomLight(snapshot.groups[index])
+            await showRoomLight(snapshot.groups[index])
             return true
         default:
             guard let index = snapshot.sensorOfService[rid], snapshot.sensors.indices.contains(index) else { return false }
@@ -224,8 +230,12 @@ extension PhilipsHuePlugin {
         }
     }
 
+    /// A read an event asked for, again when an event overtook it (it was dropped as stale), a few times at most.
     private func runScheduledRefresh() async {
-        await refresh()
+        for _ in 0..<3 {
+            await refresh()
+            if !lastReadDropped { break }
+        }
         pendingRefresh = nil
     }
 }
