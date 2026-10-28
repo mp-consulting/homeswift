@@ -64,8 +64,10 @@ scenes and automations too.
 ## The web page
 
 With the web UI on, the plugin's page lists the hubs (their state, devices and scenes, **Pair** with a countdown, the
-hubs found on the network to pair, an address to add), then three tabs: **Devices**, every light, outlet and sensor
-drawn by the Accessories page's widgets; **Scenes**, a tile per scene (a tap runs it; drop a picture on it, or choose
+hubs found on the network to pair, an address to add), then three tabs: **Devices**, every device drawn by the
+Accessories page's widgets (a remote's buttons light as they are pressed), room by room or by name under the Hue page's
+toolbar: a search, a room, and filters for lights, outlets, sensors, blinds and air, remotes, low battery and No
+Response; **Scenes**, a tile per scene (a tap runs it; drop a picture on it, or choose
 one from its ⋯ menu, to give the scene its own, kept in the plugin's folder; the same menu leaves it out of the Home
 app); **Settings**, the transition on a 12-step speed scale (Very slow to Extreme; Fast, 100 ms, by default) and the scenes switch.
 
