@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EcoFlow</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/style.css">
+<style>
+  /* One card per device: its battery first, then the four flows as IN and OUT, then the solar by panel. */
+  .devices { display: grid; gap: 14px; }
+  .devices > .card { margin: 0; min-width: 0; }
+  .device { display: grid; gap: 14px; align-content: start; }
+  .device.enter { animation: materialize var(--normal) var(--ease-out); }
+
+  .device-head h2 { margin: 0; }
+  .title-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .way.source { background: var(--material-thin); color: var(--muted); border: 1px solid var(--line); }
+  /* A model not yet checked on a real device: the warning tint, beside the source. */
+  .way.untested { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
+  .serial { margin: 2px 0 0; font-size: 0.8125rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  /* The battery leads: the largest figure on the card, its level beside the graphic and its state after it. */
+  .battery-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .battery-line .figure { display: flex; align-items: center; gap: 12px; font-size: 2.5rem; font-weight: 650; line-height: 1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .battery-line .figure small { font-size: 0.5em; font-weight: 500; opacity: 0.7; }
+  /* The time to full or to empty, beside the charging state; its own line under it on a narrow card. */
+  .battery-state { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px 10px; }
+  .remaining { font-size: 0.8125rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .flow.wide { grid-column: 1 / -1; }
+  .value { display: flex; align-items: center; gap: 8px; }
+  .spark { flex: 1; min-width: 0; height: 24px; }
+  .spark svg { width: 100%; height: 100%; overflow: visible; }
+  /* The sparkline's loader: a short line that shimmers across the slot until the reading's last hour arrives. */
+  .spark-loader { display: block; width: 100%; height: 2px; margin-top: 11px; border-radius: 2px; opacity: 0.5;
+    background: linear-gradient(90deg, transparent, var(--muted), transparent) 0 0 / 200% 100%; animation: spark-shimmer 1.4s linear infinite; }
+  @keyframes spark-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+  @media (prefers-reduced-motion: reduce) { .spark-loader { animation: none; } }
+  .spark polyline { fill: none; stroke: var(--muted); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; opacity: 0.7; vector-effect: non-scaling-stroke; }
+  .pv-tile { position: relative; }
+  .pv-tile .way { position: absolute; top: 8px; right: 8px; }
+  .arrow { display: inline-block; width: 0; height: 0; margin-right: 8px; vertical-align: middle; border-left: 6px solid transparent; border-right: 6px solid transparent; }
+  .arrow.in { border-bottom: 9px solid var(--ok); }
+  .arrow.out { border-top: 9px solid var(--warn); }
+  .battery-mini { display: inline-flex; color: var(--ok); line-height: 0; }
+  .battery-mini svg { width: 48px; height: 48px; overflow: visible; }
+  .battery-mini rect.bat-body, .battery-mini path.bat-terminal { fill: none; stroke: currentColor; stroke-width: 1.6; }
+  .battery-mini path.bat-terminal { stroke-linecap: round; }
+  .battery-mini .bat-bar { fill: currentColor; opacity: 0.2; }
+  .battery-mini .bat-bar.on { opacity: 1; }
+
+  /* The flows: two columns at every phone width, so the card stays short. */
+  .flows { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .flow { padding: 12px 14px; border-radius: 16px; background: var(--material-thin); border: 1px solid var(--line); min-width: 0; }
+  .flow .label { font-size: 0.8125rem; color: var(--muted); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .flow .value { font-size: 1.5rem; font-weight: 650; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; margin-top: 4px; }
+  .flow .value small { font-size: 0.6em; font-weight: 500; opacity: 0.7; margin-left: 2px; }
+  .way { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.04em; padding: 2px 8px; border-radius: 999px; }
+  .way.in { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
+  .way.out { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
+  .way.idle { background: var(--material-thin); color: var(--muted); }
+
+  /* The panels: four tiles in a row; the label is a caption, not a sentence. */
+  .panels { display: grid; gap: 8px; }
+  .panels > .caption { margin: 0; font-size: 0.8125rem; color: var(--muted); }
+  .panel-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  .pv-tile { padding: 10px; border-radius: 14px; background: var(--material-thin); border: 1px solid var(--line); min-width: 0; }
+  .pv-tile .label { display: block; font-size: 0.75rem; color: var(--muted); }
+  .pv-tile .value { display: block; font-size: 1.0625rem; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .pv-tile .value small { font-size: 0.6em; font-weight: 500; opacity: 0.7; }
+  @media (max-width: 359px) { .panel-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+  .note { font-size: 0.8125rem; color: var(--muted); margin: 0; }
+
+  /* No readings yet: the shared empty card, with a sentence on why and when the page looks again. */
+  .card.empty { text-align: center; padding: 28px 20px; }
+  .card.empty h2 { margin: 0 0 6px; }
+  .card.empty p { margin: 0 auto; max-width: 34em; }
+  .card.empty p + p { margin-top: 6px; }
+
+  /* A device on its way: shimmering bars where its battery and flows will be, as the sparklines' loader shimmers. */
+  .placeholder-bar { display: block; height: 12px; border-radius: 6px; opacity: 0.45;
+    background: linear-gradient(90deg, var(--line), var(--muted), var(--line)) 0 0 / 200% 100%; animation: spark-shimmer 1.4s linear infinite; }
+  .placeholder-bar.title { width: 40%; height: 18px; }
+  .placeholder-bar.figure { width: 30%; height: 36px; border-radius: 10px; }
+  .placeholder-bar.label { width: 45%; }
+  .placeholder-bar.value { width: 60%; height: 22px; margin-top: 10px; }
+  .device.pending .flows .flow { min-height: 72px; }
+  @media (prefers-reduced-motion: reduce) { .placeholder-bar { animation: none; } }
+
+  @media (prefers-reduced-motion: reduce) { .device.enter { animation: none; } }
+</style>
+</head>
+<body>
+<header><a class="brand" href="/" aria-label="Homeswift" title="Homeswift"><img src="/icon.svg" class="logo" alt=""></a></header>
+<main class="page">
+  <div class="page-head">
+    <div class="who">
+      <h1 data-i18n>EcoFlow</h1>
+      <p class="note" data-i18n>Solar, home, grid and battery power, as the devices report them now. IN is power coming in, OUT is power going out.</p>
+    </div>
+  </div>
+  <section id="devices" class="devices" aria-live="polite"></section>
+</main>
+<script src="/i18n.js"></script>
+<script src="/common.js"></script>
+<script src="/plugin.js"></script>
+<script src="i18n.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

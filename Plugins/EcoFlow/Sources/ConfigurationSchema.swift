@@ -1,0 +1,249 @@
+// THIS FILE IS GENERATED from ../config.schema.json by Scripts/embed-assets.swift - DO NOT EDIT.
+// swiftlint:disable all
+
+extension EcoFlowPlugin {
+    /// The plugin's config.schema.json, as written, for settings forms and the config copilot.
+    public static let configurationSchemaJSON: String? = #"""
+{
+  "pluginAlias": "EcoFlow",
+  "pluginType": "platform",
+  "singular": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string",
+        "required": true,
+        "default": "EcoFlow",
+        "description": "Name shown in the logs"
+      },
+      "route": {
+        "title": "Route",
+        "type": "string",
+        "required": false,
+        "default": "both",
+        "oneOf": [
+          {
+            "title": "Both",
+            "enum": [
+              "both"
+            ]
+          },
+          {
+            "title": "Developer API",
+            "enum": [
+              "developer"
+            ]
+          },
+          {
+            "title": "EcoFlow app",
+            "enum": [
+              "app"
+            ]
+          }
+        ],
+        "description": "Both: every device, each from one API: the developer API, unless the model was checked on the app's route only (RIVER 3, RAPID). Developer API: the documented route, with a developer access key and secret key. EcoFlow app: the app's own sign-in, with your EcoFlow email and password, for the devices listed below. It is unofficial and can stop working at any time"
+      },
+      "email": {
+        "title": "Email",
+        "type": "string",
+        "required": false,
+        "description": "Your EcoFlow account email, for the EcoFlow app",
+        "x-schema-form": {
+          "condition": "model.route !== 'developer'"
+        }
+      },
+      "password": {
+        "title": "Password",
+        "type": "string",
+        "required": false,
+        "description": "Your EcoFlow account password, for the EcoFlow app. It is stored in config.json, which only the bridge's owner can read",
+        "x-schema-form": {
+          "type": "password",
+          "condition": "model.route !== 'developer'"
+        }
+      },
+      "importHistory": {
+        "title": "Import the energy history",
+        "type": "boolean",
+        "required": false,
+        "default": true,
+        "description": "Brings the EcoFlow cloud's record of each hour's solar production and home use, since your system was set up, into the Status page's month and year views. Uses the EcoFlow app's sign-in",
+        "x-schema-form": {
+          "condition": "model.route !== 'developer'"
+        }
+      },
+      "accessKey": {
+        "title": "Access Key",
+        "type": "string",
+        "required": false,
+        "description": "The access key from your developer account at developer.ecoflow.com",
+        "x-schema-form": {
+          "condition": "model.route !== 'app'"
+        }
+      },
+      "secretKey": {
+        "title": "Secret Key",
+        "type": "string",
+        "required": false,
+        "description": "The secret key from your developer account at developer.ecoflow.com. It is stored in config.json, which only the bridge's owner can read",
+        "x-schema-form": {
+          "type": "password",
+          "condition": "model.route !== 'app'"
+        }
+      },
+      "region": {
+        "title": "Region",
+        "type": "string",
+        "required": false,
+        "default": "us",
+        "oneOf": [
+          {
+            "title": "United States",
+            "enum": [
+              "us"
+            ]
+          },
+          {
+            "title": "Europe",
+            "enum": [
+              "eu"
+            ]
+          }
+        ],
+        "description": "The region your developer account was created in"
+      },
+      "pollingInterval": {
+        "title": "Developer API Interval (seconds)",
+        "type": "integer",
+        "required": false,
+        "placeholder": 60,
+        "minimum": 30,
+        "description": "How often the developer API is asked for each device's values, in seconds (60 by default, 30 at least). The EcoFlow app's stream is live: the devices it reads update every few seconds whatever this is",
+        "x-schema-form": {
+          "condition": "model.route !== 'app'"
+        }
+      },
+      "devices": {
+        "title": "Devices",
+        "type": "array",
+        "description": "Names for the devices, by serial number. The devices come from your account; one without an entry uses the name it reports",
+        "items": {
+          "title": "Device",
+          "type": "object",
+          "properties": {
+            "id": {
+              "title": "Serial Number",
+              "type": "string",
+              "required": true,
+              "description": "The serial number of the device, as the EcoFlow app shows it"
+            },
+            "name": {
+              "title": "Name",
+              "type": "string",
+              "description": "The name to show for the device, instead of the name it reports"
+            }
+          }
+        }
+      }
+    }
+  },
+  "i18n": {
+    "fr": {
+      "Name": "Nom",
+      "Name shown in the logs": "Nom affiché dans les journaux",
+      "Access Key": "Clé d'accès",
+      "The access key from your developer account at developer.ecoflow.com": "La clé d'accès de votre compte développeur sur developer.ecoflow.com",
+      "Secret Key": "Clé secrète",
+      "The secret key from your developer account at developer.ecoflow.com. It is stored in config.json, which only the bridge's owner can read": "La clé secrète de votre compte développeur sur developer.ecoflow.com. Elle est enregistrée dans config.json, que seul le propriétaire du pont peut lire",
+      "Region": "Région",
+      "The region your developer account was created in": "La région dans laquelle votre compte développeur a été créé",
+      "United States": "États-Unis",
+      "Europe": "Europe",
+      "Developer API Interval (seconds)": "Intervalle de l'API développeur (secondes)",
+      "How often the developer API is asked for each device's values, in seconds (60 by default, 30 at least). The EcoFlow app's stream is live: the devices it reads update every few seconds whatever this is": "Fréquence à laquelle l'API développeur est interrogée pour les valeurs de chaque appareil, en secondes (60 par défaut, 30 au minimum). Le flux de l'application EcoFlow est en direct : les appareils qu'il lit se mettent à jour toutes les quelques secondes, quelle que soit cette valeur",
+      "Devices": "Appareils",
+      "Names for the devices, by serial number. The devices come from your account; one without an entry uses the name it reports": "Noms des appareils, par numéro de série. Les appareils viennent de votre compte ; un appareil sans entrée garde le nom qu'il transmet",
+      "Serial Number": "Numéro de série",
+      "The serial number of the device, as the EcoFlow app shows it": "Le numéro de série de l'appareil, tel que l'affiche l'application EcoFlow",
+      "The name to show for the device, instead of the name it reports": "Le nom à afficher pour l'appareil, à la place de celui qu'il transmet",
+      "Device": "Appareil",
+      "Route": "Accès",
+      "Developer API": "API développeur",
+      "EcoFlow app": "Application EcoFlow",
+      "Email": "E-mail",
+      "Password": "Mot de passe",
+      "Both": "Les deux",
+      "Both: every device, each from one API: the developer API, unless the model was checked on the app's route only (RIVER 3, RAPID). Developer API: the documented route, with a developer access key and secret key. EcoFlow app: the app's own sign-in, with your EcoFlow email and password, for the devices listed below. It is unofficial and can stop working at any time": "Les deux : chaque appareil depuis une seule API : l'API développeur, sauf si le modèle n'a été vérifié que sur la voie de l'application (RIVER 3, RAPID). API développeur : la voie documentée, avec une clé d'accès et une clé secrète développeur. Application EcoFlow : la connexion propre à l'application, avec votre e-mail et votre mot de passe EcoFlow, pour les appareils listés ci-dessous. Elle n'est pas officielle et peut cesser de fonctionner à tout moment",
+      "Your EcoFlow account email, for the EcoFlow app": "Votre e-mail de compte EcoFlow, pour l'application EcoFlow",
+      "Your EcoFlow account password, for the EcoFlow app. It is stored in config.json, which only the bridge's owner can read": "Votre mot de passe de compte EcoFlow, pour l'application EcoFlow. Il est enregistré dans config.json, que seul le propriétaire du pont peut lire",
+      "Import the energy history": "Importer l’historique d’énergie",
+      "Brings the EcoFlow cloud's record of each hour's solar production and home use, since your system was set up, into the Status page's month and year views. Uses the EcoFlow app's sign-in": "Ajoute aux vues mois et année de la page État l’historique du cloud EcoFlow : la production solaire et la consommation de la maison de chaque heure, depuis l’installation de votre système. Utilise la connexion de l’application EcoFlow"
+    },
+    "es": {
+      "Name": "Nombre",
+      "Name shown in the logs": "Nombre que aparece en los registros",
+      "Access Key": "Clave de acceso",
+      "The access key from your developer account at developer.ecoflow.com": "La clave de acceso de tu cuenta de desarrollador en developer.ecoflow.com",
+      "Secret Key": "Clave secreta",
+      "The secret key from your developer account at developer.ecoflow.com. It is stored in config.json, which only the bridge's owner can read": "La clave secreta de tu cuenta de desarrollador en developer.ecoflow.com. Se guarda en config.json, que solo puede leer el propietario del puente",
+      "Region": "Región",
+      "The region your developer account was created in": "La región en la que se creó tu cuenta de desarrollador",
+      "United States": "Estados Unidos",
+      "Europe": "Europa",
+      "Developer API Interval (seconds)": "Intervalo de la API para desarrolladores (segundos)",
+      "How often the developer API is asked for each device's values, in seconds (60 by default, 30 at least). The EcoFlow app's stream is live: the devices it reads update every few seconds whatever this is": "Cada cuánto se consulta la API para desarrolladores por los valores de cada dispositivo, en segundos (60 por defecto, 30 como mínimo). El flujo de la app de EcoFlow es en directo: los dispositivos que lee se actualizan cada pocos segundos, sea cual sea este valor",
+      "Devices": "Dispositivos",
+      "Names for the devices, by serial number. The devices come from your account; one without an entry uses the name it reports": "Nombres de los dispositivos, por número de serie. Los dispositivos vienen de tu cuenta; uno sin entrada usa el nombre que informa",
+      "Serial Number": "Número de serie",
+      "The serial number of the device, as the EcoFlow app shows it": "El número de serie del dispositivo, tal como lo muestra la aplicación EcoFlow",
+      "The name to show for the device, instead of the name it reports": "El nombre que se mostrará para el dispositivo, en lugar del que informa",
+      "Device": "Dispositivo",
+      "Route": "Ruta",
+      "Developer API": "API para desarrolladores",
+      "EcoFlow app": "App de EcoFlow",
+      "Email": "Correo electrónico",
+      "Password": "Contraseña",
+      "Both": "Ambas",
+      "Both: every device, each from one API: the developer API, unless the model was checked on the app's route only (RIVER 3, RAPID). Developer API: the documented route, with a developer access key and secret key. EcoFlow app: the app's own sign-in, with your EcoFlow email and password, for the devices listed below. It is unofficial and can stop working at any time": "Ambas: cada dispositivo desde una sola API: la API para desarrolladores, salvo que el modelo solo se haya comprobado por la ruta de la app (RIVER 3, RAPID). API para desarrolladores: la ruta documentada, con una clave de acceso y una clave secreta de desarrollador. App de EcoFlow: el inicio de sesión propio de la app, con tu correo y contraseña de EcoFlow, para los dispositivos listados abajo. No es oficial y puede dejar de funcionar en cualquier momento",
+      "Your EcoFlow account email, for the EcoFlow app": "Tu correo de la cuenta EcoFlow, para la App de EcoFlow",
+      "Your EcoFlow account password, for the EcoFlow app. It is stored in config.json, which only the bridge's owner can read": "Tu contraseña de la cuenta EcoFlow, para la App de EcoFlow. Se guarda en config.json, que solo puede leer el propietario del puente",
+      "Import the energy history": "Importar el historial de energía",
+      "Brings the EcoFlow cloud's record of each hour's solar production and home use, since your system was set up, into the Status page's month and year views. Uses the EcoFlow app's sign-in": "Lleva a las vistas de mes y año de la página Estado el registro de la nube de EcoFlow: la producción solar y el consumo de la casa de cada hora, desde que se instaló tu sistema. Usa el inicio de sesión de la App de EcoFlow"
+    },
+    "pt": {
+      "Name": "Nome",
+      "Name shown in the logs": "Nome mostrado nos registos",
+      "Access Key": "Chave de acesso",
+      "The access key from your developer account at developer.ecoflow.com": "A chave de acesso da sua conta de programador em developer.ecoflow.com",
+      "Secret Key": "Chave secreta",
+      "The secret key from your developer account at developer.ecoflow.com. It is stored in config.json, which only the bridge's owner can read": "A chave secreta da sua conta de programador em developer.ecoflow.com. É guardada em config.json, que só o proprietário da ponte pode ler",
+      "Region": "Região",
+      "The region your developer account was created in": "A região em que a sua conta de programador foi criada",
+      "United States": "Estados Unidos",
+      "Europe": "Europa",
+      "Developer API Interval (seconds)": "Intervalo da API para programadores (segundos)",
+      "How often the developer API is asked for each device's values, in seconds (60 by default, 30 at least). The EcoFlow app's stream is live: the devices it reads update every few seconds whatever this is": "Frequência com que a API para programadores é consultada pelos valores de cada dispositivo, em segundos (60 por omissão, 30 no mínimo). O fluxo da aplicação EcoFlow é em direto: os dispositivos que lê atualizam-se a cada poucos segundos, seja qual for este valor",
+      "Devices": "Dispositivos",
+      "Names for the devices, by serial number. The devices come from your account; one without an entry uses the name it reports": "Nomes dos dispositivos, por número de série. Os dispositivos vêm da sua conta; um sem entrada usa o nome que comunica",
+      "Serial Number": "Número de série",
+      "The serial number of the device, as the EcoFlow app shows it": "O número de série do dispositivo, tal como o mostra a aplicação EcoFlow",
+      "The name to show for the device, instead of the name it reports": "O nome a mostrar para o dispositivo, em vez do que ele comunica",
+      "Device": "Dispositivo",
+      "Route": "Via",
+      "Developer API": "API para programadores",
+      "EcoFlow app": "Aplicação EcoFlow",
+      "Email": "Email",
+      "Password": "Palavra-passe",
+      "Both": "Ambas",
+      "Both: every device, each from one API: the developer API, unless the model was checked on the app's route only (RIVER 3, RAPID). Developer API: the documented route, with a developer access key and secret key. EcoFlow app: the app's own sign-in, with your EcoFlow email and password, for the devices listed below. It is unofficial and can stop working at any time": "Ambas: cada dispositivo a partir de uma só API: a API para programadores, salvo se o modelo só tiver sido verificado pela via da aplicação (RIVER 3, RAPID). API para programadores: a via documentada, com uma chave de acesso e uma chave secreta de programador. Aplicação EcoFlow: o início de sessão próprio da aplicação, com o seu email e palavra-passe EcoFlow, para os dispositivos listados abaixo. Não é oficial e pode deixar de funcionar a qualquer momento",
+      "Your EcoFlow account email, for the EcoFlow app": "O seu email da conta EcoFlow, para a Aplicação EcoFlow",
+      "Your EcoFlow account password, for the EcoFlow app. It is stored in config.json, which only the bridge's owner can read": "A sua palavra-passe da conta EcoFlow, para a Aplicação EcoFlow. É guardada em config.json, que só o proprietário da ponte pode ler",
+      "Import the energy history": "Importar o histórico de energia",
+      "Brings the EcoFlow cloud's record of each hour's solar production and home use, since your system was set up, into the Status page's month and year views. Uses the EcoFlow app's sign-in": "Traz para as vistas de mês e ano da página Estado o registo da nuvem EcoFlow: a produção solar e o consumo da casa de cada hora, desde a instalação do seu sistema. Usa o início de sessão da Aplicação EcoFlow"
+    }
+  }
+}
+"""#
+}

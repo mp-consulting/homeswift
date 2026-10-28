@@ -8,6 +8,20 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **EcoFlow** plugin (`EcoFlow`, new, experimental): each STREAM, RIVER, DELTA, RAPID, GLACIER, PowerStream,
+  PowerOcean and Smart Home Panel device is a battery on its own accessory, with its state of charge and whether it is
+  charging. A model is known by its serial number's first characters; the STREAM Ultra and AC Pro, RIVER 3, RIVER 3
+  Plus and RAPID Pro X were checked on real devices, the others are mapped from open-source projects and marked
+  untested on the page, and a model the plugin does not read is left out and logged once. It reads the developer API
+  (a developer access key and secret key; MQTT pushes, the REST quota until they arrive) and the EcoFlow app's own
+  sign-in (an email and password, unofficial; its live stream, decrypted, with the app's read request so the devices
+  answer without the app open), both by default or one as the **Route** setting says; each device comes from one of
+  them, shown on its card. Its page shows each device's power as the app lays it out (STREAM: solar, home, grid,
+  battery, sockets and panels; RIVER: input, output, AC input, 230V AC, USB-A, USB-C; RAPID: input and output; a home
+  system's solar, home, grid and battery), live, with the last hour of each reading. A home system's solar, home, grid
+  and battery and every device's level feed the Status page's Energy section, and with the app's sign-in the cloud's
+  hourly solar and home use since the system was set up fills its history (`importHistory`, on by default). A change
+  in the shape of an API's answer, or an API that fails, is logged once.
 - `/api/metrics/values` answers several plugin readings at once (`series` separated by commas), in one pass over the
   minutes: a plugin page that graphs many readings asks for their history in one request instead of one per reading.
 - IKEA DIRIGERA: motion, light, air quality and water leak sensors, blinds, the STARKVIND air purifier and remotes.

@@ -3,6 +3,7 @@ import HomeswiftDirigera
 import HomeswiftDolphinPoolCleaner
 import HomeswiftDysonPureCool
 import HomeswiftEWeLink
+import HomeswiftEcoFlow
 import HomeswiftElgatoKeyLights
 import HomeswiftGovee
 import HomeswiftLGThinQ
@@ -33,5 +34,6 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(WingmanPlugin.self)
     registry.register(PhilipsHuePlugin.self)
     registry.register(DirigeraPlugin.self)
+    registry.register(EcoFlowPlugin.self)
     return registry
 }
