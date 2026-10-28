@@ -68,6 +68,11 @@
 .token-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,11rem),1fr)); gap: 1rem; }
 .token-card { padding: 1rem; border: 1px solid var(--line); border-radius: .5rem; background: transparent; }
 .token-swatch { height: 4rem; border-radius: .375rem; border: 1px solid var(--line); margin-bottom: .75rem; }
+.token-shape { width: 7rem; height: 3.5rem; background: color-mix(in srgb, var(--accent) 14%, transparent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.token-ramp { display: grid; margin-bottom: 1rem; }
+.token-row { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; padding: .5rem 0; border-bottom: 1px solid var(--line); }
+.token-sample { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.token-row code { flex: none; font-size: .8125rem; color: var(--muted); }
 .token-card strong { display: block; font-size: .875rem; }.token-card code { font-size: .8125rem; color: var(--muted); }
 .skip { position: fixed; top: -100px; left: .75rem; z-index: 50; }.skip:focus { top: .625rem; background: var(--material-solid); padding: .75rem; }
 #stories { display: block; }

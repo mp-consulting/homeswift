@@ -157,7 +157,29 @@
       grid.append(el("div", { className: "token-card" }, swatch, el("strong", { text: t(name) }), el("code", { text: token })));
     }
     panel.append(grid);host.append(panel);
-    for (const [name,text] of [["Layout","Columns start at 176 px; phones keep two columns. Compact rows are at least 64 px with a 10 px gap. L and XL fit whole rows to their controls."],["Type & shape","System type, a 22 px accessory radius, 40 px summary icons, and a clear name/status hierarchy."],["Interaction","Keyboard focus, named controls, deliberate security actions and reduced-motion support are part of the component contract."]]) host.append(el("section",{className:"story-panel"},el("h2",{text:t(name)}),el("p",{className:"rule",text:t(text)})));
+    // Shape and type, read from the production stylesheet's tokens like the colours above.
+    const computed = getComputedStyle(document.documentElement);
+    const shapes = el("div", { className: "token-grid" });
+    for (const [name, token] of [["Chip","--radius-xs"],["Small control","--radius-sm"],["Control","--radius-md"],["Group","--radius-lg"],["Card","--radius"],["Panel","--radius-xl"],["Capsule","--radius-pill"]]) {
+      const swatch = el("div", { className: "token-swatch token-shape" }); swatch.style.borderRadius = `var(${token})`;
+      shapes.append(el("div", { className: "token-card" }, swatch, el("strong", { text: t(name) }), el("code", { text: `${token} · ${computed.getPropertyValue(token).trim()}` })));
+    }
+    host.append(el("section", { className: "story-panel" }, el("h2", { text: t("Shape") }),
+      el("p", { className: "rule", text: t("A 4 px rhythm from 6 to 26 px; a capsule is half its height. A shape inside another takes the outer radius minus the inset between them, so the curves stay concentric.") }), shapes));
+    const ramp = el("div", { className: "token-ramp" });
+    for (const token of ["--text-2xs","--text-xs","--text-sm","--text-md","--text-base","--text-lg","--text-xl","--text-2xl","--text-3xl"]) {
+      const sample = el("span", { className: "token-sample", text: t("Living room") }); sample.style.fontSize = `var(${token})`;
+      const rem = parseFloat(computed.getPropertyValue(token));
+      ramp.append(el("div", { className: "token-row" }, sample, el("code", { text: `${token} · ${Math.round(rem * 16)} px` })));
+    }
+    const weights = el("div", { className: "token-ramp" });
+    for (const token of ["--weight-regular","--weight-medium","--weight-semibold","--weight-figure","--weight-bold"]) {
+      const sample = el("span", { className: "token-sample", text: token === "--weight-figure" ? `${new Intl.NumberFormat(document.documentElement.lang || "en").format(21.5)} °C` : t("Living room") }); sample.style.fontWeight = `var(${token})`;
+      weights.append(el("div", { className: "token-row" }, sample, el("code", { text: `${token} · ${computed.getPropertyValue(token).trim()}` })));
+    }
+    host.append(el("section", { className: "story-panel" }, el("h2", { text: t("Typography") }),
+      el("p", { className: "rule", text: t("System type on a rem ramp around a 15 px body, so text follows the browser's size. Large numbers take the figure weight.") }), ramp, weights));
+    for (const [name,text] of [["Layout","Columns start at 176 px; phones keep two columns. Compact rows are at least 64 px with a 10 px gap. L and XL fit whole rows to their controls."],["Interaction","Keyboard focus, named controls, deliberate security actions and reduced-motion support are part of the component contract."]]) host.append(el("section",{className:"story-panel"},el("h2",{text:t(name)}),el("p",{className:"rule",text:t(text)})));
     // The production time range, live: presets, then Custom…'s pop-over (HomeswiftCommon.rangeControl).
     const range = HomeswiftCommon.rangeControl(new URLSearchParams(), { presets: [["1h", t("1 hour")], ["24h", t("24 hours")], ["today", t("Today")], ["yesterday", t("Yesterday")], ["7d", t("7 days")]], fallback: "24h", changed: () => {} });
     host.append(el("section", { className: "story-panel" }, el("h2", { text: t("Time range") }),
