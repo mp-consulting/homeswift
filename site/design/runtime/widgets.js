@@ -1752,7 +1752,7 @@
   /// The ⋯ menu: All controls (the full view), then what the page offers for the accessory, else Identify.
   function actionsButton(ctx, full) {
     const items = () => [
-      full ? null : { label: t("All controls"), icon: "edit", onSelect: () => open(ctx.accessory, ctx.options) },
+      full ? null : { label: t("All controls"), icon: "sliders", onSelect: () => open(ctx.accessory, ctx.options) },
       full ? null : { separator: true },
       ...(ctx.options.actions ? ctx.options.actions(ctx.accessory)
         : ctx.accessory.supportsIdentify ? [{ label: t("Identify"), icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(ctx.accessory.id)}/identify`, { method: "POST" }).catch((e) => alert(e.message)) }] : []),

@@ -26,10 +26,24 @@ window.previewAccessories=accessories;
 window.previewSensors=[motion,leak,air,remote];
 const e=HomeswiftCommon.el,main=document.querySelector('main');
 const add=(a,size,wall)=>{
- const options={size,actions:()=>[{label:'Size',choices:HomeswiftWidgets.sizes.map(one=>({
-  label:one==='xlarge'?'Extra large':one[0].toUpperCase()+one.slice(1),badge:one==='xlarge'?'XL':one[0].toUpperCase(),checked:one===size,
-  onSelect:()=>{const next=add(a,one,wall);node.replaceWith(next);}
- }))}]};
+ // The Accessories page's menu for an administrator (app.js accessoryActions): use, arrange, manage.
+ const none=()=>{};
+ const options={size,actions:()=>[
+  {label:'History',icon:'chart',onSelect:none},
+  {separator:true},
+  {label:'Size',choices:HomeswiftWidgets.sizes.map(one=>({
+   label:one==='xlarge'?'Extra large':one[0].toUpperCase()+one.slice(1),badge:one==='xlarge'?'XL':one[0].toUpperCase(),checked:one===size,
+   onSelect:()=>{const next=add(a,one,wall);node.replaceWith(next);}
+  }))},
+  {label:`${size==='xlarge'?'Extra large':size[0].toUpperCase()+size.slice(1)} for every light`,icon:'grid',onSelect:none},
+  {label:'Room: Living Room…',icon:'room',onSelect:none},
+  {label:'Name on these pages…',icon:'edit',onSelect:none},
+  {label:'Add to Quick Controls',icon:'star',onSelect:none},
+  {label:'Hide',icon:'eye',onSelect:none},
+  {separator:true},
+  {label:'Show its log',icon:'logs',onSelect:none},
+  {label:'Plugin settings',icon:'gear',onSelect:none},
+ ]};
  const node=HomeswiftWidgets.card(structuredClone(a),options);
  wall.append(node);
  return node;
