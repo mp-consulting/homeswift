@@ -427,7 +427,30 @@
   /// runs after a change; `toggleHidden(key)` leaves the scene out of the Home app, or brings it back; `more(scene)`
   /// the page's own items for the menu. Answers `decorate(tileNode, scene, hideKey)`, which adds the tile's menu, takes
   /// drops and paints the picture.
-  function scenePictures({ refresh, toggleHidden, more = () => [] }) {
+  function scenePictures({ refresh, toggleHidden, more = () => [], gallery = false }) {
+    let artworks = [];
+    const normalize = (name) => name.trim().toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+    const matchedArtwork = (scene) => artworks.find((item) => normalize(item.name) === normalize(scene.name) || (scene.smart && item.id === "first-light"));
+    const galleryReady = gallery ? api("/api/scenes").then((data) => { artworks = data.artworks || []; refresh(); }).catch(() => {}) : Promise.resolve();
+    async function chooseGallery(scene, tileNode) {
+      await galleryReady;
+      const grid = el("div", { class: "artwork-grid" });
+      const search = el("input", { type: "search", placeholder: t("Search images…"), "aria-label": t("Search images…"), oninput: () => {
+        for (const item of grid.children) item.hidden = !normalize(item.textContent).includes(normalize(search.value));
+      } });
+      const dialog = el("dialog", { class: "artwork-dialog" }, el("h2", { text: t("Scene image") }), search, grid,
+        el("button", { actionIcon: "close", text: t("Close"), onclick: () => dialog.close() }));
+      for (const artwork of artworks) grid.append(el("button", { class: "scene pictured artwork-choice", actionIcon: "image", onclick: async () => {
+        try {
+          const response = await fetch(`/artwork-${artwork.id}.webp`);
+          if (!response.ok) throw new Error(t("This file is not a picture."));
+          await setPicture(scene, await response.blob(), tileNode);
+          dialog.close();
+        } catch (e) { alert(e.message); }
+      } }, el("img", { src: `/artwork-${artwork.id}.webp`, alt: "", loading: "lazy" }), el("span", { class: "name", text: artwork.name })));
+      dialog.addEventListener("close", () => dialog.remove());
+      document.body.append(dialog); dialog.showModal(); search.focus();
+    }
     if (!pictureDropGuard) {
       pictureDropGuard = true;
       for (const type of ["dragover", "drop"]) document.addEventListener(type, (event) => { if (event.dataTransfer?.types?.includes("Files")) event.preventDefault(); });
@@ -507,6 +530,7 @@
     /// or a key does not reach the tile.
     function sceneMenu(scene, tileNode, hideKey) {
       const button = HomeswiftCommon.menuButton(t("Actions for {name}", { name: scene.name }), () => [
+        gallery ? { label: t("Scene image"), icon: "image", onSelect: () => chooseGallery(scene, tileNode) } : null,
         { label: scene.picture ? t("Change the picture…") : t("Choose a picture…"), icon: "camera", onSelect: () => choosePicture(scene, tileNode) },
         scene.picture ? { label: t("Remove the picture"), icon: "trash", onSelect: () => removePicture(scene) } : null,
         ...more(scene),
@@ -518,13 +542,16 @@
     }
 
     return {
+      hasPicture: (scene) => Boolean(scene.picture || matchedArtwork(scene)),
       decorate(tileNode, scene, hideKey) {
         tileNode.append(sceneMenu(scene, tileNode, hideKey));
         dropZone(tileNode, scene);
         // The picture once loaded; the colours stay until then, and when there is none.
-        pictureFor(scene).then((data) => {
-          if (!data) return;
-          tileNode.style.backgroundImage = `url("${data}")`;
+        Promise.all([pictureFor(scene), galleryReady]).then(([data]) => {
+          const artwork = gallery && matchedArtwork(scene);
+          const source = data || (artwork ? `/artwork-${artwork.id}.webp` : null);
+          if (!source) return;
+          tileNode.style.backgroundImage = `url("${source}")`;
           tileNode.classList.add("pictured");
         });
         return tileNode;

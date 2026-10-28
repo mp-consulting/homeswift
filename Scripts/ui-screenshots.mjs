@@ -15,7 +15,8 @@ import { deflateSync } from "node:zlib";
 const root = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 const binary = process.argv[2] || join(homedir(), "Library/Caches/homeswift-build/debug/homeswift");
 const out = resolve(process.argv[3] || join(root, "docs/images/ui"));
-const port = 18590;
+const port = Number(process.env.UI_SHOTS_PORT || 18590);
+const debugPort = Number(process.env.UI_SHOTS_DEBUG_PORT || 9334);
 const base = `http://127.0.0.1:${port}`;
 mkdirSync(out, { recursive: true });
 
@@ -102,10 +103,10 @@ const pageScript = `(() => {
 // Headless Chrome over the DevTools protocol.
 const profile = mkdtempSync(join(tmpdir(), "homeswift-ui-chrome-"));
 const chrome = spawn("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-  ["--headless=new", "--remote-debugging-port=9334", `--user-data-dir=${profile}`, "--hide-scrollbars", "--no-first-run", "about:blank"], { stdio: "ignore" });
+  ["--headless=new", `--remote-debugging-port=${debugPort}`, `--user-data-dir=${profile}`, "--hide-scrollbars", "--no-first-run", "about:blank"], { stdio: "ignore" });
 let target;
 for (let i = 0; i < 50 && !target; i++) {
-  try { target = (await (await fetch("http://127.0.0.1:9334/json/list")).json()).find((t) => t.type === "page"); } catch {}
+  try { target = (await (await fetch(`http://127.0.0.1:${debugPort}/json/list`)).json()).find((t) => t.type === "page"); } catch {}
   if (!target) await sleep(200);
 }
 if (!target) { chrome.kill(); await stop(); throw new Error("headless Chrome did not start"); }
@@ -131,6 +132,7 @@ await send("Page.addScriptToEvaluateOnNewDocument", { source: pageScript });
 /// Opens `path` at the size given, waits for `ready` (a selector), runs `prepare`, and saves the page down to `tall`
 /// at most (the viewport's height when left out), or only `element` (a selector, its section, with a margin).
 async function shot(name, path, { width = 1280, height = 900, mobile = false, ready = "main h1", prepare = "", tall, element } = {}) {
+  if (process.env.UI_SHOTS_ONLY && !process.env.UI_SHOTS_ONLY.split(",").includes(name)) return;
   await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 2, mobile });
   await send("Page.navigate", { url: base + path });
   for (let i = 0; i < 60; i++) {
@@ -155,6 +157,8 @@ async function shot(name, path, { width = 1280, height = 900, mobile = false, re
 }
 
 try {
+  await shot("scene-location", "/scenes", { ready: "details.location", prepare: 'document.querySelector("details.location").open = true;', element: "details.location" });
+  await shot("scene-artwork", "/scenes/new", { ready: ".artwork-picker", prepare: 'document.querySelector(".artwork-picker").open = true;', tall: 1000 });
   // The bridge as the Home app pairs it: its setup code and QR code.
   await shot("status-bridge", "/status", { ready: ".card.server", element: "main .card.server" });
   await shot("plugins", "/plugins", { ready: ".card", tall: 1000 });

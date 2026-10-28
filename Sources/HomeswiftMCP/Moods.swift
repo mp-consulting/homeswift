@@ -254,7 +254,7 @@ public enum MoodLibrary {
              steps: [MoodStep([white(454, 45)], seconds: 300), MoodStep([colour(20, 90, 20)], seconds: 300), MoodStep([colour(5, 100, 6)], seconds: 300),
                      MoodStep([colour(5, 100, 2)], seconds: 1)],
              restore: false),
-    ]
+    ] + SceneArtwork.all.map(\.mood)
 
     /// The same palette moved one light along at each step: a wave.
     private static func rotations(_ palette: [MoodColor], seconds: Double) -> [MoodStep] {
@@ -600,6 +600,7 @@ extension HomeswiftCatalog {
                     "id": .string(mood.id ?? ""), "name": .string(mood.name), "animated": .bool(mood.isAnimated),
                     "swatch": .array(MoodLibrary.swatch(mood).map(JSONValue.string)),
                 ]
+                if let artwork = SceneArtwork.forMood(mood.id) { object["artworkId"] = .string(artwork.id) }
                 if let description = mood.description { object["description"] = .string(description) }
                 if let category = mood.category { object["category"] = .string(category) }
                 return .object(object)
@@ -641,7 +642,7 @@ extension HomeswiftCatalog {
             for (characteristic, value) in paintValues(light, color, jitter: 0) { action(characteristic, Self.json(value)) }
             action(light.on, true)
         }
-        return try createScene(["name": .string(name.isEmpty ? mood.name : name), "actions": .array(actions)])
+        return try createScene(["name": .string(name.isEmpty ? mood.name : name), "actions": .array(actions), "artworkId": SceneArtwork.forMood(mood.id).map { .string($0.id) } ?? .null])
     }
 
     // MARK: Playing
@@ -666,7 +667,7 @@ extension HomeswiftCatalog {
     /// Stops the moods playing on any of these lights and answers what each light was before: a mood's snapshot of it,
     /// else `before`'s, else what it shows now; to restore when the new change ends or is undone. A held mood only
     /// gives up those lights: its others stay as it set them, still to undo; it ends when it has none left.
-    private func takeOver(_ lights: [MoodLight], before: [String: MoodSnapshot] = [:]) async -> [String: MoodSnapshot] {
+    func takeOver(_ lights: [MoodLight], before: [String: MoodSnapshot] = [:]) async -> [String: MoodSnapshot] {
         let keys = Set(lights.map(\.key))
         let runs = home.runningMoods.withLockedValue { running in running.values.filter { !keys.isDisjoint(with: $0.lights.map(\.key)) } }
         var inherited: [String: MoodSnapshot] = [:]
@@ -694,7 +695,7 @@ extension HomeswiftCatalog {
     /// Keeps a mood that set the lights once, for `MoodRules.undoSeconds`: stopping it in that time puts the lights
     /// back; after it, the chance to undo ends and the lights stay.
     /// A run brought back after a restart keeps its id and start, so its chance to undo ends when it would have.
-    private func hold(_ mood: Mood, on lights: [MoodLight], snapshots: [String: MoodSnapshot], by: String, room: String?,
+    func hold(_ mood: Mood, on lights: [MoodLight], snapshots: [String: MoodSnapshot], by: String, room: String?,
                       id: String = MoodRules.newID(), startedAt: Date = Date(), save: Bool = true) -> MoodRun {
         let run = MoodRun(id: id, mood: mood, lights: lights, startedAt: startedAt, endsAt: nil, by: by, room: room, snapshots: snapshots)
         let catalog = self

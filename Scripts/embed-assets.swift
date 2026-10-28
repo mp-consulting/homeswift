@@ -50,10 +50,10 @@ case "web":
     let pluginType = arguments.count == 4 ? arguments[arguments.startIndex + 3] : nil
     let types = [
         "html": "text/html; charset=utf-8", "js": "text/javascript; charset=utf-8", "css": "text/css; charset=utf-8", "svg": "image/svg+xml", "json": "application/json",
-        "webmanifest": "application/manifest+json", "png": "image/png",
+        "webmanifest": "application/manifest+json", "png": "image/png", "webp": "image/webp",
     ]
     // Images other than SVG are bytes: embedded in base64.
-    let binary: Set<String> = ["png"]
+    let binary: Set<String> = ["png", "webp"]
     let names = try FileManager.default.contentsOfDirectory(atPath: directory).filter { !$0.hasPrefix(".") }.sorted()
     var entries: [String] = []
     for name in names {

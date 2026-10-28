@@ -23,10 +23,10 @@
 
   /// A modal question for what cannot be undone: `typed`, when given, must be typed before the button works.
   /// Resolves true when confirmed.
-  function confirmAction({ title, text, confirmLabel = t("Continue"), typed = null, danger = true }) {
+  function confirmAction({ title, text, confirmLabel = t("Continue"), typed = null, danger = true, confirmIcon = "check" }) {
     return new Promise((resolve) => {
       const input = typed ? el("input", { type: "text", autocomplete: "off", spellcheck: false, "aria-label": t("Type {text} to confirm", { text: typed }) }) : null;
-      const ok = el("button", { class: danger ? "danger" : "primary", text: confirmLabel, disabled: Boolean(typed), value: "ok" });
+      const ok = el("button", { class: danger ? "danger" : "primary", actionIcon: confirmIcon, text: confirmLabel, disabled: Boolean(typed), value: "ok" });
       const cancel = el("button", { actionIcon: "close", text: t("Cancel"), value: "cancel", type: "button" });
       // The sentence around the word to type, in the page's language: the word goes where {text} stands.
       const [typeBefore, typeAfter = ""] = t("Type {text} to confirm").split("{text}");

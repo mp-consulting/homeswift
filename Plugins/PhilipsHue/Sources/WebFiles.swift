@@ -222,6 +222,7 @@ h2 { margin: 0 0 10px; }
   // A scene's picture: dropped on its tile or chosen from its menu (plugin.js); its ⋯ menu also leaves it out of the
   // Home app, by "<room>/<scene>".
   const pictures = homeswift.scenePictures({
+    gallery: true,
     refresh: () => refresh(), toggleHidden: (key) => toggleList("excludeScenes", key),
     // A smart scene follows the time of day: the bridge takes no transition or Autoplay for it. Autoplay is the
     // scene's own on the bridge, as the Hue app's: it plays whenever it is recalled, here, in the Home app or there.
@@ -344,7 +345,7 @@ h2 { margin: 0 0 10px; }
       ["on", t("On now"), "bulb", (scene) => scene.active],
       ["autoplay", t("Autoplay"), "loop", (scene) => scene.autoplay && scene.palette && !scene.smart],
       ["colour", t("Colour scenes"), "sparkle", (scene) => scene.colourful],
-      ["picture", t("With a picture"), "image", (scene) => Boolean(scene.picture)],
+      ["picture", t("With a picture"), "image", (scene) => pictures.hasPicture(scene)],
       ["hidden", t("Not in the Home app"), "eye", (scene) => scene.hidden],
     ],
   });

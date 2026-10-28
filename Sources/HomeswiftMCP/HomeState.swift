@@ -58,6 +58,7 @@ public final class HomeState: Sendable {
     public let notifications: JSONFileStore<NotificationSettings>
     /// The moods and plugin scenes that set the lights and can still be undone, with what the lights were.
     let heldMoods: JSONFileStore<[SavedHeldMood]>
+    let sceneUndo: JSONFileStore<[String: SceneUndo]>
     /// How notifications reach webhooks, ntfy, Pushover, Telegram and push services; tests put a fake here.
     let httpBox: NIOLockedValueBox<any HTTPSending>
     /// The automations' and the notification sources' work while they run.
@@ -76,6 +77,7 @@ public final class HomeState: Sendable {
         layout = JSONFileStore(url: directory.appendingPathComponent("accessory-layout.json")) { AccessoryLayout() }
         scenes = JSONFileStore(url: directory.appendingPathComponent("scenes.json")) { SceneFile() }
         notifications = JSONFileStore(url: directory.appendingPathComponent("notifications.json")) { NotificationSettings() }
+        sceneUndo = JSONFileStore(url: directory.appendingPathComponent("scene-undo.json")) { [:] }
         heldMoods = JSONFileStore(url: directory.appendingPathComponent("held-moods.json")) { [] }
         httpBox = NIOLockedValueBox(HTTPClient())
     }

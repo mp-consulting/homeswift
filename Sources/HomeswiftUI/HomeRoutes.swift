@@ -86,6 +86,11 @@ extension UIServer {
             logger.info("Web UI ran a scene", metadata: ["user": "\(username)", "scene": "\(scene["name"]?.stringValue ?? "")", "ok": "\(result["ok"]?.boolValue ?? false)"])
             return .json(result)
 
+        case (.POST, let path) where path.count == 3 && path[0] == "scenes" && path[2] == "stop":
+            let result = try await catalog.stopScene(path[1], allowSecurity: body["confirmSecurity"]?.boolValue == true)
+            logger.info("Web UI stopped a scene", metadata: ["user": "\(username)", "scene": "\(path[1])"])
+            return .json(result)
+
         case (.GET, ["moods"]):
             return .json(catalog.moodsJSON())
         case (.POST, ["moods", "start"]):

@@ -188,10 +188,11 @@ h1, h2, h3, .ask q, .way h3, .who strong, .plugin strong, .plugin span, .brain s
 /* What it knows: things you'd say, and what happens. */
 /* Moods: a card per mood, a small illustration of the scene. */
 .moods { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
-.mood { padding: 16px 18px; border-radius: var(--radius); background: var(--glass); border: 1px solid var(--glass-edge); display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 14px; row-gap: 2px; align-content: start; align-items: center; }
-.mood .swatch { grid-row: span 2; align-self: start; width: 44px; height: 44px; border-radius: var(--radius-sm); }
-.mood strong { font-size: 1rem; letter-spacing: -0.01em; }
-.mood span:not(.swatch) { font-size: 0.875rem; color: var(--muted); }
+.mood { position: relative; isolation: isolate; overflow: hidden; min-height: 160px; padding: 16px 18px; border-radius: var(--radius); background: var(--glass); border: 1px solid var(--glass-edge); display: grid; gap: 4px; align-content: end; color: #fff; }
+.mood::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 15%, rgba(0,0,0,.75)); z-index: -1; }
+.mood .swatch { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 0; z-index: -2; }
+.mood strong { font-size: 1rem; letter-spacing: -0.01em; text-shadow: 0 1px 2px #0008; }
+.mood span:not(.swatch) { font-size: 0.875rem; color: #fff; }
 /* The demo's lights in a mood: the tile takes the colour and glows with it. */
 .house .w.mood-on { background: color-mix(in srgb, var(--tint) 34%, var(--tile-on)); box-shadow: 0 0 24px -6px var(--tint), var(--shadow-small); }
 .house .w.mood-on .icon.light { background: var(--tint); }
@@ -228,7 +229,7 @@ h1, h2, h3, .ask q, .way h3, .who strong, .plugin strong, .plugin span, .brain s
   .ways, .trust, .asks { grid-template-columns: minmax(0, 1fr); }
   .moods { gap: 10px; }
   .mood { grid-template-columns: minmax(0, 1fr); padding: 14px; row-gap: 4px; }
-  .mood .swatch { grid-row: auto; width: 36px; height: 36px; margin-bottom: 4px; }
+
   .trust-lead { grid-template-columns: minmax(0, 1fr); }
   .brains { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .figures { grid-template-columns: minmax(0, 1fr); }

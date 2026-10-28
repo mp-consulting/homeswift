@@ -92,6 +92,100 @@ struct LayoutToolTests {
 
 @Suite(.timeLimit(.minutes(1)))
 struct SceneToolTests {
+    @Test func stoppingSceneRestoresLightBaselineAcrossRepeatedRuns() async throws {
+        let environment = try MCPTestEnvironment()
+        try await environment.start()
+        defer { Task { await environment.stop() } }
+        let catalog = environment.catalog
+        let scene = try catalog.createScene(["name": "Undo light", "actions": [
+            ["id": "Devices:lamp", "characteristic": "On", "value": true],
+            ["id": "Devices:lamp", "characteristic": "Brightness", "value": 80],
+        ]])
+        let id = try #require(scene["id"]?.stringValue)
+        let lamp = try #require(catalog.find(id: "Devices:lamp"))
+        let brightness = try catalog.characteristic(in: lamp, service: nil, characteristic: "Brightness")
+        let on = try catalog.characteristic(in: lamp, service: nil, characteristic: "On")
+        let before = on.value
+        _ = try await catalog.runScene(id)
+        _ = try await catalog.runScene(id)
+        #expect(brightness.value == .int(80))
+        #expect(catalog.scenesJSON()["scenes"]?[0]?["stoppable"] == true)
+        #expect(try await catalog.stopScene(id)["ok"] == true)
+        #expect(brightness.value == .int(40))
+        #expect(on.value == before)
+        #expect(catalog.scenesJSON()["scenes"]?[0]?["stoppable"] == false)
+    }
+
+    @Test func stoppingSceneKeepsSecurityConfirmationAndLaterChanges() async throws {
+        let environment = try MCPTestEnvironment()
+        try await environment.start()
+        defer { Task { await environment.stop() } }
+        let catalog = environment.catalog
+        let lock = try #require(catalog.find(id: "Devices:lock"))
+        let target = try catalog.characteristic(in: lock, service: nil, characteristic: "Lock Target State")
+        target.value = .int(1)
+        let scene = try catalog.createScene(["name": "Undo lock", "actions": [
+            ["id": "Devices:lock", "characteristic": "Lock Target State", "value": 0],
+        ]])
+        let id = try #require(scene["id"]?.stringValue)
+        _ = try await catalog.runScene(id, allowSecurity: true)
+        await #expect(throws: (any Error).self) { try await catalog.stopScene(id) }
+        #expect(target.value == .int(0))
+        #expect(HomeState(directory: environment.directory).sceneUndo.value[id]?.actions.first?.value == 1)
+        _ = try await catalog.stopScene(id, allowSecurity: true)
+        #expect(target.value == .int(1))
+        _ = try await catalog.runScene(id, allowSecurity: true)
+        target.value = .int(1) // A later manual change must survive Stop.
+        let writes = environment.written.count
+        _ = try await catalog.stopScene(id, allowSecurity: true)
+        #expect(environment.written.count == writes)
+    }
+
+    @Test(arguments: [false, true]) func unsuccessfulRerunKeepsPriorUndo(fails: Bool) async throws {
+        let environment = try MCPTestEnvironment()
+        try await environment.start()
+        defer { Task { await environment.stop() } }
+        let catalog = environment.catalog
+        let lock = try #require(catalog.find(id: "Devices:lock"))
+        let target = try catalog.characteristic(in: lock, service: nil, characteristic: "Lock Target State")
+        target.value = .int(1)
+        let scene = try catalog.createScene(["name": "Restore after rerun", "actions": [
+            ["id": "Devices:lock", "characteristic": "Lock Target State", "value": 0],
+        ]])
+        let id = try #require(scene["id"]?.stringValue)
+        _ = try await catalog.runScene(id, allowSecurity: true)
+        if fails { target.onWrite { _ in throw CatalogError("offline") } }
+        _ = try await catalog.runScene(id, trigger: .schedule, allowSecurity: fails)
+        #expect(catalog.home.sceneUndo.value[id]?.actions.first?.value == 1)
+        await #expect(throws: (any Error).self) { try await catalog.stopScene(id) }
+        target.onWrite(nil)
+        _ = try await catalog.stopScene(id, allowSecurity: true)
+        #expect(target.value == .int(1))
+    }
+
+    @Test func failedLightWriteKeepsExistingMoodOwnership() async throws {
+        let environment = try MCPTestEnvironment()
+        try await environment.start()
+        defer { Task { await environment.stop() } }
+        let catalog = environment.catalog
+        let lamp = try #require(catalog.find(id: "Devices:lamp"))
+        let light = try #require(HomeswiftCatalog.lights(of: [lamp]).first)
+        let mood = Mood(id: "test-held", name: "Existing mood", steps: [MoodStep([light.color], seconds: 1)])
+        let run = catalog.hold(mood, on: [light], snapshots: [light.key: light.snapshot()], by: "test", room: nil)
+        let brightness = try catalog.characteristic(in: lamp, service: nil, characteristic: "Brightness")
+        brightness.onWrite { _ in throw CatalogError("offline") }
+        let scene = try catalog.createScene(["name": "Failed scene", "actions": [
+            ["id": "Devices:lamp", "characteristic": "Brightness", "value": 80],
+        ]])
+        let id = try #require(scene["id"]?.stringValue)
+        #expect(try await catalog.runScene(id)["ok"] == false)
+        #expect(catalog.home.runningMoods.withLockedValue { $0[run.id] === run && $0.count == 1 })
+        #expect(run.snapshots.withLockedValue { $0[light.key] != nil })
+        #expect(catalog.scenesJSON()["scenes"]?[0]?["stoppable"] == false)
+        brightness.onWrite(nil)
+        _ = try await catalog.stopMoods(id: run.id)
+    }
+
     @Test func savesRunsAndKeepsLocksForAPerson() async throws {
         let environment = try MCPTestEnvironment()
         try await environment.start()

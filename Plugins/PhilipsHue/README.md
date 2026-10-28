@@ -108,7 +108,7 @@ with a countdown for the link button, and its address to change), then four tabs
 - **Sensors**: every sensor and switch drawn by the same widgets (motion, temperature, light level, contact, battery,
   a button's last press), under the same toolbar, with filters for motion sensors, switches, low battery and No
   Response, and **Identify** (the device's LED flashes), **Leave out of the Home app** and its log in each menu.
-- **Scenes**: each room's scenes as tiles painted with the scene's palette, under a toolbar that finds one among
+- **Scenes**: each room's scenes as photographic tiles with the name overlaid, the same style used by the Scenes gallery, under a toolbar that finds one among
   dozens: a search (scene and room names), a room, by room or by name, and filters with their counts (on now,
   Autoplay, colour scenes, which leaves out the whites of Hue's standard scenes, with a picture, not in the Home app),
   kept in the page's address and held under the header while the list scrolls; a room's name folds it away; a tap
@@ -125,8 +125,7 @@ with a countdown for the link button, and its address to change), then four tabs
 
 ![Scenes, room by room](../../docs/images/plugins/hue-scenes.png)
 
-Without a picture of your own, a tile uses the scene's palette from the bridge. The pictures the Hue app shows are
-Signify's artwork, served by their own service and not by the bridge's API, so the plugin does not show them.
+Without a picture of your own, recognised gallery names use Homeswift's original photographic artwork. Custom names keep their palette until you choose **Scene image** from the tile's ⋯ menu and select one of the 143 gallery photographs. Uploaded or dropped pictures take priority over automatic name matches. Removing a custom picture restores the automatic match or palette. These images are Homeswift assets, not photographs downloaded from Hue.
 
 ## The Assistant
 

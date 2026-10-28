@@ -6,7 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-28
+
 ### Added
+
+- Scene gallery: 143 original photographic palettes in 28 theme categories, search, theme filtering and
+  alphabetical sorting; saved scenes retain their selected artwork. Dedicated photographs cover the built-in moods.
+- Saved scenes capture restoration state for **Stop**, including light colour mode and Adaptive Lighting.
+  Restoration survives bridge restarts for 12 hours and requires confirmation for locks, doors and alarms.
+- A visual workflow editor with triggers, conditions and device-specific controls, including a combined light
+  colour picker, brightness and temperature sliders, switches and mode menus.
+- Sunrise/sunset location selection on an OpenStreetMap map, with address suggestions from Photon and a search loader.
+- Photographic and abstract wallpapers, appearance heading icons and language icons.
 
 - **EcoFlow** plugin (`EcoFlow`, new, experimental): each STREAM, RIVER, DELTA, RAPID, GLACIER, PowerStream,
   PowerOcean and Smart Home Panel device is a battery on its own accessory, with its state of charge and whether it is
@@ -67,6 +78,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Scene and mood tiles share photographic styling. On phones, gallery categories, built-in mood categories,
+  and Hue and IKEA scene collections scroll horizontally in a single row.
+- Scene card actions are collapsed by default; Details exposes every action. Active moods have a centred Stop icon.
+- The workflow editor uses full-width panels and expandable action summaries on phones, with accessible save
+  controls, stacked trigger/condition fields and an in-app scene deletion confirmation.
+- Documentation screenshots and all four website languages reflect the scene gallery and mood artwork.
+
 - Every time range is one control, `HomeswiftCommon.rangeControl` (the Status page's Activity and Energy, the Logs
   page): presets in a segmented control, then **Custom…**, a pop-over in the app's material with a month to pick the
   first and last day and the From and To times, in place of a menu and the browser's date picker. The design explorer
@@ -113,6 +131,10 @@ All notable changes to this project are documented here. The format follows
   in every language; the centre shows the app's icon alone, smaller.
 
 ### Fixed
+
+- Failed or skipped actions on a repeated scene run retain still-valid restoration snapshots from the earlier run.
+- Failed light writes no longer take ownership away from an existing mood or register a held scene for that light.
+- Small-screen workflow fields no longer overflow horizontally.
 
 - The Assistant's mic listens on every press: a press while an answer ran, while a change waited for Allow, or
   while the last dictation was finishing did nothing. During an answer the words wait in the field.
@@ -1104,7 +1126,8 @@ All notable changes to this project are documented here. The format follows
   SIGTERM; Homebrew formula `mp-consulting/tap/homeswift` with a `brew services` entry.
 - CI on macOS and Linux for every push and pull request.
 
-[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/mp-consulting/homeswift/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/mp-consulting/homeswift/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/mp-consulting/homeswift/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/mp-consulting/homeswift/compare/v0.10.0...v0.11.0

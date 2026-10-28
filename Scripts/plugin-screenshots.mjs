@@ -206,6 +206,7 @@ await send("Page.addScriptToEvaluateOnNewDocument", { source: pageScript });
 
 /// Opens a plugin page at the size given, chooses its tab, waits for `ready`, and saves the page down to `tall` at most.
 async function shot(name, path, { tab, ready, width = 1280, height = 900, mobile = false, tall = 2800 }) {
+  if (process.env.PLUGIN_SHOTS_ONLY && !process.env.PLUGIN_SHOTS_ONLY.split(",").includes(name)) return;
   await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 2, mobile });
   await send("Page.navigate", { url: base + path });
   const wait = async (selector) => {

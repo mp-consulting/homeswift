@@ -238,7 +238,8 @@ struct CameraUITests {
         // The page may play blob: media from MediaSource and show blob: snapshots.
         let page = try await browser.get("/")
         #expect(page.headers["content-security-policy"]?.contains("media-src 'self' blob:") == true)
-        #expect(page.headers["content-security-policy"]?.contains("img-src 'self' data: blob:") == true)
+        #expect(page.headers["content-security-policy"]?.contains("img-src 'self' data: blob: https://tile.openstreetmap.org;") == true)
+        #expect(page.headers["permissions-policy"]?.contains("geolocation=(self)") == true)
     }
 
     @Test func streamsTheLiveFeedUntilTheBrowserLeaves() async throws {

@@ -179,12 +179,69 @@ a page to keep on a phone's home screen.
 Scenes are kept in `scenes.json` next to config.json (owner-only), with each one's last run.
 
 **Moods**, on the same page: the rooms that have lights as chips, and the collection of moods by kind, each drawn with
-its colours. A tap plays one on the room's lights; the pill stays lit while it plays, with the mood and **Stop** under
+photographic thumbnails. A tap plays one on the room's lights; the pill stays lit while it plays, with the mood and **Stop** under
 the rooms. A calm mood shows there with **Undo** for 12 hours, which puts the lights back as they were. With the
 Assistant on, a box writes a mood from a description ("a jazz bar"). A mood that sets the lights once can be saved as a
-scene (an administrator's). On a phone each kind is a row that swipes sideways. Playing and stopping moods is
+scene (an administrator's). The **Scene gallery** adds 143 named photographic tiles in 28 theme categories, including Get cozy, Movie night, Reading, Wanderlust, Vibrant and Party vibes. Each theme has two horizontally scrolling rows on desktop and one row on mobile. Search by scene or theme name, or select a theme to show just that shelf. Sort each shelf by gallery order, name A–Z or name Z–A. These
+set a palette once across the room's lights; they do not reproduce Hue animations or brightness. Saving one as a
+scene preserves its artwork. In the scene editor, expand **Scene image** to choose another picture or **No image**.
+Existing scenes without artwork keep their usual icon. The original gallery titles stay the same in all languages.
+On a phone each photographic theme is a single row that swipes sideways; Calm, Slow animations, Party and Signals also use single horizontal rows. Hue and IKEA scene collections share this mobile layout. Playing and stopping moods is
 controlling accessories, as running a scene is. `MoodLibrary` is the collection; MCP clients use `list_moods`,
 `start_mood` and `stop_mood`.
+
+Scene cards keep accessory actions collapsed under **Details**. Expand it to see every action.
+
+![All scene actions](images/ui/scene-card-details.png)
+
+![Scene artwork picker](images/ui/scene-artwork.png)
+
+![Single-row gallery on mobile](images/ui/scene-gallery-phone.png)
+
+![Horizontal mood category](images/ui/mood-row-phone.png)
+
+Active mood tiles show a centred square Stop icon; idle tiles show their image and name. Winter holidays and Christmas have separate scene selections.
+
+![Active mood tile](images/ui/mood-stop-tile.png)
+
+The theme menu is alphabetised in the selected language. Mood photographs depict their subjects directly, including candles, a fireplace, a home cinema, a disco ball and a police lightbar.
+
+Running mood tiles show **Stop**. Saved scenes also offer **Stop** after running. This restores captured light power, brightness, colour and Adaptive Lighting; other scene controls restore their captured values unless they have changed since. Locks, doors and alarms require confirmation before restoration. Undo state lasts 12 hours and is kept across bridge restarts for held scenes and moods. Failed or skipped actions on a repeated run retain valid earlier restoration state. A light action that fails does not take ownership away from an existing mood.
+
+The workflow action editor offers a combined **Light color** picker for colour-capable lights, brightness and colour-temperature sliders, power switches, device mode menus, and sliders for fan speed, position, volume and target temperatures. The colour picker saves ordinary hue and saturation actions, so the runtime and existing scenes remain compatible. Editing does not send device commands.
+
+![Scene device controls](images/ui/scene-controls.png)
+
+On narrow screens, the workflow editor replaces the canvas with a full-width form. Step navigation and Save stay within reach, and action summaries expand individually to keep long scenes scannable. The page handles scrolling, without a second scrolling inspector.
+
+![Mobile workflow editor](images/ui/scene-workflow-phone.png)
+
+Trigger fields stack within the inspector on phones, with wrapping weekday controls.
+
+![Trigger controls](images/ui/scene-trigger-controls.png)
+
+Conditions use labeled start/end groups and full-width accessory controls on small phones.
+
+![Small-phone condition editor](images/ui/scene-condition-phone.png)
+
+Deleting a scene opens a confirmation in the UI’s design system. Cancel is focused first; Escape dismisses it without deleting.
+
+![Scene deletion confirmation](images/ui/scene-delete.png)
+
+![Stop a running mood](images/ui/scene-stop.png)
+
+![Mood photographs](images/ui/mood-photographs.png)
+
+The sunrise/sunset location includes a map: click a point or finish dragging to place the pin and save coordinates immediately. Arrow keys can also position the pin for review.
+**Use this device's location** asks the browser for permission and centres the map; **Save** keeps the reviewed
+position. Coordinates remain editable. Visible map tiles are requested directly from OpenStreetMap when the
+location section is open; manual coordinates still work without the map service.
+
+![Location map](images/ui/scene-location.png)
+
+Address suggestions appear after three characters, with a short typing delay and a loading spinner. Select a result to centre the map and save its coordinates. Search queries go directly to [Photon](https://github.com/komoot/photon); the existing home name stays unchanged. Repeated searches are cached for this page, and map/manual entry remain available if search is unavailable.
+
+![Address suggestions](images/ui/scene-address-search.png)
 
 ### Notifications
 
@@ -357,13 +414,13 @@ The pages' changes that cannot be undone (pairings, caches, a restore) ask first
 browser they sign in to; a browser remembers the last ones it saw, so a page opens in them at once.
 
 - **Theme**: Automatic (the system's light or dark appearance), Light or Dark.
-- **Wallpaper**, behind the glass of every page: one of the UI's, or one of up to 12 images of your own. Drop images on
+- **Wallpaper**, behind the glass of every page: photographic Aurora, Sunset, Ocean, Forest and Graphite presets; original abstract Silk, Prism, Ribbon, Lagoon, Ember and Midnight designs; or one of up to 12 images of your own. Drop images on
   the card's zone or choose them, several at once: each is scaled down to 2,560 pixels, kept under
   `ui-wallpapers/<user>/` (JPEG, PNG or WebP, checked by its bytes) and shown as it is added. A tap on its tile shows it
   again; the ✕ on its corner removes it, and removing the one shown leaves no wallpaper.
 - **Temperatures** in °C or °F, on accessory cards and plugin pages. HomeKit and the Home app keep their own setting.
 - **Language**: English, French, Spanish or Portuguese, or Automatic, the browser's ([translations.md](translations.md)).
-  The Assistant answers in it.
+  The Assistant answers in it. The selector uses the same flag icons as sign-in; Automatic uses a globe.
 
 ### Addresses
 

@@ -89,13 +89,42 @@ struct MoodTests {
             try MoodRules.check(mood)
             let id = try #require(mood.id)
             #expect(ids.insert(id).inserted, "\(id) twice")
-            #expect(["calm", "animated", "party", "signal"].contains(mood.category ?? ""))
+            #expect(["calm", "animated", "party", "signal", "gallery"].contains(mood.category ?? ""))
             #expect(mood.description?.isEmpty == false)
             #expect(!MoodLibrary.swatch(mood).isEmpty)
         }
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let page = try String(contentsOf: root.appendingPathComponent("Sources/HomeswiftUI/Web/home.js"), encoding: .utf8)
-        for id in ids { #expect(page.contains("\"\(id)\": [t("), "home.js does not name \(id)") }
+        for id in ids where !id.hasPrefix("gallery-") { #expect(page.contains("\"\(id)\": [t("), "home.js does not name \(id)") }
+    }
+
+    @Test func galleryArtworkPersistsAndValidates() async throws {
+        #expect(SceneArtwork.all.count == 143)
+        #expect(Set(SceneArtwork.all.map(\.id)).count == 143)
+        let (environment, _) = try await den()
+        defer { Task { await environment.stop() } }
+        let saved = try environment.catalog.saveMoodAsScene(["mood": "gallery-arctic-aurora", "room": "Den", "name": "Aurora"])
+        #expect(saved["artworkId"] == "arctic-aurora")
+        let id = try #require(saved["id"]?.stringValue)
+        let scene = try environment.catalog.scene(id)
+        let encoded = try JSONEncoder().encode(scene)
+        #expect(try JSONDecoder().decode(Scene.self, from: encoded).artworkId == "arctic-aurora")
+        let body: JSONValue = ["name": "Renamed", "actions": saved["actions"] ?? .array([])]
+        #expect(try environment.catalog.updateScene(id: id, body)["artworkId"] == "arctic-aurora")
+        var changed = try #require(body.objectValue)
+        changed["artworkId"] = "../outside"
+        #expect(throws: (any Error).self) { try environment.catalog.updateScene(id: id, .object(changed)) }
+        changed["artworkId"] = .null
+        #expect(try environment.catalog.updateScene(id: id, .object(changed))["artworkId"] == nil)
+        #expect(try JSONDecoder().decode(Scene.self, from: JSONEncoder().encode(environment.catalog.scene(id))).artworkId == nil)
+    }
+
+    @Test func dedicatedMoodPhotographsResolve() throws {
+        for id in ["disco", "police", "lightning", "alert", "cinema", "fireplace", "rainbow-wave", "candle-flicker"] {
+            let artwork = try #require(SceneArtwork.forMood(id))
+            #expect(artwork.id == "mood-" + id)
+            #expect(SceneArtwork.find(artwork.id) != nil)
+        }
     }
 
     @Test func plansAreChecked() throws {

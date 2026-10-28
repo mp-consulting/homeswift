@@ -1,0 +1,333 @@
+[
+  {
+    "name": "Get cozy",
+    "artworkIds": [
+      "rolling-hills",
+      "dreamy-dusk",
+      "pensive",
+      "palm-beach",
+      "honolulu",
+      "lake-placid"
+    ]
+  },
+  {
+    "name": "Movie night",
+    "artworkIds": [
+      "galaxy",
+      "starlight",
+      "honolulu",
+      "warm-embrace",
+      "blood-moon",
+      "arctic-aurora"
+    ]
+  },
+  {
+    "name": "Reading",
+    "artworkIds": [
+      "storybook",
+      "blossom",
+      "frosty-dawn",
+      "hazy-days",
+      "autumn-gold"
+    ]
+  },
+  {
+    "name": "Wanderlust",
+    "artworkIds": [
+      "rome",
+      "santorini",
+      "coastal-nights",
+      "island-warmth",
+      "ocean-escape",
+      "downtown-drizzle"
+    ]
+  },
+  {
+    "name": "Vibrant",
+    "artworkIds": [
+      "juicy-watermelon",
+      "summer-splash",
+      "fruity-popsicle",
+      "cancun",
+      "malibu-pink"
+    ]
+  },
+  {
+    "name": "Party vibes",
+    "artworkIds": [
+      "rio",
+      "chinatown",
+      "ibiza",
+      "osaka",
+      "tokyo",
+      "motown",
+      "fairfax"
+    ]
+  },
+  {
+    "name": "Daily",
+    "artworkIds": [
+      "nighttime",
+      "sleepy",
+      "unwind",
+      "storybook",
+      "shine",
+      "arise"
+    ]
+  },
+  {
+    "name": "Dreamy",
+    "artworkIds": [
+      "still-waters",
+      "november-haze",
+      "adrift",
+      "pensive",
+      "blue-lagoon",
+      "majestic-morning",
+      "lake-placid",
+      "palm-beach",
+      "sundown",
+      "snow-capped",
+      "fuchsia-frost"
+    ]
+  },
+  {
+    "name": "Cozy",
+    "artworkIds": [
+      "rolling-hills",
+      "warm-embrace",
+      "dreamy-dusk",
+      "honolulu",
+      "savanna-sunset",
+      "golden-pond",
+      "ruby-glow",
+      "tropical-twilight",
+      "among-the-pines"
+    ]
+  },
+  {
+    "name": "Peaceful",
+    "artworkIds": [
+      "sailing-away",
+      "mountain-breeze",
+      "lake-mist",
+      "ocean-dawn",
+      "frosty-dawn",
+      "icy-glow",
+      "sunday-morning",
+      "emerald-isle",
+      "spring-blossom"
+    ]
+  },
+  {
+    "name": "Serenity",
+    "artworkIds": [
+      "galaxy",
+      "starlight",
+      "blood-moon",
+      "arctic-aurora",
+      "moonlight",
+      "nebula"
+    ]
+  },
+  {
+    "name": "Lush",
+    "artworkIds": [
+      "amber-bloom",
+      "lily",
+      "painted-sky",
+      "winter-beauty",
+      "orange-fields",
+      "forest-adventure",
+      "blue-planet",
+      "meriete"
+    ]
+  },
+  {
+    "name": "Pure",
+    "artworkIds": [
+      "amethyst-valley",
+      "misty-ridge",
+      "hazy-days",
+      "midsummer-sun",
+      "autumn-gold",
+      "spring-lake",
+      "winter-mountain",
+      "midwinter"
+    ]
+  },
+  {
+    "name": "Refreshing",
+    "artworkIds": [
+      "blossom",
+      "crocus",
+      "baby-s-breath",
+      "precious",
+      "narcissa"
+    ]
+  },
+  {
+    "name": "Luxurious",
+    "artworkIds": [
+      "emerald-flutter",
+      "memento",
+      "resplendent",
+      "scarlet-dream"
+    ]
+  },
+  {
+    "name": "Romantic",
+    "artworkIds": [
+      "ruby-romance",
+      "city-of-love",
+      "sunset-allure",
+      "lovebirds",
+      "smitten",
+      "glitz-and-glam",
+      "promise"
+    ]
+  },
+  {
+    "name": "Sunrise",
+    "artworkIds": [
+      "beginnings",
+      "first-light",
+      "horizon",
+      "valley-dawn",
+      "sunflare"
+    ]
+  },
+  {
+    "name": "Futuristic",
+    "artworkIds": [
+      "soho",
+      "vapor-wave",
+      "magneto",
+      "tyrell",
+      "disturbia",
+      "hal"
+    ]
+  },
+  {
+    "name": "Race day",
+    "artworkIds": [
+      "silverstone",
+      "zandvoort",
+      "singapore",
+      "s-o-paulo",
+      "suzuka",
+      "bahrain",
+      "miami"
+    ]
+  },
+  {
+    "name": "Spring breeze",
+    "artworkIds": [
+      "crocus",
+      "precious",
+      "blossom",
+      "narcissa",
+      "spring-lake",
+      "baby-s-breath",
+      "spring-blossom"
+    ]
+  },
+  {
+    "name": "Summer glow",
+    "artworkIds": [
+      "cancun",
+      "malibu-pink",
+      "rio",
+      "lily",
+      "midsummer-sun",
+      "savanna-sunset",
+      "painted-sky",
+      "tropical-twilight",
+      "dreamy-dusk",
+      "palm-beach"
+    ]
+  },
+  {
+    "name": "Harvest hues",
+    "artworkIds": [
+      "woodland-toadstool",
+      "amber-robin",
+      "fall-harvest",
+      "pumpkin-patch",
+      "pumpkin-spice",
+      "downtown-drizzle",
+      "november-haze",
+      "autumn-gold"
+    ]
+  },
+  {
+    "name": "Winter whisper",
+    "artworkIds": [
+      "snow-capped",
+      "crystalline",
+      "fuchsia-frost",
+      "among-the-pines",
+      "arctic-aurora",
+      "winter-beauty",
+      "icy-glow",
+      "midwinter"
+    ]
+  },
+  {
+    "name": "Winter holidays",
+    "artworkIds": [
+      "silent-night",
+      "winter-mountain",
+      "frosty-dawn",
+      "winter-beauty",
+      "rosy-sparkle",
+      "icy-glow"
+    ]
+  },
+  {
+    "name": "Christmas",
+    "artworkIds": [
+      "under-the-tree",
+      "jolly",
+      "golden-star",
+      "nutcracker",
+      "snow-sparkle",
+      "color-burst",
+      "festive-fun"
+    ]
+  },
+  {
+    "name": "Halloween",
+    "artworkIds": [
+      "glowing-grins",
+      "trick-or-treat",
+      "pandemonium",
+      "spellbound",
+      "toil-and-trouble",
+      "witching-hour",
+      "hocus-pocus",
+      "phantom"
+    ]
+  },
+  {
+    "name": "Essentials",
+    "artworkIds": [
+      "bright",
+      "concentrate",
+      "cool-bright",
+      "dimmed",
+      "energize",
+      "nightlight",
+      "read",
+      "relax",
+      "rest"
+    ]
+  },
+  {
+    "name": "More themes",
+    "artworkIds": [
+      "fast-furious",
+      "stadium"
+    ]
+  }
+]

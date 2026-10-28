@@ -3179,7 +3179,7 @@
   // and the temperature unit, as Glass UI offers them. Each user's own, saved on the bridge (/api/preferences) and
   // applied at once, on every page, plugins' included.
 
-  const wallpaperChoices = [["none", t("None")], ["aurora", t("Aurora")], ["sunset", t("Sunset")], ["ocean", t("Ocean")], ["forest", t("Forest")], ["graphite", t("Graphite")]];
+  const wallpaperChoices = [["none", t("None")], ["aurora", t("Aurora")], ["sunset", t("Sunset")], ["ocean", t("Ocean")], ["forest", t("Forest")], ["graphite", t("Graphite")], ["silk", t("Silk")], ["prism", t("Prism")], ["ribbon", t("Ribbon")], ["lagoon", t("Lagoon")], ["ember", t("Ember")], ["midnight", t("Midnight")]];
 
   views.appearance = async (main) => {
     let preferences = await HomeswiftCommon.loadPreferences();
@@ -3194,8 +3194,8 @@
       } catch (e) { message.className = "status-line error"; message.textContent = e.message; }
     };
     const segmented = (label, value, options, key) => el("div", { class: "group", role: "radiogroup", "aria-label": label },
-      options.map(([option, text]) => el("button", { type: "button", role: "radio", text, class: option === value ? "on" : "", "aria-checked": String(option === value),
-        onclick: () => { if (option !== value) choose({ [key]: option }); } })));
+      options.map(([option, text]) => el("button", { type: "button", role: "radio", actionIcon: key === "language" ? undefined : key === "temperatureUnit" ? "thermo" : "sun", class: option === value ? "on" : "", "aria-checked": String(option === value),
+        onclick: () => { if (option !== value) choose({ [key]: option }); } }, key === "language" ? flag(option === "auto" ? null : option) : null, el("span", { text }))));
 
     const picker = el("input", { type: "file", accept: "image/jpeg,image/png,image/webp", multiple: true, class: "hidden" });
     /// Wallpapers of the viewer's own, from the picker or dropped on the zone, one after the other: the bridge
@@ -3247,10 +3247,10 @@
           } }, HomeswiftCommon.icon("close")));
       };
       body.replaceChildren(
-        el("div", { class: "card" }, el("h2", { text: t("Theme") }),
+        el("div", { class: "card" }, el("h2", { class: "appearance-card-title" }, HomeswiftCommon.icon("sun"), el("span", { text: t("Theme") })),
           el("p", { class: "muted", text: t("Automatic follows the system's light or dark appearance.") }),
           segmented(t("Theme"), preferences.theme, [["auto", t("Automatic")], ["light", t("Light")], ["dark", t("Dark")]], "theme")),
-        el("div", { class: "card" }, el("h2", { text: t("Wallpaper") }),
+        el("div", { class: "card" }, el("h2", { class: "appearance-card-title" }, HomeswiftCommon.icon("image"), el("span", { text: t("Wallpaper") })),
           el("p", { class: "muted", text: t("Behind the glass of every page.") }),
           el("div", { class: "wallpapers", role: "radiogroup", "aria-label": t("Wallpaper") },
             wallpaperChoices.map(([value, text]) =>
@@ -3260,10 +3260,10 @@
             own.map(ownTile)),
           imageZone(),
           picker),
-        el("div", { class: "card" }, el("h2", { text: t("Temperatures") }),
+        el("div", { class: "card" }, el("h2", { class: "appearance-card-title" }, HomeswiftCommon.icon("thermo"), el("span", { text: t("Temperatures") })),
           el("p", { class: "muted", text: t("How accessories and plugin pages show them. HomeKit and the Home app keep their own setting.") }),
           segmented(t("Temperature unit"), preferences.temperatureUnit, [["c", t("Celsius (°C)")], ["f", t("Fahrenheit (°F)")]], "temperatureUnit")),
-        el("div", { class: "card" }, el("h2", { text: t("Language") }),
+        el("div", { class: "card" }, el("h2", { class: "appearance-card-title" }, HomeswiftCommon.icon("globe"), el("span", { text: t("Language") })),
           el("p", { class: "muted", text: t("The pages' language and the one the Assistant answers in. Automatic follows the browser.") }),
           // Each language in its own name, so whoever reads the page finds theirs.
           segmented(t("Language"), preferences.language || "auto",

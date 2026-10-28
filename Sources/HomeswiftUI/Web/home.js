@@ -151,8 +151,85 @@
     return section;
   }
 
+  // Artwork ids come from the server catalogue; never accept an arbitrary image URL.
+  function artworkImage(id, className = "scene-artwork") {
+    return typeof id === "string" && /^[a-z0-9-]+$/.test(id)
+      ? el("img", { class: className, src: `/artwork-${id}.webp`, alt: "", loading: "lazy", decoding: "async" }) : null;
+  }
+
+  const artworkThemeNames = {
+    "Essentials": t("Essentials"),
+    "Get cozy": t("Get cozy"),
+    "Movie night": t("Movie night"),
+    "Reading": t("Reading"),
+    "Wanderlust": t("Wanderlust"),
+    "Vibrant": t("Vibrant"),
+    "Party vibes": t("Party vibes"),
+    "Daily": t("Daily"),
+    "Dreamy": t("Dreamy"),
+    "Cozy": t("Cozy"),
+    "Peaceful": t("Peaceful"),
+    "Serenity": t("Serenity"),
+    "Lush": t("Lush"),
+    "Pure": t("Pure"),
+    "Refreshing": t("Refreshing"),
+    "Luxurious": t("Luxurious"),
+    "Romantic": t("Romantic"),
+    "Sunrise": t("Sunrise"),
+    "Futuristic": t("Futuristic"),
+    "Race day": t("Race day"),
+    "Spring breeze": t("Spring breeze"),
+    "Summer glow": t("Summer glow"),
+    "Harvest hues": t("Harvest hues"),
+    "Winter whisper": t("Winter whisper"),
+    "Winter holidays": t("Winter holidays"),
+    "Christmas": t("Christmas"),
+    "Halloween": t("Halloween"),
+    "More themes": t("More themes"),
+  };
+  let artworkThemesRequest;
+  const loadArtworkThemes = () => artworkThemesRequest ||= app.api("/scene-artwork-themes.json").catch((error) => { artworkThemesRequest = null; throw error; });
+
+  // A scene can belong to several themes; each row keeps the catalogue's order.
+  function themedArtwork(items, themes, makeButton) {
+    const byId = new Map(items.map((item) => [item.artworkId || item.id, item]));
+    const search = el("input", { type: "search", placeholder: t("Search images…"), "aria-label": t("Search images…") });
+    const select = el("select", { "aria-label": t("Theme") }, el("option", { value: "", text: t("All themes") }),
+      [...themes].sort((a, b) => (artworkThemeNames[a.name] || a.name).localeCompare(artworkThemeNames[b.name] || b.name, HomeswiftI18n.locale)).map((theme) => el("option", { value: theme.name, text: artworkThemeNames[theme.name] || theme.name })));
+    const sort = el("select", { "aria-label": t("Sort images") },
+      el("option", { value: "gallery", text: t("Gallery order") }), el("option", { value: "asc", text: t("Name: A–Z") }), el("option", { value: "desc", text: t("Name: Z–A") }));
+    const empty = el("p", { class: "muted", text: t("No images match your search."), hidden: true });
+    const groups = themes.map((theme) => {
+      const buttons = theme.artworkIds.filter((id) => byId.has(id)).map((id) => {
+        const item = byId.get(id), button = makeButton(item);
+        return { item, button };
+      });
+      const node = el("section", { class: "artwork-theme" }, el("h3", { class: "service-name", text: artworkThemeNames[theme.name] || theme.name }),
+        el("div", { class: "artwork-theme-row" }, buttons.map(({ button }) => button)));
+      return { theme, node, buttons };
+    });
+    const filter = () => {
+      const query = search.value.trim().toLocaleLowerCase();
+      for (const group of groups) {
+        const matchesTheme = (artworkThemeNames[group.theme.name] || group.theme.name).toLocaleLowerCase().includes(query);
+        for (const { item, button } of group.buttons) button.hidden = !(matchesTheme || item.name.toLocaleLowerCase().includes(query));
+        group.node.hidden = (select.value && group.theme.name !== select.value) || !group.buttons.some(({ button }) => !button.hidden);
+      }
+      empty.hidden = groups.some(({ node }) => !node.hidden);
+    };
+    sort.addEventListener("change", () => {
+      for (const group of groups) {
+        const ordered = [...group.buttons];
+        if (sort.value !== "gallery") ordered.sort((a, b) => a.item.name.localeCompare(b.item.name, HomeswiftI18n.locale) * (sort.value === "desc" ? -1 : 1));
+        group.node.querySelector(".artwork-theme-row").replaceChildren(...ordered.map(({ button }) => button));
+      }
+    });
+    search.addEventListener("input", filter); select.addEventListener("change", filter);
+    return el("div", { class: "artwork-themes" }, el("div", { class: "artwork-filters" }, search, select, sort), empty, groups.map(({ node }) => node));
+  }
+
   function sceneButton(scene) {
-    const button = el("button", { class: "scene-run", title: t("Run {name}", { name: scene.name }) }, tile("play", scene.security ? "violet" : "orange"), el("span", { text: scene.name }));
+    const button = el("button", { class: "scene-run", title: t("Run {name}", { name: scene.name }) }, artworkImage(scene.artworkId, "mood-swatch") || tile("play", scene.security ? "violet" : "orange"), el("span", { text: scene.name }));
     button.addEventListener("click", () => runScene(scene, button));
     return button;
   }
@@ -207,7 +284,7 @@
     "alert": [t("Alert flash"), t("Two red pulses, then the lights go back to how they were.")],
     "bedtime": [t("Bedtime"), t("A slow fade to a dim red over fifteen minutes.")],
   };
-  const moodCategories = [["calm", t("Calm")], ["animated", t("Slow animations")], ["party", t("Party")], ["signal", t("Signals")]];
+  const moodCategories = [["gallery", t("Scene gallery")], ["calm", t("Calm")], ["animated", t("Slow animations")], ["party", t("Party")], ["signal", t("Signals")]];
   const moodName = (id, name) => moodTexts[id]?.[0] ?? name;
   const moodRoomKey = "homeswift.moods.room";
 
@@ -250,7 +327,7 @@
     section.append(head, el("div", { class: "card mood-card" }, roomChips, running, line, designer, collection));
 
     let data = { moods: [], running: [] };
-    const buttons = new Map();
+    const buttons = [];
     let timer = null;
 
     /// The pills of the moods playing in the chosen room light up.
@@ -259,6 +336,11 @@
       for (const [id, button] of buttons) {
         button.classList.toggle("playing", playing.has(id));
         button.setAttribute("aria-pressed", String(playing.has(id)));
+        let badge = button.querySelector(".mood-stop-badge");
+        if (playing.has(id) && !badge) { badge = el("span", { class: "mood-stop-badge", "aria-hidden": "true" }); button.append(badge); }
+        if (!playing.has(id)) badge?.remove();
+        const label = button.querySelector(".name")?.textContent || moodName(id, id);
+        button.setAttribute("aria-label", playing.has(id) ? `${t("Stop")} ${label}` : label);
       }
     }
 
@@ -276,7 +358,7 @@
       running.replaceChildren(...runs.map((run) => {
         const name = moodName(run.mood, run.name);
         // A mood that set the lights once is undone; one that plays is stopped. Either way the lights go back.
-        const stop = el("button", { type: "button", class: "mood-stop", text: run.held ? t("Undo") : t("Stop") });
+        const stop = el("button", { type: "button", class: "mood-stop", actionIcon: "stop", text: run.held ? t("Undo") : t("Stop") });
         stop.addEventListener("click", async () => {
           stop.classList.add("busy");
           stop.disabled = true;
@@ -298,8 +380,8 @@
     }
 
     function swatch(id) {
-      const illustration = Object.hasOwn(moodTexts, id) ? id : "custom";
-      return el("img", { class: "mood-swatch", src: `/mood-${illustration}.svg`, alt: "", "aria-hidden": "true" });
+      const artworkId = data.moods.find((mood) => mood.id === id)?.artworkId;
+      return artworkImage(artworkId || "tyrell", "mood-swatch");
     }
 
     async function start(body, name, button) {
@@ -340,19 +422,32 @@
 
     (async () => {
       await refresh();
+      const themes = await loadArtworkThemes();
       designer.classList.toggle("hidden", !data.assistant);
       collection.replaceChildren(...moodCategories.map(([category, label]) => {
         const moods = data.moods.filter((mood) => mood.category === category);
         if (!moods.length) return null;
+        const makeButton = (mood) => {
+          const name = moodName(mood.id, mood.name);
+          const button = el("button", { type: "button", class: "mood-button scene pictured artwork-choice", title: category === "gallery" ? name : moodTexts[mood.id]?.[1] ?? mood.description ?? "", "aria-pressed": "false" },
+            swatch(mood.id), el("span", { class: "name", text: name }));
+          button.addEventListener("click", async () => {
+            if (button.classList.contains("busy")) return;
+            const active = data.running.filter((run) => run.room === room && run.mood === mood.id);
+            if (!active.length) return start({ mood: mood.id }, name, button);
+            button.classList.add("busy");
+            try {
+              for (const run of active) await app.api("/api/moods/stop", { method: "POST", body: { run: run.id } });
+              say(line, t("{mood} stopped: the lights are back as they were.", { mood: name }));
+              await refresh();
+            } catch (e) { say(line, e.message, "error"); }
+            finally { button.classList.remove("busy"); }
+          });
+          buttons.push([mood.id, button]);
+          return button;
+        };
         return el("div", { class: "mood-group" }, el("div", { class: "service-name", text: label }),
-          el("div", { class: "mood-buttons" }, moods.map((mood) => {
-            const name = moodName(mood.id, mood.name);
-            const button = el("button", { type: "button", class: "mood-button", title: moodTexts[mood.id]?.[1] ?? mood.description ?? "", "aria-pressed": "false" },
-              swatch(mood.id), el("span", { text: name }));
-            button.addEventListener("click", () => start({ mood: mood.id }, name, button));
-            buttons.set(mood.id, button);
-            return button;
-          })));
+          category === "gallery" ? themedArtwork(moods, themes, makeButton) : el("div", { class: "mood-buttons" }, moods.map(makeButton)));
       }).filter(Boolean));
       markPlaying();
     })().catch((e) => say(line, e.message, "error"));
@@ -401,27 +496,37 @@
     const [data, accessories] = await Promise.all([app.api("/api/scenes"), app.api("/api/accessories")]);
     const names = new Map(accessories.map((a) => [a.id, displayName(a)]));
     const card = (scene) => {
-      const actions = scene.actions.slice(0, 4).map((action) => el("div", { class: "control" },
+      const actions = scene.actions.map((action) => el("div", { class: "control" },
         el("span", { text: action.missing ? t("{name} (gone)", { name: action.name || action.id }) : action.name || action.id }),
         el("span", { class: "value", text: `${action.characteristic} → ${typeof action.value === "boolean" && !app.enumLabels[action.characteristic] ? (action.value ? t("On") : t("Off")) : app.labelFor(action.characteristic, action.value)}` })));
-      const more = scene.actions.length > 4 ? el("p", { class: "muted note", text: tn("and {n} more", "and {n} more", scene.actions.length - 4) }) : null;
       const lastVars = scene.lastRun ? { date: dateTimeFormat.format(new Date(scene.lastRun.at)), trigger: scene.lastRun.trigger } : null;
       const last = scene.lastRun ? (scene.lastRun.ok ? t("Last run {date} ({trigger})", lastVars) : t("Last run {date} ({trigger}), with errors", lastVars)) : t("Never run");
       const run = el("button", { actionIcon: "play", class: "primary", text: t("Run") });
-      run.addEventListener("click", async () => { await runScene(scene, run); });
+      run.addEventListener("click", async () => { if (await runScene(scene, run)) app.route(); });
+      const stop = scene.stoppable ? el("button", { type: "button", actionIcon: "stop", text: t("Stop"), onclick: async () => {
+        const confirmSecurity = scene.security || scene.stopSecurity;
+        if (confirmSecurity && !confirm(t("Restore the previous state of this scene’s locks, doors or alarms?"))) return;
+        stop.disabled = true;
+        try {
+          const result = await app.api(`/api/scenes/${encodeURIComponent(scene.id)}/stop`, { method: "POST", body: { confirmSecurity } });
+          if (!result.ok) alert(result.failed.map((f) => HomeswiftI18n.message(f.error)).join("\n"));
+          app.route();
+        } catch (e) { alert(e.message); stop.disabled = false; }
+      } }) : null;
       return el("div", { class: "card server scene-card" },
+        artworkImage(scene.artworkId),
         el("div", { class: "server-head" }, tile("play", scene.security ? "violet" : "orange"),
           el("div", { class: "who" }, el("a", { class: "card-title", href: `/scenes/${encodeURIComponent(scene.id)}` }, el("strong", { text: scene.name })),
             el("div", { class: "muted", text: scene.triggers.length ? scene.triggers.map((trigger) => describeTrigger(trigger, names)).join(" · ") : t("Run by hand") })),
-          run),
-        el("div", { class: "controls" }, actions), more,
+          el("div", { class: "scene-run-actions" }, run, stop)),
+        el("details", { class: "scene-card-details" }, el("summary", { text: t("Details") }), el("div", { class: "controls" }, actions)),
         scene.security ? el("p", { class: "muted note", text: t("It changes a lock, a door or an alarm: the page asks before running it, and automations leave those actions out.") }) : null,
         el("div", { class: "card-foot" }, el("span", { class: "muted", text: scene.lastSkipped && (!scene.lastRun || scene.lastSkipped.at > scene.lastRun.at) ? t("Skipped {date}: {reason}", { date: dateTimeFormat.format(new Date(scene.lastSkipped.at)), reason: HomeswiftI18n.message(scene.lastSkipped.reason) }) : last }),
           menuButton(t("Actions for {name}", { name: scene.name }), () => [
             { label: t("Run"), icon: "play", onSelect: () => runScene(scene) },
             { label: t("Edit"), icon: "edit", href: `/scenes/${encodeURIComponent(scene.id)}` },
             { label: t("Delete"), icon: "trash", danger: true, onSelect: async () => {
-              if (!confirm(t("Delete the scene {name}?", { name: scene.name }))) return;
+              if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete the scene {name}?", { name: scene.name }), text: t("This removes the scene and its automatic triggers. This cannot be undone."), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
               try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); app.route(); } catch (e) { alert(e.message); }
             } },
           ])));
@@ -447,30 +552,202 @@
 
   /// Where sunrise and sunset are computed for: Glass UI took its weather widget's city; here it is typed, or
   /// this device's position.
+  // Small raster map with no third-party scripts. Only visible tiles are requested.
+  function locationMap(initial, changed) {
+    let latitude = initial?.lat ?? 0, longitude = initial?.lon ?? 0, zoom = initial ? 12 : 2;
+    let selected = !!initial, drag = null;
+    const clampLat = (value) => Math.max(-85.0511, Math.min(85.0511, value));
+    const wrapLon = (value) => ((value + 180) % 360 + 360) % 360 - 180;
+    const project = (lat, lon) => {
+      const size = 256 * 2 ** zoom, sine = Math.sin(clampLat(lat) * Math.PI / 180);
+      return [(lon + 180) / 360 * size, (0.5 - Math.log((1 + sine) / (1 - sine)) / (4 * Math.PI)) * size];
+    };
+    const unproject = (x, y) => {
+      const size = 256 * 2 ** zoom;
+      return [clampLat(Math.atan(Math.sinh(Math.PI * (1 - 2 * y / size))) * 180 / Math.PI), wrapLon(x / size * 360 - 180)];
+    };
+    const tiles = el("div", { class: "location-map-tiles", "aria-hidden": "true" });
+    const pin = el("span", { class: "location-map-pin", "aria-hidden": "true" }, HomeswiftCommon.icon("location"));
+    const map = el("div", { class: "location-map", tabIndex: 0, role: "group", "aria-label": t("Location map. Drag to move, click to place the pin, or use the arrow keys.") }, tiles, pin);
+    const warning = el("p", { class: "muted", hidden: true, text: t("Map unavailable. You can still enter coordinates or use this device's location.") });
+    const tileNodes = new Map();
+    function draw() {
+      const width = map.clientWidth, height = map.clientHeight;
+      if (!width || !map.isConnected) return;
+      const [x, y] = project(latitude, longitude), left = x - width / 2, top = y - height / 2, count = 2 ** zoom;
+      const keep = new Set();
+      for (let tx = Math.floor(left / 256); tx <= Math.floor((left + width) / 256); tx++) {
+        for (let ty = Math.max(0, Math.floor(top / 256)); ty <= Math.min(count - 1, Math.floor((top + height) / 256)); ty++) {
+          const key = `${zoom}/${tx}/${ty}`; keep.add(key);
+          let image = tileNodes.get(key);
+          if (!image) {
+            image = el("img", { alt: "", draggable: false, referrerPolicy: "origin", src: `https://tile.openstreetmap.org/${zoom}/${((tx % count) + count) % count}/${ty}.png` });
+            image.addEventListener("error", () => { warning.hidden = false; });
+            tileNodes.set(key, image); tiles.append(image);
+          }
+          image.style.left = `${tx * 256 - left}px`; image.style.top = `${ty * 256 - top}px`;
+        }
+      }
+      for (const [key, image] of tileNodes) if (!keep.has(key)) { image.remove(); tileNodes.delete(key); }
+      pin.hidden = !selected;
+    }
+    const choose = (lat, lon, persist = false) => { latitude = clampLat(lat); longitude = wrapLon(lon); selected = true; changed(latitude, longitude, persist); draw(); };
+    const move = (dx, dy, persist = false) => { const [x, y] = project(latitude, longitude); choose(...unproject(x + dx, y + dy), persist); };
+    map.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || event.target.closest("button, a")) return;
+      drag = { x: event.clientX, y: event.clientY, center: project(latitude, longitude), selected, moved: false };
+      map.setPointerCapture(event.pointerId); map.focus({ preventScroll: true });
+    });
+    map.addEventListener("pointermove", (event) => {
+      if (!drag) return;
+      const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
+      if (Math.hypot(dx, dy) > 4) drag.moved = true;
+      if (drag.moved) { [latitude, longitude] = unproject(drag.center[0] - dx, drag.center[1] - dy); selected = true; pin.hidden = false; tiles.style.transform = `translate(${dx}px, ${dy}px)`; }
+    });
+    map.addEventListener("pointerup", (event) => {
+      if (!drag) return;
+      const wasDragged = drag.moved; drag = null; tiles.style.transform = "";
+      if (map.hasPointerCapture(event.pointerId)) map.releasePointerCapture(event.pointerId);
+      if (wasDragged) choose(latitude, longitude, true);
+      else { const rect = map.getBoundingClientRect(); move(event.clientX - rect.left - rect.width / 2, event.clientY - rect.top - rect.height / 2, true); }
+    });
+    map.addEventListener("pointercancel", () => { if (drag) { [latitude, longitude] = unproject(...drag.center); selected = drag.selected; } drag = null; tiles.style.transform = ""; draw(); });
+    map.addEventListener("keydown", (event) => {
+      const delta = { ArrowLeft: [-64, 0], ArrowRight: [64, 0], ArrowUp: [0, -64], ArrowDown: [0, 64] }[event.key];
+      if (delta) { event.preventDefault(); move(...delta); }
+    });
+    const controls = el("div", { class: "location-map-controls" },
+      el("button", { type: "button", actionIcon: "plus", text: t("Zoom in"), onclick: () => { zoom = Math.min(18, zoom + 1); draw(); } }),
+      el("button", { type: "button", actionIcon: "minus", text: t("Zoom out"), onclick: () => { zoom = Math.max(1, zoom - 1); draw(); } }));
+    const attribution = el("a", { class: "location-map-credit", href: "https://www.openstreetmap.org/copyright", target: "_blank", rel: "noopener", text: "© OpenStreetMap contributors" });
+    map.append(controls, attribution);
+    const node = el("div", {}, el("p", { class: "muted", text: t("Click the map or finish dragging to save your coordinates. Map tiles load from OpenStreetMap.") }), map, warning);
+    let frame;
+    const resize = new ResizeObserver(() => { cancelAnimationFrame(frame); frame = requestAnimationFrame(draw); });
+    resize.observe(map);
+    const lifecycle = new MutationObserver(() => {
+      if (!node.isConnected) { resize.disconnect(); lifecycle.disconnect(); cancelAnimationFrame(frame); }
+    });
+    lifecycle.observe(document.getElementById("view"), { childList: true });
+    return { node, draw, set(lat, lon) { latitude = lat; longitude = lon; selected = true; zoom = 12; draw(); } };
+  }
+
   function locationCard(data) {
     const location = data.location;
     const lat = el("input", { type: "number", step: "any", min: -90, max: 90, value: location?.lat ?? "", "aria-label": t("Latitude") });
     const lon = el("input", { type: "number", step: "any", min: -180, max: 180, value: location?.lon ?? "", "aria-label": t("Longitude") });
     const name = el("input", { type: "text", value: location?.name ?? "", placeholder: t("My home"), maxLength: 64 });
     const line = statusLine();
-    const save = async (body) => {
-      try { await app.api("/api/scenes/location", { method: "PUT", body }); app.route(); } catch (e) { say(line, e.message, "error"); }
+    let saves = Promise.resolve();
+    const save = (body, keepMap = false) => {
+      saves = saves.then(async () => {
+        try {
+          const saved = await app.api("/api/scenes/location", { method: "PUT", body });
+          if (!keepMap) { app.route(); return; }
+          summaryValue.textContent = ` · ${saved.location.name || `${saved.location.lat}, ${saved.location.lon}`}`;
+          nextInfo.textContent = t("Next sunrise {sunrise}, sunset {sunset}.", {
+            sunrise: saved.nextSunrise ? timeFormat.format(new Date(saved.nextSunrise)) : "—",
+            sunset: saved.nextSunset ? timeFormat.format(new Date(saved.nextSunset)) : "—",
+          });
+          forget.hidden = false;
+          say(line, t("Coordinates saved."), "ok");
+        } catch (e) { say(line, e.message, "error"); }
+      });
+      return saves;
     };
+    const map = locationMap(location, (latitude, longitude, persist) => {
+      lat.value = latitude.toFixed(4); lon.value = longitude.toFixed(4);
+      if (persist) { say(line, t("Saving coordinates…")); save({ lat: Number(lat.value), lon: Number(lon.value), name: name.value }, true); }
+      else say(line, t("Found: save to keep it."));
+    });
+    const query = el("input", { id: "location-address", type: "search", enterKeyHint: "search", autocomplete: "off", maxLength: 200, required: true, placeholder: t("Street, city or postcode"), "aria-label": t("Search address") });
+    const results = el("div", { class: "location-search-results" });
+    const searchStatus = statusLine();
+    const loader = el("span", { class: "spinner", hidden: true, "aria-hidden": "true" });
+    const setSearching = (busy) => { loader.hidden = !busy; query.setAttribute("aria-busy", String(busy)); };
+    const cache = new Map();
+    let searchController, searchTimer, searchVersion = 0;
+    const searchButton = el("button", { type: "submit", actionIcon: "search", text: t("Search") });
+    const searchForm = el("form", { class: "location-search", onsubmit: async (event) => {
+      event.preventDefault();
+      clearTimeout(searchTimer);
+      const term = query.value.trim();
+      if (term.length < 3) return;
+      searchController?.abort();
+      searchController = new AbortController();
+      const version = ++searchVersion;
+      const timeout = setTimeout(() => searchController.abort(), 10000);
+      searchButton.disabled = true; setSearching(true); results.replaceChildren();
+      say(searchStatus, t("Searching addresses…"));
+      try {
+        let features = cache.get(term);
+        if (!features) {
+          const response = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(term)}&limit=5`, { credentials: "omit", referrerPolicy: "no-referrer", signal: searchController.signal });
+          if (!response.ok) throw new Error();
+          const payload = await response.json();
+          features = (payload.features || []).filter((feature) => {
+            const [longitude, latitude] = feature.geometry?.coordinates || [];
+            return Number.isFinite(latitude) && Number.isFinite(longitude) && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180;
+          }).slice(0, 5);
+          if (cache.size >= 30) cache.delete(cache.keys().next().value);
+          cache.set(term, features);
+        }
+        if (version !== searchVersion || query.value.trim() !== term || !searchForm.isConnected) return;
+        say(searchStatus, features.length ? t("Select an address to save its coordinates.") : t("No addresses found. Try a city or postcode."));
+        for (const feature of features) {
+          const p = feature.properties || {};
+          const address = [...new Set([p.name, [p.housenumber, p.street].filter(Boolean).join(" "), p.postcode, p.city || p.town || p.village, p.district || p.county, p.state, p.country].filter(Boolean))].join(", ");
+          const [longitude, latitude] = feature.geometry.coordinates;
+          results.append(el("button", { type: "button", actionIcon: "location", onclick: async () => {
+            lat.value = latitude.toFixed(6); lon.value = longitude.toFixed(6);
+            map.set(latitude, longitude);
+            results.replaceChildren(); query.value = address; query.focus();
+            say(searchStatus, ""); say(line, t("Saving coordinates…"));
+            await save({ lat: Number(lat.value), lon: Number(lon.value), name: name.value }, true);
+          } }, el("span", { class: "location-result-copy" }, el("strong", { text: p.name || p.street || address || `${latitude}, ${longitude}` }), el("span", { class: "muted", text: address }))));
+        }
+      } catch { if (version === searchVersion) say(searchStatus, t("Address search is unavailable. Try again or choose a point on the map."), "error"); }
+      finally { clearTimeout(timeout); if (version === searchVersion) { searchButton.disabled = false; setSearching(false); } }
+    } }, el("label", { for: "location-address", class: "field-title", text: t("Search address") }),
+      el("div", { class: "location-search-bar" }, el("div", { class: "location-search-input" }, query, loader), searchButton),
+      el("p", { class: "muted", text: t("Search sends your query to Photon. Results use OpenStreetMap data.") }), searchStatus, results);
+    query.addEventListener("input", () => {
+      clearTimeout(searchTimer); ++searchVersion; searchController?.abort();
+      searchButton.disabled = false; setSearching(false); results.replaceChildren(); say(searchStatus, "");
+      if (query.value.trim().length >= 3) searchTimer = setTimeout(() => searchForm.requestSubmit(), 400);
+    });
+    query.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowDown" && results.firstElementChild) { event.preventDefault(); results.firstElementChild.focus(); }
+      if (event.key === "Escape") { clearTimeout(searchTimer); ++searchVersion; searchController?.abort(); results.replaceChildren(); say(searchStatus, ""); searchButton.disabled = false; setSearching(false); }
+    });
+    results.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowDown") { event.preventDefault(); event.target.nextElementSibling?.focus(); }
+      if (event.key === "ArrowUp") { event.preventDefault(); (event.target.previousElementSibling || query).focus(); }
+      if (event.key === "Escape") { results.replaceChildren(); say(searchStatus, ""); query.focus(); }
+    });
+    const updateMap = () => { if (lat.value !== "" && lon.value !== "" && lat.checkValidity() && lon.checkValidity()) map.set(Number(lat.value), Number(lon.value)); };
+    lat.addEventListener("change", updateMap); lon.addEventListener("change", updateMap);
     const here = el("button", { actionIcon: "location", text: t("Use this device's location"), onclick: () => {
       if (!navigator.geolocation) return say(line, t("This browser cannot tell its location."), "error");
       say(line, t("Asking the browser…"));
       navigator.geolocation.getCurrentPosition(
-        (position) => { lat.value = position.coords.latitude.toFixed(4); lon.value = position.coords.longitude.toFixed(4); say(line, t("Found: save to keep it.")); },
+        (position) => { lat.value = position.coords.latitude.toFixed(4); lon.value = position.coords.longitude.toFixed(4); updateMap(); say(line, t("Found: save to keep it.")); },
         (error) => say(line, error.message || t("The browser did not give its location (it needs HTTPS away from localhost)."), "error"));
     } });
     const next = location ? t("Next sunrise {sunrise}, sunset {sunset}.", { sunrise: data.nextSunrise ? timeFormat.format(new Date(data.nextSunrise)) : "—", sunset: data.nextSunset ? timeFormat.format(new Date(data.nextSunset)) : "—" }) : t("No location yet: sunrise and sunset triggers wait for one.");
-    return el("details", { class: "card location", open: !location && data.scenes.some((s) => s.triggers.some((trigger) => trigger.type === "sun")) },
-      el("summary", {}, el("strong", { text: t("Location for sunrise and sunset") }), el("span", { class: "muted", text: ` · ${location ? (location.name || `${location.lat}, ${location.lon}`) : t("not set")}` })),
-      el("p", { class: "muted", text: next }),
+    const summaryValue = el("span", { class: "muted", text: ` · ${location ? (location.name || `${location.lat}, ${location.lon}`) : t("not set")}` });
+    const nextInfo = el("p", { class: "muted", text: next });
+    const forget = el("button", { actionIcon: "trash", class: "link", text: t("Forget it"), hidden: !location, onclick: () => save(null) });
+    return el("details", { class: "card location", ontoggle: () => map.draw(), open: !location && data.scenes.some((s) => s.triggers.some((trigger) => trigger.type === "sun")) },
+      el("summary", {}, el("strong", { text: t("Location for sunrise and sunset") }), summaryValue),
+      nextInfo, searchForm, map.node,
       el("div", { class: "fields" }, field(t("Latitude"), lat), field(t("Longitude"), lon), field(t("Name"), name, t("Only for you to recognise it."))),
       el("div", { class: "actions" },
-        el("button", { actionIcon: "check", class: "primary", text: t("Save"), onclick: () => save({ lat: Number(lat.value), lon: Number(lon.value), name: name.value }) }),
-        here, location ? el("button", { actionIcon: "trash", class: "link", text: t("Forget it"), onclick: () => save(null) }) : null),
+        el("button", { actionIcon: "check", class: "primary", text: t("Save"), onclick: () => {
+          if (lat.value === "" || lon.value === "" || !lat.reportValidity() || !lon.reportValidity()) return say(line, t("Choose a location on the map or enter valid coordinates."), "error");
+          save({ lat: Number(lat.value), lon: Number(lon.value), name: name.value });
+        } }),
+        here, forget),
       line);
   }
 
@@ -489,17 +766,19 @@
   /// An input for a characteristic's value: a menu for booleans and enumerations, a number within its range,
   /// else text. `.read()` gives the value to save.
   function valueInput(characteristic, value) {
-    if (["Brightness", "Color Temperature"].includes(characteristic?.type)) {
+    if (characteristic?.type === "Light color") return colorInput(value);
+    if (["Brightness", "Color Temperature", "Hue", "Saturation", "Rotation Speed", "Target Position", "Volume", "Target Temperature", "Heating Threshold Temperature", "Cooling Threshold Temperature"].includes(characteristic?.type)) {
       const temperature = characteristic.type === "Color Temperature";
       const min = characteristic.minValue ?? (temperature ? 140 : 0);
-      const max = characteristic.maxValue ?? (temperature ? 500 : 100);
+      const max = characteristic.maxValue ?? (temperature ? 500 : characteristic.type === "Hue" ? 360 : 100);
       const slider = el("input", { type: "range", min, max, step: characteristic.minStep || 1,
-        value: value ?? characteristic.value ?? min, "aria-label": temperature ? t("Color Temperature") : t("Brightness") });
+        value: value ?? characteristic.value ?? min, "aria-label": t(characteristic.type) });
       const output = el("output", { class: "scene-slider-value" });
       const format = new Intl.NumberFormat(HomeswiftI18n.locale, { maximumFractionDigits: 0 });
       const paint = () => {
         const raw = Number(slider.value);
-        const text = temperature ? `${format.format(Math.round(1000000 / raw))} K` : `${format.format(raw)} %`;
+        const unit = characteristic.unit === "celsius" ? " °C" : characteristic.type === "Hue" ? "°" : characteristic.unit === "percentage" || ["Brightness", "Saturation", "Rotation Speed", "Target Position", "Volume"].includes(characteristic.type) ? " %" : "";
+        const text = temperature ? `${format.format(Math.round(1000000 / raw))} K` : characteristic.unit === "celsius" ? HomeswiftCommon.formatTemperature(raw) : `${raw}${unit}`;
         output.textContent = text;
         slider.setAttribute("aria-valuetext", text);
       };
@@ -511,9 +790,8 @@
     const labels = app.enumLabels[characteristic?.type];
     let input;
     if (characteristic?.format === "bool") {
-      input = el("select", {}, el("option", { value: "true", text: t("On") }), el("option", { value: "false", text: t("Off") }));
-      input.value = String(value === true || value === 1);
-      input.read = () => input.value === "true";
+      input = el("input", { type: "checkbox", role: "switch", checked: Boolean(value ?? characteristic.value), "aria-label": t(characteristic.type) });
+      input.read = () => input.checked;
     } else if (characteristic && (characteristic.validValues || labels)) {
       const values = characteristic.validValues || labels.map((_, index) => index);
       input = el("select", {}, values.map((v) => el("option", { value: v, text: app.labelFor(characteristic.type, v) })));
@@ -531,8 +809,29 @@
     return input;
   }
 
+  function colorControls(accessory) {
+    const chars = writable(accessory);
+    return [...chars, ...chars.filter((c) => c.type === "Hue" && chars.some((s) => s.type === "Saturation" && s.service === c.service))
+      .map((c) => ({ ...c, type: "Light color", value: { hue: c.value, saturation: chars.find((s) => s.type === "Saturation" && s.service === c.service).value } }))];
+  }
+
+  function colorInput(value = {}) {
+    const h = Number(value.hue || 0), sat = Number(value.saturation ?? 100) / 100;
+    const channel = (n) => { const k = (n + h / 60) % 6; return Math.round(255 * (1 - sat * Math.max(0, Math.min(k, 4 - k, 1)))).toString(16).padStart(2, "0"); };
+    const input = el("input", { type: "color", value: `#${channel(5)}${channel(3)}${channel(1)}`, "aria-label": t("Light color"), class: "scene-color-input" });
+    let selected = { hue: h, saturation: sat * 100 };
+    input.addEventListener("input", () => {
+      const [r, g, b] = [1, 3, 5].map((i) => parseInt(input.value.slice(i, i + 2), 16) / 255);
+      const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+      const hue = d === 0 ? 0 : max === r ? ((g - b) / d + 6) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      selected = { hue: Math.round(hue * 60), saturation: Math.round(max === 0 ? 0 : d / max * 100) };
+    });
+    input.read = () => selected;
+    return input;
+  }
+
   /// An accessory and one of its characteristics, with a value input after them when `withValue`.
-  function characteristicPicker(accessories, pick, { id, characteristic, value, withValue = true, list = writable }) {
+  function characteristicPicker(accessories, pick, { id, service, characteristic, value, withValue = true, list = writable }) {
     const options = accessories.filter((a) => list(a).length);
     const accessory = el("select", { "aria-label": t("Accessory") }, options.map((a) => el("option", { value: a.id, text: displayName(a) })));
     const kind = el("select", { "aria-label": t("Characteristic") });
@@ -545,7 +844,7 @@
       kind.replaceChildren(...chars.map((c, index) => el("option", { value: index, text: chars.filter((x) => x.type === c.type).length > 1 ? `${controlName(c.type)} (${c.serviceName})` : controlName(c.type) })));
       // An accessory that is gone keeps the characteristic it was saved with.
       if (!chars.length && (keepType ?? characteristic)) kind.append(el("option", { value: 0, text: controlName(keepType ?? characteristic) }));
-      const index = Math.max(0, chars.findIndex((c) => c.type === keepType));
+      const index = Math.max(0, chars.findIndex((c) => c.type === keepType && (!service || c.service === service)));
       kind.value = String(index);
       current = chars[index] || null;
       if (withValue) { holder.replaceChildren(pick.value = valueInput(current, keepValue ?? current?.value)); }
@@ -561,7 +860,7 @@
     });
     pick.read = () => {
       const found = options.find((a) => a.id === accessory.value);
-      if (!found || !current) return { id: accessory.value, characteristic: characteristic || "" };
+      if (!found || !current) return { id: accessory.value, characteristic: characteristic || "", ...(service ? { service } : {}) };
       const several = list(found).filter((c) => c.type === current.type).length > 1;
       return { id: found.id, characteristic: current.type, ...(several ? { service: current.service } : {}) };
     };
@@ -604,6 +903,23 @@
     const choices = accessories.filter((a) => !a.hidden || scene.actions.some((x) => x.id === a.id));
 
     const name = el("input", { type: "text", value: scene.name, maxLength: 64, required: true, placeholder: t("Evening") });
+    let artworkId = scene.artworkId || null;
+    const themes = await loadArtworkThemes();
+    const artworkPreview = el("div", { class: "artwork-preview" }, artworkImage(artworkId));
+    const artworkButtons = [];
+    const selectArtwork = (id) => {
+      artworkId = id;
+      artworkPreview.replaceChildren(...[artworkImage(id)].filter(Boolean));
+      for (const [value, button] of artworkButtons) button.setAttribute("aria-pressed", String(value === id));
+    };
+    const makeArtworkButton = (item) => {
+      const button = el("button", { type: "button", class: "scene pictured artwork-choice", "aria-pressed": String(item.id === artworkId), onclick: () => selectArtwork(item.id) },
+        artworkImage(item.id), el("span", { class: "name", text: item.name }));
+      artworkButtons.push([item.id, button]); return button;
+    };
+    const clearArtwork = el("button", { type: "button", actionIcon: "close", text: t("No image"), onclick: () => selectArtwork(null) });
+    const artworkPicker = el("details", { class: "artwork-picker" }, el("summary", { text: t("Scene image") }), clearArtwork,
+      themedArtwork(data.artworks || [], themes, makeArtworkButton));
     const actions = new Set(), triggers = new Set(), conditions = new Set();
     const actionList = el("div", { class: "editor-list" }), triggerList = el("div", { class: "editor-list" }), conditionList = el("div", { class: "editor-list" });
 
@@ -618,11 +934,25 @@
     };
     const addAction = (action = {}) => {
       const pick = {};
-      const [accessory, control, value] = characteristicPicker(choices, pick, { id: action.id, characteristic: action.characteristic, value: action.value });
+      const [accessory, control, value] = characteristicPicker(choices, pick, { id: action.id, service: action.service, characteristic: action.characteristic, value: action.value, list: colorControls });
       control.setAttribute("aria-label", t("Control"));
-      const row = rowShell(field(t("Accessory"), accessory), field(t("Control"), control), field(t("Value"), value));
-      row.read = () => ({ ...pick.read(), value: pick.value.read() });
-      row.append(deleteButton(row, actions, t("Delete action")));
+      const fields = rowShell(field(t("Accessory"), accessory), field(t("Control"), control), field(t("Value"), value));
+      const summary = el("summary", { class: "scene-action-summary" });
+      const row = el("details", { class: "scene-action", open: !action.id || actions.size === 0 }, summary, fields);
+      const describe = () => summary.replaceChildren(
+        HomeswiftCommon.icon("sliders"),
+        el("span", {}, el("strong", { text: accessory.selectedOptions[0]?.textContent || action.id || "" }),
+          el("small", { text: control.selectedOptions[0]?.textContent || action.characteristic || "" })),
+        HomeswiftCommon.icon("down"));
+      fields.addEventListener("change", describe);
+      describe();
+      row.read = () => {
+        const target = pick.read(), value = pick.value.read();
+        return target.characteristic === "Light color"
+          ? [{ ...target, service: pick.current().service, characteristic: "Hue", value: value.hue }, { ...target, service: pick.current().service, characteristic: "Saturation", value: value.saturation }]
+          : [{ ...target, value }];
+      };
+      fields.append(deleteButton(row, actions, t("Delete action")));
       actions.add(row);
       actionList.append(row);
     };
@@ -654,7 +984,7 @@
           const [accessory, kind, holder] = characteristicPicker(accessories, pick, { id: shown.id, characteristic: shown.characteristic, value: shown.value, list: readable });
           holder.classList.toggle("hidden", operator.value === "changes");
           operator.addEventListener("change", () => holder.classList.toggle("hidden", operator.value === "changes"));
-          body.replaceChildren(accessory, kind, operator, holder);
+          body.replaceChildren(field(t("Accessory"), accessory), field(t("Control"), kind), field(t("Comparison"), operator), field(t("Value"), holder));
           row.readBody = () => ({ ...pick.read(), operator: operator.value, ...(operator.value === "changes" ? {} : { value: pick.value.read() }) });
         } else {
           const cron = el("input", { type: "text", value: shown.cron || "0 7 * * 1-5", placeholder: "0 7 * * 1-5", "aria-label": t("Cron expression"), class: "mono" });
@@ -673,18 +1003,21 @@
       const type = el("select", { "aria-label": t("Condition") }, el("option", { value: "time", text: t("Between") }), el("option", { value: "characteristic", text: t("Only if") }));
       type.value = condition.type;
       const body = el("span", { class: "group-inline grow" });
-      const row = rowShell(type, body);
+      const row = rowShell(field(t("Condition"), type), body);
+      body.classList.add("scene-condition-fields");
       const draw = (c) => {
         if (c.type === "time") {
           const after = timeOfDay(c.after || "sunset"), before = timeOfDay(c.before || "23:00");
-          body.replaceChildren(after, el("span", { class: "muted", text: t("and") }), before);
+          body.replaceChildren(
+            el("div", { class: "condition-time-point", role: "group", "aria-label": t("Start time") }, el("span", { class: "field-title", text: t("Start time") }), after),
+            el("div", { class: "condition-time-point", role: "group", "aria-label": t("End time") }, el("span", { class: "field-title", text: t("End time") }), before));
           row.readBody = () => ({ after: after.read(), before: before.read() });
         } else {
           const pick = {};
           const operator = el("select", { "aria-label": t("Comparison") }, operators.map(([value, text]) => el("option", { value, text })));
           operator.value = c.operator || "eq";
           const [accessory, kind, holder] = characteristicPicker(accessories, pick, { id: c.id, characteristic: c.characteristic, value: c.value, list: readable });
-          body.replaceChildren(accessory, kind, operator, holder);
+          body.replaceChildren(field(t("Accessory"), accessory), field(t("Control"), kind), field(t("Comparison"), operator), field(t("Value"), holder));
           row.readBody = () => ({ ...pick.read(), operator: operator.value, value: pick.value.read() });
         }
       };
@@ -695,7 +1028,15 @@
       conditions.add(row);
       conditionList.append(row);
     };
-    scene.actions.forEach(addAction);
+    const paired = new Set();
+    scene.actions.forEach((action, index) => {
+      if (paired.has(index)) return;
+      const other = scene.actions.findIndex((a, j) => j > index && a.id === action.id && a.service === action.service && a.characteristic === (action.characteristic === "Hue" ? "Saturation" : "Hue"));
+      if (["Hue", "Saturation"].includes(action.characteristic) && other === index + 1 && scene.actions.filter((a) => a.id === action.id && a.service === action.service && ["Hue", "Saturation"].includes(a.characteristic)).length === 2 && choices.some((a) => a.id === action.id && colorControls(a).some((c) => c.type === "Light color" && (!action.service || c.service === action.service)))) {
+        paired.add(other);
+        addAction({ ...action, characteristic: "Light color", value: { hue: action.characteristic === "Hue" ? action.value : scene.actions[other].value, saturation: action.characteristic === "Saturation" ? action.value : scene.actions[other].value } });
+      } else addAction(action);
+    });
     scene.triggers.forEach(addTrigger);
     scene.conditions.forEach(addCondition);
     if (isNew && choices.length) addAction();
@@ -711,52 +1052,73 @@
     });
 
     const canvas = el("div", { class: "scene-flow-canvas" });
-    const viewport = el("div", { class: "scene-flow-viewport", tabIndex: 0, "aria-label": t("Scenes") }, canvas);
-    const links = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    links.classList.add("scene-flow-links"); links.setAttribute("aria-hidden", "true"); canvas.append(links);
+    const viewport = el("div", { class: "scene-flow-viewport", tabIndex: 0, "aria-label": t("Workflow canvas") }, canvas);
+    const inspector = el("aside", { class: "scene-flow-inspector", hidden: true, "aria-label": t("Edit step") });
+    const navigation = el("nav", { class: "scene-flow-navigation", "aria-label": t("Steps") });
+    const stepEntries = [];
+    let selectedStep = null;
+    const closeEditor = () => {
+      inspector.hidden = true;
+      flow.classList.remove("editing");
+      for (const step of stepEntries) { step.node.setAttribute("aria-expanded", "false"); step.nav.classList.remove("on"); step.nav.setAttribute("aria-pressed", "false"); }
+      selectedStep?.node.focus({ preventScroll: true });
+    };
+    inspector.addEventListener("keydown", (event) => { if (event.key === "Escape") { event.stopPropagation(); closeEditor(); } });
+    const openStep = (step) => {
+      selectedStep = step;
+      for (const entry of stepEntries) { entry.panel.hidden = entry !== step; entry.node.setAttribute("aria-expanded", String(entry === step)); entry.nav.classList.toggle("on", entry === step); entry.nav.setAttribute("aria-pressed", String(entry === step)); }
+      inspector.hidden = false;
+      flow.classList.add("editing");
+      step.panel.querySelector("button").focus({ preventScroll: true });
+    };
+    canvas.append(el("div", { class: "scene-flow-terminal" }, HomeswiftCommon.icon("play"), el("span", { text: t("Start") })));
+    const node = (title, glyph, tone, description, rows, content) => {
+      const count = el("span", { class: "scene-flow-count", text: String(rows.size) });
+      const summary = el("span", { class: "scene-flow-summary" });
+      const card = el("button", { type: "button", class: `scene-flow-step ${tone}`, "aria-expanded": "false", onclick: () => openStep(entry) },
+        el("span", { class: "scene-flow-step-icon", "aria-hidden": "true" }, HomeswiftCommon.icon(glyph)),
+        el("span", { class: "scene-flow-step-label" }, el("strong", { text: title }), summary), HomeswiftCommon.icon("edit"));
+      const nav = el("button", { type: "button", class: "scene-flow-nav", actionIcon: glyph, "aria-pressed": "false", onclick: () => openStep(entry) }, el("span", { text: title }), count);
+      const panel = el("section", { class: "scene-flow-panel", hidden: true },
+        el("div", { class: "scene-flow-inspector-head" }, HomeswiftCommon.icon(glyph), el("h3", { text: title }),
+          el("button", { type: "button", actionIcon: "close", "aria-label": t("Close editor"), onclick: closeEditor })),
+        el("div", { class: "scene-flow-body" }, el("p", { class: "muted", text: description }), content));
+      const entry = { node: card, nav, panel };
+      const update = () => { count.textContent = String(rows.size); summary.textContent = t("{count} configured", { count: rows.size }); };
+      update();
+      const observer = new MutationObserver(update);
+      // Observe the editor's rows; adding or deleting one updates its compact canvas summary.
+      observer.observe(panel.querySelector(".scene-flow-body"), { childList: true, subtree: true });
+      entry.disconnect = () => observer.disconnect();
+      stepEntries.push(entry); navigation.append(nav); inspector.append(panel);
+      canvas.append(el("div", { class: "scene-flow-connector", "aria-hidden": "true" }, HomeswiftCommon.icon("down")), card);
+    };
+    node(t("Triggers"), "play", "trigger", data.location ? t("Run it automatically. Sunrise and sunset are for {place}.", { place: data.location.name || `${data.location.lat}, ${data.location.lon}` }) : t("Run it automatically. Sunrise and sunset need a location: set it on the Scenes page."), triggers,
+      [triggerList, el("button", { actionIcon: "plus", type: "button", text: t("Add a trigger"), onclick: () => addTrigger() })]);
+    node(t("Conditions"), "shield", "condition", t("An automatic run goes ahead only when all of these hold. Running it by hand ignores them."), conditions,
+      [conditionList, el("button", { actionIcon: "plus", type: "button", text: t("Add a condition"), onclick: () => addCondition() })]);
+    node(t("Actions"), "bulb", "action", t("The values to set, in this order."), actions,
+      [actionList, el("button", { actionIcon: "plus", type: "button", text: t("Add an action"), onclick: () => addAction() }), capture]);
+    canvas.append(el("div", { class: "scene-flow-connector", "aria-hidden": "true" }, HomeswiftCommon.icon("down")),
+      el("div", { class: "scene-flow-terminal finish" }, HomeswiftCommon.icon("check"), el("span", { text: t("Finish") })));
     let zoom = 1;
-    const nodes = [];
-    const connect = () => {
-      links.replaceChildren();
-      for (let i = 0; i < nodes.length - 1; i++) {
-        const a = nodes[i], b = nodes[i + 1];
-        const x1 = a.offsetLeft + a.offsetWidth, y1 = a.offsetTop + 36;
-        const x2 = b.offsetLeft, y2 = b.offsetTop + 36;
-        const path = document.createElementNS(links.namespaceURI, "path");
-        path.setAttribute("d", `M ${x1} ${y1} C ${x1 + 60} ${y1}, ${x2 - 60} ${y2}, ${x2} ${y2}`);
-        links.append(path);
-      }
-    };
-    const node = (title, glyph, content) => {
-      const handle = el("button", { type: "button", class: "scene-flow-handle", title: t("Drag to reorder") }, HomeswiftCommon.icon(glyph), el("strong", { text: title }), el("span", { text: "⠿", "aria-hidden": "true" }));
-      const panel = el("section", { class: "scene-flow-node", style: `left:${24 + nodes.length * 410}px;top:24px` }, handle, el("div", { class: "scene-flow-body" }, content));
-      nodes.push(panel); canvas.append(panel);
-      handle.addEventListener("pointerdown", (event) => {
-        if (event.button !== 0) return;
-        event.preventDefault(); handle.setPointerCapture(event.pointerId);
-        const x = event.clientX, y = event.clientY, left = panel.offsetLeft, top = panel.offsetTop;
-        const move = (e) => { panel.style.left = `${Math.max(8, Math.min(1200, left + (e.clientX - x) / zoom))}px`; panel.style.top = `${Math.max(8, top + (e.clientY - y) / zoom)}px`; connect(); };
-        const end = () => { handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", end); handle.removeEventListener("pointercancel", end); };
-        handle.addEventListener("pointermove", move); handle.addEventListener("pointerup", end); handle.addEventListener("pointercancel", end);
-      });
-      return panel;
-    };
-    node(t("Triggers"), "play", [el("p", { class: "muted", text: data.location ? t("Run it automatically. Sunrise and sunset are for {place}.", { place: data.location.name || `${data.location.lat}, ${data.location.lon}` }) : t("Run it automatically. Sunrise and sunset need a location: set it on the Scenes page.") }), triggerList, el("button", { actionIcon: "plus", type: "button", text: t("Add a trigger"), onclick: () => addTrigger() })]);
-    node(t("Conditions"), "shield", [el("p", { class: "muted", text: t("An automatic run goes ahead only when all of these hold. Running it by hand ignores them.") }), conditionList, el("button", { actionIcon: "plus", type: "button", text: t("Add a condition"), onclick: () => addCondition() })]);
-    node(t("Actions"), "bulb", [el("p", { class: "muted", text: t("The values to set, in this order.") }), actionList, el("button", { actionIcon: "plus", type: "button", text: t("Add an action"), onclick: () => addAction() }), capture]);
-    const zoomLabel = el("span", { text: "100%" });
-    const changeZoom = (delta) => { zoom = Math.max(.5, Math.min(1.5, zoom + delta)); canvas.style.zoom = zoom; zoomLabel.textContent = `${Math.round(zoom * 100)}%`; };
+    const zoomLabel = el("span", { class: "scene-flow-zoom", text: "100%" });
+    const changeZoom = (value) => { zoom = Math.max(.6, Math.min(1.5, value)); canvas.style.zoom = zoom; zoomLabel.textContent = `${Math.round(zoom * 100)}%`; };
     const flow = el("div", { class: "scene-flow" }, el("div", { class: "scene-flow-toolbar" },
-      el("span", { text: `${t("Triggers")} → ${t("Conditions")} → ${t("Actions")}` }),
-      el("button", { type: "button", text: "−", "aria-label": "Zoom out", onclick: () => changeZoom(-.1) }), zoomLabel,
-      el("button", { type: "button", text: "+", "aria-label": "Zoom in", onclick: () => changeZoom(.1) })), viewport);
-    requestAnimationFrame(connect);
+      el("strong", { class: "scene-flow-title" }, HomeswiftCommon.icon("sliders"), el("span", { text: t("Workflow") })),
+      el("button", { type: "button", actionIcon: "minus", "aria-label": t("Zoom out"), onclick: () => changeZoom(zoom - .1) }), zoomLabel,
+      el("button", { type: "button", actionIcon: "plus", "aria-label": t("Zoom in"), onclick: () => changeZoom(zoom + .1) }),
+      el("button", { type: "button", actionIcon: "history", text: t("Reset view"), onclick: () => { changeZoom(1); viewport.scrollTo({ top: 0, left: 0 }); } })),
+      el("div", { class: "scene-flow-workspace" }, el("aside", { class: "scene-flow-sidebar" },
+        el("h3", { text: t("Steps") }), navigation, el("p", { class: "muted", text: t("Select a step to edit its settings.") })), viewport, inspector));
+    const lifecycle = new MutationObserver(() => { if (!flow.isConnected) { stepEntries.forEach((entry) => entry.disconnect()); lifecycle.disconnect(); } });
+    lifecycle.observe(main, { childList: true });
 
     const line = statusLine();
-    const save = el("button", { class: "primary", type: "submit", text: isNew ? t("Create the scene") : t("Save") });
+    const save = el("button", { class: "primary", actionIcon: "check", type: "submit", text: isNew ? t("Create the scene") : t("Save") });
     const form = el("form", { class: "card scene-editor", onsubmit: async (event) => {
       event.preventDefault();
-      const body = { name: name.value.trim(), actions: [...actions].map((row) => row.read()), triggers: [...triggers].map((row) => row.read()), conditions: [...conditions].map((row) => row.read()) };
+      const body = { name: name.value.trim(), artworkId, actions: [...actions].flatMap((row) => row.read()), triggers: [...triggers].map((row) => row.read()), conditions: [...conditions].map((row) => row.read()) };
       save.disabled = true;
       try {
         const saved = await app.api(isNew ? "/api/scenes" : `/api/scenes/${encodeURIComponent(scene.id)}`, { method: isNew ? "POST" : "PUT", body });
@@ -770,12 +1132,12 @@
       } catch (e) { say(line, e.message, "error"); }
       save.disabled = false;
     } },
-      field(t("Name"), name),
+      field(t("Name"), name), artworkPreview, artworkPicker,
       flow,
-      el("div", { class: "save-bar" }, save, el("a", { class: "button", href: "/scenes", text: t("Cancel") }),
+      el("div", { class: "save-bar" }, save, el("a", { class: "button", actionIcon: "close", href: "/scenes", text: t("Cancel") }),
         isNew ? null : el("span", { class: "spacer" }),
         isNew ? null : el("button", { actionIcon: "trash", type: "button", class: "danger", text: t("Delete"), onclick: async () => {
-          if (!confirm(t("Delete the scene {name}?", { name: scene.name }))) return;
+          if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete the scene {name}?", { name: scene.name }), text: t("This removes the scene and its automatic triggers. This cannot be undone."), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
           try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); app.navigate("/scenes"); } catch (e) { say(line, e.message, "error"); }
         } })),
       line);

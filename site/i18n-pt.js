@@ -246,7 +246,7 @@ HomeswiftI18n.add("pt", {
   "Let your AI run the house. It still asks before it unlocks.": "Deixe a sua IA gerir a casa. Continua a pedir confirmação antes de destrancar.",
   "New in 0.9": "Novidade da 0.9",
   "Set the mood.": "Crie o ambiente.",
-  "Twenty-two moods for a room’s lights, from candlelight to a police siren, or one your assistant writes from a few words. The animated ones put every light back as it was when they end.": "Vinte e dois ambientes para as luzes de uma divisão, da luz de velas à sirene de polícia, ou o que o assistente escreve a partir de poucas palavras. Os animados repõem cada luz como estava quando terminam.",
+  "143 photographic colour palettes in 28 themes, alongside twenty-two moods for a room’s lights. Browse themes such as Get cozy, Movie night and Wanderlust, and choose the same images for your saved scenes. The animated moods restore the lights when they end.": "143 paletas de cores fotográficas em 28 temas, com vinte e dois ambientes para as luzes de uma divisão. Explore temas como Fique confortável, Noite de cinema e Vontade de viajar, e escolha as mesmas imagens para os cenários guardados. Os ambientes animados repõem as luzes quando terminam.",
   "Some of the moods": "Alguns ambientes",
   "Candlelight": "Luz de velas",
   "Very warm, dim light for dinner.": "Luz muito quente e ténue para o jantar.",

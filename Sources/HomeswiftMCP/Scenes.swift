@@ -24,6 +24,12 @@ public struct SceneAction: Codable, Sendable, Equatable {
     public var value: JSONValue
 }
 
+struct SceneUndo: Codable, Sendable {
+    var at: Date
+    var actions: [SceneAction]
+    var expected: [SceneAction]
+}
+
 /// What runs a scene. `time`: `at` (HH:mm) on `days` (0 Sunday to 6; every day when empty); `cron`; `sun`:
 /// `event` (sunrise or sunset) with `offsetMinutes` (-720 to 720) on `days`; `characteristic`: when `characteristic`
 /// of accessory `id` changes (`operator` `changes`) or starts to compare with `value` (`eq`, `neq`, `gt`, `gte`, `lt`, `lte`).
@@ -66,6 +72,7 @@ public struct SceneRunRecord: Codable, Sendable, Equatable {
 }
 
 public struct Scene: Codable, Sendable, Equatable {
+    public var artworkId: String? = nil
     public var id: String
     public var name: String
     public var actions: [SceneAction]
@@ -306,7 +313,13 @@ enum SceneRules {
             guard let list = value.arrayValue, list.count <= maxConditions else { throw CatalogError("At most \(maxConditions) conditions") }
             return try list.enumerated().map { try condition($1, index: $0) }
         } ?? existing?.conditions ?? []
-        return Scene(id: id, name: name, actions: try actions.enumerated().map { try action($1, index: $0) }, triggers: triggers, conditions: conditions,
+        let artworkId: String?
+        if let value = object["artworkId"] {
+            if value.isNull { artworkId = nil }
+            else if let id = value.stringValue, SceneArtwork.find(id) != nil { artworkId = id }
+            else { throw CatalogError("Unknown scene artwork") }
+        } else { artworkId = existing?.artworkId }
+        return Scene(artworkId: artworkId, id: id, name: name, actions: try actions.enumerated().map { try action($1, index: $0) }, triggers: triggers, conditions: conditions,
                      lastRun: existing?.lastRun, lastSkipped: existing?.lastSkipped)
     }
 
@@ -324,7 +337,7 @@ extension HomeswiftCatalog {
     /// security control, the location, and the next sunrise and sunset there.
     public func scenesJSON(now: Date = Date()) -> JSONValue {
         let file = home.scenes.value
-        var answer: [String: JSONValue] = ["scenes": .array(file.scenes.map(sceneJSON))]
+        var answer: [String: JSONValue] = ["scenes": .array(file.scenes.map(sceneJSON)), "artworks": .array(SceneArtwork.all.map(\.json))]
         if let location = file.location {
             answer["location"] = (try? JSONValue(encoding: location)) ?? .null
             answer["nextSunrise"] = Solar.next(.sunrise, latitude: location.lat, longitude: location.lon, after: now).map { .string(Timestamp.iso8601($0)) } ?? .null
@@ -339,6 +352,13 @@ extension HomeswiftCatalog {
         guard var object = (try? JSONValue(encoding: scene))?.objectValue else { return .null }
         let security = securityActions(of: scene)
         object["security"] = .bool(!security.isEmpty)
+        let undo = home.sceneUndo.value[scene.id]
+        object["stopSecurity"] = .bool(undo?.actions.contains { action in
+            guard let found = find(id: action.id) else { return false }
+            return (try? characteristic(in: found, service: action.service, characteristic: action.characteristic).isSecurityControl) == true
+        } ?? false)
+        object["stoppable"] = .bool((undo.map { Date().timeIntervalSince($0.at) < MoodRules.undoSeconds && !$0.actions.isEmpty } ?? false)
+            || home.runningMoods.withLockedValue { $0.values.contains { $0.mood.id == "scene:" + scene.id } })
         object["actions"] = .array(scene.actions.map { action in
             var entry = (try? JSONValue(encoding: action))?.objectValue ?? [:]
             if let found = find(id: action.id) {
@@ -461,6 +481,29 @@ extension HomeswiftCatalog {
             record(scene.id) { $0.lastSkipped = SceneRunRecord(at: SceneRules.now(), ok: true, trigger: trigger.rawValue, reason: reason) }
             return ["sceneId": .string(scene.id), "name": .string(scene.name), "ok": true, "results": [], "skipped": .string(reason)]
         }
+        // Light snapshots include color mode, power and Adaptive Lighting, and inherit the baseline of a mood they replace.
+        let located = Set(scene.actions.map(\.id)).compactMap { find(id: $0) }
+        let lights = Self.lights(of: located).filter { light in
+            scene.actions.contains { action in
+                guard action.id == light.located.accessory.id,
+                      let target = try? characteristic(in: light.located, service: action.service, characteristic: action.characteristic) else { return false }
+                return [light.on, light.brightness, light.hue, light.saturation, light.colorTemperature].compactMap { $0 }.contains { $0 === target }
+            }
+        }
+        let beforeLights = Dictionary(uniqueKeysWithValues: lights.map { ($0.key, $0.snapshot()) })
+        var snapshots: [String: MoodSnapshot] = [:]
+        var changedLights: [MoodLight] = []
+        var undoActions: [SceneAction] = [], expected: [SceneAction] = []
+        // A skipped or failed rerun still owes restoration for earlier successful writes.
+        if let prior = home.sceneUndo.value[scene.id], Date().timeIntervalSince(prior.at) < MoodRules.undoSeconds {
+            for (action, after) in zip(prior.actions, prior.expected) {
+                guard let found = find(id: after.id),
+                      let target = try? characteristic(in: found, service: after.service, characteristic: after.characteristic),
+                      Self.value(of: target) == after.value else { continue }
+                undoActions.append(action)
+                expected.append(after)
+            }
+        }
         var results: [JSONValue] = []
         var failed = 0, held = 0
         for action in scene.actions {
@@ -478,7 +521,24 @@ extension HomeswiftCatalog {
                     results.append(.object(result))
                     continue
                 }
+                let before = Self.value(of: target)
                 _ = try await write(found, service: action.service, characteristic: action.characteristic, value: action.value, allowSecurity: allowSecurity)
+                let light = lights.first { light in [light.on, light.brightness, light.hue, light.saturation, light.colorTemperature].compactMap { $0 }.contains { $0 === target } }
+                // Only a successful write may take ownership from an existing mood.
+                if let light, !changedLights.contains(where: { $0.key == light.key }) {
+                    snapshots.merge(await takeOver([light], before: beforeLights)) { _, new in new }
+                    changedLights.append(light)
+                }
+                let isLight = light != nil
+                if !isLight, target.type.permissions.contains(.pairedRead), !target.isConfidential, !before.isNull {
+                    if let index = expected.firstIndex(where: { $0.id == action.id && $0.service == action.service && $0.characteristic == action.characteristic }) {
+                        if expected[index].value != before { undoActions[index].value = before }
+                        expected[index].value = Self.value(of: target)
+                    } else {
+                        undoActions.append(SceneAction(id: action.id, service: action.service, characteristic: action.characteristic, value: before))
+                        expected.append(SceneAction(id: action.id, service: action.service, characteristic: action.characteristic, value: Self.value(of: target)))
+                    }
+                }
                 result["ok"] = true
             } catch {
                 failed += 1
@@ -486,6 +546,14 @@ extension HomeswiftCatalog {
                 result["error"] = .string(Redaction.redactText("\(error)"))
             }
             results.append(.object(result))
+        }
+        if !changedLights.isEmpty {
+            let mood = Mood(id: "scene:" + scene.id, name: scene.name, steps: [MoodStep(changedLights.map(\.color), seconds: MoodRules.minSeconds)])
+            _ = hold(mood, on: changedLights, snapshots: snapshots, by: "scene", room: nil)
+        }
+        try home.sceneUndo.update { file in
+            file = file.filter { Date().timeIntervalSince($0.value.at) < MoodRules.undoSeconds }
+            file[scene.id] = SceneUndo(at: Date(), actions: undoActions, expected: expected)
         }
         let ok = failed == 0
         let note = held > 0 ? "\(held) security action(s) not run" : nil
@@ -496,6 +564,35 @@ extension HomeswiftCatalog {
         var answer: [String: JSONValue] = ["sceneId": .string(scene.id), "name": .string(scene.name), "ok": .bool(ok), "results": .array(results)]
         if let note { answer["note"] = .string(note) }
         return .object(answer)
+    }
+
+    /// Stops a saved scene and restores its captured state. Later manual changes to non-light controls are preserved.
+    public func stopScene(_ reference: String, allowSecurity: Bool = false) async throws -> JSONValue {
+        let scene = try scene(reference)
+        guard home.runningScenes.withLockedValue({ $0.insert(scene.id).inserted }) else { throw CatalogError("This scene is already running") }
+        defer { _ = home.runningScenes.withLockedValue { $0.remove(scene.id) } }
+        let undo = home.sceneUndo.value[scene.id]
+        let actions = undo.map { Date().timeIntervalSince($0.at) < MoodRules.undoSeconds ? $0.actions : [] } ?? []
+        if !allowSecurity, actions.contains(where: { action in
+            guard let found = find(id: action.id) else { return false }
+            return (try? characteristic(in: found, service: action.service, characteristic: action.characteristic).isSecurityControl) == true
+        }) { throw CatalogError("Confirm before restoring a lock, door or alarm") }
+        let runs = home.runningMoods.withLockedValue { $0.values.filter { $0.mood.id == "scene:" + scene.id }.map(\.id) }
+        for run in runs { _ = try await stopMoods(id: run) }
+        var failures: [JSONValue] = [], remaining: [SceneAction] = [], expected: [SceneAction] = []
+        for (index, action) in actions.enumerated() {
+            do {
+                guard let found = find(id: action.id) else { throw CatalogError("the accessory is gone") }
+                let target = try characteristic(in: found, service: action.service, characteristic: action.characteristic)
+                guard Self.value(of: target) == undo?.expected[index].value else { continue }
+                _ = try await write(found, service: action.service, characteristic: action.characteristic, value: action.value, allowSecurity: allowSecurity)
+            } catch {
+                remaining.append(action); expected.append(undo!.expected[index])
+                failures.append(["id": .string(action.id), "error": .string(Redaction.redactText("\(error)"))])
+            }
+        }
+        try home.sceneUndo.update { $0[scene.id] = remaining.isEmpty ? nil : SceneUndo(at: undo!.at, actions: remaining, expected: expected) }
+        return ["ok": .bool(failures.isEmpty), "failed": .array(failures)]
     }
 
     private func record(_ id: String, _ change: (inout Scene) -> Void) {

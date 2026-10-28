@@ -1585,9 +1585,9 @@ final class UIRequestHandler: ChannelInboundHandler {
         ("X-Frame-Options", "DENY"),
         ("Referrer-Policy", "no-referrer"),
         // base-uri 'self': plugins' pages are served with a <base> of their own directory (/plugins/<slug>/).
-        ("Content-Security-Policy", "default-src 'self'; manifest-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"),
-        // The microphone (the Assistant's dictation) and full screen (a camera) for the UI itself; nothing else.
-        ("Permissions-Policy", "camera=(), geolocation=(), payment=(), usb=(), serial=(), hid=(), midi=(), bluetooth=(), magnetometer=(), gyroscope=(), accelerometer=(), display-capture=(), microphone=(self), fullscreen=(self)"),
+        ("Content-Security-Policy", "default-src 'self'; manifest-src 'self'; img-src 'self' data: blob: https://tile.openstreetmap.org; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' https://photon.komoot.io; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"),
+        // Location (sunrise/sunset map), microphone (dictation), and camera full screen for this UI only.
+        ("Permissions-Policy", "camera=(), geolocation=(self), payment=(), usb=(), serial=(), hid=(), midi=(), bluetooth=(), magnetometer=(), gyroscope=(), accelerometer=(), display-capture=(), microphone=(self), fullscreen=(self)"),
         // A UI published through a tunnel or a proxy stays out of search engines (robots.txt says so too).
         ("X-Robots-Tag", "noindex, nofollow"),
         ("Cache-Control", "no-store"),

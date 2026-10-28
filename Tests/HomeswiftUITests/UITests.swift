@@ -365,6 +365,25 @@ final class Browser: @unchecked Sendable {
         #expect(try JSONValue(string: ElgatoKeyLightsPlugin.configurationSchemaJSON!)["pluginAlias"] == "ElgatoKeyLights")
     }
 
+    @Test func artworkThemesCoverTheGallery() throws {
+        let data = try #require(WebAssets.files["scene-artwork-themes.json"]?.data)
+        let themes = try #require(JSONSerialization.jsonObject(with: data) as? [[String: Any]])
+        #expect(themes.count == 28)
+        var covered: Set<String> = []
+        var names: Set<String> = []
+        for theme in themes {
+            let name = try #require(theme["name"] as? String)
+            #expect(names.insert(name).inserted)
+            let ids = try #require(theme["artworkIds"] as? [String])
+            #expect(!ids.isEmpty && Set(ids).count == ids.count)
+            for id in ids {
+                #expect(WebAssets.files["artwork-\(id).webp"]?.contentType == "image/webp")
+                covered.insert(id)
+            }
+        }
+        #expect(covered.count == 143)
+    }
+
     @Test func webFilesAreCurrent() throws {
         try Self.expectCurrent(WebAssets.files, from: "Sources/HomeswiftUI/Web", command: "web Sources/HomeswiftUI/Web Sources/HomeswiftUI/WebAssets.swift")
         try Self.expectCurrent(ElgatoKeyLightsPlugin.webFiles, from: "Plugins/ElgatoKeyLights/Web", command: "web Plugins/ElgatoKeyLights/Web Plugins/ElgatoKeyLights/Sources/WebFiles.swift ElgatoKeyLightsPlugin")

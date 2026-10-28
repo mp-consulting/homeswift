@@ -24,12 +24,20 @@ services and characteristics, react to writes from the Home app, set values when
 Homeswift takes care of pairing, encryption, Bonjour and keeping the accessory's identity across launches.
 
 It is also a Homebridge written in Swift: the `homeswift` bridge reads a Homebridge-style `config.json` and
-runs the plugins compiled into it, one small binary, no Node.js, no npm. Thirteen plugins come with it, from Elgato Key
+runs the plugins compiled into it, one small binary, no Node.js, no npm. Fourteen plugins come with it, from Elgato Key
 Lights to UniFi Protect cameras, Philips Hue and IKEA DIRIGERA straight from their bridges, and Wingman, which brings in the Home app's own accessories through a Mac; [docs/plugins.md](docs/plugins.md) explains how to write or port one. Its web UI
 shows every accessory as a widget of its kind, on a wall you arrange. Drag and resize tiles, combine compatible
 lights, switches, fans or blinds into dashboard groups, and filter devices that do not respond. Lights with
 writable colour temperature can follow an opt-in Homeswift Natural Lighting schedule. See
 [the widget guide](docs/widgets.md) and [the web UI guide](docs/ui.md).
+
+The **Scenes** page includes 143 original photographic palettes in 28 themes, searchable and sortable,
+with horizontal browsing on phones. Build automations with triggers, conditions and device-specific
+controls, including light colour pickers. Running scenes and moods can restore the previous accessory
+state with **Stop**; restoration of locks, doors and alarms still requires confirmation. Pick sunrise and
+sunset coordinates on a map or search an address. Appearance settings include photographic and abstract
+wallpapers. See [scene artwork](docs/scene-artwork.md) for the image catalogue and provenance.
+
 
 <p align="center">
   <img src="docs/images/widgets/wall.png" width="820" alt="The web UI's Accessories page: air conditioners with their gauges, a purifier with its air readings, lights, shutters and switches as tiles, on one wall">
@@ -164,6 +172,7 @@ over Bluetooth; macOS asks once for Bluetooth access for the app that runs it (t
 | [eWeLink](Plugins/EWeLink) | `eWeLink` | SONOFF and other eWeLink devices: switches, outlets, lights, curtains, sensors, RF Bridge, Zigbee (cloud and LAN) |
 | [Elgato Key Lights](Plugins/ElgatoKeyLights) | `ElgatoKeyLights` | Key Light, Key Light Air, Key Light Mini, Ring Light |
 | [Govee](Plugins/Govee) | `Govee` | Govee lights, plugs, heaters, purifiers, humidifiers and sensors (cloud, AWS IoT, LAN, Bluetooth) |
+| [EcoFlow](Plugins/EcoFlow) | `EcoFlow` | Experimental battery and power monitoring through the developer API or EcoFlow app sign-in, with energy history |
 | [IKEA DIRIGERA](Plugins/Dirigera) | `Dirigera` | IKEA lights, outlets, door and window sensors and scenes, through a DIRIGERA hub on the network (paired from the web UI) |
 | [LG ThinQ](Plugins/LGThinQ) | `LGThinQ` | LG ThinQ appliances: air conditioners, purifiers, washers, dryers, fridges, ovens, dishwashers |
 | [Philips Ambilight TV](Plugins/PhilipsAmbilightTV) | `PhilipsAmbilightTV` | Philips Android TVs with Ambilight (JointSpace API, paired from the web UI) |

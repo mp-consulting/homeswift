@@ -11,7 +11,7 @@ import NIOConcurrencyHelpers
 final class PreferencesStore: Sendable {
     static let themes: Set<String> = ["auto", "light", "dark"]
     /// The backdrops the stylesheet draws (`[data-wallpaper]`), and `custom`, the user's own image.
-    static let wallpapers: Set<String> = ["none", "aurora", "sunset", "ocean", "forest", "graphite", "custom"]
+    static let wallpapers: Set<String> = ["none", "aurora", "sunset", "ocean", "forest", "graphite", "silk", "prism", "ribbon", "lagoon", "ember", "midnight", "custom"]
     static let temperatureUnits: Set<String> = ["c", "f"]
     /// The pages' language (i18n.js): the browser's, or one of the UI's four.
     static let languages: Set<String> = ["auto", "en", "fr", "es", "pt"]
