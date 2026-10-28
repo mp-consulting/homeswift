@@ -128,6 +128,25 @@ struct EnergyArchiveTests {
         #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
     }
 
+    /// A recorded minute waits for the hourly save (the kept minutes make it again after a crash); an import, which
+    /// nothing makes again, is saved after `saveDelay`; a stop writes what is pending.
+    @Test func aRecordedMinuteWaitsAnImportDoesNot() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("homeswift-archive-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent(EnergyArchive.fileName)
+        let archive = EnergyArchive(url: url, saveDelay: .milliseconds(50), recordedSaveDelay: .seconds(3600))
+        archive.addRecorded(hour, watts: [.home: 600])
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+        archive.importHours([EnergyHourImport(start: hour.addingTimeInterval(3600), flows: EnergyFlows(solar: 5))], source: "Cloud")
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(FileManager.default.fileExists(atPath: url.path))
+        archive.addRecorded(hour.addingTimeInterval(60), watts: [.home: 600])
+        archive.flush()
+        #expect(near(EnergyArchive(url: url).periods(.day, from: hour, to: hour, timeZone: utc)[0].flows.home, 20))
+    }
+
     @Test func aRestartCountsNoMinuteTwice() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("homeswift-archive-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }

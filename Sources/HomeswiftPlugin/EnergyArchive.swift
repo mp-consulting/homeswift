@@ -163,14 +163,19 @@ public final class EnergyArchive: @unchecked Sendable {
 
     public let url: URL?
     private let hours: NIOLockedValueBox<[Int: Hour]>
-    private let saveDue = NIOLockedValueBox(false)
+    /// When the pending save runs; nil when nothing is to be written.
+    private let saveDue = NIOLockedValueBox<DispatchTime?>(nil)
     private let queue = DispatchQueue(label: "homeswift.energy-archive", qos: .utility)
     private let saveDelay: DispatchTimeInterval
+    /// The delay of a save after a recorded minute only. Years of hours are hundreds of kilobytes: written each minute,
+    /// they were the largest part of a busy bridge's work.
+    private let recordedSaveDelay: DispatchTimeInterval
 
     /// `url` nil keeps the archive in memory only.
-    public init(url: URL?, saveDelay: DispatchTimeInterval = .seconds(60)) {
+    public init(url: URL?, saveDelay: DispatchTimeInterval = .seconds(60), recordedSaveDelay: DispatchTimeInterval = .seconds(3600)) {
         self.url = url
         self.saveDelay = saveDelay
+        self.recordedSaveDelay = recordedSaveDelay
         var loaded: [Int: Hour] = [:]
         if let url, let data = try? Data(contentsOf: url), let stored = try? JSONDecoder().decode(Stored.self, from: data), stored.version == 1 {
             for (key, hour) in stored.hours { if let start = Int(key) { loaded[start] = hour } }
@@ -190,7 +195,8 @@ public final class EnergyArchive: @unchecked Sendable {
             hour.minutes = (hour.minutes ?? 0) + 1
             hours[Self.hourStart(start)] = hour
         }
-        scheduleSave()
+        // The kept minutes make these hours again at start (`rebuildRecorded`): a minute need not reach the file soon.
+        scheduleSave(after: recordedSaveDelay)
     }
 
     /// The recorded figures of whole hours, made again from the bridge's minutes (at start, from the days it keeps):
@@ -277,14 +283,17 @@ public final class EnergyArchive: @unchecked Sendable {
 
     // MARK: The file
 
-    private func scheduleSave() {
+    /// A save after `delay` (`saveDelay` by default), unless one is due sooner.
+    private func scheduleSave(after delay: DispatchTimeInterval? = nil) {
         guard url != nil else { return }
-        let due = saveDue.withLockedValue { due -> Bool in
-            defer { due = true }
-            return due
+        let deadline = DispatchTime.now() + (delay ?? saveDelay)
+        let schedule = saveDue.withLockedValue { due -> Bool in
+            if let due, due <= deadline { return false }
+            due = deadline
+            return true
         }
-        guard !due else { return }
-        queue.asyncAfter(deadline: .now() + saveDelay) { [weak self] in self?.write() }
+        guard schedule else { return }
+        queue.asyncAfter(deadline: deadline) { [weak self] in self?.write() }
     }
 
     /// Writes what changed now; the metrics store calls it when it stops.
@@ -293,7 +302,7 @@ public final class EnergyArchive: @unchecked Sendable {
     }
 
     private func write() {
-        guard let url, saveDue.withLockedValue({ due in defer { due = false }; return due }) else { return }
+        guard let url, saveDue.withLockedValue({ due in defer { due = nil }; return due != nil }) else { return }
         let snapshot = hours.withLockedValue { $0 }
         try? OwnerOnlyFile.write(Self.encoded(snapshot), to: url)
     }
