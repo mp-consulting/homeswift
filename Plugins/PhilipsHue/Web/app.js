@@ -94,13 +94,13 @@
     const list = $("#lights");
     lightFinder.show(status.paired && accessories.length > 0);
     if (!status.paired) {
-      list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: t("Pair with the bridge to see its lights.") })));
+      showEmpty(list, t("Pair with the bridge to see its lights."));
       drawHidden([]);
       return;
     }
     await loadIfChanged();
     if (!accessories.length) {
-      list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: t("The bridge has no lights yet: add them in the Hue app.") })));
+      showEmpty(list, t("The bridge has no lights yet: add them in the Hue app."));
     } else {
       lightFinder.show(true);
       // A widget per accessory, drawn once in its room's wall: its values follow the bridge's event stream. A light
@@ -116,16 +116,21 @@
     drawHidden(lights.filter((item) => item.hidden).map((item) => item.name));
   }
 
-  /// The widget's ⋯ menu, after All controls: what this page adds.
-  function actionsFor(accessory) {
-    const id = accessory.id.slice("PhilipsHue:".length);
-    const item = lights.find((entry) => entry.id === id);
+  /// A widget's ⋯ menu, after All controls: Identify (a light blinks, a sensor's LED flashes), leaving it out of the
+  /// Home app (by name, in `listKey`), its log. `prefix` is its accessory id's, `items()` the list it is in.
+  const menuFor = (prefix, items, listKey) => (accessory) => {
+    const id = accessory.id.slice(prefix.length);
+    const item = items().find((entry) => entry.id === id);
     return [
       { label: t("Identify"), icon: "identify", onSelect: () => request("identify", { method: "POST", body: { id } }).catch((e) => alert(e.message)) },
-      item ? { label: t("Leave out of the Home app"), icon: "eye", onSelect: () => toggleList("excludeLights", item.name) } : null,
+      item ? { label: t("Leave out of the Home app"), icon: "eye", onSelect: () => toggleList(listKey, item.name) } : null,
       { label: t("Show its log"), icon: "logs", href: `/logs/${encodeURIComponent(accessory.id)}` },
     ].filter(Boolean);
-  }
+  };
+  const actionsFor = menuFor("PhilipsHue:", () => lights, "excludeLights");
+
+  /// A list's one line when it has nothing to show.
+  const showEmpty = (list, text) => list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text })));
 
   // MARK: Sensors and switches, as the Accessories page draws them
 
@@ -145,7 +150,7 @@
 
   async function drawSensors() {
     const list = $("#sensors");
-    const empty = (text) => list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text })));
+    const empty = (text) => showEmpty(list, text);
     sensorFinder.show(status.paired && status.sensorsOn !== false && sensorAccessories.length > 0);
     homeswift.drawHidden($("#hidden-sensors"), sensors.filter((item) => item.hidden).map((item) => item.name), (name) => toggleList("excludeSensors", name));
     if (!status.paired) return empty(t("Pair with the bridge to see its sensors and switches."));
@@ -161,16 +166,7 @@
     if (!listening) { HomeswiftWidgets.listen(); listening = true; }
   }
 
-  /// A sensor widget's ⋯ menu, after All controls: Identify (its LED flashes), the Home app, its log.
-  function sensorActions(accessory) {
-    const id = accessory.id.slice("PhilipsHue:device:".length);
-    const item = sensors.find((entry) => entry.id === id);
-    return [
-      { label: t("Identify"), icon: "identify", onSelect: () => request("identify", { method: "POST", body: { id } }).catch((e) => alert(e.message)) },
-      item ? { label: t("Leave out of the Home app"), icon: "eye", onSelect: () => toggleList("excludeSensors", item.name) } : null,
-      { label: t("Show its log"), icon: "logs", href: `/logs/${encodeURIComponent(accessory.id)}` },
-    ].filter(Boolean);
-  }
+  const sensorActions = menuFor("PhilipsHue:device:", () => sensors, "excludeSensors");
 
   // MARK: Scenes
 

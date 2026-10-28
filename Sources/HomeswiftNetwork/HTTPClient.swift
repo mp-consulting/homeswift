@@ -188,23 +188,7 @@ public final class HTTPClient: HTTPSending, Sendable {
             channel.close(promise: nil)
         }
         do {
-            var head = HTTPRequestHead(version: .http1_1, method: HTTPMethod(rawValue: request.method.uppercased()), uri: requestTarget(of: request.url))
-            head.headers.add(name: "Host", value: hostHeader(host: host, port: port, defaultPort: secure ? 443 : 80))
-            head.headers.add(name: "Connection", value: "close")
-            if let body = request.body {
-                head.headers.add(name: "Content-Length", value: String(body.count))
-            }
-            head.headers.applying(request.headers)
-            channel.write(HTTPClientRequestPart.head(head), promise: nil)
-            if let body = request.body, !body.isEmpty {
-                channel.write(HTTPClientRequestPart.body(.byteBuffer(ByteBuffer(bytes: body))), promise: nil)
-            }
-            // The collector is in the pipeline from the start, so a connection that closes first fails the response
-            // with what it saw (`connectionClosed`, a TLS error), not NIO's "I/O on closed channel" for the write.
-            channel.writeAndFlush(HTTPClientRequestPart.end(nil)).whenFailure { error in
-                promise.fail(error is ChannelError ? HTTPClientError.connectionClosed : error)
-                channel.close(promise: nil)
-            }
+            writeRequest(request, on: channel, host: host, port: port, secure: secure) { promise.fail($0) }
             var response = try await withTaskCancellationHandler {
                 try await promise.futureResult.get()
             } onCancel: {
@@ -226,6 +210,27 @@ public final class HTTPClient: HTTPSending, Sendable {
                 throw DroppedConnection(error: error is ChannelError ? HTTPClientError.connectionClosed : error, unsent: unsent)
             }
             throw error
+        }
+    }
+
+    /// Writes `request` on a connected channel, `Connection: close`. A write that fails (the connection closed first)
+    /// calls `failed` and closes the channel; the collector is in the pipeline from the start, so it fails the response
+    /// with what it saw (`connectionClosed`, a TLS error), not NIO's "I/O on closed channel" for the write.
+    func writeRequest(_ request: HTTPRequest, on channel: any Channel, host: String, port: Int, secure: Bool, failed: @escaping @Sendable (any Error) -> Void) {
+        var head = HTTPRequestHead(version: .http1_1, method: HTTPMethod(rawValue: request.method.uppercased()), uri: requestTarget(of: request.url))
+        head.headers.add(name: "Host", value: hostHeader(host: host, port: port, defaultPort: secure ? 443 : 80))
+        head.headers.add(name: "Connection", value: "close")
+        if let body = request.body {
+            head.headers.add(name: "Content-Length", value: String(body.count))
+        }
+        head.headers.applying(request.headers)
+        channel.write(HTTPClientRequestPart.head(head), promise: nil)
+        if let body = request.body, !body.isEmpty {
+            channel.write(HTTPClientRequestPart.body(.byteBuffer(ByteBuffer(bytes: body))), promise: nil)
+        }
+        channel.writeAndFlush(HTTPClientRequestPart.end(nil)).whenFailure { error in
+            failed(error is ChannelError ? HTTPClientError.connectionClosed : error)
+            channel.close(promise: nil)
         }
     }
 

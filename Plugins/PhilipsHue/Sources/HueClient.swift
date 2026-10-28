@@ -71,6 +71,11 @@ actor HueClient {
         try await data(of: send("GET", "/clip/v2/resource"))
     }
 
+    /// Makes a device show itself (a light blinks, a sensor's LED flashes): `identify` is the device's, not its services'.
+    func identify(deviceID: String) async throws {
+        try await put("device", id: deviceID, ["identify": ["action": "identify"]])
+    }
+
     /// Changes a resource: `PUT /clip/v2/resource/<type>/<id>`.
     func put(_ type: String, id: String, _ body: JSONValue) async throws {
         _ = try await data(of: send("PUT", "/clip/v2/resource/\(type)/\(id)", body: body))

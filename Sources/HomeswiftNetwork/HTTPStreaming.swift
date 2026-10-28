@@ -31,34 +31,15 @@ public struct HTTPStreamingResponse: Sendable {
     /// The body read as server-sent events (`ServerSentEvents`).
     public var events: Events { Events(body: body) }
 
-    /// A streamed body: its iterator closes the connection when it is released, so a loop that breaks ends the request.
-    /// The underlying stream does not, as its continuation stays with the connection.
+    /// A streamed body. The connection closes when its stream ends on the consumer's side (a loop that breaks, a
+    /// cancelled task, the sequence released), through the stream's `onTermination`.
     public struct Body: AsyncSequence, Sendable {
         public typealias Element = [UInt8]
         let stream: AsyncThrowingStream<[UInt8], any Error>
-        let close: @Sendable () -> Void
 
-        /// `close` runs when the reading stops, the stream finished or not (a fake device in tests closes nothing).
-        public init(_ stream: AsyncThrowingStream<[UInt8], any Error>, close: @escaping @Sendable () -> Void = {}) {
-            self.stream = stream
-            self.close = close
-        }
+        public init(_ stream: AsyncThrowingStream<[UInt8], any Error>) { self.stream = stream }
 
-        public func makeAsyncIterator() -> AsyncIterator { AsyncIterator(stream.makeAsyncIterator(), close: close) }
-
-        public final class AsyncIterator: AsyncIteratorProtocol {
-            private var inner: AsyncThrowingStream<[UInt8], any Error>.Iterator
-            private let close: @Sendable () -> Void
-
-            init(_ inner: AsyncThrowingStream<[UInt8], any Error>.Iterator, close: @escaping @Sendable () -> Void) {
-                self.inner = inner
-                self.close = close
-            }
-
-            public func next() async throws -> [UInt8]? { try await inner.next() }
-
-            deinit { close() }
-        }
+        public func makeAsyncIterator() -> AsyncThrowingStream<[UInt8], any Error>.Iterator { stream.makeAsyncIterator() }
     }
 
     /// The body's server-sent events, as they complete.
@@ -66,16 +47,14 @@ public struct HTTPStreamingResponse: Sendable {
         public typealias Element = ServerSentEvent
         let body: Body
 
-        public func makeAsyncIterator() -> AsyncIterator { AsyncIterator(body.makeAsyncIterator()) }
+        public func makeAsyncIterator() -> AsyncIterator { AsyncIterator(body: body.makeAsyncIterator()) }
 
-        public final class AsyncIterator: AsyncIteratorProtocol {
-            private let body: Body.AsyncIterator
-            private var parser = ServerSentEvents()
-            private var ready: [ServerSentEvent] = []
+        public struct AsyncIterator: AsyncIteratorProtocol {
+            var body: AsyncThrowingStream<[UInt8], any Error>.Iterator
+            var parser = ServerSentEvents()
+            var ready: [ServerSentEvent] = []
 
-            init(_ body: Body.AsyncIterator) { self.body = body }
-
-            public func next() async throws -> ServerSentEvent? {
+            public mutating func next() async throws -> ServerSentEvent? {
                 while ready.isEmpty {
                     guard let chunk = try await body.next() else { return nil }
                     ready = parser.feed(chunk)
@@ -118,24 +97,11 @@ extension HTTPClient: HTTPStreaming {
             throw error
         }
         continuation.onTermination = { _ in channel.close(promise: nil) }
-        let close: @Sendable () -> Void = { channel.close(promise: nil) }
         let timer = channel.eventLoop.scheduleTask(in: TimeAmount(max(.zero, deadline - .now))) {
             head.fail(HTTPClientError.timeout)
             channel.close(promise: nil)
         }
-        var requestHead = HTTPRequestHead(version: .http1_1, method: HTTPMethod(rawValue: request.method.uppercased()), uri: requestTarget(of: request.url))
-        requestHead.headers.add(name: "Host", value: hostHeader(host: host, port: port, defaultPort: secure ? 443 : 80))
-        requestHead.headers.add(name: "Connection", value: "close")
-        if let data = request.body { requestHead.headers.add(name: "Content-Length", value: String(data.count)) }
-        requestHead.headers.applying(request.headers)
-        channel.write(HTTPClientRequestPart.head(requestHead), promise: nil)
-        if let data = request.body, !data.isEmpty {
-            channel.write(HTTPClientRequestPart.body(.byteBuffer(ByteBuffer(bytes: data))), promise: nil)
-        }
-        channel.writeAndFlush(HTTPClientRequestPart.end(nil)).whenFailure { error in
-            head.fail(error is ChannelError ? HTTPClientError.connectionClosed : error)
-            channel.close(promise: nil)
-        }
+        writeRequest(request, on: channel, host: host, port: port, secure: secure) { head.fail($0) }
         do {
             let answer = try await withTaskCancellationHandler {
                 try await head.futureResult.get()
@@ -144,7 +110,7 @@ extension HTTPClient: HTTPStreaming {
                 channel.close(promise: nil)
             }
             timer.cancel()
-            return HTTPStreamingResponse(status: answer.status, headers: answer.headers, certificateFingerprint: observed.withLockedValue { $0 }, body: HTTPStreamingResponse.Body(body, close: close))
+            return HTTPStreamingResponse(status: answer.status, headers: answer.headers, certificateFingerprint: observed.withLockedValue { $0 }, body: HTTPStreamingResponse.Body(body))
         } catch {
             timer.cancel()
             channel.close(promise: nil)
@@ -220,7 +186,6 @@ public struct ServerSentEvents: Sendable {
     private var event = ""
     private var data: [String] = []
     private var id: String?
-    private var sawData = false
     /// A CR ended the last chunk: an LF opening the next one belongs to it.
     private var afterCR = false
 
@@ -248,8 +213,8 @@ public struct ServerSentEvents: Sendable {
 
     private mutating func line(_ line: String) -> ServerSentEvent? {
         if line.isEmpty {
-            defer { event = ""; data = []; sawData = false }
-            guard sawData else { return nil }
+            defer { event = ""; data = [] }
+            guard !data.isEmpty else { return nil }
             return ServerSentEvent(event: event.isEmpty ? "message" : event, data: data.joined(separator: "\n"), id: id)
         }
         if line.hasPrefix(":") { return nil }
@@ -262,7 +227,7 @@ public struct ServerSentEvents: Sendable {
             (field, value) = (line[...], "")
         }
         switch field {
-        case "data": data.append(String(value)); sawData = true
+        case "data": data.append(String(value))
         case "event": event = String(value)
         case "id" where !value.contains("\0"): id = String(value)
         default: break

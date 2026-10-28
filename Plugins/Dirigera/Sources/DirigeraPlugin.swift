@@ -85,6 +85,8 @@ public actor DirigeraPlugin: HomeswiftPlugin {
         var scenes: [DirigeraScene] = []
         var error: String?
         var connected = false
+        /// The accessories it showed at its last read, by accessory id: which of the plugin's stay.
+        var shown: Set<String> = []
         var pairing = false
         var pairingDeadline: ContinuousClock.Instant?
 
@@ -246,7 +248,7 @@ public actor DirigeraPlugin: HomeswiftPlugin {
             guard let id = event["data"]?["id"]?.stringValue, var device = hub.devices[id] else { return }
             device.apply(event["data"]?["attributes"], reachable: event["data"]?["isReachable"]?.boolValue)
             hub.devices[id] = device
-            if !device.isStandalone { return showGroupChange(device) }
+            if !device.isStandalone { return showGroupChange(device, reachabilityChanged: event["data"]?["isReachable"] != nil, on: hub) }
             if let services = accessories[id] {
                 if let writer = services.writer, await writer.isSettling(within: DirigeraLightCommands.settleTime) { return }
                 Self.showValues(device, on: services)
@@ -272,15 +274,9 @@ public actor DirigeraPlugin: HomeswiftPlugin {
     }
 
     private func show(_ hub: Hub) async {
-        var keep: Set<String> = []
-        for hub in hubs.values {
-            keep.formUnion(hub.devices.values.filter { $0.isStandalone && !isExcluded($0) }.map { Self.accessoryID(deviceID: $0.id) })
-            for group in Self.groups(of: Array(hub.devices.values)) where !isExcluded(group: group.devices, id: group.id) {
-                keep.insert(Self.accessoryID(deviceID: group.id))
-            }
-            if !visibleScenes(hub).isEmpty { keep.insert(Self.sceneAccessoryID(host: hub.host)) }
-        }
+        var shown: Set<String> = []
         for device in hub.devices.values.sorted(by: { $0.name < $1.name }) where device.isStandalone && !isExcluded(device) {
+            shown.insert(Self.accessoryID(deviceID: device.id))
             let shape = Self.shape(of: device)
             if let services = accessories[device.id], services.shape == shape {
                 services.accessory.isUnavailable = !device.reachable
@@ -290,8 +286,12 @@ public actor DirigeraPlugin: HomeswiftPlugin {
             }
             do { try add(device, on: hub, shape: shape) } catch { logger.error("Could not add \(device.name): \(error)") }
         }
-        _ = showGroups(hub)
+        shown.formUnion(showGroups(hub).map { Self.accessoryID(deviceID: $0) })
         showScenes(hub)
+        if !visibleScenes(hub).isEmpty { shown.insert(Self.sceneAccessoryID(host: hub.host)) }
+        hub.shown = shown
+        // What every hub showed stays; an accessory none of them shows any more goes.
+        let keep = hubs.values.reduce(into: Set<String>()) { $0.formUnion($1.shown) }
         accessories = accessories.filter { keep.contains(Self.accessoryID(deviceID: $0.key)) }
         groupAccessories = groupAccessories.filter { keep.contains(Self.accessoryID(deviceID: $0.key)) }
         _ = await context.removeAccessories(keeping: keep, message: "Removing an IKEA device or scene the hub no longer has")
@@ -310,10 +310,7 @@ public actor DirigeraPlugin: HomeswiftPlugin {
         if device.kind == .contact {
             // 0 is contact detected (closed), 1 not detected (open).
             service.characteristic(.contactSensorState).value = .int(device.open ? 1 : 0)
-            if let battery = device.battery, let level = services.battery {
-                level.characteristic(.batteryLevel).value = .int(min(max(battery, 0), 100))
-                level.characteristic(.statusLowBattery).value = .int(battery < lowBattery ? 1 : 0)
-            }
+            Self.showBattery(device.battery, on: services.battery)
             return
         }
         service.characteristic(.on).value = .bool(device.on)
@@ -503,7 +500,7 @@ public actor DirigeraPlugin: HomeswiftPlugin {
     func identify(host: String, deviceID: String) async throws {
         guard let hub = hubs[host] else { throw DirigeraClient.Failure.status(404, "no such hub") }
         // A device's id, or a group's (a remote, a VALLHORN): the group's first part blinks.
-        let device = hub.devices[deviceID] ?? Self.groups(of: Array(hub.devices.values)).first { $0.id == deviceID }?.devices.first
+        let device = hub.devices[deviceID] ?? Self.lead(ofGroup: deviceID, in: hub)
         guard let device else { throw DirigeraClient.Failure.status(404, "no such device") }
         try await hub.client.identify(deviceID: device.id)
     }

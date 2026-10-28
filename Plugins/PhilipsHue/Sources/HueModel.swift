@@ -1,4 +1,5 @@
 import Foundation
+import Homeswift
 import HomeswiftPlugin
 
 /// A light service of the bridge (`light`), with its device's name and product.
@@ -36,6 +37,21 @@ struct HueLight: Sendable, Equatable {
 
     var hasColour: Bool { xy != nil }
     var hasColourTemperature: Bool { mirekRange != nil }
+
+    /// Takes in the changed part of the light's resource an event carries (`on`, `dimming`, `color`,
+    /// `color_temperature`, an effect, a gradient's points); what it can do stays.
+    mutating func apply(_ change: JSONValue) {
+        if let on = change["on"]?["on"]?.boolValue { self.on = on }
+        if let level = change["dimming"]?["brightness"]?.doubleValue, brightness != nil { brightness = level }
+        if let point = HueSnapshot.xy(change["color"]?["xy"]), xy != nil { xy = point }
+        if let temperature = change["color_temperature"], mirekRange != nil {
+            if temperature["mirek_valid"]?.boolValue == false { mirek = nil } else if let value = temperature["mirek"]?.intValue { mirek = value }
+        }
+        if let effect = change["effects_v2"]?["status"]?["effect"]?.stringValue ?? change["effects"]?["status"]?.stringValue {
+            self.effect = effect == "no_effect" ? nil : effect
+        }
+        if let points = change["gradient"]?["points"]?.arrayValue { gradientPoints = points.compactMap { HueSnapshot.xy($0["color"]?["xy"]) } }
+    }
     var dims: Bool { brightness != nil }
     var canFlash: Bool { signals.contains("on_off") || signals.contains("on_off_color") }
 }
@@ -89,7 +105,6 @@ struct HueSensorDevice: Sendable, Equatable {
     var name: String
     var model: String
     var manufacturer: String
-    var product: String
     var firmware: String
     var motion: Motion?
     var temperature: Temperature?
@@ -103,6 +118,8 @@ struct HueSensorDevice: Sendable, Equatable {
     var room: String?
 
     var hasSensorOrButton: Bool { motion != nil || temperature != nil || lightLevel != nil || contact != nil || !buttons.isEmpty }
+    /// The ids of its services' resources.
+    var serviceIDs: [String] { [motion?.id, temperature?.id, lightLevel?.id, contact?.id, battery?.id].compactMap { $0 } + buttons.map(\.id) }
 
     /// Hue's light level, 10,000 × log₁₀(lux) + 1, in lux, within HomeKit's range; 0 is darkness, not 1 lux.
     static func lux(lightLevel: Double) -> Double {
@@ -114,9 +131,9 @@ struct HueSensorDevice: Sendable, Equatable {
     /// for the steps in between (`initial_press`, `repeat`, `long_release`).
     static func switchEvent(_ event: String) -> Int? {
         switch event {
-        case "short_release": 0
-        case "double_short_release": 1
-        case "long_press": 2
+        case "short_release": HAPConstants.ProgrammableSwitchEvent.singlePress
+        case "double_short_release": HAPConstants.ProgrammableSwitchEvent.doublePress
+        case "long_press": HAPConstants.ProgrammableSwitchEvent.longPress
         default: nil
         }
     }
@@ -127,8 +144,7 @@ struct HueSensorDevice: Sendable, Equatable {
         var sensor = HueSensorDevice(
             id: id, name: device["metadata"]?["name"]?.stringValue ?? "Hue sensor",
             model: product?["model_id"]?.stringValue ?? "Hue", manufacturer: product?["manufacturer_name"]?.stringValue ?? "Signify",
-            product: product?["product_name"]?.stringValue ?? "Hue sensor", firmware: product?["software_version"]?.stringValue ?? "",
-            reachable: reachable)
+            firmware: product?["software_version"]?.stringValue ?? "", reachable: reachable)
         for reference in device["services"]?.arrayValue ?? [] {
             guard let rid = reference["rid"]?.stringValue, let resource = resources[rid] else { continue }
             sensor.apply(resource)
@@ -194,6 +210,9 @@ struct HueSnapshot: Sendable, Equatable {
     var scenes: [HueScene] = []
     /// The devices with sensors or buttons; a device with a light is the light's, not one of these.
     var sensors: [HueSensorDevice] = []
+    /// Which sensor (its index in `sensors`) each sensor service belongs to, by the service's id: an event about it
+    /// finds its device at once, and one about anything else is told apart as quickly.
+    var sensorOfService: [String: Int] = [:]
     var bridgeID: String?
 
     init(lights: [HueLight] = [], groups: [HueGroup] = [], scenes: [HueScene] = [], bridgeID: String? = nil) {
@@ -265,6 +284,9 @@ struct HueSnapshot: Sendable, Equatable {
             sensors.append(sensor)
         }
         sensors.sort { ($0.name, $0.id) < ($1.name, $1.id) }
+        for (index, sensor) in sensors.enumerated() {
+            for id in sensor.serviceIDs { sensorOfService[id] = index }
+        }
         // The bridge keeps a scene's status after its room is switched off (a dimmer, the Hue app, the Home app):
         // a scene is on, and plays, only while its room or zone is on.
         let roomsOn = Dictionary(groups.map { ($0.id, $0.on) }, uniquingKeysWith: { first, _ in first })

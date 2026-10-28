@@ -76,11 +76,15 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     /// How long pairing waits for the link button.
     static let pairingWindow = Duration.seconds(60)
     static let flashDuration = 5000
+    /// How often the bridge is read while its event stream is open: the stream brings changes, the read only what an
+    /// event could have missed.
+    static let streamingPollInterval = Duration.seconds(30)
 
     let configuration: Configuration
     /// `excludeLights` and `excludeScenes`, lowercased once: every poll checks each light and scene against them.
     private let excludedLights: Set<String>
     private let excludedScenes: Set<String>
+    let excludedSensors: Set<String>
     let context: PluginContext
     let dependencies: Dependencies
     private let tasks = TaskBag()
@@ -101,12 +105,12 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     /// a recall) is not applied, so the older state never comes back.
     private var refreshes = 0
     private var lights: [String: LightServices] = [:]
-    private var sceneAccessories: [String: SceneServices] = [:]
+    var sceneAccessories: [String: SceneServices] = [:]
     /// The sensor devices' accessories, by device id (HueSensors.swift).
     var sensorAccessories: [String: SensorServices] = [:]
     /// Each button's last report (its `updated` time), so a press fires once, from the event stream or a read.
     var buttonReports: [String: String] = [:]
-    /// Whether the event stream is open: while it is, presses come from it and reads fire none.
+    /// Whether the event stream is open: while it is, polls are a safety net (`streamingPollInterval`).
     var streaming = false
     /// A read of the bridge asked for by an event, not yet run.
     var pendingRefresh: Task<Void, Never>?
@@ -141,6 +145,7 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         self.configuration = configuration
         excludedLights = Set((configuration.excludeLights ?? []).map { $0.lowercased() })
         excludedScenes = Set((configuration.excludeScenes ?? []).map { $0.lowercased() })
+        excludedSensors = Set((configuration.excludeSensors ?? []).map { $0.lowercased() })
         self.context = context
         self.dependencies = dependencies
         store = context.jsonFile("bridge.json")
@@ -210,7 +215,7 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         defer { listener.cancel() }
         while !Task.isCancelled {
             await refresh()
-            try? await Task.sleep(for: pollingInterval)
+            try? await Task.sleep(for: streaming ? max(pollingInterval, Self.streamingPollInterval) : pollingInterval)
         }
     }
 
@@ -368,7 +373,7 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         return parts.joined(separator: "|")
     }
 
-    private func show(_ light: HueLight) async {
+    func show(_ light: HueLight) async {
         let shape = shape(of: light)
         if let services = lights[light.id], services.shape == shape {
             services.accessory.isUnavailable = !light.reachable
@@ -506,7 +511,7 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
             id: Self.accessoryID(lightID: light.id), name: light.name, manufacturer: light.manufacturer, model: light.model,
             serialNumber: light.id, firmwareRevision: light.firmware.isEmpty ? "1.0.0" : light.firmware, category: .lightbulb, services: services,
             // Identify is the device's, not the light service's (`PUT /resource/device/<id>`).
-            onIdentify: { [deviceID = light.deviceID] in _ = try? await client.put("device", id: deviceID, ["identify": ["action": "identify"]]) })
+            onIdentify: { [deviceID = light.deviceID] in try? await client.identify(deviceID: deviceID) })
         let built = LightServices(accessory: accessory, lightbulb: lightbulb, writer: writer, command: command, effects: effects, flash: flash, points: points, shape: shape)
         Self.showValues(light, on: built)
         accessory.isUnavailable = !light.reachable
@@ -597,6 +602,12 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         } catch {
             logger.error("Could not add the accessory of \(group.name): \(error)")
         }
+    }
+
+    /// A room's lightbulb (`roomLights`) from an event's brightness.
+    func showRoomLight(_ group: HueGroup) {
+        guard let services = sceneAccessories[group.id], let room = services.room, let writer = services.roomWriter else { return }
+        Task { await Self.showRoomValues(group, on: room, writer: writer) }
     }
 
     /// The room's on and brightness as the bridge sums them up; left alone just after a command, as a light's are.
@@ -694,7 +705,7 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     func identify(id: String) async throws {
         let device = snapshot.lights.first { $0.id == id }?.deviceID ?? snapshot.sensors.first { $0.id == id }?.id
         guard let client, let device else { throw HueClient.Failure.status(404, "no light or sensor with that id") }
-        try await client.put("device", id: device, ["identify": ["action": "identify"]])
+        try await client.identify(deviceID: device)
     }
 
     func lightAction(id: String, _ body: JSONValue) async throws {

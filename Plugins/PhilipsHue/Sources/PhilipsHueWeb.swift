@@ -119,9 +119,7 @@ extension PhilipsHuePlugin {
     func sensorJSON(_ sensor: HueSensorDevice) -> JSONValue {
         let kind = sensor.motion != nil ? "motion" : sensor.contact != nil ? "contact" : !sensor.buttons.isEmpty ? "switch" : "sensor"
         return [
-            "id": .string(sensor.id), "name": .string(sensor.name), "product": .string(sensor.product), "model": .string(sensor.model),
-            "kind": .string(kind), "reachable": .bool(sensor.reachable), "hidden": .bool(isExcluded(sensor)), "firmware": .string(sensor.firmware),
-            "buttons": .number(Double(sensor.buttons.count)),
+            "id": .string(sensor.id), "name": .string(sensor.name), "kind": .string(kind), "reachable": .bool(sensor.reachable), "hidden": .bool(isExcluded(sensor)),
             "battery": sensor.battery?.level.map { .number(Double($0)) } ?? .null, "lowBattery": .bool(sensor.battery?.low ?? false),
             "roomID": sensor.roomID.map(JSONValue.string) ?? .null, "room": sensor.room.map(JSONValue.string) ?? .null,
         ]

@@ -119,9 +119,9 @@
 
   /// The widget's ⋯ menu, after All controls: what this page adds.
   function actionsFor(accessory) {
-    // A device's id, or a group's (a remote's buttons, a VALLHORN's sensors): its first part stands for it.
+    // The accessory's group (a device's own id, or a remote's or a VALLHORN's): its first part stands for it.
     const id = accessory.id.slice("Dirigera:".length);
-    const item = devices.find((entry) => entry.id === id) ?? devices.find((entry) => entry.group === id);
+    const item = devices.find((entry) => entry.group === id);
     return [
       { label: t("Identify"), icon: "identify", onSelect: () => request("identify", { method: "POST", body: { host: item?.host, id } }).catch((e) => alert(e.message)) },
       item ? { label: t("Leave out of the Home app"), icon: "eye", onSelect: () => toggleList("excludeDevices", item.name) } : null,

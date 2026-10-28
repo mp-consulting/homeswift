@@ -58,8 +58,9 @@ struct DirigeraDevice: Sendable, Equatable {
     var hasColour: Bool { hue != nil }
     /// The kinds that have an accessory of their own, by device id (the ones this plugin started with).
     var isStandalone: Bool { kind == .light || kind == .outlet || kind == .contact }
-    /// The accessory a part-of-something device shows on: its relation's.
-    var groupID: String { relationID ?? id }
+    /// The id of the accessory it shows on (`Dirigera:<groupID>`): its own for a light, an outlet or a contact sensor,
+    /// its relation's for a part of a product (a VALLHORN's sensors, a remote's buttons).
+    var groupID: String { isStandalone ? id : relationID ?? id }
 
     /// A device of `GET /v1/devices`, or nil for one this plugin does not show (speakers, repeaters, the hub).
     init?(_ json: JSONValue) {
