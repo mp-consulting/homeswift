@@ -571,10 +571,11 @@ import Darwin
                 process?.stop()
             }
         }
-        let start = ContinuousClock.now
+        // A missed stop waits out the whole timeout: the wait returns false instead of being woken.
+        let waits = NIOLockedValueBox<[Bool]>([])
+        process.afterBoxWait.withLockedValue { $0 = { woken in waits.withLockedValue { $0.append(woken) } } }
         for await _ in process.segmentGenerator() {}
-        // A missed stop waits out the whole timeout; a busy CI runner takes seconds even without one.
-        #expect(ContinuousClock.now - start < .milliseconds(HKSV_TIMEOUT))
+        #expect(waits.withLockedValue { $0 } == [true])
         #expect(!process.isTimedOut)
         _ = await waitForExit(process)
     }

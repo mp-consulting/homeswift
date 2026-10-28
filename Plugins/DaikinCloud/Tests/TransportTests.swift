@@ -176,11 +176,11 @@ struct TransportTests {
 
     @Test func callbackServerAnswersOverHTTPS() async throws {
         let server = CallbackServer(logger: testLogger)
-        let port = Int.random(in: 40000...60000)
-        try await server.start(port: port, hostname: "127.0.0.1", bindAddress: "127.0.0.1", certificateDirectory: directory, lifetime: .seconds(30)) { uri in
+        try await server.start(port: 0, hostname: "127.0.0.1", bindAddress: "127.0.0.1", certificateDirectory: directory, lifetime: .seconds(30)) { uri in
             (200, CallbackServer.page(success: true, message: "Got \(uri) <script>"))
         }
         #expect(server.isRunning)
+        let port = try #require(server.port)
         let client = HTTPClient(tls: .any)
         let response = try await client.send(HTTPRequest(url: URL(string: "https://127.0.0.1:\(port)/?code=abc&state=xyz")!))
         #expect(response.status == 200)
@@ -194,7 +194,7 @@ struct TransportTests {
 
     @Test func callbackServerStopsByItself() async throws {
         let server = CallbackServer(logger: testLogger)
-        try await server.start(port: Int.random(in: 40000...60000), hostname: "127.0.0.1", bindAddress: "127.0.0.1", certificateDirectory: directory, lifetime: .milliseconds(100)) { _ in (200, "") }
+        try await server.start(port: 0, hostname: "127.0.0.1", bindAddress: "127.0.0.1", certificateDirectory: directory, lifetime: .milliseconds(100)) { _ in (200, "") }
         #expect(await eventually { !server.isRunning })
     }
 
@@ -202,8 +202,8 @@ struct TransportTests {
     @Test(arguments: [(TLSVersion.tlsv1, false), (TLSVersion.tlsv11, false), (TLSVersion.tlsv12, true)])
     func callbackServerNeedsTLS12(_ version: TLSVersion, _ accepted: Bool) async throws {
         let server = CallbackServer(logger: testLogger)
-        let port = Int.random(in: 40000...60000)
-        try await server.start(port: port, hostname: "127.0.0.1", bindAddress: "127.0.0.1", certificateDirectory: directory, lifetime: .seconds(30)) { _ in (200, "ok") }
+        try await server.start(port: 0, hostname: "127.0.0.1", bindAddress: "127.0.0.1", certificateDirectory: directory, lifetime: .seconds(30)) { _ in (200, "ok") }
+        let port = try #require(server.port)
         defer { Task { await server.stop() } }
         var configuration = TLSConfiguration.makeClientConfiguration()
         configuration.certificateVerification = .none
@@ -229,8 +229,8 @@ struct TransportTests {
 
     /// A stop while the start waits for a busy port leaves nothing listening once the port frees up.
     @Test func aStopDuringTheStartLeavesNothingRunning() async throws {
-        let port = Int.random(in: 40000...60000)
-        let occupier = try await ServerBootstrap(group: MultiThreadedEventLoopGroup.singleton).bind(host: "127.0.0.1", port: port).get()
+        let occupier = try await ServerBootstrap(group: MultiThreadedEventLoopGroup.singleton).bind(host: "127.0.0.1", port: 0).get()
+        let port = try #require(occupier.localAddress?.port)
         let server = CallbackServer(logger: testLogger)
         let directory = directory
         let start = Task {

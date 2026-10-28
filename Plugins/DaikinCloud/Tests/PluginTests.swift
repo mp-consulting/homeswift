@@ -405,7 +405,7 @@ struct PluginTests {
         let environment = DaikinEnvironment()
         let host = try await environment.start(developerBlock)
         defer { Task { await host.stop() } }
-        let port = Int.random(in: 40000...60000)
+        let port = try await freePort()
         let started = try await environment.request("POST", "auth/start", body: [
             "clientId": "client", "clientSecret": "secret", "callbackServerExternalAddress": "127.0.0.1", "callbackServerPort": .string(String(port)),
             "oidcCallbackServerBindAddr": "127.0.0.1",
@@ -439,7 +439,7 @@ struct PluginTests {
         defer { Task { await host.stop() } }
         #expect(try await environment.request("POST", "auth/callback", body: ["callbackUrl": "https://127.0.0.1:8582/?code=good-code&state=s"]).json["error"]
             == "No pending authorization. Please start the auth flow again.")
-        let port = Int.random(in: 40000...60000)
+        let port = try await freePort()
         let started = try await environment.request("POST", "auth/start", body: [
             "clientId": "client", "clientSecret": "secret", "callbackServerExternalAddress": "127.0.0.1", "callbackServerPort": .number(Double(port)),
         ])
@@ -458,7 +458,7 @@ struct PluginTests {
         let environment = DaikinEnvironment()
         let host = try await environment.start(developerBlock)
         defer { Task { await host.stop() } }
-        let port = Int.random(in: 40000...60000)
+        let port = try await freePort()
         let started = try await environment.request("POST", "auth/start", body: [
             "clientId": "client", "clientSecret": "secret", "callbackServerExternalAddress": "127.0.0.1", "callbackServerPort": .number(Double(port)),
             "oidcCallbackServerBindAddr": "127.0.0.1",
@@ -494,7 +494,7 @@ struct PluginTests {
         defer { Task { await host.stop() } }
         let started = try await environment.request("POST", "auth/start", body: [
             "clientId": "client", "clientSecret": "secret", "callbackServerExternalAddress": "127.0.0.1",
-            "callbackServerPort": .number(Double(Int.random(in: 40000...60000))), "oidcCallbackServerBindAddr": "127.0.0.1",
+            "callbackServerPort": .number(Double(try await freePort())), "oidcCallbackServerBindAddr": "127.0.0.1",
         ])
         let state = try #require(URLQuery.parameter("state", in: started.json["authUrl"]?.stringValue ?? ""))
         let cloud = environment.cloud

@@ -1,5 +1,6 @@
 import Foundation
 import HomeswiftPlugin
+import NIOConcurrencyHelpers
 import Testing
 
 @testable import Homeswift
@@ -10,6 +11,13 @@ import Testing
 /// .test.ts, event-timers.test.ts and doorbell tests of the Homebridge plugin).
 @Suite(.timeLimit(.minutes(1)), .serialized) struct DeviceTests {
     static let sensorID = ProtectPlatform.accessoryID(Fixtures.sensorMAC)
+
+    /// The values `characteristic` takes from now on, for a state a timer resets before a poll may see it.
+    static func record(_ characteristic: Characteristic) -> NIOLockedValueBox<[HAPValue]> {
+        let values = NIOLockedValueBox<[HAPValue]>([])
+        characteristic.observe { change in values.withLockedValue { $0.append(change.newValue) } }
+        return values
+    }
     static let cameraID = ProtectPlatform.accessoryID(Fixtures.cameraMAC)
     static let doorbellID = ProtectPlatform.accessoryID(Fixtures.doorbellMAC)
     static let lightID = ProtectPlatform.accessoryID(Fixtures.lightMAC)
@@ -234,15 +242,18 @@ import Testing
         #expect(FakeController.body(chimePatch)?.array("ringSettings").first?.int("volume") == 30)
         // A ring: the doorbell event, the trigger switch, MQTT.
         let trigger = try #require(doorbell.service(.switch, ProtectReservedNames.switchDoorbellTrigger))
+        // The switch is on for a scaled-down moment: recorded as it changes, so a runner that stalls through it still sees it.
+        let rings = Self.record(trigger.characteristic(.on))
         environment.update("camera", id: "doorbell-id", ["lastRing": 1_700_000_000_000])
-        #expect(await eventually { trigger[.on]?.value == .bool(true) })
+        #expect(await eventually { rings.withLockedValue { $0.contains(.bool(true)) } })
         #expect(await eventually { environment.mqtt.published(topic(Fixtures.doorbellMAC, "doorbell")).first == "true" })
         #expect(await eventually { trigger[.on]?.value == .bool(false) })
         #expect(environment.logs.contains("Doorbell ring detected."))
         // The authentication sensor.
         let auth = try #require(doorbell.service(.contactSensor, ProtectReservedNames.contactAuthSensor))
+        let authStates = Self.record(auth.characteristic(.contactSensorState))
         environment.add("event", id: "event-2", ["type": "nfcCardScanned", "camera": "doorbell-id", "metadata": ["nfc": ["ulpId": "user", "nfcId": "card-1"]]])
-        #expect(await eventually { auth[.contactSensorState]?.value == .int(1) })
+        #expect(await eventually { authStates.withLockedValue { $0.contains(.int(1)) } })
         #expect(await eventually { environment.mqtt.published(topic(Fixtures.doorbellMAC, "authenticate")) == [#"{"id":"card-1","type":"nfc"}"#] })
         #expect(await eventually { auth[.contactSensorState]?.value == .int(0) })
         // The package camera, with its flashlight.

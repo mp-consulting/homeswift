@@ -1,6 +1,9 @@
 import Foundation
 import Logging
 import NIOConcurrencyHelpers
+import NIOCore
+import NIOEmbedded
+import NIOPosix
 import Testing
 
 @testable import HomeswiftFFmpeg
@@ -22,7 +25,10 @@ import Testing
     @Test func splitsRtpAndRtcpTowardTheirPorts() async throws {
         let rtp = try await UDPReceiver()
         let rtcp = try await UDPReceiver()
-        let demuxer = await RtpDemuxer(ipFamily: .ipv4, inputPort: 0, rtcpPort: rtcp.port, rtpPort: rtp.port, log: Logger(label: "test"))
+        // No heartbeat: a slow run would see the RTCP packet replayed to the RTP port as well.
+        let demuxer = await RtpDemuxer(
+            ipFamily: .ipv4, inputPort: 0, rtcpPort: rtcp.port, rtpPort: rtp.port, log: Logger(label: "test"),
+            group: MultiThreadedEventLoopGroup.singleton, heartbeatInterval: .hours(1))
         #expect(demuxer.isRunning)
         let inputPort = try #require(demuxer.localPort)
         let rtpEvents = NIOLockedValueBox(0)
@@ -43,20 +49,33 @@ import Testing
     }
 
     @Test func replaysTheLastRtcpPacketToTheRtpPortAsAHeartbeat() async throws {
-        let rtp = try await UDPReceiver()
-        let rtcp = try await UDPReceiver()
-        let demuxer = await RtpDemuxer(ipFamily: .ipv4, inputPort: 0, rtcpPort: rtcp.port, rtpPort: rtp.port, log: Logger(label: "test"))
-        try await sendUDP(rtcpPacket, to: try #require(demuxer.localPort))
-        #expect(await eventually { rtcp.packets.count == 1 })
-        #expect(rtp.packets.isEmpty)
+        // On an embedded channel, whose clock only moves when told: the heartbeat's timing is checked to the millisecond.
+        let rtcpTarget = try SocketAddress(ipAddress: "127.0.0.1", port: 50002)
+        let rtpTarget = try SocketAddress(ipAddress: "127.0.0.1", port: 50004)
+        let channel = EmbeddedChannel(handler: RtpDemuxerHandler(
+            rtcpTarget: rtcpTarget, rtpTarget: rtpTarget, heartbeatInterval: .seconds(Int64(TWOWAY_HEARTBEAT_INTERVAL)),
+            log: Logger(label: "test"), onRtp: {}, onError: { _ in }))
+        try await channel.connect(to: SocketAddress(ipAddress: "127.0.0.1", port: 50000)).get()
+        func sent() throws -> [AddressedEnvelope<ByteBuffer>] {
+            var envelopes: [AddressedEnvelope<ByteBuffer>] = []
+            while let envelope = try channel.readOutbound(as: AddressedEnvelope<ByteBuffer>.self) { envelopes.append(envelope) }
+            return envelopes
+        }
+        let sender = try SocketAddress(ipAddress: "127.0.0.1", port: 60000)
+        try channel.writeInbound(AddressedEnvelope(remoteAddress: sender, data: ByteBuffer(bytes: rtcpPacket)))
+        #expect(try sent() == [AddressedEnvelope(remoteAddress: rtcpTarget, data: ByteBuffer(bytes: rtcpPacket))])
         // Every TWOWAY_HEARTBEAT_INTERVAL seconds, FFmpeg's RTP input gets the RTCP packet, which keeps it from timing out.
-        #expect(await eventually(timeout: .seconds(Int64(TWOWAY_HEARTBEAT_INTERVAL) + 2)) { rtp.packets == [rtcpPacket] })
-        demuxer.close()
+        let heartbeat = AddressedEnvelope(remoteAddress: rtpTarget, data: ByteBuffer(bytes: rtcpPacket))
+        channel.embeddedEventLoop.advanceTime(by: .seconds(Int64(TWOWAY_HEARTBEAT_INTERVAL)) - .milliseconds(1))
+        #expect(try sent().isEmpty)
+        channel.embeddedEventLoop.advanceTime(by: .milliseconds(1))
+        #expect(try sent() == [heartbeat])
+        channel.embeddedEventLoop.advanceTime(by: .seconds(Int64(TWOWAY_HEARTBEAT_INTERVAL)))
+        #expect(try sent() == [heartbeat])
         // No heartbeat after closing.
-        try await Task.sleep(for: .seconds(Int64(TWOWAY_HEARTBEAT_INTERVAL) + 1))
-        #expect(rtp.packets.count <= 2)
-        await rtp.close()
-        await rtcp.close()
+        try await channel.close()
+        channel.embeddedEventLoop.advanceTime(by: .seconds(Int64(TWOWAY_HEARTBEAT_INTERVAL) * 3))
+        #expect(try sent().isEmpty)
     }
 
     @Test func wakesTheTalkbackWaiterOnTheFirstRtpPacketOrOnClose() async throws {
