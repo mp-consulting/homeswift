@@ -117,8 +117,6 @@ h2 { margin: 0 0 10px; }
   /// The plugin's accessories (not its scene switches), read again when the set of devices changes.
   let accessories = [];
   let shapeKey = "";
-  // Reads made for a group not yet published: a few, since a group the plugin cannot add would never come.
-  let missingReads = 0;
   async function loadAccessories() {
     const all = await homeswift.api("/api/accessories");
     accessories = all.filter((accessory) => accessory.platform === "Dirigera" && accessory.platformName === homeswift.name && !accessory.id.startsWith("Dirigera:scenes:"));
@@ -158,12 +156,9 @@ h2 { margin: 0 0 10px; }
     const paired = hubs.some((hub) => hub.paired);
     deviceFinder.show(paired && accessories.length > 0);
     if (!paired) return empty(t("Pair a hub to see its devices."));
-    // Read again when the devices change, or a few times while fewer accessories are published than the hub lists
-    // groups (the page opened before the plugin had added them all).
-    const groups = [...new Set(devices.filter((item) => !item.hidden).map((item) => item.group))];
-    const key = groups.sort().join(",");
-    if (key !== shapeKey) missingReads = 0;
-    if (key !== shapeKey || (accessories.length < groups.length && missingReads++ < 5)) {
+    // Read again when the devices the plugin has published change (it says which are).
+    const key = [...new Set(devices.filter((item) => item.published).map((item) => item.group))].sort().join(",");
+    if (key !== shapeKey) {
       shapeKey = key;
       await loadAccessories().catch(() => {});
     }

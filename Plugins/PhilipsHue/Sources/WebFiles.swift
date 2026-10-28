@@ -96,24 +96,22 @@ h2 { margin: 0 0 10px; }
   let accessories = [];
   let sensorAccessories = [];
   let shapeKey = "";
-  // Reads made for a light or sensor not yet published: a few, since one the plugin cannot add would never come.
-  let missingReads = 0;
   async function loadAccessories() {
     const all = (await homeswift.api("/api/accessories")).filter((accessory) => accessory.platform === "PhilipsHue" && accessory.platformName === homeswift.name);
     accessories = all.filter((accessory) => !accessory.id.startsWith("PhilipsHue:scenes:") && !accessory.id.startsWith("PhilipsHue:device:"));
     sensorAccessories = all.filter((accessory) => accessory.id.startsWith("PhilipsHue:device:"));
   }
 
-  /// Reads the accessories again when the lights or sensors the Home app has changed, or a few times while fewer are
-  /// published than the bridge lists (the page opened before the plugin had added them all).
+  /// Reads the accessories again when the lights or sensors the plugin has published change (the plugin says which
+  /// are), once for the Lights and Sensors tabs together.
+  let loading = null;
   async function loadIfChanged() {
-    const shown = (list) => list.filter((item) => !item.hidden);
-    const key = [...shown(lights), ...shown(sensors)].map((item) => item.id).sort().join(",");
-    const missing = accessories.length < shown(lights).length || (status.sensorsOn !== false && sensorAccessories.length < shown(sensors).length);
-    if (key !== shapeKey) missingReads = 0;
-    else if (!missing || missingReads++ >= 5) return;
-    shapeKey = key;
-    await loadAccessories().catch(() => {});
+    const key = [...lights, ...sensors].filter((item) => item.published).map((item) => item.id).sort().join(",");
+    if (key !== shapeKey) {
+      shapeKey = key;
+      loading = loadAccessories().catch(() => {});
+    }
+    await loading;
   }
 
   /// The lights left out of the Home app, as buttons that bring one back; drawn again only when they change.

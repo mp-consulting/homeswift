@@ -42,7 +42,7 @@ extension DirigeraPlugin {
             var list: [JSONValue] = []
             for (host, hub) in hubs.sorted(by: { $0.key < $1.key }) {
                 for device in hub.devices.values.sorted(by: { ($0.room ?? "", $0.name) < ($1.room ?? "", $1.name) }) {
-                    list.append(deviceJSON(device, host: host))
+                    list.append(deviceJSON(device, host: host, published: isPublished(device)))
                 }
             }
             return PluginWebResponse(["devices": .array(list)])
@@ -77,7 +77,9 @@ extension DirigeraPlugin {
         }
     }
 
-    func deviceJSON(_ device: DirigeraDevice, host: String) -> JSONValue {
+    /// A device for the page; `published` says whether its accessory is in the Home app, so the page reads the
+    /// accessories again when that changes.
+    func deviceJSON(_ device: DirigeraDevice, host: String, published: Bool) -> JSONValue {
         var colour: String?
         if let hue = device.hue, let saturation = device.saturation {
             colour = Self.hex(hue: hue, saturation: saturation)
@@ -89,7 +91,7 @@ extension DirigeraPlugin {
             "host": .string(host), "id": .string(device.id), "group": .string(device.groupID), "kind": .string(device.kind.rawValue), "name": .string(device.name),
             "model": .string(device.model), "room": device.room.map(JSONValue.string) ?? .null, "reachable": .bool(device.reachable),
             "on": .bool(device.on), "brightness": device.brightness.map { .number(Double($0)) } ?? .null,
-            "colour": colour.map(JSONValue.string) ?? .null, "hidden": .bool(isExcluded(device)),
+            "colour": colour.map(JSONValue.string) ?? .null, "hidden": .bool(isExcluded(device)), "published": .bool(published),
             "open": .bool(device.open), "battery": device.battery.map { .number(Double($0)) } ?? .null,
             "type": .string(device.kind != .light ? device.kind.rawValue : device.hasColour ? "colour" : device.mirekRange != nil ? "white" : device.brightness != nil ? "dimmable" : "onoff"),
         ]

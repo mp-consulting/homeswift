@@ -107,6 +107,8 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     /// Whether the last read landed stale (a later read, or an event, overtook it) and was not applied.
     private(set) var lastReadDropped = false
     private var lights: [String: LightServices] = [:]
+    /// Whether the light's accessory is in the Home app: the page reads the accessories again when this changes.
+    func isPublished(lightID: String) -> Bool { lights[lightID] != nil }
     var sceneAccessories: [String: SceneServices] = [:]
     /// The sensor devices' accessories, by device id (HueSensors.swift).
     var sensorAccessories: [String: SensorServices] = [:]

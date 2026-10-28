@@ -99,6 +99,8 @@ public actor DirigeraPlugin: HomeswiftPlugin {
 
     private(set) var hubs: [String: Hub] = [:]
     private var accessories: [String: DeviceServices] = [:]
+    /// Whether the device's accessory (its own, or its group's) is in the Home app.
+    func isPublished(_ device: DirigeraDevice) -> Bool { accessories[device.id] != nil || groupAccessories[device.groupID] != nil }
     private var sceneAccessories: [String: SceneServices] = [:]
     /// The sensors', blinds', purifiers' and remotes' accessories, by group id (DirigeraSensors.swift).
     var groupAccessories: [String: GroupServices] = [:]

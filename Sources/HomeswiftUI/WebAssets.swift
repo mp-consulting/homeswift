@@ -23275,8 +23275,8 @@ self.addEventListener("notificationclick", (event) => {
           return [buttons.length > 1 ? t("Press a button to see it here") : t("Press it to see it here")];
         },
         // A tall tile shows the keys between its icon and its name, in place of the count they make plain; more than
-        // fit on one line keep the count.
-        middle: size === "small" && buttons.length <= 4 ? el("div", { class: "remote-key-row", "aria-hidden": "true" }, keys) : null,
+        // fit on one line (four, at style.css's key width) keep the count.
+        middle: ctx.tall && buttons.length <= 4 ? el("div", { class: "remote-key-row", "aria-hidden": "true" }, keys) : null,
         body: size === "small" ? [] : [el("div", { class: "remote-keys" }, el("div", { class: "remote-key-row", "aria-hidden": "true" }, keys), battery)],
       };
     },
@@ -23421,8 +23421,10 @@ self.addEventListener("notificationclick", (event) => {
     else {
       const { widget, primary } = resolve(ctx);
       const size = sizes.includes(options.size) ? options.size : defaultOf(widget, ctx, primary);
-      // Reuse the builders' compact, main-control and expanded variants at the four wall sizes.
+      // Reuse the builders' compact, main-control and expanded variants at the four wall sizes; a builder tells the
+      // tall tile from the compact one by `ctx.tall` (both draw its "small").
       const contentSize = { small: "small", medium: "small", large: "medium", xlarge: "large" }[size];
+      ctx.tall = size === "medium";
       node = frame(ctx, ...built(ctx, widget, primary, contentSize), primary, size);
     }
     ctx.node = node;
@@ -23512,8 +23514,8 @@ self.addEventListener("notificationclick", (event) => {
   }
 
   /// Compact and tall summary tiles share their tap/hold actions; large and extra-large cards keep inline controls.
-  /// The ⋯ menu opens all controls at every size. A tall tile shows its widget's `middle`, when it gives one, between
-  /// its icon and its name, in place of the hero value.
+  /// The ⋯ menu opens all controls at every size. A tall tile shows its widget's `middle`, when it gives one (only for
+  /// `ctx.tall`), between its icon and its name, in place of the hero value.
   function frame(ctx, widget, built, primary, size) {
     const { accessory } = ctx;
     const [glyph, paintGlyph] = glyphFor(ctx, widget, built, primary);
@@ -23602,7 +23604,7 @@ self.addEventListener("notificationclick", (event) => {
         // Once a finger has held still, the page does not scroll under it.
         hit.addEventListener("touchmove", (event) => { if (armed) event.preventDefault(); }, { passive: false });
       }
-      const middle = size === "medium" ? built.middle : null;
+      const middle = built.middle;
       node.append(shade ?? "", hit, el("div", { class: "w-top" }, glyph, hero), middle ? el("div", { class: "w-middle" }, middle) : "", el("div", { class: "w-bottom" }, who, menu));
       ctx.watch(() => {
         const on = built.on ? built.on() : false;

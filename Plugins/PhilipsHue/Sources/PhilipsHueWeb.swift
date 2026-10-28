@@ -111,7 +111,7 @@ extension PhilipsHuePlugin {
             "kind": .string(light.hasColour ? "colour" : light.hasColourTemperature ? "white" : light.dims ? "dimmable" : "onoff"),
             "effects": .array(light.effects.map(JSONValue.string)), "effect": light.effect.map(JSONValue.string) ?? .null,
             "canFlash": .bool(light.canFlash), "gradient": .array(light.gradientPoints.map { .string(Self.hex($0, gamut: gamut)) }),
-            "hidden": .bool(isExcluded(light)), "firmware": .string(light.firmware),
+            "hidden": .bool(isExcluded(light)), "published": .bool(isPublished(lightID: light.id)), "firmware": .string(light.firmware),
             "roomID": light.roomID.map(JSONValue.string) ?? .null, "room": light.room.map(JSONValue.string) ?? .null,
         ]
     }
@@ -120,6 +120,7 @@ extension PhilipsHuePlugin {
         let kind = sensor.motion != nil ? "motion" : sensor.contact != nil ? "contact" : !sensor.buttons.isEmpty ? "switch" : "sensor"
         return [
             "id": .string(sensor.id), "name": .string(sensor.name), "kind": .string(kind), "reachable": .bool(sensor.reachable), "hidden": .bool(isExcluded(sensor)),
+            "published": .bool(sensorAccessories[sensor.id] != nil),
             "battery": sensor.battery?.level.map { .number(Double($0)) } ?? .null, "lowBattery": .bool(sensor.battery?.low ?? false),
             "roomID": sensor.roomID.map(JSONValue.string) ?? .null, "room": sensor.room.map(JSONValue.string) ?? .null,
         ]

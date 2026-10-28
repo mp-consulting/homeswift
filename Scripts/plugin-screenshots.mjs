@@ -38,12 +38,12 @@ const colourLight = (id, dev, on, level, xy) => ({ id, type: "light", owner: own
 const whiteLight = (id, dev, on, level, mirek) => ({ id, type: "light", owner: owner(dev), on: { on }, dimming: { brightness: level },
   color_temperature: { mirek, mirek_valid: true, mirek_schema: { mirek_minimum: 153, mirek_maximum: 454 } } });
 const lights = [
-  ["Bedside", "LCA001", "Hue color lamp", colourLight("l1", "d1", true, 35, { x: 0.38, y: 0.16 }), "bedroom"],
-  ["Ceiling", "LCA001", "Hue color lamp", colourLight("l2", "d2", true, 90, { x: 0.45, y: 0.41 }), "living"],
-  ["Floor Lamp", "LCA001", "Hue color lamp", colourLight("l3", "d3", true, 54, { x: 0.56, y: 0.4 }), "living"],
-  ["Kitchen Pendant", "LTA001", "Hue white ambiance", whiteLight("l4", "d4", true, 100, 233), "kitchen"],
-  ["Reading Lamp", "LTA001", "Hue white ambiance", whiteLight("l5", "d5", false, 100, 300), "living"],
-  ["TV Lightstrip", "LCX004", "Hue gradient lightstrip", colourLight("l6", "d6", true, 72, { x: 0.2, y: 0.1 }), "living"],
+  { name: "Bedside", model: "LCA001", product: "Hue color lamp", light: colourLight("l1", "d1", true, 35, { x: 0.38, y: 0.16 }), room: "bedroom" },
+  { name: "Ceiling", model: "LCA001", product: "Hue color lamp", light: colourLight("l2", "d2", true, 90, { x: 0.45, y: 0.41 }), room: "living" },
+  { name: "Floor Lamp", model: "LCA001", product: "Hue color lamp", light: colourLight("l3", "d3", true, 54, { x: 0.56, y: 0.4 }), room: "living" },
+  { name: "Kitchen Pendant", model: "LTA001", product: "Hue white ambiance", light: whiteLight("l4", "d4", true, 100, 233), room: "kitchen" },
+  { name: "Reading Lamp", model: "LTA001", product: "Hue white ambiance", light: whiteLight("l5", "d5", false, 100, 300), room: "living" },
+  { name: "TV Lightstrip", model: "LCX004", product: "Hue gradient lightstrip", light: colourLight("l6", "d6", true, 72, { x: 0.2, y: 0.1 }), room: "living" },
 ];
 const sensors = [
   // A motion sensor (motion, temperature, light level, battery), a dimmer switch and a smart button, a contact sensor.
@@ -66,7 +66,7 @@ const room = (id, name, devices, group, on, level) => [
   { id, type: "room", metadata: { name }, children: devices.map((rid) => ({ rid, rtype: "device" })), services: [{ rid: group, rtype: "grouped_light" }] },
   { id: group, type: "grouped_light", on: { on }, dimming: { brightness: level } },
 ];
-const roomDevices = (key) => lights.filter((light) => light[4] === key).map((light) => light[3].owner.rid);
+const roomDevices = (key) => lights.filter((entry) => entry.room === key).map((entry) => entry.light.owner.rid);
 const scene = (id, name, group, colours, active = false) => ({ id, type: "scene", metadata: { name }, group: { rid: group, rtype: "room" },
   palette: { color: colours.map((xy) => ({ color: { xy }, dimming: { brightness: 80 } })), color_temperature: [] }, status: { active: active ? "static" : "inactive" }, auto_dynamic: false, speed: 0.6 });
 const palettes = { sunset: [{ x: 0.6, y: 0.37 }, { x: 0.52, y: 0.28 }, { x: 0.45, y: 0.2 }], ocean: [{ x: 0.16, y: 0.2 }, { x: 0.2, y: 0.35 }, { x: 0.15, y: 0.08 }],
@@ -74,7 +74,7 @@ const palettes = { sunset: [{ x: 0.6, y: 0.37 }, { x: 0.52, y: 0.28 }, { x: 0.45
   read: [{ x: 0.45, y: 0.41 }], relax: [{ x: 0.52, y: 0.41 }], concentrate: [{ x: 0.36, y: 0.36 }] };
 const hueResources = [
   { id: "bridge", type: "bridge", bridge_id: "001788fffe000001" },
-  ...lights.flatMap(([name, model, product, light]) => [device(light.owner.rid, name, model, product, [{ rid: light.id, rtype: "light" }]), light]),
+  ...lights.flatMap(({ name, model, product, light }) => [device(light.owner.rid, name, model, product, [{ rid: light.id, rtype: "light" }]), light]),
   ...sensors,
   ...room("living", "Living Room", roomDevices("living"), "g1", true, 72),
   ...room("bedroom", "Bedroom", [...roomDevices("bedroom"), "d8"], "g2", true, 35),
@@ -142,15 +142,25 @@ writeFileSync(join(storage, "config.json"), JSON.stringify({
   ],
 }, null, 2));
 const bridge = spawn(binary, ["-U", storage], { stdio: "ignore" });
+/// Stops the bridge and the fake devices and removes the scratch folder, whatever stops the script.
+async function stop() {
+  const exited = new Promise((done) => bridge.exitCode !== null ? done() : bridge.once("exit", done));
+  bridge.kill();
+  hue.close();
+  dirigera.close();
+  await Promise.race([exited, sleep(5000)]);
+  try { rmSync(scratch, { recursive: true, force: true }); } catch {}
+}
 let up = false;
 for (let i = 0; i < 80 && !up; i++) {
   try { up = (await fetch(`${base}/api/status`)).ok; } catch {}
   if (!up) await sleep(250);
 }
+if (!up) { await stop(); throw new Error(`the bridge did not start (${binary})`); }
 
 // MARK: Headless Chrome
 
-const replacements = [[`127.0.0.1:${huePort}`, "192.168.1.20"], ["127.0.0.1", "192.168.1.30"], [storage, "/Users/demo/.homeswift"], [hostname(), "homeswift-mac"]];
+const replacements = [[`127.0.0.1:${huePort}`, "192.168.1.20"], ["127.0.0.1", "192.168.1.30"], [storage, "/Users/demo/.homeswift"], [hostname(), "homeswift-mac"], [hostname().replace(/\.local$/, ""), "homeswift-mac"]];
 const pageScript = `(() => {
   const pairs = ${JSON.stringify(replacements)};
   const clean = (text) => pairs.reduce((s, [real, shown]) => s.split(real).join(shown), text);
@@ -159,6 +169,12 @@ const pageScript = `(() => {
     const response = await original(input, init);
     if (!(response.headers.get("content-type") || "").includes("json") || !response.ok) return response;
     return new Response(clean(await response.clone().text()), { status: response.status, headers: response.headers });
+  };
+  const Source = window.EventSource;
+  window.EventSource = class extends Source {
+    addEventListener(name, listener, options) {
+      super.addEventListener(name, (event) => listener.call(this, new MessageEvent(event.type, { data: clean(String(event.data)), lastEventId: event.lastEventId })), options);
+    }
   };
 })();`;
 const profile = mkdtempSync(join(tmpdir(), "homeswift-plugin-chrome-"));
@@ -169,6 +185,7 @@ for (let i = 0; i < 50 && !target; i++) {
   try { target = (await (await fetch("http://127.0.0.1:9335/json/list")).json()).find((t) => t.type === "page"); } catch {}
   if (!target) await sleep(200);
 }
+if (!target) { chrome.kill(); await stop(); throw new Error("headless Chrome did not start"); }
 const socket = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((done) => socket.addEventListener("open", done));
 let sequence = 0;
@@ -198,8 +215,13 @@ async function shot(name, path, { tab, ready, width = 1280, height = 900, mobile
     }
     throw new Error(`${name}: ${selector} did not appear`);
   };
-  await wait(`button[data-tab="${tab}"]`);
-  await evaluate(`document.querySelector('button[data-tab="${tab}"]').click()`);
+  // A click before the page's script has wired its tabs does nothing: click until the tab says it is chosen.
+  const chosen = `button[data-tab="${tab}"][aria-selected="true"]`;
+  for (let i = 0; i < 40 && !(await evaluate(`!!document.querySelector('${chosen}')`)); i++) {
+    await evaluate(`document.querySelector('button[data-tab="${tab}"]')?.click()`);
+    await sleep(250);
+  }
+  await wait(chosen);
   await wait(ready);
   await sleep(1200);
   const full = await evaluate("Math.ceil(document.documentElement.scrollHeight)");
@@ -209,7 +231,6 @@ async function shot(name, path, { tab, ready, width = 1280, height = 900, mobile
 }
 
 try {
-  if (!up) throw new Error(`the bridge did not start (${binary})`);
   await shot("hue-lights", "/plugins/philips-hue", { tab: "lights", ready: "#lights .widget" });
   await shot("hue-sensors", "/plugins/philips-hue", { tab: "sensors", ready: "#sensors .widget" });
   await shot("hue-scenes", "/plugins/philips-hue", { tab: "scenes", ready: "#scenes .scene" });
@@ -219,11 +240,9 @@ try {
   await shot("dirigera-scenes", "/plugins/ikea-dirigera", { tab: "scenes", ready: "#scenes .scene" });
 } finally {
   socket.close();
-  const exited = Promise.all([new Promise((done) => chrome.once("exit", done)), new Promise((done) => bridge.once("exit", done))]);
+  const exited = new Promise((done) => chrome.once("exit", done));
   chrome.kill();
-  bridge.kill();
-  hue.close();
-  dirigera.close();
   await Promise.race([exited, sleep(5000)]);
-  for (const folder of [scratch, profile]) { try { rmSync(folder, { recursive: true, force: true }); } catch {} }
+  try { rmSync(profile, { recursive: true, force: true }); } catch {}
+  await stop();
 }
