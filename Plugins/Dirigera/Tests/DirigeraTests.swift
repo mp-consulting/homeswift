@@ -312,7 +312,8 @@ struct DirigeraTests {
         let plugin = try #require(environment.plugin)
         let hubs = try await plugin.handleWebRequest(PluginWebRequest(method: "GET", path: "hubs", user: "admin"))
         #expect(hubs.json["hubs"]?[0]?["paired"] == true)
-        #expect(hubs.json["hubs"]?[0]?["devices"] == 13)
+        // 13 devices on the hub, a VALLHORN's two sensors and a STYRBAR's two buttons each counted once, as the page draws them.
+        #expect(hubs.json["hubs"]?[0]?["devices"] == 11)
         let devices = try await plugin.handleWebRequest(PluginWebRequest(method: "GET", path: "devices", user: "admin"))
         let sofa = try #require(devices.json["devices"]?.arrayValue?.first { $0["id"] == "bulb-1" })
         #expect(sofa["room"] == "Living Room")

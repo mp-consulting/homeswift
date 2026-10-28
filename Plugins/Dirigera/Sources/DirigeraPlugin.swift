@@ -481,6 +481,7 @@ public actor DirigeraPlugin: HomeswiftPlugin {
 
     func discover() async -> [String] { await dependencies.discover() }
 
+    /// A hub's state for the page; its devices are counted as the page draws them, a product's parts once.
     func hubStatus(_ host: String) async -> (paired: Bool, connected: Bool, pairing: Bool, pairingSecondsLeft: Int?, error: String?, devices: Int, scenes: Int) {
         let hub = hubs[host]
         let paired = await hub?.client.token != nil
@@ -488,7 +489,7 @@ public actor DirigeraPlugin: HomeswiftPlugin {
             let left = (deadline - ContinuousClock.now).components
             return max(0, Int(left.seconds) + (left.attoseconds > 0 ? 1 : 0))
         }
-        return (paired, hub?.connected ?? false, hub?.pairing ?? false, secondsLeft, hub?.error, hub?.devices.count ?? 0, hub?.scenes.count ?? 0)
+        return (paired, hub?.connected ?? false, hub?.pairing ?? false, secondsLeft, hub?.error, Set(hub?.devices.values.map(\.groupID) ?? []).count, hub?.scenes.count ?? 0)
     }
 
     /// Runs one of the hub's scenes: only an id the hub listed, as the page's and the Assistant's ids come from outside.
