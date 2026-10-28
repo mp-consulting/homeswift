@@ -74,11 +74,126 @@ struct HueScene: Sendable, Equatable {
     var speed: Double?
 }
 
+/// A device with sensors or buttons (a motion sensor, a dimmer switch, a Tap dial, a Secure contact sensor): what its
+/// services say, each by the id of its resource, so an event about one of them finds it.
+struct HueSensorDevice: Sendable, Equatable {
+    struct Motion: Sendable, Equatable { var id: String; var detected: Bool; var enabled: Bool }
+    struct Temperature: Sendable, Equatable { var id: String; var celsius: Double; var enabled: Bool }
+    struct LightLevel: Sendable, Equatable { var id: String; var lux: Double; var enabled: Bool }
+    struct Contact: Sendable, Equatable { var id: String; var closed: Bool; var enabled: Bool }
+    struct Battery: Sendable, Equatable { var id: String; var level: Int?; var low: Bool }
+    /// A button, by its `control_id` (1 to 4 on a dimmer switch), and its last report: an event and when it came.
+    struct Button: Sendable, Equatable { var id: String; var controlID: Int; var event: String?; var updated: String? }
+
+    var id: String
+    var name: String
+    var model: String
+    var manufacturer: String
+    var product: String
+    var firmware: String
+    var motion: Motion?
+    var temperature: Temperature?
+    var lightLevel: LightLevel?
+    var contact: Contact?
+    var battery: Battery?
+    var buttons: [Button] = []
+    var reachable = true
+    /// The room its device is in, as the Hue app puts it.
+    var roomID: String?
+    var room: String?
+
+    var hasSensorOrButton: Bool { motion != nil || temperature != nil || lightLevel != nil || contact != nil || !buttons.isEmpty }
+
+    /// Hue's light level, 10,000 × log₁₀(lux) + 1, in lux, within HomeKit's range; 0 is darkness, not 1 lux.
+    static func lux(lightLevel: Double) -> Double {
+        guard lightLevel > 0 else { return 0.0001 }
+        return min(max(pow(10, (lightLevel - 1) / 10000), 0.0001), 100_000)
+    }
+
+    /// A button's report as HomeKit's Programmable Switch Event: single press on release, double, long once held; nil
+    /// for the steps in between (`initial_press`, `repeat`, `long_release`).
+    static func switchEvent(_ event: String) -> Int? {
+        switch event {
+        case "short_release": 0
+        case "double_short_release": 1
+        case "long_press": 2
+        default: nil
+        }
+    }
+
+    /// The services of `device` among `resources` (by id); nil when it has no sensor or button.
+    static func make(device: JSONValue, id: String, resources: [String: JSONValue], reachable: Bool) -> HueSensorDevice? {
+        let product = device["product_data"]
+        var sensor = HueSensorDevice(
+            id: id, name: device["metadata"]?["name"]?.stringValue ?? "Hue sensor",
+            model: product?["model_id"]?.stringValue ?? "Hue", manufacturer: product?["manufacturer_name"]?.stringValue ?? "Signify",
+            product: product?["product_name"]?.stringValue ?? "Hue sensor", firmware: product?["software_version"]?.stringValue ?? "",
+            reachable: reachable)
+        for reference in device["services"]?.arrayValue ?? [] {
+            guard let rid = reference["rid"]?.stringValue, let resource = resources[rid] else { continue }
+            sensor.apply(resource)
+        }
+        sensor.buttons.sort { $0.controlID < $1.controlID }
+        return sensor.hasSensorOrButton ? sensor : nil
+    }
+
+    /// Takes in a resource of this device, whole (a read) or in part (an event, which carries only what changed).
+    mutating func apply(_ resource: JSONValue) {
+        guard let rid = resource["id"]?.stringValue else { return }
+        let enabled = resource["enabled"]?.boolValue
+        switch resource["type"]?.stringValue {
+        case "motion":
+            // `motion_report` is the bridge's current shape; `motion` alone is the older one, kept for a while.
+            let detected = resource["motion"]?["motion_report"]?["motion"]?.boolValue ?? resource["motion"]?["motion"]?.boolValue
+            var motion = self.motion ?? Motion(id: rid, detected: false, enabled: true)
+            if let detected { motion.detected = detected }
+            if let enabled { motion.enabled = enabled }
+            self.motion = motion
+        case "temperature":
+            let value = resource["temperature"]?["temperature_report"]?["temperature"]?.doubleValue ?? resource["temperature"]?["temperature"]?.doubleValue
+            var temperature = self.temperature ?? Temperature(id: rid, celsius: 0, enabled: true)
+            if let value { temperature.celsius = value }
+            if let enabled { temperature.enabled = enabled }
+            self.temperature = temperature
+        case "light_level":
+            let value = resource["light"]?["light_level_report"]?["light_level"]?.doubleValue ?? resource["light"]?["light_level"]?.doubleValue
+            var level = lightLevel ?? LightLevel(id: rid, lux: 0.0001, enabled: true)
+            if let value { level.lux = Self.lux(lightLevel: value) }
+            if let enabled { level.enabled = enabled }
+            lightLevel = level
+        case "contact":
+            var contact = self.contact ?? Contact(id: rid, closed: true, enabled: true)
+            if let state = resource["contact_report"]?["state"]?.stringValue { contact.closed = state == "contact" }
+            if let enabled { contact.enabled = enabled }
+            self.contact = contact
+        case "device_power":
+            var battery = self.battery ?? Battery(id: rid, level: nil, low: false)
+            if let level = resource["power_state"]?["battery_level"]?.intValue { battery.level = level }
+            if let state = resource["power_state"]?["battery_state"]?.stringValue { battery.low = state != "normal" }
+            // A device on mains power reports no battery: it gets no Battery service.
+            if battery.level != nil { self.battery = battery }
+        case "button":
+            let report = resource["button"]?["button_report"]
+            let event = report?["event"]?.stringValue ?? resource["button"]?["last_event"]?.stringValue
+            if let index = buttons.firstIndex(where: { $0.id == rid }) {
+                if let event { buttons[index].event = event }
+                if let updated = report?["updated"]?.stringValue { buttons[index].updated = updated }
+            } else if let control = resource["metadata"]?["control_id"]?.intValue {
+                buttons.append(Button(id: rid, controlID: control, event: event, updated: report?["updated"]?.stringValue))
+            }
+        default:
+            break
+        }
+    }
+}
+
 /// Everything the plugin keeps of the bridge, from one `GET /clip/v2/resource`.
 struct HueSnapshot: Sendable, Equatable {
     var lights: [HueLight] = []
     var groups: [HueGroup] = []
     var scenes: [HueScene] = []
+    /// The devices with sensors or buttons; a device with a light is the light's, not one of these.
+    var sensors: [HueSensorDevice] = []
     var bridgeID: String?
 
     init(lights: [HueLight] = [], groups: [HueGroup] = [], scenes: [HueScene] = [], bridgeID: String? = nil) {
@@ -93,6 +208,10 @@ struct HueSnapshot: Sendable, Equatable {
         var groupedLights: [String: (on: Bool, brightness: Double?)] = [:]
         var unreachable: Set<String> = []
         var roomOfDevice: [String: (id: String, name: String)] = [:]
+        var byID: [String: JSONValue] = [:]
+        for resource in resources {
+            if let id = resource["id"]?.stringValue { byID[id] = resource }
+        }
         for resource in resources {
             guard let id = resource["id"]?.stringValue else { continue }
             switch resource["type"]?.stringValue {
@@ -139,6 +258,13 @@ struct HueSnapshot: Sendable, Equatable {
         for index in lights.indices {
             (lights[index].roomID, lights[index].room) = (roomOfDevice[lights[index].deviceID]?.id, roomOfDevice[lights[index].deviceID]?.name)
         }
+        let lightDevices = Set(lights.map(\.deviceID))
+        for (id, device) in devices where !lightDevices.contains(id) {
+            guard var sensor = HueSensorDevice.make(device: device, id: id, resources: byID, reachable: !unreachable.contains(id)) else { continue }
+            (sensor.roomID, sensor.room) = (roomOfDevice[id]?.id, roomOfDevice[id]?.name)
+            sensors.append(sensor)
+        }
+        sensors.sort { ($0.name, $0.id) < ($1.name, $1.id) }
         // The bridge keeps a scene's status after its room is switched off (a dimmer, the Hue app, the Home app):
         // a scene is on, and plays, only while its room or zone is on.
         let roomsOn = Dictionary(groups.map { ($0.id, $0.on) }, uniquingKeysWith: { first, _ in first })

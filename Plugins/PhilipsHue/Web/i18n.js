@@ -1,6 +1,17 @@
 // The Philips Hue page in French, Spanish and Portuguese (docs/translations.md).
 HomeswiftI18n.add({
   "fr": {
+    "Sensors": "Capteurs",
+    "Search sensors": "Rechercher des capteurs",
+    "Motion sensors": "Capteurs de mouvement",
+    "Low battery": "Batterie faible",
+    "Pair with the bridge to see its sensors and switches.": "Jumelez le pont pour voir ses capteurs et interrupteurs.",
+    "Sensors and switches are off: turn them on in Settings.": "Les capteurs et interrupteurs sont désactivés : activez-les dans les Réglages.",
+    "The bridge has no sensors or switches yet: add them in the Hue app.": "Le pont n'a pas encore de capteurs ni d'interrupteurs : ajoutez-les dans l'app Hue.",
+    "{shown} of {total} sensors": "{shown} capteurs sur {total}",
+    "No sensor matches the search and filters.": "Aucun capteur ne correspond à la recherche et aux filtres.",
+    "Sensors and switches": "Capteurs et interrupteurs",
+    "Motion, temperature, light level and contact sensors, and a programmable switch for each button of a dimmer, Tap or smart button. Presses reach the Home app at once, through the bridge's event stream.": "Les capteurs de mouvement, de température, de luminosité et d'ouverture, et un interrupteur programmable pour chaque bouton d'un variateur, d'un Tap ou d'un bouton connecté. Les appuis arrivent aussitôt dans l'app Maison, par le flux d'événements du pont.",
     "Search lights": "Rechercher des lampes",
     "Colour lights": "Lampes couleur",
     "With effects": "Avec des effets",
@@ -85,6 +96,17 @@ HomeswiftI18n.add({
     "no picture for that scene": "aucune image pour cette scène"
   },
   "es": {
+    "Sensors": "Sensores",
+    "Search sensors": "Buscar sensores",
+    "Motion sensors": "Sensores de movimiento",
+    "Low battery": "Batería baja",
+    "Pair with the bridge to see its sensors and switches.": "Empareja el puente para ver sus sensores e interruptores.",
+    "Sensors and switches are off: turn them on in Settings.": "Los sensores e interruptores están desactivados: actívalos en Ajustes.",
+    "The bridge has no sensors or switches yet: add them in the Hue app.": "El puente aún no tiene sensores ni interruptores: añádelos en la app Hue.",
+    "{shown} of {total} sensors": "{shown} de {total} sensores",
+    "No sensor matches the search and filters.": "Ningún sensor coincide con la búsqueda y los filtros.",
+    "Sensors and switches": "Sensores e interruptores",
+    "Motion, temperature, light level and contact sensors, and a programmable switch for each button of a dimmer, Tap or smart button. Presses reach the Home app at once, through the bridge's event stream.": "Los sensores de movimiento, temperatura, luminosidad y contacto, y un interruptor programable por cada botón de un regulador, un Tap o un botón inteligente. Las pulsaciones llegan al instante a la app Casa, por el flujo de eventos del puente.",
     "Search lights": "Buscar luces",
     "Colour lights": "Luces de color",
     "With effects": "Con efectos",
@@ -169,6 +191,17 @@ HomeswiftI18n.add({
     "no picture for that scene": "no hay imagen para esa escena"
   },
   "pt": {
+    "Sensors": "Sensores",
+    "Search sensors": "Procurar sensores",
+    "Motion sensors": "Sensores de movimento",
+    "Low battery": "Bateria fraca",
+    "Pair with the bridge to see its sensors and switches.": "Emparelhe a ponte para ver os seus sensores e interruptores.",
+    "Sensors and switches are off: turn them on in Settings.": "Os sensores e interruptores estão desativados: ative-os em Definições.",
+    "The bridge has no sensors or switches yet: add them in the Hue app.": "A ponte ainda não tem sensores nem interruptores: adicione-os na app Hue.",
+    "{shown} of {total} sensors": "{shown} de {total} sensores",
+    "No sensor matches the search and filters.": "Nenhum sensor corresponde à pesquisa e aos filtros.",
+    "Sensors and switches": "Sensores e interruptores",
+    "Motion, temperature, light level and contact sensors, and a programmable switch for each button of a dimmer, Tap or smart button. Presses reach the Home app at once, through the bridge's event stream.": "Os sensores de movimento, temperatura, luminosidade e contacto, e um interruptor programável para cada botão de um regulador, de um Tap ou de um botão inteligente. As pressões chegam de imediato à app Casa, pelo fluxo de eventos da ponte.",
     "Search lights": "Procurar luzes",
     "Colour lights": "Luzes a cores",
     "With effects": "Com efeitos",

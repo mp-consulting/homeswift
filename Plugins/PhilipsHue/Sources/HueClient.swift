@@ -27,13 +27,13 @@ actor HueClient {
 
     let host: String
     private(set) var applicationKey: String?
-    private let transport: any HTTPSending
+    private let transport: any HueTransport
     private var inFlight = 0
     private var waiting: [CheckedContinuation<Void, Never>] = []
     static let maximumInFlight = 3
     static let retries = 4
 
-    init(host: String, applicationKey: String?, transport: any HTTPSending) {
+    init(host: String, applicationKey: String?, transport: any HueTransport) {
         self.host = host
         self.applicationKey = applicationKey
         self.transport = transport
@@ -74,6 +74,21 @@ actor HueClient {
     /// Changes a resource: `PUT /clip/v2/resource/<type>/<id>`.
     func put(_ type: String, id: String, _ body: JSONValue) async throws {
         _ = try await data(of: send("PUT", "/clip/v2/resource/\(type)/\(id)", body: body))
+    }
+
+    /// The bridge's event stream (`GET /eventstream/clip/v2`): each event's data is a JSON array of changes, each with
+    /// a `type` (`update`, `add`, `delete`) and its resources' changed parts in `data`. It goes on until the connection
+    /// drops; it does not count among the three requests in flight, which it would hold forever.
+    func events() async throws -> HTTPStreamingResponse.Events {
+        guard let url = URL(string: "https://\(Self.hostForURL(host))/eventstream/clip/v2") else { throw HTTPClientError.invalidURL(host) }
+        guard let applicationKey else { throw Failure.unauthorized }
+        let request = HTTPRequest(method: "GET", url: url, headers: [("Accept", "text/event-stream"), ("hue-application-key", applicationKey)], timeout: .seconds(10))
+        let response = try await transport.stream(request)
+        switch response.status {
+        case 200..<300: return response.events
+        case 401, 403: throw Failure.unauthorized
+        default: throw Failure.status(response.status, "")
+        }
     }
 
     private func data(of response: HTTPResponse) throws -> [JSONValue] {
@@ -132,12 +147,21 @@ actor HueClient {
     }
 }
 
+/// What the client talks to the bridge with: requests, and the event stream.
+protocol HueTransport: HTTPSending, HTTPStreaming {}
+
 /// `HTTPClient` with the bridge's certificate pinned once seen: the first connection takes any, the next only that one.
-struct PinningTransport: HTTPSending {
+struct PinningTransport: HueTransport {
     let trust: HTTPClient.TrustOnFirstUse
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         let response = try await trust.client.send(request)
+        trust.observe(response.certificateFingerprint)
+        return response
+    }
+
+    func stream(_ request: HTTPRequest) async throws -> HTTPStreamingResponse {
+        let response = try await trust.client.stream(request)
         trust.observe(response.certificateFingerprint)
         return response
     }

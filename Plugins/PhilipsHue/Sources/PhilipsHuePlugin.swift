@@ -35,6 +35,10 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         public var flashSwitch: Bool?
         public var gradientPoints: Bool?
         public var excludeLights: [String]?
+        /// Motion, temperature, light level and contact sensors, and the buttons of switches and remotes; on by default.
+        public var sensors: Bool?
+        /// Sensor and switch names or device ids to leave out of HomeKit.
+        public var excludeSensors: [String]?
     }
 
     /// A scene's own transition, in place of `transitionMs` when it is recalled.
@@ -54,7 +58,7 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
 
     /// What the plugin uses to reach the bridge; tests swap them for fakes.
     struct Dependencies: Sendable {
-        var transport: @Sendable (HTTPClient.TrustOnFirstUse) -> any HTTPSending = { PinningTransport(trust: $0) }
+        var transport: @Sendable (HTTPClient.TrustOnFirstUse) -> any HueTransport = { PinningTransport(trust: $0) }
         /// Bridges on the network: addresses from mDNS (`_hue._tcp`), else Philips' discovery service.
         var discover: @Sendable () async -> [String] = HueDiscovery.find
     }
@@ -80,14 +84,14 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     let context: PluginContext
     let dependencies: Dependencies
     private let tasks = TaskBag()
-    private var logger: Logger { context.logger }
+    var logger: Logger { context.logger }
     private let store: JSONFile<StoredBridge>
     /// The pictures people gave scenes on the page, by scene id.
     let pictures: PluginPictures
-    private var stored: StoredBridge
+    var stored: StoredBridge
     private let trust: HTTPClient.TrustOnFirstUse
     private(set) var client: HueClient?
-    private(set) var snapshot = HueSnapshot()
+    var snapshot = HueSnapshot()
     private(set) var lastError: String?
     private var pairing: Task<Bool, Never>?
     private var pairingDeadline: ContinuousClock.Instant?
@@ -98,6 +102,14 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     private var refreshes = 0
     private var lights: [String: LightServices] = [:]
     private var sceneAccessories: [String: SceneServices] = [:]
+    /// The sensor devices' accessories, by device id (HueSensors.swift).
+    var sensorAccessories: [String: SensorServices] = [:]
+    /// Each button's last report (its `updated` time), so a press fires once, from the event stream or a read.
+    var buttonReports: [String: String] = [:]
+    /// Whether the event stream is open: while it is, presses come from it and reads fire none.
+    var streaming = false
+    /// A read of the bridge asked for by an event, not yet run.
+    var pendingRefresh: Task<Void, Never>?
 
     /// A light's services on its accessory.
     struct LightServices {
@@ -193,6 +205,9 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
             logger.info("Press the link button on the Hue Bridge at \(host) to pair (the plugin waits a minute; its page can pair again)")
             guard await pair() else { return }
         }
+        // The event stream beside the polls: button presses, and every change at once.
+        let listener = Task { [weak self] in await self?.listen() }
+        defer { listener.cancel() }
         while !Task.isCancelled {
             await refresh()
             try? await Task.sleep(for: pollingInterval)
@@ -295,6 +310,7 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
             if lastError == nil { logger.warning("Could not reach the Hue Bridge: \(error)") }
             lastError = "\(error)"
             for services in lights.values { services.accessory.isUnavailable = true }
+            for services in sensorAccessories.values { services.accessory.isUnavailable = true }
             return
         }
         if lastError != nil { logger.info("The Hue Bridge answers again") }
@@ -318,9 +334,16 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
             keep.insert(Self.sceneAccessoryID(groupID: group.id))
             await showRoom(group, scenes, roomLight: roomLight)
         }
+        if configuration.sensors ?? true {
+            for sensor in snapshot.sensors where !isExcluded(sensor) {
+                keep.insert(Self.sensorAccessoryID(deviceID: sensor.id))
+                show(sensor)
+            }
+        }
+        sensorAccessories = sensorAccessories.filter { keep.contains(Self.sensorAccessoryID(deviceID: $0.key)) }
         lights = lights.filter { keep.contains(Self.accessoryID(lightID: $0.key)) }
         sceneAccessories = sceneAccessories.filter { keep.contains(Self.sceneAccessoryID(groupID: $0.key)) }
-        _ = await context.removeAccessories(keeping: keep, message: "Removing a Hue light or scene the bridge no longer has")
+        _ = await context.removeAccessories(keeping: keep, message: "Removing a Hue light, sensor or scene the bridge no longer has")
     }
 
     func isExcluded(_ light: HueLight) -> Bool {
@@ -666,10 +689,12 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
 
     func discover() async -> [String] { await dependencies.discover() }
 
-    /// Makes a light blink: its device's identify.
-    func identify(lightID: String) async throws {
-        guard let client, let light = snapshot.lights.first(where: { $0.id == lightID }) else { throw HueClient.Failure.status(404, "no light with that id") }
-        try await client.put("device", id: light.deviceID, ["identify": ["action": "identify"]])
+    /// Makes a light or a sensor show itself (a light blinks, a sensor's LED flashes): its device's identify. `id` is
+    /// a light's id or a sensor device's.
+    func identify(id: String) async throws {
+        let device = snapshot.lights.first { $0.id == id }?.deviceID ?? snapshot.sensors.first { $0.id == id }?.id
+        guard let client, let device else { throw HueClient.Failure.status(404, "no light or sensor with that id") }
+        try await client.put("device", id: device, ["identify": ["action": "identify"]])
     }
 
     func lightAction(id: String, _ body: JSONValue) async throws {

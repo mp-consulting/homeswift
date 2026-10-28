@@ -15,8 +15,9 @@ let testLogger: Logger = {
     return logger
 }()
 
-/// A Hue Bridge in memory: pairing (refused until `pressLinkButton`), every resource, and the PUTs it was sent.
-final class FakeBridge: HTTPSending, @unchecked Sendable {
+/// A Hue Bridge in memory: pairing (refused until `pressLinkButton`), every resource, the PUTs it was sent, and its
+/// event stream, which a test feeds with `emit`.
+final class FakeBridge: HueTransport, @unchecked Sendable {
     struct Sent: Equatable {
         var method: String
         var path: String
@@ -25,6 +26,10 @@ final class FakeBridge: HTTPSending, @unchecked Sendable {
 
     private let state = NIOLockedValueBox<(linkButton: Bool, key: String, resources: [JSONValue], sent: [Sent], refuseKey: Bool, bridgeID: String)>(
         (false, "app-key-1", FakeBridge.resources, [], false, "C42996FFFEC76C08"))
+
+    /// The open event streams' continuations.
+    private let streams = NIOLockedValueBox<[AsyncThrowingStream<[UInt8], any Error>.Continuation]>([])
+    var openStreams: Int { streams.withLockedValue { $0.count } }
 
     var sent: [Sent] { state.withLockedValue { $0.sent } }
     var puts: [Sent] { sent.filter { $0.method == "PUT" } }
@@ -41,6 +46,31 @@ final class FakeBridge: HTTPSending, @unchecked Sendable {
                 state.resources[index] = .object(object)
             }
         }
+    }
+
+    /// Sends an event to every open stream: `changes` is the event's data, the bridge's array of changes.
+    func emit(_ changes: JSONValue) {
+        let text = "id: 1\ndata: \(String(decoding: changes.encoded(), as: UTF8.self))\n\n"
+        for continuation in streams.withLockedValue({ $0 }) { continuation.yield(Array(text.utf8)) }
+    }
+
+    /// Ends every open stream, as a bridge that restarts does.
+    func dropStreams() {
+        for continuation in streams.withLockedValue({ list in defer { list = [] }; return list }) { continuation.finish(throwing: HTTPClientError.connectionClosed) }
+    }
+
+    func stream(_ request: HomeswiftNetwork.HTTPRequest) async throws -> HTTPStreamingResponse {
+        let refused = state.withLockedValue { request.header("hue-application-key") != $0.key || $0.refuseKey }
+        let (body, continuation) = AsyncThrowingStream.makeStream(of: [UInt8].self, throwing: (any Error).self)
+        if refused {
+            continuation.finish()
+            return HTTPStreamingResponse(status: 403, body: .init(body))
+        }
+        guard request.url.path == "/eventstream/clip/v2" else { continuation.finish(); return HTTPStreamingResponse(status: 404, body: .init(body)) }
+        streams.withLockedValue { $0.append(continuation) }
+        // A keep-alive comment first, as the bridge sends.
+        continuation.yield(Array(": hi\n\n".utf8))
+        return HTTPStreamingResponse(status: 200, headers: [("Content-Type", "text/event-stream")], body: .init(body))
     }
 
     func send(_ request: HomeswiftNetwork.HTTPRequest) async throws -> HomeswiftNetwork.HTTPResponse {
@@ -99,6 +129,29 @@ final class FakeBridge: HTTPSending, @unchecked Sendable {
         ["id": "scene-2", "type": "scene", "metadata": ["name": "Concentrate"], "group": ["rid": "room-1", "rtype": "room"],
          "actions": [["target": ["rid": "light-1", "rtype": "light"], "action": ["color_temperature": ["mirek": 233]]]], "status": ["active": "inactive"]],
         ["id": "smart-1", "type": "smart_scene", "metadata": ["name": "Natural light"], "group": ["rid": "room-1", "rtype": "room"], "state": "inactive"],
+        // A motion sensor (motion, temperature, light level, battery) and a dimmer switch (four buttons, battery).
+        ["id": "dev-3", "type": "device", "metadata": ["name": "Hall sensor"],
+         "product_data": ["model_id": "SML003", "manufacturer_name": "Signify Netherlands B.V.", "product_name": "Hue motion sensor", "software_version": "2.53.6"],
+         "services": [["rid": "motion-3", "rtype": "motion"], ["rid": "temp-3", "rtype": "temperature"], ["rid": "lux-3", "rtype": "light_level"],
+                      ["rid": "power-3", "rtype": "device_power"], ["rid": "zc-3", "rtype": "zigbee_connectivity"]]],
+        ["id": "motion-3", "type": "motion", "owner": ["rid": "dev-3", "rtype": "device"], "enabled": true,
+         "motion": ["motion": false, "motion_valid": true, "motion_report": ["changed": "2026-10-28T08:00:00.000Z", "motion": false]]],
+        ["id": "temp-3", "type": "temperature", "owner": ["rid": "dev-3", "rtype": "device"], "enabled": true,
+         "temperature": ["temperature": 21.37, "temperature_valid": true, "temperature_report": ["changed": "2026-10-28T08:00:00.000Z", "temperature": 21.37]]],
+        ["id": "lux-3", "type": "light_level", "owner": ["rid": "dev-3", "rtype": "device"], "enabled": true,
+         "light": ["light_level": 20001, "light_level_valid": true, "light_level_report": ["changed": "2026-10-28T08:00:00.000Z", "light_level": 20001]]],
+        ["id": "power-3", "type": "device_power", "owner": ["rid": "dev-3", "rtype": "device"], "power_state": ["battery_state": "normal", "battery_level": 87]],
+        ["id": "zc-3", "type": "zigbee_connectivity", "owner": ["rid": "dev-3", "rtype": "device"], "status": "connected"],
+        ["id": "dev-4", "type": "device", "metadata": ["name": "Bedroom dimmer"],
+         "product_data": ["model_id": "RWL022", "manufacturer_name": "Signify Netherlands B.V.", "product_name": "Hue dimmer switch", "software_version": "2.45.2"],
+         "services": [["rid": "button-1", "rtype": "button"], ["rid": "button-2", "rtype": "button"], ["rid": "button-3", "rtype": "button"],
+                      ["rid": "button-4", "rtype": "button"], ["rid": "power-4", "rtype": "device_power"]]],
+        ["id": "button-1", "type": "button", "owner": ["rid": "dev-4", "rtype": "device"], "metadata": ["control_id": 1],
+         "button": ["button_report": ["updated": "2026-10-28T07:00:00.000Z", "event": "short_release"]]],
+        ["id": "button-2", "type": "button", "owner": ["rid": "dev-4", "rtype": "device"], "metadata": ["control_id": 2], "button": [:]],
+        ["id": "button-3", "type": "button", "owner": ["rid": "dev-4", "rtype": "device"], "metadata": ["control_id": 3], "button": [:]],
+        ["id": "button-4", "type": "button", "owner": ["rid": "dev-4", "rtype": "device"], "metadata": ["control_id": 4], "button": [:]],
+        ["id": "power-4", "type": "device_power", "owner": ["rid": "dev-4", "rtype": "device"], "power_state": ["battery_state": "low", "battery_level": 9]],
     ]
 }
 
@@ -544,5 +597,120 @@ struct PhilipsHueTests {
             "run: swift Scripts/embed-assets.swift plugin Plugins/PhilipsHue PhilipsHuePlugin")
         let schema = try JSONValue(string: try #require(PhilipsHuePlugin.configurationSchemaJSON))
         #expect(schema["pluginAlias"] == "PhilipsHue")
+    }
+}
+
+@Suite(.timeLimit(.minutes(1)), .serialized)
+struct HueSensorTests {
+    let environment = TestEnvironment()
+    let sensorID = PhilipsHuePlugin.sensorAccessoryID(deviceID: "dev-3")
+    let dimmerID = PhilipsHuePlugin.sensorAccessoryID(deviceID: "dev-4")
+
+    func accessory(_ host: PluginHost, _ id: String) async throws -> Accessory {
+        #expect(await eventually { host.mainBridge.server.accessories.contains { $0.id == id } })
+        return try #require(host.mainBridge.server.accessories.first { $0.id == id })
+    }
+
+    @Test func readsHuesLightLevelAndButtonEvents() {
+        #expect(abs(HueSensorDevice.lux(lightLevel: 20001) - 100) < 0.001)
+        #expect(HueSensorDevice.lux(lightLevel: 0) == 0.0001)
+        #expect(HueSensorDevice.switchEvent("short_release") == 0)
+        #expect(HueSensorDevice.switchEvent("double_short_release") == 1)
+        #expect(HueSensorDevice.switchEvent("long_press") == 2)
+        #expect(HueSensorDevice.switchEvent("initial_press") == nil && HueSensorDevice.switchEvent("repeat") == nil)
+        // A device with a light belongs to the light, and one without a sensor or button is no sensor.
+        let snapshot = HueSnapshot(resources: FakeBridge.resources)
+        #expect(snapshot.sensors.map(\.id) == ["dev-4", "dev-3"])
+    }
+
+    @Test func sensorsAndSwitchesBecomeAccessories() async throws {
+        let host = try await environment.start()
+        let sensor = try await accessory(host, sensorID)
+        #expect(sensor.category == .sensor)
+        #expect(sensor.service(.motionSensor)?[.motionDetected]?.value == false)
+        #expect(sensor.service(.temperatureSensor)?[.currentTemperature]?.value == 21.4)
+        #expect(sensor.service(.lightSensor)?[.currentAmbientLightLevel]?.value.doubleValue.map { abs($0 - 100) < 0.01 } == true)
+        #expect(sensor.service(.battery)?[.batteryLevel]?.value == 87)
+        #expect(sensor.service(.battery)?[.statusLowBattery]?.value == 0)
+        let dimmer = try await accessory(host, dimmerID)
+        #expect(dimmer.category == .programmableSwitch)
+        let buttons = dimmer.services.filter { $0.type == .statelessProgrammableSwitch }
+        #expect(buttons.map { $0[.serviceLabelIndex]?.value } == [1, 2, 3, 4])
+        #expect(dimmer.service(.serviceLabel)?[.serviceLabelNamespace]?.value == 1)
+        #expect(dimmer.service(.battery)?[.statusLowBattery]?.value == 1)
+        await host.stop()
+    }
+
+    @Test func theSensorsOptionAndExclusionsLeaveThemOut() async throws {
+        let host = try await environment.start(settings: ["host": "192.0.2.10", "excludeSensors": ["Bedroom dimmer"]])
+        _ = try await accessory(host, sensorID)
+        #expect(!host.mainBridge.server.accessories.contains { $0.id == dimmerID })
+        await host.stop()
+        let other = TestEnvironment()
+        let none = try await other.start(settings: ["host": "192.0.2.10", "sensors": false])
+        _ = try await accessory(none, PhilipsHuePlugin.accessoryID(lightID: "light-1"))
+        #expect(!none.mainBridge.server.accessories.contains { $0.id == sensorID })
+        await none.stop()
+    }
+
+    /// A press on the event stream fires its switch once, the same press twice fires twice, and a read that sees the
+    /// press again fires nothing more.
+    @Test func theEventStreamFiresButtonsAndShowsMotion() async throws {
+        let host = try await environment.start()
+        let dimmer = try await accessory(host, dimmerID)
+        let sensor = try await accessory(host, sensorID)
+        #expect(await eventually { environment.bridge.openStreams > 0 })
+        let first = try #require(dimmer.services.first { $0[.serviceLabelIndex]?.value == 1 })
+        let presses = NIOLockedValueBox<[HAPValue]>([])
+        _ = first.characteristic(.programmableSwitchEvent).observe { change in
+            if change.reason == .event { presses.withLockedValue { $0.append(change.newValue) } }
+        }
+        func press(_ event: String, at time: String) -> JSONValue {
+            [["type": "update", "id": "e", "data": [["id": "button-1", "type": "button", "owner": ["rid": "dev-4", "rtype": "device"],
+                                                    "button": ["button_report": ["updated": .string(time), "event": .string(event)], "last_event": .string(event)]]]]]
+        }
+        environment.bridge.emit(press("initial_press", at: "2026-10-28T09:00:00.000Z"))
+        environment.bridge.emit(press("short_release", at: "2026-10-28T09:00:00.200Z"))
+        environment.bridge.emit(press("short_release", at: "2026-10-28T09:00:01.000Z"))
+        environment.bridge.emit(press("long_press", at: "2026-10-28T09:00:02.000Z"))
+        #expect(await eventually { presses.withLockedValue { $0 } == [0, 0, 2] })
+        // Motion, in part, as the bridge sends only what changed.
+        environment.bridge.emit([["type": "update", "id": "e", "data": [["id": "motion-3", "type": "motion", "motion": ["motion": true, "motion_report": ["motion": true]]]]]])
+        #expect(await eventually { sensor.service(.motionSensor)?[.motionDetected]?.value == true })
+        // The next read sees the bridge's resources (press long gone from them, motion back off): no press fires.
+        let plugin = try #require(environment.plugin)
+        await plugin.refresh()
+        #expect(presses.withLockedValue { $0 } == [0, 0, 2])
+        #expect(sensor.service(.motionSensor)?[.motionDetected]?.value == false)
+        await host.stop()
+    }
+
+    /// A change to a light on the stream reads the bridge again at once, before the next poll.
+    @Test func aLightChangedElsewhereShowsAtOnce() async throws {
+        let host = try await environment.start(settings: ["host": "192.0.2.10", "pollingInterval": 60])
+        let desk = try await accessory(host, PhilipsHuePlugin.accessoryID(lightID: "light-2"))
+        #expect(await eventually { environment.bridge.openStreams > 0 })
+        environment.bridge.change("light-2") { $0["on"] = ["on": true] }
+        environment.bridge.emit([["type": "update", "id": "e", "data": [["id": "light-2", "type": "light", "on": ["on": true]]]]])
+        #expect(await eventually { desk.service(.lightbulb)?[.on]?.value == true })
+        await host.stop()
+    }
+
+    /// While the stream is down, a read that finds a newer report fires it.
+    @Test func withoutTheStreamAReadFiresANewPress() async throws {
+        let host = try await environment.start(settings: ["host": "192.0.2.10", "pollingInterval": 60])
+        let dimmer = try await accessory(host, dimmerID)
+        let plugin = try #require(environment.plugin)
+        #expect(await eventually { environment.bridge.openStreams > 0 })
+        environment.bridge.dropStreams()
+        #expect(await eventually { await !plugin.streaming })
+        let first = try #require(dimmer.services.first { $0[.serviceLabelIndex]?.value == 1 })
+        let presses = NIOLockedValueBox(0)
+        _ = first.characteristic(.programmableSwitchEvent).observe { change in if change.reason == .event { presses.withLockedValue { $0 += 1 } } }
+        environment.bridge.change("button-1") { $0["button"] = ["button_report": ["updated": "2026-10-28T10:00:00.000Z", "event": "double_short_release"]] }
+        await plugin.refresh()
+        #expect(presses.withLockedValue { $0 } == 1)
+        #expect(first[.programmableSwitchEvent]?.value == 1)
+        await host.stop()
     }
 }

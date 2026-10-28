@@ -129,6 +129,18 @@
         "type": "array",
         "items": { "type": "string" },
         "description": "Light names or ids to leave out of HomeKit."
+      },
+      "sensors": {
+        "title": "Sensors and Switches",
+        "type": "boolean",
+        "default": true,
+        "description": "Motion, temperature, light level and contact sensors, and a programmable switch for each button of a dimmer, Tap or smart button. Presses arrive through the bridge's event stream."
+      },
+      "excludeSensors": {
+        "title": "Hidden Sensors",
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Sensor and switch names or device ids to leave out of HomeKit."
       }
     }
   },
@@ -146,11 +158,15 @@
       "type": "fieldset",
       "title": "Advanced Settings",
       "expandable": true,
-      "items": ["pollingInterval", "excludeLights"]
+      "items": ["pollingInterval", "excludeLights", "sensors", "excludeSensors"]
     }
   ],
   "i18n": {
     "fr": {
+      "Sensors and Switches": "Capteurs et interrupteurs",
+      "Hidden Sensors": "Capteurs masqués",
+      "Motion, temperature, light level and contact sensors, and a programmable switch for each button of a dimmer, Tap or smart button. Presses arrive through the bridge's event stream.": "Les capteurs de mouvement, de température, de luminosité et d'ouverture, et un interrupteur programmable pour chaque bouton d'un variateur, d'un Tap ou d'un bouton connecté. Les appuis arrivent par le flux d'événements du pont.",
+      "Sensor and switch names or device ids to leave out of HomeKit.": "Les noms des capteurs et des interrupteurs, ou les identifiants de leurs appareils, à laisser hors de HomeKit.",
       "\"Room/Scene\", or a scene's name in any room.": "« Pièce/Scène », ou le nom d'une scène dans n'importe quelle pièce.",
       "A lightbulb on each room's and zone's accessory: on, off and brightness for all its lights at once, as one command, like the Hue app's room controls.": "Une ampoule sur l'accessoire de chaque pièce et zone : allumer, éteindre et régler la luminosité de toutes ses lampes à la fois, en une commande, comme les commandes de pièce de l'app Hue.",
       "A switch for each effect a light has (candle, fire, sparkle, prism…).": "Un interrupteur pour chaque effet d'une lampe (bougie, feu, scintillement, prisme…).",
@@ -197,6 +213,10 @@
       "Very slow · 2000 ms": "Très lente · 2000 ms"
     },
     "es": {
+      "Sensors and Switches": "Sensores e interruptores",
+      "Hidden Sensors": "Sensores ocultos",
+      "Motion, temperature, light level and contact sensors, and a programmable switch for each button of a dimmer, Tap or smart button. Presses arrive through the bridge's event stream.": "Los sensores de movimiento, temperatura, luminosidad y contacto, y un interruptor programable por cada botón de un regulador, un Tap o un botón inteligente. Las pulsaciones llegan por el flujo de eventos del puente.",
+      "Sensor and switch names or device ids to leave out of HomeKit.": "Nombres de los sensores e interruptores, o ids de sus dispositivos, que se dejan fuera de HomeKit.",
       "\"Room/Scene\", or a scene's name in any room.": "\"Habitación/Escena\", o el nombre de una escena en cualquier habitación.",
       "A lightbulb on each room's and zone's accessory: on, off and brightness for all its lights at once, as one command, like the Hue app's room controls.": "Una bombilla en el accesorio de cada habitación y zona: encender, apagar y ajustar el brillo de todas sus luces a la vez, en un solo comando, como los controles de habitación de la app Hue.",
       "A switch for each effect a light has (candle, fire, sparkle, prism…).": "Un interruptor por cada efecto de una luz (vela, fuego, destello, prisma…).",
@@ -243,6 +263,10 @@
       "Very slow · 2000 ms": "Muy lenta · 2000 ms"
     },
     "pt": {
+      "Sensors and Switches": "Sensores e interruptores",
+      "Hidden Sensors": "Sensores ocultos",
+      "Motion, temperature, light level and contact sensors, and a programmable switch for each button of a dimmer, Tap or smart button. Presses arrive through the bridge's event stream.": "Os sensores de movimento, temperatura, luminosidade e contacto, e um interruptor programável para cada botão de um regulador, de um Tap ou de um botão inteligente. As pressões chegam pelo fluxo de eventos da ponte.",
+      "Sensor and switch names or device ids to leave out of HomeKit.": "Nomes dos sensores e interruptores, ou ids dos seus dispositivos, a deixar fora do HomeKit.",
       "\"Room/Scene\", or a scene's name in any room.": "\"Divisão/Cena\", ou o nome de uma cena em qualquer divisão.",
       "A lightbulb on each room's and zone's accessory: on, off and brightness for all its lights at once, as one command, like the Hue app's room controls.": "Uma lâmpada no acessório de cada divisão e zona: ligar, desligar e ajustar o brilho de todas as suas luzes de uma vez, num só comando, como os controlos de divisão da app Hue.",
       "A switch for each effect a light has (candle, fire, sparkle, prism…).": "Um interruptor por cada efeito de uma luz (vela, fogo, cintilar, prisma…).",

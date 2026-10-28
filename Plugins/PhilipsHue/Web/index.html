@@ -23,6 +23,7 @@
 
   <div class="group tabs main-tabs" role="tablist">
     <button role="tab" data-tab="lights" class="on" aria-selected="true" aria-controls="tab-lights" data-i18n data-action-icon="bulb">Lights</button>
+    <button role="tab" data-tab="sensors" aria-selected="false" aria-controls="tab-sensors" data-i18n data-action-icon="sensor">Sensors</button>
     <button role="tab" data-tab="scenes" aria-selected="false" aria-controls="tab-scenes" data-i18n data-action-icon="star">Scenes</button>
     <button role="tab" data-tab="settings" aria-selected="false" aria-controls="tab-settings" data-i18n data-action-icon="sliders">Settings</button>
   </div>
@@ -31,6 +32,12 @@
     <div id="light-toolbar" class="finder"></div>
     <div class="accessory-walls" id="lights"></div>
     <div id="hidden-devices" class="hidden-devices"></div>
+  </section>
+
+  <section id="tab-sensors" class="tab-pane hidden" role="tabpanel">
+    <div id="sensor-toolbar" class="finder"></div>
+    <div class="accessory-walls" id="sensors"></div>
+    <div id="hidden-sensors" class="hidden-devices"></div>
   </section>
 
   <section id="tab-scenes" class="tab-pane hidden" role="tabpanel">

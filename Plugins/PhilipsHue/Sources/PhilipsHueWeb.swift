@@ -5,7 +5,8 @@ import HomeswiftPlugin
 extension PhilipsHuePlugin {
     /// The page's routes (`Web/`): `GET status` the bridge and pairing, `GET discover` the bridges on the network,
     /// `POST host` another address, `POST pair`, `GET lights` and `GET scenes` with their colours,
-    /// `POST recall` a scene (`dynamic` plays it or stops it playing), `POST scene-off` its room, `POST autoplay` its Autoplay, `POST light` a light's power, brightness, effect or flash, `POST identify` a light;
+    /// `GET sensors` the sensors and switches, `POST recall` a scene (`dynamic` plays it or stops it playing), `POST scene-off` its room,
+    /// `POST autoplay` its Autoplay, `POST light` a light's power, brightness, effect or flash, `POST identify` a light or a sensor;
     /// `GET scene-picture`, `POST scene-picture` and `POST scene-picture-remove` the picture a person gave a scene.
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
         if let response = pictures.handle(request) { return response }
@@ -17,6 +18,7 @@ extension PhilipsHuePlugin {
                 "paired": .bool(stored.applicationKey != nil), "pairing": .bool(isPairing),
                 "pairingSecondsLeft": pairingSecondsLeft.map { .number(Double($0)) } ?? .null, "error": lastError.map(JSONValue.string) ?? .null,
                 "lights": .number(Double(snapshot.lights.count)), "scenes": .number(Double(snapshot.scenes.count)),
+                "sensors": .number(Double(snapshot.sensors.count)), "sensorsOn": .bool(configuration.sensors ?? true),
             ])
         case ("GET", "discover"):
             return PluginWebResponse(["hosts": .array(await discover().map(JSONValue.string))])
@@ -29,6 +31,8 @@ extension PhilipsHuePlugin {
             return paired ? PluginWebResponse(["paired": true]) : .error(409, lastError ?? "The link button was not pressed in time.")
         case ("GET", "lights"):
             return PluginWebResponse(["lights": .array(snapshot.lights.map { lightJSON($0) })])
+        case ("GET", "sensors"):
+            return PluginWebResponse(["sensors": .array(snapshot.sensors.map { sensorJSON($0) })])
         case ("GET", "scenes"):
             let versions = pictures.versions()
             let groups: [JSONValue] = snapshot.groups.compactMap { group in
@@ -84,8 +88,8 @@ extension PhilipsHuePlugin {
             try await lightAction(id: id, .object(body))
             return PluginWebResponse(["light": lightJSON(snapshot.lights.first { $0.id == id } ?? light)])
         case ("POST", "identify"):
-            guard let id = request.body["id"]?.stringValue else { return .error(400, "a light id is required") }
-            try await identify(lightID: id)
+            guard let id = request.body["id"]?.stringValue else { return .error(400, "a light or sensor id is required") }
+            try await identify(id: id)
             return PluginWebResponse(["identified": .string(id)])
         default:
             return .error(404, "nothing at \(request.method) \(request.path)")
@@ -109,6 +113,17 @@ extension PhilipsHuePlugin {
             "canFlash": .bool(light.canFlash), "gradient": .array(light.gradientPoints.map { .string(Self.hex($0, gamut: gamut)) }),
             "hidden": .bool(isExcluded(light)), "firmware": .string(light.firmware),
             "roomID": light.roomID.map(JSONValue.string) ?? .null, "room": light.room.map(JSONValue.string) ?? .null,
+        ]
+    }
+
+    func sensorJSON(_ sensor: HueSensorDevice) -> JSONValue {
+        let kind = sensor.motion != nil ? "motion" : sensor.contact != nil ? "contact" : !sensor.buttons.isEmpty ? "switch" : "sensor"
+        return [
+            "id": .string(sensor.id), "name": .string(sensor.name), "product": .string(sensor.product), "model": .string(sensor.model),
+            "kind": .string(kind), "reachable": .bool(sensor.reachable), "hidden": .bool(isExcluded(sensor)), "firmware": .string(sensor.firmware),
+            "buttons": .number(Double(sensor.buttons.count)),
+            "battery": sensor.battery?.level.map { .number(Double($0)) } ?? .null, "lowBattery": .bool(sensor.battery?.low ?? false),
+            "roomID": sensor.roomID.map(JSONValue.string) ?? .null, "room": sensor.room.map(JSONValue.string) ?? .null,
         ]
     }
 

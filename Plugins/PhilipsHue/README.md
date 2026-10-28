@@ -2,9 +2,11 @@
 
 Philips Hue lights, scenes and effects in HomeKit through a Hue Bridge's local API v2 (CLIP v2), without the
 cloud: every light with its brightness, colour and white temperature, a switch for each effect a light plays
-(candle, fireplace, sparkle, prism…), the scenes of each room and zone as switches, and optionally a Flash switch
-and a light per colour point of gradient lightstrips. A light's changes go to the bridge in one command, with a
-transition you choose, so moods and the Home app change colour and brightness together.
+(candle, fireplace, sparkle, prism…), the scenes of each room and zone as switches, the sensors (motion, temperature,
+light level, contact, battery) and the buttons of dimmers, Tap switches and smart buttons, and optionally a Flash
+switch and a light per colour point of gradient lightstrips. A light's changes go to the bridge in one command, with a
+transition you choose, so moods and the Home app change colour and brightness together; the bridge's event stream
+brings button presses and changes made elsewhere at once.
 
 Written for Homeswift (not a port). Tested against a Hue Bridge Pro (BSB003, firmware 2071524040): pairing, 48 lights
 and 201 scenes read; writes, scenes, effects and Flash against a fake bridge in the tests. Maintained by the Homeswift
@@ -41,6 +43,8 @@ config.json, with the bridge's certificate pinned on first use. One block per br
 | `flashSwitch` | `false` | A switch on each light that makes it flash for five seconds (Hue's signaling) |
 | `gradientPoints` | `false` | On gradient lightstrips and lamps, a lightbulb per colour point (up to five), so each part takes its own colour |
 | `excludeLights` | `[]` | Light names or ids to leave out of HomeKit |
+| `sensors` | `true` | The sensors and the switches' buttons (see below) |
+| `excludeSensors` | `[]` | Sensor and switch names or device ids to leave out of HomeKit |
 
 ### Scenes
 
@@ -67,6 +71,23 @@ the page), using it for scenes, room lights and what HomeKit's Hue lacks; or rem
 use Homeswift's accessories, with effects, Flash, gradient points and room lights, putting rooms and automations on
 them again. The Hue app keeps working either way.
 
+### Sensors and switches
+
+Each Hue device with sensors or buttons is an accessory, its services those the device has:
+
+| On the bridge | In HomeKit |
+|---|---|
+| `motion` (motion sensor, outdoor sensor) | Motion Sensor, Status Active as the sensor is enabled in the Hue app |
+| `temperature` | Temperature Sensor, in °C to one decimal (-50 to 100, for outdoor sensors) |
+| `light_level` | Light Sensor: Hue's 10,000 × log₁₀(lux) + 1 back to lux, 0 as darkness |
+| `contact` (Secure contact sensor) | Contact Sensor |
+| `button` (dimmer switch, Tap dial, Tap, smart button, wall switch module) | a Stateless Programmable Switch per button, numbered as `control_id` under a Service Label: a press is Single, `double_short_release` Double, `long_press` Long |
+| `device_power` | Battery: its level, Low Battery below the bridge's `normal` |
+
+A press reaches the Home app as the bridge reports it, on its event stream, so a button can run a scene or an
+automation there. A Tap dial's ring (`relative_rotary`) has no HomeKit counterpart and is left out. A device that also
+has a light is the light's accessory. The accessory ids are `PhilipsHue:device:<device id>`.
+
 ### Effects, Flash and gradients
 
 An effect switch plays the effect on the bulb itself (`effects_v2`, or `effects` on older bulbs), so it flickers and
@@ -75,13 +96,16 @@ flows as smoothly as in the Hue app; Off stops it. Flash uses the bridge's signa
 
 ## The web page
 
-With the web UI on, the plugin's page shows the bridge (its address, id, how many lights and scenes, **Pair** with a
-countdown for the link button, and its address to change), then three tabs:
+With the web UI on, the plugin's page shows the bridge (its address, id, how many lights, sensors and scenes, **Pair**
+with a countdown for the link button, and its address to change), then four tabs:
 
 - **Lights**: every light drawn by the Accessories page's own widgets (power, brightness, colours, white; effects and
   the rest in All controls), with **Identify**, **Leave out of the Home app** and its log in each widget's menu. They
   come room by room (a light's room is the room its device is in) or by name, under the same toolbar as the scenes: a
   search, a room, and filters for on now, colour lights, with effects and No Response.
+- **Sensors**: every sensor and switch drawn by the same widgets (motion, temperature, light level, contact, battery,
+  a button's last press), under the same toolbar, with filters for motion sensors, switches, low battery and No
+  Response, and **Identify** (the device's LED flashes), **Leave out of the Home app** and its log in each menu.
 - **Scenes**: each room's scenes as tiles painted with the scene's palette, under a toolbar that finds one among
   dozens: a search (scene and room names), a room, by room or by name, and filters with their counts (on now,
   Autoplay, colour scenes, which leaves out the whites of Hue's standard scenes, with a picture, not in the Home app),
@@ -94,7 +118,8 @@ countdown for the link button, and its address to change), then three tabs:
   keeps it in the plugin's folder (`scene-pictures/`, JPEG, PNG or WebP, checked by its bytes, 1 MB at most). The same
   menu removes it, leaves the scene out of the Home app, and gives it a **Speed** of its own (the transition its
   recall takes, from the page and the Home app; Settings' speed otherwise).
-- **Settings**: the transition on a 12-step speed scale (Very slow to Extreme; Fast, 100 ms, by default), the polling interval, and what the Home app shows.
+- **Settings**: the transition on a 12-step speed scale (Very slow to Extreme; Fast, 100 ms, by default), the polling
+  interval, and what the Home app shows (sensors and switches among it).
 
 ![Scenes, room by room](../../docs/images/plugins/hue-scenes.png)
 
@@ -110,6 +135,11 @@ fitting scene and recalls it.
 
 ## How it works
 
+Beside the polls, the plugin follows the bridge's event stream (`GET /eventstream/clip/v2`, server-sent events): a
+button's report fires its switch, a sensor's change shows at once, and any other change (a light, a scene, a device
+added) reads the bridge again 300 ms later, once for a burst. The stream is opened again after a pause when it drops,
+doubling up to a minute; while it is down, a read that finds a newer button report fires it.
+
 Every `pollingInterval` the plugin reads every resource of the bridge in one request (`GET /clip/v2/resource`) and
 shows the values; a light just written is left alone for two seconds, since the bridge may still report the old
 values, and a colour the bridge reports as sent keeps the hue and saturation HomeKit asked for (the gamut moves pure
@@ -120,6 +150,6 @@ Writes from the Home app arrive together (the bridge server runs one request's w
 gathers a light's changes for 30 ms and sends one `PUT /clip/v2/resource/light/<id>` with `on`, `dimming`, `color` or
 `color_temperature` and `dynamics.duration`. At most three requests are in flight (the bridge answers 429 beyond),
 and 429 or 503 is retried. A light whose Zigbee connectivity reports a problem shows No Response. The accessory ids
-are `PhilipsHue:<light id>` and `PhilipsHue:scenes:<room or zone id>`.
+are `PhilipsHue:<light id>`, `PhilipsHue:device:<device id>` (sensors and switches) and `PhilipsHue:scenes:<room or zone id>`.
 
 The Entertainment API (Hue Sync's 25 updates a second) needs DTLS, which Homeswift's networking does not have yet.

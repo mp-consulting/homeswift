@@ -8,6 +8,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Philips Hue: sensors and switches. Each Hue device with sensors or buttons is an accessory: motion, temperature,
+  light level and contact sensors, its battery, and a programmable switch per button of a dimmer, Tap, Tap dial or
+  smart button (single, double and long press). The plugin follows the bridge's event stream, so presses reach the Home
+  app at once and a change made in the Hue app shows without waiting for the poll. The page has a **Sensors** tab;
+  `sensors` and `excludeSensors` choose what the Home app shows.
+- `HomeswiftNetwork`: `HTTPClient.stream(_:)` hands back a response once its head arrives, its body following as it
+  comes (`HTTPStreamingResponse.body`), and `ServerSentEvents` reads a `text/event-stream`; leaving the loop closes the
+  connection. `HTTPStreaming` is the protocol for fakes in tests.
 - Plugins record readings for the Status page's history (`PluginContext.recordValue`, series
   `plugin:<platform>:<series>`): each minute keeps the count, sum, lowest and highest, for 8 days, and
   `/api/metrics/values` answers a series over a range.

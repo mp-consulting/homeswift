@@ -70,7 +70,8 @@ h2 { margin: 0 0 10px; }
 """#),
         "app.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The Philips Hue page: the bridge (found on the network or at an address, paired with its link button), the lights
-// as the Accessories page draws them (its widgets: power, brightness, colour; effects in All controls), the scenes of
+// as the Accessories page draws them (its widgets: power, brightness, colour; effects in All controls), the sensors and
+// switches the same way (motion, temperature, light level, contact, battery, a button's presses), the scenes of
 // each room as tiles painted with their palette (a tap recalls one, a tap on the active one switches its room off,
 // play makes its colours move, its ⋯ menu leaves it out of the Home app), and the settings: the transition and what
 // the Home app shows. Refreshed every two seconds while visible; saving writes this instance's block. The bridge
@@ -82,6 +83,7 @@ h2 { margin: 0 0 10px; }
 
   let status = {};
   let lights = [];
+  let sensors = [];
   let groups = [];
   let block = {};
 
@@ -97,7 +99,7 @@ h2 { margin: 0 0 10px; }
       pairHelp: t("Pair, then press the link button on the bridge within a minute. The key stays in the plugin's folder, not in config.json."),
       summary: t("Bridge address"), placeholder: "192.168.1.20", addressHelp: t("Leave it empty to find the bridge on the network."), none: t("No bridge answered on the network."),
     },
-    facts: (item) => [[t("Address"), item.host], [t("Lights"), item.lights ?? 0], [t("Scenes"), item.scenes ?? 0]],
+    facts: (item) => [[t("Address"), item.host], [t("Lights"), item.lights ?? 0], [t("Sensors"), item.sensors ?? 0], [t("Scenes"), item.scenes ?? 0]],
     problem: (item) => ({
       error: `The Hue Bridge at ${item.host} did not answer: ${item.error}`,
       context: "The Homeswift Philips Hue plugin reads every resource of the bridge's local API v2 (GET https://<bridge>/clip/v2/resource) every two seconds with its application key.",
@@ -119,12 +121,22 @@ h2 { margin: 0 0 10px; }
 
   // MARK: Lights, as the Accessories page draws them
 
-  /// The plugin's accessories (not its scene switches), read again when the set of lights changes.
+  /// The plugin's lights and its sensors (not its scene switches), read again when the set of either changes.
   let accessories = [];
+  let sensorAccessories = [];
   let shapeKey = "";
   async function loadAccessories() {
-    const all = await homeswift.api("/api/accessories");
-    accessories = all.filter((accessory) => accessory.platform === "PhilipsHue" && accessory.platformName === homeswift.name && !accessory.id.startsWith("PhilipsHue:scenes:"));
+    const all = (await homeswift.api("/api/accessories")).filter((accessory) => accessory.platform === "PhilipsHue" && accessory.platformName === homeswift.name);
+    accessories = all.filter((accessory) => !accessory.id.startsWith("PhilipsHue:scenes:") && !accessory.id.startsWith("PhilipsHue:device:"));
+    sensorAccessories = all.filter((accessory) => accessory.id.startsWith("PhilipsHue:device:"));
+  }
+
+  /// Reads the accessories again when the lights or sensors the Home app has changed.
+  async function loadIfChanged() {
+    const key = [...lights, ...sensors].filter((item) => !item.hidden).map((item) => item.id).sort().join(",");
+    if (key === shapeKey) return;
+    shapeKey = key;
+    await loadAccessories().catch(() => {});
   }
 
   /// The lights left out of the Home app, as buttons that bring one back; drawn again only when they change.
@@ -157,11 +169,7 @@ h2 { margin: 0 0 10px; }
       drawHidden([]);
       return;
     }
-    const key = lights.filter((item) => !item.hidden).map((item) => item.id).sort().join(",");
-    if (key !== shapeKey) {
-      shapeKey = key;
-      await loadAccessories().catch(() => {});
-    }
+    await loadIfChanged();
     if (!accessories.length) {
       list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text: t("The bridge has no lights yet: add them in the Hue app.") })));
     } else {
@@ -186,6 +194,51 @@ h2 { margin: 0 0 10px; }
     return [
       { label: t("Identify"), icon: "identify", onSelect: () => request("identify", { method: "POST", body: { id } }).catch((e) => alert(e.message)) },
       item ? { label: t("Leave out of the Home app"), icon: "eye", onSelect: () => toggleList("excludeLights", item.name) } : null,
+      { label: t("Show its log"), icon: "logs", href: `/logs/${encodeURIComponent(accessory.id)}` },
+    ].filter(Boolean);
+  }
+
+  // MARK: Sensors and switches, as the Accessories page draws them
+
+  const sensorFinder = finder({
+    toolbar: $("#sensor-toolbar"), placeholder: t("Search sensors"), prefix: "s", foldKey: "hue-folded-sensor-rooms", draw: () => drawSensors(),
+    items: () => sensorAccessories.map((accessory) => {
+      const sensor = sensors.find((entry) => `PhilipsHue:device:${entry.id}` === accessory.id);
+      return { id: accessory.id, name: accessory.name, room: sensor?.room ?? null, roomID: sensor?.roomID ?? null, sensor: sensor ?? {} };
+    }),
+    filters: [
+      ["motion", t("Motion sensors"), "sensor", (item) => item.sensor.kind === "motion"],
+      ["switches", t("Switches"), "switch", (item) => item.sensor.kind === "switch"],
+      ["battery", t("Low battery"), "warning", (item) => item.sensor.lowBattery === true],
+      ["unreachable", t("No Response"), "warning", (item) => item.sensor.reachable === false],
+    ],
+  });
+
+  async function drawSensors() {
+    const list = $("#sensors");
+    const empty = (text) => list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text })));
+    sensorFinder.show(status.paired && status.sensorsOn !== false && sensorAccessories.length > 0);
+    homeswift.drawHidden($("#hidden-sensors"), sensors.filter((item) => item.hidden).map((item) => item.name), (name) => toggleList("excludeSensors", name));
+    if (!status.paired) return empty(t("Pair with the bridge to see its sensors and switches."));
+    if (status.sensorsOn === false) return empty(t("Sensors and switches are off: turn them on in Settings."));
+    await loadIfChanged();
+    if (!sensorAccessories.length) return empty(t("The bridge has no sensors or switches yet: add them in the Hue app."));
+    sensorFinder.draw(list, {
+      countText: (shown, total) => t("{shown} of {total} sensors", { shown, total }),
+      emptyText: t("No sensor matches the search and filters."), bodyClass: "wall",
+      render: (body, items) => renderKeyed(body, items.map((item) => ({ id: item.id, name: item.name })), (item) => item.id,
+        (item) => HomeswiftWidgets.card(sensorAccessories.find((accessory) => accessory.id === item.id), { actions: sensorActions })),
+    });
+    if (!listening) { HomeswiftWidgets.listen(); listening = true; }
+  }
+
+  /// A sensor widget's ⋯ menu, after All controls: Identify (its LED flashes), the Home app, its log.
+  function sensorActions(accessory) {
+    const id = accessory.id.slice("PhilipsHue:device:".length);
+    const item = sensors.find((entry) => entry.id === id);
+    return [
+      { label: t("Identify"), icon: "identify", onSelect: () => request("identify", { method: "POST", body: { id } }).catch((e) => alert(e.message)) },
+      item ? { label: t("Leave out of the Home app"), icon: "eye", onSelect: () => toggleList("excludeSensors", item.name) } : null,
       { label: t("Show its log"), icon: "logs", href: `/logs/${encodeURIComponent(accessory.id)}` },
     ].filter(Boolean);
   }
@@ -501,6 +554,7 @@ h2 { margin: 0 0 10px; }
     ["effects", true, t("Effects"), t("A switch for each effect a light has: candle, fireplace, sparkle, prism…")],
     ["flashSwitch", false, t("Flash switch"), t("A switch on each light that makes it flash for five seconds.")],
     ["gradientPoints", false, t("Gradient points"), t("On gradient lightstrips, a light for each colour point, so each part of the strip takes its own colour.")],
+    ["sensors", true, t("Sensors and switches"), t("Motion, temperature, light level and contact sensors, and a programmable switch for each button of a dimmer, Tap or smart button. Presses reach the Home app at once, through the bridge's event stream.")],
   ];
   /// The toggles' checkboxes, by key.
   const toggleInputs = new Map();
@@ -549,7 +603,7 @@ h2 { margin: 0 0 10px; }
     $("#save-state").textContent = t("Saved. The plugin restarted with these settings.");
   }
 
-  /// Adds or removes a name from one of the block's lists (`excludeLights`, `excludeScenes`), saved at once.
+  /// Adds or removes a name from one of the block's lists (`excludeLights`, `excludeSensors`, `excludeScenes`), saved at once.
   async function toggleList(key, name) {
     const written = await homeswift.toggleList(key, name);
     if (!written) return;
@@ -563,14 +617,16 @@ h2 { margin: 0 0 10px; }
   async function refresh() {
     const settle = (promise) => promise.then((value) => ({ value }), (error) => ({ error }));
     try {
-      const [answer, lightList, sceneList] = await Promise.all([request("status"), settle(request("lights")), settle(request("scenes"))]);
+      const [answer, lightList, sensorList, sceneList] = await Promise.all([request("status"), settle(request("lights")), settle(request("sensors")), settle(request("scenes"))]);
       if (answer.paired) {
-        const failed = lightList.error ?? sceneList.error;
+        const failed = lightList.error ?? sensorList.error ?? sceneList.error;
         if (failed) throw failed;
         ({ lights } = lightList.value);
+        ({ sensors } = sensorList.value);
         ({ groups } = sceneList.value);
       } else {
         lights = [];
+        sensors = [];
         groups = [];
       }
       status = answer;
@@ -578,11 +634,12 @@ h2 { margin: 0 0 10px; }
       status = { error: e.message };
     }
     // Nothing redrawn when the bridge's answer is the same as the last one (the page polls every two seconds).
-    const shown = JSON.stringify([status, lights, groups]);
+    const shown = JSON.stringify([status, lights, sensors, groups]);
     if (shown === lastShown) return;
     lastShown = shown;
     drawBridge();
     drawLights();
+    drawSensors();
     drawScenes();
   }
 
@@ -597,6 +654,17 @@ h2 { margin: 0 0 10px; }
 // The Philips Hue page in French, Spanish and Portuguese (docs/translations.md).
 HomeswiftI18n.add({
   "fr": {
+    "Sensors": "Capteurs",
+    "Search sensors": "Rechercher des capteurs",
+    "Motion sensors": "Capteurs de mouvement",
+    "Low battery": "Batterie faible",
+    "Pair with the bridge to see its sensors and switches.": "Jumelez le pont pour voir ses capteurs et interrupteurs.",
+    "Sensors and switches are off: turn them on in Settings.": "Les capteurs et interrupteurs sont désactivés : activez-les dans les Réglages.",
+    "The bridge has no sensors or switches yet: add them in the Hue app.": "Le pont n'a pas encore de capteurs ni d'interrupteurs : ajoutez-les dans l'app Hue.",
+    "{shown} of {total} sensors": "{shown} capteurs sur {total}",
+    "No sensor matches the search and filters.": "Aucun capteur ne correspond à la recherche et aux filtres.",
+    "Sensors and switches": "Capteurs et interrupteurs",
+    "Motion, temperature, light level and contact sensors, and a programmable switch for each button of a dimmer, Tap or smart button. Presses reach the Home app at once, through the bridge's event stream.": "Les capteurs de mouvement, de température, de luminosité et d'ouverture, et un interrupteur programmable pour chaque bouton d'un variateur, d'un Tap ou d'un bouton connecté. Les appuis arrivent aussitôt dans l'app Maison, par le flux d'événements du pont.",
     "Search lights": "Rechercher des lampes",
     "Colour lights": "Lampes couleur",
     "With effects": "Avec des effets",
@@ -681,6 +749,17 @@ HomeswiftI18n.add({
     "no picture for that scene": "aucune image pour cette scène"
   },
   "es": {
+    "Sensors": "Sensores",
+    "Search sensors": "Buscar sensores",
+    "Motion sensors": "Sensores de movimiento",
+    "Low battery": "Batería baja",
+    "Pair with the bridge to see its sensors and switches.": "Empareja el puente para ver sus sensores e interruptores.",
+    "Sensors and switches are off: turn them on in Settings.": "Los sensores e interruptores están desactivados: actívalos en Ajustes.",
+    "The bridge has no sensors or switches yet: add them in the Hue app.": "El puente aún no tiene sensores ni interruptores: añádelos en la app Hue.",
+    "{shown} of {total} sensors": "{shown} de {total} sensores",
+    "No sensor matches the search and filters.": "Ningún sensor coincide con la búsqueda y los filtros.",
+    "Sensors and switches": "Sensores e interruptores",
+    "Motion, temperature, light level and contact sensors, and a programmable switch for each button of a dimmer, Tap or smart button. Presses reach the Home app at once, through the bridge's event stream.": "Los sensores de movimiento, temperatura, luminosidad y contacto, y un interruptor programable por cada botón de un regulador, un Tap o un botón inteligente. Las pulsaciones llegan al instante a la app Casa, por el flujo de eventos del puente.",
     "Search lights": "Buscar luces",
     "Colour lights": "Luces de color",
     "With effects": "Con efectos",
@@ -765,6 +844,17 @@ HomeswiftI18n.add({
     "no picture for that scene": "no hay imagen para esa escena"
   },
   "pt": {
+    "Sensors": "Sensores",
+    "Search sensors": "Procurar sensores",
+    "Motion sensors": "Sensores de movimento",
+    "Low battery": "Bateria fraca",
+    "Pair with the bridge to see its sensors and switches.": "Emparelhe a ponte para ver os seus sensores e interruptores.",
+    "Sensors and switches are off: turn them on in Settings.": "Os sensores e interruptores estão desativados: ative-os em Definições.",
+    "The bridge has no sensors or switches yet: add them in the Hue app.": "A ponte ainda não tem sensores nem interruptores: adicione-os na app Hue.",
+    "{shown} of {total} sensors": "{shown} de {total} sensores",
+    "No sensor matches the search and filters.": "Nenhum sensor corresponde à pesquisa e aos filtros.",
+    "Sensors and switches": "Sensores e interruptores",
+    "Motion, temperature, light level and contact sensors, and a programmable switch for each button of a dimmer, Tap or smart button. Presses reach the Home app at once, through the bridge's event stream.": "Os sensores de movimento, temperatura, luminosidade e contacto, e um interruptor programável para cada botão de um regulador, de um Tap ou de um botão inteligente. As pressões chegam de imediato à app Casa, pelo fluxo de eventos da ponte.",
     "Search lights": "Procurar luzes",
     "Colour lights": "Luzes a cores",
     "With effects": "Com efeitos",
@@ -877,6 +967,7 @@ HomeswiftI18n.add({
 
   <div class="group tabs main-tabs" role="tablist">
     <button role="tab" data-tab="lights" class="on" aria-selected="true" aria-controls="tab-lights" data-i18n data-action-icon="bulb">Lights</button>
+    <button role="tab" data-tab="sensors" aria-selected="false" aria-controls="tab-sensors" data-i18n data-action-icon="sensor">Sensors</button>
     <button role="tab" data-tab="scenes" aria-selected="false" aria-controls="tab-scenes" data-i18n data-action-icon="star">Scenes</button>
     <button role="tab" data-tab="settings" aria-selected="false" aria-controls="tab-settings" data-i18n data-action-icon="sliders">Settings</button>
   </div>
@@ -885,6 +976,12 @@ HomeswiftI18n.add({
     <div id="light-toolbar" class="finder"></div>
     <div class="accessory-walls" id="lights"></div>
     <div id="hidden-devices" class="hidden-devices"></div>
+  </section>
+
+  <section id="tab-sensors" class="tab-pane hidden" role="tabpanel">
+    <div id="sensor-toolbar" class="finder"></div>
+    <div class="accessory-walls" id="sensors"></div>
+    <div id="hidden-sensors" class="hidden-devices"></div>
   </section>
 
   <section id="tab-scenes" class="tab-pane hidden" role="tabpanel">
