@@ -17,6 +17,7 @@ Delete this section if the pull request adds no plugin. CONTRIBUTING.md explains
 - [ ] Tests use fake transports: no device, account or network
 - [ ] No token, password, key or setup code is logged
 - [ ] No new package dependency
+- [ ] Light on the bridge: push or a bounded poll, backoff on failures, only changes set, writes coalesced; memory and CPU flat on the Status page
 - [ ] README: what it does, the configuration, the ported plugin and its license, the maintainer
 - [ ] The ported plugin's copyright and permission notice is in `THIRD-PARTY-NOTICES.md`
 - [ ] Tested on real devices (which, and how), or marked experimental in the README

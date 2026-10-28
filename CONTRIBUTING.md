@@ -52,6 +52,10 @@ says why).
   WebSocket fakes are in `HomeswiftNetworkTestSupport`. Tests use `MemoryStorage` and `advertise: false`.
 - **Linux:** Darwin-only APIs behind `#if canImport(...)`, `URLSession` with `#if canImport(FoundationNetworking)`.
 - **No secrets in the log:** tokens, passwords, keys and setup codes are never logged, at any level.
+- **Light on the bridge:** push before polling, one request per cycle where the API allows it, `Backoff` on
+  failures, only changed characteristics set, slider writes coalesced with `LatestCallGuard`, nothing that grows
+  with uptime. The `homeswift-plugin` skill's "Keep it light" has the full list; the Status page's memory and CPU
+  stay flat with the plugin running.
 - **A form that explains itself, in four languages:** every option in `config.schema.json` has a `description`,
   choices are a `oneOf` of titled enums, and the schema's `i18n` translates its words into French, Spanish and
   Portuguese ([translations.md](docs/translations.md#forms)).

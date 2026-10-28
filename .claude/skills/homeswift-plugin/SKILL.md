@@ -72,7 +72,36 @@ swift test --scratch-path ~/Library/Caches/homeswift-build --filter <Name>Tests
   or setup code.
 - **Background work:** in the plugin's `TaskBag`, cancelled in `stop()`; `start()` returns quickly.
 
-## 4. Test
+## 4. Keep it light
+
+The bridge runs for months on a Raspberry Pi or a NAS beside every other plugin, so a port is not done when it
+works: go through this list before testing, and again after the bridge check.
+
+- **Ask less often.** Prefer the device's push (MQTT, WebSocket, an event stream) to polling; when you poll, keep
+  the Homebridge plugin's interval as the default, with a floor, and one request per cycle for all devices when
+  the API allows it, not one per device or per characteristic. A cloud's rate limits apply to the user's account.
+- **Back off when it fails.** An unreachable device or a refused sign-in retries through `Backoff`, not in a tight
+  loop, and is logged once per outage rather than once per attempt.
+- **Do only what changes.** Decode the fields the accessories show and skip the rest; compare with the previous
+  state and set only the characteristics that changed. Don't rebuild accessories or call `context.add` on every
+  poll.
+- **Coalesce writes.** Slider and colour writes go through `LatestCallGuard`, so a drag sends one request, not
+  thirty; several characteristics of one write (hue and saturation) become one request when the device takes them
+  together.
+- **No work on HomeKit's path.** `onRead` and write handlers answer from the stored state or one request, with a
+  timeout; never a sign-in, a discovery or a sleep there.
+- **Bounded memory.** Caches, history and queues have a limit or an expiry; a stream that ends or a task that
+  is cancelled releases its buffers. Nothing grows with uptime.
+- **Look up, don't scan.** Devices and readings in dictionaries keyed by id, not arrays searched on every
+  message; parse a hot message format once, not through several intermediate JSON trees.
+- **A page that loads lazily.** A plugin's `Web/` page draws what it has at once and fetches the rest (history,
+  sparklines) as each part appears, in one request where it can, and stops its timers when it is hidden.
+
+Then measure rather than guess: run the plugin on a bridge for a while with the Status page open (memory, CPU,
+request latency) and check they stay flat. In a test, a fake transport that counts requests catches a poll that
+asks too often or a write that is not coalesced.
+
+## 5. Test
 
 Tests never reach a device, an account or the network. Put the fake transport in `Tests/` and drive the plugin
 through `PluginHost` as the skeleton's tests do. Cover at least: a minimal block decodes; each device becomes an
@@ -83,7 +112,7 @@ Fixtures recorded from a real device or the Homebridge plugin go in `Tests/Fixtu
 
 Run the plugin's tests, then the whole suite once: `swift test --scratch-path ~/Library/Caches/homeswift-build`.
 
-## 5. Check it on a bridge
+## 6. Check it on a bridge
 
 Build `homeswift`, write the platform block to a file, and run it on a throwaway bridge:
 
@@ -99,7 +128,7 @@ user's devices (ask for the block, never for credentials in chat), the accessori
 Homebridge plugin shows. Do not leave a bridge running: two bridges with the same identity make the Home app
 drop pairings.
 
-## 6. Finish
+## 7. Finish
 
 - `THIRD-PARTY-NOTICES.md`: the ported plugin's copyright and permission notice, and the paths ported from it. A
   translation into Swift still owes the notice.
