@@ -112,7 +112,7 @@ public final class HTTPClient: HTTPSending, Sendable {
     public let cipherSuites: String?
     /// Responses larger than this fail instead of filling memory.
     public let maximumBodySize: Int
-    private let group: any EventLoopGroup
+    let group: any EventLoopGroup
     /// `tls` and `cipherSuites` as the WebSocket and MQTT clients take them; it builds the context once per client.
     private let tlsOptions: TLSOptions
 
@@ -247,9 +247,9 @@ public final class HTTPClient: HTTPSending, Sendable {
         return error == .handshakeFailed(.sslError([.eofDuringHandshake])) || error == .handshakeFailed(.sslError([.eofDuringAdditionalCertficiateChainValidation]))
     }
 
-    private func connect(
+    func connect(
         host: String, port: Int, secure: Bool, eventLoop: any EventLoop, observed: NIOLockedValueBox<String?>,
-        mismatch: NIOLockedValueBox<(any Error)?>, timeout: Duration, collector: @escaping @Sendable () -> ResponseCollector
+        mismatch: NIOLockedValueBox<(any Error)?>, timeout: Duration, collector: @escaping @Sendable () -> any ChannelHandler
     ) async throws -> any Channel {
         let tlsOptions = tlsOptions
         let context = secure ? try tlsOptions.makeContext() : nil
