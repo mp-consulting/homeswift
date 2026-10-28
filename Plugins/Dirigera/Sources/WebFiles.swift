@@ -156,8 +156,11 @@ h2 { margin: 0 0 10px; }
     const paired = hubs.some((hub) => hub.paired);
     deviceFinder.show(paired && accessories.length > 0);
     if (!paired) return empty(t("Pair a hub to see its devices."));
-    const key = devices.filter((item) => !item.hidden).map((item) => item.group).sort().join(",");
-    if (key !== shapeKey) {
+    // Read again when the devices change, or while fewer accessories are published than the hub lists groups (the page
+    // opened before the plugin had added them all).
+    const groups = [...new Set(devices.filter((item) => !item.hidden).map((item) => item.group))];
+    const key = groups.sort().join(",");
+    if (key !== shapeKey || accessories.length < groups.length) {
       shapeKey = key;
       await loadAccessories().catch(() => {});
     }
@@ -365,7 +368,7 @@ HomeswiftI18n.add({
     "{n} devices": "{n} appareils",
     "{n} scene": "{n} scène",
     "{n} scenes": "{n} scènes",
-    "Your DIRIGERA hubs, their lights and outlets room by room, and their scenes, straight from the hub on your network.": "Vos hubs DIRIGERA, leurs lampes et prises pièce par pièce, et leurs scènes, directement depuis le hub sur votre réseau.",
+    "Your DIRIGERA hubs, their lights, sensors, blinds and remotes room by room, and their scenes, straight from the hub on your network.": "Vos hubs DIRIGERA, leurs lampes, capteurs, stores et télécommandes pièce par pièce, et leurs scènes, directement depuis le hub de votre réseau.",
     "Devices": "Appareils",
     "Save Configuration": "Enregistrer la configuration",
     "an address is required": "une adresse est requise",
@@ -414,7 +417,7 @@ HomeswiftI18n.add({
     "{n} devices": "{n} dispositivos",
     "{n} scene": "{n} escena",
     "{n} scenes": "{n} escenas",
-    "Your DIRIGERA hubs, their lights and outlets room by room, and their scenes, straight from the hub on your network.": "Tus hubs DIRIGERA, sus luces y enchufes habitación por habitación y sus escenas, directamente desde el hub en tu red.",
+    "Your DIRIGERA hubs, their lights, sensors, blinds and remotes room by room, and their scenes, straight from the hub on your network.": "Tus hubs DIRIGERA, sus luces, sensores, persianas y mandos habitación por habitación, y sus escenas, directamente desde el hub de tu red.",
     "Devices": "Dispositivos",
     "Save Configuration": "Guardar configuración",
     "an address is required": "se necesita una dirección",
@@ -463,7 +466,7 @@ HomeswiftI18n.add({
     "{n} devices": "{n} dispositivos",
     "{n} scene": "{n} cena",
     "{n} scenes": "{n} cenas",
-    "Your DIRIGERA hubs, their lights and outlets room by room, and their scenes, straight from the hub on your network.": "Os hubs DIRIGERA, as luzes e tomadas divisão a divisão e as cenas, diretamente do hub na sua rede.",
+    "Your DIRIGERA hubs, their lights, sensors, blinds and remotes room by room, and their scenes, straight from the hub on your network.": "Os hubs DIRIGERA, as luzes, sensores, estores e comandos divisão a divisão, e as cenas, diretamente do hub na sua rede.",
     "Devices": "Dispositivos",
     "Save Configuration": "Guardar configuração",
     "an address is required": "é necessário um endereço",
@@ -499,7 +502,7 @@ HomeswiftI18n.add({
     <span class="tile large tone-blue" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/></svg></span>
     <div class="who">
       <h1>IKEA DIRIGERA</h1>
-      <p class="muted" data-i18n>Your DIRIGERA hubs, their lights and outlets room by room, and their scenes, straight from the hub on your network.</p>
+      <p class="muted" data-i18n>Your DIRIGERA hubs, their lights, sensors, blinds and remotes room by room, and their scenes, straight from the hub on your network.</p>
     </div>
   </div>
 

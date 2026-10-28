@@ -102,10 +102,13 @@ h2 { margin: 0 0 10px; }
     sensorAccessories = all.filter((accessory) => accessory.id.startsWith("PhilipsHue:device:"));
   }
 
-  /// Reads the accessories again when the lights or sensors the Home app has changed.
+  /// Reads the accessories again when the lights or sensors the Home app has changed, or while fewer are published
+  /// than the bridge lists (the page opened before the plugin had added them all).
   async function loadIfChanged() {
-    const key = [...lights, ...sensors].filter((item) => !item.hidden).map((item) => item.id).sort().join(",");
-    if (key === shapeKey) return;
+    const shown = (list) => list.filter((item) => !item.hidden);
+    const key = [...shown(lights), ...shown(sensors)].map((item) => item.id).sort().join(",");
+    const missing = accessories.length < shown(lights).length || (status.sensorsOn !== false && sensorAccessories.length < shown(sensors).length);
+    if (key === shapeKey && !missing) return;
     shapeKey = key;
     await loadAccessories().catch(() => {});
   }
@@ -201,6 +204,7 @@ h2 { margin: 0 0 10px; }
     if (status.sensorsOn === false) return empty(t("Sensors and switches are off: turn them on in Settings."));
     await loadIfChanged();
     if (!sensorAccessories.length) return empty(t("The bridge has no sensors or switches yet: add them in the Hue app."));
+    sensorFinder.show(true);
     sensorFinder.draw(list, {
       countText: (shown, total) => t("{shown} of {total} sensors", { shown, total }),
       emptyText: t("No sensor matches the search and filters."), bodyClass: "wall",
@@ -549,7 +553,7 @@ HomeswiftI18n.add({
     "How often the bridge is asked for changes made in the Hue app or with a switch.": "La fréquence à laquelle le pont est interrogé sur les changements faits dans l'app Hue ou avec un interrupteur.",
     "Changes are kept once you save.": "Les modifications sont conservées une fois enregistrées.",
     "Saved. The plugin restarted with these settings.": "Enregistré. Le plugin a redémarré avec ces réglages.",
-    "Your Hue Bridge, its lights with their effects, and the scenes of each room, straight from the bridge on your network.": "Votre pont Hue, ses lampes et leurs effets, et les scènes de chaque pièce, directement depuis le pont sur votre réseau.",
+    "Your Hue Bridge, its lights with their effects, its sensors and switches, and the scenes of each room, straight from the bridge on your network.": "Votre pont Hue, ses lampes et leurs effets, ses capteurs et interrupteurs, et les scènes de chaque pièce, directement depuis le pont de votre réseau.",
     "Save Configuration": "Enregistrer la configuration",
     "an address is required": "une adresse est requise",
     "The link button was not pressed in time.": "Le bouton de liaison n'a pas été pressé à temps.",
@@ -641,7 +645,7 @@ HomeswiftI18n.add({
     "How often the bridge is asked for changes made in the Hue app or with a switch.": "Cada cuánto se pregunta al puente por los cambios hechos en la app Hue o con un interruptor.",
     "Changes are kept once you save.": "Los cambios se conservan al guardar.",
     "Saved. The plugin restarted with these settings.": "Guardado. El plugin se ha reiniciado con estos ajustes.",
-    "Your Hue Bridge, its lights with their effects, and the scenes of each room, straight from the bridge on your network.": "Tu puente Hue, sus luces con sus efectos y las escenas de cada habitación, directamente desde el puente en tu red.",
+    "Your Hue Bridge, its lights with their effects, its sensors and switches, and the scenes of each room, straight from the bridge on your network.": "Tu puente Hue, sus luces con sus efectos, sus sensores e interruptores, y las escenas de cada habitación, directamente desde el puente de tu red.",
     "Save Configuration": "Guardar configuración",
     "an address is required": "se necesita una dirección",
     "The link button was not pressed in time.": "No se ha pulsado el botón de enlace a tiempo.",
@@ -733,7 +737,7 @@ HomeswiftI18n.add({
     "How often the bridge is asked for changes made in the Hue app or with a switch.": "Com que frequência a ponte é consultada sobre as alterações feitas na app Hue ou com um interruptor.",
     "Changes are kept once you save.": "As alterações ficam guardadas quando guardar.",
     "Saved. The plugin restarted with these settings.": "Guardado. O plugin reiniciou com estas definições.",
-    "Your Hue Bridge, its lights with their effects, and the scenes of each room, straight from the bridge on your network.": "A ponte Hue, as luzes com os seus efeitos e as cenas de cada divisão, diretamente da ponte na sua rede.",
+    "Your Hue Bridge, its lights with their effects, its sensors and switches, and the scenes of each room, straight from the bridge on your network.": "A ponte Hue, as luzes com os seus efeitos, os sensores e interruptores, e as cenas de cada divisão, diretamente da ponte na sua rede.",
     "Save Configuration": "Guardar configuração",
     "an address is required": "é necessário um endereço",
     "The link button was not pressed in time.": "O botão de ligação não foi premido a tempo.",
@@ -771,7 +775,7 @@ HomeswiftI18n.add({
     <span class="tile large tone-violet" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/></svg></span>
     <div class="who">
       <h1>Philips Hue</h1>
-      <p class="muted" data-i18n>Your Hue Bridge, its lights with their effects, and the scenes of each room, straight from the bridge on your network.</p>
+      <p class="muted" data-i18n>Your Hue Bridge, its lights with their effects, its sensors and switches, and the scenes of each room, straight from the bridge on your network.</p>
     </div>
   </div>
 

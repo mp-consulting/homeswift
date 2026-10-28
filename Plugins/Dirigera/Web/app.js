@@ -120,8 +120,11 @@
     const paired = hubs.some((hub) => hub.paired);
     deviceFinder.show(paired && accessories.length > 0);
     if (!paired) return empty(t("Pair a hub to see its devices."));
-    const key = devices.filter((item) => !item.hidden).map((item) => item.group).sort().join(",");
-    if (key !== shapeKey) {
+    // Read again when the devices change, or while fewer accessories are published than the hub lists groups (the page
+    // opened before the plugin had added them all).
+    const groups = [...new Set(devices.filter((item) => !item.hidden).map((item) => item.group))];
+    const key = groups.sort().join(",");
+    if (key !== shapeKey || accessories.length < groups.length) {
       shapeKey = key;
       await loadAccessories().catch(() => {});
     }

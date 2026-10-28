@@ -25,6 +25,7 @@ Library `Homeswift`, plugin API and runtime `HomeswiftPlugin`, the `homeswift` b
 | `Scripts/embed-assets.swift` | Embeds a plugin's `config.schema.json`, a `Web/` directory or the Assistant's `Prompts/` into Swift source; tests fail when the generated files are stale |
 | `Scripts/docs-screenshots.mjs` | Retakes the docs' web UI screenshots from a throwaway bridge with headless Chrome (docs/widgets.md, "Screenshots") |
 | `Scripts/ui-screenshots.mjs` | Retakes docs/ui.md's page screenshots (`docs/images/ui`) from a throwaway bridge of paused demonstration blocks, made and removed by the script (docs/ui.md, "Screenshots") |
+| `Scripts/plugin-screenshots.mjs` | Retakes the Philips Hue and IKEA DIRIGERA pages' screenshots (`docs/images/plugins`) from a throwaway bridge against a fake Hue Bridge and a fake DIRIGERA hub with demonstration names |
 | `Scripts/site-languages.mjs` | Writes `site/fr/`, `es/` and `pt/index.html` from `site/index.html` (its `data-i18n` and `data-i18n-html` text) and the site's catalogs; fails on a missing translation, `--check` on a stale page |
 | `Scripts/new-plugin.swift` | Creates `Plugins/<Name>/` (a skeleton on a fake API that builds and passes its tests; `--service` picks the HAP services and characteristics from `Definitions.swift`, `--list` shows them), its targets in `Package.swift` and its registration in `Plugins.swift` |
 | `CONTRIBUTING.md`, `.github/` | How to propose a plugin and what it needs (the checklist), the plugin proposal issue form, the pull request template, `CODEOWNERS` |

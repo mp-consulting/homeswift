@@ -88,6 +88,8 @@ A press reaches the Home app as the bridge reports it, on its event stream, so a
 automation there. A Tap dial's ring (`relative_rotary`) has no HomeKit counterpart and is left out. A device that also
 has a light is the light's accessory. The accessory ids are `PhilipsHue:device:<device id>`.
 
+![Sensors and switches on the plugin's page](../../docs/images/plugins/hue-sensors.png)
+
 ### Effects, Flash and gradients
 
 An effect switch plays the effect on the bulb itself (`effects_v2`, or `effects` on older bulbs), so it flickers and

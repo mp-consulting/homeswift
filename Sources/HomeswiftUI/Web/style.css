@@ -3071,6 +3071,11 @@ select option:disabled { color: var(--muted); }
    its address, scene tiles painted with their palette or a picture, the transition's speed scale and the save bar.
    plugin.js has their pieces (tabs, bridgePairing, scenePictures, textStyle, speedScale). */
 .main-tabs { margin: 18px 0 14px; }
+/* On a phone the tabs share the width, so four of them fit; a long name ends in an ellipsis. */
+@media (max-width: 600px) {
+  .main-tabs { display: flex; width: 100%; }
+  .main-tabs > button { flex: 1 1 0; min-width: 0; padding: 5px 6px; justify-content: center; gap: 5px; overflow: hidden; text-overflow: ellipsis; }
+}
 .tab-pane { animation: fade var(--normal) var(--ease-out); }
 
 /* The bridge card: a block per bridge (a line between two), its facts once paired, then the address form. */

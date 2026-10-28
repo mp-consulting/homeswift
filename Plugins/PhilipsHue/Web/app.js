@@ -60,10 +60,13 @@
     sensorAccessories = all.filter((accessory) => accessory.id.startsWith("PhilipsHue:device:"));
   }
 
-  /// Reads the accessories again when the lights or sensors the Home app has changed.
+  /// Reads the accessories again when the lights or sensors the Home app has changed, or while fewer are published
+  /// than the bridge lists (the page opened before the plugin had added them all).
   async function loadIfChanged() {
-    const key = [...lights, ...sensors].filter((item) => !item.hidden).map((item) => item.id).sort().join(",");
-    if (key === shapeKey) return;
+    const shown = (list) => list.filter((item) => !item.hidden);
+    const key = [...shown(lights), ...shown(sensors)].map((item) => item.id).sort().join(",");
+    const missing = accessories.length < shown(lights).length || (status.sensorsOn !== false && sensorAccessories.length < shown(sensors).length);
+    if (key === shapeKey && !missing) return;
     shapeKey = key;
     await loadAccessories().catch(() => {});
   }
@@ -159,6 +162,7 @@
     if (status.sensorsOn === false) return empty(t("Sensors and switches are off: turn them on in Settings."));
     await loadIfChanged();
     if (!sensorAccessories.length) return empty(t("The bridge has no sensors or switches yet: add them in the Hue app."));
+    sensorFinder.show(true);
     sensorFinder.draw(list, {
       countText: (shown, total) => t("{shown} of {total} sensors", { shown, total }),
       emptyText: t("No sensor matches the search and filters."), bodyClass: "wall",
