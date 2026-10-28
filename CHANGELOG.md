@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `/api/metrics/values` answers several plugin readings at once (`series` separated by commas), in one pass over the
+  minutes: a plugin page that graphs many readings asks for their history in one request instead of one per reading.
 - IKEA DIRIGERA: motion, light, air quality and water leak sensors, blinds, the STARKVIND air purifier and remotes.
   VALLHORN and MYGGSPRAY are motion sensors (with VALLHORN's light sensor on the same accessory), VINDSTYRKA, ALPSTUGA
   and TIMMERFLOTTE temperature, humidity, air quality and CO₂ sensors as they measure, BADRING and KLIPPBOK leak
