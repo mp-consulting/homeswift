@@ -159,12 +159,14 @@ pictures a page uploads (`data:` URLs of JPEG, PNG or WebP, checked by their byt
   or give it. The UI asks while a card is on screen and cancels when it leaves; finish the stream when the source
   restarts (new timestamps need a new initialization segment, which the page asks for). Prefer a low-bandwidth
   stream and share it with HomeKit's consumers: `Plugins/UniFiProtect/Sources/ProtectLiveFeed.swift` does both.
-- **Adaptive Lighting.** `AdaptiveLightingController(lightbulb, mode: .automatic or .manual, customTemperatureAdjustment:)`
-  on a Lightbulb with Brightness and Color Temperature, created before the accessory goes on the bridge, then
-  `context.configureController(controller, accessoryID:)` so an active schedule survives restarts. Automatic mode
-  writes Color Temperature through its `onWrite` handler every minute and turns itself off on colour writes from
-  HomeKit; call `disableAdaptiveLighting()` when the device changes colour on its own. Manual mode hands the
-  schedule to `onUpdate` for lights that run transitions themselves.
+- **Adaptive Lighting.** Every Lightbulb with Brightness and Color Temperature gets one (the bridge's debug log names
+  a light without it): `context.adaptiveLighting(for: lightbulb, accessoryID:, customTemperatureAdjustment:)` before the
+  accessory goes on the bridge makes an automatic `AdaptiveLightingController` whose schedule survives restarts. The
+  service holds the controller weakly: keep it with the light's services. It writes Color Temperature through the
+  `onWrite` handler every minute and turns itself off on colour writes from HomeKit; pass the device's own reports of
+  its colour to `disableIfChangedElsewhere(mireds:)` (nil for a colour), not the echo of the bridge's own write, so a
+  colour or a white set elsewhere turns it off too. For lights that run transitions themselves, make one with
+  `mode: .manual` and `context.configureController(controller, accessoryID:)`: `onUpdate` gets the schedule.
 
 ### The runtime
 

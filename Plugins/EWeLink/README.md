@@ -79,13 +79,14 @@ generated from the Homebridge plugin's catalog.
 | `singleDevices` | `showAs` (`default`, `outlet`, `switch`, `valve`, `tap`, `lock`, `garage`, `gate`, `sensor`, `sensor_leak`, `p_button`, `doorbell`, `purifier`, `tv`, `heater`, `cooler`), `isInched`, `inUsePowerThreshold`, `sensorType`, `tempSource` (heater/cooler), `disableTimer` (valve/tap), `type` (lock), `offset`, `offsetFactor` (air conditioner, panel), `lowBattThreshold` |
 | `multiDevices` | `showAs` (`default`, `outlet`, `blind`, `door`, `window`, `garage`, `lock`, `valve`...), `hideChannels` (`1,2` or full ids), `inchChannels` (hides the master), `operationTime`, `operationTimeDown` (seconds, covers) |
 | `thDevices` | `showAs` (`default`, `thermostat`, `heater`, `cooler`, `humidifier`, `dehumidifier`), `tempOffset`, `offsetFactor`, `humidityOffset`, `humidityOffsetFactor`, `minTarget`, `maxTarget`, `targetTempThreshold` (hysteresis, °C), `showHeatCool` |
-| `lightDevices` | `showAs: fan` (a dimmer as a fan), `brightnessStep`, `deviceModel: offlineAsOff` |
+| `lightDevices` | `showAs: fan` (a dimmer as a fan), `brightnessStep`, `deviceModel: offlineAsOff`, `adaptiveLightingShift` (mireds warmer; -1 leaves Adaptive Lighting off) |
 | `fanDevices` | `hideLight` |
 | `sensorDevices` | `hideTemp`, `hideHumidity`, `hideSwitch`, `tempOffset`, `humidityOffset`, `lowBattery` |
 | `rfDevices` | `subdevices`: `index`, `label`, `showAs` (`motion`, `contact`, `water`, `smoke`, `co`, `co2`, `occupancy`, `button`, `doorbell`), `resetTime`, `operationTime`, `operationTimeDown` |
 
-Every other key of the Homebridge plugin's types (`ipAddress`, `deviceModel`, `overrideLogging`,
-`adaptiveLightingShift`, `language`, `hideDevFromHB`...) is accepted and, as there, has no effect.
+A light with brightness and colour temperature has Adaptive Lighting, which a colour set in the eWeLink app turns off.
+
+Every other key of the Homebridge plugin's types (`ipAddress`, `deviceModel`, `overrideLogging`, `language`, `hideDevFromHB`...) is accepted and, as there, has no effect.
 
 ## The page
 

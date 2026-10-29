@@ -351,6 +351,42 @@ public final class AdaptiveLightingController: SerializableController, @unchecke
         logger.debug("Disabling adaptive lighting", metadata: ["lightbulb": "\(displayName)"])
     }
 
+    /// How far, in mireds, a white the device reports may be from the one shown before it counts as set elsewhere:
+    /// devices round what they are sent (kelvin, a percentage).
+    public static let changedElsewhereTolerance = 5
+
+    /// The device reported its colour: `mireds`, the white it shows, or nil for a colour. Turns Adaptive Lighting off,
+    /// as the Home app does when it sets one, when that is a colour or a white more than `changedElsewhereTolerance`
+    /// from the Color Temperature shown: the device was set by something else (its app, a remote, a scene). Call it
+    /// with the device's reports, not the echo of the bridge's own write still on its way. True when it turned it off.
+    @discardableResult
+    public func disableIfChangedElsewhere(mireds: Int?) -> Bool {
+        guard isAdaptiveLightingActive else { return false }
+        if let mireds {
+            let characteristic = lightbulb.characteristic(.colorTemperature)
+            guard let shown = characteristic.value.intValue else { return false }
+            let low = Int(characteristic.type.minValue ?? 140), high = Int(characteristic.type.maxValue ?? 500)
+            guard abs(min(max(mireds, low), high) - shown) > Self.changedElsewhereTolerance else { return false }
+        }
+        disableAdaptiveLighting()
+        return true
+    }
+
+    /// Turns it on as the Home app would, with a day's schedule at a steady `mireds`: for tests (`@testable import`).
+    func activateForTesting(mireds: Double = 300) throws {
+        let curve = [
+            TransitionCurveEntry(temperature: mireds, brightnessAdjustmentFactor: 0, transitionTime: 0),
+            TransitionCurveEntry(temperature: mireds, brightnessAdjustmentFactor: 0, transitionTime: Self.dayMillis),
+        ]
+        let transition = Transition(
+            iid: lightbulb.characteristic(.colorTemperature).iid, transitionStartMillis: clock(), timeMillisOffset: 0,
+            transitionId: UUID().uuidString.lowercased(), transitionStartBuffer: "00", id3: nil,
+            brightnessCharacteristicIID: lightbulb.characteristic(.brightness).iid,
+            brightnessAdjustmentRange: BrightnessAdjustmentRange(minBrightnessValue: 10, maxBrightnessValue: 100), transitionCurve: curve,
+            updateInterval: 60_000, notifyIntervalThreshold: 600_000)
+        try deserialize(JSONEncoder().encode(Serialized(activeTransition: transition)))
+    }
+
     // MARK: SerializableController
 
     public var controllerID: String {

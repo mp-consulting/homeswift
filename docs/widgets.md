@@ -228,11 +228,10 @@ release.characteristic(.on).isSecurityControl = true
 
 ### Adaptive Lighting
 
-A light with Brightness and Color Temperature can have Adaptive Lighting: make an `AdaptiveLightingController`
-for its lightbulb before the accessory is added, keep it (the lightbulb holds it weakly), and pass it to
-`context.configureController` so its schedule survives restarts. In automatic mode the controller sets the
-temperature through your Color Temperature write handler; turn it off when the light's colour changes outside
-HomeKit.
+A light with Brightness and Color Temperature has Adaptive Lighting: `context.adaptiveLighting(for:accessoryID:)`
+makes its `AdaptiveLightingController` before the accessory is added, with its schedule kept across restarts; keep it
+(the lightbulb holds it weakly). The controller sets the temperature through your Color Temperature write handler;
+the device's reports turn it off when the light's colour changes outside HomeKit.
 
 ```swift
 let lightbulb = Service(.lightbulb, name: name, optional: [.brightness],
@@ -240,22 +239,21 @@ let lightbulb = Service(.lightbulb, name: name, optional: [.brightness],
 lightbulb.characteristic(.colorTemperature).onWrite(changesOnly: true) { value in
     try await device.setTemperature(value.intValue ?? 250)
 }
-let adaptiveLighting = AdaptiveLightingController(lightbulb, mode: .automatic, logger: context.logger)
 let accessory = Accessory(id: "\(Self.platform):\(device.id)", name: name, category: .lightbulb, services: [lightbulb])
-context.configureController(adaptiveLighting, accessoryID: accessory.id)
+let adaptiveLighting = context.adaptiveLighting(for: lightbulb, accessoryID: accessory.id)
 self.adaptiveLighting[device.id] = adaptiveLighting   // kept as long as the light is on the bridge
 try context.add(accessory)
 
 // The light was set from its own app: Adaptive Lighting stops, as when the Home app sets a white.
 await device.onTemperatureChange { mireds in
-    if adaptiveLighting.isAdaptiveLightingActive { adaptiveLighting.disableAdaptiveLighting() }
+    adaptiveLighting?.disableIfChangedElsewhere(mireds: mireds)
     lightbulb.characteristic(.colorTemperature).value = .int(mireds)
 }
 ```
 
 The web UI's sun swatch then appears on the light, and `PUT /api/accessories/<id>/adaptive-lighting` turns it off
-or resumes the Home app's last schedule (`resumeAdaptiveLighting()`). The Govee, Elgato Key Lights and Philips
-Ambilight TV plugins do this.
+or resumes the Home app's last schedule (`resumeAdaptiveLighting()`). The Govee, Elgato Key Lights, Philips
+Ambilight TV, Philips Hue, IKEA DIRIGERA and eWeLink plugins do this.
 
 ### Widgets on your plugin's own page
 

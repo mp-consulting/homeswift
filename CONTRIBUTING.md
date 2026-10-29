@@ -48,6 +48,12 @@ says why).
   block unchanged. Every option is optional, with the defaults applied in code.
 - **Stable accessory ids** prefixed with the platform name (`ElgatoKeyLights:<MAC>`). A changing id makes HomeKit
   forget the accessory's room, scenes and automations.
+- **Adaptive Lighting on every light that can have it:** a Lightbulb with Brightness and Color Temperature gets an
+  `AdaptiveLightingController` from `context.adaptiveLighting(for:accessoryID:)` before the accessory is added, and the
+  plugin passes the device's reports of its colour to `disableIfChangedElsewhere(mireds:)`, which turns it off for a
+  colour or a white set elsewhere (its app, a remote). `Scripts/new-plugin.swift` writes the controller; [docs/plugins.md](docs/plugins.md) has the details, and
+  `Plugins/Dirigera` and `Plugins/PhilipsHue` are examples. The bridge's debug log names a light without one, which
+  the skill's `check-on-bridge.sh` shows. A light mirrored from another controller (Wingman) keeps that controller's.
 - **Tests without devices or accounts:** fake transports injected through a `PluginRegistry` closure; MQTT and
   WebSocket fakes are in `HomeswiftNetworkTestSupport`. Tests use `MemoryStorage` and `advertise: false`.
 - **Linux:** Darwin-only APIs behind `#if canImport(...)`, `URLSession` with `#if canImport(FoundationNetworking)`.

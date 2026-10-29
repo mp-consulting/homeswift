@@ -4,7 +4,8 @@ IKEA lights, outlets, sensors, blinds, air purifiers, remotes and scenes in Home
 API, without the cloud: lights with their brightness, colour and white temperature, outlets, door and window, motion,
 light, air quality and water leak sensors with their battery, blinds, the STARKVIND air purifier, a programmable
 switch per remote button, and a switch per scene. The hub pushes its changes over a websocket, so the Home app follows
-the IKEA Home smart app and the remotes at once.
+the IKEA Home smart app and the remotes at once. A light with brightness and white temperature has Adaptive Lighting,
+which a colour or a white set in the IKEA app or with a remote turns off, as the Home app does.
 
 Written for Homeswift (not a port); the block is [homebridge-dirigera](https://github.com/uboness/homebridge-dirigera)'s,
 so a Homebridge configuration works unchanged. The wire details follow Leggin/dirigera and lpgera/dirigera (both MIT;

@@ -407,6 +407,12 @@ public final class PluginContext: @unchecked Sendable {
     /// through the configuration number; the aid and iids stay, so rooms and automations survive.
     public func add(_ accessory: Accessory) throws {
         try bridge.claim(accessory.id, for: key, name: name)
+        // Every light with what Adaptive Lighting needs gets a controller (CONTRIBUTING.md); a mirrored one keeps its
+        // controller's. Said at debug level, which a plugin's check on a throwaway bridge shows.
+        if logger.logLevel <= .debug, accessory.mirroredFrom == nil,
+           accessory.services.contains(where: { Self.canHaveAdaptiveLighting($0) && $0.adaptiveLighting == nil }) {
+            logger.debug("\(accessory.name) has Brightness and Color Temperature but no Adaptive Lighting: give it an AdaptiveLightingController")
+        }
         if isExternal(id: accessory.id) {
             // Moving from its own server to the bridge: the old server leaves the list now (a quick
             // `publishExternal` back makes a new one) and stops in the background.
@@ -416,6 +422,12 @@ public final class PluginContext: @unchecked Sendable {
         try bridge.server.add(accessory)
         list.withLockedValue { $0.put(accessory) }
         scheduleCacheSave()
+    }
+
+    /// A Lightbulb with Brightness and a writable Color Temperature: what Adaptive Lighting needs.
+    public static func canHaveAdaptiveLighting(_ service: Service) -> Bool {
+        service.type.uuid == ServiceType.lightbulb.uuid && service[.brightness] != nil
+            && service[.colorTemperature]?.type.permissions.contains(.pairedWrite) == true
     }
 
     /// Publishes an accessory on a HAP server of its own instead of the bridge, as Homebridge publishes

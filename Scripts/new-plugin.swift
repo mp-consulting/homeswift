@@ -588,7 +588,6 @@ struct Unimplemented__NAME__API: __NAME__API {
 """#
 
 // The plugin: the services of a device, the values shown, the write handlers.
-let servicesStruct = chosen.map { "        let \($0.property): Service" }.joined(separator: "\n")
 var showLines: [String] = []
 for service in chosen {
     for characteristic in service.state {
@@ -611,7 +610,17 @@ for (service, characteristic) in writable {
     handlerLines.append("    try await api.set(.\(changeCase(service, characteristic))(\(fromHAPValue(characteristic))), deviceID: device.id)")
     handlerLines.append("}")
 }
-let serviceArguments = chosen.map { "\($0.definition.name): \($0.property)" }.joined(separator: ", ")
+// A Lightbulb with Brightness and Color Temperature has what Adaptive Lighting needs: every plugin gives it one.
+var serviceFields = chosen.map { "let \($0.property): Service" }
+var serviceArguments = chosen.map { "\($0.definition.name): \($0.property)" }
+if let light = chosen.first(where: { $0.definition.name == "lightbulb" && Set($0.characteristics.map(\.name)).isSuperset(of: ["brightness", "colorTemperature"]) }) {
+    serviceFields += [
+        "/// Adaptive Lighting on `\(light.definition.name)`, which holds it weakly. TODO: pass the device's reports of its",
+        "/// colour to `adaptiveLighting?.disableIfChangedElsewhere(mireds:)` (nil for a colour).",
+        "let adaptiveLighting: AdaptiveLightingController?",
+    ]
+    serviceArguments.append("adaptiveLighting: context.adaptiveLighting(for: \(light.property), accessoryID: Self.accessoryID(deviceID: device.id))")
+}
 let accessoryServices = ([primary] + chosen.dropFirst()).map(\.property).joined(separator: ", ")
 let notes = chosen.compactMap { serviceNotes[$0.definition.name] }
 let noteComment = notes.isEmpty ? "" : "\n///\n" + notes.map { "/// \($0)" }.joined(separator: "\n")
@@ -647,7 +656,7 @@ public actor __NAME__Plugin: HomeswiftPlugin {
 
     /// A device's services on its accessory.
     struct DeviceServices {
-\#(servicesStruct)
+\#(indent(serviceFields, 8))
     }
 
     public static let platform = "__PLATFORM__"
@@ -728,7 +737,7 @@ public actor __NAME__Plugin: HomeswiftPlugin {
     private func add(_ device: __NAME__Device) throws {
         let name = configuration.devices?.first { $0.id == device.id }?.name ?? device.name
 \#(indent(buildLines, 8))
-        let services = DeviceServices(\#(serviceArguments))
+        let services = DeviceServices(\#(serviceArguments.joined(separator: ", ")))
         Self.show(device.state, on: services)\#(handlerLines.isEmpty ? "" : "\n        let api = dependencies.api\n" + indent(handlerLines, 8))
         try context.add(Accessory(
             id: Self.accessoryID(deviceID: device.id), name: name, manufacturer: "TODO", model: "TODO",

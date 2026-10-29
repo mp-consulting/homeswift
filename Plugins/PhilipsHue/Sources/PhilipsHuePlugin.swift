@@ -128,6 +128,8 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         var effects: [String: Service]
         let flash: Service?
         let points: [Service]
+        /// A light with brightness and white temperature: its Adaptive Lighting, kept as long as it is shown.
+        var adaptiveLighting: AdaptiveLightingController? = nil
         /// The shape it was built for: a light that changes shape is rebuilt.
         let shape: String
     }
@@ -384,6 +386,14 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         if let services = lights[light.id], services.shape == shape {
             services.accessory.isUnavailable = !light.reachable
             if await services.writer.isSettling(within: Self.settleTime) { return }
+            // A colour, or another white, set elsewhere (the Hue app, a switch, a scene) stops Adaptive Lighting, as
+            // the Home app does when it sets one; not while a fade of the bridge's own may still report its steps.
+            // No mirek is a colour, off the white curve.
+            if let adaptive = services.adaptiveLighting, adaptive.isAdaptiveLightingActive,
+               await !services.writer.isSettling(within: .milliseconds(transitionMs) + Self.settleTime),
+               adaptive.disableIfChangedElsewhere(mireds: light.mirek) {
+                logger.info("\(light.name): colour changed outside HomeKit, Adaptive Lighting off")
+            }
             Self.showValues(light, on: services, keeping: services.command.lastColour)
             return
         }
@@ -456,6 +466,9 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
             do { try await writer.set(.mirek(value.intValue ?? 300)) } catch { throw fail(error) }
         }
 
+        // Adaptive Lighting, once turned on in the Home app: the controller sets the white through the handler above.
+        let adaptiveLighting = context.adaptiveLighting(for: lightbulb, accessoryID: Self.accessoryID(lightID: light.id))
+
         var services = [lightbulb]
         var effects: [String: Service] = [:]
         if configuration.effects ?? true {
@@ -518,7 +531,7 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
             serialNumber: light.id, firmwareRevision: light.firmware.isEmpty ? "1.0.0" : light.firmware, category: .lightbulb, services: services,
             // Identify is the device's, not the light service's (`PUT /resource/device/<id>`).
             onIdentify: { [deviceID = light.deviceID] in try? await client.identify(deviceID: deviceID) })
-        let built = LightServices(accessory: accessory, lightbulb: lightbulb, writer: writer, command: command, effects: effects, flash: flash, points: points, shape: shape)
+        let built = LightServices(accessory: accessory, lightbulb: lightbulb, writer: writer, command: command, effects: effects, flash: flash, points: points, adaptiveLighting: adaptiveLighting, shape: shape)
         Self.showValues(light, on: built)
         accessory.isUnavailable = !light.reachable
         try context.add(accessory)

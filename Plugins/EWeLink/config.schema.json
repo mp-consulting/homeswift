@@ -323,8 +323,9 @@
             },
             "adaptiveLightingShift": {
               "title": "Adaptive Lighting Shift",
-              "description": "Kept for the Homebridge plugin; it has no effect here.",
+              "description": "Mireds added to each Adaptive Lighting update, so the light looks warmer; -1 leaves Adaptive Lighting off for this light.",
               "type": "integer",
+              "minimum": -1,
               "default": 0
             },
             "ignoreDevice": {
@@ -874,6 +875,7 @@
       "Ignore Device": "Ignorer l'appareil",
       "Ignored Devices": "Appareils ignorés",
       "Kept for the Homebridge plugin; it has no effect here.": "Conservé pour le plugin Homebridge ; sans effet ici.",
+      "Mireds added to each Adaptive Lighting update, so the light looks warmer; -1 leaves Adaptive Lighting off for this light.": "Mireds ajoutés à chaque mise à jour de l'Éclairage adaptatif, pour une lumière plus chaude ; -1 laisse l'Éclairage adaptatif désactivé pour cette lampe.",
       "Kept for the Homebridge plugin; it has no effect here. Add the device ID to Ignored Devices to leave the device out.": "Conservé pour le plugin Homebridge ; sans effet ici. Ajoutez l'identifiant de l'appareil aux appareils ignorés pour l'exclure.",
       "Kept for the Homebridge plugin; it has no effect here. Disable Device Logging applies to every device.": "Conservé pour le plugin Homebridge ; sans effet ici. Désactiver le journal des appareils s'applique à tous les appareils.",
       "Kept for the Homebridge plugin; it has no effect here: eWeLink's own groups come from the account.": "Conservé pour le plugin Homebridge ; sans effet ici : les groupes eWeLink viennent du compte.",
@@ -1003,6 +1005,7 @@
       "Ignore Device": "Ignorar el dispositivo",
       "Ignored Devices": "Dispositivos ignorados",
       "Kept for the Homebridge plugin; it has no effect here.": "Se conserva por el plugin de Homebridge; aquí no tiene efecto.",
+      "Mireds added to each Adaptive Lighting update, so the light looks warmer; -1 leaves Adaptive Lighting off for this light.": "Mireds que se suman a cada actualización de la Iluminación adaptativa, para una luz más cálida; -1 deja la Iluminación adaptativa desactivada en esta luz.",
       "Kept for the Homebridge plugin; it has no effect here. Add the device ID to Ignored Devices to leave the device out.": "Se conserva por el plugin de Homebridge; aquí no tiene efecto. Añade el ID del dispositivo a Dispositivos ignorados para excluirlo.",
       "Kept for the Homebridge plugin; it has no effect here. Disable Device Logging applies to every device.": "Se conserva por el plugin de Homebridge; aquí no tiene efecto. Desactivar el registro de dispositivos se aplica a todos los dispositivos.",
       "Kept for the Homebridge plugin; it has no effect here: eWeLink's own groups come from the account.": "Se conserva por el plugin de Homebridge; aquí no tiene efecto: los grupos de eWeLink llegan de la cuenta.",
@@ -1132,6 +1135,7 @@
       "Ignore Device": "Ignorar o dispositivo",
       "Ignored Devices": "Dispositivos ignorados",
       "Kept for the Homebridge plugin; it has no effect here.": "Mantido pelo plugin Homebridge; aqui não tem efeito.",
+      "Mireds added to each Adaptive Lighting update, so the light looks warmer; -1 leaves Adaptive Lighting off for this light.": "Mireds somados a cada atualização da Iluminação adaptativa, para uma luz mais quente; -1 deixa a Iluminação adaptativa desligada nesta luz.",
       "Kept for the Homebridge plugin; it has no effect here. Add the device ID to Ignored Devices to leave the device out.": "Mantido pelo plugin Homebridge; aqui não tem efeito. Para excluir o dispositivo, adicione o seu ID a Dispositivos ignorados.",
       "Kept for the Homebridge plugin; it has no effect here. Disable Device Logging applies to every device.": "Mantido pelo plugin Homebridge; aqui não tem efeito. Desativar o registo dos dispositivos aplica-se a todos os dispositivos.",
       "Kept for the Homebridge plugin; it has no effect here: eWeLink's own groups come from the account.": "Mantido pelo plugin Homebridge; aqui não tem efeito: os grupos eWeLink vêm da conta.",

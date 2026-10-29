@@ -6,7 +6,8 @@ cloud: every light with its brightness, colour and white temperature, a switch f
 light level, contact, battery) and the buttons of dimmers, Tap switches and smart buttons, and optionally a Flash
 switch and a light per colour point of gradient lightstrips. A light's changes go to the bridge in one command, with a
 transition you choose, so moods and the Home app change colour and brightness together; the bridge's event stream
-brings button presses and changes made elsewhere at once.
+brings button presses and changes made elsewhere at once. A light with brightness and white temperature has Adaptive
+Lighting, which a colour, a white or a scene set elsewhere (the Hue app, a switch) turns off, as the Home app does.
 
 Written for Homeswift (not a port). Tested against a Hue Bridge Pro (BSB003, firmware 2071524040): pairing, 48 lights
 and 201 scenes read; writes, scenes, effects and Flash against a fake bridge in the tests. Maintained by the Homeswift

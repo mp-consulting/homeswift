@@ -12,6 +12,12 @@ All notable changes to this project are documented here. The format follows
   tunnel (`https://mcp.example.com/homeswift`). Requests for that host name under that path, and the OAuth discovery
   documents for it, are answered as `/mcp`, `/oauth` and the sign-in page, whose files and API calls stay under the
   path. Off without it.
+- Adaptive Lighting on every IKEA DIRIGERA, Philips Hue and eWeLink light with brightness and white temperature. A colour
+  or a white set elsewhere (the vendor's app, a remote, a scene) turns it off, as the Home app does. eWeLink's
+  `adaptiveLightingShift` now applies: mireds warmer, or -1 for none.
+- Plugin contributors check Adaptive Lighting: `Scripts/new-plugin.swift` gives a light with Brightness and Color
+  Temperature a controller, the bridge's debug log (and `check-on-bridge.sh`) names a light without one, and
+  CONTRIBUTING.md and the pull request template list it.
 
 ### Changed
 
