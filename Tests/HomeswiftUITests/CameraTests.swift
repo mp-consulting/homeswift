@@ -193,7 +193,7 @@ final class StreamingClient: @unchecked Sendable {
     func close() async { try? await channel.close() }
 }
 
-@Suite(.timeLimit(.minutes(1)), .serialized)
+@Suite(.timeLimit(.minutes(1)))
 struct CameraUITests {
     @Test func marksCamerasAndHidesHomeKitsPlumbing() async throws {
         let environment = try CameraUIEnvironment()

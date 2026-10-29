@@ -380,7 +380,7 @@ final class FakeFfmpegKit: ProtectFfmpegKit, @unchecked Sendable {
 /// The camera code with the real camera controller and FFmpeg in memory: the controller's options, live streams from RTSP and the
 /// livestream API, snapshots, HKSV through the timeshift buffer, two-way audio (protect-stream, protect-record,
 /// protect-timeshift, protect-snapshot and protect-talkback of the Homebridge plugin).
-@Suite(.timeLimit(.minutes(1)), .serialized) struct CameraStreamingTests {
+@Suite(.timeLimit(.minutes(1))) struct CameraStreamingTests {
     static let cameraID = ProtectPlatform.accessoryID(Fixtures.cameraMAC)
     static let doorbellID = ProtectPlatform.accessoryID(Fixtures.doorbellMAC)
     static let packageID = ProtectPlatform.accessoryID(Fixtures.doorbellMAC + ".PackageCamera")

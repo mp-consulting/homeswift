@@ -324,8 +324,8 @@ struct PluginTests {
     }
 
     @Test func stoppingCancelsARetry() async throws {
-        // A retry a second away, so a busy machine still stops before it.
-        environment.timing.withLockedValue { $0.discoveryRetryBase = .seconds(1) }
+        // A retry 400 ms away; one that a busy machine runs before the stop schedules the next further away.
+        environment.timing.withLockedValue { $0.discoveryRetryBase = .milliseconds(400) }
         environment.nextCloud.withLockedValue { $0 = { _ in
             let cloud = FakeCloud()
             cloud.configure { $0.loginError = DolphinError.cognitoFailed("network down") }
@@ -341,7 +341,7 @@ struct PluginTests {
         // most 10 s.
         #expect(await eventually { environment.log.contains(.debug, "Stopped") })
         let attempts = environment.clouds.count
-        try await Task.sleep(for: .milliseconds(1300))
+        try await Task.sleep(for: .milliseconds(500))
         #expect(environment.clouds.count == attempts)
     }
 

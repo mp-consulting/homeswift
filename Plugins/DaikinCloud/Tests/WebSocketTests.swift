@@ -94,17 +94,19 @@ struct WebSocketTests {
         let transport = FakeSockets()
         var timing = DaikinWebSocket.Timing()
         timing.pingInterval = .seconds(3600)
+        // Stable after 500 ms here rather than 60: the two drops below come well within it on a loaded runner.
+        timing.stableConnection = .seconds(500)
         let ws = socket(transport, timing: timing)
         await ws.connect()
         #expect(await ws.isConnected)
         #expect(recorded == [.connected])
-        // Dropped within the minute: the backoff keeps growing.
+        // Dropped before it is stable: the backoff keeps growing.
         transport.last?.drop()
         #expect(await eventually { transport.count == 2 })
         transport.last?.drop()
         #expect(await eventually { transport.count == 3 })
         #expect(await ws.reconnections == 2)
-        // A minute up (60 ms here): back to the start.
+        // Up long enough: back to the start.
         #expect(await eventually { await ws.reconnections == 0 })
         #expect(await ws.connectionAttempts == 0)
         #expect(recorded.contains(.disconnected(code: 1006, reason: "\(WebSocketError.connectionLost)", reconnecting: true)))

@@ -88,25 +88,28 @@ actor CloudAPI {
         var headers = ["Content-Type": "application/json", "X-CK-Appid": EWeLinkCloud.appID]
         if options.authorization, !accessToken.isEmpty { headers["Authorization"] = "Bearer \(accessToken)" }
         headers.merge(options.headers) { $1 }
+        let sentToken = accessToken
         let response = try await transport.send(
             HTTPRequest(method: method, url: url, headers: headers.map { ($0.key, $0.value) }, body: body, timeout: .milliseconds(Timing.httpRequest)))
         let json = (try? JSONValue(data: response.body)) ?? .null
         let canRefresh = !options.retried && !options.skipAuthRefresh && !refreshToken.isEmpty
         if response.status == 401, canRefresh {
-            return try await retryWithFreshToken(method, path, query: query, body: body, options: options)
+            return try await retryWithFreshToken(method, path, query: query, body: body, options: options, rejected: sentToken)
         }
         guard (200..<300).contains(response.status) else {
             throw HTTPStatusError(status: response.status, message: json["msg"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }, code: json["error"]?.intValue)
         }
         if let code = json["error"]?.intValue, Self.tokenErrorCodes.contains(code), canRefresh {
             logger.debug("Access token rejected (error \(code)), refreshing...")
-            return try await retryWithFreshToken(method, path, query: query, body: body, options: options)
+            return try await retryWithFreshToken(method, path, query: query, body: body, options: options, rejected: sentToken)
         }
         return json
     }
 
-    private func retryWithFreshToken(_ method: String, _ path: String, query: [(String, String)], body: Data?, options: Options) async throws -> JSONValue {
-        try await refreshAccessToken()
+    /// `rejected` is the token the request went with: when another request's refresh has replaced it meanwhile, the
+    /// retry takes the new one rather than refreshing again with a refresh token that has just rotated.
+    private func retryWithFreshToken(_ method: String, _ path: String, query: [(String, String)], body: Data?, options: Options, rejected: String) async throws -> JSONValue {
+        if accessToken == rejected { try await refreshAccessToken() }
         var retry = options
         retry.retried = true
         retry.headers["Authorization"] = "Bearer \(accessToken)"

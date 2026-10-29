@@ -181,13 +181,12 @@ actor BLEClient {
         // Resume an interrupted sensor scan for whatever remains of its window.
         guard wasScanning, let callback, !isShuttingDown else { return }
         let delay = timing.resumeScan
-        let remaining = deadline.map { $0 - .now - delay }
-        if let remaining, remaining <= .zero { return }
+        if let deadline, deadline - .now - delay <= .zero { return }
         resumeTimer = Task { [weak self] in
             try? await Task.sleep(for: delay)
             guard !Task.isCancelled, let self else { return }
             do {
-                try await self.scan(for: callback, duration: remaining)
+                try await self.scan(for: callback, until: { deadline })
             } catch {
                 self.debug("[BLE] failed to resume scanning: \(error).")
             }
@@ -210,12 +209,17 @@ actor BLEClient {
 
     /// Scans for sensor advertisements, stopping after `duration` (or at `stopDiscovery()` without one).
     func scan(for callback: @escaping @Sendable (BLESensorReading) -> Void, duration: Duration?) async throws {
+        try await scan(for: callback) { duration.map { ContinuousClock.now + $0 } }
+    }
+
+    /// Scans until `deadline` (read once the scan has started; nil: no end): a resumed scan keeps its window's end.
+    private func scan(for callback: @escaping @Sendable (BLESensorReading) -> Void, until deadline: () -> ContinuousClock.Instant?) async throws {
         let generation = try await startDiscovery(callback)
-        guard generation != nil, let duration else { return }
+        guard generation != nil, let deadline = deadline() else { return }
         scanTimer?.cancel()
-        scanDeadline = .now + duration
+        scanDeadline = deadline
         scanTimer = Task { [weak self] in
-            try? await Task.sleep(for: duration)
+            try? await Task.sleep(until: deadline, clock: .continuous)
             guard !Task.isCancelled else { return }
             await self?.stopDiscovery()
         }

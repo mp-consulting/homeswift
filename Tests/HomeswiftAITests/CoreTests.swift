@@ -206,7 +206,8 @@ import Testing
             "(1234-5678)", "12345-6789", "-031-45-154-", "0314-5154.", "١٢٣-٤٥-٦٧٨",
         ]
         var generator = SystemRandomNumberGenerator()
-        for _ in 0..<2000 {
+        // Random pieces each run, so runs add up; every expression on each text is slow in a debug build.
+        for _ in 0..<500 {
             let text = (0..<Int.random(in: 1...4, using: &generator)).map { _ in pieces.randomElement(using: &generator)! }.joined(separator: [" ", "\n", ", ", ""].randomElement(using: &generator)!)
             #expect(Redaction.redactText(text) == Redaction.redactText(text, prefilter: false), "\(text)")
         }

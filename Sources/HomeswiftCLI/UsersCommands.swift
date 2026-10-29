@@ -20,7 +20,7 @@ enum UsersCommands {
         switch (arguments.first, arguments.count) {
         case ("list", 1):
             store.usernames.forEach { say($0) }
-        case ("add", 2), ("add", 3) where arguments[2] == "--admin":
+        case ("add", let count) where count == 2 || (count == 3 && arguments[2] == "--admin"):
             let user = try store.create(username: arguments[1], password: readPassword(), admin: arguments.count == 3)
             say("Added \(user.username)\(user.admin ? ", an administrator" : ""); restart the bridge for the web UI to know it.")
         case ("password", 2):

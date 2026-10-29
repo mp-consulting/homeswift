@@ -78,6 +78,7 @@ struct NetworkSocketTests {
         var timing = DaikinWebSocket.Timing()
         timing.pingInterval = .milliseconds(50)
         timing.pongTimeout = .seconds(2)
+        timing.backoff = Backoff(initial: .milliseconds(50), maximum: .milliseconds(50), jitter: .none)
         // The real connection, to the test server instead of Onecta's.
         let client = DaikinWebSocket(oauth: FakeOAuth(), connect: { _, options in
             let socket = try await DaikinWebSocket.connect(url, options)

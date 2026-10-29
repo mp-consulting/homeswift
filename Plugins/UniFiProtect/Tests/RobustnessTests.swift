@@ -10,7 +10,7 @@ import Testing
 
 /// What the review of the port found: stops that come during a start, numbers that trapped, payloads that wiped
 /// a device's JSON, sockets opened twice, and the routes the Assistant calls.
-@Suite(.timeLimit(.minutes(1)), .serialized) struct RobustnessTests {
+@Suite(.timeLimit(.minutes(1))) struct RobustnessTests {
     static let sensorID = ProtectPlatform.accessoryID(Fixtures.sensorMAC)
     static let doorbellID = ProtectPlatform.accessoryID(Fixtures.doorbellMAC)
 
@@ -192,9 +192,11 @@ import Testing
             "ringSettings": [["cameraId": "doorbell-id", "ringtoneId": "tone-1", "volume": 40, "repeatTimes": 1]],
         ])
         #expect(await eventually { volume[.brightness]?.value == .int(40) })
-        let chimes = await chimes(environment)
-        #expect(chimes.count == 1)
-        #expect(chimes.first?.string("id") == "chime-id" && chimes.first?.array("ringSettings").first?.int("volume") == 40)
+        // The kept chimes follow in a pass of their own.
+        #expect(await eventually {
+            let chimes = await chimes(environment)
+            return chimes.count == 1 && chimes.first?.string("id") == "chime-id" && chimes.first?.array("ringSettings").first?.int("volume") == 40
+        })
     }
 
     // MARK: The settings page

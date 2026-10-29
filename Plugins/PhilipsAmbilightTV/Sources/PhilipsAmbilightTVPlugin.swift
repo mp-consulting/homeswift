@@ -31,6 +31,8 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
         var wake: @Sendable (_ mac: String, _ ip: String?) async throws -> Void = { mac, ip in
             if let ip { try await WakeOnLAN.wake(mac: mac, near: ip) } else { try await WakeOnLAN.wake(mac: mac) }
         }
+        /// Scales the TVs' timings, so tests run the plugin's real timings faster.
+        var timeScale = 1.0
     }
 
     struct DiscoveredTV: Sendable, Equatable {
@@ -72,7 +74,7 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
         }
         await removeUnconfigured(keeping: settings.map(\.mac))
         for tv in settings {
-            let device = TVDevice(settings: tv, storageDirectory: context.storageDirectory, transports: dependencies.transports, logger: logger)
+            let device = TVDevice(settings: tv, storageDirectory: context.storageDirectory, transports: dependencies.transports, logger: logger, timeScale: dependencies.timeScale)
             devices[tv.mac] = device
             await publish(device)
             await device.start()

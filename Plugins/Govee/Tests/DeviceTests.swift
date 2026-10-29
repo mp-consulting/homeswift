@@ -25,7 +25,7 @@ final class DeviceHarness: @unchecked Sendable {
         adaptiveLighting: AdaptiveLightingFactory? = nil, store: DeviceStore = memoryStore(), logger: Logger = testLogger
     ) {
         self.store = store
-        let environment = DeviceEnvironment(
+        var environment = DeviceEnvironment(
             info: DeviceInfo(id: "AA:BB:CC:DD:EE:FF:00:11", model: model, name: "Test"), settings: DeviceSettings(raw: settings),
             platform: GoveePlugin.Configuration(platform), transports: transports,
             send: { [sent, lock = self.lock] command in
@@ -34,6 +34,7 @@ final class DeviceHarness: @unchecked Sendable {
                 sent.append(command)
             },
             logger: logger, deviceLogging: true, debugLogging: false, cached: nil, store: store, historyDirectory: nil, adaptiveLighting: adaptiveLighting)
+        environment.temperatureSourceFirstRead = .milliseconds(50)
         device = GoveeDevice.make(model: model, environment: environment)
         device.configure()
     }

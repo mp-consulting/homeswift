@@ -24,10 +24,12 @@ actor NotifyChangeClient {
     private let client: JointSpaceClient
     private let logger: Logger
     private var task: Task<Void, Never>?
+    private let timeScale: Double
 
-    init(client: JointSpaceClient, logger: Logger) {
+    init(client: JointSpaceClient, logger: Logger, timeScale: Double = 1) {
         self.client = client
         self.logger = logger
+        self.timeScale = timeScale
     }
 
     /// Starts the loop; events reach `handler` until `stop()` or a failure.
@@ -35,9 +37,11 @@ actor NotifyChangeClient {
         guard task == nil else { return }
         let client = client
         let logger = logger
+        let reconnectDelay = Self.reconnectDelay * timeScale, maximumReconnectDelay = Self.maximumReconnectDelay * timeScale
+        let minimumInterval = Self.minimumInterval * timeScale
         task = Task {
             var failures = 0
-            var delay = Self.reconnectDelay
+            var delay = reconnectDelay
             while !Task.isCancelled {
                 let started = ContinuousClock.now
                 do {
@@ -49,11 +53,11 @@ actor NotifyChangeClient {
                         logger.debug("notifychange answered with no changes (\(failures)/\(Self.maximumConsecutiveFailures))")
                     } else {
                         failures = 0
-                        delay = Self.reconnectDelay
+                        delay = reconnectDelay
                         await handler(.notification(payload))
                     }
                     let elapsed = ContinuousClock.now - started
-                    if elapsed < Self.minimumInterval { try await Task.sleep(for: Self.minimumInterval - elapsed) }
+                    if elapsed < minimumInterval { try await Task.sleep(for: minimumInterval - elapsed) }
                 } catch is CancellationError {
                     return
                 } catch {
@@ -61,7 +65,7 @@ actor NotifyChangeClient {
                     failures += 1
                     logger.debug("notifychange failed (\(failures)/\(Self.maximumConsecutiveFailures)): \(error)")
                     do { try await Task.sleep(for: delay) } catch { return }
-                    delay = min(delay * 2, Self.maximumReconnectDelay)
+                    delay = min(delay * 2, maximumReconnectDelay)
                 }
                 if failures >= Self.maximumConsecutiveFailures {
                     logger.debug("notifychange: giving up after \(failures) failures")

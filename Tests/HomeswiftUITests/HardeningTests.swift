@@ -26,12 +26,15 @@ struct HardeningTests {
         return (base, browser)
     }
 
-    /// Reads an event stream until it ends; its event names.
-    func events(_ base: URL, cookie: String?) async throws -> [String] {
+    /// Reads an event stream until it ends; its event names. `opened` turns true at the first event.
+    func events(_ base: URL, cookie: String?, opened: NIOLockedValueBox<Bool>? = nil) async throws -> [String] {
         let http = try await URLSessionTransport(timeout: 30).stream(HTTPRequest(method: "GET", url: base.appendingPathComponent("/api/events"), headers: ["Cookie": cookie ?? "", "Accept": "text/event-stream"]))
         #expect(http.status == 200)
         var names: [String] = []
-        for try await event in SSE.events(http.body) { names.append(event.event ?? "") }
+        for try await event in SSE.events(http.body) {
+            names.append(event.event ?? "")
+            opened?.withLockedValue { $0 = true }
+        }
         return names
     }
 
@@ -67,8 +70,9 @@ struct HardeningTests {
         let environment = try UITestEnvironment { $0.keepalive = .milliseconds(100) }
         let (base, admin) = try await signedIn(environment)
         defer { Task { await environment.stop() } }
-        let stream = Task { try await events(base, cookie: admin.cookie) }
-        try await Task.sleep(for: .milliseconds(300))
+        let opened = NIOLockedValueBox(false)
+        let stream = Task { try await events(base, cookie: admin.cookie, opened: opened) }
+        #expect(await eventually { opened.withLockedValue { $0 } })
         #expect(try await admin.post("/api/auth/logout", [:]).status == 200)
         #expect(try await stream.value.first == "hello")
 
@@ -80,8 +84,9 @@ struct HardeningTests {
         let milo = Browser(base: base)
         milo.origin = admin.origin
         #expect(try await milo.post("/api/auth/login", ["username": "milo", "password": "battery staple lamp"]).status == 200)
-        let demoted = Task { try await events(base, cookie: milo.cookie) }
-        try await Task.sleep(for: .milliseconds(300))
+        let miloOpened = NIOLockedValueBox(false)
+        let demoted = Task { try await events(base, cookie: milo.cookie, opened: miloOpened) }
+        #expect(await eventually { miloOpened.withLockedValue { $0 } })
         #expect(try await again.put("/api/users/milo", ["admin": false]).status == 200)
         _ = try await demoted.value
         // Still signed in, as a user: a new stream is theirs.

@@ -9,7 +9,7 @@ import Testing
 @testable import HomeswiftUniFiProtect
 
 /// The plugin's camera code on the HAP camera controller, and HomeswiftCameraKit.swift: HomeswiftFFmpeg behind the FFmpeg protocols.
-@Suite(.timeLimit(.minutes(1)), .serialized) struct CameraKitAdapterTests {
+@Suite(.timeLimit(.minutes(1))) struct CameraKitAdapterTests {
     static let cameraID = ProtectPlatform.accessoryID(Fixtures.cameraMAC)
 
     @Test func theCameraControllerOnTheAccessory() async throws {

@@ -61,6 +61,10 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         var transport: @Sendable (HTTPClient.TrustOnFirstUse) -> any HueTransport = { PinningTransport(trust: $0) }
         /// Bridges on the network: addresses from mDNS (`_hue._tcp`), else Philips' discovery service.
         var discover: @Sendable () async -> [String] = HueDiscovery.find
+        /// How long to wait before asking again whether the bridge's link button was pressed.
+        var pairingRetryDelay: Duration = .seconds(2)
+        /// How long after a command a light's own values are left alone (`settleTime`).
+        var settleTime: Duration = PhilipsHuePlugin.settleTime
     }
 
     public static let platform = "PhilipsHue"
@@ -287,7 +291,7 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
                 lastError = "\(error)"
                 logger.debug("Pairing: \(error)")
             }
-            try? await Task.sleep(for: .seconds(2))
+            try? await Task.sleep(for: dependencies.pairingRetryDelay)
         }
         if stored.applicationKey == nil {
             lastError = "The link button was not pressed in time: pair again from the plugin's page."
@@ -385,12 +389,12 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         let shape = shape(of: light)
         if let services = lights[light.id], services.shape == shape {
             services.accessory.isUnavailable = !light.reachable
-            if await services.writer.isSettling(within: Self.settleTime) { return }
+            if await services.writer.isSettling(within: dependencies.settleTime) { return }
             // A colour, or another white, set elsewhere (the Hue app, a switch, a scene) stops Adaptive Lighting, as
             // the Home app does when it sets one; not while a fade of the bridge's own may still report its steps.
             // No mirek is a colour, off the white curve.
             if let adaptive = services.adaptiveLighting, adaptive.isAdaptiveLightingActive,
-               await !services.writer.isSettling(within: .milliseconds(transitionMs) + Self.settleTime),
+               await !services.writer.isSettling(within: .milliseconds(transitionMs) + dependencies.settleTime),
                adaptive.disableIfChangedElsewhere(mireds: light.mirek) {
                 logger.info("\(light.name): colour changed outside HomeKit, Adaptive Lighting off")
             }
@@ -566,7 +570,7 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         let shape = (roomLight ? "room|" : "") + scenes.map { "\($0.id)=\($0.name)" }.joined(separator: "|")
         if let services = sceneAccessories[group.id], services.shape == shape {
             for scene in scenes { services.switches[scene.id]?.characteristic(.on).value = .bool(scene.active) }
-            if let room = services.room, let writer = services.roomWriter { await Self.showRoomValues(group, on: room, writer: writer) }
+            if let room = services.room, let writer = services.roomWriter { await Self.showRoomValues(group, on: room, writer: writer, settleTime: dependencies.settleTime) }
             return
         }
         guard let client else { return }
@@ -587,7 +591,7 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
             bulb[.brightness]?.onWrite { value in
                 do { try await writer.set(.brightness(max(1, value.doubleValue ?? 100))) } catch { throw HAPStatusError(.serviceCommunicationFailure) }
             }
-            await Self.showRoomValues(group, on: bulb, writer: writer)
+            await Self.showRoomValues(group, on: bulb, writer: writer, settleTime: dependencies.settleTime)
             services.append(bulb)
             (room, roomWriter) = (bulb, writer)
         }
@@ -626,14 +630,14 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     /// A room's lightbulb (`roomLights`) from an event's brightness.
     func showRoomLight(_ group: HueGroup) async {
         guard let services = sceneAccessories[group.id], let room = services.room, let writer = services.roomWriter else { return }
-        await Self.showRoomValues(group, on: room, writer: writer)
+        await Self.showRoomValues(group, on: room, writer: writer, settleTime: dependencies.settleTime)
     }
 
     /// Makes a read of the bridge already on its way stale: it is not applied when it lands.
     func invalidateReads() { refreshes += 1 }
 
     /// The room's on and brightness as the bridge sums them up; left alone just after a command, as a light's are.
-    static func showRoomValues(_ group: HueGroup, on bulb: Service, writer: LightChangeBatcher) async {
+    static func showRoomValues(_ group: HueGroup, on bulb: Service, writer: LightChangeBatcher, settleTime: Duration) async {
         if await writer.isSettling(within: settleTime) { return }
         bulb.characteristic(.on).value = .bool(group.on)
         // A room switched off may say 0: the brightness it comes back on at stays.

@@ -22,6 +22,7 @@ Library `Homeswift`, plugin API and runtime `HomeswiftPlugin`, the `homeswift` b
 | `Sources/HomeswiftMCP` | The MCP server: `JSONRPC`, `MCPServer`/`MCPSession` (methods, elicitation), `Scopes` (`MCPConfiguration`, tokens), `AuditLog`, `HomeswiftCatalog` (the tools, resources and prompts over a `PluginHost`; also the web UI's control surface; `AssistantTools`: usage, connection test, the daily digest, log export and truncation), `HTTPServer` (Streamable HTTP on NIO), `StdioProxy` (`homeswift mcp`), `ChatToolbox` (the tools for the web UI's chat, an in-process session), `HostName` and `FailureThrottle` (shared with the web UI) |
 | `Sources/HomeswiftUI` | The web UI: `UIConfiguration` (the `HomeswiftUI` block), `Auth` (users, PBKDF2, sessions, login throttle), `UIServer` (NIO HTTP, the JSON API, the event stream), `Cameras` (camera snapshots and live fMP4 streams), `AssistantChat` (the chat's conversations, kept in `ui-chats.json`), `AccessoryLayout` (the Accessories wall's order and sizes, `ui-layout.json`), `AssistantRoutes` (the pages' streamed, cancellable Assistant requests), `Preferences` (each user's appearance and Status layout), `Certificate` (HTTPS, self-signed), `OAuth`/`OAuthRoutes` (the MCP server at the UI's `/mcp` for claude.ai: discovery, client registration, PKCE codes and rotated refresh tokens in `ui-oauth.json`, the `/oauth/authorize` sign-in page, Account's connected apps), `Web/` (the pages, `widgets.js` the accessory widgets; `WebAssets.swift` is generated from it) |
 | `Sources/HomeswiftNetwork` | For plugins reaching devices and clouds: `NetworkInterfaces`, `HTTPClient` (NIO and NIOSSL; trusts or pins a self-signed certificate, the same on Linux; `TrustOnFirstUse`; `stream` for a body that keeps coming, `ServerSentEvents` for an event stream, in `HTTPStreaming.swift`), `DigestAuthentication`, `WakeOnLAN`, `UDPSocket` and `localIPv4Networks`, `WebSocket`, `MQTTClient` (`MQTTPacket`, `MQTTTransport`; MQTT 3.1.1 and 5), `TLSOptions` (roots such as Amazon Root CA 1, client certificates, ALPN, cipher lists), `MDNSQuery` (a one-shot mDNS query whose answers carry the sender's address), `AWSSignatureV4`, `URLEncoding`, `Backoff` |
+| `Scripts/test.sh` | Builds the tests and runs every test target's bundle at once through SwiftPM's testing helper (`swift test` on Linux); `Scripts/ci-test.sh` is CI's, with a watchdog |
 | `Scripts/embed-assets.swift` | Embeds a plugin's `config.schema.json`, a `Web/` directory or the Assistant's `Prompts/` into Swift source; tests fail when the generated files are stale |
 | `Scripts/docs-screenshots.mjs` | Retakes the docs' web UI screenshots from a throwaway bridge with headless Chrome (docs/widgets.md, "Screenshots") |
 | `Scripts/ui-screenshots.mjs` | Retakes docs/ui.md's page screenshots (`docs/images/ui`) from a throwaway bridge of paused demonstration blocks, made and removed by the script (docs/ui.md, "Screenshots") |
@@ -59,6 +60,7 @@ Library `Homeswift`, plugin API and runtime `HomeswiftPlugin`, the `homeswift` b
 # Files under ~/Documents carry Finder metadata that codesign rejects: build and test outside the repo.
 swift build --scratch-path ~/Library/Caches/homeswift-build
 swift test  --scratch-path ~/Library/Caches/homeswift-build
+Scripts/test.sh --scratch-path ~/Library/Caches/homeswift-build   # the test targets at once (swift test runs them in turn on macOS); -- --filter X
 swift run   --scratch-path ~/Library/Caches/homeswift-build homeswift -U /tmp/homeswift-dev   # a throwaway config dir
 swift run   --scratch-path ~/Library/Caches/homeswift-build homeswift plugins
 swift Scripts/embed-assets.swift web Sources/HomeswiftUI/Web Sources/HomeswiftUI/WebAssets.swift   # after editing a page
@@ -86,6 +88,9 @@ node Scripts/generate-definitions.js <hap-nodejs> > Sources/Homeswift/Model/Defi
   `chore`, `style`, `revert`; the scope the plugin or area, lowercase (`ecoflow`, `ui`, `mcp`, `hap`, `site`); the
   summary in the imperative, without a final period. A breaking change gets a `!` after the scope and a
   `BREAKING CHANGE:` footer.
+- **Pull requests are assigned and labelled.** Open one with `--assignee @me` and at least one of the repository's
+  labels (`gh label list`): `bug` for a fix, `enhancement` for a feature or an improvement, `documentation` for docs;
+  a pull request opened without them gets them with `gh pr edit`.
 - Apple does not publish the HAP spec outside MFi. Follow HAP-NodeJS's behaviour and check crypto against known
   vectors; never guess byte layouts.
 - SRP stays on `CHAPMath`: a pure Swift big-integer library took minutes per pair setup in debug builds, which
@@ -95,7 +100,9 @@ node Scripts/generate-definitions.js <hap-nodejs> > Sources/Homeswift/Model/Defi
   loses rooms, scenes and automations. Plugins prefix ids with their platform name (`ElgatoKeyLights:<MAC>`).
 - Run one demo or bridge per identity at a time: two processes advertising the same device ID make the Home
   app drop pairings.
-- Tests use `MemoryStorage` and `advertise: false`; they never touch `~/.homeswift`. Plugin tests inject fake
+- Tests use `MemoryStorage` and `advertise: false`; they never touch `~/.homeswift`. They wait for what they check
+  (`eventually`), never a fixed sleep for something to happen, and take a plugin's real timings from its dependencies
+  (a `timeScale`, a shorter delay) rather than waiting them out: the suite runs in seconds, every target at once. Plugin tests inject fake
   transports through a `PluginRegistry` closure (see `Plugins/ElgatoKeyLights/Tests`); MQTT and WebSocket fakes are in
   `HomeswiftNetworkTestSupport`.
 - Keep Linux building: Darwin-only APIs go behind `#if canImport(...)`; `URLSession` needs

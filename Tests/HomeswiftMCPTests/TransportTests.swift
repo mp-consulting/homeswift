@@ -177,7 +177,7 @@ struct TransportTests {
         // A notification from the server reaches stdout through the standing stream.
         feed.yield(Data(request(4, "resources/subscribe", ["uri": "homeswift://accessories"]).utf8))
         #expect(await eventually { output.lines.contains { $0["id"] == 4 } })
-        try await Task.sleep(for: .milliseconds(500))
+        #expect(await eventually { transport.standingStreams == 1 })
         environment.host.mainBridge.server.accessories[1].service(.lightbulb)?.characteristic(.brightness).value = .int(10)
         #expect(await eventually { output.lines.contains { $0["method"] == "notifications/resources/updated" } })
 

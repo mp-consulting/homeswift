@@ -80,6 +80,8 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
         var discover: @Sendable (Logger) -> AsyncStream<DiscoveredLight> = Discovery.browse
         /// The IPv4 address the ARP table has for a MAC.
         var arp: @Sendable (String) async -> String? = HostResolution.arpAddress(forMAC:)
+        /// The shortest polling interval taken, in milliseconds (`minimumPollingRate`; tests go lower).
+        var minimumPollingRate = ElgatoKeyLightsPlugin.minimumPollingRate
     }
 
     public static let platform = "ElgatoKeyLights"
@@ -322,7 +324,7 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
             status[light.mac] = .failed
             return
         }
-        let interval = Duration.milliseconds(max(Self.minimumPollingRate, configuration.pollingRate ?? Self.defaultPollingRate))
+        let interval = Duration.milliseconds(max(dependencies.minimumPollingRate, configuration.pollingRate ?? Self.defaultPollingRate))
         let client = KeyLightClient(host: light.host, port: light.port, transport: dependencies.transport)
         let device = KeyLightDevice(mac: light.mac, name: light.name, client: client, pollingInterval: interval, logger: logger)
         do {

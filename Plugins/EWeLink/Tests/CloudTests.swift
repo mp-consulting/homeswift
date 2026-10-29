@@ -301,7 +301,8 @@ struct CommandDispatcherTests {
         let results = (try await running.value, try await third.value, try await fourth.value)
         #expect(results == (true, true, true))
 
-        let blocked = CommandQueue(minInterval: 10_000, concurrency: 1, clock: testClock)
+        // Ten real seconds between commands: the second is still queued however long a loaded runner takes to look.
+        let blocked = CommandQueue(minInterval: 10_000, concurrency: 1, clock: EWeLinkClock())
         _ = try await blocked.enqueue("x") { true }
         let waiting = Task { try await blocked.enqueue("y") { true } }
         #expect(await eventually { await blocked.queuedCount == 1 })

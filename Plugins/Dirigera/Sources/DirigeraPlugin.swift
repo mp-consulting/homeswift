@@ -48,6 +48,10 @@ public actor DirigeraPlugin: HomeswiftPlugin {
         var discover: @Sendable () async -> [String] = DirigeraDiscovery.find
         /// How long to wait before connecting the events again.
         var reconnectDelay: Duration = .seconds(5)
+        /// How long to wait before asking again whether the hub's button was pressed.
+        var pairingRetryDelay: Duration = .seconds(2)
+        /// How long after a command a light's own values are left alone (`DirigeraLightCommands.settleTime`).
+        var settleTime: Duration = DirigeraLightCommands.settleTime
     }
 
     public static let platform = "Dirigera"
@@ -254,14 +258,14 @@ public actor DirigeraPlugin: HomeswiftPlugin {
             hub.devices[id] = device
             if !device.isStandalone { return showGroupChange(device, reachabilityChanged: event["data"]?["isReachable"] != nil, on: hub) }
             if let services = accessories[id] {
-                if let writer = services.writer, await writer.isSettling(within: DirigeraLightCommands.settleTime) { return }
+                if let writer = services.writer, await writer.isSettling(within: dependencies.settleTime) { return }
                 // A white or a colour set elsewhere (the IKEA app, a remote) stops Adaptive Lighting, as the Home app
                 // does when it sets one; not while a fade of the bridge's own may still report its steps.
                 let attributes = event["data"]?["attributes"]
                 let colour = attributes?["colorMode"]?.stringValue == "color"
                 if let adaptive = services.adaptiveLighting, adaptive.isAdaptiveLightingActive,
                    colour || (attributes?["colorTemperature"] != nil && device.mirek != nil),
-                   await services.writer?.isSettling(within: .milliseconds(transitionMs) + DirigeraLightCommands.settleTime) != true,
+                   await services.writer?.isSettling(within: .milliseconds(transitionMs) + dependencies.settleTime) != true,
                    adaptive.disableIfChangedElsewhere(mireds: colour ? nil : device.mirek) {
                     logger.info("\(device.name): colour changed outside HomeKit, Adaptive Lighting off")
                 }
@@ -294,7 +298,7 @@ public actor DirigeraPlugin: HomeswiftPlugin {
             let shape = Self.shape(of: device)
             if let services = accessories[device.id], services.shape == shape {
                 services.accessory.isUnavailable = !device.reachable
-                if let writer = services.writer, await writer.isSettling(within: DirigeraLightCommands.settleTime) { continue }
+                if let writer = services.writer, await writer.isSettling(within: dependencies.settleTime) { continue }
                 Self.showValues(device, on: services)
                 continue
             }
@@ -482,7 +486,7 @@ public actor DirigeraPlugin: HomeswiftPlugin {
                 tasks.add { [weak self] in await self?.run(hub) }
                 return
             } catch DirigeraClient.Failure.buttonNotPressed {
-                try await Task.sleep(for: .seconds(2))
+                try await Task.sleep(for: dependencies.pairingRetryDelay)
             }
         }
         throw DirigeraClient.Failure.buttonNotPressed

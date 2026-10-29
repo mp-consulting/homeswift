@@ -74,7 +74,7 @@ public actor WingmanPlugin: HomeswiftPlugin {
     let dependencies: Dependencies
     private let tasks = TaskBag()
     private(set) var links: [String: Link] = [:]
-    private var announced: [String: Announced] = [:]
+    private(set) var announced: [String: Announced] = [:]
     nonisolated var logger: Logger { context.logger }
     nonisolated var refreshInterval: Duration { .seconds(60 * max(configuration.refreshMinutes ?? 10, 1)) }
 

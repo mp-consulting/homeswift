@@ -50,8 +50,9 @@ final class ThermostatPlugDevice: GoveeDevice {
         cacheActive = cacheState == "on" && int(service[mode == .heater ? .targetHeaterCoolerState : .currentHeaterCoolerState]) == runningState ? "on" : "off"
         startCustomHistory()
         // Temperatures from the source sensor, five seconds in and then every two minutes.
+        let firstRead = environment.temperatureSourceFirstRead
         poller = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(5))
+            try? await Task.sleep(for: firstRead)
             while !Task.isCancelled {
                 await self?.readTemperature()
                 try? await Task.sleep(for: .seconds(120))
