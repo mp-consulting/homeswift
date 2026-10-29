@@ -577,6 +577,9 @@
         el("div", { class: "status-footer-meta" },
           el("p", { class: "muted", text: t("Version {version} · {host}", { version: status.version, host: status.system.hostname }) }),
           isAdmin() ? checkUpdates : null)),
+      el("a", { class: "link", href: "https://github.com/mp-consulting/homeswift/issues", target: "_blank", rel: "noopener", title: t("Send feedback"), "aria-label": t("Send feedback"),
+        onclick: (event) => { event.preventDefault(); window.open(event.currentTarget.href, "homeswift-feedback", "popup,noopener,width=1100,height=800"); } },
+        HomeswiftCommon.icon("bug"), el("span", { class: "status-footer-action-label", text: t("Send feedback") })),
       el("button", { type: "button", class: "link", "aria-label": t("Customise the Status page"), "aria-haspopup": "menu", "aria-expanded": "false",
         onclick: (event) => customiseDashboard(event.currentTarget, renderDashboard, event.detail === 0) }, HomeswiftCommon.icon("sliders"), el("span", { class: "status-footer-action-label", text: t("Customise this page…") })));
     function renderDashboard(layout) {

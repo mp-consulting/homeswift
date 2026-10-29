@@ -1963,6 +1963,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("div", { class: "status-footer-meta" },
           el("p", { class: "muted", text: t("Version {version} · {host}", { version: status.version, host: status.system.hostname }) }),
           isAdmin() ? checkUpdates : null)),
+      el("a", { class: "link", href: "https://github.com/mp-consulting/homeswift/issues", target: "_blank", rel: "noopener", title: t("Send feedback"), "aria-label": t("Send feedback"),
+        onclick: (event) => { event.preventDefault(); window.open(event.currentTarget.href, "homeswift-feedback", "popup,noopener,width=1100,height=800"); } },
+        HomeswiftCommon.icon("bug"), el("span", { class: "status-footer-action-label", text: t("Send feedback") })),
       el("button", { type: "button", class: "link", "aria-label": t("Customise the Status page"), "aria-haspopup": "menu", "aria-expanded": "false",
         onclick: (event) => customiseDashboard(event.currentTarget, renderDashboard, event.detail === 0) }, HomeswiftCommon.icon("sliders"), el("span", { class: "status-footer-action-label", text: t("Customise this page…") })));
     function renderDashboard(layout) {
@@ -7167,6 +7170,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     pylon: '<path d="M9 21l3-18 3 18M6 7.5h12M7.5 12.5h9M10.3 12.5 14.2 21M13.7 12.5 9.8 21"/>',
     bolt: '<path d="M13 2.5 5 13.5h6l-1 8 8-11h-6z"/>',
     leaf: '<path d="M5 19c0-8 5-14 15-14 0 10-6 15-14 15M5 19l7-7"/>',
+    bug: '<rect x="8" y="7" width="8" height="12" rx="4"/><path d="M9.5 7.5a2.5 2.5 0 0 1 5 0M12 11v8M4 9l4 2M20 9l-4 2M3.5 14h4.5M16 14h4.5M4 19.5l4.3-2M20 19.5l-4.3-2"/>',
   };
 
   /// A button's icon before its text (`actionIcon`, `data-action-icon`): the icon as an SVG data: URL in
@@ -11063,6 +11067,7 @@ HomeswiftI18n.add("es", {
   "Custom range…": "Intervalo personalizado…",
   "Customise the Status page": "Personalizar la página Estado",
   "Customise this page": "Personalizar esta página",
+  "Send feedback": "Enviar comentarios",
   "Customise this page…": "Personalizar esta página…",
   "Cyan": "Cian",
   "Daily backup": "Copia de seguridad diaria",
@@ -13378,6 +13383,7 @@ HomeswiftI18n.add("fr", {
   "Custom range…": "Période personnalisée…",
   "Customise the Status page": "Personnaliser la page État",
   "Customise this page": "Personnaliser cette page",
+  "Send feedback": "Envoyer un avis",
   "Customise this page…": "Personnaliser cette page…",
   "Cyan": "Cyan",
   "Daily backup": "Sauvegarde quotidienne",
@@ -15693,6 +15699,7 @@ HomeswiftI18n.add("pt", {
   "Custom range…": "Intervalo personalizado…",
   "Customise the Status page": "Personalizar a página Estado",
   "Customise this page": "Personalizar esta página",
+  "Send feedback": "Enviar feedback",
   "Customise this page…": "Personalizar esta página…",
   "Cyan": "Ciano",
   "Daily backup": "Cópia de segurança diária",
@@ -22388,6 +22395,7 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
 }
 .status-footer > .link:hover, .status-footer > .link[aria-expanded="true"] { background: rgba(255,255,255,.1); border-color: rgba(255,255,255,.28); }
 .status-footer > .link:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 3px; }
+.status-footer > a.link:hover { text-decoration: none; }
 @media (max-width: 640px) {
   .status-footer { gap: var(--space-12); padding: var(--space-12) 88px var(--space-12) var(--space-16); }
   .status-footer-summary { display: block; }
@@ -22410,7 +22418,8 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
   .status-footer { display: grid; grid-template-columns: minmax(0, 1fr) 40px; gap: var(--space-4) var(--space-12); }
   .status-footer-summary { display: contents; }
   .status-footer-summary .health { grid-column: 1; grid-row: 1; }
-  .status-footer > .link { grid-column: 2; grid-row: 1; }
+  .status-footer { grid-template-columns: minmax(0, 1fr) 40px 40px; }
+  .status-footer > .link { grid-row: 1; }
   .status-footer-meta { grid-column: 1 / -1; grid-row: 2; min-width: 0; }
 }
 

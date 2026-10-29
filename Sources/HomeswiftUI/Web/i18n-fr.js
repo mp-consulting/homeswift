@@ -711,6 +711,7 @@ HomeswiftI18n.add("fr", {
   "Custom range…": "Période personnalisée…",
   "Customise the Status page": "Personnaliser la page État",
   "Customise this page": "Personnaliser cette page",
+  "Send feedback": "Envoyer un avis",
   "Customise this page…": "Personnaliser cette page…",
   "Cyan": "Cyan",
   "Daily backup": "Sauvegarde quotidienne",

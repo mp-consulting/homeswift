@@ -127,6 +127,7 @@
     pylon: '<path d="M9 21l3-18 3 18M6 7.5h12M7.5 12.5h9M10.3 12.5 14.2 21M13.7 12.5 9.8 21"/>',
     bolt: '<path d="M13 2.5 5 13.5h6l-1 8 8-11h-6z"/>',
     leaf: '<path d="M5 19c0-8 5-14 15-14 0 10-6 15-14 15M5 19l7-7"/>',
+    bug: '<rect x="8" y="7" width="8" height="12" rx="4"/><path d="M9.5 7.5a2.5 2.5 0 0 1 5 0M12 11v8M4 9l4 2M20 9l-4 2M3.5 14h4.5M16 14h4.5M4 19.5l4.3-2M20 19.5l-4.3-2"/>',
   };
 
   /// A button's icon before its text (`actionIcon`, `data-action-icon`): the icon as an SVG data: URL in
