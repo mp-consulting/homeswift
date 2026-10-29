@@ -198,7 +198,7 @@ sends you back.
 
 | Scope | Tools |
 |---|---|
-| `read` | `get_server_status`, `list_accessories`, `get_accessory`, `get_accessory_history`, `list_plugins`, `get_config`, `list_config_backups`, `get_recent_logs`, `search_logs`, `get_system_info`, `list_child_bridges`, `get_child_bridge_health`, `get_cached_accessories`, `get_pairing_info`, `list_backups`, `get_accessory_layout`, `get_wall_layout`, `list_scenes`, `list_moods`, `get_assistant_usage`, `get_daily_digest` |
+| `read` | `get_server_status`, `list_accessories`, `get_accessory`, `get_accessory_history`, `list_plugins`, `get_config`, `list_config_backups`, `get_recent_logs`, `search_logs`, `get_system_info`, `list_child_bridges`, `get_child_bridge_health`, `get_cached_accessories`, `get_pairing_info`, `list_backups`, `get_accessory_layout`, `get_wall_layout`, `list_scenes`, `list_scene_templates`, `list_moods`, `get_assistant_usage`, `get_daily_digest` |
 | `control` | Plus `set_accessory`, `set_accessories` (with `dryRun`), `set_security_accessory`, `identify_accessory`, `run_scene` (a saved scene, a hub's, or a `plan`), `stop_scene`, `start_mood` (with `dryRun`), `stop_mood` |
 | `admin` | Plus `update_config`, `patch_config`, `restore_config`, `put_list_entry`, `restart_bridge`, `restart_child_bridge`, `stop_child_bridge`, `start_child_bridge`, `remove_cached_accessory`, `reset_cached_accessories`, `reset_pairings`, `create_backup`, `get_audit_log`, `update_bridge_settings`, `set_accessory_layout`, `set_wall_layout`, `save_scene` (with `dryRun`), `send_test_notification`, `truncate_logs`, `test_assistant_connection` |
 
@@ -252,7 +252,10 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   scene among its values. A scene or a plan can animate lights after its actions (`animation`: `lights` and an `effect`
   such as fire, candle, sunrise or music with a colour, speed and brightness, or timed `steps`): each brand plays its own
   lights natively where it can (a Hue light's effect, a Govee light's library scene, an IKEA fade, an Ambilight TV
-  following the music), Homeswift's player the rest, and `stop_scene` puts them all back. A Homeswift scene answers per action; it refuses a scene with a security action, as homebridge-mcp-server's does: those
+  following the music), Homeswift's player the rest, and `stop_scene` puts them all back. `list_scene_templates` lists ready-made ambiances (values set
+  once, effects, timed sequences, the gallery's palettes); `run_scene` and `save_scene` take a `template`, or a
+  `description` the bridge's Assistant turns into a plan, with the `room` (or `ids`) whose lights it sets. A Homeswift
+  scene answers per action; it refuses a scene with a security action, as homebridge-mcp-server's does: those
   go through `set_security_accessory`, which asks, or the web UI, where the signed-in user confirms. `save_scene`
   keeps a `plan`, or makes a scene from the current values of `ids` (only `characteristics`, when given), never capturing a security
   control; `dryRun` lists the actions. The `scene-builder` prompt ends with it.

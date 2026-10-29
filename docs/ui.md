@@ -192,17 +192,19 @@ colours, following the music…) with its speed, brightness and colour. Each bra
 its lights have it (Hue's effects, Govee's library scenes, an IKEA fade for a sunrise, an Ambilight TV for music);
 Homeswift plays it on the others. An animated scene is active while it plays, and **Stop** puts the lights back. They are changed in their own app.
 
-**Moods**, on the same page: the rooms that have lights as chips, and the collection of moods by kind, each drawn with
-photographic thumbnails. A tap plays one on the room's lights; the pill stays lit while it plays, with the mood and **Stop** under
-the rooms. A calm mood shows there with **Undo** for 12 hours, which puts the lights back as they were. With the
-Assistant on, a box writes a mood from a description ("a jazz bar"). A mood that sets the lights once can be saved as a
-scene (an administrator's). The **Scene gallery** adds 143 named photographic tiles in 28 theme categories, including Get cozy, Movie night, Reading, Wanderlust, Vibrant and Party vibes. Each theme has two horizontally scrolling rows on desktop and one row on mobile. Search by scene or theme name, or select a theme to show just that shelf. Sort each shelf by gallery order, name A–Z or name Z–A. These
+**Templates**, on the same page: the rooms that have lights as chips, and the collection by kind, each drawn with
+photographic thumbnails. A tap tries one on the room's lights at once, without saving it: calm ones set the lights,
+effects (a fireplace, a candle flicker, an ocean, a sunrise) play each brand's own way where its lights have it, and
+signals and party ones are timed sequences. The pill stays lit while it plays, and what was tried shows under the rooms
+with **Stop** (or **Undo**, for 12 hours, for one that set the lights once) and **Save as a scene**, which keeps it as a
+scene for that room, animated or not. With the Assistant on, **Describe a scene…** writes one from a description ("a
+jazz bar") and tries it the same way. The **Scene gallery** adds 143 named photographic tiles in 28 theme categories, including Get cozy, Movie night, Reading, Wanderlust, Vibrant and Party vibes. Each theme has two horizontally scrolling rows on desktop and one row on mobile. Search by scene or theme name, or select a theme to show just that shelf. Sort each shelf by gallery order, name A–Z or name Z–A. These
 set a palette once across the room's lights; they do not reproduce Hue animations or brightness. Saving one as a
 scene preserves its artwork. In the scene editor, expand **Scene image** to choose another picture or **No image**.
 Existing scenes without artwork keep their usual icon. The original gallery titles stay the same in all languages.
-On a phone each photographic theme is a single row that swipes sideways; Calm, Slow animations, Party and Signals also use single horizontal rows. Hue and IKEA scene collections share this mobile layout. Playing and stopping moods is
-controlling accessories, as running a scene is. `MoodLibrary` is the collection; MCP clients use `list_moods`,
-`start_mood` and `stop_mood`.
+On a phone each photographic theme is a single row that swipes sideways; Calm, Slow animations, Party and Signals also use single horizontal rows. Hue and IKEA scene collections share this mobile layout. Trying a template is
+controlling accessories, as running a scene is. `MoodLibrary` is the collection; MCP clients use `list_scene_templates`,
+and `run_scene` or `save_scene` with `template` (or `description`) and `room`.
 
 Scene cards keep accessory actions collapsed under **Details**. Expand it to see every action.
 

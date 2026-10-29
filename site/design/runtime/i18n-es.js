@@ -1,5 +1,13 @@
 // The web UI in Spanish (Spain): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("es", {
+  "Templates": "Plantillas",
+  "Try one on a room's lights; save it as a scene when you like it.": "Prueba una en las luces de una habitación; guárdala como escena si te gusta.",
+  "Put your lights in rooms (a card's menu on the Accessories page) to try templates on them.": "Pon tus luces en habitaciones (el menú de una tarjeta en la página Accesorios) para probar plantillas en ellas.",
+  "Describe a scene…": "Describe una escena…",
+  "Describe a scene": "Describir una escena",
+  "The Assistant is writing a scene…": "El Asistente está escribiendo una escena…",
+  "Trying {template}…": "Probando {template}…",
+  "{room}, {time}": "{room}, {time}",
   "Animation": "Animación",
   "No animation": "Sin animación",
   "Timed sequence": "Secuencia temporizada",

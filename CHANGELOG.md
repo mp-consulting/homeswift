@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Scene templates and scenes the Assistant writes: the mood collection and the scene gallery are templates
+  (`list_scene_templates`), which `run_scene` tries and `save_scene` keeps for a room's lights, as values set once, an
+  effect each brand plays its own way, or a timed sequence; a `description` does the same through the bridge's
+  Assistant. On the Scenes page, Templates replaces Moods: a tap tries one with Stop or Undo, Save as a scene keeps it,
+  and Describe a scene asks the Assistant.
 - Animated scenes: a scene or a plan can make lights move after its actions (`animation`: a style such as candle,
   fire, sparkle, prism, underwater, sunrise, moving colours or music, with a colour, speed and brightness, or timed
   steps). Plugins play their own lights natively (`HomeswiftPlugin.animate`): Hue with `effects_v2` and `timed_effects`,

@@ -67,7 +67,10 @@ extension HomeswiftCatalog {
         let scene = try planScene(plan)
         var answer = try await run(scene, trigger: .manual, allowSecurity: allowSecurity).objectValue ?? [:]
         answer["run"] = .string(scene.id)
-        answer["plan"] = ["name": .string(scene.name), "actions": (try? JSONValue(encoding: scene.actions)) ?? []]
+        var ran: [String: JSONValue] = ["name": .string(scene.name), "actions": (try? JSONValue(encoding: scene.actions)) ?? []]
+        if let animation = scene.animation { ran["animation"] = (try? JSONValue(encoding: animation)) ?? .null }
+        if let artwork = scene.artworkId { ran["artworkId"] = .string(artwork) }
+        answer["plan"] = .object(ran)
         return .object(answer)
     }
 

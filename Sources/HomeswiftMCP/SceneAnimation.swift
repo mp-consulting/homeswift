@@ -16,6 +16,8 @@ public struct SceneAnimation: Codable, Sendable, Equatable {
     /// A sequence plays again and again until `durationSeconds` is up.
     public var loop: Bool?
     public var durationSeconds: Double?
+    /// A sequence puts the lights back as they were when it ends (a signal such as an alert flash).
+    public var restore: Bool?
 
     public var kind: String { effect != nil ? "effect" : "sequence" }
 
@@ -41,7 +43,7 @@ public struct SceneAnimation: Codable, Sendable, Equatable {
             if effect.style == .palette, (effect.colors ?? []).count < 2 { throw CatalogError("A palette has 2 colours or more") }
         }
         if let steps = animation.steps {
-            try MoodRules.check(Mood(name: "Sequence", steps: steps, loop: animation.loop, durationSeconds: animation.durationSeconds))
+            try MoodRules.check(Mood(name: "Sequence", steps: steps, loop: animation.loop, durationSeconds: animation.durationSeconds, restore: animation.restore))
         }
         return animation
     }
@@ -77,7 +79,7 @@ extension HomeswiftCatalog {
             rest = lights.filter { !native.contains($0.located.accessory.id) }
             mood = Self.fallbackMood(effect, id: moodID, name: scene.name)
         } else {
-            mood = Mood(id: moodID, name: scene.name, steps: animation.steps ?? [], loop: animation.loop, durationSeconds: animation.durationSeconds, restore: false)
+            mood = Mood(id: moodID, name: scene.name, steps: animation.steps ?? [], loop: animation.loop, durationSeconds: animation.durationSeconds, restore: animation.restore ?? false)
         }
         var playedByHomeswift: [String] = []
         if let mood, !rest.isEmpty {

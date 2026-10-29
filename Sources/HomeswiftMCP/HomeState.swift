@@ -72,6 +72,8 @@ public final class HomeState: Sendable {
     let runningMoods = NIOLockedValueBox<[String: MoodRun]>([:])
     /// The lights each scene's effect plays natively (their plugins animate them), by scene id: told to stop with it.
     let nativeAnimations = NIOLockedValueBox<[String: [String]]>([:])
+    /// The plans tried from the web UI (a template, a description), by run id, while they can be stopped.
+    let planRuns = NIOLockedValueBox<[String: PlanRun]>([:])
     /// The last value of each characteristic a scene trigger watches, and when each trigger last fired.
     let watched = NIOLockedValueBox(WatchedValues())
     /// Rate limits and memory of the notification dispatcher.

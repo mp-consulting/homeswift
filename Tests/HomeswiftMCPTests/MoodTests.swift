@@ -9,7 +9,7 @@ import Testing
 
 /// A bridge with the devices plugin's lamp and lock and `bulbs` colour bulbs, the last failing every write when
 /// `failing`; with `assistant`, an OpenAI-compatible provider the test answers for.
-private func moodConfig(bulbs: Int = 2, failing: Bool = false, slow: Bool = false, assistant: Bool = false) -> String {
+func moodConfig(bulbs: Int = 2, failing: Bool = false, slow: Bool = false, assistant: Bool = false) -> String {
     let ai = assistant ? #""provider": "openai-compatible", "model": "llama3.1", "baseUrl": "http://127.0.0.1:9/v1", "maxRetries": 0, "# : ""
     return """
         {
@@ -23,7 +23,7 @@ private func moodConfig(bulbs: Int = 2, failing: Bool = false, slow: Bool = fals
 }
 
 /// A started environment whose lights (and lock) are in the room Den.
-private func den(bulbs: Int = 2, failing: Bool = false, slow: Bool = false, model: (any HTTPTransport)? = nil) async throws -> (MCPTestEnvironment, DirectClient) {
+func den(bulbs: Int = 2, failing: Bool = false, slow: Bool = false, model: (any HTTPTransport)? = nil) async throws -> (MCPTestEnvironment, DirectClient) {
     let environment = try MCPTestEnvironment(config: moodConfig(bulbs: bulbs, failing: failing, slow: slow, assistant: model != nil), aiTransport: model)
     try await environment.start()
     let client = DirectClient(server: environment.server)
@@ -48,7 +48,7 @@ private let blink: JSONValue = [
 ]
 
 /// An OpenAI-compatible server in memory that answers every request with a mood, and keeps what it was sent.
-private final class MoodModel: HTTPTransport, @unchecked Sendable {
+final class MoodModel: HTTPTransport, @unchecked Sendable {
     private let lock = NIOLock()
     private var bodies: [String] = []
     var sent: String { lock.withLock { bodies.joined(separator: "\n") } }

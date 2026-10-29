@@ -16,6 +16,8 @@ import NIOHTTP1
 //   DELETE /api/scenes/<id>
 //   POST   /api/scenes/<id>/run               {"confirmSecurity": true} once the person agreed to its locks and doors; a
 //                                             plugin scene's id (`<platform>:<instance>:<hub id>`) recalls it
+//   GET    /api/scenes/templates              the templates, the plans tried that can be stopped, whether the Assistant writes
+//   POST   /api/scenes/try                    {"template" | "description" | "plan", "room" | "ids"}: runs it now, unsaved
 //   GET    /api/moods                         the collection of moods and those playing
 //   POST   /api/moods/start                   {"mood" | "description" | "plan", "room" | "ids", "durationSeconds"?}
 //   POST   /api/moods/stop                    {"run"?}: one, or every mood playing
@@ -60,6 +62,13 @@ extension UIServer {
 
         case (.GET, ["scenes"]):
             return .json(await catalog.allScenesJSON())
+        case (.GET, ["scenes", "templates"]):
+            return .json(catalog.sceneTemplatesJSON())
+        case (.POST, ["scenes", "try"]):
+            guard body["description"] == nil || catalog.host.assistant != nil else { return .error(404, "the Assistant is off: add a HomeswiftAiKit block, or pick a template") }
+            let result = try await catalog.tryScene(body, language: language)
+            logger.info("Web UI tried a scene", metadata: ["user": "\(username)", "scene": "\(result["name"]?.stringValue ?? "")"])
+            return .json(result)
         case (.POST, ["scenes"]):
             let scene = try catalog.createScene(body)
             logger.info("Web UI created a scene", metadata: ["user": "\(username)", "scene": "\(scene["name"]?.stringValue ?? "")"])

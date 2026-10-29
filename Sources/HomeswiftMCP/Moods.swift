@@ -624,9 +624,14 @@ extension HomeswiftCatalog {
         var filter = AccessoryFilter(arguments["filter"])
         if let room = arguments["room"]?.stringValue?.trimmingCharacters(in: .whitespaces).nonEmpty { filter.room = room }
         let lights = try moodLights(ids: arguments["ids"]?.arrayValue?.compactMap(\.stringValue), filter: filter)
+        let actions = staticActions(mood.steps[0], on: lights)
+        return try createScene(["name": .string(name.isEmpty ? mood.name : name), "actions": .array(actions), "artworkId": SceneArtwork.forMood(mood.id).map { .string($0.id) } ?? .null])
+    }
+
+    /// A scene's actions that set these lights as a step does: each light its colour of the step, then On.
+    func staticActions(_ step: MoodStep, on lights: [MoodLight]) -> [JSONValue] {
         var actions: [JSONValue] = []
         for (index, light) in lights.enumerated() {
-            let step = mood.steps[0]
             let color = step.colors[index % step.colors.count]
             let lightbulbs = light.located.accessory.services.filter { $0.type.uuid == ServiceType.lightbulb.uuid }.count
             let service: JSONValue = lightbulbs > 1 ? .string(light.service.subtype ?? light.service[.name]?.value.stringValue ?? light.service.type.name) : .null
@@ -642,7 +647,7 @@ extension HomeswiftCatalog {
             for (characteristic, value) in paintValues(light, color, jitter: 0) { action(characteristic, Self.json(value)) }
             action(light.on, true)
         }
-        return try createScene(["name": .string(name.isEmpty ? mood.name : name), "actions": .array(actions), "artworkId": SceneArtwork.forMood(mood.id).map { .string($0.id) } ?? .null])
+        return actions
     }
 
     // MARK: Playing

@@ -801,10 +801,17 @@ extension HomeswiftCatalog {
                     "properties": [
                         "scene": ["type": "string", "minLength": 1, "description": "The scene id or name, from list_scenes (scenes or pluginScenes)"],
                         "plan": HomeswiftCatalog.planSchema,
+                        "template": ["type": "string", "description": "A template's id, from list_scene_templates, for the lights of room (or ids)"],
+                        "description": ["type": "string", "maxLength": 500, "description": "An ambiance in words that the bridge's Assistant turns into a plan for the lights of room (or ids)"],
+                        "room": ["type": "string", "description": "With template or description: the room whose lights it sets"],
+                        "ids": ["type": "array", "items": ["type": "string"], "description": "With template or description: the lights it sets, instead of a room"],
                     ],
                 ],
                 scope: .control, idempotent: true
             ) { call in
+                if call.arguments["template"] != nil || call.arguments["description"] != nil {
+                    return .json(try await catalog.tryScene(call.arguments))
+                }
                 if let plan = call.arguments["plan"] {
                     guard call.arguments["scene"] == nil else { return .error("Pass scene or plan, not both") }
                     let scene = try catalog.planScene(plan)
@@ -819,6 +826,18 @@ extension HomeswiftCatalog {
                 if let refusal = catalog.securityRefusal(scene) { return .error(refusal) }
                 return .json(try await catalog.runScene(scene.id, trigger: .manual))
             },
+            MCPTool(
+                name: "list_scene_templates", title: "List scene templates",
+                description: "Ready-made ambiances to start a scene from: calm ones that set the lights once (candlelight, cinema, focus), effects each brand plays its own way "
+                    + "(a fireplace, a candle flicker, an ocean, a sunrise), timed sequences (disco, a police siren, an alert flash) and the gallery's pictures, each a palette. "
+                    + "run_scene with template and room tries one on a room's lights; save_scene with template, room and name keeps it.",
+                outputSchema: Output.object(["templates": ["type": "array"]], required: ["templates"]),
+                scope: .read, idempotent: true
+            ) { _ in .json(["templates": .array(MoodLibrary.all.map { mood in
+                var entry = HomeswiftCatalog.templateJSON(mood).objectValue ?? [:]
+                entry.removeValue(forKey: "swatch")
+                return .object(entry)
+            })]) },
             MCPTool(
                 name: "stop_scene", title: "Stop scene",
                 description: "Puts back what a scene changed when it ran in the last 12 hours, and stops it if it still plays: a saved scene, a hub's scene, or a plan by the run run_scene answered. "
@@ -838,13 +857,19 @@ extension HomeswiftCatalog {
                     "properties": [
                         "name": ["type": "string", "minLength": 1, "maxLength": 64],
                         "plan": HomeswiftCatalog.planSchema,
-                        "ids": ["type": "array", "minItems": 1, "maxItems": 50, "items": ["type": "string"], "description": "The accessories to capture, from list_accessories"],
+                        "template": ["type": "string", "description": "A template's id, from list_scene_templates, for the lights of room (or ids)"],
+                        "description": ["type": "string", "maxLength": 500, "description": "An ambiance in words that the bridge's Assistant turns into the scene, for the lights of room (or ids)"],
+                        "room": ["type": "string", "description": "With template or description: the room whose lights it sets"],
+                        "ids": ["type": "array", "minItems": 1, "maxItems": 50, "items": ["type": "string"], "description": "The accessories to capture, from list_accessories (with template or description: the lights it sets)"],
                         "characteristics": ["type": "array", "minItems": 1, "items": ["type": "string"], "description": "Only these characteristics, e.g. On, Brightness"],
                     ],
                 ],
                 scope: .admin, supportsDryRun: true
             ) { call in
                 let name = try call.string("name").trimmingCharacters(in: .whitespaces)
+                if call.arguments["template"] != nil || call.arguments["description"] != nil {
+                    return .json(try catalog.savePlan(try await catalog.composedPlan(call.arguments, language: nil).plan, name: name, dryRun: call.isDryRun))
+                }
                 if let plan = call.arguments["plan"] {
                     return .json(try catalog.savePlan(plan, name: name, dryRun: call.isDryRun))
                 }
