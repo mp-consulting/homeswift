@@ -2069,9 +2069,23 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 .quick-scene-label > svg { flex: none; width: 18px; height: 18px; }
 .quick-scene-label > span { overflow-wrap: anywhere; }
 .scene-run.busy { opacity: 0.6; }
+.scene-run.coloured { color: #fff; }
+.scene-run.coloured::after { content: ""; position: absolute; inset: 0; background: linear-gradient(transparent 30%, rgba(0, 0, 0, .55)); z-index: -1; }
+.scene-run.active { box-shadow: 0 0 0 2px var(--accent); }
+.scene-run .scene-active { position: absolute; top: var(--space-10); right: var(--space-10); }
+.scene-source { display: block; font-size: var(--text-xs); font-weight: var(--weight-medium); opacity: 0.8; }
+.hub-scenes { display: grid; gap: var(--space-12); }
+.hub-scene-room { display: grid; gap: var(--space-8); }
+.hub-scene-tile { display: grid; gap: var(--space-4); min-width: 0; }
+.hub-scene-tile > .scene-run { width: 100%; }
+.hub-scene-actions { display: flex; flex-wrap: wrap; gap: var(--space-10); }
+.hub-scene-actions button { font-size: var(--text-xs); }
+.animation-settings { display: grid; gap: var(--space-10); margin-top: var(--space-10); }
+.animation-colours { display: flex; gap: var(--space-10); }
+.animation-lights { display: grid; gap: var(--space-6); }
 @media (max-width: 640px) {
   .quick-scenes { grid-template-columns: none; grid-template-rows: auto; grid-auto-flow: column; grid-auto-columns: min(240px, 85%); overflow-x: auto; scroll-snap-type: x proximity; padding: var(--space-4); }
-  .quick-scenes > .scene-run { scroll-snap-align: start; }
+  .quick-scenes > .scene-run, .quick-scenes > .hub-scene-tile { scroll-snap-align: start; }
 }
 .scene-card .server-head > button { flex: none; }
 /* Moods: the rooms as chips, what plays, the Assistant's box, the collection as pills with their colours. Pills and chips
@@ -2916,6 +2930,7 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
 }
 .status-footer > .link:hover, .status-footer > .link[aria-expanded="true"] { background: rgba(255,255,255,.1); border-color: rgba(255,255,255,.28); }
 .status-footer > .link:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 3px; }
+.status-footer > a.link:hover { text-decoration: none; }
 @media (max-width: 640px) {
   .status-footer { gap: var(--space-12); padding: var(--space-12) 88px var(--space-12) var(--space-16); }
   .status-footer-summary { display: block; }
@@ -2938,7 +2953,8 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
   .status-footer { display: grid; grid-template-columns: minmax(0, 1fr) 40px; gap: var(--space-4) var(--space-12); }
   .status-footer-summary { display: contents; }
   .status-footer-summary .health { grid-column: 1; grid-row: 1; }
-  .status-footer > .link { grid-column: 2; grid-row: 1; }
+  .status-footer { grid-template-columns: minmax(0, 1fr) 40px 40px; }
+  .status-footer > .link { grid-row: 1; }
   .status-footer-meta { grid-column: 1 / -1; grid-row: 2; min-width: 0; }
 }
 
