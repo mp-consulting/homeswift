@@ -35,10 +35,14 @@ Pro, the Ultra reports the whole system's flows and the AC Pro 0 for each.
 With the EcoFlow app's email and password, the plugin also imports the cloud's energy history into the Status page's
 month and year views (**Import the energy history**, `importHistory`, on by default): each hour's solar production and
 home use since the system was set up, from the app's Space dashboard (home use from the system's smart meter when it has
-one), for the home of the account's first STREAM (one that reports, else one configured, else the app's device list's).
-The first import takes everything (a request per month and flow); then the last two days are taken again every 6
-hours, as the cloud fills hours in late. The cloud has no grid or battery history, so those come only from the days the
-bridge records. The space's answers carry the home's address: only its id and time zone are read, and no answer is logged.
+one), and the STREAM system's battery charge and discharge and grid import and export, from its Battery and Grid pages,
+for the home of the account's first STREAM (one that reports, else one configured, else the app's device list's). With
+all four, the Status page splits each day's home use by source. The first import takes everything (a request per month
+and chart); then the last two days are taken again every 6 hours, as the cloud fills hours in late. The battery and
+grid charts' codes are the ones the app's dashboard lists for the system (`/iot-service/dashboard/platform/getPageListById`
+with page type 4, then `getPageChartByPageId`), asked for by a unit's serial number; a system whose cloud refuses them
+keeps its solar and home history. The space's answers carry the home's address: only its id and time zone are read,
+and no answer is logged.
 
 ### STREAM
 

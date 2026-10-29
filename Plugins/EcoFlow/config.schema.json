@@ -65,7 +65,7 @@
         "type": "boolean",
         "required": false,
         "default": true,
-        "description": "Each hour's solar production and home use since your system was set up, from the EcoFlow cloud, in the Status page's month and year views",
+        "description": "Each hour's solar production, home use, battery and grid since your system was set up, from the EcoFlow cloud, in the Status page's month and year views",
         "x-schema-form": {
           "condition": "model.route !== 'developer'"
         }
@@ -179,9 +179,9 @@
       "From your developer account at developer.ecoflow.com": "De votre compte développeur sur developer.ecoflow.com",
       "Stored sealed in config.json": "Conservé chiffré dans config.json",
       "As you sign in to the EcoFlow app": "Celui avec lequel vous vous connectez à l'application EcoFlow",
-      "Each hour's solar production and home use since your system was set up, from the EcoFlow cloud, in the Status page's month and year views": "La production solaire et la consommation de la maison heure par heure depuis l'installation de votre système, depuis le cloud EcoFlow, dans les vues mois et année de la page État",
       "The devices come from your account. List one to keep it by its serial number or to rename it; the plugin's page adds them for you": "Les appareils viennent de votre compte. Listez-en un pour le garder par son numéro de série ou le renommer ; la page du plugin les ajoute pour vous",
-      "Interval (seconds)": "Intervalle (secondes)"
+      "Interval (seconds)": "Intervalle (secondes)",
+      "Each hour's solar production, home use, battery and grid since your system was set up, from the EcoFlow cloud, in the Status page's month and year views": "La production solaire, la consommation de la maison, la batterie et le réseau heure par heure depuis l'installation de votre système, depuis le cloud EcoFlow, dans les vues mois et année de la page État"
     },
     "es": {
       "Name": "Nombre",
@@ -211,9 +211,9 @@
       "From your developer account at developer.ecoflow.com": "De tu cuenta de desarrollador en developer.ecoflow.com",
       "Stored sealed in config.json": "Se guarda cifrada en config.json",
       "As you sign in to the EcoFlow app": "El que usas para iniciar sesión en la App de EcoFlow",
-      "Each hour's solar production and home use since your system was set up, from the EcoFlow cloud, in the Status page's month and year views": "La producción solar y el consumo de la casa hora a hora desde que se instaló tu sistema, desde la nube de EcoFlow, en las vistas de mes y año de la página Estado",
       "The devices come from your account. List one to keep it by its serial number or to rename it; the plugin's page adds them for you": "Los dispositivos vienen de tu cuenta. Añade uno para conservarlo por su número de serie o cambiarle el nombre; la página del plugin los añade por ti",
-      "Interval (seconds)": "Intervalo (segundos)"
+      "Interval (seconds)": "Intervalo (segundos)",
+      "Each hour's solar production, home use, battery and grid since your system was set up, from the EcoFlow cloud, in the Status page's month and year views": "La producción solar, el consumo de la casa, la batería y la red hora a hora desde que se instaló tu sistema, desde la nube de EcoFlow, en las vistas de mes y año de la página Estado"
     },
     "pt": {
       "Name": "Nome",
@@ -243,9 +243,9 @@
       "From your developer account at developer.ecoflow.com": "Da sua conta de programador em developer.ecoflow.com",
       "Stored sealed in config.json": "Guardada cifrada em config.json",
       "As you sign in to the EcoFlow app": "O que usa para iniciar sessão na Aplicação EcoFlow",
-      "Each hour's solar production and home use since your system was set up, from the EcoFlow cloud, in the Status page's month and year views": "A produção solar e o consumo da casa hora a hora desde a instalação do seu sistema, a partir da nuvem EcoFlow, nas vistas de mês e ano da página Estado",
       "The devices come from your account. List one to keep it by its serial number or to rename it; the plugin's page adds them for you": "Os dispositivos vêm da sua conta. Adicione um para o manter pelo número de série ou mudar o nome; a página do plugin adiciona-os por si",
-      "Interval (seconds)": "Intervalo (segundos)"
+      "Interval (seconds)": "Intervalo (segundos)",
+      "Each hour's solar production, home use, battery and grid since your system was set up, from the EcoFlow cloud, in the Status page's month and year views": "A produção solar, o consumo da casa, a bateria e a rede hora a hora desde a instalação do seu sistema, a partir da nuvem EcoFlow, nas vistas de mês e ano da página Estado"
     }
   },
   "layout": [

@@ -9,9 +9,22 @@ import Testing
 /// The EcoFlow cloud's answers as the probe of the app's API found them, keyed by path; a chart's by its code.
 final class FakeCloud: HTTPSending, Sendable {
     let requests = NIOLockedValueBox<[HomeswiftNetwork.HTTPRequest]>([])
+    /// Whether the system's battery and grid charts answer; refused ("query fail") otherwise.
+    let twoWay: Bool
+
+    init(twoWay: Bool = true) { self.twoWay = twoWay }
 
     static func hourly(_ day: String, _ values: [Double]) -> String {
         values.enumerated().map { #"{"indexName":"chart_data","indexValue":\#($0.element),"time":"\#(day) \#(String(format: "%02d", $0.offset)):00:00","unit":"wh"}"# }.joined(separator: ",")
+    }
+
+    /// A two-way chart's points, as the battery and grid charts send them: the value as text, `extra` the direction.
+    static func twoWayHourly(_ day: String, count: Int, _ first: Int, _ second: Int) -> String {
+        (0..<count).flatMap { hour in
+            [("1", first), ("2", second)].map { extra, value in
+                #"{"unit":"wh","indexName":"chart_data","extra":"\#(extra)","time":"\#(day) \#(String(format: "%02d", hour)):00:00","indexValue":"\#(value)"}"#
+            }
+        }.joined(separator: ",")
     }
 
     func send(_ request: HomeswiftNetwork.HTTPRequest) async throws -> HomeswiftNetwork.HTTPResponse {
@@ -28,7 +41,19 @@ final class FakeCloud: HTTPSending, Sendable {
             let json = try JSONSerialization.jsonObject(with: request.body ?? Data()) as? [String: Any] ?? [:]
             let params = json["params"] as? [String: Any] ?? [:]
             let begin = params["beginTime"] as? String ?? ""
-            let solar = json["code"] as? String == EcoFlowHistory.solarCode
+            let code = json["code"] as? String
+            if code == EcoFlowHistory.batteryCode || code == EcoFlowHistory.gridCode {
+                guard twoWay, (json["sn"] as? String)?.hasPrefix("BK11") == true, params["sn"] as? String == json["sn"] as? String else {
+                    body = #"{"code":"1","message":"query fail"}"#
+                    break
+                }
+                let (first, second) = code == EcoFlowHistory.batteryCode ? (150, 40) : (700, 5)
+                let points = begin.hasPrefix("2026-09") ? Self.twoWayHourly("2026-09-30", count: 24, first, second)
+                    : Self.twoWayHourly("2026-10-01", count: 24, first, second) + "," + Self.twoWayHourly("2026-10-02", count: 13, first, second)
+                body = #"{"code":"0","data":[\#(points)]}"#
+                break
+            }
+            let solar = code == EcoFlowHistory.solarCode
             // September: one day; October: the 1st and the 2nd, the 2nd under way.
             let points = begin.hasPrefix("2026-09") ? Self.hourly("2026-09-30", Array(repeating: solar ? 100 : 400, count: 24))
                 : Self.hourly("2026-10-01", Array(repeating: solar ? 200 : 500, count: 24)) + "," + Self.hourly("2026-10-02", Array(repeating: solar ? 300 : 600, count: 13))
@@ -67,19 +92,33 @@ struct EcoFlowHistoryTests {
         let hours = try await history.hours(serial: "BK11", since: nil, now: local("2026-10-02 12:30:00"))
         #expect(hours.count == 24 + 24 + 12)
         #expect(hours.first?.start == local("2026-09-30 00:00:00"))
-        #expect(hours.first?.flows == EnergyFlows(solar: 100, home: 400))
+        #expect(hours.first?.flows == EnergyFlows(solar: 100, home: 400, gridImport: 700, gridExport: 5, batteryCharge: 150, batteryDischarge: 40))
         #expect(hours.last?.start == local("2026-10-02 11:00:00"))
-        #expect(hours.last?.flows == EnergyFlows(solar: 300, home: 600))
+        #expect(hours.last?.flows == EnergyFlows(solar: 300, home: 600, gridImport: 700, gridExport: 5, batteryCharge: 150, batteryDischarge: 40))
 
         let requests = cloud.requests.withLockedValue { $0 }
-        // One sign-in without the app's headers, then the space, the system and a chart per month and flow.
-        #expect(requests.map(\.url.path) == ["/auth/login", "/app/space/getSpaceInfoBySn", "/app/space/system/list"] + Array(repeating: "/app/commonQuery/query", count: 4))
+        // One sign-in without the app's headers, then the space, the system and per month the solar, home, battery and
+        // grid charts.
+        #expect(requests.map(\.url.path) == ["/auth/login", "/app/space/getSpaceInfoBySn", "/app/space/system/list"] + Array(repeating: "/app/commonQuery/query", count: 8))
         #expect(requests[0].headers.contains { $0.name == "lang" } == false)
         #expect(requests[1].headers.contains { $0.name == "lang" && $0.value == "en_US" })
         #expect(requests[1].headers.contains { $0.name == "Authorization" && $0.value == "Bearer T0KEN" })
         let first = try #require(try JSONSerialization.jsonObject(with: requests[3].body ?? Data()) as? [String: Any])
         #expect(first["code"] as? String == EcoFlowHistory.solarCode)
         #expect((first["params"] as? [String: String]) == ["spaceId": "S1", "rootSpaceId": "S1", "beginTime": "2026-09-01 00:00:00", "endTime": "2026-09-30 23:59:59"])
+    }
+
+    /// A system whose cloud refuses the battery and grid charts keeps its solar and home history, and is not asked for
+    /// them again month after month.
+    @Test func aSystemWithoutBatteryChartsKeepsSolarAndHome() async throws {
+        let cloud = FakeCloud(twoWay: false)
+        var history = EcoFlowHistory(email: "me@example.test", password: "secret", transport: cloud)
+        history.retryDelays = []
+        let hours = try await history.hours(serial: "BK11", since: nil, now: local("2026-10-02 12:30:00"))
+        #expect(hours.count == 24 + 24 + 12)
+        #expect(hours.first?.flows == EnergyFlows(solar: 100, home: 400))
+        let queries = cloud.requests.withLockedValue { $0 }.filter { $0.url.path == "/app/commonQuery/query" }
+        #expect(queries.count == 4 + 1, "solar and home for two months, and the battery chart once")
     }
 
     /// Without a serial number, the account's first STREAM in the app's device list is the history's.
@@ -99,7 +138,7 @@ struct EcoFlowHistoryTests {
         history.retryDelays = [.zero]
         let hours = try await history.hours(serial: "BK11", since: nil, now: local("2026-10-02 12:30:00"))
         #expect(hours.count == 24 + 24 + 12)
-        #expect(cloud.charts.withLockedValue { $0 } == 4 + 1, "a chart a month and flow, and the refused one again")
+        #expect(cloud.charts.withLockedValue { $0 } == 8 + 1, "four charts a month, and the refused one again")
     }
 
     @Test func aTopUpStartsTheDayOfItsSince() async throws {

@@ -23,6 +23,9 @@ All notable changes to this project are documented here. The format follows
 - Plugin forms: `"x-schema-form": { "requiredWhen": <condition> }` marks a field required only while its condition holds
   and the field is shown. EcoFlow's form groups its settings by route (EcoFlow account, Developer API, Devices) and marks
   the email and password, or the keys, required on the route that needs them.
+- EcoFlow: the energy history import brings the STREAM system's battery charge and discharge and grid import and
+  export too, from the charts of the app's Battery and Grid pages: the Status page splits imported days' home use by
+  source, and the Power chart draws their battery and grid.
 - Status: the Energy section's Power chart draws an imported history's hours (a device cloud's solar and home use)
   where the bridge recorded nothing, each at its average, and says so under the chart.
 

@@ -2472,9 +2472,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       // home use not split.
       const sum = (field) => bars.filter(known).reduce((total, bar) => bar[field] == null ? total : (total ?? 0) + bar[field], null);
       const solar = sum("solar"), home = sum("home"), fromSolar = sum("homeFromSolar"), imported = sum("gridImport"), exported = sum("gridExport");
-      // A key only for a colour the bars draw; the grid's figures, known for the days the bridge recorded only, say so
-      // when the period has imported days too.
-      const partly = bars.some((bar) => bar.importedHours);
+      // A key only for a colour the bars draw; the grid's figures say they cover the recorded days only when the period
+      // has imported days without them (an import of solar and home use alone).
+      const partly = bars.some((bar) => bar.importedHours && bar.gridImport == null && bar.gridExport == null);
       const total = (tone, label, value, note) => el("div", { class: "energy-total" },
         el("span", {}, tone ? el("i", { class: `key bar tone-${tone}`, "aria-hidden": "true" }) : null, label), el("b", { text: value }),
         note ? el("small", { text: note }) : null);
@@ -2486,7 +2486,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         exported != null ? total(7, t("Grid export"), formatKWh(exported), partly ? t("Recorded days only") : null) : null,
       ].filter(Boolean);
       summary.replaceChildren(...(totals.length ? totals : [el("span", { class: "muted", text: t("Nothing recorded in this period") })]));
-      days.detail.replaceChildren(...[bars.some((bar) => bar.importedHours)
+      days.detail.replaceChildren(...[bars.some((bar) => bar.homeNotSplit > 0)
         ? el("div", { text: t("Imported hours have no grid or battery figures: the rest of their home use is not split by source.") }) : null].filter(Boolean));
 
       const columns = [

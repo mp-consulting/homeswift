@@ -254,7 +254,7 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
             try? file.save(HistoryState(importedThrough: now, from: from))
             context.reportEnergyImport(EnergyImportProgress(state: .done, from: from, through: now))
             if previous == nil, let first = hours.first?.start {
-                logger.info("Imported \(hours.count) hours of energy history (solar and home use) from the EcoFlow cloud, since \(Timestamp.iso8601(first).prefix(10))")
+                logger.info("Imported \(hours.count) hours of energy history (solar, home use, and the battery and grid where the cloud has them) from the EcoFlow cloud, since \(Timestamp.iso8601(first).prefix(10))")
             } else {
                 logger.debug("Imported \(hours.count) hours of energy history from the EcoFlow cloud")
             }

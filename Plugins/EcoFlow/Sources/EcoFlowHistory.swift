@@ -2,10 +2,11 @@ import Foundation
 import HomeswiftNetwork
 import HomeswiftPlugin
 
-/// The EcoFlow cloud's energy history for the home a STREAM belongs to, as the app's Space dashboard shows it: each
-/// hour's solar production and home use (from the system's smart meter when it has one), back to when the system was
-/// set up. It is the app's own, unofficial API, with the account's email and password: one sign-in, then a request
-/// per month and flow. The cloud keeps no grid or battery history there.
+/// The EcoFlow cloud's energy history for the home a STREAM belongs to, as the app shows it: each hour's solar
+/// production and home use (from the system's smart meter when it has one), as the Space dashboard has them, and the
+/// system's battery charge and discharge and grid import and export, as its Battery and Grid pages have them, back to
+/// when the system was set up. It is the app's own, unofficial API, with the account's email and password: one
+/// sign-in, then a request per month and chart.
 ///
 /// The space's answers also carry the home's address and coordinates: only its id and time zone are read, and no
 /// answer is logged.
@@ -22,9 +23,19 @@ struct EcoFlowHistory: Sendable {
         (name: "lang", value: "en_US"), (name: "platform", value: "ios"), (name: "version", value: "6.17.5"),
         (name: "phoneModel", value: "Homeswift"), (name: "sysVersion", value: "1.0"),
     ]
-    /// The charts read: an hour's watt-hours over a month at a time.
+    /// The charts read: an hour's watt-hours over a month at a time. Solar and home use are the space's; the battery
+    /// and the grid are the STREAM system's, asked for by a unit's serial number, each point's `extra` saying which way
+    /// ("1" charge or import, "2" discharge or export). These codes are the ones the app's dashboard lists for the
+    /// system's Battery and Grid pages (`getPageListById`, `getPageChartByPageId`).
     static let solarCode = "SPACE-APP-SOLAR-ENERGY-BAR-DAY"
     static let homeCode = "SPACE-APP-LOAD-ENERGY-BAR-DAY"
+    static let batteryCode = "BKW3_SYSTEM-Pro_App-BATTERY-BATTERY-ENERGY-FLOW-chart_battery_bar_dual_charging_discharging_sys-DAY-CHART_DATA"
+    static let gridCode = "BKW3_SYSTEM-Pro_App-GRID-GRID-ENERGY-FLOW-chart_grid_bar_dual_es_sys-DAY-CHART_DATA"
+    /// Each two-way chart's directions: the `extra` of its points, and the flow each fills.
+    nonisolated(unsafe) static let twoWay: [(code: String, ways: [(extra: String, field: WritableKeyPath<EnergyFlows, Double?>)])] = [
+        (batteryCode, [("1", \.batteryCharge), ("2", \.batteryDischarge)]),
+        (gridCode, [("1", \.gridImport), ("2", \.gridExport)]),
+    ]
 
     enum Failure: Error, CustomStringConvertible {
         case signIn(String), noSpace, noStream, refused(String, String), http(String, Int)
@@ -49,8 +60,8 @@ struct EcoFlowHistory: Sendable {
         var created: Date?
     }
 
-    /// Each whole hour from the month `since` is in (the system's set-up without it) to now, oldest first: solar and
-    /// home use, in watt-hours. The hour under way is left out. `month` hears each month as it arrives, with how many
+    /// Each whole hour from the month `since` is in (the system's set-up without it) to now, oldest first: solar, home
+    /// use, and the battery's and the grid's both ways when the cloud has them, in watt-hours. The hour under way is left out. `month` hears each month as it arrives, with how many
     /// are done of how many, so the history fills in while the import runs. Without a serial number, the account's
     /// first STREAM in the app's device list is the one.
     @discardableResult
@@ -69,18 +80,34 @@ struct EcoFlowHistory: Sendable {
             month = calendar.date(byAdding: .month, value: 1, to: month)!
         }
         let format = Self.formatter(space.timeZone)
-        let firstDay = since.map { calendar.startOfDay(for: $0) } ?? .distantPast
+        // The history starts the day of `since`, or the day the system was set up: the battery and grid charts fill the
+        // days of that first month before it with zeros.
+        let firstDay = (since ?? space.created).map { calendar.startOfDay(for: $0) } ?? .distantPast
         var all: [EnergyHourImport] = []
+        // The battery and grid charts, until the cloud refuses one: a system without those pages keeps its solar and
+        // home history.
+        var twoWay = true
         await report([], 0, months.count)
         for (index, start) in months.enumerated() {
             let end = min(calendar.date(byAdding: .month, value: 1, to: start)!.addingTimeInterval(-1), now)
+            let (from, to) = (format.string(from: start), format.string(from: end))
             var hours: [Date: EnergyFlows] = [:]
-            for (code, field) in [(Self.solarCode, \EnergyFlows.solar), (Self.homeCode, \EnergyFlows.home)] {
-                for (hour, wattHours) in try await chart(code, space: space, from: format.string(from: start), to: format.string(from: end), token: token, format: format) {
+            func add(_ points: [(Date, Double)], to field: WritableKeyPath<EnergyFlows, Double?>) {
+                for (hour, wattHours) in points {
                     // The hour under way, and hours before the history's start, are left out.
                     guard hour.addingTimeInterval(3600) <= now, hour >= firstDay else { continue }
                     hours[hour, default: EnergyFlows()][keyPath: field] = wattHours
                 }
+            }
+            for (code, field) in [(Self.solarCode, \EnergyFlows.solar), (Self.homeCode, \EnergyFlows.home)] {
+                add(Self.points(try await chart(code, space: space, from: from, to: to, token: token), format: format), to: field)
+            }
+            for chart2 in Self.twoWay where twoWay {
+                guard let data = try? await chart(chart2.code, serial: serial, from: from, to: to, token: token) else {
+                    twoWay = false
+                    break
+                }
+                for way in chart2.ways { add(Self.points(data, format: format, extra: way.extra), to: way.field) }
             }
             let batch = hours.keys.sorted().map { EnergyHourImport(start: $0, flows: hours[$0]!) }
             all += batch
@@ -130,15 +157,27 @@ struct EcoFlowHistory: Sendable {
     }
 
     /// One chart over a span: each point's hour and watt-hours.
-    private func chart(_ code: String, space: Space, from: String, to: String, token: String, format: DateFormatter) async throws -> [(Date, Double)] {
-        let body = try JSONSerialization.data(withJSONObject: [
+    private func chart(_ code: String, space: Space, from: String, to: String, token: String) async throws -> Any? {
+        try await query([
             "code": code, "params": ["spaceId": space.id, "rootSpaceId": space.rootID, "beginTime": from, "endTime": to],
-        ])
+        ], token: token)
+    }
+
+    /// One chart of a device's system over a span, as the app's dashboard asks for it: by the serial number.
+    private func chart(_ code: String, serial: String, from: String, to: String, token: String) async throws -> Any? {
+        try await query([
+            "code": code, "sn": serial, "params": ["sn": serial, "beginTime": from, "endTime": to, "queryType": 0],
+        ], token: token)
+    }
+
+    /// A chart query's `data`, asked for again after a failure (`retryDelays`).
+    private func query(_ request: [String: Any], token: String) async throws -> Any? {
+        let body = try JSONSerialization.data(withJSONObject: request)
         var attempt = 0
         while true {
             do {
                 let object = try await send("/app/commonQuery/query", method: "POST", body: body, token: token)
-                return Self.points(object["data"], format: format)
+                return object["data"]
             } catch {
                 guard attempt < retryDelays.count, !Task.isCancelled else { throw error }
                 try await Task.sleep(for: retryDelays[attempt])
@@ -148,11 +187,15 @@ struct EcoFlowHistory: Sendable {
     }
 
     /// The points of a chart's answer: `{"indexName": "chart_data", "indexValue": 731.0, "time": "2026-10-26 08:00:00",
-    /// "unit": "wh"}`, the time local to the space. Points of another kind, or without a time or a value, are skipped.
-    static func points(_ data: Any?, format: DateFormatter) -> [(Date, Double)] {
+    /// "unit": "wh"}`, the time local to the space; a two-way chart's of one direction, by their `extra`. The value may
+    /// come as text (the battery and grid charts send `"731"`). Points of another kind, or without a time or a value,
+    /// are skipped.
+    static func points(_ data: Any?, format: DateFormatter, extra: String? = nil) -> [(Date, Double)] {
         (data as? [[String: Any]] ?? []).compactMap { point in
             guard (point["indexName"] as? String ?? "chart_data") == "chart_data", let time = point["time"] as? String,
-                  let value = (point["indexValue"] as? NSNumber)?.doubleValue, value.isFinite, let date = format.date(from: time) else { return nil }
+                  extra == nil || (point["extra"] as? String ?? (point["extra"] as? NSNumber)?.stringValue) == extra,
+                  let value = (point["indexValue"] as? NSNumber)?.doubleValue ?? (point["indexValue"] as? String).flatMap(Double.init),
+                  value.isFinite, let date = format.date(from: time) else { return nil }
             let unit = (point["unit"] as? String)?.lowercased()
             return (date, unit == "kwh" ? value * 1000 : value)
         }

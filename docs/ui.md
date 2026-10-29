@@ -88,9 +88,9 @@ browser. The Quick Controls ([below](#quick-controls)) sit at the top of the pag
   the batteries, out to the grid), with the period's totals under it.
 
 The history is the bridge's long-term archive (`metrics/energy-hours.json`, kept for years): each hour of what it
-recorded, and what plugins import, such as a device cloud's solar and home use since a system was set up. An hour
-the bridge recorded most of keeps its own figures; an imported hour has no grid or battery figures, so the rest of its
-home use shows as **Not split**, in grey. While a plugin imports, the card shows its progress (**Importing the …
+recorded, and what plugins import, such as a device cloud's solar, home use, battery and grid since a system was set
+up. An hour the bridge recorded most of keeps its own figures; an imported hour without grid or battery figures has the
+rest of its home use shown as **Not split**, in grey, and the card says so. While a plugin imports, the card shows its progress (**Importing the …
 history**, 4 of 10) and the bars fill in as each part arrives; once done, a line says what the history covers and when
 it last ran, and a failed import says why.
 
