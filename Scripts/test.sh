@@ -29,10 +29,17 @@ helper="$(dirname "$(xcrun --find swift)")/../libexec/swift/pm/swiftpm-testing-h
 logs="$(mktemp -d -t homeswift-tests.XXXXXX)"
 trap 'rm -rf "$logs"' EXIT
 
+shopt -s nullglob
+bundles=("$bin"/*.xctest)
+if [ ${#bundles[@]} -eq 0 ]; then
+    echo "No test bundles in $bin" >&2
+    exit 1
+fi
+
 start=$SECONDS
 names=()
 pids=()
-for bundle in "$bin"/*.xctest; do
+for bundle in "${bundles[@]}"; do
     name="$(basename "$bundle" .xctest)"
     binary="$bundle/Contents/MacOS/$name"
     # What `swift test` sets for a bundle: XCTest and Swift Testing from the developer directory.

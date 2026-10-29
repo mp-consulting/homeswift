@@ -110,10 +110,11 @@ let forestParam = "AyYAAQAKAgH/GQG0CgoCyBQF//8AAP//////AP//lP8AFAGWAAAAACMAAg8FA
     }
 
     @Test func debouncedGuardLetsTheLastThrough() async {
-        // A wide window: a loaded runner may start the second call late, which must still fall within it.
+        // A wide window: a loaded runner may start either call late. The first gets 200 ms to claim its turn (async let
+        // runs it concurrently, not first), and the second still falls within the window.
         let guardian = LatestCallGuard(delay: .seconds(1))
         async let first = guardian()
-        try? await Task.sleep(for: .milliseconds(10))
+        try? await Task.sleep(for: .milliseconds(200))
         async let second = guardian()
         let results = await [first, second]
         #expect(results == [false, true])

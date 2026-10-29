@@ -323,7 +323,7 @@ actor TVDevice {
         guard notify == nil else { return }
         let notifyClient = JointSpaceClient(
             ip: settings.ip, username: settings.username, password: settings.password, certificateFingerprint: settings.certFingerprint,
-            transports: transports, logger: logger)
+            transports: transports, logger: logger, gap: JointSpace.gapBetweenRequests * timeScale)
         let notify = NotifyChangeClient(client: notifyClient, logger: logger, timeScale: timeScale)
         self.notify = notify
         Task { [weak self] in

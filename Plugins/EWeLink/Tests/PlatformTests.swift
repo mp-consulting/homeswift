@@ -207,9 +207,14 @@ struct PlatformTests {
         // Pressing a button transmits its channel.
         try await remote.service(.switch, subtype: "switch1")?[.on]?.homeKitWrite(true)
         #expect(environment.socket.commands.last == ["cmd": "transmit", "rfChl": 1])
-        // The physical remote, then the sensor.
+        // The physical remote, then the sensor. On for three seconds of plugin time: the changes are recorded, so a
+        // runner that stalls through them still sees it.
+        let pressed = NIOLockedValueBox(false)
+        remote.service(.switch, subtype: "switch0")?.characteristic(.on).observe { change in
+            if change.newValue == .bool(true) { pressed.withLockedValue { $0 = true } }
+        }
         environment.push("1000dddddd", ["cmd": "transmit", "rfChl": 0])
-        #expect(await eventually { remote.service(.switch, subtype: "switch0")?[.on]?.value == true })
+        #expect(await eventually { pressed.withLockedValue { $0 } })
         environment.push("1000dddddd", ["cmd": "trigger", "rfTrig2": .string(ISO8601DateFormatter().string(from: testClock.now))])
         // Open for three seconds: a loaded test machine still sees it before it closes again.
         #expect(await eventually { hall[.contactSensorState]?.value == 1 })

@@ -733,7 +733,10 @@ actor AccessHub {
             }
         } else {
             if lock != lockBacking { setLockState(lock) }
-            if dps != dpsBacking { setDpsState(dps) }
+            // While closing, a closed DPS ends the cycle even when it is no change: an open that came late, once
+            // closing had begun, was suppressed as a bounce and left the DPS closed.
+            let confirmsClosing = gateDirection == .closing && Self.isClosed(dps) && built.garage?.characteristic(.currentDoorState).value.intValue != HK.doorClosed
+            if dps != dpsBacking || confirmsClosing { setDpsState(dps) }
         }
     }
 
