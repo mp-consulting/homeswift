@@ -18,7 +18,7 @@ let testLogger: Logger = {
 actor DevicesPlugin: HomeswiftPlugin {
     struct Configuration: Decodable, Sendable {
         var name: String?
-        /// Colour lightbulbs `Devices:bulb1`…, for the moods; the last one fails every write when `failingBulb` is set.
+        /// Colour lightbulbs `Devices:bulb1`…, for scenes and their animations; the last one fails every write when `failingBulb` is set.
         var colourBulbs: Int?
         var failingBulb: Bool?
         /// Each colour bulb write takes 300 ms, as a plugin that waits to send a light's values together.

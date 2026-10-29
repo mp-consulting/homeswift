@@ -163,7 +163,7 @@ graph with what matches, and a table shows the same rows.
 The favourite accessories, by room, and a button per scene: at the top of the Status page, and on their own at `/quick`,
 a page to keep on a phone's home screen.
 
-### Scenes and moods
+### Scenes and templates
 
 **Scenes** (`/scenes`, Glass UI's scenes): accessory values set together, by hand or by a trigger.
 
@@ -203,7 +203,7 @@ set a palette once across the room's lights; they do not reproduce Hue animation
 scene preserves its artwork. In the scene editor, expand **Scene image** to choose another picture or **No image**.
 Existing scenes without artwork keep their usual icon. The original gallery titles stay the same in all languages.
 On a phone each photographic theme is a single row that swipes sideways; Calm, Slow animations, Party and Signals also use single horizontal rows. Hue and IKEA scene collections share this mobile layout. Trying a template is
-controlling accessories, as running a scene is. `MoodLibrary` is the collection; MCP clients use `list_scene_templates`,
+controlling accessories, as running a scene is. `SceneTemplateLibrary` is the collection; MCP clients use `list_scene_templates`,
 and `run_scene` or `save_scene` with `template` (or `description`) and `room`.
 
 Scene cards keep accessory actions collapsed under **Details**. Expand it to see every action.
@@ -214,15 +214,15 @@ Scene cards keep accessory actions collapsed under **Details**. Expand it to see
 
 ![Single-row gallery on mobile](images/ui/scene-gallery-phone.png)
 
-![Horizontal mood category](images/ui/mood-row-phone.png)
+![Horizontal template category](images/ui/mood-row-phone.png)
 
-Active mood tiles show a centred square Stop icon; idle tiles show their image and name. Winter holidays and Christmas have separate scene selections.
+Template tiles that play show a centred square Stop icon; idle tiles show their image and name. Winter holidays and Christmas have separate scene selections.
 
-![Active mood tile](images/ui/mood-stop-tile.png)
+![Template tile playing](images/ui/mood-stop-tile.png)
 
-The theme menu is alphabetised in the selected language. Mood photographs depict their subjects directly, including candles, a fireplace, a home cinema, a disco ball and a police lightbar.
+The theme menu is alphabetised in the selected language. Template photographs depict their subjects directly, including candles, a fireplace, a home cinema, a disco ball and a police lightbar.
 
-Running mood tiles show **Stop**. Saved scenes also offer **Stop** after running. This restores captured light power, brightness, colour and Adaptive Lighting; other scene controls restore their captured values unless they have changed since. Locks, doors and alarms require confirmation before restoration. Undo state lasts 12 hours and is kept across bridge restarts for held scenes and moods. Failed or skipped actions on a repeated run retain valid earlier restoration state. A light action that fails does not take ownership away from an existing mood.
+Template tiles that play show **Stop**. Saved scenes also offer **Stop** after running. This restores captured light power, brightness, colour and Adaptive Lighting; other scene controls restore their captured values unless they have changed since. Locks, doors and alarms require confirmation before restoration. Undo state lasts 12 hours and is kept across bridge restarts for every run that set lights. Failed or skipped actions on a repeated run retain valid earlier restoration state. A light action that fails does not take ownership away from an earlier run.
 
 The workflow action editor offers a combined **Light color** picker for colour-capable lights, brightness and colour-temperature sliders, power switches, device mode menus, and sliders for fan speed, position, volume and target temperatures. The colour picker saves ordinary hue and saturation actions, so the runtime and existing scenes remain compatible. Editing does not send device commands.
 
@@ -244,9 +244,9 @@ Deleting a scene opens a confirmation in the UI’s design system. Cancel is foc
 
 ![Scene deletion confirmation](images/ui/scene-delete.png)
 
-![Stop a running mood](images/ui/scene-stop.png)
+![Stop a running scene](images/ui/scene-stop.png)
 
-![Mood photographs](images/ui/mood-photographs.png)
+![Template photographs](images/ui/mood-photographs.png)
 
 The sunrise/sunset location includes a map: click a point or finish dragging to place the pin and save coordinates immediately. Arrow keys can also position the pin for review.
 **Use this device's location** asks the browser for permission and centres the map; **Save** keeps the reviewed

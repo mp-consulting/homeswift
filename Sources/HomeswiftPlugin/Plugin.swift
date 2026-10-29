@@ -150,7 +150,7 @@ public struct AssistantAction: Sendable {
     /// The user confirms before it runs.
     public var confirm: Bool
     /// It may change lights (a scene recalled on the device's own hub): the bridge keeps how the lights it changed
-    /// were, and `stop_mood` puts them back, as for a mood.
+    /// were, and `stop_scene` puts them back, as after any scene.
     public var changesLights: Bool
 
     public init(

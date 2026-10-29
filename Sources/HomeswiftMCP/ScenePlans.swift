@@ -3,7 +3,7 @@ import Homeswift
 import HomeswiftPlugin
 
 // Scenes composed on the fly: a plan is a scene's actions (values to set, hubs' scenes to recall) that runs at once
-// and is not saved. Its changes are kept under its run id for `MoodRules.undoSeconds`, so `stopScene` puts them back;
+// and is not saved. Its changes are kept under its run id for `LightShowRules.undoSeconds`, so `stopScene` puts them back;
 // `save_scene` keeps one. An MCP client writes the plan itself. docs/scenes-design.md, "Scenes composed on the fly".
 
 extension HomeswiftCatalog {
@@ -35,7 +35,7 @@ extension HomeswiftCatalog {
             + "library scene, an IKEA light's long fade for sunrise or sunset, an Ambilight TV following the music), Homeswift's player elsewhere; or steps, a timed sequence "
             + "across the lights (colors spread or random, seconds each, loop, durationSeconds) that Homeswift always plays. stop_scene puts the lights back."),
         "properties": [
-            "lights": ["type": "array", "minItems": 1, "maxItems": .number(Double(MoodRules.maxLights)), "items": ["type": "string"], "description": "Accessory ids of lights, from list_accessories"],
+            "lights": ["type": "array", "minItems": 1, "maxItems": .number(Double(LightShowRules.maxLights)), "items": ["type": "string"], "description": "Accessory ids of lights, from list_accessories"],
             "effect": [
                 "type": "object", "required": ["style"],
                 "properties": [
@@ -44,7 +44,7 @@ extension HomeswiftCatalog {
                                "items": ["type": "object", "properties": ["hue": ["type": "number"], "saturation": ["type": "number"], "colorTemperature": ["type": "number"]]]],
                     "speed": ["type": "number", "minimum": 0, "maximum": 1],
                     "brightness": ["type": "number", "minimum": 1, "maximum": 100],
-                    "durationSeconds": ["type": "number", "minimum": 10, "maximum": .number(MoodRules.maxDuration), "description": "A sunrise's or a sunset's length"],
+                    "durationSeconds": ["type": "number", "minimum": 10, "maximum": .number(LightShowRules.maxDuration), "description": "A sunrise's or a sunset's length"],
                 ],
             ],
             "steps": ["type": "array", "items": ["type": "object"]],

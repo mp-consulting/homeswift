@@ -1058,7 +1058,7 @@ public struct HomeswiftCatalog: Sendable {
                     block[list] = .array(entries)
                 })
             },
-        ] + hostTools + adminTools + layoutTools + wallTools + sceneTools + moodTools + notificationTools + assistantTools + pluginActionTools
+        ] + hostTools + adminTools + layoutTools + wallTools + sceneTools + notificationTools + assistantTools + pluginActionTools
     }
 
     /// `set_accessories` with `ids` or `filter`: one characteristic and value on every target.
@@ -1169,11 +1169,12 @@ public struct HomeswiftCatalog: Sendable {
                         sent = try await catalog.host.handleWebRequest(platform: entry.platform, name: instance.name, request)
                         return (sent?.status ?? 500) < 400
                     }
-                    // A scene recalled on the plugin's own hub: what its lights were before is kept, as for a mood, so
-                    // stop_mood can put them back.
-                    var held: MoodRun?
+                    // A scene recalled on the plugin's own hub: what its lights were before is kept under a run of its
+                    // own, as after any scene, so stop_scene can put them back.
+                    var held: LightRun?
+                    let heldRun = "action-" + SceneRules.newID()
                     if action.changesLights {
-                        held = try await catalog.holdLightChanges("\(entry.name): \(action.title)", platform: instance, by: "MCP \(call.session.principal.name)", during: send)
+                        held = try await catalog.holdLightChanges("\(entry.name): \(action.title)", id: "scene:" + heldRun, platform: instance, by: "MCP \(call.session.principal.name)", during: send)
                     } else {
                         _ = try await send()
                     }
@@ -1183,7 +1184,7 @@ public struct HomeswiftCatalog: Sendable {
                     let answer = call.session.vault.conceal(response.json)
                     var text = "<untrusted-data source=\"\(entry.platform)\">\n\(answer.text(pretty: true))\n</untrusted-data>"
                     if let held {
-                        text += "\nThe bridge kept how \(held.lights.count) light(s) were before this: stop_mood with run \(held.id) puts them back, for \(Int(MoodRules.undoSeconds / 3600)) hours."
+                        text += "\nThe bridge kept how \(held.lights.count) light(s) were before this: stop_scene with scene \(heldRun) puts them back, for \(Int(LightShowRules.undoSeconds / 3600)) hours."
                     }
                     return ToolResult(text: text)
                 }
@@ -1251,7 +1252,7 @@ public struct HomeswiftCatalog: Sendable {
                     + "Say what is wrong, the likely cause and the steps to fix it. Do not change anything unless the user asks."
             },
             MCPPrompt(name: "scene-builder", title: "Build a scene", description: "Turn a description (\"cosy movie night in the living room\") into accessory values, set them, and save them as a Homeswift scene.",
-                      arguments: [.init(name: "description", description: "The mood or purpose, e.g. movie night", required: true), .init(name: "area", description: "A room, or a word the accessories' names share, e.g. Living Room")]) { arguments in
+                      arguments: [.init(name: "description", description: "The show or purpose, e.g. movie night", required: true), .init(name: "area", description: "A room, or a word the accessories' names share, e.g. Living Room")]) { arguments in
                 let area = arguments["area"]?.nonEmpty
                 return "Build a scene for: \"\(arguments["description"] ?? "")\"\(area.map { " in \"\($0)\"" } ?? ""). "
                     + "1) list_accessories\(area.map { " with room \"\($0)\" (get_accessory_layout lists the rooms; when it is not one, use name \"\($0)\")" } ?? "") to find the relevant lights, switches, blinds, thermostats and so on. "

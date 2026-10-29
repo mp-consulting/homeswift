@@ -2088,56 +2088,56 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
   .quick-scenes > .scene-run, .quick-scenes > .hub-scene-tile { scroll-snap-align: start; }
 }
 .scene-card .server-head > button { flex: none; }
-/* Moods: the rooms as chips, what plays, the Assistant's box, the collection as pills with their colours. Pills and chips
+/* Templates: the rooms as chips, what plays, the Assistant's box, the collection as pills with their colours. Pills and chips
    are controls: no text selection or callout on a long press, press feedback at once, the lift on hover only with a
    mouse (a tap would leave it stuck). On a phone each kind is a row that swipes sideways and snaps, so the card fits a
    screen and what a tap starts shows beside the finger. */
-.mood-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-14); }
-.mood-rooms, .mood-buttons { display: flex; gap: var(--space-8); }
-.mood-rooms { flex-wrap: wrap; }
-.mood-buttons { flex-wrap: wrap; }
-.mood-room, .mood-button { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
-.mood-room { padding: 7px var(--space-14); font-size: var(--text-md); }
-.mood-room[aria-pressed="true"] { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); border-color: transparent; }
-.mood-button {
+.template-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-14); }
+.template-rooms, .template-buttons { display: flex; gap: var(--space-8); }
+.template-rooms { flex-wrap: wrap; }
+.template-buttons { flex-wrap: wrap; }
+.template-room, .template-button { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.template-room { padding: 7px var(--space-14); font-size: var(--text-md); }
+.template-room[aria-pressed="true"] { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); border-color: transparent; }
+.template-button {
   display: inline-flex; align-items: center; gap: var(--space-10); flex: none; min-height: 44px; padding: var(--space-6) var(--space-16) var(--space-6) var(--space-6);
   transition: transform var(--fast) var(--ease-out), box-shadow var(--normal) var(--ease-out);
 }
-.mood-button:active:not(:disabled), .mood-room:active { transform: scale(0.96); transition-duration: 80ms; }
-.mood-button.playing { box-shadow: 0 0 0 2px var(--accent), var(--shadow-control); }
-.mood-button.busy::after { margin-left: 0; }
-.mood-swatch { width: 32px; height: 32px; border-radius: var(--radius-sm); flex: none; }
-.mood-group .service-name { margin: 0 0 var(--space-8); }
-.mood-collection { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-16); }
-.mood-describe { display: flex; gap: var(--space-8); }
-.mood-describe input { flex: 1; min-width: 0; }
-.mood-create { display: inline-flex; align-items: center; gap: var(--space-6); flex: none; white-space: nowrap; }
-.mood-running { display: grid; gap: var(--space-8); }
-.mood-running:empty { display: none; }
-.mood-run {
+.template-button:active:not(:disabled), .template-room:active { transform: scale(0.96); transition-duration: 80ms; }
+.template-button.playing { box-shadow: 0 0 0 2px var(--accent), var(--shadow-control); }
+.template-button.busy::after { margin-left: 0; }
+.template-swatch { width: 32px; height: 32px; border-radius: var(--radius-sm); flex: none; }
+.template-group .service-name { margin: 0 0 var(--space-8); }
+.template-collection { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-16); }
+.template-describe { display: flex; gap: var(--space-8); }
+.template-describe input { flex: 1; min-width: 0; }
+.template-create { display: inline-flex; align-items: center; gap: var(--space-6); flex: none; white-space: nowrap; }
+.template-running { display: grid; gap: var(--space-8); }
+.template-running:empty { display: none; }
+.template-run {
   display: flex; align-items: center; gap: var(--space-12); padding: var(--space-8) var(--space-8) var(--space-8) var(--space-10); border-radius: var(--radius-lg); background: var(--material-thin); border: 1px solid var(--line);
   transition: opacity var(--normal) var(--ease-out), transform var(--normal) var(--ease-out);
 }
-@starting-style { .mood-run { opacity: 0; transform: translateY(-4px); } }
-.mood-run-text { flex: 1; min-width: 0; display: grid; }
-.mood-run-text .muted { font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mood-stop { flex: none; }
-.mood-card .status-line { margin: 0; }
-.mood-card .status-line:empty { display: none; }
-/* A phone: rooms and each kind of mood scroll sideways from edge to edge of the card, snapping to a pill; the input stays
+@starting-style { .template-run { opacity: 0; transform: translateY(-4px); } }
+.template-run-text { flex: 1; min-width: 0; display: grid; }
+.template-run-text .muted { font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.template-stop { flex: none; }
+.template-card .status-line { margin: 0; }
+.template-card .status-line:empty { display: none; }
+/* A phone: rooms and each kind of template scroll sideways from edge to edge of the card, snapping to a pill; the input stays
    at 16px so iOS does not zoom into it. */
 @media (max-width: 640px) {
-  .mood-rooms, .mood-buttons {
+  .template-rooms, .template-buttons {
     flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scrollbar-width: none;
     margin: 0 -20px; padding: 2px var(--space-20) var(--space-6); scroll-padding: 0 20px;
     -webkit-mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 22px), transparent);
     mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 22px), transparent);
   }
-  .mood-rooms::-webkit-scrollbar, .mood-buttons::-webkit-scrollbar { display: none; }
-  .mood-room, .mood-button { flex: none; scroll-snap-align: start; }
+  .template-rooms::-webkit-scrollbar, .template-buttons::-webkit-scrollbar { display: none; }
+  .template-room, .template-button { flex: none; scroll-snap-align: start; }
 }
-@media (pointer: coarse) { .mood-describe input { font-size: 16px; } }
-@media (prefers-reduced-motion: reduce) { .mood-run { transition: none; } }
+@media (pointer: coarse) { .template-describe input { font-size: 16px; } }
+@media (prefers-reduced-motion: reduce) { .template-run { transition: none; } }
 .location summary { cursor: pointer; }
 .location { margin-top: var(--space-14); }
 .scene-editor h2 { margin: 22px 0 2px; font-size: var(--text-xl); }
@@ -2623,9 +2623,9 @@ select:disabled { opacity: .5; cursor: not-allowed; }
 .scene-card .card-foot { font-size: var(--text-xs); line-height: 1.5; padding-top: var(--space-10); }
 .section-head:has(+ .scene-grid) { gap: var(--space-12); flex-wrap: wrap; }
 .section-head:has(+ .scene-grid) .search { margin-left: auto; max-width: 280px; }
-.moods .mood-card { padding: var(--space-18); }
-.moods .mood-rooms { padding-bottom: var(--space-14); border-bottom: 1px solid var(--line); }
-.moods .status-line:empty, .moods .mood-running:empty { display: none; }
+.templates .template-card { padding: var(--space-18); }
+.templates .template-rooms { padding-bottom: var(--space-14); border-bottom: 1px solid var(--line); }
+.templates .status-line:empty, .templates .template-running:empty { display: none; }
 @media (max-width: 560px) { .section-head:has(+ .scene-grid) .search { max-width: none; width: 100%; } }
 
 .scene-flow { border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; margin: var(--space-20) 0; background: var(--material-solid); }
@@ -3549,22 +3549,22 @@ select option:disabled { color: var(--muted); }
 .widget-battery.size-medium .w-top { position: static; }
 .widget-battery.size-medium .w-top > .w-hero:has(> .battery-gauge) { position: absolute; left: 50%; top: 36%; transform: translate(-50%, -50%); display: flex; align-items: center; justify-content: center; }
 
-/* Shared photographic artwork for saved scenes and room moods. */
+/* Shared photographic artwork for saved scenes and templates. */
 .scene-artwork { width: 100%; aspect-ratio: 16/9; object-fit: cover; border-radius: var(--radius-sm); }
 .artwork-preview { max-width: 320px; }
 .artwork-picker { margin-block: var(--space-16); }
 .artwork-picker > button { margin-bottom: var(--space-16); }
 .artwork-picker summary { cursor: pointer; padding-block: var(--space-12); }
-.artwork-grid, .mood-buttons.artwork-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: var(--space-12); max-height: 520px; overflow: auto; padding: var(--space-8) 3px; }
+.artwork-grid, .template-buttons.artwork-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: var(--space-12); max-height: 520px; overflow: auto; padding: var(--space-8) 3px; }
 /* The Hue scene widget: a full-bleed picture and its name over a bottom scrim. */
-.scene.artwork-choice, .mood-button.scene.artwork-choice { width: 100%; aspect-ratio: 16 / 9; min-height: 110px; display: grid; align-content: end; justify-content: stretch; padding: var(--space-12) var(--space-14); border-radius: var(--radius-lg); gap: 0; color: #fff; white-space: normal; }
-.scene.artwork-choice img, .scene.artwork-choice .mood-swatch { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 0; }
+.scene.artwork-choice, .template-button.scene.artwork-choice { width: 100%; aspect-ratio: 16 / 9; min-height: 110px; display: grid; align-content: end; justify-content: stretch; padding: var(--space-12) var(--space-14); border-radius: var(--radius-lg); gap: 0; color: #fff; white-space: normal; }
+.scene.artwork-choice img, .scene.artwork-choice .template-swatch { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 0; }
 .scene.artwork-choice .name { text-align: left; padding-left: var(--space-20); line-height: 1.3; }
 .scene.artwork-choice:not(.action-with-icon) .name { padding-left: 0; }
 .scene.artwork-choice.action-with-icon::before { position: absolute; bottom: 14px; left: 12px; z-index: 1; }
 .scene.artwork-choice[aria-pressed="true"] { box-shadow: 0 0 0 3px var(--accent), var(--shadow-control); }
 .scene.artwork-choice[hidden] { display: none; }
-.mood-group .mood-buttons { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 168px), 1fr)); gap: var(--space-10); overflow: visible; margin-inline: 0; padding-inline: 3px; }
+.template-group .template-buttons { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 168px), 1fr)); gap: var(--space-10); overflow: visible; margin-inline: 0; padding-inline: 3px; }
 
 /* Theme shelves: two rows, with horizontal scrolling like a photographic gallery. */
 .artwork-filters { display: flex; gap: var(--space-12); margin-block: var(--space-12); }
@@ -3602,8 +3602,8 @@ select option:disabled { color: var(--muted); }
 .scene-color-input { width: 100%; height: 64px; padding: var(--space-4); border-radius: var(--radius-md); cursor: pointer; }
 .value-slot input[role="switch"] { width: 44px; height: 28px; accent-color: var(--accent); }
 
-.mood-stop-badge { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 44px; height: 44px; background: #fff; color: #222; border-radius: var(--radius-pill); display: grid; place-items: center; box-shadow: var(--shadow-control); pointer-events: none; }
-.mood-stop-badge::before { content: ""; width: 14px; height: 14px; background: currentColor; border-radius: 0; }
+.template-stop-badge { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 44px; height: 44px; background: #fff; color: #222; border-radius: var(--radius-pill); display: grid; place-items: center; box-shadow: var(--shadow-control); pointer-events: none; }
+.template-stop-badge::before { content: ""; width: 14px; height: 14px; background: currentColor; border-radius: 0; }
 
 
 .scene-run-actions { display: flex; flex-wrap: wrap; gap: var(--space-8); align-items: center; }
@@ -3694,9 +3694,9 @@ select option:disabled { color: var(--muted); }
 .scene-card-details > summary { min-height: 44px; align-content: center; cursor: pointer; color: var(--text); }
 .scene-card-details[open] > summary { margin-bottom: var(--space-8); }
 
-/* Match gallery shelves across built-in moods and plugin scene collections on phones. */
+/* Match gallery shelves across templates and plugin scene collections on phones. */
 @media (max-width: 640px) {
-  .mood-group .mood-buttons, .scene-tiles:has(> .scene) {
+  .template-group .template-buttons, .scene-tiles:has(> .scene) {
     display: grid; grid-template-columns: none; grid-template-rows: auto; grid-auto-flow: column; grid-auto-columns: 160px;
     gap: var(--space-12); overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity;
     margin-inline: 0; padding: 3px; scroll-padding-inline: 3px; mask-image: none; -webkit-mask-image: none;

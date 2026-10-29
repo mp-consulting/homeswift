@@ -338,7 +338,7 @@
   // ---- Templates -------------------------------------------------------------------------------------
 
   /// The collection's names and descriptions, by id: translated here, the server's being English for MCP clients.
-  const moodTexts = {
+  const templateTexts = {
     "candlelight": [t("Candlelight"), t("Very warm, dim light for dinner.")],
     "relax": [t("Relax"), t("Soft warm white for the evening.")],
     "golden-hour": [t("Golden hour"), t("Amber and soft orange, a little different on each light.")],
@@ -362,11 +362,11 @@
     "alert": [t("Alert flash"), t("Two red pulses, then the lights go back to how they were.")],
     "bedtime": [t("Bedtime"), t("A slow fade to a dim red over fifteen minutes.")],
   };
-  const moodCategories = [["gallery", t("Scene gallery")], ["calm", t("Calm")], ["animated", t("Slow animations")], ["party", t("Party")], ["signal", t("Signals")]];
-  const moodName = (id, name) => moodTexts[id]?.[0] ?? name;
-  const moodRoomKey = "homeswift.moods.room";
+  const templateCategories = [["gallery", t("Scene gallery")], ["calm", t("Calm")], ["animated", t("Slow animations")], ["party", t("Party")], ["signal", t("Signals")]];
+  const templateName = (id, name) => templateTexts[id]?.[0] ?? name;
+  const templateRoomKey = "homeswift.templates.room";
 
-  /// The rooms with a light in them, for the moods.
+  /// The rooms with a light in them, for the templates.
   function lightRooms(accessories) {
     const rooms = accessories.filter((a) => !a.hidden && a.room && a.services.some((s) => s.type === "Lightbulb")).map((a) => a.room);
     return [...new Set(rooms)].sort((a, b) => a.localeCompare(b, HomeswiftI18n.locale));
@@ -376,38 +376,51 @@
   /// where the Assistant writes a scene from a description, and the collection by kind. A tap tries one at once without
   /// saving it (the pill lights up while it plays); Save keeps it as a scene. On a phone each kind is a row that swipes
   /// sideways, so the whole card fits on a screen.
-  function templatesSection(accessories) {
-    const section = el("section", { class: "moods templates" });
-    const head = el("div", { class: "section-head" }, el("div", {}, el("h2", { text: t("Templates") }), el("span", { class: "muted", text: t("Try one on a room's lights; save it as a scene when you like it.") })));
+  function templatesSection(accessories, scenes = { scenes: [], pluginScenes: [] }) {
+    const section = el("section", { class: "templates" });
+    const head = el("div", { class: "section-head" }, el("div", {}, el("h2", { text: t("By room") }), el("span", { class: "muted", text: t("A room's scenes, then templates to try on its lights; save one as a scene when you like it.") })));
     const rooms = lightRooms(accessories);
     if (!rooms.length) {
       section.append(head, el("div", { class: "card empty" }, el("p", { class: "muted", text: t("Put your lights in rooms (a card's menu on the Accessories page) to try templates on them.") })));
       return section;
     }
     let room = rooms[0];
-    try { const remembered = localStorage.getItem(moodRoomKey); if (rooms.includes(remembered)) room = remembered; } catch {}
-    const roomChips = el("div", { class: "mood-rooms", role: "group", "aria-label": t("Room") }, rooms.map((name) => {
-      const chip = el("button", { type: "button", class: "mood-room", text: name, "aria-pressed": String(name === room) });
+    try { const remembered = localStorage.getItem(templateRoomKey); if (rooms.includes(remembered)) room = remembered; } catch {}
+    const roomChips = el("div", { class: "template-rooms", role: "group", "aria-label": t("Room") }, rooms.map((name) => {
+      const chip = el("button", { type: "button", class: "template-room", text: name, "aria-pressed": String(name === room) });
       chip.addEventListener("click", () => {
         room = name;
-        try { localStorage.setItem(moodRoomKey, name); } catch {}
+        try { localStorage.setItem(templateRoomKey, name); } catch {}
         for (const other of roomChips.children) other.setAttribute("aria-pressed", String(other === chip));
+        drawStrip();
         drawTries();
         markPlaying();
       });
       return chip;
     }));
     const line = statusLine();
-    const running = el("div", { class: "mood-running" });
-    const collection = el("div", { class: "mood-collection" });
+    const running = el("div", { class: "template-running" });
+    const collection = el("div", { class: "template-collection" });
     const describe = el("input", { type: "text", maxLength: 500, enterKeyHint: "go", placeholder: t("Describe a scene…"), title: t("Describe one: a jazz bar, a rainy afternoon…"), "aria-label": t("Describe a scene") });
-    const create = el("button", { type: "submit", class: "primary mood-create" }, sparkle(), el("span", { text: t("Create") }));
-    const designer = el("form", { class: "mood-describe hidden" }, describe, create);
-    section.append(head, el("div", { class: "card mood-card" }, roomChips, running, line, designer, collection));
+    const create = el("button", { type: "submit", class: "primary template-create" }, sparkle(), el("span", { text: t("Create") }));
+    const designer = el("form", { class: "template-describe hidden" }, describe, create);
+    // The chosen room's own scenes and its hubs' scenes, to run in a tap.
+    const strip = el("div", { class: "quick-scenes room-scenes" });
+    const stripHead = el("div", { class: "service-name" });
+    const templatesHead = el("div", { class: "service-name", text: t("From a template") });
+    function drawStrip() {
+      const own = scenes.scenes.filter((scene) => scene.room === room).map((scene) => sceneButton(scene));
+      const hubs = (scenes.pluginScenes || []).filter((scene) => scene.room === room).map((scene) => hubSceneButton(scene));
+      strip.replaceChildren(...own, ...hubs);
+      stripHead.textContent = t("Scenes in {room}", { room });
+      strip.hidden = stripHead.hidden = !own.length && !hubs.length;
+    }
+    drawStrip();
+    section.append(head, el("div", { class: "card template-card" }, roomChips, stripHead, strip, running, line, designer, templatesHead, collection));
 
     let data = { templates: [], tries: [] };
     const buttons = [];
-    const name = (run) => run.template ? moodName(run.template, run.name) : run.name;
+    const name = (run) => run.template ? templateName(run.template, run.name) : run.name;
 
     /// The pills of the templates playing in the chosen room light up.
     function markPlaying() {
@@ -415,10 +428,10 @@
       for (const [id, button] of buttons) {
         button.classList.toggle("playing", playing.has(id));
         button.setAttribute("aria-pressed", String(playing.has(id)));
-        let badge = button.querySelector(".mood-stop-badge");
-        if (playing.has(id) && !badge) { badge = el("span", { class: "mood-stop-badge", "aria-hidden": "true" }); button.append(badge); }
+        let badge = button.querySelector(".template-stop-badge");
+        if (playing.has(id) && !badge) { badge = el("span", { class: "template-stop-badge", "aria-hidden": "true" }); button.append(badge); }
         if (!playing.has(id)) badge?.remove();
-        const label = button.querySelector(".name")?.textContent || moodName(id, id);
+        const label = button.querySelector(".name")?.textContent || templateName(id, id);
         button.setAttribute("aria-label", playing.has(id) ? `${t("Stop")} ${label}` : label);
       }
     }
@@ -431,13 +444,13 @@
 
     async function stopTry(run) {
       await app.api(`/api/scenes/${encodeURIComponent(run.run)}/stop`, { method: "POST", body: {} });
-      say(line, run.playing ? t("{mood} stopped: the lights are back as they were.", { mood: name(run) }) : t("{mood} undone: the lights are back as they were.", { mood: name(run) }));
+      say(line, run.playing ? t("{scene} stopped: the lights are back as they were.", { scene: name(run) }) : t("{scene} undone: the lights are back as they were.", { scene: name(run) }));
     }
 
     function drawTries() {
       running.replaceChildren(...data.tries.map((run) => {
         // One that plays is stopped; one that set the lights once is undone. Either way the lights go back.
-        const stop = el("button", { type: "button", class: "mood-stop", actionIcon: "stop", text: run.playing ? t("Stop") : t("Undo") });
+        const stop = el("button", { type: "button", class: "template-stop", actionIcon: "stop", text: run.playing ? t("Stop") : t("Undo") });
         stop.addEventListener("click", async () => {
           stop.classList.add("busy");
           stop.disabled = true;
@@ -447,14 +460,14 @@
         // The room shows only when it is not the one chosen above.
         const time = timeFormat.format(new Date(run.startedAt));
         const where = run.room && run.room !== room ? t("{room}, {time}", { room: run.room, time }) : time;
-        return el("div", { class: "mood-run" }, swatch(run.template, run.plan?.artworkId),
-          el("div", { class: "mood-run-text" }, el("strong", { text: name(run) }), el("span", { class: "muted", text: where })),
+        return el("div", { class: "template-run" }, swatch(run.template, run.plan?.artworkId),
+          el("div", { class: "template-run-text" }, el("strong", { text: name(run) }), el("span", { class: "muted", text: where })),
           save, stop);
       }));
     }
 
     function swatch(id, artworkId) {
-      return artworkImage(artworkId || data.templates.find((template) => template.id === id)?.artworkId || "tyrell", "mood-swatch");
+      return artworkImage(artworkId || data.templates.find((template) => template.id === id)?.artworkId || "tyrell", "template-swatch");
     }
 
     async function start(body, label, button) {
@@ -466,7 +479,7 @@
         if (result.ok) say(line, "");
         else {
           const failures = (result.results || []).filter((r) => !r.ok).map((r) => `${r.name || r.id || r.recall}: ${HomeswiftI18n.message(r.error || r.skipped)}`).join("; ");
-          say(line, t("{mood} is set, but not on every light: {failures}", { mood: body.template ? label : result.name, failures }), "error");
+          say(line, t("{scene} is set, but not on every light: {failures}", { scene: body.template ? label : result.name, failures }), "error");
         }
         if (body.description) describe.value = "";
         await refresh();
@@ -475,7 +488,7 @@
 
     async function saveAsScene(run) {
       try {
-        const scene = await app.api("/api/scenes", { method: "POST", body: { ...run.plan, name: t("{mood} in {room}", { mood: name(run), room: run.room || room }).slice(0, 64) } });
+        const scene = await app.api("/api/scenes", { method: "POST", body: { ...run.plan, name: t("{scene} in {room}", { scene: name(run), room: run.room || room }).slice(0, 64) } });
         say(line, t("Saved as the scene {name}.", { name: scene.name }));
         setTimeout(() => { if (section.isConnected) app.route(); }, 1200);
       } catch (e) { say(line, e.message, "error"); }
@@ -491,12 +504,12 @@
       await refresh();
       const themes = await loadArtworkThemes();
       designer.classList.toggle("hidden", !data.assistant);
-      collection.replaceChildren(...moodCategories.map(([category, label]) => {
+      collection.replaceChildren(...templateCategories.map(([category, label]) => {
         const templates = data.templates.filter((template) => template.category === category);
         if (!templates.length) return null;
         const makeButton = (template) => {
-          const label = moodName(template.id, template.name);
-          const button = el("button", { type: "button", class: "mood-button scene pictured artwork-choice", title: category === "gallery" ? label : moodTexts[template.id]?.[1] ?? template.description ?? "", "aria-pressed": "false" },
+          const label = templateName(template.id, template.name);
+          const button = el("button", { type: "button", class: "template-button scene pictured artwork-choice", title: category === "gallery" ? label : templateTexts[template.id]?.[1] ?? template.description ?? "", "aria-pressed": "false" },
             swatch(template.id), el("span", { class: "name", text: label }));
           button.addEventListener("click", async () => {
             if (button.classList.contains("busy")) return;
@@ -512,8 +525,8 @@
           buttons.push([template.id, button]);
           return button;
         };
-        return el("div", { class: "mood-group" }, el("div", { class: "service-name", text: label }),
-          category === "gallery" ? themedArtwork(templates, themes, makeButton) : el("div", { class: "mood-buttons" }, templates.map(makeButton)));
+        return el("div", { class: "template-group" }, el("div", { class: "service-name", text: label }),
+          category === "gallery" ? themedArtwork(templates, themes, makeButton) : el("div", { class: "template-buttons" }, templates.map(makeButton)));
       }).filter(Boolean));
       markPlaying();
     })().catch((e) => say(line, e.message, "error"));
@@ -618,7 +631,7 @@
       el("div", { class: "section-head" }, el("h2", { text: t("Your scenes") }), sceneCount, data.scenes.length || hubScenes.node ? [search, HomeswiftCommon.clearFilters([[search, ""]])] : null),
       data.scenes.length ? el("div", { class: "grid scene-grid" }, sceneCards.map(({ node }) => node))
         : el("div", { class: "card empty scenes-empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("play")), el("p", { class: "muted", text: t("No scene yet. A scene sets several accessories at once, such as every light of a room for the evening.") }), el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") })),
-      noMatches, hubScenes.node, templatesSection(accessories), locationCard(data));
+      noMatches, hubScenes.node, templatesSection(accessories, data), locationCard(data));
   }
 
   /// Where sunrise and sunset are computed for: Glass UI took its weather widget's city; here it is typed, or
@@ -1205,7 +1218,9 @@
       sync();
       const read = () => {
         const value = style.value;
-        const chosen = lights.filter(({ input }) => input.checked).map(({ input }) => input.value);
+        // Lights the page cannot list now (a paused plugin's) stay in the animation.
+        const unlisted = (current?.lights || []).filter((id) => !lights.some(({ input }) => input.value === id));
+        const chosen = [...lights.filter(({ input }) => input.checked).map(({ input }) => input.value), ...unlisted];
         if (!value) return null;
         if (value === "sequence") return { ...current, lights: chosen };
         const result = { style: value };

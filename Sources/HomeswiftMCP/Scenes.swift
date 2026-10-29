@@ -370,8 +370,8 @@ extension HomeswiftCatalog {
             guard let found = find(id: action.id) else { return false }
             return (try? characteristic(in: found, service: action.service, characteristic: action.characteristic).isSecurityControl) == true
         } ?? false)
-        object["stoppable"] = .bool((undo.map { Date().timeIntervalSince($0.at) < MoodRules.undoSeconds && !$0.actions.isEmpty } ?? false)
-            || home.runningMoods.withLockedValue { $0.values.contains { $0.mood.id == "scene:" + scene.id } })
+        object["stoppable"] = .bool((undo.map { Date().timeIntervalSince($0.at) < LightShowRules.undoSeconds && !$0.actions.isEmpty } ?? false)
+            || home.lightRuns.withLockedValue { $0.values.contains { $0.show.id == "scene:" + scene.id } })
         object["room"] = sharedRoom(of: scene.actions.map(\.id)).map(JSONValue.string) ?? .null
         object["active"] = .bool(isActive(scene))
         object["actions"] = .array(scene.actions.map { action in
@@ -526,7 +526,7 @@ extension HomeswiftCatalog {
         return try await run(scene, trigger: trigger, allowSecurity: allowSecurity)
     }
 
-    /// Runs a scene, saved or not (a plan: `runPlan`). Its changes are kept for `MoodRules.undoSeconds` under its id,
+    /// Runs a scene, saved or not (a plan: `runPlan`). Its changes are kept for `LightShowRules.undoSeconds` under its id,
     /// so `stopScene` puts them back.
     func run(_ scene: Scene, trigger: SceneRunTrigger, allowSecurity: Bool) async throws -> JSONValue {
         guard home.runningScenes.withLockedValue({ $0.insert(scene.id).inserted }) else { throw CatalogError("This scene is already running") }
@@ -536,7 +536,7 @@ extension HomeswiftCatalog {
             record(scene.id) { $0.lastSkipped = SceneRunRecord(at: SceneRules.now(), ok: true, trigger: trigger.rawValue, reason: reason) }
             return ["sceneId": .string(scene.id), "name": .string(scene.name), "ok": true, "results": [], "skipped": .string(reason)]
         }
-        // Light snapshots include color mode, power and Adaptive Lighting, and inherit the baseline of a mood they replace.
+        // Light snapshots include color mode, power and Adaptive Lighting, and inherit the baseline of a show they replace.
         let located = Set(scene.actions.map(\.id)).compactMap { find(id: $0) }
         let lights = Self.lights(of: located).filter { light in
             scene.actions.contains { action in
@@ -546,11 +546,11 @@ extension HomeswiftCatalog {
             }
         }
         let beforeLights = Dictionary(uniqueKeysWithValues: lights.map { ($0.key, $0.snapshot()) })
-        var snapshots: [String: MoodSnapshot] = [:]
-        var changedLights: [MoodLight] = []
+        var snapshots: [String: LightSnapshot] = [:]
+        var changedLights: [SceneLight] = []
         var undoActions: [SceneAction] = [], expected: [SceneAction] = []
         // A skipped or failed rerun still owes restoration for earlier successful writes.
-        if let prior = home.sceneUndo.value[scene.id], Date().timeIntervalSince(prior.at) < MoodRules.undoSeconds {
+        if let prior = home.sceneUndo.value[scene.id], Date().timeIntervalSince(prior.at) < LightShowRules.undoSeconds {
             for (action, after) in zip(prior.actions, prior.expected) {
                 guard let found = find(id: after.id),
                       let target = try? characteristic(in: found, service: after.service, characteristic: after.characteristic),
@@ -594,7 +594,7 @@ extension HomeswiftCatalog {
                 let before = Self.value(of: target)
                 _ = try await write(found, service: action.service, characteristic: action.characteristic, value: action.value, allowSecurity: allowSecurity)
                 let light = lights.first { light in [light.on, light.brightness, light.hue, light.saturation, light.colorTemperature].compactMap { $0 }.contains { $0 === target } }
-                // Only a successful write may take ownership from an existing mood.
+                // Only a successful write may take ownership from an existing show.
                 if let light, !changedLights.contains(where: { $0.key == light.key }) {
                     snapshots.merge(await takeOver([light], before: beforeLights)) { _, new in new }
                     changedLights.append(light)
@@ -618,13 +618,13 @@ extension HomeswiftCatalog {
             results.append(.object(result))
         }
         if !changedLights.isEmpty {
-            let mood = Mood(id: "scene:" + scene.id, name: scene.name, steps: [MoodStep(changedLights.map(\.color), seconds: MoodRules.minSeconds)])
-            _ = hold(mood, on: changedLights, snapshots: snapshots, by: "scene", room: nil)
+            let show = LightShow(id: "scene:" + scene.id, name: scene.name, steps: [LightStep(changedLights.map(\.color), seconds: LightShowRules.minSeconds)])
+            _ = hold(show, on: changedLights, snapshots: snapshots, by: "scene", room: nil)
         }
         var animated: JSONValue?
         if let animation = scene.animation { animated = await startAnimation(animation, of: scene, by: "scene \(trigger.rawValue)") }
         try home.sceneUndo.update { file in
-            file = file.filter { Date().timeIntervalSince($0.value.at) < MoodRules.undoSeconds }
+            file = file.filter { Date().timeIntervalSince($0.value.at) < LightShowRules.undoSeconds }
             file[scene.id] = SceneUndo(at: Date(), actions: undoActions, expected: expected)
         }
         let ok = failed == 0
@@ -645,7 +645,7 @@ extension HomeswiftCatalog {
         let id: String
         if let scene = try? scene(reference) {
             id = scene.id
-        } else if home.sceneUndo.value[reference] != nil || home.runningMoods.withLockedValue({ $0.values.contains { $0.mood.id == "scene:" + reference } }) {
+        } else if home.sceneUndo.value[reference] != nil || home.lightRuns.withLockedValue({ $0.values.contains { $0.show.id == "scene:" + reference } }) {
             id = reference
         } else if let found = await pluginScene(reference) {
             id = found.id
@@ -655,14 +655,14 @@ extension HomeswiftCatalog {
         guard home.runningScenes.withLockedValue({ $0.insert(id).inserted }) else { throw CatalogError("This scene is already running") }
         defer { _ = home.runningScenes.withLockedValue { $0.remove(id) } }
         let undo = home.sceneUndo.value[id]
-        let actions = undo.map { Date().timeIntervalSince($0.at) < MoodRules.undoSeconds ? $0.actions : [] } ?? []
+        let actions = undo.map { Date().timeIntervalSince($0.at) < LightShowRules.undoSeconds ? $0.actions : [] } ?? []
         if !allowSecurity, actions.contains(where: { action in
             guard let found = find(id: action.id) else { return false }
             return (try? characteristic(in: found, service: action.service, characteristic: action.characteristic).isSecurityControl) == true
         }) { throw CatalogError("Confirm before restoring a lock, door or alarm") }
         if let native = home.nativeAnimations.withLockedValue({ $0.removeValue(forKey: id) }) { await host.stopAnimation(accessoryIDs: native) }
-        let runs = home.runningMoods.withLockedValue { $0.values.filter { $0.mood.id == "scene:" + id }.map(\.id) }
-        for run in runs { _ = try await stopMoods(id: run) }
+        let runs = home.lightRuns.withLockedValue { $0.values.filter { $0.show.id == "scene:" + id }.map(\.id) }
+        for run in runs { _ = try await stopLightRuns(id: run) }
         var failures: [JSONValue] = [], remaining: [SceneAction] = [], expected: [SceneAction] = []
         for (index, action) in actions.enumerated() {
             do {
@@ -833,8 +833,8 @@ extension HomeswiftCatalog {
                     + "run_scene with template and room tries one on a room's lights; save_scene with template, room and name keeps it.",
                 outputSchema: Output.object(["templates": ["type": "array"]], required: ["templates"]),
                 scope: .read, idempotent: true
-            ) { _ in .json(["templates": .array(MoodLibrary.all.map { mood in
-                var entry = HomeswiftCatalog.templateJSON(mood).objectValue ?? [:]
+            ) { _ in .json(["templates": .array(SceneTemplateLibrary.all.map { show in
+                var entry = HomeswiftCatalog.templateJSON(show).objectValue ?? [:]
                 entry.removeValue(forKey: "swatch")
                 return .object(entry)
             })]) },

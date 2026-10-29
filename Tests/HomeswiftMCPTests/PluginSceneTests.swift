@@ -48,7 +48,8 @@ import Testing
         #expect(ran?["ok"] == true)
         #expect(hue.value == .double(300))
         let run = try #require(ran?["run"]?.stringValue)
-        _ = try await client.tool("stop_mood", ["run": .string(run)])
+        _ = run
+        _ = try await client.tool("stop_scene", ["scene": "Devices:Devices:magenta"])
         #expect(hue.value == .double(10))
 
         let byName = try await environment.catalog.runScene("magenta")

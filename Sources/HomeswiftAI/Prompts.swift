@@ -69,11 +69,11 @@ public enum Prompts {
         }
     }
 
-    public enum DesignMood {
-        public static let system = Prompts.system("design-mood")
+    public enum DesignScene {
+        public static let system = Prompts.system("design-scene")
         public static func user(description: String, lights: JSONValue) -> String {
-            PromptBook.text("design-mood.user", ["description": description])
-                + section(PromptBook.text("design-mood.title-lights"), lights.text(pretty: true))
+            PromptBook.text("design-scene.user", ["description": description])
+                + section(PromptBook.text("design-scene.title-lights"), lights.text(pretty: true))
         }
     }
 

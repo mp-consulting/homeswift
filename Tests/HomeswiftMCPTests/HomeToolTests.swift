@@ -263,15 +263,15 @@ struct SceneToolTests {
         #expect(target.value == .int(1))
     }
 
-    @Test func failedLightWriteKeepsExistingMoodOwnership() async throws {
+    @Test func failedLightWriteKeepsTheHeldRun() async throws {
         let environment = try MCPTestEnvironment()
         try await environment.start()
         defer { Task { await environment.stop() } }
         let catalog = environment.catalog
         let lamp = try #require(catalog.find(id: "Devices:lamp"))
         let light = try #require(HomeswiftCatalog.lights(of: [lamp]).first)
-        let mood = Mood(id: "test-held", name: "Existing mood", steps: [MoodStep([light.color], seconds: 1)])
-        let run = catalog.hold(mood, on: [light], snapshots: [light.key: light.snapshot()], by: "test", room: nil)
+        let show = LightShow(id: "test-held", name: "Held lights", steps: [LightStep([light.color], seconds: 1)])
+        let run = catalog.hold(show, on: [light], snapshots: [light.key: light.snapshot()], by: "test", room: nil)
         let brightness = try catalog.characteristic(in: lamp, service: nil, characteristic: "Brightness")
         brightness.onWrite { _ in throw CatalogError("offline") }
         let scene = try catalog.createScene(["name": "Failed scene", "actions": [
@@ -279,11 +279,11 @@ struct SceneToolTests {
         ]])
         let id = try #require(scene["id"]?.stringValue)
         #expect(try await catalog.runScene(id)["ok"] == false)
-        #expect(catalog.home.runningMoods.withLockedValue { $0[run.id] === run && $0.count == 1 })
+        #expect(catalog.home.lightRuns.withLockedValue { $0[run.id] === run && $0.count == 1 })
         #expect(run.snapshots.withLockedValue { $0[light.key] != nil })
         #expect(catalog.scenesJSON()["scenes"]?[0]?["stoppable"] == false)
         brightness.onWrite(nil)
-        _ = try await catalog.stopMoods(id: run.id)
+        _ = try await catalog.stopLightRuns(id: run.id)
     }
 
     @Test func savesRunsAndKeepsLocksForAPerson() async throws {

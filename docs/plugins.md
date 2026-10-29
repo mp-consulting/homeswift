@@ -232,11 +232,11 @@ trigger.characteristic(.on).securityControl().onWrite { value in try await door.
 **Mirrored accessories.** An accessory HomeKit already has another way (the Home app's own, which
 `Plugins/Wingman` reads through Homeswift Wingman on a Mac) is added with `accessory.mirroredFrom = "Apple Home"`
 before `context.add`. The bridge keeps it out of HomeKit: it is not in `GET /accessories`, and controllers cannot
-read, write or subscribe to it, so the Home app does not show it twice. The web UI, the MCP tools, scenes, moods and
+read, write or subscribe to it, so the Home app does not show it twice. The web UI, the MCP tools, scenes and
 automations use it as any other; the UI marks it with a house badge and filters on it (**Only from Apple Home**,
 `?from=`). `accessory.suggestedRoom` is the room the other controller gives it, the web UI's until the user picks one;
 both survive the accessory cache. `CharacteristicType.known(uuid:)` and `ServiceType.known(uuid:)` find Homeswift's
-own types from a UUID another controller reports, so the widgets and moods, which know types by name, recognise them.
+own types from a UUID another controller reports, so the widgets and scenes, which know types by name, recognise them.
 `context.publishedSerialNumbers` lists the serial numbers of every accessory Homeswift itself publishes (bridges, child
 bridges, external accessories), so a plugin reading the Home app's view leaves Homeswift's own out. Renaming or removing a
 room the other controller suggests makes it the layout's own; a removed one leaves its accessories with no room.
@@ -304,7 +304,7 @@ an MCP client) can find, check or pair a device the way the plugin's page does. 
 query of a `GET` and in the JSON body otherwise (`queryKeys` puts some in the query of a `POST`). `access`
 sets the MCP scope it needs (`configure` is admin), and `confirm: true` asks the user before it runs. An action that
 changes lights on the device's own hub (a scene) sets `changesLights: true`: the bridge keeps how the lights it changed were,
-and `stop_mood` puts them back, as for a mood.
+and `stop_scene` puts them back, as after any scene.
 
 ```swift
 public static let assistantActions = [

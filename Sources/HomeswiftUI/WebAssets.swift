@@ -9334,7 +9334,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // ---- Templates -------------------------------------------------------------------------------------
 
   /// The collection's names and descriptions, by id: translated here, the server's being English for MCP clients.
-  const moodTexts = {
+  const templateTexts = {
     "candlelight": [t("Candlelight"), t("Very warm, dim light for dinner.")],
     "relax": [t("Relax"), t("Soft warm white for the evening.")],
     "golden-hour": [t("Golden hour"), t("Amber and soft orange, a little different on each light.")],
@@ -9358,11 +9358,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     "alert": [t("Alert flash"), t("Two red pulses, then the lights go back to how they were.")],
     "bedtime": [t("Bedtime"), t("A slow fade to a dim red over fifteen minutes.")],
   };
-  const moodCategories = [["gallery", t("Scene gallery")], ["calm", t("Calm")], ["animated", t("Slow animations")], ["party", t("Party")], ["signal", t("Signals")]];
-  const moodName = (id, name) => moodTexts[id]?.[0] ?? name;
-  const moodRoomKey = "homeswift.moods.room";
+  const templateCategories = [["gallery", t("Scene gallery")], ["calm", t("Calm")], ["animated", t("Slow animations")], ["party", t("Party")], ["signal", t("Signals")]];
+  const templateName = (id, name) => templateTexts[id]?.[0] ?? name;
+  const templateRoomKey = "homeswift.templates.room";
 
-  /// The rooms with a light in them, for the moods.
+  /// The rooms with a light in them, for the templates.
   function lightRooms(accessories) {
     const rooms = accessories.filter((a) => !a.hidden && a.room && a.services.some((s) => s.type === "Lightbulb")).map((a) => a.room);
     return [...new Set(rooms)].sort((a, b) => a.localeCompare(b, HomeswiftI18n.locale));
@@ -9372,38 +9372,51 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// where the Assistant writes a scene from a description, and the collection by kind. A tap tries one at once without
   /// saving it (the pill lights up while it plays); Save keeps it as a scene. On a phone each kind is a row that swipes
   /// sideways, so the whole card fits on a screen.
-  function templatesSection(accessories) {
-    const section = el("section", { class: "moods templates" });
-    const head = el("div", { class: "section-head" }, el("div", {}, el("h2", { text: t("Templates") }), el("span", { class: "muted", text: t("Try one on a room's lights; save it as a scene when you like it.") })));
+  function templatesSection(accessories, scenes = { scenes: [], pluginScenes: [] }) {
+    const section = el("section", { class: "templates" });
+    const head = el("div", { class: "section-head" }, el("div", {}, el("h2", { text: t("By room") }), el("span", { class: "muted", text: t("A room's scenes, then templates to try on its lights; save one as a scene when you like it.") })));
     const rooms = lightRooms(accessories);
     if (!rooms.length) {
       section.append(head, el("div", { class: "card empty" }, el("p", { class: "muted", text: t("Put your lights in rooms (a card's menu on the Accessories page) to try templates on them.") })));
       return section;
     }
     let room = rooms[0];
-    try { const remembered = localStorage.getItem(moodRoomKey); if (rooms.includes(remembered)) room = remembered; } catch {}
-    const roomChips = el("div", { class: "mood-rooms", role: "group", "aria-label": t("Room") }, rooms.map((name) => {
-      const chip = el("button", { type: "button", class: "mood-room", text: name, "aria-pressed": String(name === room) });
+    try { const remembered = localStorage.getItem(templateRoomKey); if (rooms.includes(remembered)) room = remembered; } catch {}
+    const roomChips = el("div", { class: "template-rooms", role: "group", "aria-label": t("Room") }, rooms.map((name) => {
+      const chip = el("button", { type: "button", class: "template-room", text: name, "aria-pressed": String(name === room) });
       chip.addEventListener("click", () => {
         room = name;
-        try { localStorage.setItem(moodRoomKey, name); } catch {}
+        try { localStorage.setItem(templateRoomKey, name); } catch {}
         for (const other of roomChips.children) other.setAttribute("aria-pressed", String(other === chip));
+        drawStrip();
         drawTries();
         markPlaying();
       });
       return chip;
     }));
     const line = statusLine();
-    const running = el("div", { class: "mood-running" });
-    const collection = el("div", { class: "mood-collection" });
+    const running = el("div", { class: "template-running" });
+    const collection = el("div", { class: "template-collection" });
     const describe = el("input", { type: "text", maxLength: 500, enterKeyHint: "go", placeholder: t("Describe a scene…"), title: t("Describe one: a jazz bar, a rainy afternoon…"), "aria-label": t("Describe a scene") });
-    const create = el("button", { type: "submit", class: "primary mood-create" }, sparkle(), el("span", { text: t("Create") }));
-    const designer = el("form", { class: "mood-describe hidden" }, describe, create);
-    section.append(head, el("div", { class: "card mood-card" }, roomChips, running, line, designer, collection));
+    const create = el("button", { type: "submit", class: "primary template-create" }, sparkle(), el("span", { text: t("Create") }));
+    const designer = el("form", { class: "template-describe hidden" }, describe, create);
+    // The chosen room's own scenes and its hubs' scenes, to run in a tap.
+    const strip = el("div", { class: "quick-scenes room-scenes" });
+    const stripHead = el("div", { class: "service-name" });
+    const templatesHead = el("div", { class: "service-name", text: t("From a template") });
+    function drawStrip() {
+      const own = scenes.scenes.filter((scene) => scene.room === room).map((scene) => sceneButton(scene));
+      const hubs = (scenes.pluginScenes || []).filter((scene) => scene.room === room).map((scene) => hubSceneButton(scene));
+      strip.replaceChildren(...own, ...hubs);
+      stripHead.textContent = t("Scenes in {room}", { room });
+      strip.hidden = stripHead.hidden = !own.length && !hubs.length;
+    }
+    drawStrip();
+    section.append(head, el("div", { class: "card template-card" }, roomChips, stripHead, strip, running, line, designer, templatesHead, collection));
 
     let data = { templates: [], tries: [] };
     const buttons = [];
-    const name = (run) => run.template ? moodName(run.template, run.name) : run.name;
+    const name = (run) => run.template ? templateName(run.template, run.name) : run.name;
 
     /// The pills of the templates playing in the chosen room light up.
     function markPlaying() {
@@ -9411,10 +9424,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       for (const [id, button] of buttons) {
         button.classList.toggle("playing", playing.has(id));
         button.setAttribute("aria-pressed", String(playing.has(id)));
-        let badge = button.querySelector(".mood-stop-badge");
-        if (playing.has(id) && !badge) { badge = el("span", { class: "mood-stop-badge", "aria-hidden": "true" }); button.append(badge); }
+        let badge = button.querySelector(".template-stop-badge");
+        if (playing.has(id) && !badge) { badge = el("span", { class: "template-stop-badge", "aria-hidden": "true" }); button.append(badge); }
         if (!playing.has(id)) badge?.remove();
-        const label = button.querySelector(".name")?.textContent || moodName(id, id);
+        const label = button.querySelector(".name")?.textContent || templateName(id, id);
         button.setAttribute("aria-label", playing.has(id) ? `${t("Stop")} ${label}` : label);
       }
     }
@@ -9427,13 +9440,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     async function stopTry(run) {
       await app.api(`/api/scenes/${encodeURIComponent(run.run)}/stop`, { method: "POST", body: {} });
-      say(line, run.playing ? t("{mood} stopped: the lights are back as they were.", { mood: name(run) }) : t("{mood} undone: the lights are back as they were.", { mood: name(run) }));
+      say(line, run.playing ? t("{scene} stopped: the lights are back as they were.", { scene: name(run) }) : t("{scene} undone: the lights are back as they were.", { scene: name(run) }));
     }
 
     function drawTries() {
       running.replaceChildren(...data.tries.map((run) => {
         // One that plays is stopped; one that set the lights once is undone. Either way the lights go back.
-        const stop = el("button", { type: "button", class: "mood-stop", actionIcon: "stop", text: run.playing ? t("Stop") : t("Undo") });
+        const stop = el("button", { type: "button", class: "template-stop", actionIcon: "stop", text: run.playing ? t("Stop") : t("Undo") });
         stop.addEventListener("click", async () => {
           stop.classList.add("busy");
           stop.disabled = true;
@@ -9443,14 +9456,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         // The room shows only when it is not the one chosen above.
         const time = timeFormat.format(new Date(run.startedAt));
         const where = run.room && run.room !== room ? t("{room}, {time}", { room: run.room, time }) : time;
-        return el("div", { class: "mood-run" }, swatch(run.template, run.plan?.artworkId),
-          el("div", { class: "mood-run-text" }, el("strong", { text: name(run) }), el("span", { class: "muted", text: where })),
+        return el("div", { class: "template-run" }, swatch(run.template, run.plan?.artworkId),
+          el("div", { class: "template-run-text" }, el("strong", { text: name(run) }), el("span", { class: "muted", text: where })),
           save, stop);
       }));
     }
 
     function swatch(id, artworkId) {
-      return artworkImage(artworkId || data.templates.find((template) => template.id === id)?.artworkId || "tyrell", "mood-swatch");
+      return artworkImage(artworkId || data.templates.find((template) => template.id === id)?.artworkId || "tyrell", "template-swatch");
     }
 
     async function start(body, label, button) {
@@ -9462,7 +9475,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         if (result.ok) say(line, "");
         else {
           const failures = (result.results || []).filter((r) => !r.ok).map((r) => `${r.name || r.id || r.recall}: ${HomeswiftI18n.message(r.error || r.skipped)}`).join("; ");
-          say(line, t("{mood} is set, but not on every light: {failures}", { mood: body.template ? label : result.name, failures }), "error");
+          say(line, t("{scene} is set, but not on every light: {failures}", { scene: body.template ? label : result.name, failures }), "error");
         }
         if (body.description) describe.value = "";
         await refresh();
@@ -9471,7 +9484,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     async function saveAsScene(run) {
       try {
-        const scene = await app.api("/api/scenes", { method: "POST", body: { ...run.plan, name: t("{mood} in {room}", { mood: name(run), room: run.room || room }).slice(0, 64) } });
+        const scene = await app.api("/api/scenes", { method: "POST", body: { ...run.plan, name: t("{scene} in {room}", { scene: name(run), room: run.room || room }).slice(0, 64) } });
         say(line, t("Saved as the scene {name}.", { name: scene.name }));
         setTimeout(() => { if (section.isConnected) app.route(); }, 1200);
       } catch (e) { say(line, e.message, "error"); }
@@ -9487,12 +9500,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       await refresh();
       const themes = await loadArtworkThemes();
       designer.classList.toggle("hidden", !data.assistant);
-      collection.replaceChildren(...moodCategories.map(([category, label]) => {
+      collection.replaceChildren(...templateCategories.map(([category, label]) => {
         const templates = data.templates.filter((template) => template.category === category);
         if (!templates.length) return null;
         const makeButton = (template) => {
-          const label = moodName(template.id, template.name);
-          const button = el("button", { type: "button", class: "mood-button scene pictured artwork-choice", title: category === "gallery" ? label : moodTexts[template.id]?.[1] ?? template.description ?? "", "aria-pressed": "false" },
+          const label = templateName(template.id, template.name);
+          const button = el("button", { type: "button", class: "template-button scene pictured artwork-choice", title: category === "gallery" ? label : templateTexts[template.id]?.[1] ?? template.description ?? "", "aria-pressed": "false" },
             swatch(template.id), el("span", { class: "name", text: label }));
           button.addEventListener("click", async () => {
             if (button.classList.contains("busy")) return;
@@ -9508,8 +9521,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           buttons.push([template.id, button]);
           return button;
         };
-        return el("div", { class: "mood-group" }, el("div", { class: "service-name", text: label }),
-          category === "gallery" ? themedArtwork(templates, themes, makeButton) : el("div", { class: "mood-buttons" }, templates.map(makeButton)));
+        return el("div", { class: "template-group" }, el("div", { class: "service-name", text: label }),
+          category === "gallery" ? themedArtwork(templates, themes, makeButton) : el("div", { class: "template-buttons" }, templates.map(makeButton)));
       }).filter(Boolean));
       markPlaying();
     })().catch((e) => say(line, e.message, "error"));
@@ -9614,7 +9627,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("div", { class: "section-head" }, el("h2", { text: t("Your scenes") }), sceneCount, data.scenes.length || hubScenes.node ? [search, HomeswiftCommon.clearFilters([[search, ""]])] : null),
       data.scenes.length ? el("div", { class: "grid scene-grid" }, sceneCards.map(({ node }) => node))
         : el("div", { class: "card empty scenes-empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("play")), el("p", { class: "muted", text: t("No scene yet. A scene sets several accessories at once, such as every light of a room for the evening.") }), el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") })),
-      noMatches, hubScenes.node, templatesSection(accessories), locationCard(data));
+      noMatches, hubScenes.node, templatesSection(accessories, data), locationCard(data));
   }
 
   /// Where sunrise and sunset are computed for: Glass UI took its weather widget's city; here it is typed, or
@@ -10201,7 +10214,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       sync();
       const read = () => {
         const value = style.value;
-        const chosen = lights.filter(({ input }) => input.checked).map(({ input }) => input.value);
+        // Lights the page cannot list now (a paused plugin's) stay in the animation.
+        const unlisted = (current?.lights || []).filter((id) => !lights.some(({ input }) => input.value === id));
+        const chosen = [...lights.filter(({ input }) => input.checked).map(({ input }) => input.value), ...unlisted];
         if (!value) return null;
         if (value === "sequence") return { ...current, lights: chosen };
         const result = { style: value };
@@ -10501,8 +10516,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         "i18n-es.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Spanish (Spain): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("es", {
+  "A room's scenes, then templates to try on its lights; save one as a scene when you like it.": "Las escenas de una habitación y, después, plantillas para probar en sus luces; guarda una como escena si te gusta.",
+  "From a template": "A partir de una plantilla",
+  "Scenes in {room}": "Escenas de {room}",
   "Templates": "Plantillas",
-  "Try one on a room's lights; save it as a scene when you like it.": "Prueba una en las luces de una habitación; guárdala como escena si te gusta.",
   "Put your lights in rooms (a card's menu on the Accessories page) to try templates on them.": "Pon tus luces en habitaciones (el menú de una tarjeta en la página Accesorios) para probar plantillas en ellas.",
   "Describe a scene…": "Describe una escena…",
   "Describe a scene": "Describir una escena",
@@ -10793,14 +10810,10 @@ HomeswiftI18n.add("es", {
   "{minutes} min before sunset {days}": "{minutes} min antes del atardecer {days}",
   "{model} read {n} line. Secrets and addresses were masked first; check its advice before acting on it.": "{model} ha leído {n} línea. Antes se han ocultado los secretos y las direcciones; comprueba sus consejos antes de seguirlos.",
   "{model} read {n} lines. Secrets and addresses were masked first; check its advice before acting on it.": "{model} ha leído {n} líneas. Antes se han ocultado los secretos y las direcciones; comprueba sus consejos antes de seguirlos.",
-  "{mood} in {room}": "{mood} – {room}",
-  "{mood} is playing on {n} light.": "{mood}: en marcha en {n} luz.",
-  "{mood} is playing on {n} lights.": "{mood}: en marcha en {n} luces.",
-  "{mood} is set on {n} light.": "{mood}: {n} luz ajustada.",
-  "{mood} is set on {n} lights.": "{mood}: {n} luces ajustadas.",
-  "{mood} is set, but not on every light: {failures}": "{mood}: no todas las luces han respondido: {failures}",
-  "{mood} undone: the lights are back as they were.": "{mood}: deshecho, las luces han vuelto a como estaban.",
-  "{mood} stopped: the lights are back as they were.": "{mood}: detenido, las luces han vuelto a como estaban.",
+  "{scene} in {room}": "{scene} – {room}",
+  "{scene} is set, but not on every light: {failures}": "{scene}: no todas las luces han respondido: {failures}",
+  "{scene} undone: the lights are back as they were.": "{scene}: deshecho, las luces han vuelto a como estaban.",
+  "{scene} stopped: the lights are back as they were.": "{scene}: detenido, las luces han vuelto a como estaban.",
   "{n} accessories": "{n} accesorios",
   "{n} accessories on {bridge}": "{n} accesorios en {bridge}",
   "{n} accessory": "{n} accesorio",
@@ -11268,8 +11281,6 @@ HomeswiftI18n.add("es", {
   "Delete this backup?": "¿Eliminar esta copia de seguridad?",
   "Delete…": "Eliminar…",
   "Deny": "Denegar",
-  "Describe a mood": "Describir un ambiente",
-  "Describe a mood…": "Describe un ambiente…",
   "Describe one: a jazz bar, a rainy afternoon…": "Describe uno: un bar de jazz, una tarde lluviosa…",
   "Describe your setup": "Describe tu instalación",
   "Details": "Detalles",
@@ -11654,7 +11665,6 @@ HomeswiftI18n.add("es", {
   "Mode": "Modo",
   "Model": "Modelo",
   "Mon": "Lun",
-  "Moods": "Ambientes",
   "More": "Más",
   "More options ({count})": "Más opciones ({count})",
   "Motion": "Movimiento",
@@ -11899,7 +11909,6 @@ HomeswiftI18n.add("es", {
   "Purple and orange with an eerie flicker.": "Morado y naranja con un parpadeo inquietante.",
   "Push payload too large ({0} bytes)": "Contenido push demasiado grande ({0} bytes)",
   "Put in a room…": "Asignar a una habitación…",
-  "Put your lights in rooms (a card's menu on the Accessories page) to play moods on them.": "Pon tus luces en habitaciones (el menú de una tarjeta en la página Accesorios) para ponerles ambientes.",
   "QR code for an authenticator app": "Código QR para una app de autenticación",
   "Quick controls": "Controles rápidos",
   "Rainbow wave": "Ola arcoíris",
@@ -12147,7 +12156,6 @@ HomeswiftI18n.add("es", {
   "Staged Firmware Version": "Firmware preparado",
   "Stale": "Obsoleto",
   "Start": "Iniciar",
-  "Starting {mood}…": "Iniciando {mood}…",
   "Starting…": "Iniciando…",
   "Stateful Programmable Switch": "Interruptor programable",
   "Stateless Programmable Switch": "Botón programable",
@@ -12303,7 +12311,6 @@ HomeswiftI18n.add("es", {
   "The Assistant is off: config.json has no HomeswiftAiKit block. Add one on the Config page, {example}, or choose apple on a Mac with Apple Intelligence.": "El Asistente está desactivado: config.json no tiene bloque HomeswiftAiKit. Añade uno en la página Configuración, {example}, o elige apple en un Mac con Apple Intelligence.",
   "The Assistant is sorting your accessories into rooms…": "El Asistente está ordenando tus accesorios por habitaciones…",
   "the Assistant is still answering; stop it first": "el Asistente aún está respondiendo; detenlo primero",
-  "The Assistant is writing a mood…": "El Asistente está creando un ambiente…",
   "The Assistant is writing the block…": "El Asistente está escribiendo el bloque…",
   "The Assistant reads the lines shown and groups the issues, with causes and fixes": "El Asistente lee las líneas mostradas y agrupa los problemas, con causas y soluciones",
   "The Assistant stopped after many steps without an answer. Ask again, or more precisely.": "El Asistente se ha detenido tras muchos pasos sin respuesta. Vuelve a preguntar, o con más precisión.",
@@ -12855,8 +12862,10 @@ HomeswiftI18n.add("es", {
         "i18n-fr.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in French: English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("fr", {
+  "A room's scenes, then templates to try on its lights; save one as a scene when you like it.": "Les scènes d’une pièce, puis des modèles à essayer sur ses lumières ; enregistrez-en un comme scène s’il vous plaît.",
+  "From a template": "À partir d’un modèle",
+  "Scenes in {room}": "Scènes de {room}",
   "Templates": "Modèles",
-  "Try one on a room's lights; save it as a scene when you like it.": "Essayez-en un sur les lumières d’une pièce ; enregistrez-le comme scène s’il vous plaît.",
   "Put your lights in rooms (a card's menu on the Accessories page) to try templates on them.": "Placez vos lumières dans des pièces (le menu d’une carte sur la page Accessoires) pour y essayer des modèles.",
   "Describe a scene…": "Décrivez une scène…",
   "Describe a scene": "Décrire une scène",
@@ -13147,14 +13156,10 @@ HomeswiftI18n.add("fr", {
   "{minutes} min before sunset {days}": "{minutes} min avant le coucher du soleil {days}",
   "{model} read {n} line. Secrets and addresses were masked first; check its advice before acting on it.": "{model} a lu {n} ligne. Les secrets et les adresses ont d'abord été masqués ; vérifiez ses conseils avant de les suivre.",
   "{model} read {n} lines. Secrets and addresses were masked first; check its advice before acting on it.": "{model} a lu {n} lignes. Les secrets et les adresses ont d'abord été masqués ; vérifiez ses conseils avant de les suivre.",
-  "{mood} in {room}": "{mood} – {room}",
-  "{mood} is playing on {n} light.": "{mood} : en cours sur {n} lampe.",
-  "{mood} is playing on {n} lights.": "{mood} : en cours sur {n} lampes.",
-  "{mood} is set on {n} light.": "{mood} : {n} lampe réglée.",
-  "{mood} is set on {n} lights.": "{mood} : {n} lampes réglées.",
-  "{mood} is set, but not on every light: {failures}": "{mood} : certaines lampes n'ont pas suivi : {failures}",
-  "{mood} undone: the lights are back as they were.": "{mood} : annulée, les lampes sont revenues à leur état précédent.",
-  "{mood} stopped: the lights are back as they were.": "{mood} : arrêtée, les lampes sont revenues à leur état précédent.",
+  "{scene} in {room}": "{scene} – {room}",
+  "{scene} is set, but not on every light: {failures}": "{scene} : certaines lampes n'ont pas suivi : {failures}",
+  "{scene} undone: the lights are back as they were.": "{scene} : annulée, les lampes sont revenues à leur état précédent.",
+  "{scene} stopped: the lights are back as they were.": "{scene} : arrêtée, les lampes sont revenues à leur état précédent.",
   "{n} accessories": "{n} accessoires",
   "{n} accessories on {bridge}": "{n} accessoires sur {bridge}",
   "{n} accessory": "{n} accessoire",
@@ -13622,8 +13627,6 @@ HomeswiftI18n.add("fr", {
   "Delete this backup?": "Supprimer cette sauvegarde ?",
   "Delete…": "Supprimer…",
   "Deny": "Refuser",
-  "Describe a mood": "Décrire une ambiance",
-  "Describe a mood…": "Décrivez une ambiance…",
   "Describe one: a jazz bar, a rainy afternoon…": "Décrivez-en une : un bar de jazz, un après-midi pluvieux…",
   "Describe your setup": "Décrivez votre installation",
   "Details": "Détails",
@@ -14008,7 +14011,6 @@ HomeswiftI18n.add("fr", {
   "Mode": "Mode",
   "Model": "Modèle",
   "Mon": "Lun",
-  "Moods": "Ambiances",
   "More": "Plus",
   "More options ({count})": "Plus d'options ({count})",
   "Motion": "Mouvement",
@@ -14253,7 +14255,6 @@ HomeswiftI18n.add("fr", {
   "Purple and orange with an eerie flicker.": "Violet et orange, avec un scintillement inquiétant.",
   "Push payload too large ({0} bytes)": "Contenu push trop volumineux ({0} octets)",
   "Put in a room…": "Mettre dans une pièce…",
-  "Put your lights in rooms (a card's menu on the Accessories page) to play moods on them.": "Placez vos lampes dans des pièces (le menu d'une carte sur la page Accessoires) pour y lancer des ambiances.",
   "QR code for an authenticator app": "Code QR pour une app d'authentification",
   "Quick controls": "Commandes rapides",
   "Rainbow wave": "Vague arc-en-ciel",
@@ -14501,7 +14502,6 @@ HomeswiftI18n.add("fr", {
   "Staged Firmware Version": "Firmware en attente",
   "Stale": "Obsolète",
   "Start": "Démarrer",
-  "Starting {mood}…": "Lancement de {mood}…",
   "Starting…": "Démarrage…",
   "Stateful Programmable Switch": "Interrupteur programmable",
   "Stateless Programmable Switch": "Bouton programmable",
@@ -14657,7 +14657,6 @@ HomeswiftI18n.add("fr", {
   "The Assistant is off: config.json has no HomeswiftAiKit block. Add one on the Config page, {example}, or choose apple on a Mac with Apple Intelligence.": "L'Assistant est désactivé : config.json n'a pas de bloc HomeswiftAiKit. Ajoutez-en un sur la page Config, {example}, ou choisissez apple sur un Mac avec Apple Intelligence.",
   "The Assistant is sorting your accessories into rooms…": "L'Assistant range vos accessoires par pièce…",
   "the Assistant is still answering; stop it first": "l'Assistant répond encore ; arrêtez-le d'abord",
-  "The Assistant is writing a mood…": "L'Assistant compose une ambiance…",
   "The Assistant is writing the block…": "L'Assistant rédige le bloc…",
   "The Assistant reads the lines shown and groups the issues, with causes and fixes": "L'Assistant lit les lignes affichées et regroupe les problèmes, avec leurs causes et leurs solutions",
   "The Assistant stopped after many steps without an answer. Ask again, or more precisely.": "L'Assistant s'est arrêté après de nombreuses étapes sans réponse. Reposez la question, ou soyez plus précis.",
@@ -15209,8 +15208,10 @@ HomeswiftI18n.add("fr", {
         "i18n-pt.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Portuguese (Portugal): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("pt", {
+  "A room's scenes, then templates to try on its lights; save one as a scene when you like it.": "As cenas de uma divisão e, depois, modelos para experimentar nas suas luzes; guarde um como cena se gostar.",
+  "From a template": "A partir de um modelo",
+  "Scenes in {room}": "Cenas de {room}",
   "Templates": "Modelos",
-  "Try one on a room's lights; save it as a scene when you like it.": "Experimente um nas luzes de uma divisão; guarde-o como cena se gostar.",
   "Put your lights in rooms (a card's menu on the Accessories page) to try templates on them.": "Coloque as suas luzes em divisões (o menu de um cartão na página Acessórios) para experimentar modelos nelas.",
   "Describe a scene…": "Descreva uma cena…",
   "Describe a scene": "Descrever uma cena",
@@ -15501,14 +15502,10 @@ HomeswiftI18n.add("pt", {
   "{minutes} min before sunset {days}": "{minutes} min antes do pôr do sol {days}",
   "{model} read {n} line. Secrets and addresses were masked first; check its advice before acting on it.": "{model} leu {n} linha. Os segredos e os endereços foram ocultados primeiro; verifique os conselhos antes de os seguir.",
   "{model} read {n} lines. Secrets and addresses were masked first; check its advice before acting on it.": "{model} leu {n} linhas. Os segredos e os endereços foram ocultados primeiro; verifique os conselhos antes de os seguir.",
-  "{mood} in {room}": "{mood} – {room}",
-  "{mood} is playing on {n} light.": "{mood}: a decorrer em {n} luz.",
-  "{mood} is playing on {n} lights.": "{mood}: a decorrer em {n} luzes.",
-  "{mood} is set on {n} light.": "{mood}: {n} luz ajustada.",
-  "{mood} is set on {n} lights.": "{mood}: {n} luzes ajustadas.",
-  "{mood} is set, but not on every light: {failures}": "{mood}: nem todas as luzes responderam: {failures}",
-  "{mood} undone: the lights are back as they were.": "{mood}: anulado, as luzes voltaram ao que eram.",
-  "{mood} stopped: the lights are back as they were.": "{mood}: parado, as luzes voltaram ao que eram.",
+  "{scene} in {room}": "{scene} – {room}",
+  "{scene} is set, but not on every light: {failures}": "{scene}: nem todas as luzes responderam: {failures}",
+  "{scene} undone: the lights are back as they were.": "{scene}: anulado, as luzes voltaram ao que eram.",
+  "{scene} stopped: the lights are back as they were.": "{scene}: parado, as luzes voltaram ao que eram.",
   "{n} accessories": "{n} acessórios",
   "{n} accessories on {bridge}": "{n} acessórios em {bridge}",
   "{n} accessory": "{n} acessório",
@@ -15976,8 +15973,6 @@ HomeswiftI18n.add("pt", {
   "Delete this backup?": "Eliminar esta cópia de segurança?",
   "Delete…": "Eliminar…",
   "Deny": "Recusar",
-  "Describe a mood": "Descrever um ambiente",
-  "Describe a mood…": "Descreva um ambiente…",
   "Describe one: a jazz bar, a rainy afternoon…": "Descreva um: um bar de jazz, uma tarde de chuva…",
   "Describe your setup": "Descreva a sua instalação",
   "Details": "Detalhes",
@@ -16362,7 +16357,6 @@ HomeswiftI18n.add("pt", {
   "Mode": "Modo",
   "Model": "Modelo",
   "Mon": "Seg",
-  "Moods": "Ambientes",
   "More": "Mais",
   "More options ({count})": "Mais opções ({count})",
   "Motion": "Movimento",
@@ -16607,7 +16601,6 @@ HomeswiftI18n.add("pt", {
   "Purple and orange with an eerie flicker.": "Roxo e laranja com um tremeluzir inquietante.",
   "Push payload too large ({0} bytes)": "Conteúdo push demasiado grande ({0} bytes)",
   "Put in a room…": "Colocar numa divisão…",
-  "Put your lights in rooms (a card's menu on the Accessories page) to play moods on them.": "Coloque as luzes em divisões (o menu de um cartão na página Acessórios) para lhes aplicar ambientes.",
   "QR code for an authenticator app": "Código QR para uma app de autenticação",
   "Quick controls": "Controlos rápidos",
   "Rainbow wave": "Onda arco-íris",
@@ -16855,7 +16848,6 @@ HomeswiftI18n.add("pt", {
   "Staged Firmware Version": "Firmware preparado",
   "Stale": "Obsoleto",
   "Start": "Iniciar",
-  "Starting {mood}…": "A iniciar {mood}…",
   "Starting…": "A iniciar…",
   "Stateful Programmable Switch": "Interruptor programável",
   "Stateless Programmable Switch": "Botão programável",
@@ -17011,7 +17003,6 @@ HomeswiftI18n.add("pt", {
   "The Assistant is off: config.json has no HomeswiftAiKit block. Add one on the Config page, {example}, or choose apple on a Mac with Apple Intelligence.": "O Assistente está desativado: o config.json não tem um bloco HomeswiftAiKit. Adicione um na página Configuração, {example}, ou escolha apple num Mac com Apple Intelligence.",
   "The Assistant is sorting your accessories into rooms…": "O Assistente está a organizar os acessórios por divisões…",
   "the Assistant is still answering; stop it first": "o Assistente ainda está a responder; pare-o primeiro",
-  "The Assistant is writing a mood…": "O Assistente está a criar um ambiente…",
   "The Assistant is writing the block…": "O Assistente está a escrever o bloco…",
   "The Assistant reads the lines shown and groups the issues, with causes and fixes": "O Assistente lê as linhas mostradas e agrupa os problemas, com causas e soluções",
   "The Assistant stopped after many steps without an answer. Ask again, or more precisely.": "O Assistente parou após muitos passos sem resposta. Pergunte novamente, ou de forma mais precisa.",
@@ -21826,56 +21817,56 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
   .quick-scenes > .scene-run, .quick-scenes > .hub-scene-tile { scroll-snap-align: start; }
 }
 .scene-card .server-head > button { flex: none; }
-/* Moods: the rooms as chips, what plays, the Assistant's box, the collection as pills with their colours. Pills and chips
+/* Templates: the rooms as chips, what plays, the Assistant's box, the collection as pills with their colours. Pills and chips
    are controls: no text selection or callout on a long press, press feedback at once, the lift on hover only with a
    mouse (a tap would leave it stuck). On a phone each kind is a row that swipes sideways and snaps, so the card fits a
    screen and what a tap starts shows beside the finger. */
-.mood-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-14); }
-.mood-rooms, .mood-buttons { display: flex; gap: var(--space-8); }
-.mood-rooms { flex-wrap: wrap; }
-.mood-buttons { flex-wrap: wrap; }
-.mood-room, .mood-button { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
-.mood-room { padding: 7px var(--space-14); font-size: var(--text-md); }
-.mood-room[aria-pressed="true"] { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); border-color: transparent; }
-.mood-button {
+.template-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-14); }
+.template-rooms, .template-buttons { display: flex; gap: var(--space-8); }
+.template-rooms { flex-wrap: wrap; }
+.template-buttons { flex-wrap: wrap; }
+.template-room, .template-button { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.template-room { padding: 7px var(--space-14); font-size: var(--text-md); }
+.template-room[aria-pressed="true"] { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); border-color: transparent; }
+.template-button {
   display: inline-flex; align-items: center; gap: var(--space-10); flex: none; min-height: 44px; padding: var(--space-6) var(--space-16) var(--space-6) var(--space-6);
   transition: transform var(--fast) var(--ease-out), box-shadow var(--normal) var(--ease-out);
 }
-.mood-button:active:not(:disabled), .mood-room:active { transform: scale(0.96); transition-duration: 80ms; }
-.mood-button.playing { box-shadow: 0 0 0 2px var(--accent), var(--shadow-control); }
-.mood-button.busy::after { margin-left: 0; }
-.mood-swatch { width: 32px; height: 32px; border-radius: var(--radius-sm); flex: none; }
-.mood-group .service-name { margin: 0 0 var(--space-8); }
-.mood-collection { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-16); }
-.mood-describe { display: flex; gap: var(--space-8); }
-.mood-describe input { flex: 1; min-width: 0; }
-.mood-create { display: inline-flex; align-items: center; gap: var(--space-6); flex: none; white-space: nowrap; }
-.mood-running { display: grid; gap: var(--space-8); }
-.mood-running:empty { display: none; }
-.mood-run {
+.template-button:active:not(:disabled), .template-room:active { transform: scale(0.96); transition-duration: 80ms; }
+.template-button.playing { box-shadow: 0 0 0 2px var(--accent), var(--shadow-control); }
+.template-button.busy::after { margin-left: 0; }
+.template-swatch { width: 32px; height: 32px; border-radius: var(--radius-sm); flex: none; }
+.template-group .service-name { margin: 0 0 var(--space-8); }
+.template-collection { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-16); }
+.template-describe { display: flex; gap: var(--space-8); }
+.template-describe input { flex: 1; min-width: 0; }
+.template-create { display: inline-flex; align-items: center; gap: var(--space-6); flex: none; white-space: nowrap; }
+.template-running { display: grid; gap: var(--space-8); }
+.template-running:empty { display: none; }
+.template-run {
   display: flex; align-items: center; gap: var(--space-12); padding: var(--space-8) var(--space-8) var(--space-8) var(--space-10); border-radius: var(--radius-lg); background: var(--material-thin); border: 1px solid var(--line);
   transition: opacity var(--normal) var(--ease-out), transform var(--normal) var(--ease-out);
 }
-@starting-style { .mood-run { opacity: 0; transform: translateY(-4px); } }
-.mood-run-text { flex: 1; min-width: 0; display: grid; }
-.mood-run-text .muted { font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mood-stop { flex: none; }
-.mood-card .status-line { margin: 0; }
-.mood-card .status-line:empty { display: none; }
-/* A phone: rooms and each kind of mood scroll sideways from edge to edge of the card, snapping to a pill; the input stays
+@starting-style { .template-run { opacity: 0; transform: translateY(-4px); } }
+.template-run-text { flex: 1; min-width: 0; display: grid; }
+.template-run-text .muted { font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.template-stop { flex: none; }
+.template-card .status-line { margin: 0; }
+.template-card .status-line:empty { display: none; }
+/* A phone: rooms and each kind of template scroll sideways from edge to edge of the card, snapping to a pill; the input stays
    at 16px so iOS does not zoom into it. */
 @media (max-width: 640px) {
-  .mood-rooms, .mood-buttons {
+  .template-rooms, .template-buttons {
     flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scrollbar-width: none;
     margin: 0 -20px; padding: 2px var(--space-20) var(--space-6); scroll-padding: 0 20px;
     -webkit-mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 22px), transparent);
     mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 22px), transparent);
   }
-  .mood-rooms::-webkit-scrollbar, .mood-buttons::-webkit-scrollbar { display: none; }
-  .mood-room, .mood-button { flex: none; scroll-snap-align: start; }
+  .template-rooms::-webkit-scrollbar, .template-buttons::-webkit-scrollbar { display: none; }
+  .template-room, .template-button { flex: none; scroll-snap-align: start; }
 }
-@media (pointer: coarse) { .mood-describe input { font-size: 16px; } }
-@media (prefers-reduced-motion: reduce) { .mood-run { transition: none; } }
+@media (pointer: coarse) { .template-describe input { font-size: 16px; } }
+@media (prefers-reduced-motion: reduce) { .template-run { transition: none; } }
 .location summary { cursor: pointer; }
 .location { margin-top: var(--space-14); }
 .scene-editor h2 { margin: 22px 0 2px; font-size: var(--text-xl); }
@@ -22361,9 +22352,9 @@ select:disabled { opacity: .5; cursor: not-allowed; }
 .scene-card .card-foot { font-size: var(--text-xs); line-height: 1.5; padding-top: var(--space-10); }
 .section-head:has(+ .scene-grid) { gap: var(--space-12); flex-wrap: wrap; }
 .section-head:has(+ .scene-grid) .search { margin-left: auto; max-width: 280px; }
-.moods .mood-card { padding: var(--space-18); }
-.moods .mood-rooms { padding-bottom: var(--space-14); border-bottom: 1px solid var(--line); }
-.moods .status-line:empty, .moods .mood-running:empty { display: none; }
+.templates .template-card { padding: var(--space-18); }
+.templates .template-rooms { padding-bottom: var(--space-14); border-bottom: 1px solid var(--line); }
+.templates .status-line:empty, .templates .template-running:empty { display: none; }
 @media (max-width: 560px) { .section-head:has(+ .scene-grid) .search { max-width: none; width: 100%; } }
 
 .scene-flow { border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; margin: var(--space-20) 0; background: var(--material-solid); }
@@ -23287,22 +23278,22 @@ select option:disabled { color: var(--muted); }
 .widget-battery.size-medium .w-top { position: static; }
 .widget-battery.size-medium .w-top > .w-hero:has(> .battery-gauge) { position: absolute; left: 50%; top: 36%; transform: translate(-50%, -50%); display: flex; align-items: center; justify-content: center; }
 
-/* Shared photographic artwork for saved scenes and room moods. */
+/* Shared photographic artwork for saved scenes and templates. */
 .scene-artwork { width: 100%; aspect-ratio: 16/9; object-fit: cover; border-radius: var(--radius-sm); }
 .artwork-preview { max-width: 320px; }
 .artwork-picker { margin-block: var(--space-16); }
 .artwork-picker > button { margin-bottom: var(--space-16); }
 .artwork-picker summary { cursor: pointer; padding-block: var(--space-12); }
-.artwork-grid, .mood-buttons.artwork-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: var(--space-12); max-height: 520px; overflow: auto; padding: var(--space-8) 3px; }
+.artwork-grid, .template-buttons.artwork-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: var(--space-12); max-height: 520px; overflow: auto; padding: var(--space-8) 3px; }
 /* The Hue scene widget: a full-bleed picture and its name over a bottom scrim. */
-.scene.artwork-choice, .mood-button.scene.artwork-choice { width: 100%; aspect-ratio: 16 / 9; min-height: 110px; display: grid; align-content: end; justify-content: stretch; padding: var(--space-12) var(--space-14); border-radius: var(--radius-lg); gap: 0; color: #fff; white-space: normal; }
-.scene.artwork-choice img, .scene.artwork-choice .mood-swatch { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 0; }
+.scene.artwork-choice, .template-button.scene.artwork-choice { width: 100%; aspect-ratio: 16 / 9; min-height: 110px; display: grid; align-content: end; justify-content: stretch; padding: var(--space-12) var(--space-14); border-radius: var(--radius-lg); gap: 0; color: #fff; white-space: normal; }
+.scene.artwork-choice img, .scene.artwork-choice .template-swatch { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 0; }
 .scene.artwork-choice .name { text-align: left; padding-left: var(--space-20); line-height: 1.3; }
 .scene.artwork-choice:not(.action-with-icon) .name { padding-left: 0; }
 .scene.artwork-choice.action-with-icon::before { position: absolute; bottom: 14px; left: 12px; z-index: 1; }
 .scene.artwork-choice[aria-pressed="true"] { box-shadow: 0 0 0 3px var(--accent), var(--shadow-control); }
 .scene.artwork-choice[hidden] { display: none; }
-.mood-group .mood-buttons { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 168px), 1fr)); gap: var(--space-10); overflow: visible; margin-inline: 0; padding-inline: 3px; }
+.template-group .template-buttons { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 168px), 1fr)); gap: var(--space-10); overflow: visible; margin-inline: 0; padding-inline: 3px; }
 
 /* Theme shelves: two rows, with horizontal scrolling like a photographic gallery. */
 .artwork-filters { display: flex; gap: var(--space-12); margin-block: var(--space-12); }
@@ -23340,8 +23331,8 @@ select option:disabled { color: var(--muted); }
 .scene-color-input { width: 100%; height: 64px; padding: var(--space-4); border-radius: var(--radius-md); cursor: pointer; }
 .value-slot input[role="switch"] { width: 44px; height: 28px; accent-color: var(--accent); }
 
-.mood-stop-badge { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 44px; height: 44px; background: #fff; color: #222; border-radius: var(--radius-pill); display: grid; place-items: center; box-shadow: var(--shadow-control); pointer-events: none; }
-.mood-stop-badge::before { content: ""; width: 14px; height: 14px; background: currentColor; border-radius: 0; }
+.template-stop-badge { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 44px; height: 44px; background: #fff; color: #222; border-radius: var(--radius-pill); display: grid; place-items: center; box-shadow: var(--shadow-control); pointer-events: none; }
+.template-stop-badge::before { content: ""; width: 14px; height: 14px; background: currentColor; border-radius: 0; }
 
 
 .scene-run-actions { display: flex; flex-wrap: wrap; gap: var(--space-8); align-items: center; }
@@ -23432,9 +23423,9 @@ select option:disabled { color: var(--muted); }
 .scene-card-details > summary { min-height: 44px; align-content: center; cursor: pointer; color: var(--text); }
 .scene-card-details[open] > summary { margin-bottom: var(--space-8); }
 
-/* Match gallery shelves across built-in moods and plugin scene collections on phones. */
+/* Match gallery shelves across templates and plugin scene collections on phones. */
 @media (max-width: 640px) {
-  .mood-group .mood-buttons, .scene-tiles:has(> .scene) {
+  .template-group .template-buttons, .scene-tiles:has(> .scene) {
     display: grid; grid-template-columns: none; grid-template-rows: auto; grid-auto-flow: column; grid-auto-columns: 160px;
     gap: var(--space-12); overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity;
     margin-inline: 0; padding: 3px; scroll-padding-inline: 3px; mask-image: none; -webkit-mask-image: none;

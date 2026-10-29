@@ -51,7 +51,7 @@ extension HomeswiftCatalog {
             "hubRoom": found.scene.room.map(JSONValue.string) ?? .null,
             "active": found.scene.active.map(JSONValue.bool) ?? .null,
             "colours": .array(found.scene.colours.prefix(5).map(JSONValue.string)),
-            "stoppable": .bool(home.runningMoods.withLockedValue { $0.values.contains { $0.mood.id == "scene:" + found.id } }),
+            "stoppable": .bool(home.lightRuns.withLockedValue { $0.values.contains { $0.show.id == "scene:" + found.id } }),
             "capabilities": .array(PluginScene.Capability.allCases.filter(found.scene.capabilities.contains).map { .string($0.rawValue) }),
             "source": [
                 "platform": .string(found.instance.platform), "name": .string(found.instance.name),

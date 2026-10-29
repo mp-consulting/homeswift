@@ -53,7 +53,7 @@ import Testing
         #expect(candle?["animation"]?["native"] == ["Devices:bulb1"])
         _ = try await client.tool("stop_scene", ["scene": .string(try #require(candle?["run"]?.stringValue))])
 
-        let alert = environment.catalog.templatePlan(try #require(MoodLibrary.find("alert")), lights: try environment.catalog.moodLights(ids: ["Devices:bulb1"], filter: HomeswiftCatalog.AccessoryFilter(nil)))
+        let alert = environment.catalog.templatePlan(try #require(SceneTemplateLibrary.find("alert")), lights: try environment.catalog.sceneLights(ids: ["Devices:bulb1"], filter: HomeswiftCatalog.AccessoryFilter(nil)))
         #expect(alert["animation"]?["restore"] == true)
         #expect(alert["animation"]?["steps"]?.arrayValue?.isEmpty == false)
 
@@ -66,7 +66,7 @@ import Testing
 
     /// The Assistant writes a scene from a description, from what the lights take and never their names.
     @Test func theAssistantWritesAScene() async throws {
-        let model = MoodModel()
+        let model = SceneModel()
         let (environment, client) = try await den(model: model)
         defer { Task { await environment.stop() } }
         let ran = try await client.tool("run_scene", ["description": "a calm sea at night", "room": "Den"])["structuredContent"]

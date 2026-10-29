@@ -49,7 +49,7 @@ public final class JSONFileStore<Value: Codable & Sendable>: Sendable {
 
 /// What the web UI and the MCP server keep about the home besides config.json: the accessory layout (rooms,
 /// hidden accessories, display names, Quick Controls), the wall's order and sizes, the scenes and their automations, the notification
-/// settings, and the moods that can still be undone. Each is its own owner-only file next to config.json; `HomeswiftCatalog.startHome` runs the
+/// settings, and the shows that can still be undone. Each is its own owner-only file next to config.json; `HomeswiftCatalog.startHome` runs the
 /// automations and the notification sources.
 public final class HomeState: Sendable {
     public let layout: JSONFileStore<AccessoryLayout>
@@ -59,8 +59,8 @@ public final class HomeState: Sendable {
     let layoutObservers = NIOLockedValueBox<[UUID: @Sendable () -> Void]>([:])
     public let scenes: JSONFileStore<SceneFile>
     public let notifications: JSONFileStore<NotificationSettings>
-    /// The moods and plugin scenes that set the lights and can still be undone, with what the lights were.
-    let heldMoods: JSONFileStore<[SavedHeldMood]>
+    /// The shows and plugin scenes that set the lights and can still be undone, with what the lights were.
+    let heldLights: JSONFileStore<[SavedHeldLights]>
     let sceneUndo: JSONFileStore<[String: SceneUndo]>
     /// How notifications reach webhooks, ntfy, Pushover, Telegram and push services; tests put a fake here.
     let httpBox: NIOLockedValueBox<any HTTPSending>
@@ -68,8 +68,8 @@ public final class HomeState: Sendable {
     let running = NIOLockedValueBox<RunningHome?>(nil)
     /// Scenes running now, so one does not start twice.
     let runningScenes = NIOLockedValueBox<Set<String>>([])
-    /// Moods playing on the lights now, by run id.
-    let runningMoods = NIOLockedValueBox<[String: MoodRun]>([:])
+    /// Light shows playing on the lights now, by run id.
+    let lightRuns = NIOLockedValueBox<[String: LightRun]>([:])
     /// The lights each scene's effect plays natively (their plugins animate them), by scene id: told to stop with it.
     let nativeAnimations = NIOLockedValueBox<[String: [String]]>([:])
     /// The plans tried from the web UI (a template, a description), by run id, while they can be stopped.
@@ -86,7 +86,9 @@ public final class HomeState: Sendable {
         scenes = JSONFileStore(url: directory.appendingPathComponent("scenes.json")) { SceneFile() }
         notifications = JSONFileStore(url: directory.appendingPathComponent("notifications.json")) { NotificationSettings() }
         sceneUndo = JSONFileStore(url: directory.appendingPathComponent("scene-undo.json")) { [:] }
-        heldMoods = JSONFileStore(url: directory.appendingPathComponent("held-moods.json")) { [] }
+        heldLights = JSONFileStore(url: directory.appendingPathComponent("held-lights.json")) { [] }
+        // Moods kept their undo there before they became scenes; what it held has no run to undo now.
+        try? FileManager.default.removeItem(at: directory.appendingPathComponent("held-moods.json"))
         httpBox = NIOLockedValueBox(HTTPClient())
     }
 

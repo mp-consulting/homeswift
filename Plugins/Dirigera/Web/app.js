@@ -222,7 +222,7 @@
   const markDirty = () => { dirty = true; $("#save-state").textContent = t("Unsaved changes."); };
 
   const speed = homeswift.speedScale({
-    help: t("How fast a light reaches a new level or colour. Fast is the default; Extreme changes at once, snappiest for moods."),
+    help: t("How fast a light reaches a new level or colour. Fast is the default; Extreme changes at once, snappiest for animated scenes."),
     onInput: markDirty,
   });
   const scenesToggle = el("input", { type: "checkbox", id: "scenes-toggle" });

@@ -75,18 +75,18 @@ import Testing
 
     /// The player's version of each style: music is left to devices that hear it; a sunrise does not loop and lasts
     /// its duration; a tint colours the style.
-    @Test func fallbackMoods() throws {
-        #expect(HomeswiftCatalog.fallbackMood(LightEffect(style: .music), id: "x", name: "x") == nil)
+    @Test func fallbackShows() throws {
+        #expect(HomeswiftCatalog.fallbackShow(LightEffect(style: .music), id: "x", name: "x") == nil)
         for style in LightEffect.Style.allCases where style != .music && style != .palette {
-            let mood = try #require(HomeswiftCatalog.fallbackMood(LightEffect(style: style), id: "x", name: "x"), "\(style)")
-            try MoodRules.check(mood)
+            let show = try #require(HomeswiftCatalog.fallbackShow(LightEffect(style: style), id: "x", name: "x"), "\(style)")
+            try LightShowRules.check(show)
         }
-        let sunrise = try #require(HomeswiftCatalog.fallbackMood(LightEffect(style: .sunrise, durationSeconds: 600), id: "x", name: "x"))
+        let sunrise = try #require(HomeswiftCatalog.fallbackShow(LightEffect(style: .sunrise, durationSeconds: 600), id: "x", name: "x"))
         #expect(sunrise.loop == false)
         #expect(abs(sunrise.steps.reduce(0) { $0 + $1.seconds } - 600) < 1)
-        let blueFire = try #require(HomeswiftCatalog.fallbackMood(LightEffect(style: .fire, colors: [.init(hue: 230, saturation: 90)]), id: "x", name: "x"))
+        let blueFire = try #require(HomeswiftCatalog.fallbackShow(LightEffect(style: .fire, colors: [.init(hue: 230, saturation: 90)]), id: "x", name: "x"))
         #expect(blueFire.steps.flatMap(\.colors).filter { !$0.isOff }.allSatisfy { $0.hue == 230 })
-        let palette = try #require(HomeswiftCatalog.fallbackMood(LightEffect(style: .palette, colors: [.init(hue: 0, saturation: 100), .init(hue: 120, saturation: 100)]), id: "x", name: "x"))
+        let palette = try #require(HomeswiftCatalog.fallbackShow(LightEffect(style: .palette, colors: [.init(hue: 0, saturation: 100), .init(hue: 120, saturation: 100)]), id: "x", name: "x"))
         #expect(palette.loop == true)
     }
 }

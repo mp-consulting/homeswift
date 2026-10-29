@@ -76,6 +76,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Removed
 
+- **Breaking:** moods. Scenes do what they did: the collection and the gallery are scene templates, the Assistant
+  writes scenes from a description, and animated scenes play light shows. The MCP tools `list_moods`, `start_mood` and
+  `stop_mood` are gone (use `list_scene_templates`, `run_scene` with a `template`, `description` or `plan`, and
+  `stop_scene`), as are `/api/moods/*` and the Scenes page's Moods section (now By room: each room's scenes, then the
+  templates). `held-moods.json` gives way to `held-lights.json`; runs a restart interrupted are not undone after the
+  upgrade. A plugin action that changes lights now answers a run for `stop_scene`.
+
 - Homeswift Natural Lighting, the bridge's own daily white schedule for lights without Adaptive Lighting: its sun
   toggle, `PUT /api/accessories/<id>/natural-lighting` and `naturalLighting` in `/api/accessories` and the event
   stream. A `natural-lighting.json` left in the configuration directory is no longer read.

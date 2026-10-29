@@ -18,10 +18,6 @@ import NIOHTTP1
 //                                             plugin scene's id (`<platform>:<instance>:<hub id>`) recalls it
 //   GET    /api/scenes/templates              the templates, the plans tried that can be stopped, whether the Assistant writes
 //   POST   /api/scenes/try                    {"template" | "description" | "plan", "room" | "ids"}: runs it now, unsaved
-//   GET    /api/moods                         the collection of moods and those playing
-//   POST   /api/moods/start                   {"mood" | "description" | "plan", "room" | "ids", "durationSeconds"?}
-//   POST   /api/moods/stop                    {"run"?}: one, or every mood playing
-//   POST   /api/moods/save                    a mood that does not move as a scene: {"mood" | "plan", "room" | "ids", "name"}
 //   GET    /api/notifications                 settings, secrets as ********
 //   PUT    /api/notifications
 //   POST   /api/notifications/test            {"channel"?}
@@ -32,13 +28,13 @@ import NIOHTTP1
 //   DELETE /api/notifications/push/subscriptions/<id>
 extension UIServer {
     func homeAPI(_ route: [String], _ method: HTTPMethod, body: JSONValue, username: String, language: String? = nil) async throws -> Reply? {
-        guard let first = route.first, ["rooms", "scenes", "moods", "notifications"].contains(first) else { return nil }
+        guard let first = route.first, ["rooms", "scenes", "notifications"].contains(first) else { return nil }
         do {
             return try await homeRoute(route, method, body: body, username: username, language: language)
         } catch let error as CatalogError {
             return .error(error.description.hasPrefix("No scene") ? 404 : 400, error.description)
         } catch let error as JSONGenerationError {
-            return .error(502, "the Assistant did not answer with a mood: \(error.message)")
+            return .error(502, "the Assistant did not answer with a scene: \(error.message)")
         }
     }
 
@@ -105,20 +101,6 @@ extension UIServer {
             let result = try await catalog.stopScene(path[1], allowSecurity: body["confirmSecurity"]?.boolValue == true)
             logger.info("Web UI stopped a scene", metadata: ["user": "\(username)", "scene": "\(path[1])"])
             return .json(result)
-
-        case (.GET, ["moods"]):
-            return .json(catalog.moodsJSON())
-        case (.POST, ["moods", "start"]):
-            guard body["description"] == nil || catalog.host.assistant != nil else { return .error(404, "the Assistant is off: add a HomeswiftAiKit block, or pick a mood") }
-            let result = try await catalog.startMood(body, by: "web UI \(username)", language: language)
-            logger.info("Web UI started a mood", metadata: ["user": "\(username)", "mood": "\(result["mood"]?["name"]?.stringValue ?? "")"])
-            return .json(result)
-        case (.POST, ["moods", "stop"]):
-            return .json(try await catalog.stopMoods(id: body["run"]?.stringValue))
-        case (.POST, ["moods", "save"]):
-            let scene = try catalog.saveMoodAsScene(body)
-            logger.info("Web UI saved a mood as a scene", metadata: ["user": "\(username)", "scene": "\(scene["name"]?.stringValue ?? "")"])
-            return .json(scene, status: 201)
 
         case (.GET, ["notifications"]):
             return .json(catalog.notificationSettingsJSON())

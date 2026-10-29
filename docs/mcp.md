@@ -198,8 +198,8 @@ sends you back.
 
 | Scope | Tools |
 |---|---|
-| `read` | `get_server_status`, `list_accessories`, `get_accessory`, `get_accessory_history`, `list_plugins`, `get_config`, `list_config_backups`, `get_recent_logs`, `search_logs`, `get_system_info`, `list_child_bridges`, `get_child_bridge_health`, `get_cached_accessories`, `get_pairing_info`, `list_backups`, `get_accessory_layout`, `get_wall_layout`, `list_scenes`, `list_scene_templates`, `list_moods`, `get_assistant_usage`, `get_daily_digest` |
-| `control` | Plus `set_accessory`, `set_accessories` (with `dryRun`), `set_security_accessory`, `identify_accessory`, `run_scene` (a saved scene, a hub's, or a `plan`), `stop_scene`, `start_mood` (with `dryRun`), `stop_mood` |
+| `read` | `get_server_status`, `list_accessories`, `get_accessory`, `get_accessory_history`, `list_plugins`, `get_config`, `list_config_backups`, `get_recent_logs`, `search_logs`, `get_system_info`, `list_child_bridges`, `get_child_bridge_health`, `get_cached_accessories`, `get_pairing_info`, `list_backups`, `get_accessory_layout`, `get_wall_layout`, `list_scenes`, `list_scene_templates`, `get_assistant_usage`, `get_daily_digest` |
+| `control` | Plus `set_accessory`, `set_accessories` (with `dryRun`), `set_security_accessory`, `identify_accessory`, `run_scene` (a saved scene, a hub's, or a `plan`), `stop_scene` |
 | `admin` | Plus `update_config`, `patch_config`, `restore_config`, `put_list_entry`, `restart_bridge`, `restart_child_bridge`, `stop_child_bridge`, `start_child_bridge`, `remove_cached_accessory`, `reset_cached_accessories`, `reset_pairings`, `create_backup`, `get_audit_log`, `update_bridge_settings`, `set_accessory_layout`, `set_wall_layout`, `save_scene` (with `dryRun`), `send_test_notification`, `truncate_logs`, `test_assistant_connection` |
 
 A token sees only the tools its scope allows. Locks, garage doors and alarms (Lock Target State, Target
@@ -259,24 +259,15 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   go through `set_security_accessory`, which asks, or the web UI, where the signed-in user confirms. `save_scene`
   keeps a `plan`, or makes a scene from the current values of `ids` (only `characteristics`, when given), never capturing a security
   control; `dryRun` lists the actions. The `scene-builder` prompt ends with it.
-- **Moods.** `list_moods` lists the collection (calm ambiances such as candlelight or cinema, slow animations such as
-  a fireplace or a sunset, party effects such as disco or a police siren, signals such as an alert flash) and the
-  moods playing. `start_mood` plays one on the lights of a `room` (or `ids`, or a `filter`, 25 lights at most): a
-  `mood` from the list, a `description` the bridge's Assistant turns into one, or a `plan` of the client's own
-  (`{name, steps: [{colors: [{on, brightness, hue, saturation, colorTemperature}], assign: spread|random, seconds,
-  jitter}], loop, durationSeconds, restore}`), checked and kept to each light's range. Only lightbulbs change, never a
-  security control. A mood of one step that does not loop sets the lights, and `stop_mood` undoes it for 12 hours
-  (`"held": true` in `list_moods`); any other plays in the background, every light of a step written at the same time, at least a
-  quarter of a second a step since many lights fade, and puts the lights back when it ends (when it loops,
-  or with `restore`) or when `stop_mood` stops it. A mood started on lights another plays on takes them over, and
-  restores them as they were before the first; one that takes only some of a held mood's lights leaves it the others; a light that fails three writes in a row leaves the show.
-  A plugin action marked `changesLights` (`<platform>_<action>`: Hue's `recall_scene`, DIRIGERA's `run_scene`) is held
-  the same way: the bridge reads the plugin's lights before it, follows their changes until they are quiet (4 seconds
-  at most), and holds the lights that changed as a run named after the action, given in its answer and in
-  `list_moods`, that `stop_mood` undoes for 12 hours.
-  What held lights were is kept in `held-moods.json` next to config.json (owner-only), so the undo survives a
-  restart for what is left of its 12 hours; a light the bridge does not have at start is kept in the file until
-  the run ends, for a later start that has it.
+- **How scenes change lights.** Only lightbulbs move in an animation, never a security control. Homeswift's player
+  writes every light of a step at the same time, at least a quarter of a second a step since many lights fade; a scene
+  started on lights another plays on takes them over and puts them back as they were before the first; one that takes
+  only some of another's lights leaves it the others; a light that fails three writes in a row leaves the show. A
+  plugin action marked `changesLights` (`<platform>_<action>`: Hue's `recall_scene`, DIRIGERA's `run_scene`) is held the
+  same way: the bridge reads the plugin's lights before it, follows their changes until they are quiet (4 seconds at
+  most), and holds the lights that changed under a run given in its answer, which `stop_scene` undoes for 12 hours.
+  What held lights were is kept in `held-lights.json` next to config.json (owner-only), so the undo survives a restart
+  for what is left of its 12 hours; a light the bridge does not have at start is kept in the file until the run ends.
 - **Notifications.** `send_test_notification` sends a test through the channels that are on (`channel` for one:
   `webhook`, `ntfy`, `pushover`, `telegram`, `browser`) and answers per channel, 5 a minute at most. The channels
   are set up on the web UI's Notifications page, in a file of their own that no tool reads.
