@@ -20,6 +20,8 @@
     const result = new Map();
     for (const s of groupable(a)) {
       for (const c of s.characteristics) if (types.includes(c.type) && c.permissions.includes('pw')) {
+        // A security control (a switch that unlocks a door) is never one tap among others.
+        if (c.security) return new Map();
         // Ambiguous multi-service accessories are not grouped.
         if (result.has(c.type)) return new Map();
         result.set(c.type, { service: s.subtype || s.type, c });

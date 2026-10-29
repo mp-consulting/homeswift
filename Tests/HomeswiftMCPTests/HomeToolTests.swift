@@ -88,6 +88,86 @@ struct LayoutToolTests {
         #expect(try await reader.tool("get_accessory_layout")["isError"] != true)
         #expect(try await reader.tool("set_accessory_layout", ["rooms": ["X"]])["isError"] == true)
     }
+
+    @Test func wallIsArrangedRoomByRoom() async throws {
+        let environment = try MCPTestEnvironment(config: """
+            {
+              "bridge": { "name": "Test Bridge", "username": "0E:11:22:33:44:55", "pin": "031-45-154", "port": 0 },
+              "platforms": [{ "platform": "Devices", "name": "Devices", "colourBulbs": 3 }]
+            }
+            """)
+        try await environment.start()
+        defer { Task { await environment.stop() } }
+        let client = DirectClient(server: environment.server)
+        try await client.initialize()
+        _ = try await client.tool("set_accessory_layout", ["accessories": [
+            ["id": "Devices:lamp", "room": "Office"], ["id": "Devices:bulb1", "room": "Office"], ["id": "Devices:bulb2", "room": "Office"],
+            ["id": "Devices:bulb3", "room": "Hall"], ["id": "Devices:lock", "room": "Hall"],
+        ]])
+        func sections(_ result: JSONValue) -> [String: [String]] {
+            Dictionary(uniqueKeysWithValues: (result["structuredContent"]?["sections"]?.arrayValue ?? []).map { section in
+                (section["name"]?.stringValue ?? "", section["accessories"]?.arrayValue?.compactMap { $0["id"]?.stringValue } ?? [])
+            })
+        }
+
+        // One room's ids sort that room; the other keeps its order (by plugin and name until one is chosen).
+        let sorted = try await client.tool("set_wall_layout", ["grouping": "room", "order": ["Devices:bulb2", "Devices:lamp", "Devices:bulb1"]])
+        #expect(sorted["isError"] != true)
+        #expect(sorted["structuredContent"]?["grouping"] == "room")
+        #expect(sections(sorted) == ["Office": ["Devices:bulb2", "Devices:lamp", "Devices:bulb1"], "Hall": ["Devices:bulb3", "Devices:lock"]])
+        _ = try await client.tool("set_wall_layout", ["order": ["Devices:lock", "Devices:bulb3"]])
+        #expect(sections(try await client.tool("get_wall_layout")) == ["Office": ["Devices:bulb2", "Devices:lamp", "Devices:bulb1"], "Hall": ["Devices:lock", "Devices:bulb3"]])
+
+        // Sizes by accessory and by kind; the page reads the same file.
+        let sized = try await client.tool("set_wall_layout", ["sizes": ["Devices:lamp": "large", "Devices:lock": "small"], "defaults": ["light": "medium"]])
+        #expect(sized["structuredContent"]?["defaults"]?["light"] == "medium")
+        #expect(sized["structuredContent"]?["sections"]?[0]?["accessories"]?[1]?["size"] == "large")
+        let cleared = try await client.tool("set_wall_layout", ["sizes": ["Devices:lock": .null]])
+        #expect(cleared["isError"] != true, "\(cleared)")
+        let wall = environment.catalog.home.wall.load()
+        #expect(wall["sizes"] == ["Devices:lamp": "large"])
+        #expect(wall["grouping"] == "room")
+        // The Hall's two swapped their places: the Office's are where they were.
+        #expect(wall["order"] == ["Devices:bulb2", "Devices:lamp", "Devices:lock", "Devices:bulb1", "Devices:bulb3"])
+
+        // What the wall cannot take is refused, and nothing changes.
+        #expect(try await client.tool("set_wall_layout", ["order": ["Devices:nothing"]])["isError"] == true)
+        #expect(try await client.tool("set_wall_layout", ["sizes": ["Devices:lamp": "huge"]])["isError"] == true)
+        #expect(try await client.tool("set_wall_layout", ["defaults": ["spaceship": "small"]])["isError"] == true)
+        #expect(environment.catalog.home.wall.load() == wall)
+
+        // Lights that go together become one widget, where the first of them was.
+        let grouped = try await client.tool("set_wall_layout", ["groups": [["name": "Office lights", "members": ["Devices:lamp", "Devices:bulb1"]]]])
+        #expect(grouped["isError"] != true, "\(grouped)")
+        let office = try #require(grouped["structuredContent"]?["sections"]?[0]?["accessories"]?.arrayValue)
+        #expect(office.count == 2)
+        #expect(office[0]["id"] == "Devices:bulb2")
+        #expect(office[1]["name"] == "Office lights")
+        #expect(office[1]["members"] == ["Devices:lamp", "Devices:bulb1"])
+        let groupID = try #require(office[1]["id"]?.stringValue)
+        #expect(groupID.hasPrefix("group:"))
+        #expect(office[0]["groupable"] == true)
+
+        // Joining another group leaves the first, which is dissolved with one member left; a lock never joins.
+        let lockGroup = try await client.tool("set_wall_layout", ["groups": [["name": "Lock and lamp", "members": ["Devices:lock", "Devices:bulb2"]]]])
+        #expect(lockGroup["isError"] == true, "\(lockGroup)")
+        let moved = try await client.tool("set_wall_layout", ["groups": [["name": "Bulbs", "members": ["Devices:bulb1", "Devices:bulb2", "Devices:bulb3"]]]])
+        let groups = environment.catalog.home.wall.load()["groups"]?.arrayValue ?? []
+        #expect(groups.map { $0["name"] } == ["Bulbs"])
+        #expect(environment.catalog.home.wall.load()["order"]?.arrayValue?.contains(.string(groupID)) == false)
+        let bulbs = try #require(groups.first?["id"]?.stringValue)
+        #expect(moved["structuredContent"]?["sections"]?[0]?["accessories"]?.arrayValue?.compactMap { $0["id"]?.stringValue } == [bulbs, "Devices:lamp"])
+        // A group is renamed by its id, and dissolved.
+        _ = try await client.tool("set_wall_layout", ["groups": [["id": .string(bulbs), "name": "All bulbs", "members": ["Devices:bulb1", "Devices:bulb2", "Devices:bulb3"]]]])
+        #expect(environment.catalog.home.wall.load()["groups"]?[0]?["name"] == "All bulbs")
+        _ = try await client.tool("set_wall_layout", ["ungroup": [.string(bulbs)]])
+        #expect(environment.catalog.home.wall.load()["groups"] == [])
+
+        let reader = DirectClient(server: environment.server, scope: .read)
+        try await reader.initialize()
+        #expect(try await reader.tool("get_wall_layout")["isError"] != true)
+        #expect(try await reader.tool("set_wall_layout", ["grouping": "none"])["isError"] == true)
+    }
 }
 
 @Suite(.timeLimit(.minutes(1)))

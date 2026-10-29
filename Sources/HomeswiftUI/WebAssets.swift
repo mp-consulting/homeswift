@@ -6580,7 +6580,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     if (historyOpen && event !== "snapshot") closeHistory();
     switch (event) {
     case "snapshot": setItems(data.items, data.running); if (data.usage) usage = data.usage; break;
-    case "item": items[data.index] = data.item; renderItem(data.index); break;
+    case "item":
+      items[data.index] = data.item;
+      renderItem(data.index);
+      // The Assistant arranged the wall or the rooms: the Accessories page draws them again.
+      if (data.item.kind === "tool" && ["set_wall_layout", "set_accessory_layout"].includes(data.item.name)
+          && !["running", "failed", "declined"].includes(data.item.state) && location.pathname === "/accessories") window.HomeswiftApp?.route();
+      break;
     case "delta": {
       const item = items[data.index];
       if (item) { item.text += data.text; scheduleText(data.index); }
@@ -8708,6 +8714,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const result = new Map();
     for (const s of groupable(a)) {
       for (const c of s.characteristics) if (types.includes(c.type) && c.permissions.includes('pw')) {
+        // A security control (a switch that unlocks a door) is never one tap among others.
+        if (c.security) return new Map();
         // Ambiguous multi-service accessories are not grouped.
         if (result.has(c.type)) return new Map();
         result.set(c.type, { service: s.subtype || s.type, c });

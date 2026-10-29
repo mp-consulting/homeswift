@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- The Assistant arranges the Accessories wall: `get_wall_layout` and `set_wall_layout` (MCP, and the web UI's chat)
+  read and change its order, each accessory's size, the default size of each kind of widget and the grouping. An
+  `order` of some ids puts them in the places they hold together, so one room is sorted without moving the others.
+  It groups accessories that go together (a room's lights, its blinds) into one widget, changes and dissolves groups.
+  The Accessories page draws the wall again when the chat changes it or its rooms.
 - `publicURL` in the HomeswiftUI block: the MCP connector on a path of a host name other servers share behind one
   tunnel (`https://mcp.example.com/homeswift`). Requests for that host name under that path, and the OAuth discovery
   documents for it, are answered as `/mcp`, `/oauth` and the sign-in page, whose files and API calls stay under the
@@ -55,6 +60,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- An accessory group no longer takes a security control (a switch that unlocks a door), so a tap on the group
+  cannot open a door.
 - Accessories › Graph: a node's tooltip sits over its node; inside the page's glass card it showed some 200 px off.
 - Accessories › Graph: an accessory, and a group of them, shows the icon its tile shows (a battery for a power station
   filed as Other), not a generic square.

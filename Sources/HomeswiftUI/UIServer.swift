@@ -85,7 +85,7 @@ public final class UIServer: Sendable {
     /// Where the bridge keeps its own files: the generated certificate goes there.
     let directory: URL
     /// The Accessories page's wall: order and sizes (`ui-layout.json`).
-    let layout: AccessoryLayout
+    let layout: WallLayout
     var logger: Logger { options.logger }
 
     static let cookieName = "homeswift_session"
@@ -108,7 +108,7 @@ public final class UIServer: Sendable {
         directory = usersURL.deletingLastPathComponent()
         preferences = PreferencesStore(url: usersURL.deletingLastPathComponent().appendingPathComponent("ui-preferences.json"))
         auditLog = catalog.auditLog()
-        layout = AccessoryLayout(url: directory.appendingPathComponent("ui-layout.json"))
+        layout = catalog.home.wall
     }
 
     /// The SHA-256 fingerprint of the HTTPS certificate, for the banner: what a browser's warning shows.
@@ -767,7 +767,7 @@ public final class UIServer: Sendable {
         case .PUT:
             if route == ["layout"] {
                 // The Accessories page's order and sizes, the same for every user of the bridge.
-                do { return .json(try layout.save(body)) } catch let error as AccessoryLayout.Invalid { return .error(400, error.description) }
+                do { return .json(try layout.save(body)) } catch let error as WallLayout.Invalid { return .error(400, error.description) }
             }
             if route == ["logs", "settings"] {
                 guard let save = body["saveDetails"]?.boolValue else { return .error(400, "saveDetails (true or false) is required") }

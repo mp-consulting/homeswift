@@ -198,9 +198,9 @@ sends you back.
 
 | Scope | Tools |
 |---|---|
-| `read` | `get_server_status`, `list_accessories`, `get_accessory`, `get_accessory_history`, `list_plugins`, `get_config`, `list_config_backups`, `get_recent_logs`, `search_logs`, `get_system_info`, `list_child_bridges`, `get_child_bridge_health`, `get_cached_accessories`, `get_pairing_info`, `list_backups`, `get_accessory_layout`, `list_scenes`, `list_moods`, `get_assistant_usage`, `get_daily_digest` |
+| `read` | `get_server_status`, `list_accessories`, `get_accessory`, `get_accessory_history`, `list_plugins`, `get_config`, `list_config_backups`, `get_recent_logs`, `search_logs`, `get_system_info`, `list_child_bridges`, `get_child_bridge_health`, `get_cached_accessories`, `get_pairing_info`, `list_backups`, `get_accessory_layout`, `get_wall_layout`, `list_scenes`, `list_moods`, `get_assistant_usage`, `get_daily_digest` |
 | `control` | Plus `set_accessory`, `set_accessories` (with `dryRun`), `set_security_accessory`, `identify_accessory`, `run_scene`, `start_mood` (with `dryRun`), `stop_mood` |
-| `admin` | Plus `update_config`, `patch_config`, `restore_config`, `put_list_entry`, `restart_bridge`, `restart_child_bridge`, `stop_child_bridge`, `start_child_bridge`, `remove_cached_accessory`, `reset_cached_accessories`, `reset_pairings`, `create_backup`, `get_audit_log`, `update_bridge_settings`, `set_accessory_layout`, `save_scene` (with `dryRun`), `send_test_notification`, `truncate_logs`, `test_assistant_connection` |
+| `admin` | Plus `update_config`, `patch_config`, `restore_config`, `put_list_entry`, `restart_bridge`, `restart_child_bridge`, `stop_child_bridge`, `start_child_bridge`, `remove_cached_accessory`, `reset_cached_accessories`, `reset_pairings`, `create_backup`, `get_audit_log`, `update_bridge_settings`, `set_accessory_layout`, `set_wall_layout`, `save_scene` (with `dryRun`), `send_test_notification`, `truncate_logs`, `test_assistant_connection` |
 
 A token sees only the tools its scope allows. Locks, garage doors and alarms (Lock Target State, Target
 Door State, Security System Target State, Lock Control Point) change only through `set_security_accessory`;
@@ -231,6 +231,17 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   `hidden`, `favourite`) and those in no room; `set_accessory_layout` puts accessories in rooms (a new name adds
   the room), hides them, names them for the web UI or makes them Quick Controls, and orders (`rooms`), renames
   (`renameRoom`) or removes (`removeRooms`) rooms. HomeKit is not changed.
+- **The wall.** `get_wall_layout` answers the Accessories page's wall as it is drawn (`ui-layout.json`): its grouping,
+  the sections in order with their accessories in order and the sizes chosen, the default size of each kind of
+  widget, and the accessory groups where they stand. `set_wall_layout` arranges it: `groups` makes accessories that
+  go together one widget that drives them all (a room's lights, its blinds; an id changes an existing group, and an
+  accessory joining one leaves any other), `ungroup` dissolves groups; `order` puts the ids it lists (accessories and
+  groups) in that order in the places they hold together, so one room's ids sort that room and leave the rest;
+  `sizes` by accessory or group, `defaults` by kind of widget (null goes back to the kind's own), `grouping` `none`,
+  `room` or `plugin`. A group needs a control its members share (on and off, or a position) and never takes a
+  security control. With `set_accessory_layout`'s rooms,
+  that is what the Assistant needs to compose a wall ("arrange my wall by room"); the Accessories page draws
+  it again when the chat changes it.
 - **Scenes.** `list_scenes` lists the web UI's scenes with their actions, triggers, conditions and last run, and
   `"security": true` on one that changes a lock, a garage door or an alarm. `run_scene` (an id or a name) runs a
   scene and answers per action; it refuses a scene with a security action, as homebridge-mcp-server's does: those
