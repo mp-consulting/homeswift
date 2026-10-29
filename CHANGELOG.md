@@ -15,6 +15,10 @@ All notable changes to this project are documented here. The format follows
   which a reference that does not resolve stops; they are kept as they are by the sealing and shown by `get_config`.
   Every secret the bridge opens or resolves is masked by its exact text in logs, MCP replies and the Assistant's
   prompts.
+- Plugins' tokens in the vault: `context.secretFile(_:as:)` keeps a token or a key like `jsonFile`, sealed in the
+  instance's namespace of the vault, and moves the plain file of that name into it the first time it reads it. eWeLink's
+  session (`ewelink-tokens.json`), DaikinCloud's token sets (`.daikin-*-tokenset`, so one copied from Homebridge still
+  works), LGThinQ's MQTT client key and certificate request, and DIRIGERA's hub tokens (`hubs.json`) move there.
 - Scenes composed on the fly and undone: `run_scene` takes a `plan` (values to set and hubs' scenes to recall) that
   runs at once without being saved, and `save_scene` keeps one. `stop_scene` puts back what any run changed in the last
   12 hours: a saved scene, a hub's scene or a plan. A scene can recall a hub's scene among its values (`{"recall": id}`):

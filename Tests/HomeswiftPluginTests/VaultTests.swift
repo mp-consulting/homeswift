@@ -114,6 +114,53 @@ struct VaultTests {
         #expect(Redaction.redactText("reply {\"x\":\"\(unique)\"}") == "reply {\"x\":\"\(Redaction.placeholder)\"}")
     }
 
+    struct Tokens: Codable, Equatable {
+        var accessToken: String
+        var region: String
+    }
+
+    @Test func aPluginsFileMovesIntoTheVaultWhenRead() throws {
+        let directory = storage()
+        let legacy = directory.appendingPathComponent("plugins/cloud-home/tokens.json")
+        try OwnerOnlyFile.write(Data(#"{"accessToken":"legacy-access-1","region":"eu"}"#.utf8), to: legacy)
+        let file = SecretFile<Tokens>(vault: CredentialVault(storage: directory), entryName: "plugin.cloud-home.tokens.json", owner: "Cloud/Home", legacyFile: legacy)
+        #expect(file.load() == Tokens(accessToken: "legacy-access-1", region: "eu"))
+        #expect(!FileManager.default.fileExists(atPath: legacy.path))
+        let entry = try #require(try file.vault.entry(named: file.entryName))
+        #expect(entry.kind == .token && entry.owner == "Cloud/Home")
+        #expect(try !String(contentsOf: file.vault.url, encoding: .utf8).contains("legacy-access-1"))
+        // What it holds under secret-named keys is masked from now on; the rest is not.
+        #expect(Redaction.redactText("sent legacy-access-1 to eu") == "sent \(Redaction.placeholder) to eu")
+
+        try file.save(Tokens(accessToken: "fresh-access-2", region: "us"))
+        #expect(file.load()?.accessToken == "fresh-access-2")
+        // The vault wins over a file put back afterwards.
+        try OwnerOnlyFile.write(Data(#"{"accessToken":"stale","region":"eu"}"#.utf8), to: legacy)
+        #expect(file.load()?.accessToken == "fresh-access-2")
+        file.remove()
+        #expect(try file.vault.entry(named: file.entryName) == nil)
+        #expect(!FileManager.default.fileExists(atPath: legacy.path))
+        #expect(file.load() == nil)
+    }
+
+    @Test func aFileThatDoesNotDecodeStaysWhereItIs() throws {
+        let directory = storage()
+        let legacy = directory.appendingPathComponent("tokens.json")
+        try OwnerOnlyFile.write(Data("not json".utf8), to: legacy)
+        let file = SecretFile<Tokens>(vault: CredentialVault(storage: directory), entryName: "plugin.x.tokens.json", owner: "X/X", legacyFile: legacy)
+        #expect(file.load() == nil)
+        #expect(FileManager.default.fileExists(atPath: legacy.path))
+        #expect(try file.vault.names().isEmpty)
+    }
+
+    @Test func pluginEntryNamesAreValid() {
+        #expect(SecretFile<Tokens>.entryName(instance: "daikincloud-home", file: ".daikin-mobile-tokenset") == "plugin.daikincloud-home.daikin-mobile-tokenset")
+        #expect(SecretFile<Tokens>.entryName(instance: "lg", file: "persist keys/é") == "plugin.lg.persist-keys--")
+        let long = SecretFile<Tokens>.entryName(instance: String(repeating: "a", count: 200), file: "tokens.json")
+        #expect(long.count == CredentialVault.maximumNameLength && CredentialVault.isValidName(long))
+        #expect(long != SecretFile<Tokens>.entryName(instance: String(repeating: "a", count: 201), file: "tokens.json"))
+    }
+
     @Test func sealedValuesAreRememberedToo() throws {
         let directory = storage()
         let unique = "sealed-\(UUID().uuidString.prefix(8))"

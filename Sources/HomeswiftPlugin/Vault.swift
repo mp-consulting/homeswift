@@ -49,8 +49,10 @@ public struct VaultEntry: Sendable, Equatable {
 /// (`SecretBox`), so an instance backup restores it with its key. config.json names an entry as `vault:<name>`.
 public struct CredentialVault: Sendable {
     public static let fileName = "vault.json"
-    /// Letters, digits, `.`, `_` and `-`, starting with a letter or a digit: a name fits in a reference as it is.
-    public static let namePattern = #"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"#
+    /// Letters, digits, `.`, `_` and `-`, starting with a letter or a digit, 128 at most: a name fits in a reference
+    /// as it is, and a plugin's (`plugin.<instance>.<file>`) fits too.
+    public static let namePattern = #"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"#
+    public static let maximumNameLength = 128
     /// Read-modify-writes in this process go one at a time.
     private static let writes = NSLock()
 
@@ -70,16 +72,20 @@ public struct CredentialVault: Sendable {
         let stored = try read()
         guard !stored.isEmpty else { return [:] }
         let box = try SecretBox.load(storage: storage, create: false)
-        return try stored.mapValues { entry in
-            VaultEntry(
-                kind: entry.kind, fields: try entry.fields.mapValues { try box.open($0) }, created: entry.created, changed: entry.changed,
-                lastUsed: entry.lastUsed, expires: entry.expires, owner: entry.owner
-            )
-        }
+        return try stored.mapValues { try Self.opened($0, by: box) }
     }
 
+    private static func opened(_ entry: StoredEntry, by box: SecretBox) throws -> VaultEntry {
+        VaultEntry(
+            kind: entry.kind, fields: try entry.fields.mapValues { try box.open($0) }, created: entry.created, changed: entry.changed,
+            lastUsed: entry.lastUsed, expires: entry.expires, owner: entry.owner
+        )
+    }
+
+    /// One entry, opened alone.
     public func entry(named name: String) throws -> VaultEntry? {
-        try entries()[name]
+        guard let stored = try read()[name] else { return nil }
+        return try Self.opened(stored, by: SecretBox.load(storage: storage, create: false))
     }
 
     /// The names, without opening anything: what a listing needs.
@@ -161,7 +167,7 @@ public enum CredentialVaultError: Error, CustomStringConvertible, Equatable, Sen
 
     public var description: String {
         switch self {
-        case .invalidName(let name): "\"\(name)\" is not a vault name: letters, digits, '.', '_' and '-', starting with a letter or a digit, 64 at most"
+        case .invalidName(let name): "\"\(name)\" is not a vault name: letters, digits, '.', '_' and '-', starting with a letter or a digit, 128 at most"
         case .unsupportedVersion(let version): "vault.json is version \(version), which this homeswift does not read"
         }
     }

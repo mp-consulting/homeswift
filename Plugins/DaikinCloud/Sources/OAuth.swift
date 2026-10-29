@@ -52,7 +52,7 @@ enum DeveloperPortalOAuth {
     }
 
     /// The token client of a configured Developer Portal app.
-    static func client(file: URL, clientID: String, clientSecret: String, http: DaikinHTTP, onError: @escaping @Sendable (String) -> Void) -> TokenClient {
+    static func client(file: TokenLocation, clientID: String, clientSecret: String, http: DaikinHTTP, onError: @escaping @Sendable (String) -> Void) -> TokenClient {
         TokenClient(file: file, onError: onError) { refreshToken in
             try await refresh(refreshToken, clientID: clientID, clientSecret: clientSecret, http: http)
         }
@@ -317,7 +317,7 @@ struct MobileOAuth: Sendable {
     }
 
     /// The token client of a Mobile App login.
-    static func client(file: URL, http: DaikinHTTP, log: @escaping @Sendable (String) -> Void, onError: @escaping @Sendable (String) -> Void) -> TokenClient {
+    static func client(file: TokenLocation, http: DaikinHTTP, log: @escaping @Sendable (String) -> Void, onError: @escaping @Sendable (String) -> Void) -> TokenClient {
         let refresher = MobileOAuth(email: "", password: "", http: http, log: log)
         return TokenClient(file: file, onError: onError) { refreshToken in try await refresher.refresh(refreshToken) }
     }

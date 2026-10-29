@@ -82,7 +82,7 @@ public actor DaikinCloudPlugin: HomeswiftPlugin {
     }
 
     var storage: URL { context.storageDirectory }
-    func tokenFile(_ mode: AuthMode) -> URL { storage.appendingPathComponent(mode.tokenFileName) }
+    func tokenFile(_ mode: AuthMode) -> TokenLocation { context.secretFile(mode.tokenFileName, as: JSONValue.self) }
 
     // MARK: Lifecycle
 
@@ -113,11 +113,10 @@ public actor DaikinCloudPlugin: HomeswiftPlugin {
         // plugin, but must be seen.
         for error in validation.errors { logger.error("[Config] \(error)") }
         logger.debug("[Config] Homeswift config \(DaikinSettings.redacted(configuration.raw, excluded: settings.excludedDeviceIDs).text())")
-        let file = tokenFile(settings.authMode)
-        if let modified = (try? FileManager.default.attributesOfItem(atPath: file.path))?[.modificationDate] as? Date {
-            logger.debug("[Config] Token file exists, last modified: \(modified)")
+        if TokenFile.load(tokenFile(settings.authMode)) != nil {
+            logger.debug("[Config] Token set exists in the vault.")
         } else {
-            logger.debug("[Config] Token file does NOT exist.")
+            logger.debug("[Config] Token set does NOT exist.")
             if settings.authMode == .developerPortal { logger.debug("[Config] Please authenticate on the plugin's page in the Homeswift UI.") }
         }
         startSession()

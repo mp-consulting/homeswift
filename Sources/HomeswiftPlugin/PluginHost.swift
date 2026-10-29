@@ -566,7 +566,7 @@ public final class PluginHost: @unchecked Sendable {
             platform: block.platform, name: block.name, key: key, logger: pluginLogger, bridge: bridge,
             cache: AccessoryCache(url: storageDirectory.appendingPathComponent("accessories").appendingPathComponent("\(key).json")),
             storageURL: storageDirectory.appendingPathComponent("plugins").appendingPathComponent(key),
-            assistant: assistant, externals: externals, assistantBackground: assistantBackground,
+            vaultStorage: storageDirectory, assistant: assistant, externals: externals, assistantBackground: assistantBackground,
             recordSink: { series, value, tag in values.publish(series, value, tag) },
             energyImportSink: { hours in energyImports.publish(key, hours) },
             energyProgressSink: { progress in energyProgress.withLockedValue { $0[key] = progress } })

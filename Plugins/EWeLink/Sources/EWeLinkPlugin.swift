@@ -102,7 +102,7 @@ public actor EWeLinkPlugin: HomeswiftPlugin {
             return PluginWebResponse(["success": true, "region": .string(await api.region.rawValue)])
         case ("GET", "session"):
             if pageSession != nil { return PluginWebResponse(["success": true, "region": .string(await pageSession?.region.rawValue ?? "")]) }
-            guard let tokens = TokenStorage(directory: context.storageDirectory).loadValid() else {
+            guard let tokens = TokenStorage(context: context).loadValid() else {
                 return PluginWebResponse(["success": false, "message": "No valid session found"])
             }
             return PluginWebResponse(["success": true, "region": .string(tokens.region)])
@@ -127,7 +127,7 @@ public actor EWeLinkPlugin: HomeswiftPlugin {
     /// The page's session, else the plugin's own tokens (saved by its last login, less than a day old).
     private func sessionAPI() async -> CloudAPI? {
         if let pageSession { return pageSession }
-        guard let tokens = TokenStorage(directory: context.storageDirectory).loadValid() else { return nil }
+        guard let tokens = TokenStorage(context: context).loadValid() else { return nil }
         let api = CloudAPI(credentials: .init(countryCode: configuration.countryCode), transport: dependencies.transport, storage: nil, logger: logger)
         await api.setCredentials(accessToken: tokens.accessToken, apiKey: tokens.apiKey, refreshToken: tokens.refreshToken, region: tokens.region)
         return api

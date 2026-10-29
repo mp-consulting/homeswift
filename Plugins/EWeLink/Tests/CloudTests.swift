@@ -135,15 +135,15 @@ struct CloudAPITests {
         #expect(await api.socketURL() == "wss://eu-pconnect3.coolkit.cc:8080/api/ws")
     }
 
-    @Test func keepsTokensOwnerOnlyForADay() async throws {
+    @Test func keepsTokensSealedForADay() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ewelink-tokens-\(UUID().uuidString)")
-        let storage = TokenStorage(directory: directory)
+        let vault = CredentialVault(storage: directory)
+        let storage = TokenStorage(file: SecretFile(vault: vault, entryName: "plugin.ewelink.tokens", owner: "eWeLink/eWeLink"))
         let api = api(storage: storage)
         try await api.login()
         let tokens = try #require(storage.loadValid())
         #expect(tokens.accessToken == "access-token-1" && tokens.region == "eu" && tokens.apiKey == "user-api-key")
-        let permissions = try FileManager.default.attributesOfItem(atPath: storage.url.path)[.posixPermissions] as? Int
-        #expect(permissions == 0o600)
+        #expect(try !String(contentsOf: vault.url, encoding: .utf8).contains("access-token-1"))
         #expect(!storage.isValid(tokens, now: tokens.timestamp + TokenStorage.maximumAge))
         #expect(storage.isValid(tokens, now: tokens.timestamp + TokenStorage.maximumAge - 1))
 

@@ -119,7 +119,9 @@ public actor MyDevicesPlugin: HomeswiftPlugin {
   `characteristic.revert(to:after:)` puts a value back after a write the device refused;
   `context.removeAccessories(keeping:)` drops accessories of devices that are gone. In `HomeswiftPlugin`, `TaskBag`
   holds the tasks `stop()` cancels, `LatestCallGuard` lets the last of quick slider writes through,
-  `PersistedDictionary` and `context.jsonFile(_:as:)` keep values in owner-only JSON files, `context.pictures(_:)` keeps
+  `PersistedDictionary` and `context.jsonFile(_:as:)` keep values in owner-only JSON files, `context.secretFile(_:as:)`
+  keeps a token or a key the same way but sealed in the bridge's vault (docs/vault-design.md), in the instance's
+  namespace, moving the plain file of that name there the first time it reads it, `context.pictures(_:)` keeps
 pictures a page uploads (`data:` URLs of JPEG, PNG or WebP, checked by their bytes; the Hue and DIRIGERA scene tiles), and `EveHistory` is
   fakegato-history for the Eve app.
 - **History and energy.** `context.recordValue(_:series:)` records a reading for the Status page's history (a minute
