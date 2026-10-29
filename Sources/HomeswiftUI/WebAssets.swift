@@ -1721,6 +1721,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   let leaveGuard = null;   // a page with unsaved changes: false keeps it
   let shownPath = null;
   function route() {
+    // A dialog belongs to the view it opened on (an accessory's sheet, whose menu links to its log): a new view closes
+    // it, or it would stay over the next one. The restart overlay outlives views.
+    for (const dialog of document.querySelectorAll("dialog[open]")) if (dialog !== restartOverlay) dialog.close();
     const decode = (part) => { try { return decodeURIComponent(part); } catch { return part; } };
     let [name = "status", ...args] = location.pathname.split("/").filter(Boolean).map(decode);
     if (adminSections.has(name) && !isAdmin()) {

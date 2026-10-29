@@ -64,6 +64,8 @@ All notable changes to this project are documented here. The format follows
 - An accessory group's failed change is a callout: the members that did not change, each one's reason, Try again for
   those members and a close button, over the whole group widget. It was a line of plain text without the reason, letter
   by letter on a medium group.
+- A link in an accessory's sheet (Show its log, Plugin settings) closes the sheet: the next page opened under it,
+  behind the sheet and its blur.
 - A menu opened from an accessory's sheet (its ⋯) shows over the sheet; it opened behind it.
 - An accessory group no longer takes a security control (a switch that unlocks a door), so a tap on the group
   cannot open a door.
