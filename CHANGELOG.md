@@ -31,6 +31,9 @@ All notable changes to this project are documented here. The format follows
 - Status: the energy history card leads with the period's home use and a strip of the share solar, the batteries and
   the grid covered, then lists the battery's charge and discharge with the grid's import and export; large figures
   drop their decimals and the axis writes its unit once.
+- Status: every chart writes its unit once, on the top tick, without decimals every tick has as zeros (`40 MB`, then
+  `30`, `20`…); the request charts' quarter-millisecond ticks read 0.25 and 0.75 rather than 0.3 and 0.8; the Battery
+  level chart writes each device's level in its legend.
 - Status: the Energy section's Power chart draws an imported history's hours (a device cloud's solar and home use)
   where the bridge recorded nothing, each at its average, and says so under the chart.
 

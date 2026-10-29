@@ -2308,12 +2308,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if (path !== location.pathname + location.search) history.replaceState(null, "", path);
     }
     /// A chart drawn again with new points, made anew when its lines change (a device or a role appears).
-    function draw(chart, series, points, from, to, step, format) {
+    function draw(chart, series, points, from, to, step, format, latest = false) {
       const key = series.map((one) => one.label).join("\n");
       if (chart.view && chart.key === key) { chart.view.update(points, from, to, step); return; }
       chart.body.replaceChildren();
       chart.key = key;
-      chart.view = HomeswiftChart.lineChart(chart.body, { title: chart.title, series, format, unit: (max) => max >= 1000 ? 1000 : 1, points, from, to, step });
+      chart.view = HomeswiftChart.lineChart(chart.body, { title: chart.title, series, format, unit: (max) => max >= 1000 ? 1000 : 1, points, from, to, step, latest });
     }
     async function load() {
       clearTimeout(refresh);
@@ -2357,8 +2357,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         }
         const points = [...byTime.values()].sort((a, b) => a.time - b.time);
         draw(levels, report.levels.map((level, index) => ({ label: level.device, tone: levelTones[index % levelTones.length], value: (point) => point[level.series] ?? null })),
-          points, from.getTime(), to.getTime(), step, formatPercent);
-        levels.detail.textContent = report.levels.filter((level) => level.points.length).map((level) => `${level.device} ${formatPercent(level.points.at(-1)[1])}`).join(" · ");
+          points, from.getTime(), to.getTime(), step, formatPercent, true);
+        // Each device's level is in the legend, beside its name.
+        levels.detail.textContent = "";
       }
       lastReport = report;
       if (pointTable.open) fillPoints();
@@ -2457,9 +2458,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       else {
         days.body.replaceChildren();
         days.key = key;
-        // The unit on the top tick only: the others are its numbers.
         days.view = HomeswiftChart.stackedBars(days.body, { title: days.titleNode.textContent, legend, bars: chartBars, format: formatKWh, unit: () => 1,
-          tick: (value, size, top) => top ? formatKWh(value, size) : kWhNumber(value, size),
           segments: segments.map((one) => ({ ...one, value: (values) => values?.[one.field] == null ? null : (one.below ? -1 : 1) * values[one.field] })) });
         days.body.append(dayTable);
       }
@@ -2583,20 +2582,19 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// Kilowatt-hours: two decimals under 10, one under 100, whole from there (3,009 kWh, not 3,009.0); an axis's tick
   /// (with `top`) a whole number when it is one.
   function formatKWh(kWh, top) {
-    return `${kWhNumber(kWh, top)} kWh`;
-  }
-  function kWhNumber(kWh, top) {
     const size = Math.abs(kWh);
     const digits = (top != null && Number.isInteger(kWh)) || kWh === 0 ? 0 : size < 10 ? 2 : size < 100 ? 1 : 0;
-    return kWh.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits });
+    return `${kWh.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} kWh`;
   }
 
   /// Bytes as MB, or GB from 1 GB; `top`, the axis's highest, keeps a chart's ticks in one unit.
   const formatBytes = (bytes, top = bytes) => HomeswiftCommon.byteSize(bytes, top);
   function formatPercent(value) { return `${value > 0 && value < 10 ? value.toFixed(1) : Math.round(value)}%`; }
+  /// Milliseconds: one decimal under 10, two when the value has them (an axis's 0.25 and 0.75 ticks, not 0.3 and 0.8).
   function formatMilliseconds(ms) {
     if (ms >= 1000) return `${(ms / 1000).toFixed(ms >= 10000 ? 0 : 1)} s`;
-    return `${ms > 0 && ms < 10 ? ms.toFixed(1) : Math.round(ms)} ms`;
+    const hundredths = Math.abs(ms * 10 - Math.round(ms * 10)) > 1e-6;
+    return `${ms > 0 && ms < 10 ? ms.toFixed(hundredths ? 2 : 1) : Math.round(ms)} ms`;
   }
 
   function formatDuration(seconds) {
@@ -5921,6 +5919,20 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     for (let tick = first.getTime(); tick <= to; tick += step) ticks.push(tick);
     return ticks;
   }
+  /// The value axis's labels, highest last as `ticks` are ordered: the unit written once, on the top tick (`40 MB`, then
+  /// `30`, `20`…), and a decimal every tick has as zeros dropped (`40.0 MB` reads `40 MB`). `format(value, scale)`
+  /// writes a value with its unit after a space, or a sign glued to it (`%`).
+  const decimal = (1.5).toLocaleString(HomeswiftI18n.locale).charAt(1);
+  function axisLabels(ticks, format, scale) {
+    let labels = ticks.map((value) => format(value, scale));
+    const zeros = new RegExp(`\\${decimal}0+(?=\\D*$)`);
+    if (labels.every((label) => zeros.test(label))) labels = labels.map((label) => label.replace(zeros, ""));
+    const top = labels[ticks.indexOf(Math.max(...ticks))] ?? "";
+    const unit = top.match(/\s?[^\d\s.,\u00a0\u202f-]+$/)?.[0];
+    if (!unit) return labels;
+    return labels.map((label, index) => ticks[index] === Math.max(...ticks) || !label.endsWith(unit) ? label : label.slice(0, -unit.length));
+  }
+
   /// A tick's label: the day at midnight, else the time.
   const tickLabel = (time) => {
     const date = new Date(time);
@@ -5934,22 +5946,30 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// A chart in `container`: `series` are `{ label, value(point), tone }` (tone 1 to 6, the palette's slots),
   /// `points` have `time` (a Date), `from` and `to` bound the x axis, `step` is the points' spacing in ms and
   /// `format` writes a value with its unit and `unit(max)` is the size of that unit, so ticks fall on round values
-  /// of it. Returns `update(points, from, to, step)`.
-  function lineChart(container, { title, series, format, unit = () => 1, points, from, to, step }) {
+  /// of it. With `latest`, the legend writes each series' last value beside its name (a battery's level), so the
+  /// chart needs no separate line of them. Returns `update(points, from, to, step)`.
+  function lineChart(container, { title, series, format, unit = () => 1, points, from, to, step, latest = false }) {
     const frame = html("div", "chart-frame");
     const tooltip = html("div", "chart-tooltip hidden");
     tooltip.setAttribute("role", "status");
     frame.append(tooltip);
     container.append(frame);
+    const latestNodes = [];
     if (series.length > 1) {
       const legend = html("div", "chart-legend");
       for (const one of series) {
         const item = html("span", "", null);
         item.append(html("i", `key tone-${one.tone}`), document.createTextNode(one.label));
+        if (latest) { const value = html("b", "legend-value"); latestNodes.push(value); item.append(value); }
         legend.append(item);
       }
       container.append(legend);
     }
+    /// Each series' last value in the legend, a dash for one with none.
+    const showLatest = (points) => latestNodes.forEach((node, index) => {
+      const last = points.findLast((point) => series[index].value(point) != null);
+      node.textContent = last ? format(series[index].value(last)) : "–";
+    });
     let state = { points, from, to, step };
     let chosen = null;   // the index the crosshair is on, kept between redraws
     let drawn = null;
@@ -5976,13 +5996,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
       const root = svg("svg", { width, height, viewBox: `0 0 ${width} ${height}`, class: "chart", role: "img", "aria-label": points.length ? t("{title}, drawn over time", { title }) : t("{title}, nothing recorded", { title }) });
       root.setAttribute("tabindex", "0");
-      for (const value of ticks) {
+      const tickText = axisLabels(ticks, format, scale);
+      ticks.forEach((value, index) => {
         const at = y(value);
         root.append(svg("line", { x1: pad.left, x2: width - pad.right, y1: at, y2: at, class: value === 0 && bottom < 0 ? "grid zero" : "grid" }));
         const label = svg("text", { x: pad.left - 8, y: at + 4, class: "tick", "text-anchor": "end" });
-        label.textContent = format(value, scale);
+        label.textContent = tickText[index];
         root.append(label);
-      }
+      });
       for (const tick of timeTicks(from, to, Math.max(2, Math.floor(plotWidth / 90)))) {
         const label = svg("text", { x: x(tick), y: height - 6, class: "tick", "text-anchor": "middle" });
         label.textContent = tickLabel(tick);
@@ -6083,9 +6104,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     });
     resize.observe(frame);
     draw();
+    showLatest(points);
     return {
       update(points, from, to, step) {
         state = { points, from, to, step };
+        showLatest(points);
         chosen = null;
         tooltip.classList.add("hidden");
         draw();
@@ -6101,8 +6124,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// `unit(max)` sizes the ticks, as for `lineChart`. A tooltip lists a bar's segments, on hover and with the arrow keys.
   /// Returns `update(bars)`.
   /// `legend` (`{ label, tone }`) names the colours when segments share one (an entity above and below the line).
-  /// `tick(value, size, top)` writes an axis's tick instead of `format` (the unit on the `top` one only).
-  function stackedBars(container, { title, segments, bars, format, unit = () => 1, legend: keys = segments, tick }) {
+  function stackedBars(container, { title, segments, bars, format, unit = () => 1, legend: keys = segments }) {
     const frame = html("div", "chart-frame");
     const tooltip = html("div", "chart-tooltip hidden");
     tooltip.setAttribute("role", "status");
@@ -6136,13 +6158,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
       const root = svg("svg", { width, height, viewBox: `0 0 ${width} ${height}`, class: "chart", role: "img", "aria-label": t("{title}, a bar per day", { title }) });
       root.setAttribute("tabindex", "0");
-      for (let value = bottom; value <= top + step / 2; value += step) {
+      const ticks = [];
+      for (let value = bottom; value <= top + step / 2; value += step) ticks.push(value);
+      const tickText = axisLabels(ticks, format, size);
+      ticks.forEach((value, index) => {
         const at = y(value);
         root.append(svg("line", { x1: pad.left, x2: width - pad.right, y1: at, y2: at, class: value === 0 && bottom < 0 ? "grid zero" : "grid" }));
         const label = svg("text", { x: pad.left - 8, y: at + 4, class: "tick", "text-anchor": "end" });
-        label.textContent = tick ? tick(value, size, value + step / 2 > top) : format(value, size);
+        label.textContent = tickText[index];
         root.append(label);
-      }
+      });
       const hover = svg("rect", { y: pad.top, height: plotHeight, width: slot, class: "bar-hover hidden", rx: 6 });
       root.append(hover);
       // Segments stack out from the baseline with a 2px gap between them; the outermost on each side has 4px
@@ -20775,6 +20800,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 /* A part with no source (an imported hour's home use not split): neutral, never a series colour. */
 .chart .bar.tone-8 { fill: var(--muted); opacity: 0.45; }
 .chart .bar-hover { fill: var(--material-thin); }
+.chart-legend .legend-value { margin-left: var(--space-4); color: var(--text); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
 .chart-legend .key.bar, .chart-tooltip .key.bar { width: 10px; height: 10px; border-radius: 3px; }
 .chart-legend { display: flex; flex-wrap: wrap; gap: var(--space-4) var(--space-14); font-size: var(--text-sm); color: var(--muted); }
 .chart-legend span { display: inline-flex; align-items: center; gap: var(--space-6); white-space: nowrap; }

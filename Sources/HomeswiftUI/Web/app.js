@@ -931,12 +931,12 @@
       if (path !== location.pathname + location.search) history.replaceState(null, "", path);
     }
     /// A chart drawn again with new points, made anew when its lines change (a device or a role appears).
-    function draw(chart, series, points, from, to, step, format) {
+    function draw(chart, series, points, from, to, step, format, latest = false) {
       const key = series.map((one) => one.label).join("\n");
       if (chart.view && chart.key === key) { chart.view.update(points, from, to, step); return; }
       chart.body.replaceChildren();
       chart.key = key;
-      chart.view = HomeswiftChart.lineChart(chart.body, { title: chart.title, series, format, unit: (max) => max >= 1000 ? 1000 : 1, points, from, to, step });
+      chart.view = HomeswiftChart.lineChart(chart.body, { title: chart.title, series, format, unit: (max) => max >= 1000 ? 1000 : 1, points, from, to, step, latest });
     }
     async function load() {
       clearTimeout(refresh);
@@ -980,8 +980,9 @@
         }
         const points = [...byTime.values()].sort((a, b) => a.time - b.time);
         draw(levels, report.levels.map((level, index) => ({ label: level.device, tone: levelTones[index % levelTones.length], value: (point) => point[level.series] ?? null })),
-          points, from.getTime(), to.getTime(), step, formatPercent);
-        levels.detail.textContent = report.levels.filter((level) => level.points.length).map((level) => `${level.device} ${formatPercent(level.points.at(-1)[1])}`).join(" · ");
+          points, from.getTime(), to.getTime(), step, formatPercent, true);
+        // Each device's level is in the legend, beside its name.
+        levels.detail.textContent = "";
       }
       lastReport = report;
       if (pointTable.open) fillPoints();
@@ -1080,9 +1081,7 @@
       else {
         days.body.replaceChildren();
         days.key = key;
-        // The unit on the top tick only: the others are its numbers.
         days.view = HomeswiftChart.stackedBars(days.body, { title: days.titleNode.textContent, legend, bars: chartBars, format: formatKWh, unit: () => 1,
-          tick: (value, size, top) => top ? formatKWh(value, size) : kWhNumber(value, size),
           segments: segments.map((one) => ({ ...one, value: (values) => values?.[one.field] == null ? null : (one.below ? -1 : 1) * values[one.field] })) });
         days.body.append(dayTable);
       }
@@ -1206,20 +1205,19 @@
   /// Kilowatt-hours: two decimals under 10, one under 100, whole from there (3,009 kWh, not 3,009.0); an axis's tick
   /// (with `top`) a whole number when it is one.
   function formatKWh(kWh, top) {
-    return `${kWhNumber(kWh, top)} kWh`;
-  }
-  function kWhNumber(kWh, top) {
     const size = Math.abs(kWh);
     const digits = (top != null && Number.isInteger(kWh)) || kWh === 0 ? 0 : size < 10 ? 2 : size < 100 ? 1 : 0;
-    return kWh.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits });
+    return `${kWh.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} kWh`;
   }
 
   /// Bytes as MB, or GB from 1 GB; `top`, the axis's highest, keeps a chart's ticks in one unit.
   const formatBytes = (bytes, top = bytes) => HomeswiftCommon.byteSize(bytes, top);
   function formatPercent(value) { return `${value > 0 && value < 10 ? value.toFixed(1) : Math.round(value)}%`; }
+  /// Milliseconds: one decimal under 10, two when the value has them (an axis's 0.25 and 0.75 ticks, not 0.3 and 0.8).
   function formatMilliseconds(ms) {
     if (ms >= 1000) return `${(ms / 1000).toFixed(ms >= 10000 ? 0 : 1)} s`;
-    return `${ms > 0 && ms < 10 ? ms.toFixed(1) : Math.round(ms)} ms`;
+    const hundredths = Math.abs(ms * 10 - Math.round(ms * 10)) > 1e-6;
+    return `${ms > 0 && ms < 10 ? ms.toFixed(hundredths ? 2 : 1) : Math.round(ms)} ms`;
   }
 
   function formatDuration(seconds) {

@@ -1384,6 +1384,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 /* A part with no source (an imported hour's home use not split): neutral, never a series colour. */
 .chart .bar.tone-8 { fill: var(--muted); opacity: 0.45; }
 .chart .bar-hover { fill: var(--material-thin); }
+.chart-legend .legend-value { margin-left: var(--space-4); color: var(--text); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
 .chart-legend .key.bar, .chart-tooltip .key.bar { width: 10px; height: 10px; border-radius: 3px; }
 .chart-legend { display: flex; flex-wrap: wrap; gap: var(--space-4) var(--space-14); font-size: var(--text-sm); color: var(--muted); }
 .chart-legend span { display: inline-flex; align-items: center; gap: var(--space-6); white-space: nowrap; }
