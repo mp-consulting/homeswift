@@ -127,6 +127,7 @@
     pylon: '<path d="M9 21l3-18 3 18M6 7.5h12M7.5 12.5h9M10.3 12.5 14.2 21M13.7 12.5 9.8 21"/>',
     bolt: '<path d="M13 2.5 5 13.5h6l-1 8 8-11h-6z"/>',
     leaf: '<path d="M5 19c0-8 5-14 15-14 0 10-6 15-14 15M5 19l7-7"/>',
+    bug: '<rect x="8" y="7" width="8" height="12" rx="4"/><path d="M9.5 7.5a2.5 2.5 0 0 1 5 0M12 11v8M4 9l4 2M20 9l-4 2M3.5 14h4.5M16 14h4.5M4 19.5l4.3-2M20 19.5l-4.3-2"/>',
   };
 
   /// A button's icon before its text (`actionIcon`, `data-action-icon`): the icon as an SVG data: URL in
@@ -351,12 +352,15 @@
   /// { separator: true }; `checked` makes a ticked choice. { label, choices: [{ label, badge, checked, onSelect }] }
   /// draws a labelled row of square choices, such as the widget sizes.
   /// Opened from the keyboard, its first item takes the focus; from a click, the menu does, so no item looks
-  /// chosen before the pointer or an arrow key gets to it.
-  function menu(trigger, items, { keyboard = false, onReorder } = {}) {
+  /// chosen before the pointer or an arrow key gets to it. `search` (its placeholder) puts a search field on top that
+  /// keeps the items whose label holds what is typed, and takes the focus instead; an item with `pinned` always stays.
+  function menu(trigger, items, { keyboard = false, onReorder, search } = {}) {
     if (openMenu?.trigger === trigger) { openMenu.close(); return; }
     openMenu?.close(true);
     let pending = false, cancelDrag = null;
     const refreshDisabled = [];
+    const searchable = [];
+    const fold = (text) => text.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
     const nodes = items.filter(Boolean).map((item) => {
       if (item.separator) return el("hr", { class: "menu-separator", role: "separator" });
       if (item.choices) {
@@ -449,9 +453,26 @@
           if (typeof checked === "boolean") node.setAttribute("aria-checked", String(checked));
         } finally { pending = false; node.removeAttribute("aria-busy"); }
       });
+      if (search && !item.pinned && item.label) searchable.push([node, fold(item.label)]);
       return node;
     });
-    const entries = () => [...list.querySelectorAll('[role^="menuitem"]:not([aria-disabled="true"])')];
+    const entries = () => [...list.querySelectorAll('[role^="menuitem"]:not([aria-disabled="true"]):not(.hidden)')];
+    // The search field: what is typed, without case or accents, against each item's label.
+    const field = search ? el("input", { type: "search", class: "menu-search", placeholder: search, "aria-label": search, autocomplete: "off" }) : null;
+    const nothing = search ? el("p", { class: "menu-empty muted hidden", text: t("Nothing matches.") }) : null;
+    if (field) {
+      field.addEventListener("input", () => {
+        const query = fold(field.value.trim());
+        let shown = 0;
+        for (const [node, label] of searchable) {
+          const match = !query || label.includes(query);
+          node.classList.toggle("hidden", !match);
+          if (match) shown++;
+        }
+        nothing.classList.toggle("hidden", !searchable.length || shown > 0);
+      });
+      nodes.unshift(field, nothing);
+    }
     // On a phone a card's menu is an action sheet over a dimmed page, at the bottom within the thumb's reach, as
     // iOS's; the header's (the account) still drops down from its button.
     const sheet = matchMedia("(max-width: 640px)").matches && !trigger.closest("header");
@@ -477,7 +498,16 @@
     trigger.setAttribute("aria-expanded", "true");
     const focusAt = (index) => entries()[(index + entries().length) % entries().length]?.focus();
     const onKey = (event) => {
+      // In the search field the keys edit the text; Down goes to the first item it keeps, Enter chooses it.
+      if (field && document.activeElement === field) {
+        if (event.key === "Escape") { event.preventDefault(); close(); }
+        else if (event.key === "ArrowDown") { event.preventDefault(); focusAt(0); }
+        else if (event.key === "Enter") { event.preventDefault(); entries()[0]?.click(); }
+        else if (event.key === "Tab") close(true);
+        return;
+      }
       const index = entries().indexOf(document.activeElement);
+      if (event.key === "ArrowUp" && field && index <= 0) { event.preventDefault(); field.focus(); return; }
       if (event.key === "Escape") { event.preventDefault(); close(); }
       else if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && document.activeElement.closest(".menu-choice-row")) {
         event.preventDefault();
@@ -510,7 +540,9 @@
     document.addEventListener("pointerdown", onPointer, true);
     addEventListener("resize", onResize);
     openMenu = { trigger, list, close };
-    if (keyboard) focusAt(0); else list.focus({ preventScroll: true });
+    // A search field takes the focus, but not on a phone's sheet, where the keyboard would cover the items.
+    if (field && !sheet) field.focus({ preventScroll: true });
+    else if (keyboard) focusAt(0); else list.focus({ preventScroll: true });
   }
 
   /// A touch drags a panel or a sheet out along its edge (right, or down on a phone), 1:1 from where it was grabbed,

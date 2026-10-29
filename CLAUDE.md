@@ -67,6 +67,7 @@ swift run   --scratch-path ~/Library/Caches/homeswift-build homeswift plugins
 swift Scripts/embed-assets.swift web Sources/HomeswiftUI/Web Sources/HomeswiftUI/WebAssets.swift   # after editing a page
 swift Scripts/embed-assets.swift prompts Sources/HomeswiftAI/Prompts Sources/HomeswiftAI/PromptFiles.swift   # after editing a prompt
 node Scripts/site-languages.mjs   # after editing site/index.html or its catalogs (--check says when the copies are stale)
+node Scripts/design-system.mjs    # after editing the web UI's style.css, common.js or catalogs: site/design/runtime copies them (CI's --check)
 swift Scripts/embed-assets.swift plugin Plugins/ElgatoKeyLights ElgatoKeyLightsPlugin          # after editing a schema
 swift Scripts/new-plugin.swift Lights Lights "Lights" --service lightbulb:brightness --service battery   # a new plugin; --list shows the services
 swift Scripts/embed-assets.swift web Plugins/ElgatoKeyLights/Web Plugins/ElgatoKeyLights/Sources/WebFiles.swift ElgatoKeyLightsPlugin   # after editing a plugin page
