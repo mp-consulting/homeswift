@@ -139,6 +139,17 @@ actor DevicesPlugin: HomeswiftPlugin {
         return [PluginScene(id: "magenta", name: "Magenta", room: "salon", active: false, colours: ["#ff00ff"])]
     }
 
+    /// The devices' hub plays a candle on the first colour bulb itself.
+    func animate(_ effect: LightEffect, accessoryIDs: [String]) async -> Set<String> {
+        guard effect.style == .candle, accessoryIDs.contains("Devices:bulb1") else { return [] }
+        writes.withLockedValue { $0.append(("bulb1.effect", .string(effect.style.rawValue))) }
+        return ["Devices:bulb1"]
+    }
+
+    func stopAnimation(accessoryIDs: [String]) async {
+        for id in accessoryIDs { writes.withLockedValue { $0.append(("\(id).effect", "stop")) } }
+    }
+
     /// Recalls Magenta as `POST scene` does.
     func recallScene(id: String) async throws {
         guard id == "magenta" else { throw PluginSceneError("no such scene") }

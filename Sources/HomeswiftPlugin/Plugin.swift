@@ -98,6 +98,14 @@ public protocol HomeswiftPlugin: Sendable {
 
     /// Recalls one of `scenes()` by its `PluginScene.id`. Defaults to throwing.
     func recallScene(id: String) async throws
+
+    /// Plays an effect on those of these accessories the plugin can animate the way its brand's app does (a Hue
+    /// light's fire effect, a Govee light's library scene); answers the ids it plays. Homeswift plays the others
+    /// itself, and puts every light back when the scene stops. Defaults to none.
+    func animate(_ effect: LightEffect, accessoryIDs: [String]) async -> Set<String>
+
+    /// Stops what `animate` started on these accessories; Homeswift then puts their values back. Defaults to nothing.
+    func stopAnimation(accessoryIDs: [String]) async
 }
 
 extension HomeswiftPlugin {

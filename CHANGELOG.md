@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Animated scenes: a scene or a plan can make lights move after its actions (`animation`: a style such as candle,
+  fire, sparkle, prism, underwater, sunrise, moving colours or music, with a colour, speed and brightness, or timed
+  steps). Plugins play their own lights natively (`HomeswiftPlugin.animate`): Hue with `effects_v2` and `timed_effects`,
+  Govee with the library scene of the style's name, DIRIGERA a sunrise or sunset as one long fade, the Ambilight TV
+  following the music; Homeswift's player plays the rest. The scene editor has an Animation step.
 - Scenes composed on the fly and undone: `run_scene` takes a `plan` (values to set and hubs' scenes to recall) that
   runs at once without being saved, and `save_scene` keeps one. `stop_scene` puts back what any run changed in the last
   12 hours: a saved scene, a hub's scene or a plan. A scene can recall a hub's scene among its values (`{"recall": id}`):

@@ -186,7 +186,11 @@ room when its accessories share one, and **Scene active** while every value it s
 the scenes picked for Govee lights), by room, with their pictures or colours and a source filter when there are
 several. A tap recalls one on its hub; Hue's say **Scene active** while the bridge says so. **Stop** puts back the
 lights it changed, for 12 hours, as for any scene. **Automate** makes a Homeswift scene that recalls it, to give it
-triggers and conditions; the editor's **Add a hub scene…** adds one to any scene. They are changed in their own app.
+triggers and conditions; the editor's **Add a hub scene…** adds one to any scene. The editor's **Animation** step
+makes the chosen lights move after the actions: a style (candle, fire, sparkle, prism, underwater, a sunrise, moving
+colours, following the music…) with its speed, brightness and colour. Each brand plays it the way its own app does where
+its lights have it (Hue's effects, Govee's library scenes, an IKEA fade for a sunrise, an Ambilight TV for music);
+Homeswift plays it on the others. An animated scene is active while it plays, and **Stop** puts the lights back. They are changed in their own app.
 
 **Moods**, on the same page: the rooms that have lights as chips, and the collection of moods by kind, each drawn with
 photographic thumbnails. A tap plays one on the room's lights; the pill stays lit while it plays, with the mood and **Stop** under

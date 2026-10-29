@@ -408,6 +408,21 @@ struct DirigeraTests {
         await host.stop()
     }
 
+    /// A sunrise is one long fade the hub runs, from the lowest level; other styles are left to Homeswift.
+    @Test func sunriseIsALongFade() async throws {
+        let host = try await environment.start()
+        _ = try await accessory(host, scenesID)
+        let plugin = try #require(environment.plugin)
+        let bulb = DirigeraPlugin.accessoryID(deviceID: "bulb-1")
+        #expect(await plugin.animate(LightEffect(style: .fire), accessoryIDs: [bulb]).isEmpty)
+        #expect(await plugin.animate(LightEffect(style: .sunrise, durationSeconds: 600), accessoryIDs: [bulb]) == [bulb])
+        let patches = environment.hub.patches.filter { $0.path == "/v1/devices/bulb-1" }.map(\.body)
+        #expect(patches.contains { $0.contains("\"lightLevel\":1") })
+        #expect(patches.last?.contains("\"lightLevel\":100") == true)
+        #expect(patches.last?.contains("\"transitionTime\":600000") == true)
+        await host.stop()
+    }
+
     @Test func theAssistantRunsAScene() async throws {
         let host = try await environment.start()
         _ = try await accessory(host, scenesID)

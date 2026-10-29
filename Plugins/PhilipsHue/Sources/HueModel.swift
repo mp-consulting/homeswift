@@ -26,6 +26,8 @@ struct HueLight: Sendable, Equatable {
     var effect: String?
     /// Whether it takes `effects_v2` (an effect with a speed) rather than `effects`.
     var effectsV2 = false
+    /// The timed effects it takes (`sunrise`, `sunset`), without `no_effect`.
+    var timedEffects: [String] = []
     /// The room its device is in (a room holds devices; a zone, which crosses rooms, does not count).
     var roomID: String?
     var room: String?
@@ -337,6 +339,9 @@ struct HueSnapshot: Sendable, Equatable {
             light.effect = effects["status"]?.stringValue ?? effects["effect"]?.stringValue
         }
         light.effects.removeAll { $0 == "no_effect" }
+        if let timed = resource["timed_effects"] {
+            light.timedEffects = (timed["effect_values"]?.arrayValue ?? timed["status_values"]?.arrayValue ?? []).compactMap(\.stringValue).filter { $0 != "no_effect" }
+        }
         if light.effect == "no_effect" { light.effect = nil }
         light.signals = (resource["signaling"]?["signal_values"]?.arrayValue ?? []).compactMap(\.stringValue)
         if let gradient = resource["gradient"] {

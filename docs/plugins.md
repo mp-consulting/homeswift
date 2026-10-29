@@ -289,6 +289,13 @@ public func recallScene(id: String) async throws {
 }
 ```
 
+A plugin whose lights have effects of their own plays an animated scene's effect natively: `animate(_:accessoryIDs:)`
+gets a `LightEffect` (a style such as fire, candle or sunrise, with an optional colour, speed and brightness) and the
+scene's lights it owns, and answers those it plays the way its brand's app does; Homeswift plays the others itself.
+`stopAnimation(accessoryIDs:)` stops them before Homeswift puts their values back. Hue (`HueEffects.swift`: `effects_v2`,
+`timed_effects`), Govee (the library scene of the style's name), DIRIGERA (a sunrise as one long fade) and the Ambilight
+TV (music) do.
+
 ### What the Assistant can do
 
 `assistantActions` describes routes of `handleWebRequest` for a model, so the Assistant (the web UI's chat,

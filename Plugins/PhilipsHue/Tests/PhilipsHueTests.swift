@@ -437,6 +437,37 @@ struct PhilipsHueTests {
         await host.stop()
     }
 
+    /// An animated scene's effect plays as the Hue app's on the lights that have it, with its colour, speed and
+    /// brightness; a light without it, or a palette, is left to Homeswift; stopping sends no_effect.
+    @Test func effectsPlayNatively() async throws {
+        let host = try await environment.start()
+        _ = try await accessory(host, scenesID)
+        let plugin = try #require(environment.plugin)
+        let strip = PhilipsHuePlugin.accessoryID(lightID: "light-1"), desk = PhilipsHuePlugin.accessoryID(lightID: "light-2")
+        let fire = LightEffect(style: .fire, colors: [.init(hue: 0, saturation: 100)], speed: 0.25, brightness: 60)
+        #expect(await plugin.animate(fire, accessoryIDs: [strip, desk]) == [strip])
+        let put = try #require(environment.bridge.puts.last)
+        #expect(put.path == "/clip/v2/resource/light/light-1")
+        #expect(put.body["effects_v2"]?["action"]?["effect"] == "fire")
+        #expect(put.body["effects_v2"]?["action"]?["parameters"]?["speed"] == 0.25)
+        #expect(put.body["effects_v2"]?["action"]?["parameters"]?["color"]?["xy"]?["x"]?.doubleValue != nil)
+        #expect(put.body["dimming"] == ["brightness": 60])
+        #expect(put.body["on"] == ["on": true])
+        #expect(await plugin.animate(LightEffect(style: .palette, colors: [.init(hue: 0), .init(hue: 120)]), accessoryIDs: [strip]).isEmpty)
+        #expect(await plugin.animate(LightEffect(style: .sparkle), accessoryIDs: [strip]).isEmpty)
+        await plugin.stopAnimation(accessoryIDs: [strip])
+        #expect(environment.bridge.puts.last == .init(method: "PUT", path: "/clip/v2/resource/light/light-1", body: ["effects_v2": ["action": ["effect": "no_effect"]]]))
+        await host.stop()
+    }
+
+    /// A light with timed effects plays a sunrise for the scene's duration; one without has none.
+    @Test func sunriseIsATimedEffect() {
+        var light = HueLight(id: "l", deviceID: "d", name: "Bedside", model: "", manufacturer: "", product: "", firmware: "", on: false)
+        #expect(PhilipsHuePlugin.effectBody(LightEffect(style: .sunrise), for: light) == nil)
+        light.timedEffects = ["sunrise", "sunset"]
+        #expect(PhilipsHuePlugin.effectBody(LightEffect(style: .sunrise, durationSeconds: 600), for: light) == ["timed_effects": ["effect": "sunrise", "duration": 600_000]])
+    }
+
     /// A scene with a transition of its own is recalled with it, from the page and from the Home app; the others keep
     /// `transitionMs`.
     @Test func aSceneTakesItsOwnTransition() async throws {

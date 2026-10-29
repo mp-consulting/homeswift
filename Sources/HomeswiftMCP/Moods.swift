@@ -257,7 +257,7 @@ public enum MoodLibrary {
     ] + SceneArtwork.all.map(\.mood)
 
     /// The same palette moved one light along at each step: a wave.
-    private static func rotations(_ palette: [MoodColor], seconds: Double) -> [MoodStep] {
+    static func rotations(_ palette: [MoodColor], seconds: Double) -> [MoodStep] {
         (0..<palette.count).map { shift in MoodStep((0..<palette.count).map { palette[($0 + shift) % palette.count] }, seconds: seconds) }
     }
 
@@ -649,7 +649,7 @@ extension HomeswiftCatalog {
 
     /// Starts an animated mood in the background; lights another mood was playing on change hands without a flash
     /// back to their old values.
-    private func play(_ mood: Mood, on lights: [MoodLight], by: String, room: String?) async -> MoodRun {
+    func play(_ mood: Mood, on lights: [MoodLight], by: String, room: String?) async -> MoodRun {
         let snapshots = await takeOver(lights)
         let now = Date()
         let total = mood.loop == true ? (mood.durationSeconds ?? MoodRules.defaultDuration) : mood.steps.reduce(0) { $0 + $1.seconds }

@@ -87,6 +87,8 @@ public struct Scene: Codable, Sendable, Equatable {
     public var conditions: [SceneCondition]
     public var lastRun: SceneRunRecord?
     public var lastSkipped: SceneRunRecord?
+    /// What it plays on its lights after its actions, when it moves.
+    public var animation: SceneAnimation? = nil
 }
 
 public struct SceneLocation: Codable, Sendable, Equatable {
@@ -312,7 +314,10 @@ enum SceneRules {
         guard let object = body.objectValue else { throw CatalogError("Expected a scene") }
         let name = object["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !name.isEmpty, name.count <= 64 else { throw CatalogError("The name must be 1 to 64 characters") }
-        guard let actions = object["actions"]?.arrayValue, !actions.isEmpty, actions.count <= maxActions else { throw CatalogError("A scene needs 1 to \(maxActions) actions") }
+        let animation = try object["animation"].flatMap { $0.isNull ? nil : try SceneAnimation.checked($0) } ?? (object["animation"] == nil ? existing?.animation : nil)
+        guard let actions = object["actions"]?.arrayValue ?? (animation != nil ? [] : nil), !actions.isEmpty || animation != nil, actions.count <= maxActions else {
+            throw CatalogError("A scene needs 1 to \(maxActions) actions, or an animation")
+        }
         let triggers = try object["triggers"].map { value -> [SceneTrigger] in
             guard let list = value.arrayValue, list.count <= maxTriggers else { throw CatalogError("At most \(maxTriggers) triggers") }
             return try list.enumerated().map { try trigger($1, index: $0) }
@@ -328,7 +333,7 @@ enum SceneRules {
             else { throw CatalogError("Unknown scene artwork") }
         } else { artworkId = existing?.artworkId }
         return Scene(artworkId: artworkId, id: id, name: name, actions: try actions.enumerated().map { try action($1, index: $0) }, triggers: triggers, conditions: conditions,
-                     lastRun: existing?.lastRun, lastSkipped: existing?.lastSkipped)
+                     lastRun: existing?.lastRun, lastSkipped: existing?.lastSkipped, animation: animation)
     }
 
     static func newID() -> String {
@@ -387,6 +392,7 @@ extension HomeswiftCatalog {
     /// Whether every value the scene sets is what its accessory shows now. A light switched off shows no colour: once
     /// a scene's On is false, its other values for that light are not compared.
     func isActive(_ scene: Scene) -> Bool {
+        if scene.animation != nil { return isPlaying(scene.id) }
         let scene = Scene(id: scene.id, name: scene.name, actions: scene.actions.filter { $0.recall == nil }, triggers: [], conditions: [])
         guard !scene.actions.isEmpty else { return false }
         let off = Set(scene.actions.filter { Self.normalized($0.characteristic) == Self.normalized("On") && SceneRules.number($0.value) == 0 }.map { "\($0.id)|\($0.service ?? "")" })
@@ -615,6 +621,8 @@ extension HomeswiftCatalog {
             let mood = Mood(id: "scene:" + scene.id, name: scene.name, steps: [MoodStep(changedLights.map(\.color), seconds: MoodRules.minSeconds)])
             _ = hold(mood, on: changedLights, snapshots: snapshots, by: "scene", room: nil)
         }
+        var animated: JSONValue?
+        if let animation = scene.animation { animated = await startAnimation(animation, of: scene, by: "scene \(trigger.rawValue)") }
         try home.sceneUndo.update { file in
             file = file.filter { Date().timeIntervalSince($0.value.at) < MoodRules.undoSeconds }
             file[scene.id] = SceneUndo(at: Date(), actions: undoActions, expected: expected)
@@ -627,6 +635,7 @@ extension HomeswiftCatalog {
         }
         var answer: [String: JSONValue] = ["sceneId": .string(scene.id), "name": .string(scene.name), "ok": .bool(ok), "results": .array(results)]
         if let note { answer["note"] = .string(note) }
+        if let animated { answer["animation"] = animated }
         return .object(answer)
     }
 
@@ -651,6 +660,7 @@ extension HomeswiftCatalog {
             guard let found = find(id: action.id) else { return false }
             return (try? characteristic(in: found, service: action.service, characteristic: action.characteristic).isSecurityControl) == true
         }) { throw CatalogError("Confirm before restoring a lock, door or alarm") }
+        if let native = home.nativeAnimations.withLockedValue({ $0.removeValue(forKey: id) }) { await host.stopAnimation(accessoryIDs: native) }
         let runs = home.runningMoods.withLockedValue { $0.values.filter { $0.mood.id == "scene:" + id }.map(\.id) }
         for run in runs { _ = try await stopMoods(id: run) }
         var failures: [JSONValue] = [], remaining: [SceneAction] = [], expected: [SceneAction] = []
@@ -781,7 +791,8 @@ extension HomeswiftCatalog {
             MCPTool(
                 name: "run_scene", title: "Run scene",
                 description: "Runs a scene now and answers the result per action: a saved one or a hub's (scene, from list_scenes), or one you compose (plan), which is not saved. "
-                    + "Compose a plan for an ambiance the user describes: set the room's lights (On, Brightness, Hue, Saturation, Color Temperature) and recall a hub's scene where one fits. "
+                    + "Compose a plan for an ambiance the user describes: set the room's lights (On, Brightness, Hue, Saturation, Color Temperature), recall a hub's scene where one fits, "
+                    + "and add an animation (a fire, a candle, a sunrise…) when the lights should move. "
                     + "What a run changes can be put back for 12 hours with stop_scene (a plan by the run it answers); save_scene keeps a plan the user likes. "
                     + "Scenes and plans that lock or unlock, open or close, or arm or disarm something are refused: apply those actions with set_security_accessory, which asks the user to confirm, "
                     + "or let the user run the scene in the web UI.",

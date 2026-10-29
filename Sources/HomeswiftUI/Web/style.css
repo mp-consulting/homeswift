@@ -2080,6 +2080,9 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 .hub-scene-tile > .scene-run { width: 100%; }
 .hub-scene-actions { display: flex; flex-wrap: wrap; gap: var(--space-10); }
 .hub-scene-actions button { font-size: var(--text-xs); }
+.animation-settings { display: grid; gap: var(--space-10); margin-top: var(--space-10); }
+.animation-colours { display: flex; gap: var(--space-10); }
+.animation-lights { display: grid; gap: var(--space-6); }
 @media (max-width: 640px) {
   .quick-scenes { grid-template-columns: none; grid-template-rows: auto; grid-auto-flow: column; grid-auto-columns: min(240px, 85%); overflow-x: auto; scroll-snap-type: x proximity; padding: var(--space-4); }
   .quick-scenes > .scene-run, .quick-scenes > .hub-scene-tile { scroll-snap-align: start; }

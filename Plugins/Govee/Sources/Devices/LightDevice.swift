@@ -382,6 +382,21 @@ final class LightDevice: GoveeDevice {
         try await internalSceneUpdate(scene, true, isService: true)
     }
 
+    /// Plays a library scene that is not one of the light's switches (an animated scene's effect); answers whether
+    /// the light took it.
+    func applyLibraryScene(name: String, code: String) async -> Bool {
+        do {
+            try await send(.rgbScene(code: code, bleCode: nil))
+            if !colourSafeMode, let adaptiveLighting, adaptiveLighting.isAdaptiveLightingActive { adaptiveLighting.disableAdaptiveLighting() }
+            cacheScene = name
+            log("\(Lang.curScene) [\(name)]")
+            return true
+        } catch {
+            logWarn("\(Lang.devNotUpdated) \(error)")
+            return false
+        }
+    }
+
     private func internalSceneUpdate(_ scene: ActiveScene, _ value: Bool, isService: Bool) async throws {
         guard value else { return }
         do {

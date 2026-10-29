@@ -9225,6 +9225,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return el("div", { class: "artwork-themes" }, el("div", { class: "artwork-filters" }, search, select, sort), empty, groups.map(({ node }) => node));
   }
 
+  /// The animation styles, by id, in the order the editor lists them.
+  function effectStyleNames() {
+    return {
+      candle: t("Candle"), fire: t("Fire"), sparkle: t("Sparkle"), prism: t("Prism"), opal: t("Opal"), glisten: t("Glisten"),
+      underwater: t("Underwater"), cosmos: t("Cosmos"), sunbeam: t("Sunbeam"), enchant: t("Enchant"), palette: t("Moving colours"),
+      sunrise: t("Sunrise"), sunset: t("Sunset"), music: t("Follow the music"),
+    };
+  }
+
   function sceneButton(scene) {
     const picture = artworkImage(scene.artworkId, "quick-scene-image");
     const button = el("button", { type: "button", class: `scene-run${picture ? " pictured" : ""}`, title: t("Run {name}", { name: scene.name }) }, picture, el("span", { class: "quick-scene-label" }, HomeswiftCommon.icon("play"), el("span", { text: scene.name })));
@@ -9585,7 +9594,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("div", { class: "server-head" }, tile("play", scene.security ? "violet" : "orange"),
           el("div", { class: "who" }, el("a", { class: "card-title", href: `/scenes/${encodeURIComponent(scene.id)}` }, el("strong", { text: scene.name }),
               scene.active ? el("span", { class: "pill scene-active", text: t("Scene active") }) : null),
-            el("div", { class: "muted", text: [scene.room, scene.triggers.length ? scene.triggers.map((trigger) => describeTrigger(trigger, names)).join(" · ") : t("Run by hand")].filter(Boolean).join(" · ") })),
+            el("div", { class: "muted", text: [scene.room, scene.animation ? t("Animated: {style}", { style: scene.animation.effect ? effectStyleNames()[scene.animation.effect.style] || scene.animation.effect.style : t("Timed sequence") }) : null, scene.triggers.length ? scene.triggers.map((trigger) => describeTrigger(trigger, names)).join(" · ") : t("Run by hand")].filter(Boolean).join(" · ") })),
           el("div", { class: "scene-run-actions" }, run, stop)),
         el("details", { class: "scene-card-details" }, el("summary", { text: t("Details") }), el("div", { class: "controls" }, actions)),
         scene.security ? el("p", { class: "muted note", text: t("It changes a lock, a door or an alarm: the page asks before running it, and automations leave those actions out.") }) : null,
@@ -10164,6 +10173,58 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       step.panel.querySelector("button").focus({ preventScroll: true });
     };
     canvas.append(el("div", { class: "scene-flow-terminal" }, HomeswiftCommon.icon("play"), el("span", { text: t("Start") })));
+    // The animation: an effect (each brand's own where its lights have it, Homeswift's elsewhere) on chosen lights,
+    // after the actions. A timed sequence (from a template) is kept as it is.
+    const animationRows = new Set();
+    const animation = (() => {
+      const current = scene.animation, effect = current?.effect || {};
+      const style = el("select", { "aria-label": t("Animation") }, el("option", { value: "", text: t("No animation") }),
+        current?.steps ? el("option", { value: "sequence", text: t("Timed sequence") }) : null,
+        Object.entries(effectStyleNames()).map(([value, label]) => el("option", { value, text: label })));
+      style.value = current?.steps ? "sequence" : effect.style || "";
+      const speed = el("input", { type: "range", min: 0, max: 100, value: Math.round((effect.speed ?? 0.5) * 100) });
+      const brightness = el("input", { type: "range", min: 1, max: 100, value: effect.brightness ?? 80 });
+      const minutes = el("input", { type: "number", min: 1, max: 60, value: Math.round((effect.durationSeconds ?? 900) / 60) });
+      const tint = el("input", { type: "checkbox", checked: !!effect.colors?.length });
+      const first = colorInput(effect.colors?.[0] || { hue: 30, saturation: 100 }), second = colorInput(effect.colors?.[1] || { hue: 280, saturation: 80 });
+      const lights = choices.filter((a) => a.services.some((s) => s.type === "Lightbulb")).map((a) => {
+        const input = el("input", { type: "checkbox", value: a.id, checked: !!current?.lights?.includes(a.id) });
+        return { input, node: el("label", { class: "toggle compact" }, input, el("span", { text: displayName(a) })) };
+      });
+      const speedField = field(t("Speed"), speed), brightnessField = field(t("Brightness"), brightness), minutesField = field(t("Minutes"), minutes);
+      const tintField = el("label", { class: "toggle compact" }, tint, el("span", { text: t("Its own colour") }));
+      const colours = el("div", { class: "animation-colours" }, first, second);
+      const settings = el("div", { class: "animation-settings" }, speedField, brightnessField, minutesField, tintField, colours,
+        el("div", { class: "field-title", text: t("Lights") }), lights.length ? el("div", { class: "animation-lights" }, lights.map(({ node }) => node)) : el("p", { class: "muted", text: t("No light to animate.") }));
+      const sync = () => {
+        const value = style.value, timed = value === "sunrise" || value === "sunset", palette = value === "palette";
+        const effect = value && value !== "sequence" && value !== "music";
+        settings.hidden = !value;
+        speedField.hidden = !effect || timed;
+        brightnessField.hidden = !effect;
+        minutesField.hidden = !timed;
+        tintField.hidden = !effect || timed || palette;
+        colours.hidden = !(palette || (tint.checked && !tintField.hidden));
+        second.hidden = !palette;
+        animationRows.clear();
+        if (value) animationRows.add(style);
+      };
+      style.addEventListener("change", sync); tint.addEventListener("change", sync);
+      sync();
+      const read = () => {
+        const value = style.value;
+        const chosen = lights.filter(({ input }) => input.checked).map(({ input }) => input.value);
+        if (!value) return null;
+        if (value === "sequence") return { ...current, lights: chosen };
+        const result = { style: value };
+        if (!speedField.hidden) result.speed = Number(speed.value) / 100;
+        if (!brightnessField.hidden) result.brightness = Number(brightness.value);
+        if (!minutesField.hidden) result.durationSeconds = Number(minutes.value) * 60;
+        if (!colours.hidden) result.colors = value === "palette" ? [first.read(), second.read()] : [first.read()];
+        return { lights: chosen, effect: result };
+      };
+      return { content: el("div", {}, field(t("Animation"), style), settings), read };
+    })();
     const node = (title, glyph, tone, description, rows, content) => {
       const count = el("span", { class: "scene-flow-count", text: String(rows.size) });
       const summary = el("span", { class: "scene-flow-summary" });
@@ -10191,6 +10252,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       [conditionList, el("button", { actionIcon: "plus", type: "button", text: t("Add a condition"), onclick: () => addCondition() })]);
     node(t("Actions"), "bulb", "action", t("The values to set, in this order."), actions,
       [actionList, el("button", { actionIcon: "plus", type: "button", text: t("Add an action"), onclick: () => addAction() }), recallPicker, capture]);
+    node(t("Animation"), "sparkle", "action", t("Plays on the chosen lights after the actions: each brand's own effect where its lights have it (Hue, Govee, IKEA, Ambilight), Homeswift's elsewhere. Stopping the scene puts the lights back."), animationRows,
+      animation.content);
     canvas.append(el("div", { class: "scene-flow-connector", "aria-hidden": "true" }, HomeswiftCommon.icon("down")),
       el("div", { class: "scene-flow-terminal finish" }, HomeswiftCommon.icon("check"), el("span", { text: t("Finish") })));
     let zoom = 1;
@@ -10210,7 +10273,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const save = el("button", { class: "primary", actionIcon: "check", type: "submit", text: isNew ? t("Create the scene") : t("Save") });
     const form = el("form", { class: "card scene-editor", onsubmit: async (event) => {
       event.preventDefault();
-      const body = { name: name.value.trim(), artworkId, actions: [...actions].flatMap((row) => row.read()), triggers: [...triggers].map((row) => row.read()), conditions: [...conditions].map((row) => row.read()) };
+      const body = { name: name.value.trim(), artworkId, actions: [...actions].flatMap((row) => row.read()), triggers: [...triggers].map((row) => row.read()), conditions: [...conditions].map((row) => row.read()), animation: animation.read() };
       save.disabled = true;
       try {
         const saved = await app.api(isNew ? "/api/scenes" : `/api/scenes/${encodeURIComponent(scene.id)}`, { method: isNew ? "POST" : "PUT", body });
@@ -10450,6 +10513,25 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         "i18n-es.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Spanish (Spain): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("es", {
+  "Animation": "Animación",
+  "No animation": "Sin animación",
+  "Timed sequence": "Secuencia temporizada",
+  "Minutes": "Minutos",
+  "Its own colour": "Su propio color",
+  "No light to animate.": "No hay luces que animar.",
+  "Plays on the chosen lights after the actions: each brand's own effect where its lights have it (Hue, Govee, IKEA, Ambilight), Homeswift's elsewhere. Stopping the scene puts the lights back.": "Se reproduce en las luces elegidas después de las acciones: el efecto propio de cada marca donde sus luces lo tienen (Hue, Govee, IKEA, Ambilight), el de Homeswift en las demás. Detener la escena devuelve las luces a como estaban.",
+  "Candle": "Vela",
+  "Fire": "Fuego",
+  "Sparkle": "Destello",
+  "Opal": "Ópalo",
+  "Glisten": "Brillo",
+  "Underwater": "Bajo el agua",
+  "Cosmos": "Cosmos",
+  "Sunbeam": "Rayo de sol",
+  "Enchant": "Encanto",
+  "Moving colours": "Colores en movimiento",
+  "Follow the music": "Seguir la música",
+  "Animated: {style}": "Animada: {style}",
   "Automate": "Automatizar",
   "Hub scene": "Escena del hub",
   "Recalled on {source}.": "Se activa en {source}.",
@@ -12777,6 +12859,25 @@ HomeswiftI18n.add("es", {
         "i18n-fr.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in French: English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("fr", {
+  "Animation": "Animation",
+  "No animation": "Aucune animation",
+  "Timed sequence": "Séquence minutée",
+  "Minutes": "Minutes",
+  "Its own colour": "Sa propre couleur",
+  "No light to animate.": "Aucune lumière à animer.",
+  "Plays on the chosen lights after the actions: each brand's own effect where its lights have it (Hue, Govee, IKEA, Ambilight), Homeswift's elsewhere. Stopping the scene puts the lights back.": "Joue sur les lumières choisies après les actions : l’effet propre à chaque marque là où ses lumières l’ont (Hue, Govee, IKEA, Ambilight), celui de Homeswift ailleurs. Arrêter la scène remet les lumières comme avant.",
+  "Candle": "Bougie",
+  "Fire": "Feu",
+  "Sparkle": "Scintillement",
+  "Opal": "Opale",
+  "Glisten": "Miroitement",
+  "Underwater": "Sous l’eau",
+  "Cosmos": "Cosmos",
+  "Sunbeam": "Rayon de soleil",
+  "Enchant": "Enchantement",
+  "Moving colours": "Couleurs en mouvement",
+  "Follow the music": "Suivre la musique",
+  "Animated: {style}": "Animée : {style}",
   "Automate": "Automatiser",
   "Hub scene": "Scène du hub",
   "Recalled on {source}.": "Rappelée sur {source}.",
@@ -15104,6 +15205,25 @@ HomeswiftI18n.add("fr", {
         "i18n-pt.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Portuguese (Portugal): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("pt", {
+  "Animation": "Animação",
+  "No animation": "Sem animação",
+  "Timed sequence": "Sequência temporizada",
+  "Minutes": "Minutos",
+  "Its own colour": "A sua própria cor",
+  "No light to animate.": "Nenhuma luz para animar.",
+  "Plays on the chosen lights after the actions: each brand's own effect where its lights have it (Hue, Govee, IKEA, Ambilight), Homeswift's elsewhere. Stopping the scene puts the lights back.": "Reproduz-se nas luzes escolhidas depois das ações: o efeito próprio de cada marca onde as suas luzes o têm (Hue, Govee, IKEA, Ambilight), o do Homeswift nas restantes. Parar a cena devolve as luzes ao que eram.",
+  "Candle": "Vela",
+  "Fire": "Fogo",
+  "Sparkle": "Cintilar",
+  "Opal": "Opala",
+  "Glisten": "Reluzir",
+  "Underwater": "Debaixo de água",
+  "Cosmos": "Cosmos",
+  "Sunbeam": "Raio de sol",
+  "Enchant": "Encanto",
+  "Moving colours": "Cores em movimento",
+  "Follow the music": "Seguir a música",
+  "Animated: {style}": "Animada: {style}",
   "Automate": "Automatizar",
   "Hub scene": "Cena do hub",
   "Recalled on {source}.": "Ativada em {source}.",
@@ -21686,6 +21806,9 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 .hub-scene-tile > .scene-run { width: 100%; }
 .hub-scene-actions { display: flex; flex-wrap: wrap; gap: var(--space-10); }
 .hub-scene-actions button { font-size: var(--text-xs); }
+.animation-settings { display: grid; gap: var(--space-10); margin-top: var(--space-10); }
+.animation-colours { display: flex; gap: var(--space-10); }
+.animation-lights { display: grid; gap: var(--space-6); }
 @media (max-width: 640px) {
   .quick-scenes { grid-template-columns: none; grid-template-rows: auto; grid-auto-flow: column; grid-auto-columns: min(240px, 85%); overflow-x: auto; scroll-snap-type: x proximity; padding: var(--space-4); }
   .quick-scenes > .scene-run, .quick-scenes > .hub-scene-tile { scroll-snap-align: start; }

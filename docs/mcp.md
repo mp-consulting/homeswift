@@ -249,7 +249,10 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   `plan` the client composes (values to set and hubs' scenes to recall, `{"recall": id}`), which runs at once and is
   not saved; it answers the plan and its `run`. Whatever a run changed can be put back for 12 hours with `stop_scene`
   (a scene, a hub scene's id, or a plan's run); a value changed since is left alone. A saved scene can recall a hub's
-  scene among its values. A Homeswift scene answers per action; it refuses a scene with a security action, as homebridge-mcp-server's does: those
+  scene among its values. A scene or a plan can animate lights after its actions (`animation`: `lights` and an `effect`
+  such as fire, candle, sunrise or music with a colour, speed and brightness, or timed `steps`): each brand plays its own
+  lights natively where it can (a Hue light's effect, a Govee light's library scene, an IKEA fade, an Ambilight TV
+  following the music), Homeswift's player the rest, and `stop_scene` puts them all back. A Homeswift scene answers per action; it refuses a scene with a security action, as homebridge-mcp-server's does: those
   go through `set_security_accessory`, which asks, or the web UI, where the signed-in user confirms. `save_scene`
   keeps a `plan`, or makes a scene from the current values of `ids` (only `characteristics`, when given), never capturing a security
   control; `dryRun` lists the actions. The `scene-builder` prompt ends with it.
