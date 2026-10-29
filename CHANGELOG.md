@@ -20,6 +20,24 @@ All notable changes to this project are documented here. The format follows
   CONTRIBUTING.md and the pull request template list it.
 - `Scripts/test.sh` builds the tests and runs every test target at once: the whole suite in about 3 seconds on macOS,
   where `swift test` runs the targets one after another (about 20 seconds, down from two and a half minutes).
+- EcoFlow: the plugin's page shows the devices two to a row on a wide screen, and a device's card can be dragged by
+  its grip (or moved with the arrow keys) to another place; the plugin keeps the order.
+- Plugin forms: `"x-schema-form": { "requiredWhen": <condition> }` marks a field required only while its condition holds
+  and the field is shown. EcoFlow's form groups its settings by route (EcoFlow account, Developer API, Devices) and marks
+  the email and password, or the keys, required on the route that needs them.
+- EcoFlow: the energy history import brings the STREAM system's battery charge and discharge and grid import and
+  export too, from the charts of the app's Battery and Grid pages: the Status page splits imported days' home use by
+  source, and the Power chart draws their battery and grid.
+- EcoFlow: the energy history's answers are checked against the shapes the import reads, and a change, or a battery
+  or grid chart the cloud stops answering, is logged once, as the live APIs' changes are.
+- Status: the energy history card leads with the period's home use and a strip of the share solar, the batteries and
+  the grid covered, then lists the battery's charge and discharge with the grid's import and export; large figures
+  drop their decimals and the axis writes its unit once.
+- Status: every chart writes its unit once, on the top tick, without decimals every tick has as zeros (`40 MB`, then
+  `30`, `20`…); the request charts' quarter-millisecond ticks read 0.25 and 0.75 rather than 0.3 and 0.8; the Battery
+  level chart writes each device's level in its legend.
+- Status: the Energy section's Power chart draws an imported history's hours (a device cloud's solar and home use)
+  where the bridge recorded nothing, each at its average, and says so under the chart.
 
 ### Changed
 
@@ -37,6 +55,21 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Accessories › Graph: a node's tooltip sits over its node; inside the page's glass card it showed some 200 px off.
+- Accessories › Graph: an accessory, and a group of them, shows the icon its tile shows (a battery for a power station
+  filed as Other), not a generic square.
+- EcoFlow: without `devices`, the EcoFlow app route reads the account's devices from the app's device list instead
+  of the wildcard subscription EcoFlow's broker refuses, so it no longer needs serial numbers; its failure is no longer
+  logged as a failed sign-in. The energy history import finds the account's STREAM in the device list when none has
+  reported, and the plugin's page offers to add the devices it reads to `devices` (**Add to the configuration**).
+- EcoFlow: a month of the energy history the cloud refuses ("Server error") is asked for again, and a failed import is
+  tried again after 10 minutes instead of 6 hours. A device the EcoFlow app lists offline (a RAPID Pro X) is shown
+  offline rather than left out.
+- EcoFlow: a STREAM read from the developer API's REST values no longer shows the system's battery level (or 0, on
+  an AC Pro) as its own: REST has no unit's level, so it is unknown there, and with Both the EcoFlow app's reading,
+  which has it, is used instead.
+- EcoFlow: each bridge connects to the developer API's MQTT with a client id of its own, kept across restarts, rather
+  than the account alone: two bridges with the same developer keys no longer cut each other's live readings off.
 - Quick controls groups its heading and scene shortcuts in one card; photographic scene tiles replace cramped
   thumbnail pills and scroll horizontally on phones.
 - Philips TV: a colour picked just as the configured Ambilight mode was re-applied after power-on could be replaced

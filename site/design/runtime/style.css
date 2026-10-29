@@ -1293,7 +1293,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
   .energy-history-bar > .group { display: flex; width: 100%; }
   .energy-history-bar > .group button { flex: 1; }
   .energy-period-nav { width: 100%; justify-content: space-between; }
-  .energy-totals { gap: var(--space-8) var(--space-18); }
+  .energy-flows { gap: var(--space-8) var(--space-18); }
   .energy-total b { font-size: var(--text-lg); }
   .energy .range-control button { flex: 1 0 auto; padding-inline: var(--space-10); }
 }
@@ -1318,7 +1318,23 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .energy-import.failed { color: var(--warn); }
 
 /* The period's totals over the bars: a muted label with its colour key over a proportional figure. */
-.energy-totals { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-8) 28px; padding: 2px 0 var(--space-4); }
+/* The period's summary: the home's use and the share each source covered, then where the energy flowed. */
+.energy-totals { display: grid; gap: var(--space-14); padding: 2px 0 var(--space-4); }
+.energy-flows { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-8) 28px; }
+.energy-home { display: flex; align-items: center; gap: var(--space-12) 28px; }
+.energy-share { flex: 1; min-width: 0; display: grid; gap: var(--space-8); }
+/* One bar of the bars' colours, a 2px gap between sources; a sliver stays visible. */
+.energy-share-bar { display: flex; gap: 2px; height: 10px; border-radius: 5px; overflow: hidden; }
+.energy-share-bar i { display: block; min-width: 3px; flex-basis: 0; }
+.energy-share-bar i.tone-3 { background: var(--series-3); }
+.energy-share-bar i.tone-4 { background: var(--series-4); }
+.energy-share-bar i.tone-7 { background: var(--series-7); }
+.energy-share-bar i.tone-8 { background: var(--muted); opacity: 0.45; }
+.energy-share-keys { display: flex; flex-wrap: wrap; gap: var(--space-4) var(--space-18); font-size: var(--text-xs); color: var(--muted); }
+.energy-share-keys span { display: inline-flex; align-items: center; gap: var(--space-6); }
+.energy-share-keys .key { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
+.energy-share-keys b { color: var(--text); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) { .energy-home { flex-direction: column; align-items: stretch; } }
 .energy-total { display: grid; gap: 2px; align-content: start; }
 .energy-total span { display: inline-flex; align-items: center; gap: var(--space-6); font-size: var(--text-xs); color: var(--muted); }
 .energy-total .key { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
@@ -1368,6 +1384,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 /* A part with no source (an imported hour's home use not split): neutral, never a series colour. */
 .chart .bar.tone-8 { fill: var(--muted); opacity: 0.45; }
 .chart .bar-hover { fill: var(--material-thin); }
+.chart-legend .legend-value { margin-left: var(--space-4); color: var(--text); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
 .chart-legend .key.bar, .chart-tooltip .key.bar { width: 10px; height: 10px; border-radius: 3px; }
 .chart-legend { display: flex; flex-wrap: wrap; gap: var(--space-4) var(--space-14); font-size: var(--text-sm); color: var(--muted); }
 .chart-legend span { display: inline-flex; align-items: center; gap: var(--space-6); white-space: nowrap; }
@@ -3374,7 +3391,7 @@ select option:disabled { color: var(--muted); }
 .overview-graph .root:focus-visible .root-icon { filter: drop-shadow(0 0 5px var(--accent)); }
 .overview-zoom { display: flex; flex-wrap: wrap; gap: var(--space-8); justify-content: center; }
 .overview-zoom button svg { width: 16px; height: 16px; }
-.overview-tip { position: fixed; z-index: var(--layer-tip); max-width: 260px; padding: var(--space-6) var(--space-10); border-radius: var(--radius-sm); font-size: var(--text-sm); line-height: 1.3; color: var(--text); background: var(--material-solid); box-shadow: var(--shadow-control), 0 0 0 1px var(--line); transform: translate(-50%, calc(-100% - 10px)); pointer-events: none; }
+.overview-tip { position: absolute; z-index: var(--layer-tip); max-width: 260px; padding: var(--space-6) var(--space-10); border-radius: var(--radius-sm); font-size: var(--text-sm); line-height: 1.3; color: var(--text); background: var(--material-solid); box-shadow: var(--shadow-control), 0 0 0 1px var(--line); transform: translate(-50%, calc(-100% - 10px)); pointer-events: none; }
 .overview-legend { display: flex; flex-wrap: wrap; gap: var(--space-6) var(--space-16); margin: 0; padding: 0; list-style: none; font-size: var(--text-sm); color: var(--muted); }
 .overview-legend li { display: inline-flex; align-items: center; gap: var(--space-6); }
 .legend-mark { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--mark); }

@@ -2260,6 +2260,7 @@ HomeswiftI18n.add("fr", {
   "Battery level": "Niveau de batterie",
   "Each device's charge": "La charge de chaque appareil",
   "Energy by day": "Énergie par jour",
+  "Where the bridge recorded nothing, the line shows the imported hourly history.": "Là où le pont n'a rien enregistré, la courbe montre l'historique horaire importé.",
   "Latest: {values}": "Dernières valeurs : {values}",
   "Solar produced": "Solaire produit",
   "Home used": "Consommation de la maison",

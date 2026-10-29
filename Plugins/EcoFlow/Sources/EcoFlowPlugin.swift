@@ -58,8 +58,14 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
 
     /// Between two imports of the history's last days; and the days each one takes again (the cloud fills hours in late).
     static let historyInterval: Duration = .seconds(6 * 3600)
+    /// After a failed import, the next attempt: the cloud's failures pass.
+    static let historyRetry: Duration = .seconds(600)
     static let historyOverlap: TimeInterval = 2 * 86_400
     static let historyFile = "energy-history.json"
+    /// The order of the devices on the plugin's page, by serial number, as it was last dragged into.
+    static let orderFile = "order.json"
+    /// At most this many serial numbers are kept: an account has a handful of devices.
+    static let maximumOrdered = 200
 
     /// A device's services on its accessory.
     struct DeviceServices {
@@ -83,12 +89,15 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
     private var devices: [String: DeviceServices] = [:]
     /// The devices as the last read reported them, for the plugin's page.
     private var latest: [EcoFlowDevice] = []
+    /// The page's order, each serial number's place, read from `orderFile` once and kept as it is saved.
+    private var orderPlaces: [String: Int]?
     /// Each device's `recorded` series, with the name and route they were made for.
     private var recordedSeries: [String: (name: String, route: EcoFlowModel.Route, keys: [String: (series: RecordedSeries, tag: EnergyTag?)])] = [:]
     private var logger: Logger { context.logger }
 
     public init(configuration: Configuration, context: PluginContext) {
-        self.init(configuration: configuration, context: context, dependencies: Self.dependencies(for: configuration))
+        self.init(configuration: configuration, context: context,
+                  dependencies: Self.dependencies(for: configuration, clientSuffix: Self.clientSuffix(context)))
     }
 
     init(configuration: Configuration, context: PluginContext, dependencies: Dependencies) {
@@ -99,14 +108,25 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
 
     /// The route's APIs whose settings are present, read together: the developer API (access key and secret key) and
     /// the EcoFlow app (email and password). No api while none is set.
-    static func dependencies(for configuration: Configuration) -> Dependencies {
+    /// This bridge's part of the developer MQTT client id (EcoFlowDeveloperStream.clientID): made once, then kept in the
+    /// plugin's storage, so it is the same at every connection.
+    static let clientFile = "mqtt-client.json"
+    static func clientSuffix(_ context: PluginContext) -> String {
+        let file = context.jsonFile(clientFile, as: String.self)
+        if let kept = file.load(), !kept.isEmpty { return kept }
+        let suffix = Secrets.hex(Secrets.randomBytes(4))
+        try? file.save(suffix)
+        return suffix
+    }
+
+    static func dependencies(for configuration: Configuration, clientSuffix: String = "") -> Dependencies {
         let route = Route(configuration.route)
         var apis: [any EcoFlowAPI] = []
         // The developer API first: a device both APIs report is read from it.
         if let (accessKey, secretKey) = developerKeys(configuration) {
             let baseURL = configuration.region?.lowercased() == "eu" ? EcoFlowCloud.euBaseURL : EcoFlowCloud.usBaseURL
             var cloud = EcoFlowCloud(accessKey: accessKey, secretKey: secretKey, baseURL: baseURL, transport: HTTPClient())
-            cloud.stream = EcoFlowDeveloperStream(cloud: cloud, mqtt: { MQTTClient($0) })
+            cloud.stream = EcoFlowDeveloperStream(cloud: cloud, clientSuffix: clientSuffix, mqtt: { MQTTClient($0) })
             apis.append(cloud)
         }
         if route != .developer, let email = configuration.email, !email.isEmpty,
@@ -199,27 +219,32 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
         }
     }
 
-    /// The EcoFlow cloud's energy history into the bridge's long-term archive, once a STREAM has reported (the history
-    /// is its home's): everything since the system was set up on the first run, then the last days again every
-    /// `historyInterval`.
+    /// The EcoFlow cloud's energy history into the bridge's long-term archive (the history is a STREAM's home's):
+    /// everything since the system was set up on the first run, then the last days again every `historyInterval`.
     private func importHistoryLoop(_ history: EcoFlowHistory) async {
         while !Task.isCancelled {
-            guard let serial = latest.first(where: { $0.kind == .stream })?.id else {
-                try? await Task.sleep(for: .seconds(30))
-                continue
-            }
-            await importHistory(history, serial: serial)
-            try? await Task.sleep(for: Self.historyInterval)
+            let imported = await importHistory(history, serial: historySerial)
+            // The answers whose shape changed, and a chart the cloud stopped answering: each logged once.
+            for change in await history.schemas.drain() { logger.warning("\(change)") }
+            try? await Task.sleep(for: imported ? Self.historyInterval : Self.historyRetry)
         }
     }
 
+    /// The STREAM whose home's history is imported: one that reported, else one configured. Nil leaves the choice to
+    /// the app's device list, so no device has to report, nor be listed, for the import to run.
+    var historySerial: String? {
+        latest.first { $0.kind == .stream }?.id
+            ?? configuration.devices?.first { EcoFlowModel.model(serial: $0.id)?.kind == .stream }?.id
+    }
+
     /// One import: from where the last one stopped (`historyOverlap` before it), or from the start. Each month goes into
-    /// the archive as it arrives, with its progress; the Status page shows both.
-    func importHistory(_ history: EcoFlowHistory, serial: String, now: Date = Date()) async {
+    /// the archive as it arrives, with its progress; the Status page shows both. Returns whether it succeeded.
+    @discardableResult
+    func importHistory(_ history: EcoFlowHistory, serial: String?, now: Date = Date()) async -> Bool {
         let file = context.jsonFile(Self.historyFile, as: HistoryState.self)
         let previous = file.load()
         let context = context
-        context.reportEnergyImport(EnergyImportProgress(state: .running, from: previous?.from, through: previous?.importedThrough))
+        // The progress shows from the first month's report on: an account without a STREAM has no import to show.
         do {
             let hours = try await history.hours(serial: serial, since: previous.map { $0.importedThrough.addingTimeInterval(-Self.historyOverlap) }, now: now) { batch, done, total in
                 if !batch.isEmpty { context.importEnergy(batch) }
@@ -231,13 +256,19 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
             try? file.save(HistoryState(importedThrough: now, from: from))
             context.reportEnergyImport(EnergyImportProgress(state: .done, from: from, through: now))
             if previous == nil, let first = hours.first?.start {
-                logger.info("Imported \(hours.count) hours of energy history (solar and home use) from the EcoFlow cloud, since \(Timestamp.iso8601(first).prefix(10))")
+                logger.info("Imported \(hours.count) hours of energy history (solar, home use, and the battery and grid where the cloud has them) from the EcoFlow cloud, since \(Timestamp.iso8601(first).prefix(10))")
             } else {
                 logger.debug("Imported \(hours.count) hours of energy history from the EcoFlow cloud")
             }
+            return true
+        } catch EcoFlowHistory.Failure.noStream {
+            // No STREAM on the account: nothing to import, and nothing failed. Looked at again at the usual interval.
+            logger.debug("No energy history to import: the EcoFlow account has no STREAM")
+            return true
         } catch {
             context.reportEnergyImport(EnergyImportProgress(state: .failed, from: previous?.from, through: previous?.importedThrough, message: "\(error)"))
-            logger.warning("Could not import the energy history from the EcoFlow cloud: \(error)")
+            logger.warning("Could not import the energy history from the EcoFlow cloud, trying again in 10 minutes: \(error)")
+            return false
         }
     }
 
@@ -280,6 +311,10 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
                 Self.show(device.state, on: services)
                 continue
             }
+            // A device whose level is not known yet (offline since the plugin started, a STREAM on the developer API's
+            // REST quota alone) waits: a new accessory would show 0 %, where a cached one keeps its last level. The
+            // plugin's page shows it meanwhile.
+            guard device.state.knowsBatteryLevel else { continue }
             do {
                 try add(device)
             } catch {
@@ -304,16 +339,47 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
         return recorded
     }
 
-    /// The plugin's page: `GET power` answers the devices' power flows, in watts, with the battery's state.
+    /// The plugin's page: `GET power` answers the devices' power flows, in watts, with the battery's state, in the
+    /// page's order; `POST order` keeps a new order (`ids`, the serial numbers from first to last).
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
-        guard request.method == "GET", request.path == "power" else {
-            return .error(404, "EcoFlow has no web API at \(request.path)")
+        switch (request.method, request.path) {
+        case ("GET", "power"): return power()
+        case ("POST", "order"):
+            guard let ids = request.body["ids"]?.arrayValue?.compactMap(\.stringValue), ids.count <= Self.maximumOrdered else {
+                return .error(400, "ids must list the devices' serial numbers")
+            }
+            try context.jsonFile(Self.orderFile, as: [String].self).save(ids)
+            orderPlaces = Self.places(ids)
+            return PluginWebResponse(.object(["ids": .array(ids.map { .string($0) })]))
+        default: return .error(404, "EcoFlow has no web API at \(request.path)")
         }
-        let devices: [JSONValue] = latest.map { device in
+    }
+
+    /// The devices in the page's order: the ones it placed first, then the others as they were reported.
+    func ordered(_ devices: [EcoFlowDevice]) -> [EcoFlowDevice] {
+        if orderPlaces == nil { orderPlaces = Self.places(context.jsonFile(Self.orderFile, as: [String].self).load() ?? []) }
+        let place = orderPlaces ?? [:]
+        // The devices it has not placed come after the last place, as reported.
+        let after = (place.values.max() ?? -1) + 1
+        return devices.enumerated().sorted { a, b in
+            (place[a.element.id] ?? after + a.offset, a.offset) < (place[b.element.id] ?? after + b.offset, b.offset)
+        }.map(\.element)
+    }
+
+    /// Each serial number's place in an order, the first one kept when it appears twice.
+    static func places(_ order: [String]) -> [String: Int] {
+        Dictionary(order.enumerated().map { ($1, $0) }) { first, _ in first }
+    }
+
+    private func power() -> PluginWebResponse {
+        let listed = Set((configuration.devices ?? []).map(\.id))
+        let devices: [JSONValue] = ordered(latest).map { device in
             let power = device.state.power
             return .object([
                 "id": .string(device.id),
                 "name": .string(displayName(device)),
+                // Whether the device has an entry in the configuration's `devices`: the page offers to add the others.
+                "configured": .bool(listed.contains(device.id)),
                 "online": .bool(device.online),
                 "source": .string(device.source.rawValue),
                 "batteryLevel": device.state.knowsBatteryLevel ? .number(Double(device.state.battery.batteryLevel)) : .null,

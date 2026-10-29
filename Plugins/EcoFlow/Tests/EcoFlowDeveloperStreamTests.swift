@@ -1,6 +1,7 @@
 import Foundation
 import HomeswiftNetwork
 import HomeswiftNetworkTestSupport
+import NIOConcurrencyHelpers
 import Testing
 
 @testable import HomeswiftEcoFlow
@@ -25,14 +26,32 @@ struct EcoFlowDeveloperStreamTests {
         return cloud
     }
 
+    /// The client id is the account and this bridge's suffix, the same at every connection: two bridges with the same
+    /// keys no longer share one, and no new id is made per connection.
+    @Test func theClientIDIsTheAccountAndTheBridgesSuffix() async throws {
+        let transport = FakeTransport(answers: answers)
+        let broker = FakeMQTTConnection()
+        let ids = NIOLockedValueBox<[String]>([])
+        var cloud = EcoFlowCloud(accessKey: "access", secretKey: "secret", baseURL: EcoFlowCloud.euBaseURL, transport: transport)
+        cloud.stream = EcoFlowDeveloperStream(cloud: cloud, clientSuffix: "0a1b2c3d") { configuration in
+            ids.withLockedValue { $0.append(configuration.clientID) }
+            return broker
+        }
+        _ = try await cloud.devices()
+        #expect(ids.withLockedValue { $0 } == ["open-account_homeswift_0a1b2c3d"])
+        #expect(EcoFlowDeveloperStream.clientID(account: "open-account", suffix: "") == "open-account")
+    }
+
     @Test func theBatteryAndThePowerComeFromTheMQTTPushes() async throws {
         let transport = FakeTransport(answers: answers)
         let broker = FakeMQTTConnection()
         let cloud = makeCloud(transport: transport, broker: broker)
 
-        // Before any push, the REST quota is what the device reports.
+        // Before any push, the REST quota is what the device reports: its power, and no level (its cmsBattSoc is the
+        // system's).
         let before = try #require(try await cloud.devices().first)
-        #expect(before.state.battery.batteryLevel == 68)
+        #expect(before.state.knowsBatteryLevel == false)
+        #expect(before.state.power.solar == 1000)
 
         broker.receive(topic, payload: Data(#"{"f32ShowSoc":86.79,"powGetPvSum":1317,"powGetSysLoad":500,"powGetSysGrid":0,"powGetBpCms":300,"gridConnectionPower":1168.2,"powGetPv":700,"powGetPv2":617,"powGetPv3":0,"powGetPv4":0,"powGetSchuko1":12,"powGetSchuko2":0}"#.utf8))
         let updated = await eventually {
@@ -60,11 +79,11 @@ struct EcoFlowDeveloperStreamTests {
         // A push with only some of the values would mix the two sources, so the REST quota stands for the device.
         broker.receive(topic, payload: Data(#"{"f32ShowSoc":86.79,"powGetPvSum":1317}"#.utf8))
         let listed = await eventually {
-            (try? await cloud.devices().first)?.state.battery.batteryLevel == 68
+            (try? await cloud.devices().first)?.source == .rest
         }
         #expect(listed)
         let device = try #require(try await cloud.devices().first)
-        #expect(device.source == .rest)
+        #expect(device.state.knowsBatteryLevel == false, "nor the push's level: one source for the whole device")
         #expect(device.state.power.solar == 1000, "the REST value, not the push's")
     }
 

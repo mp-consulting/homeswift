@@ -144,10 +144,11 @@ struct EcoFlowModel: Sendable, Equatable {
         panels: ["254_21.361", "254_21.70", "254_21.996", "254_21.997"],
         timeToFull: ["254_21.255", "254_21.269"], timeToEmpty: ["254_21.254", "254_21.268"])
 
-    /// A STREAM on the developer API: `f32ShowSoc` is this unit's percentage as the app shows it (the MQTT pushes);
-    /// the REST quota has the system's `cmsBattSoc` alone.
+    /// A STREAM on the developer API: `f32ShowSoc` is this unit's percentage as the app shows it (the MQTT pushes).
+    /// The REST quota has no unit's percentage: its `cmsBattSoc` is the system's, on the unit that leads it (an Ultra's
+    /// 62 beside units at 85 and 40), and 0 on the others (an AC Pro). On REST alone a STREAM's level is not known.
     static let streamDeveloper = Keys(
-        stateOfCharge: ["f32ShowSoc", "cmsBattSoc"],
+        stateOfCharge: ["f32ShowSoc"],
         solar: ["powGetPvSum"], home: ["powGetSysLoad"], grid: ["powGetSysGrid"], battery: ["powGetBpCms"],
         ac: ["gridConnectionPower"], ac1: ["powGetSchuko1"], ac2: ["powGetSchuko2"],
         panels: ["powGetPv", "powGetPv2", "powGetPv3", "powGetPv4"],

@@ -57,6 +57,20 @@
     for (let tick = first.getTime(); tick <= to; tick += step) ticks.push(tick);
     return ticks;
   }
+  /// The value axis's labels, highest last as `ticks` are ordered: the unit written once, on the top tick (`40 MB`, then
+  /// `30`, `20`…), and a decimal every tick has as zeros dropped (`40.0 MB` reads `40 MB`). `format(value, scale)`
+  /// writes a value with its unit after a space, or a sign glued to it (`%`).
+  const decimal = (1.5).toLocaleString(HomeswiftI18n.locale).charAt(1);
+  function axisLabels(ticks, format, scale) {
+    let labels = ticks.map((value) => format(value, scale));
+    const zeros = new RegExp(`\\${decimal}0+(?=\\D*$)`);
+    if (labels.every((label) => zeros.test(label))) labels = labels.map((label) => label.replace(zeros, ""));
+    const top = labels[ticks.indexOf(Math.max(...ticks))] ?? "";
+    const unit = top.match(/\s?[^\d\s.,\u00a0\u202f-]+$/)?.[0];
+    if (!unit) return labels;
+    return labels.map((label, index) => ticks[index] === Math.max(...ticks) || !label.endsWith(unit) ? label : label.slice(0, -unit.length));
+  }
+
   /// A tick's label: the day at midnight, else the time.
   const tickLabel = (time) => {
     const date = new Date(time);
@@ -70,22 +84,30 @@
   /// A chart in `container`: `series` are `{ label, value(point), tone }` (tone 1 to 6, the palette's slots),
   /// `points` have `time` (a Date), `from` and `to` bound the x axis, `step` is the points' spacing in ms and
   /// `format` writes a value with its unit and `unit(max)` is the size of that unit, so ticks fall on round values
-  /// of it. Returns `update(points, from, to, step)`.
-  function lineChart(container, { title, series, format, unit = () => 1, points, from, to, step }) {
+  /// of it. With `latest`, the legend writes each series' last value beside its name (a battery's level), so the
+  /// chart needs no separate line of them. Returns `update(points, from, to, step)`.
+  function lineChart(container, { title, series, format, unit = () => 1, points, from, to, step, latest = false }) {
     const frame = html("div", "chart-frame");
     const tooltip = html("div", "chart-tooltip hidden");
     tooltip.setAttribute("role", "status");
     frame.append(tooltip);
     container.append(frame);
+    const latestNodes = [];
     if (series.length > 1) {
       const legend = html("div", "chart-legend");
       for (const one of series) {
         const item = html("span", "", null);
         item.append(html("i", `key tone-${one.tone}`), document.createTextNode(one.label));
+        if (latest) { const value = html("b", "legend-value"); latestNodes.push(value); item.append(value); }
         legend.append(item);
       }
       container.append(legend);
     }
+    /// Each series' last value in the legend, a dash for one with none.
+    const showLatest = (points) => latestNodes.forEach((node, index) => {
+      const last = points.findLast((point) => series[index].value(point) != null);
+      node.textContent = last ? format(series[index].value(last)) : "–";
+    });
     let state = { points, from, to, step };
     let chosen = null;   // the index the crosshair is on, kept between redraws
     let drawn = null;
@@ -112,13 +134,14 @@
 
       const root = svg("svg", { width, height, viewBox: `0 0 ${width} ${height}`, class: "chart", role: "img", "aria-label": points.length ? t("{title}, drawn over time", { title }) : t("{title}, nothing recorded", { title }) });
       root.setAttribute("tabindex", "0");
-      for (const value of ticks) {
+      const tickText = axisLabels(ticks, format, scale);
+      ticks.forEach((value, index) => {
         const at = y(value);
         root.append(svg("line", { x1: pad.left, x2: width - pad.right, y1: at, y2: at, class: value === 0 && bottom < 0 ? "grid zero" : "grid" }));
         const label = svg("text", { x: pad.left - 8, y: at + 4, class: "tick", "text-anchor": "end" });
-        label.textContent = format(value, scale);
+        label.textContent = tickText[index];
         root.append(label);
-      }
+      });
       for (const tick of timeTicks(from, to, Math.max(2, Math.floor(plotWidth / 90)))) {
         const label = svg("text", { x: x(tick), y: height - 6, class: "tick", "text-anchor": "middle" });
         label.textContent = tickLabel(tick);
@@ -219,9 +242,11 @@
     });
     resize.observe(frame);
     draw();
+    showLatest(points);
     return {
       update(points, from, to, step) {
         state = { points, from, to, step };
+        showLatest(points);
         chosen = null;
         tooltip.classList.add("hidden");
         draw();
@@ -271,13 +296,16 @@
 
       const root = svg("svg", { width, height, viewBox: `0 0 ${width} ${height}`, class: "chart", role: "img", "aria-label": t("{title}, a bar per day", { title }) });
       root.setAttribute("tabindex", "0");
-      for (let value = bottom; value <= top + step / 2; value += step) {
+      const ticks = [];
+      for (let value = bottom; value <= top + step / 2; value += step) ticks.push(value);
+      const tickText = axisLabels(ticks, format, size);
+      ticks.forEach((value, index) => {
         const at = y(value);
         root.append(svg("line", { x1: pad.left, x2: width - pad.right, y1: at, y2: at, class: value === 0 && bottom < 0 ? "grid zero" : "grid" }));
         const label = svg("text", { x: pad.left - 8, y: at + 4, class: "tick", "text-anchor": "end" });
-        label.textContent = format(value, size);
+        label.textContent = tickText[index];
         root.append(label);
-      }
+      });
       const hover = svg("rect", { y: pad.top, height: plotHeight, width: slot, class: "bar-hover hidden", rx: 6 });
       root.append(hover);
       // Segments stack out from the baseline with a 2px gap between them; the outermost on each side has 4px

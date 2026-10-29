@@ -7,13 +7,34 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/style.css">
 <style>
-  /* One card per device: its battery first, then the four flows as IN and OUT, then the solar by panel. */
+  /* One card per device: its battery first, then the four flows as IN and OUT, then the solar by panel. Two columns
+     where a card keeps its flows side by side, one on a phone. */
   .devices { display: grid; gap: 14px; }
   .devices > .card { margin: 0; min-width: 0; }
+  /* Two columns, packed: each card keeps its own height and the next one fills the shorter column, so a STREAM with
+     its panels does not leave a hole beside a RIVER. The rows are 2px tall and app.js gives each card the span its
+     height and the gap take (`--pack-row`, `--pack-gap`); the order still reads left to right, then down. */
+  @media (min-width: 820px) {
+    .devices { --pack-row: 2px; --pack-gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-auto-rows: var(--pack-row); row-gap: 0; column-gap: var(--pack-gap); align-items: start; }
+    .devices > .card.empty, .devices > .note { grid-column: 1 / -1; }
+  }
   .device { display: grid; gap: 14px; align-content: start; }
   .device.enter { animation: materialize var(--normal) var(--ease-out); }
 
   .device-head h2 { margin: 0; }
+
+  /* The grip that drags a card to another place, or moves it with the arrow keys. */
+  .handle { margin-left: auto; width: 28px; height: 28px; min-height: 0; padding: 0; flex: none; display: grid; place-items: center; border: 0; border-radius: 8px;
+    background: none; box-shadow: none; color: var(--muted); opacity: 0.6; cursor: grab; touch-action: none; }
+  /* A finger needs a larger target; the negative margin keeps the title line's height. */
+  @media (pointer: coarse) { .handle { width: 40px; height: 40px; margin: -6px -8px -6px auto; } }
+  .handle svg { display: block; width: 10px; height: 16px; fill: currentColor; }
+  .handle:hover, .handle:focus-visible { opacity: 1; background: var(--material-thin); }
+  .device.dragging { position: relative; z-index: 2; cursor: grabbing; box-shadow: 0 14px 30px rgba(25, 34, 56, 0.22); }
+  .device.dragging .handle { cursor: grabbing; }
+  .devices.sorting { user-select: none; }
+  .device.settling { transition: transform var(--normal) var(--ease-out), box-shadow var(--normal) var(--ease-out); }
   .title-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .way.source { background: var(--material-thin); color: var(--muted); border: 1px solid var(--line); }
   /* A model not yet checked on a real device: the warning tint, beside the source. */
@@ -22,7 +43,7 @@
 
   /* The battery leads: the largest figure on the card, its level beside the graphic and its state after it. */
   .battery-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-  .battery-line .figure { display: flex; align-items: center; gap: 12px; font-size: 2.5rem; font-weight: 650; line-height: 1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .battery-line .figure { white-space: nowrap; display: flex; align-items: center; gap: 12px; font-size: 2.5rem; font-weight: 650; line-height: 1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
   .battery-line .figure small { font-size: 0.5em; font-weight: 500; opacity: 0.7; }
   /* The time to full or to empty, beside the charging state; its own line under it on a narrow card. */
   .battery-state { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px 10px; }
@@ -37,12 +58,12 @@
   @keyframes spark-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
   @media (prefers-reduced-motion: reduce) { .spark-loader { animation: none; } }
   .spark polyline { fill: none; stroke: var(--muted); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; opacity: 0.7; vector-effect: non-scaling-stroke; }
-  .pv-tile { position: relative; }
-  .pv-tile .way { position: absolute; top: 8px; right: 8px; }
   .arrow { display: inline-block; width: 0; height: 0; margin-right: 8px; vertical-align: middle; border-left: 6px solid transparent; border-right: 6px solid transparent; }
   .arrow.in { border-bottom: 9px solid var(--ok); }
   .arrow.out { border-top: 9px solid var(--warn); }
   .battery-mini { display: inline-flex; color: var(--ok); line-height: 0; }
+  /* No level known: the outline only, muted, rather than green beside a dash. */
+  .battery-mini.unknown { color: var(--muted); }
   .battery-mini svg { width: 48px; height: 48px; overflow: visible; }
   .battery-mini rect.bat-body, .battery-mini path.bat-terminal { fill: none; stroke: currentColor; stroke-width: 1.6; }
   .battery-mini path.bat-terminal { stroke-linecap: round; }
@@ -65,12 +86,20 @@
   .panels > .caption { margin: 0; font-size: 0.8125rem; color: var(--muted); }
   .panel-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
   .pv-tile { padding: 10px; border-radius: 14px; background: var(--material-thin); border: 1px solid var(--line); min-width: 0; }
-  .pv-tile .label { display: block; font-size: 0.75rem; color: var(--muted); }
+  /* The input's name and, while it produces, the arrow of power coming in: a word badge does not fit a quarter of a
+     card in every language ("ENTRÉE" covered "PV1"). */
+  .pv-tile .label { display: flex; align-items: center; justify-content: space-between; gap: 4px; font-size: 0.75rem; color: var(--muted); }
+  .pv-tile .label .arrow { margin-right: 0; }
   .pv-tile .value { display: block; font-size: 1.0625rem; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
   .pv-tile .value small { font-size: 0.6em; font-weight: 500; opacity: 0.7; }
   @media (max-width: 359px) { .panel-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
   .note { font-size: 0.8125rem; color: var(--muted); margin: 0; }
+
+  /* Devices read but not in the configuration: a sentence and the button that saves them, above the cards. */
+  .card.unsaved { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 0 0 14px; }
+  .card.unsaved.hidden { display: none; }
+  .card.unsaved .note { flex: 1 1 20em; }
 
   /* No readings yet: the shared empty card, with a sentence on why and when the page looks again. */
   .card.empty { text-align: center; padding: 28px 20px; }
@@ -100,6 +129,7 @@
       <p class="note" data-i18n>Solar, home, grid and battery power, as the devices report them now. IN is power coming in, OUT is power going out.</p>
     </div>
   </div>
+  <section id="unsaved" class="card unsaved hidden" aria-live="polite"></section>
   <section id="devices" class="devices" aria-live="polite"></section>
 </main>
 <script src="/i18n.js"></script>

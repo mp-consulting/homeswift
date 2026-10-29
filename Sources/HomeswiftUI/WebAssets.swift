@@ -730,6 +730,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const categoryName = (key = "") => categoryNames[key] ?? key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (first) => first.toUpperCase());
   /// The icon that stands for a device's category: its widget tile's, else a generic one.
   const deviceIcon = (category) => HomeswiftWidgets.categoryIcon(category) ?? "generic";
+  /// An accessory's icon: the one its tile shows (its main service's widget, else its category's), else a generic one.
+  const accessoryIcon = (accessory) => HomeswiftWidgets.accessoryIcon(accessory) ?? "generic";
   /// A device's status for its tooltip: unavailable, else whether it is on, its brightness and its temperature when it reports them.
   function deviceStatus(accessory) {
     if (accessory.unavailable) return t("Unavailable");
@@ -793,7 +795,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         }
         group.leaves.push(leaf);
       }
-      for (const group of groups) group.sub = tn("{n} accessory", "{n} accessories", group.leaves.length, {});
+      for (const group of groups) {
+        group.sub = tn("{n} accessory", "{n} accessories", group.leaves.length, {});
+        // Devices of one kind under a category with no icon of its own (power stations filed as Other): their icon.
+        const icons = new Set(group.leaves.map(accessoryIcon));
+        if (group.icon === "generic" && icons.size === 1) group.icon = [...icons][0];
+      }
       return groups;
     };
     // Angles, in slots: a group takes one slot per accessory, a half-slot separates the groups of a plugin, a bridge sits at
@@ -934,7 +941,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       factRow("bridge", accessory.bridge), factRow("category", categoryName(accessory.category))];
     // A camera shows its picture first: live while the card is open, else snapshots, as on the Accessories page.
     const camera = accessory.services?.some((service) => service.type === "CameraRTPStreamManagement");
-    return { name: accessory.name, icon: deviceIcon(accessory.category), status: deviceStatus(accessory), warn: Boolean(accessory.unavailable), facts,
+    return { name: accessory.name, icon: accessoryIcon(accessory), status: deviceStatus(accessory), warn: Boolean(accessory.unavailable), facts,
       media: camera ? () => HomeswiftWidgets.cameraView(accessory) : null, sections: HomeswiftWidgets.valueSections(accessory) };
   }
   /// A card's fact: its label, its value, and a tooltip saying what it is.
@@ -991,7 +998,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         factRow("update", model.status.update?.available ? t("Yes") : t("No"))] };
   }
   /// Accessories as a card's rows: each with its device icon, its name and status, and its own card a click away.
-  const accessoryItems = (leaves) => leaves.map((one) => ({ icon: deviceIcon(one.category), name: one.name, status: deviceStatus(one),
+  const accessoryItems = (leaves) => leaves.map((one) => ({ icon: accessoryIcon(one), name: one.name, status: deviceStatus(one),
     warn: Boolean(one.unavailable), details: () => accessoryDetails(one) }));
   /// A detail card's content: the head with the icon (a back button when `back` is given) and close, then its facts,
   /// its readings and its accessories, each of which `open` shows in the card's place.
@@ -1211,11 +1218,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if ((event.key === "Enter" || event.key === " ") && (event.target.dataset?.focus !== undefined || event.target.dataset?.detail !== undefined)) { event.preventDefault(); event.target.dispatchEvent(new MouseEvent("click", { bubbles: true })); }
     });
 
+    // Placed in the frame, from its corner: a card's glass (a backdrop filter) makes it the box a fixed tooltip is
+    // placed in, so window coordinates put it far from its node.
     const show = (target) => {
-      const box = target.getBoundingClientRect();
+      const box = target.getBoundingClientRect(), origin = frame.getBoundingClientRect();
       tip.textContent = target.dataset.tip;
-      tip.style.left = `${box.left + box.width / 2}px`;
-      tip.style.top = `${box.top}px`;
+      tip.style.left = `${box.left - origin.left + box.width / 2}px`;
+      tip.style.top = `${box.top - origin.top}px`;
       tip.hidden = false;
     };
     const hide = () => { tip.hidden = true; };
@@ -1342,7 +1351,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             card: () => groupDetails(group), zoom: { radius: (rings.group + rings.leaf) / 2, k: 2.8 } }));
           for (const accessory of group.leaves) {
             edges.push(link(group, accessory, "leaf", branch.color));
-            dots.push(node(accessory, { classes: `dot${accessory.unavailable ? " unavailable" : ""}`, radius: disc.radius, icon: deviceIcon(accessory.category),
+            dots.push(node(accessory, { classes: `dot${accessory.unavailable ? " unavailable" : ""}`, radius: disc.radius, icon: accessoryIcon(accessory),
               tip: `${accessory.name} · ${categoryName(accessory.category)} · ${deviceStatus(accessory)}`, card: () => accessoryDetails(accessory) }));
           }
         }
@@ -2308,12 +2317,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if (path !== location.pathname + location.search) history.replaceState(null, "", path);
     }
     /// A chart drawn again with new points, made anew when its lines change (a device or a role appears).
-    function draw(chart, series, points, from, to, step, format) {
+    function draw(chart, series, points, from, to, step, format, latest = false) {
       const key = series.map((one) => one.label).join("\n");
       if (chart.view && chart.key === key) { chart.view.update(points, from, to, step); return; }
       chart.body.replaceChildren();
       chart.key = key;
-      chart.view = HomeswiftChart.lineChart(chart.body, { title: chart.title, series, format, unit: (max) => max >= 1000 ? 1000 : 1, points, from, to, step });
+      chart.view = HomeswiftChart.lineChart(chart.body, { title: chart.title, series, format, unit: (max) => max >= 1000 ? 1000 : 1, points, from, to, step, latest });
     }
     async function load() {
       clearTimeout(refresh);
@@ -2339,8 +2348,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if (shown.length) {
         const points = report.power.map((point) => ({ ...point, time: point.t * 1000 }));
         draw(power, shown.map((role) => ({ label: role.label, tone: role.tone, value: (point) => point[role.id] ?? null })), points, from.getTime(), to.getTime(), step, formatWatts);
-        const last = points.at(-1);
-        power.detail.textContent = last ? t("Latest: {values}", { values: shown.filter((role) => last[role.id] != null).map((role) => `${role.label} ${formatWatts(last[role.id])}`).join(" · ") }) : "";
+        // The latest the bridge recorded; steps it recorded nothing in come from an imported hourly history, said so.
+        const last = points.findLast((point) => !point.imported);
+        const latest = last ? t("Latest: {values}", { values: shown.filter((role) => last[role.id] != null).map((role) => `${role.label} ${formatWatts(last[role.id])}`).join(" · ") }) : "";
+        const imported = points.some((point) => point.imported) ? t("Where the bridge recorded nothing, the line shows the imported hourly history.") : "";
+        power.detail.textContent = [latest, imported].filter(Boolean).join(" ");
       }
       levels.node.hidden = !report.levels.length;
       if (report.levels.length) {
@@ -2354,8 +2366,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         }
         const points = [...byTime.values()].sort((a, b) => a.time - b.time);
         draw(levels, report.levels.map((level, index) => ({ label: level.device, tone: levelTones[index % levelTones.length], value: (point) => point[level.series] ?? null })),
-          points, from.getTime(), to.getTime(), step, formatPercent);
-        levels.detail.textContent = report.levels.filter((level) => level.points.length).map((level) => `${level.device} ${formatPercent(level.points.at(-1)[1])}`).join(" · ");
+          points, from.getTime(), to.getTime(), step, formatPercent, true);
+        // Each device's level is in the legend, beside its name.
+        levels.detail.textContent = "";
       }
       lastReport = report;
       if (pointTable.open) fillPoints();
@@ -2468,22 +2481,36 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       // The period's totals, each labelled with its colour, over the bars; under them, why imported hours have their
       // home use not split.
       const sum = (field) => bars.filter(known).reduce((total, bar) => bar[field] == null ? total : (total ?? 0) + bar[field], null);
-      const solar = sum("solar"), home = sum("home"), fromSolar = sum("homeFromSolar"), imported = sum("gridImport"), exported = sum("gridExport");
-      // A key only for a colour the bars draw; the grid's figures, known for the days the bridge recorded only, say so
-      // when the period has imported days too.
-      const partly = bars.some((bar) => bar.importedHours);
+      const solar = sum("solar"), home = sum("home"), imported = sum("gridImport"), exported = sum("gridExport");
+      const charged = sum("batteryCharge"), discharged = sum("batteryDischarge");
+      // A key only for a colour the bars draw; the grid's figures say they cover the recorded days only when the period
+      // has imported days without them (an import of solar and home use alone).
+      const partly = bars.some((bar) => bar.importedHours && bar.gridImport == null && bar.gridExport == null);
       const total = (tone, label, value, note) => el("div", { class: "energy-total" },
         el("span", {}, tone ? el("i", { class: `key bar tone-${tone}`, "aria-hidden": "true" }) : null, label), el("b", { text: value }),
         note ? el("small", { text: note }) : null);
-      const totals = [
+      // The card's question answered first: the home's use, and the share of it each source covered, as a strip of the
+      // bars' colours with each share written beside its key (identity never by colour alone).
+      const shares = home > 0 ? [[4, t("Solar"), sum("homeFromSolar")], [3, t("Batteries"), sum("homeFromBattery")],
+        [7, t("Grid"), sum("homeFromGrid")], [8, t("Not split"), sum("homeNotSplit")]]
+        .filter(([, , value]) => value > 0).map(([tone, label, value]) => ({ tone, label, share: value / home * 100 })) : [];
+      const homeNode = home == null ? null : el("div", { class: "energy-home" },
+        total(null, t("Home used"), formatKWh(home)),
+        shares.length ? el("div", { class: "energy-share", role: "img", "aria-label": `${t("Home used")}: ${shares.map((one) => `${one.label} ${formatPercent(one.share)}`).join(", ")}` },
+          el("div", { class: "energy-share-bar", "aria-hidden": "true" }, shares.map((one) => el("i", { class: `tone-${one.tone}`, style: `flex-grow: ${one.share}` }))),
+          el("div", { class: "energy-share-keys", "aria-hidden": "true" }, shares.map((one) =>
+            el("span", {}, el("i", { class: `key bar tone-${one.tone}` }), one.label, el("b", { text: formatPercent(one.share) }))))) : null);
+      // Then where the energy flowed: produced, through the batteries, across the grid.
+      const flows = [
         solar != null ? total(4, t("Solar produced"), formatKWh(solar)) : null,
-        home != null ? total(null, t("Home used"), formatKWh(home)) : null,
-        home > 0 && fromSolar != null ? total(null, t("Home from solar"), formatPercent(fromSolar / home * 100)) : null,
+        charged != null ? total(3, t("Battery charged"), formatKWh(charged)) : null,
+        discharged != null ? total(3, t("Battery discharged"), formatKWh(discharged)) : null,
         imported != null ? total(7, t("Grid import"), formatKWh(imported), partly ? t("Recorded days only") : null) : null,
         exported != null ? total(7, t("Grid export"), formatKWh(exported), partly ? t("Recorded days only") : null) : null,
       ].filter(Boolean);
-      summary.replaceChildren(...(totals.length ? totals : [el("span", { class: "muted", text: t("Nothing recorded in this period") })]));
-      days.detail.replaceChildren(...[bars.some((bar) => bar.importedHours)
+      summary.replaceChildren(...(homeNode || flows.length ? [homeNode, flows.length ? el("div", { class: "energy-flows" }, flows) : null].filter(Boolean)
+        : [el("span", { class: "muted", text: t("Nothing recorded in this period") })]));
+      days.detail.replaceChildren(...[bars.some((bar) => bar.homeNotSplit > 0)
         ? el("div", { text: t("Imported hours have no grid or battery figures: the rest of their home use is not split by source.") }) : null].filter(Boolean));
 
       const columns = [
@@ -2561,18 +2588,22 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const digits = kilo && Math.abs(value) < 10 ? (Number.isInteger(value) ? 0 : 1) : 0;
     return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} ${kilo ? "kW" : "W"}`;
   }
-  /// Kilowatt-hours, two decimals under 10; an axis's tick (with `top`) a whole number when it is one.
+  /// Kilowatt-hours: two decimals under 10, one under 100, whole from there (3,009 kWh, not 3,009.0); an axis's tick
+  /// (with `top`) a whole number when it is one.
   function formatKWh(kWh, top) {
-    const digits = top != null && Number.isInteger(kWh) ? 0 : Math.abs(kWh) < 10 ? 2 : 1;
+    const size = Math.abs(kWh);
+    const digits = (top != null && Number.isInteger(kWh)) || kWh === 0 ? 0 : size < 10 ? 2 : size < 100 ? 1 : 0;
     return `${kWh.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} kWh`;
   }
 
   /// Bytes as MB, or GB from 1 GB; `top`, the axis's highest, keeps a chart's ticks in one unit.
   const formatBytes = (bytes, top = bytes) => HomeswiftCommon.byteSize(bytes, top);
   function formatPercent(value) { return `${value > 0 && value < 10 ? value.toFixed(1) : Math.round(value)}%`; }
+  /// Milliseconds: one decimal under 10, two when the value has them (an axis's 0.25 and 0.75 ticks, not 0.3 and 0.8).
   function formatMilliseconds(ms) {
     if (ms >= 1000) return `${(ms / 1000).toFixed(ms >= 10000 ? 0 : 1)} s`;
-    return `${ms > 0 && ms < 10 ? ms.toFixed(1) : Math.round(ms)} ms`;
+    const hundredths = Math.abs(ms * 10 - Math.round(ms * 10)) > 1e-6;
+    return `${ms > 0 && ms < 10 ? ms.toFixed(hundredths ? 2 : 1) : Math.round(ms)} ms`;
   }
 
   function formatDuration(seconds) {
@@ -3854,14 +3885,18 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const container = el("div", {});
     // Fields and layout groups shown only when their condition holds, re-checked as the form changes.
     const conditional = [];
-    const watch = (element, condition, index) => {
+    // `require`: the condition makes the field required (`x-schema-form.requiredWhen`) rather than shows it.
+    const watch = (element, condition, index, require = false) => {
       const test = schemaCondition(condition);
-      if (test && element) conditional.push({ element, test, index });
+      if (test && element) conditional.push({ element, test, index, require });
     };
 
     const field = (key, property, current, required, index) => {
       const made = makeField(key, property, current, required, index);
       watch(made.element, property.condition ?? property["x-schema-form"]?.condition, index);
+      // Required only while a condition holds (`x-schema-form.requiredWhen`, read as `condition`s are): a block whose
+      // settings depend on another (an account or keys, by the route chosen) marks the ones it needs now.
+      if (!required) watch(made.element, property["x-schema-form"]?.requiredWhen, index, true);
       return made;
     };
     /// A cron expression (`x-schema-form.type: "schedule"`, the scheduled restart) as a time and the days it runs on,
@@ -3909,7 +3944,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const makeField = (key, property, current, required, index) => {
       const title = tr(property.title) || key;
       const help = property.description ? el("div", { class: "help", text: tr(property.description) }) : null;
-      const wrap = (control) => el("label", { class: "field" }, el("span", { class: "field-title" }, title, required ? el("span", { class: "muted", text: ` · ${t("required")}` }) : null), control, help);
+      const marked = required || property["x-schema-form"]?.requiredWhen !== undefined;
+      const wrap = (control) => el("label", { class: "field" }, el("span", { class: "field-title" }, title, marked ? el("span", { class: `muted required-mark${required ? "" : " hidden"}`, text: ` · ${t("required")}` }) : null), control, help);
       const type = property.type;
       if (property["x-schema-form"]?.type === "schedule") return scheduleField(wrap, current);
       const options = property.oneOf && property.oneOf.every((o) => Array.isArray(o.enum)) ? property.oneOf.map((o) => ({ value: o.enum[0], title: tr(o.title) ?? String(o.enum[0]) })) : property.enum ? property.enum.map((v) => ({ value: v, title: String(v) })) : null;
@@ -4055,7 +4091,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const restKeys = Object.keys(properties).filter((key) => !fields.has(key));
     const rest = restKeys.map((key) => ({ key, element: render(key) })).filter((entry) => entry.element)
       // A field with a condition is shown in the main part while its condition holds, not under More options.
-      .map(({ key, element }) => ({ element, required: requiredTop.has(key) || properties[key].required === true || Boolean(properties[key].condition ?? properties[key]["x-schema-form"]?.condition), value: value[key] }));
+      .map(({ key, element }) => ({ element, required: requiredTop.has(key) || properties[key].required === true || Boolean(properties[key].condition ?? properties[key]["x-schema-form"]?.condition ?? properties[key]["x-schema-form"]?.requiredWhen), value: value[key] }));
     if (rest.length) {
       const split = splitFields(rest);
       container.append(el("div", { class: "fields" }, split.filter((node) => !node.classList?.contains("more-options"))),
@@ -4072,9 +4108,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const applyConditions = () => {
       if (!conditional.length) return;
       const model = getValue();
-      for (const { element, test, index } of conditional) {
-        const shown = test(model, typeof index === "function" ? index() : index);
-        element.classList.toggle("hidden", !shown);
+      const holds = ({ test, index }) => test(model, typeof index === "function" ? index() : index);
+      for (const entry of conditional) if (!entry.require) entry.element.classList.toggle("hidden", !holds(entry));
+      // A field is required while its condition holds and it is on screen (its own and its group's conditions).
+      for (const entry of conditional) {
+        if (!entry.require) continue;
+        const { element } = entry;
+        const needed = holds(entry) && !element.closest(".hidden");
+        element.querySelector(".required-mark")?.classList.toggle("hidden", !needed);
+        const control = element.querySelector("input, select, textarea");
+        if (control) control.required = needed;
       }
     };
     container.addEventListener("input", applyConditions);
@@ -5885,6 +5928,20 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     for (let tick = first.getTime(); tick <= to; tick += step) ticks.push(tick);
     return ticks;
   }
+  /// The value axis's labels, highest last as `ticks` are ordered: the unit written once, on the top tick (`40 MB`, then
+  /// `30`, `20`…), and a decimal every tick has as zeros dropped (`40.0 MB` reads `40 MB`). `format(value, scale)`
+  /// writes a value with its unit after a space, or a sign glued to it (`%`).
+  const decimal = (1.5).toLocaleString(HomeswiftI18n.locale).charAt(1);
+  function axisLabels(ticks, format, scale) {
+    let labels = ticks.map((value) => format(value, scale));
+    const zeros = new RegExp(`\\${decimal}0+(?=\\D*$)`);
+    if (labels.every((label) => zeros.test(label))) labels = labels.map((label) => label.replace(zeros, ""));
+    const top = labels[ticks.indexOf(Math.max(...ticks))] ?? "";
+    const unit = top.match(/\s?[^\d\s.,\u00a0\u202f-]+$/)?.[0];
+    if (!unit) return labels;
+    return labels.map((label, index) => ticks[index] === Math.max(...ticks) || !label.endsWith(unit) ? label : label.slice(0, -unit.length));
+  }
+
   /// A tick's label: the day at midnight, else the time.
   const tickLabel = (time) => {
     const date = new Date(time);
@@ -5898,22 +5955,30 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// A chart in `container`: `series` are `{ label, value(point), tone }` (tone 1 to 6, the palette's slots),
   /// `points` have `time` (a Date), `from` and `to` bound the x axis, `step` is the points' spacing in ms and
   /// `format` writes a value with its unit and `unit(max)` is the size of that unit, so ticks fall on round values
-  /// of it. Returns `update(points, from, to, step)`.
-  function lineChart(container, { title, series, format, unit = () => 1, points, from, to, step }) {
+  /// of it. With `latest`, the legend writes each series' last value beside its name (a battery's level), so the
+  /// chart needs no separate line of them. Returns `update(points, from, to, step)`.
+  function lineChart(container, { title, series, format, unit = () => 1, points, from, to, step, latest = false }) {
     const frame = html("div", "chart-frame");
     const tooltip = html("div", "chart-tooltip hidden");
     tooltip.setAttribute("role", "status");
     frame.append(tooltip);
     container.append(frame);
+    const latestNodes = [];
     if (series.length > 1) {
       const legend = html("div", "chart-legend");
       for (const one of series) {
         const item = html("span", "", null);
         item.append(html("i", `key tone-${one.tone}`), document.createTextNode(one.label));
+        if (latest) { const value = html("b", "legend-value"); latestNodes.push(value); item.append(value); }
         legend.append(item);
       }
       container.append(legend);
     }
+    /// Each series' last value in the legend, a dash for one with none.
+    const showLatest = (points) => latestNodes.forEach((node, index) => {
+      const last = points.findLast((point) => series[index].value(point) != null);
+      node.textContent = last ? format(series[index].value(last)) : "–";
+    });
     let state = { points, from, to, step };
     let chosen = null;   // the index the crosshair is on, kept between redraws
     let drawn = null;
@@ -5940,13 +6005,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
       const root = svg("svg", { width, height, viewBox: `0 0 ${width} ${height}`, class: "chart", role: "img", "aria-label": points.length ? t("{title}, drawn over time", { title }) : t("{title}, nothing recorded", { title }) });
       root.setAttribute("tabindex", "0");
-      for (const value of ticks) {
+      const tickText = axisLabels(ticks, format, scale);
+      ticks.forEach((value, index) => {
         const at = y(value);
         root.append(svg("line", { x1: pad.left, x2: width - pad.right, y1: at, y2: at, class: value === 0 && bottom < 0 ? "grid zero" : "grid" }));
         const label = svg("text", { x: pad.left - 8, y: at + 4, class: "tick", "text-anchor": "end" });
-        label.textContent = format(value, scale);
+        label.textContent = tickText[index];
         root.append(label);
-      }
+      });
       for (const tick of timeTicks(from, to, Math.max(2, Math.floor(plotWidth / 90)))) {
         const label = svg("text", { x: x(tick), y: height - 6, class: "tick", "text-anchor": "middle" });
         label.textContent = tickLabel(tick);
@@ -6047,9 +6113,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     });
     resize.observe(frame);
     draw();
+    showLatest(points);
     return {
       update(points, from, to, step) {
         state = { points, from, to, step };
+        showLatest(points);
         chosen = null;
         tooltip.classList.add("hidden");
         draw();
@@ -6099,13 +6167,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
       const root = svg("svg", { width, height, viewBox: `0 0 ${width} ${height}`, class: "chart", role: "img", "aria-label": t("{title}, a bar per day", { title }) });
       root.setAttribute("tabindex", "0");
-      for (let value = bottom; value <= top + step / 2; value += step) {
+      const ticks = [];
+      for (let value = bottom; value <= top + step / 2; value += step) ticks.push(value);
+      const tickText = axisLabels(ticks, format, size);
+      ticks.forEach((value, index) => {
         const at = y(value);
         root.append(svg("line", { x1: pad.left, x2: width - pad.right, y1: at, y2: at, class: value === 0 && bottom < 0 ? "grid zero" : "grid" }));
         const label = svg("text", { x: pad.left - 8, y: at + 4, class: "tick", "text-anchor": "end" });
-        label.textContent = format(value, size);
+        label.textContent = tickText[index];
         root.append(label);
-      }
+      });
       const hover = svg("rect", { y: pad.top, height: plotHeight, width: slot, class: "bar-hover hidden", rx: 6 });
       root.append(hover);
       // Segments stack out from the baseline with a 2px gap between them; the outermost on each side has 4px
@@ -12494,6 +12565,7 @@ HomeswiftI18n.add("es", {
   "Battery level": "Nivel de batería",
   "Each device's charge": "La carga de cada dispositivo",
   "Energy by day": "Energía por día",
+  "Where the bridge recorded nothing, the line shows the imported hourly history.": "Donde el puente no registró nada, la línea muestra el historial por horas importado.",
   "Latest: {values}": "Últimos valores: {values}",
   "Solar produced": "Solar producida",
   "Home used": "Consumo de la casa",
@@ -14808,6 +14880,7 @@ HomeswiftI18n.add("fr", {
   "Battery level": "Niveau de batterie",
   "Each device's charge": "La charge de chaque appareil",
   "Energy by day": "Énergie par jour",
+  "Where the bridge recorded nothing, the line shows the imported hourly history.": "Là où le pont n'a rien enregistré, la courbe montre l'historique horaire importé.",
   "Latest: {values}": "Dernières valeurs : {values}",
   "Solar produced": "Solaire produit",
   "Home used": "Consommation de la maison",
@@ -17122,6 +17195,7 @@ HomeswiftI18n.add("pt", {
   "Battery level": "Nível da bateria",
   "Each device's charge": "A carga de cada dispositivo",
   "Energy by day": "Energia por dia",
+  "Where the bridge recorded nothing, the line shows the imported hourly history.": "Onde a ponte não registou nada, a linha mostra o histórico por hora importado.",
   "Latest: {values}": "Últimos valores: {values}",
   "Solar produced": "Solar produzida",
   "Home used": "Consumo da casa",
@@ -20644,7 +20718,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
   .energy-history-bar > .group { display: flex; width: 100%; }
   .energy-history-bar > .group button { flex: 1; }
   .energy-period-nav { width: 100%; justify-content: space-between; }
-  .energy-totals { gap: var(--space-8) var(--space-18); }
+  .energy-flows { gap: var(--space-8) var(--space-18); }
   .energy-total b { font-size: var(--text-lg); }
   .energy .range-control button { flex: 1 0 auto; padding-inline: var(--space-10); }
 }
@@ -20669,7 +20743,23 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .energy-import.failed { color: var(--warn); }
 
 /* The period's totals over the bars: a muted label with its colour key over a proportional figure. */
-.energy-totals { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-8) 28px; padding: 2px 0 var(--space-4); }
+/* The period's summary: the home's use and the share each source covered, then where the energy flowed. */
+.energy-totals { display: grid; gap: var(--space-14); padding: 2px 0 var(--space-4); }
+.energy-flows { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-8) 28px; }
+.energy-home { display: flex; align-items: center; gap: var(--space-12) 28px; }
+.energy-share { flex: 1; min-width: 0; display: grid; gap: var(--space-8); }
+/* One bar of the bars' colours, a 2px gap between sources; a sliver stays visible. */
+.energy-share-bar { display: flex; gap: 2px; height: 10px; border-radius: 5px; overflow: hidden; }
+.energy-share-bar i { display: block; min-width: 3px; flex-basis: 0; }
+.energy-share-bar i.tone-3 { background: var(--series-3); }
+.energy-share-bar i.tone-4 { background: var(--series-4); }
+.energy-share-bar i.tone-7 { background: var(--series-7); }
+.energy-share-bar i.tone-8 { background: var(--muted); opacity: 0.45; }
+.energy-share-keys { display: flex; flex-wrap: wrap; gap: var(--space-4) var(--space-18); font-size: var(--text-xs); color: var(--muted); }
+.energy-share-keys span { display: inline-flex; align-items: center; gap: var(--space-6); }
+.energy-share-keys .key { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
+.energy-share-keys b { color: var(--text); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) { .energy-home { flex-direction: column; align-items: stretch; } }
 .energy-total { display: grid; gap: 2px; align-content: start; }
 .energy-total span { display: inline-flex; align-items: center; gap: var(--space-6); font-size: var(--text-xs); color: var(--muted); }
 .energy-total .key { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
@@ -20719,6 +20809,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 /* A part with no source (an imported hour's home use not split): neutral, never a series colour. */
 .chart .bar.tone-8 { fill: var(--muted); opacity: 0.45; }
 .chart .bar-hover { fill: var(--material-thin); }
+.chart-legend .legend-value { margin-left: var(--space-4); color: var(--text); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
 .chart-legend .key.bar, .chart-tooltip .key.bar { width: 10px; height: 10px; border-radius: 3px; }
 .chart-legend { display: flex; flex-wrap: wrap; gap: var(--space-4) var(--space-14); font-size: var(--text-sm); color: var(--muted); }
 .chart-legend span { display: inline-flex; align-items: center; gap: var(--space-6); white-space: nowrap; }
@@ -22725,7 +22816,7 @@ select option:disabled { color: var(--muted); }
 .overview-graph .root:focus-visible .root-icon { filter: drop-shadow(0 0 5px var(--accent)); }
 .overview-zoom { display: flex; flex-wrap: wrap; gap: var(--space-8); justify-content: center; }
 .overview-zoom button svg { width: 16px; height: 16px; }
-.overview-tip { position: fixed; z-index: var(--layer-tip); max-width: 260px; padding: var(--space-6) var(--space-10); border-radius: var(--radius-sm); font-size: var(--text-sm); line-height: 1.3; color: var(--text); background: var(--material-solid); box-shadow: var(--shadow-control), 0 0 0 1px var(--line); transform: translate(-50%, calc(-100% - 10px)); pointer-events: none; }
+.overview-tip { position: absolute; z-index: var(--layer-tip); max-width: 260px; padding: var(--space-6) var(--space-10); border-radius: var(--radius-sm); font-size: var(--text-sm); line-height: 1.3; color: var(--text); background: var(--material-solid); box-shadow: var(--shadow-control), 0 0 0 1px var(--line); transform: translate(-50%, calc(-100% - 10px)); pointer-events: none; }
 .overview-legend { display: flex; flex-wrap: wrap; gap: var(--space-6) var(--space-16); margin: 0; padding: 0; list-style: none; font-size: var(--text-sm); color: var(--muted); }
 .overview-legend li { display: inline-flex; align-items: center; gap: var(--space-6); }
 .legend-mark { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--mark); }
@@ -25217,6 +25308,17 @@ self.addEventListener("notificationclick", (event) => {
   window.HomeswiftWidgets = {
     /// The icon a device's category stands for on its tile (common.js's icons), when it has one.
     categoryIcon: (category) => categoryIcons[category]?.[0],
+    /// The icon an accessory's tile shows: its widget's (a battery's for a power station filed as Other), else its
+    /// category's. Other pages use it so an accessory looks the same everywhere.
+    accessoryIcon(accessory) {
+      try {
+        const ctx = context(accessory);
+        const { widget, primary } = resolve(ctx);
+        const icon = typeof widget.icon === "function" ? widget.icon(ctx, primary) : widget.icon;
+        if (icon) return icon;
+      } catch { /* an accessory the widgets cannot read: its category's icon */ }
+      return categoryIcons[accessory.category]?.[0];
+    },
     /// A camera's picture (camera.js): live while on screen, else snapshots, its name and state over it.
     cameraView: (accessory) => cameraView({ accessory }).element,
     card, open, kindOf, sizes, searchText, valueSections, event, snapshot, reconcileAccessory, listen, describeModel, labelFor, enumLabels,

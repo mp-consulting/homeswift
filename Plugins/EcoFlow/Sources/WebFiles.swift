@@ -11,7 +11,7 @@ extension EcoFlowPlugin {
 // app does. The page refreshes every few seconds while it is visible; it reads `GET power` from the plugin.
 (() => {
   "use strict";
-  const { t } = HomeswiftI18n;
+  const { t, tn } = HomeswiftI18n;
   const { $, el, request } = homeswift;
 
   const list = $("#devices");
@@ -84,7 +84,7 @@ extension EcoFlowPlugin {
 
   // The battery's graphic beside its percentage, as on the Accessories tiles: the bars filled by the level.
   function batteryGraphic(level) {
-    const node = el("span", { class: "battery-mini", "aria-hidden": "true" });
+    const node = el("span", { class: level === null ? "battery-mini unknown" : "battery-mini", "aria-hidden": "true" });
     const filled = level === null ? 0 : level >= 67 ? 3 : level >= 34 ? 2 : level >= 10 ? 1 : 0;
     const bars = [0, 1, 2].map((index) => `<rect class="bat-bar${index < filled ? " on" : ""}" x="${4.5 + index * 3.9}" y="8.8" width="2.6" height="6.4" rx="0.6"/>`).join("");
     node.innerHTML = `<svg viewBox="0 0 24 24"><rect class="bat-body" x="2" y="6.5" width="17" height="11" rx="2"/><path class="bat-terminal" d="M21.5 10.5v3"/>${bars}</svg>`;
@@ -93,11 +93,12 @@ extension EcoFlowPlugin {
 
   // Where a device's values come from: the developer API's MQTT pushes, its REST quota, or the EcoFlow app's stream.
   // Each device's values all come from one source, shown beside its name.
-  const sourceLabel = (source) => ({ mqtt: "MQTT", rest: "REST", app: t("App") })[source] ?? source;
+  // The badge names the service, the settings to look at when a device stops updating; its tooltip, the channel.
+  const sourceLabel = (source) => ({ mqtt: t("Developer API"), rest: t("Developer API"), app: t("EcoFlow app") })[source] ?? source;
   const sourceTip = (source) => ({
-    mqtt: t("Values from the developer API's MQTT pushes"),
-    rest: t("Values from the developer API's REST quota"),
-    app: t("Values from the EcoFlow app's stream"),
+    mqtt: t("Live, from the developer API's MQTT pushes"),
+    rest: t("Read at the developer API's interval, from its REST values"),
+    app: t("Live, from the EcoFlow app's stream"),
   })[source] ?? "";
 
   // Each reading's flow, as the app shows it: [label, IN when positive, tooltip, full width]. A device lists the
@@ -141,30 +142,235 @@ extension EcoFlowPlugin {
 
   function card(device, enter) {
     const level = device.batteryLevel === null ? null : Math.round(device.batteryLevel);
+    // Offline with nothing reported since the plugin started: no charging state or flows to show, only that.
+    const silent = !device.online && level === null && (device.series ?? []).every((key) => !device[key]);
     const battery = el("div", { class: "battery-line" },
       el("div", { class: "figure", "data-tip": t("The battery's state of charge") }, batteryGraphic(level), level === null ? "–" : figure(String(level), "%")),
-      el("div", { class: "battery-state" }, remaining(device),
+      el("div", { class: "battery-state" }, remaining(device), silent ? null :
         el("span", { class: `pill ${device.charging ? "on" : ""}`, text: device.charging ? t("Charging") : t("Not charging"), "data-tip": t("Whether the battery is charging now") })));
     const shown = (device.series ?? []).filter((key) => flows[key]);
-    const flowList = el("div", { class: "flows" }, shown.map((key) => {
+    const flowList = silent ? null : el("div", { class: "flows" }, shown.map((key) => {
       const [label, inWhenPositive, tip, wide] = flows[key];
       return flow(t(label), device[key], inWhenPositive, historyOf(device.id, key), t(tip), wide);
     }));
-    const status = device.online ? null : el("p", { class: "note", text: t("Offline: showing the last readings") });
+    // Offline: the last readings, or none when the device has sent nothing since the plugin started.
+    const status = device.online ? null : el("p", { class: "note",
+      text: silent ? t("Offline: no readings since the plugin started") : t("Offline: showing the last readings") });
     const panels = (device.panels ?? []).length
       ? el("div", { class: "panels" }, el("p", { class: "caption", text: t("Solar by panel") }),
           el("div", { class: "panel-row" }, device.panels.map((value, index) =>
-            el("div", { class: "pv-tile", "data-tip": t("Power from this solar panel input") }, el("span", { class: "label" }, `PV${index + 1}`, el("span", { class: "way in", text: t("IN") })),
+            el("div", { class: "pv-tile", "data-tip": t("Power from this solar panel input") }, el("span", { class: "label" }, `PV${index + 1}`, value >= 1 ? arrow("in") : null),
               el("span", { class: "value" }, power(value).number, el("small", { text: ` ${power(value).unit}` }))))))
       : null;
-    return el("article", { class: `card device${enter ? " enter" : ""}`, "aria-label": device.name },
+    return el("article", { class: `card device${enter ? " enter" : ""}`, "aria-label": device.name, "data-id": device.id },
       el("div", { class: "device-head" },
         el("div", { class: "title-line" }, el("h2", { text: device.name }),
           el("span", { class: "way source", text: sourceLabel(device.source), "data-tip": sourceTip(device.source) }),
-          device.tested === false ? untested() : null),
+          device.tested === false ? untested() : null, known.length > 1 ? handle(device) : null),
         el("p", { class: "serial", text: device.model ? `${device.model} · ${device.id}` : device.id })),
       battery, flowList, panels, status);
   }
+
+  // MARK: Packing. In two columns each card spans the rows its height takes (the CSS's `--pack-row` rows, the gap
+  // below it included), so the shorter column takes the next card. One column, or no packing rows, clears the spans.
+  // A card's height changes with its readings, the fonts and the width: a ResizeObserver packs again after each.
+  function pack() {
+    const style = getComputedStyle(list);
+    const row = parseFloat(style.getPropertyValue("--pack-row"));
+    const gap = parseFloat(style.getPropertyValue("--pack-gap")) || 0;
+    // Every height read first, then every span written: one layout, where a read after each write would make one per
+    // card. The layout height: a card's entrance (a scale) or its drag (a translate) does not change its place.
+    const nodes = [...list.children];
+    const heights = nodes.map((node) => node.offsetHeight);
+    nodes.forEach((node, index) => { node.style.gridRowEnd = row > 0 ? `span ${Math.ceil((heights[index] + gap) / row)}` : ""; });
+  }
+  let packing = 0;
+  // The observer's first report after `observeCards` is the cards just packed: skipped.
+  let observed = false;
+  const packer = new ResizeObserver(() => {
+    if (!observed) { observed = true; return; }
+    cancelAnimationFrame(packing);
+    packing = requestAnimationFrame(pack);
+  });
+  // The cards are made anew at each render. The list keeps its height while they are swapped in and measured (each new
+  // card spans one 2px row until it is packed: the list would shrink and the page scroll back to the top), they are
+  // packed at once, and the observer follows them.
+  function replaceCards(...nodes) {
+    list.style.minHeight = `${list.offsetHeight}px`;
+    list.replaceChildren(...nodes);
+    pack();
+    list.style.minHeight = "";
+    observeCards();
+  }
+  function observeCards() {
+    observed = false;
+    packer.disconnect();
+    packer.observe(list);
+    for (const node of list.children) packer.observe(node);
+  }
+
+  // MARK: Order. A card is dragged by its grip to another place (the others make room), or moved with the arrow keys
+  // while its grip has the focus. The order is the plugin's, kept for every viewer; nothing is written to config.json,
+  // which would reload the plugin.
+
+  const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+  // While a card is dragged, the readings that arrive wait: drawing the cards again would drop it.
+  let sorting = false;
+  // A drag or an order on its way to the plugin: the polls' answers wait (`saving` is below).
+  const held = () => sorting || saving > 0;
+
+  // Six dots in two columns, the usual grip; a button, so the keyboard reaches it.
+  function handle(device) {
+    const grip = el("button", { type: "button", class: "handle", "aria-label": t("Move {name}", { name: device.name }),
+      title: t("Drag to reorder, or use the arrow keys") });
+    grip.innerHTML = '<svg viewBox="0 0 10 16" aria-hidden="true"><circle cx="2.5" cy="3" r="1.4"/><circle cx="7.5" cy="3" r="1.4"/><circle cx="2.5" cy="8" r="1.4"/><circle cx="7.5" cy="8" r="1.4"/><circle cx="2.5" cy="13" r="1.4"/><circle cx="7.5" cy="13" r="1.4"/></svg>';
+    return grip;
+  }
+
+  const cardsNow = () => [...list.querySelectorAll(".device[data-id]")];
+
+  // Moves the cards in the page to their new places from where they were: each slides from its old position (FLIP).
+  function slide(before) {
+    if (reducedMotion.matches) return;
+    for (const node of cardsNow()) {
+      const from = before.get(node.dataset.id);
+      if (!from || node.classList.contains("dragging")) continue;
+      const to = node.getBoundingClientRect();
+      const dx = from.left - to.left, dy = from.top - to.top;
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
+      node.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], { duration: 220, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" });
+    }
+  }
+  const positions = () => new Map(cardsNow().map((node) => [node.dataset.id, node.getBoundingClientRect()]));
+
+  // The new order, for the plugin; `known` follows at once, and the next answer comes in it.
+  // Polls wait for it (`saving`), as they wait for a drag: an answer from before it would show the old order. The
+  // saves go one after the other, each with the order as it is when its turn comes: two quick key presses must not
+  // reach the plugin in the wrong order.
+  let saving = 0;
+  let saves = Promise.resolve();
+  function saveOrder() {
+    saving++;
+    saves = saves.then(async () => {
+      try {
+        await request("order", { method: "POST", body: { ids: known.map((device) => device.id) } });
+      } catch (error) {
+        // The plugin kept the order before: the next answer, though the same as the last, draws it again.
+        lastAnswer = "";
+        HomeswiftCommon.showAlert(HomeswiftI18n.message(error.message));
+      } finally {
+        saving--;
+      }
+    });
+  }
+
+  // The arrow keys on a grip: up and left move the card back a place, down and right forward.
+  list.addEventListener("keydown", (event) => {
+    const grip = event.target.closest(".handle");
+    const step = { ArrowUp: -1, ArrowLeft: -1, ArrowDown: 1, ArrowRight: 1 }[event.key];
+    if (!grip || !step || sorting) return;
+    event.preventDefault();
+    const id = grip.closest(".device").dataset.id;
+    const from = known.findIndex((device) => device.id === id);
+    const to = from + step;
+    if (from < 0 || to < 0 || to >= known.length) return;
+    // No slide: a key press moves the card at once, as keyboard actions should.
+    known.splice(to, 0, ...known.splice(from, 1));
+    // render() keeps the focus on the moved card's grip.
+    render();
+    saveOrder();
+  });
+
+  // Dragging with Pointer Events, so mouse, pen and touch behave the same. The card stays under the pointer where it
+  // was grabbed; over another card, it takes that card's place and the others slide to theirs.
+  list.addEventListener("pointerdown", (event) => {
+    const grip = event.target.closest(".handle");
+    if (!grip || event.button !== 0 || sorting) return;
+    event.preventDefault();
+    const node = grip.closest(".device");
+    const id = node.dataset.id;
+    const start = { x: event.clientX, y: event.clientY + window.scrollY, left: node.offsetLeft, top: node.offsetTop };
+    const startOrder = known.map((device) => device.id).join();
+    const pointer = event.pointerId;
+    sorting = true;
+    node.classList.add("dragging");
+    list.classList.add("sorting");
+    // The card's offset from its place in the grid, kept under the pointer as the place (and the page) moves.
+    let shift = { x: 0, y: 0 };
+    const follow = (x, y) => {
+      shift = { x: x - start.x - (node.offsetLeft - start.left), y: y + window.scrollY - start.y - (node.offsetTop - start.top) };
+      node.style.transform = `translate(${shift.x}px, ${shift.y}px)`;
+    };
+    // Where the pointer is, and the page scrolling under it near the window's top or bottom edge: a card can be taken
+    // to a place out of sight. The sticky header covers the top, so its zone is deeper.
+    let last = { x: event.clientX, y: event.clientY };
+    let frame = 0;
+    // As far as the page went when the drag began: the card, pushed past the end, would make it longer and longer.
+    const deepest = document.documentElement.scrollHeight - innerHeight;
+    const scrollStep = () => {
+      const top = 110, bottom = 70, fastest = 22;
+      const speed = last.y < top ? -fastest * (1 - Math.max(last.y, 0) / top)
+        : last.y > innerHeight - bottom ? fastest * (1 - Math.max(innerHeight - last.y, 0) / bottom) : 0;
+      if (speed && (speed < 0 || window.scrollY < deepest)) {
+        const before = window.scrollY;
+        window.scrollTo(0, Math.min(deepest, window.scrollY + (Math.round(speed) || Math.sign(speed))));
+        if (window.scrollY !== before) update(last.x, last.y);
+      }
+      frame = requestAnimationFrame(scrollStep);
+    };
+    frame = requestAnimationFrame(scrollStep);
+    const move = (moveEvent) => {
+      if (moveEvent.pointerId !== pointer) return;
+      last = { x: moveEvent.clientX, y: moveEvent.clientY };
+      update(last.x, last.y);
+    };
+    const update = (x, y) => {
+      // The card under the pointer, when the pointer has left the dragged card's own place (where it is, less the
+      // shift that keeps it under the pointer).
+      const rect = node.getBoundingClientRect();
+      const inOwn = x >= rect.left - shift.x && x <= rect.right - shift.x && y >= rect.top - shift.y && y <= rect.bottom - shift.y;
+      const target = inOwn ? null : cardsNow().find((other) => {
+        if (other === node) return false;
+        const rect = other.getBoundingClientRect();
+        return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+      });
+      if (target) {
+        const from = known.findIndex((device) => device.id === id);
+        const to = known.findIndex((device) => device.id === target.dataset.id);
+        const before = positions();
+        known.splice(to, 0, ...known.splice(from, 1));
+        if (from < to) target.after(node); else target.before(node);
+        slide(before);
+      }
+      follow(x, y);
+    };
+    const end = (endEvent) => {
+      if (endEvent.pointerId !== pointer) return;
+      cancelAnimationFrame(frame);
+      removeEventListener("pointermove", move);
+      removeEventListener("pointerup", end);
+      removeEventListener("pointercancel", end);
+      list.classList.remove("sorting");
+      // The card settles into its place from where it was let go.
+      node.classList.add("settling");
+      node.classList.remove("dragging");
+      node.style.transform = "";
+      const done = () => {
+        if (!sorting) return;
+        node.classList.remove("settling");
+        sorting = false;
+        render();
+      };
+      node.addEventListener("transitionend", done, { once: true });
+      // A card let go where it was, or without motion, has no transition to end.
+      setTimeout(done, reducedMotion.matches ? 0 : 400);
+      if (known.map((device) => device.id).join() !== startOrder) saveOrder();
+    };
+    // On the window, not captured by the grip: moving the card in the page releases a capture.
+    addEventListener("pointermove", move);
+    addEventListener("pointerup", end);
+    addEventListener("pointercancel", end);
+  });
 
   // A device still on its way: its name, and shimmering lines where its battery and flows will be. Before the first
   // answer, one stands for whatever the plugin will report.
@@ -224,8 +430,9 @@ extension EcoFlowPlugin {
   // `pending` is the configured devices with no readings yet; null until the plugin has answered once.
   let pending = null;
   function render() {
+    if (sorting) return;
     if (pending === null) {
-      list.replaceChildren(placeholder(null));
+      replaceCards(placeholder(null));
       return;
     }
     const cards = known.map((device) => {
@@ -234,14 +441,51 @@ extension EcoFlowPlugin {
       return card(device, enter);
     });
     const placeholders = pending.map(placeholder);
-    list.replaceChildren(...(cards.length + placeholders.length === 0 ? [waiting()] : [...cards, ...placeholders]));
+    // The grip with the focus keeps it: the cards are drawn again at every change of the readings.
+    const focused = document.activeElement?.closest?.(".device .handle")?.closest(".device")?.dataset.id;
+    replaceCards(...(cards.length + placeholders.length === 0 ? [waiting()] : [...cards, ...placeholders]));
+    if (focused) list.querySelector(`.device[data-id="${CSS.escape(focused)}"] .handle`)?.focus({ preventScroll: true });
+  }
+
+  // The devices the plugin reads that the configuration's `devices` does not list, with the button that adds them
+  // under the name they report: listed, a device is read by its serial number, and its name can be changed in the
+  // plugin's settings.
+  const unsaved = $("#unsaved");
+  // Drawn again only when the devices it lists change: a button made anew at every reading would lose a click.
+  let unsavedShown = "";
+  function renderUnsaved() {
+    const missing = known.filter((device) => device.configured === false);
+    const key = missing.map((device) => `${device.id}\n${device.name}`).join("\n");
+    if (key === unsavedShown) return;
+    unsavedShown = key;
+    unsaved.classList.toggle("hidden", missing.length === 0);
+    if (missing.length === 0) return;
+    unsaved.replaceChildren(
+      el("p", { class: "note", text: tn("{n} device is not in the configuration yet. Add it to keep it by its serial number and to rename it in the settings.",
+        "{n} devices are not in the configuration yet. Add them to keep them by their serial numbers and to rename them in the settings.", missing.length) }),
+      el("button", { actionIcon: "plus", class: "primary", text: t("Add to the configuration"),
+        onclick: (event) => homeswift.act(event.currentTarget, () => addToConfiguration(missing)) }));
+  }
+
+  // Each device once in the block's `devices`, an entry already there kept as it is. The plugin reloads with them.
+  async function addToConfiguration(devices) {
+    await homeswift.updateDevices((entries) => {
+      for (const device of devices) {
+        if (!entries.some((entry) => entry.id === device.id)) entries.push({ id: device.id, name: device.name });
+      }
+    });
+    lastAnswer = "";
+    await refresh();
   }
 
   // The cards are drawn again only when the readings changed: the plugin's values change at its own poll.
   let lastAnswer = "";
   async function refresh() {
+    // While a card is dragged, an answer would put back the order it is changing: it is read again after.
+    if (held()) return;
     try {
       const body = await request("power");
+      if (held()) return;
       const devices = body.devices ?? [];
       const answer = JSON.stringify([devices, body.waiting ?? []]);
       if (answer === lastAnswer) return;
@@ -250,9 +494,12 @@ extension EcoFlowPlugin {
       pending = body.waiting ?? [];
       loadHistory(true);
       render();
+      renderUnsaved();
     } catch (error) {
       lastAnswer = "";
-      list.replaceChildren(el("p", { class: "note", text: HomeswiftI18n.message(error.message) }));
+      // A card being dragged, or an order being saved, keeps the cards: the next poll says it again.
+      if (held()) return;
+      replaceCards(el("p", { class: "note", text: HomeswiftI18n.message(error.message) }));
     }
   }
 
@@ -267,6 +514,17 @@ extension EcoFlowPlugin {
 // The EcoFlow page in French, Spanish and Portuguese (docs/translations.md).
 HomeswiftI18n.add({
   "fr": {
+    "Developer API": "API développeur",
+    "EcoFlow app": "Application EcoFlow",
+    "Live, from the developer API's MQTT pushes": "En direct, par les envois MQTT de l'API développeur",
+    "Read at the developer API's interval, from its REST values": "Lu à l'intervalle de l'API développeur, dans ses valeurs REST",
+    "Live, from the EcoFlow app's stream": "En direct, par le flux de l'application EcoFlow",
+    "Offline: no readings since the plugin started": "Hors ligne : aucune valeur depuis le démarrage du plugin",
+    "Move {name}": "Déplacer {name}",
+    "Drag to reorder, or use the arrow keys": "Faites glisser pour réorganiser, ou utilisez les flèches",
+    "{n} device is not in the configuration yet. Add it to keep it by its serial number and to rename it in the settings.": "{n} appareil n'est pas encore dans la configuration. Ajoutez-le pour le garder par son numéro de série et le renommer dans les réglages.",
+    "{n} devices are not in the configuration yet. Add them to keep them by their serial numbers and to rename them in the settings.": "{n} appareils ne sont pas encore dans la configuration. Ajoutez-les pour les garder par leur numéro de série et les renommer dans les réglages.",
+    "Add to the configuration": "Ajouter à la configuration",
     "Loading": "Chargement",
     "Waiting for its first readings": "En attente de ses premières valeurs",
     "Loading the devices": "Chargement des appareils",
@@ -310,10 +568,6 @@ HomeswiftI18n.add({
     "No devices yet": "Aucun appareil pour l'instant",
     "The plugin has not had readings from your devices yet. They usually arrive within a minute.": "Le plugin n'a pas encore reçu de valeurs de vos appareils. Elles arrivent en général dans la minute.",
     "This page checks again every few seconds while it is open.": "Cette page vérifie à nouveau toutes les quelques secondes tant qu'elle est ouverte.",
-    "App": "Application",
-    "Values from the developer API's MQTT pushes": "Valeurs des envois MQTT de l'API développeur",
-    "Values from the developer API's REST quota": "Valeurs du quota REST de l'API développeur",
-    "Values from the EcoFlow app's stream": "Valeurs du flux de l'application EcoFlow",
     "Input": "Entrée",
     "Output": "Sortie",
     "AC input": "Entrée AC",
@@ -328,6 +582,17 @@ HomeswiftI18n.add({
     "Power the USB-C ports supply": "Puissance fournie par les ports USB-C"
   },
   "es": {
+    "Developer API": "API para desarrolladores",
+    "EcoFlow app": "App de EcoFlow",
+    "Live, from the developer API's MQTT pushes": "En directo, por los envíos MQTT de la API para desarrolladores",
+    "Read at the developer API's interval, from its REST values": "Leído al intervalo de la API para desarrolladores, de sus valores REST",
+    "Live, from the EcoFlow app's stream": "En directo, por el flujo de la App de EcoFlow",
+    "Offline: no readings since the plugin started": "Sin conexión: ninguna lectura desde que se inició el plugin",
+    "Move {name}": "Mover {name}",
+    "Drag to reorder, or use the arrow keys": "Arrastra para reordenar, o usa las flechas",
+    "{n} device is not in the configuration yet. Add it to keep it by its serial number and to rename it in the settings.": "{n} dispositivo aún no está en la configuración. Añádelo para conservarlo por su número de serie y cambiarle el nombre en los ajustes.",
+    "{n} devices are not in the configuration yet. Add them to keep them by their serial numbers and to rename them in the settings.": "{n} dispositivos aún no están en la configuración. Añádelos para conservarlos por su número de serie y cambiarles el nombre en los ajustes.",
+    "Add to the configuration": "Añadir a la configuración",
     "Loading": "Cargando",
     "Waiting for its first readings": "Esperando sus primeros valores",
     "Loading the devices": "Cargando los dispositivos",
@@ -371,10 +636,6 @@ HomeswiftI18n.add({
     "No devices yet": "Aún no hay dispositivos",
     "The plugin has not had readings from your devices yet. They usually arrive within a minute.": "El plugin aún no ha recibido lecturas de tus dispositivos. Suelen llegar en menos de un minuto.",
     "This page checks again every few seconds while it is open.": "Esta página vuelve a comprobarlo cada pocos segundos mientras esté abierta.",
-    "App": "App",
-    "Values from the developer API's MQTT pushes": "Valores de los envíos MQTT de la API de desarrollador",
-    "Values from the developer API's REST quota": "Valores de la cuota REST de la API de desarrollador",
-    "Values from the EcoFlow app's stream": "Valores del flujo de la aplicación EcoFlow",
     "Input": "Entrada",
     "Output": "Salida",
     "AC input": "Entrada AC",
@@ -389,6 +650,17 @@ HomeswiftI18n.add({
     "Power the USB-C ports supply": "Potencia que entregan los puertos USB-C"
   },
   "pt": {
+    "Developer API": "API para programadores",
+    "EcoFlow app": "Aplicação EcoFlow",
+    "Live, from the developer API's MQTT pushes": "Em direto, pelos envios MQTT da API para programadores",
+    "Read at the developer API's interval, from its REST values": "Lido ao intervalo da API para programadores, dos seus valores REST",
+    "Live, from the EcoFlow app's stream": "Em direto, pelo fluxo da Aplicação EcoFlow",
+    "Offline: no readings since the plugin started": "Offline: nenhuma leitura desde que o plugin foi iniciado",
+    "Move {name}": "Mover {name}",
+    "Drag to reorder, or use the arrow keys": "Arraste para reordenar, ou use as setas",
+    "{n} device is not in the configuration yet. Add it to keep it by its serial number and to rename it in the settings.": "{n} dispositivo ainda não está na configuração. Adicione-o para o manter pelo número de série e mudar o nome nas definições.",
+    "{n} devices are not in the configuration yet. Add them to keep them by their serial numbers and to rename them in the settings.": "{n} dispositivos ainda não estão na configuração. Adicione-os para os manter pelos números de série e mudar o nome nas definições.",
+    "Add to the configuration": "Adicionar à configuração",
     "Loading": "A carregar",
     "Waiting for its first readings": "À espera das primeiras leituras",
     "Loading the devices": "A carregar os dispositivos",
@@ -432,10 +704,6 @@ HomeswiftI18n.add({
     "No devices yet": "Ainda não há dispositivos",
     "The plugin has not had readings from your devices yet. They usually arrive within a minute.": "O plugin ainda não recebeu leituras dos seus dispositivos. Costumam chegar em menos de um minuto.",
     "This page checks again every few seconds while it is open.": "Esta página volta a verificar a cada poucos segundos enquanto estiver aberta.",
-    "App": "App",
-    "Values from the developer API's MQTT pushes": "Valores dos envios MQTT da API de programador",
-    "Values from the developer API's REST quota": "Valores da quota REST da API de programador",
-    "Values from the EcoFlow app's stream": "Valores do fluxo da aplicação EcoFlow",
     "Input": "Entrada",
     "Output": "Saída",
     "AC input": "Entrada AC",
@@ -475,13 +743,34 @@ HomeswiftI18n.add({
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/style.css">
 <style>
-  /* One card per device: its battery first, then the four flows as IN and OUT, then the solar by panel. */
+  /* One card per device: its battery first, then the four flows as IN and OUT, then the solar by panel. Two columns
+     where a card keeps its flows side by side, one on a phone. */
   .devices { display: grid; gap: 14px; }
   .devices > .card { margin: 0; min-width: 0; }
+  /* Two columns, packed: each card keeps its own height and the next one fills the shorter column, so a STREAM with
+     its panels does not leave a hole beside a RIVER. The rows are 2px tall and app.js gives each card the span its
+     height and the gap take (`--pack-row`, `--pack-gap`); the order still reads left to right, then down. */
+  @media (min-width: 820px) {
+    .devices { --pack-row: 2px; --pack-gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-auto-rows: var(--pack-row); row-gap: 0; column-gap: var(--pack-gap); align-items: start; }
+    .devices > .card.empty, .devices > .note { grid-column: 1 / -1; }
+  }
   .device { display: grid; gap: 14px; align-content: start; }
   .device.enter { animation: materialize var(--normal) var(--ease-out); }
 
   .device-head h2 { margin: 0; }
+
+  /* The grip that drags a card to another place, or moves it with the arrow keys. */
+  .handle { margin-left: auto; width: 28px; height: 28px; min-height: 0; padding: 0; flex: none; display: grid; place-items: center; border: 0; border-radius: 8px;
+    background: none; box-shadow: none; color: var(--muted); opacity: 0.6; cursor: grab; touch-action: none; }
+  /* A finger needs a larger target; the negative margin keeps the title line's height. */
+  @media (pointer: coarse) { .handle { width: 40px; height: 40px; margin: -6px -8px -6px auto; } }
+  .handle svg { display: block; width: 10px; height: 16px; fill: currentColor; }
+  .handle:hover, .handle:focus-visible { opacity: 1; background: var(--material-thin); }
+  .device.dragging { position: relative; z-index: 2; cursor: grabbing; box-shadow: 0 14px 30px rgba(25, 34, 56, 0.22); }
+  .device.dragging .handle { cursor: grabbing; }
+  .devices.sorting { user-select: none; }
+  .device.settling { transition: transform var(--normal) var(--ease-out), box-shadow var(--normal) var(--ease-out); }
   .title-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .way.source { background: var(--material-thin); color: var(--muted); border: 1px solid var(--line); }
   /* A model not yet checked on a real device: the warning tint, beside the source. */
@@ -490,7 +779,7 @@ HomeswiftI18n.add({
 
   /* The battery leads: the largest figure on the card, its level beside the graphic and its state after it. */
   .battery-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-  .battery-line .figure { display: flex; align-items: center; gap: 12px; font-size: 2.5rem; font-weight: 650; line-height: 1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .battery-line .figure { white-space: nowrap; display: flex; align-items: center; gap: 12px; font-size: 2.5rem; font-weight: 650; line-height: 1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
   .battery-line .figure small { font-size: 0.5em; font-weight: 500; opacity: 0.7; }
   /* The time to full or to empty, beside the charging state; its own line under it on a narrow card. */
   .battery-state { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px 10px; }
@@ -505,12 +794,12 @@ HomeswiftI18n.add({
   @keyframes spark-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
   @media (prefers-reduced-motion: reduce) { .spark-loader { animation: none; } }
   .spark polyline { fill: none; stroke: var(--muted); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; opacity: 0.7; vector-effect: non-scaling-stroke; }
-  .pv-tile { position: relative; }
-  .pv-tile .way { position: absolute; top: 8px; right: 8px; }
   .arrow { display: inline-block; width: 0; height: 0; margin-right: 8px; vertical-align: middle; border-left: 6px solid transparent; border-right: 6px solid transparent; }
   .arrow.in { border-bottom: 9px solid var(--ok); }
   .arrow.out { border-top: 9px solid var(--warn); }
   .battery-mini { display: inline-flex; color: var(--ok); line-height: 0; }
+  /* No level known: the outline only, muted, rather than green beside a dash. */
+  .battery-mini.unknown { color: var(--muted); }
   .battery-mini svg { width: 48px; height: 48px; overflow: visible; }
   .battery-mini rect.bat-body, .battery-mini path.bat-terminal { fill: none; stroke: currentColor; stroke-width: 1.6; }
   .battery-mini path.bat-terminal { stroke-linecap: round; }
@@ -533,12 +822,20 @@ HomeswiftI18n.add({
   .panels > .caption { margin: 0; font-size: 0.8125rem; color: var(--muted); }
   .panel-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
   .pv-tile { padding: 10px; border-radius: 14px; background: var(--material-thin); border: 1px solid var(--line); min-width: 0; }
-  .pv-tile .label { display: block; font-size: 0.75rem; color: var(--muted); }
+  /* The input's name and, while it produces, the arrow of power coming in: a word badge does not fit a quarter of a
+     card in every language ("ENTRÉE" covered "PV1"). */
+  .pv-tile .label { display: flex; align-items: center; justify-content: space-between; gap: 4px; font-size: 0.75rem; color: var(--muted); }
+  .pv-tile .label .arrow { margin-right: 0; }
   .pv-tile .value { display: block; font-size: 1.0625rem; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
   .pv-tile .value small { font-size: 0.6em; font-weight: 500; opacity: 0.7; }
   @media (max-width: 359px) { .panel-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
   .note { font-size: 0.8125rem; color: var(--muted); margin: 0; }
+
+  /* Devices read but not in the configuration: a sentence and the button that saves them, above the cards. */
+  .card.unsaved { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 0 0 14px; }
+  .card.unsaved.hidden { display: none; }
+  .card.unsaved .note { flex: 1 1 20em; }
 
   /* No readings yet: the shared empty card, with a sentence on why and when the page looks again. */
   .card.empty { text-align: center; padding: 28px 20px; }
@@ -568,6 +865,7 @@ HomeswiftI18n.add({
       <p class="note" data-i18n>Solar, home, grid and battery power, as the devices report them now. IN is power coming in, OUT is power going out.</p>
     </div>
   </div>
+  <section id="unsaved" class="card unsaved hidden" aria-live="polite"></section>
   <section id="devices" class="devices" aria-live="polite"></section>
 </main>
 <script src="/i18n.js"></script>

@@ -65,8 +65,12 @@ struct EcoFlowAll: EcoFlowAPI {
                         all.append(device)
                         continue
                     }
-                    // A model checked on one route only (a RIVER 3 on the app's) is read from that route.
+                    // A model checked on one route only (a RIVER 3 on the app's) is read from that route; and a device
+                    // whose level the first route does not know (a STREAM on the developer API's REST quota) is read
+                    // from one that does, unless that one has gone quiet while the first is live.
                     if device.tested, !all[earlier].tested { all[earlier] = device }
+                    else if !all[earlier].state.knowsBatteryLevel, device.state.knowsBatteryLevel, device.tested || !all[earlier].tested,
+                            device.online || !all[earlier].online { all[earlier] = device }
                 }
             case .failure(let error)?:
                 failure = failure ?? error

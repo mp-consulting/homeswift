@@ -238,18 +238,73 @@ struct EcoFlowAppTests {
         #expect(try await api.devices().first?.state.battery.batteryLevel == 56, "the precise 55.78, rounded; never the backup state's 0")
     }
 
-    /// With no serials configured, the route subscribes to the account's property topics and lists each device
-    /// that reports.
-    @Test func devicesAreDiscoveredFromTheStream() async throws {
-        let transport = FakeTransport(answers: signInAnswers)
+    /// With no serials configured, the account's devices come from the app's device list, each subscribed to by its
+    /// serial number: EcoFlow's broker refuses the wildcard. A device the route does not read gets no subscription.
+    @Test func devicesComeFromTheAppsDeviceList() async throws {
+        let plug = "SM2A-TEST-PLUG"
+        let transport = FakeTransport(answers: signInAnswers.merging([
+            "/app/user/device/list": #"{"code":"0","data":[{"sn":"\#(serial)","deviceName":"Roof","productType":1},{"sn":"\#(plug)","deviceName":"Plug","productType":2}]}"#,
+        ]) { $1 })
         let broker = FakeMQTTConnection()
         let api = EcoFlowAppAPI(email: "owner@example.test", password: password, serials: [], transport: transport) { _ in broker }
         _ = try await api.devices()
-        #expect(broker.subscriptions["/app/device/property/+"] != nil)
+        #expect(broker.subscriptions["/app/device/property/+"] == nil)
+        #expect(broker.subscriptions["/app/device/property/\(serial)"] != nil)
+        #expect(broker.subscriptions["/app/42/\(serial)/thing/property/get_reply"] != nil)
+        #expect(broker.subscriptions["/app/device/property/\(plug)"] == nil)
+        #expect(broker.published.contains { $0.topic == "/app/42/\(serial)/thing/property/get" }, "the listed device is asked for its state")
 
         broker.receive("/app/device/property/\(serial)", payload: propertyPayload(soc: 58, battery: 40))
-        let found = await eventually { (try? await api.devices())?.map(\.id) == [serial] }
+        let found = await eventually { (try? await api.devices())?.map(\.name) == ["Roof"] }
         #expect(found)
+    }
+
+    /// The configured devices come first, and the account's others from the device list are read too: a device the
+    /// configuration does not list (it had not reported when the list was saved) is not left out.
+    @Test func theDeviceListAddsToTheConfiguredDevices() async throws {
+        let river = "R631-TEST-RIVER"
+        let transport = FakeTransport(answers: signInAnswers.merging([
+            "/app/user/device/list": #"{"code":"0","data":[{"sn":"\#(river)","deviceName":"Desk","online":1},{"sn":"\#(serial)","deviceName":"Roof","online":1}]}"#,
+        ]) { $1 })
+        let broker = FakeMQTTConnection()
+        let api = EcoFlowAppAPI(email: "owner@example.test", password: password, serials: [serial], transport: transport) { _ in broker }
+        _ = try await api.devices()
+        #expect(broker.subscriptions["/app/device/property/\(serial)"] != nil)
+        #expect(broker.subscriptions["/app/device/property/\(river)"] != nil, "the list's other device is read too")
+        let asked = broker.published.map(\.topic)
+        #expect(asked.firstIndex(of: "/app/42/\(serial)/thing/property/get") ?? .max < asked.firstIndex(of: "/app/42/\(river)/thing/property/get") ?? .max,
+                "the configured device first")
+    }
+
+    /// A device the app's list has offline, and that sends nothing, is listed offline with no level rather than left
+    /// out; one the list has online waits for its first readings.
+    @Test func anOfflineDeviceIsListedOffline() async throws {
+        let bank = "P513-TEST-BANK"
+        let quiet = "R631-TEST-QUIET"
+        let transport = FakeTransport(answers: signInAnswers.merging([
+            "/app/user/device/list": #"{"code":"0","data":[{"sn":"\#(bank)","deviceName":"Bag","online":0},{"sn":"\#(quiet)","deviceName":"Desk","online":1}]}"#,
+        ]) { $1 })
+        let broker = FakeMQTTConnection()
+        let api = EcoFlowAppAPI(email: "owner@example.test", password: password, serials: [], transport: transport) { _ in broker }
+        let devices = try await api.devices()
+        #expect(devices.map(\.id) == [bank])
+        let device = try #require(devices.first)
+        #expect(device.online == false)
+        #expect(device.name == "Bag")
+        #expect(device.state.knowsBatteryLevel == false)
+    }
+
+    /// With no serial number from the configuration or the device list, the route asks for them: EcoFlow's broker
+    /// refuses a subscription to every device at once, so none is tried. The retry message is not about the sign-in.
+    @Test func noSerialAtAllAsksForThem() async throws {
+        let transport = FakeTransport(answers: signInAnswers)
+        let broker = FakeMQTTConnection()
+        let api = EcoFlowAppAPI(email: "owner@example.test", password: password, serials: [], transport: transport) { _ in broker }
+        await #expect(throws: EcoFlowAppAPI.Failure.noDevices) {
+            _ = try await api.devices()
+        }
+        #expect(broker.subscriptions.isEmpty)
+        #expect(EcoFlowAppAPI.Failure.retryLater.description.contains("sign-in") == false)
     }
 
     @Test func aFailedSignInIsNotRepeatedAtOnce() async throws {

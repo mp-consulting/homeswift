@@ -90,6 +90,35 @@ struct EnergyTests {
         #expect(report.days[1].minutes == 0)
     }
 
+    /// The steps the bridge recorded nothing in take an imported hour's average watts (its watt-hours over the hour),
+    /// marked imported; a step it recorded keeps its own readings.
+    @Test func importedHoursFillTheStepsTheBridgeDidNotRecord() {
+        let (metrics, clock) = store()
+        metrics.tag("plugin:Test:solar", EnergyTag(role: .solar, device: "Roof"))
+        metrics.tag("plugin:Test:home", EnergyTag(role: .home, device: "House"))
+        // The hour before `start`, imported; the first 10 minutes of `start`'s hour too, and recorded by the bridge.
+        metrics.archive.importHours([
+            EnergyHourImport(start: start.addingTimeInterval(-3600), flows: EnergyFlows(solar: 1200, home: 600)),
+            EnergyHourImport(start: start, flows: EnergyFlows(solar: 9999, home: 9999)),
+        ], source: "plugin:Test")
+        record(metrics, clock, minutes: 10, ["plugin:Test:solar": 2000, "plugin:Test:home": 500])
+
+        // 69 minutes in 7 points: 10-minute steps, the last one starting at `start`.
+        let report = metrics.energy(from: start.addingTimeInterval(-3600), to: start.addingTimeInterval(540), points: 7, timeZone: utc)
+        #expect(report.step == 600)
+        let imported = report.power.filter(\.imported)
+        // The hour before: its six 10-minute steps, at the hour's average.
+        #expect(imported.count == 6)
+        #expect(imported.allSatisfy { $0.watts == [.solar: 1200, .home: 600] })
+        #expect(imported.first?.start == start.addingTimeInterval(-3600))
+        // `start`'s first step is the bridge's own; the import's figures for that hour do not replace it.
+        let own = report.power.filter { !$0.imported }
+        #expect(own.first?.start == start)
+        #expect(own.first?.watts == [.solar: 2000, .home: 500])
+        #expect(!report.power.contains { $0.watts[.solar] == 9999 && $0.start == start })
+        #expect(report.power.map(\.start) == report.power.map(\.start).sorted())
+    }
+
     @Test func daysEndAtMidnightInTheTimeZoneAsked() {
         // 23:50 to 00:10 in Paris (UTC+1 in January): ten minutes each side of midnight.
         // 2027-01-15 22:50:05 UTC as one literal: Linux's compiler times out type-checking the sum that makes it.

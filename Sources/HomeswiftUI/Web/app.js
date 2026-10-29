@@ -931,12 +931,12 @@
       if (path !== location.pathname + location.search) history.replaceState(null, "", path);
     }
     /// A chart drawn again with new points, made anew when its lines change (a device or a role appears).
-    function draw(chart, series, points, from, to, step, format) {
+    function draw(chart, series, points, from, to, step, format, latest = false) {
       const key = series.map((one) => one.label).join("\n");
       if (chart.view && chart.key === key) { chart.view.update(points, from, to, step); return; }
       chart.body.replaceChildren();
       chart.key = key;
-      chart.view = HomeswiftChart.lineChart(chart.body, { title: chart.title, series, format, unit: (max) => max >= 1000 ? 1000 : 1, points, from, to, step });
+      chart.view = HomeswiftChart.lineChart(chart.body, { title: chart.title, series, format, unit: (max) => max >= 1000 ? 1000 : 1, points, from, to, step, latest });
     }
     async function load() {
       clearTimeout(refresh);
@@ -962,8 +962,11 @@
       if (shown.length) {
         const points = report.power.map((point) => ({ ...point, time: point.t * 1000 }));
         draw(power, shown.map((role) => ({ label: role.label, tone: role.tone, value: (point) => point[role.id] ?? null })), points, from.getTime(), to.getTime(), step, formatWatts);
-        const last = points.at(-1);
-        power.detail.textContent = last ? t("Latest: {values}", { values: shown.filter((role) => last[role.id] != null).map((role) => `${role.label} ${formatWatts(last[role.id])}`).join(" · ") }) : "";
+        // The latest the bridge recorded; steps it recorded nothing in come from an imported hourly history, said so.
+        const last = points.findLast((point) => !point.imported);
+        const latest = last ? t("Latest: {values}", { values: shown.filter((role) => last[role.id] != null).map((role) => `${role.label} ${formatWatts(last[role.id])}`).join(" · ") }) : "";
+        const imported = points.some((point) => point.imported) ? t("Where the bridge recorded nothing, the line shows the imported hourly history.") : "";
+        power.detail.textContent = [latest, imported].filter(Boolean).join(" ");
       }
       levels.node.hidden = !report.levels.length;
       if (report.levels.length) {
@@ -977,8 +980,9 @@
         }
         const points = [...byTime.values()].sort((a, b) => a.time - b.time);
         draw(levels, report.levels.map((level, index) => ({ label: level.device, tone: levelTones[index % levelTones.length], value: (point) => point[level.series] ?? null })),
-          points, from.getTime(), to.getTime(), step, formatPercent);
-        levels.detail.textContent = report.levels.filter((level) => level.points.length).map((level) => `${level.device} ${formatPercent(level.points.at(-1)[1])}`).join(" · ");
+          points, from.getTime(), to.getTime(), step, formatPercent, true);
+        // Each device's level is in the legend, beside its name.
+        levels.detail.textContent = "";
       }
       lastReport = report;
       if (pointTable.open) fillPoints();
@@ -1091,22 +1095,36 @@
       // The period's totals, each labelled with its colour, over the bars; under them, why imported hours have their
       // home use not split.
       const sum = (field) => bars.filter(known).reduce((total, bar) => bar[field] == null ? total : (total ?? 0) + bar[field], null);
-      const solar = sum("solar"), home = sum("home"), fromSolar = sum("homeFromSolar"), imported = sum("gridImport"), exported = sum("gridExport");
-      // A key only for a colour the bars draw; the grid's figures, known for the days the bridge recorded only, say so
-      // when the period has imported days too.
-      const partly = bars.some((bar) => bar.importedHours);
+      const solar = sum("solar"), home = sum("home"), imported = sum("gridImport"), exported = sum("gridExport");
+      const charged = sum("batteryCharge"), discharged = sum("batteryDischarge");
+      // A key only for a colour the bars draw; the grid's figures say they cover the recorded days only when the period
+      // has imported days without them (an import of solar and home use alone).
+      const partly = bars.some((bar) => bar.importedHours && bar.gridImport == null && bar.gridExport == null);
       const total = (tone, label, value, note) => el("div", { class: "energy-total" },
         el("span", {}, tone ? el("i", { class: `key bar tone-${tone}`, "aria-hidden": "true" }) : null, label), el("b", { text: value }),
         note ? el("small", { text: note }) : null);
-      const totals = [
+      // The card's question answered first: the home's use, and the share of it each source covered, as a strip of the
+      // bars' colours with each share written beside its key (identity never by colour alone).
+      const shares = home > 0 ? [[4, t("Solar"), sum("homeFromSolar")], [3, t("Batteries"), sum("homeFromBattery")],
+        [7, t("Grid"), sum("homeFromGrid")], [8, t("Not split"), sum("homeNotSplit")]]
+        .filter(([, , value]) => value > 0).map(([tone, label, value]) => ({ tone, label, share: value / home * 100 })) : [];
+      const homeNode = home == null ? null : el("div", { class: "energy-home" },
+        total(null, t("Home used"), formatKWh(home)),
+        shares.length ? el("div", { class: "energy-share", role: "img", "aria-label": `${t("Home used")}: ${shares.map((one) => `${one.label} ${formatPercent(one.share)}`).join(", ")}` },
+          el("div", { class: "energy-share-bar", "aria-hidden": "true" }, shares.map((one) => el("i", { class: `tone-${one.tone}`, style: `flex-grow: ${one.share}` }))),
+          el("div", { class: "energy-share-keys", "aria-hidden": "true" }, shares.map((one) =>
+            el("span", {}, el("i", { class: `key bar tone-${one.tone}` }), one.label, el("b", { text: formatPercent(one.share) }))))) : null);
+      // Then where the energy flowed: produced, through the batteries, across the grid.
+      const flows = [
         solar != null ? total(4, t("Solar produced"), formatKWh(solar)) : null,
-        home != null ? total(null, t("Home used"), formatKWh(home)) : null,
-        home > 0 && fromSolar != null ? total(null, t("Home from solar"), formatPercent(fromSolar / home * 100)) : null,
+        charged != null ? total(3, t("Battery charged"), formatKWh(charged)) : null,
+        discharged != null ? total(3, t("Battery discharged"), formatKWh(discharged)) : null,
         imported != null ? total(7, t("Grid import"), formatKWh(imported), partly ? t("Recorded days only") : null) : null,
         exported != null ? total(7, t("Grid export"), formatKWh(exported), partly ? t("Recorded days only") : null) : null,
       ].filter(Boolean);
-      summary.replaceChildren(...(totals.length ? totals : [el("span", { class: "muted", text: t("Nothing recorded in this period") })]));
-      days.detail.replaceChildren(...[bars.some((bar) => bar.importedHours)
+      summary.replaceChildren(...(homeNode || flows.length ? [homeNode, flows.length ? el("div", { class: "energy-flows" }, flows) : null].filter(Boolean)
+        : [el("span", { class: "muted", text: t("Nothing recorded in this period") })]));
+      days.detail.replaceChildren(...[bars.some((bar) => bar.homeNotSplit > 0)
         ? el("div", { text: t("Imported hours have no grid or battery figures: the rest of their home use is not split by source.") }) : null].filter(Boolean));
 
       const columns = [
@@ -1184,18 +1202,22 @@
     const digits = kilo && Math.abs(value) < 10 ? (Number.isInteger(value) ? 0 : 1) : 0;
     return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} ${kilo ? "kW" : "W"}`;
   }
-  /// Kilowatt-hours, two decimals under 10; an axis's tick (with `top`) a whole number when it is one.
+  /// Kilowatt-hours: two decimals under 10, one under 100, whole from there (3,009 kWh, not 3,009.0); an axis's tick
+  /// (with `top`) a whole number when it is one.
   function formatKWh(kWh, top) {
-    const digits = top != null && Number.isInteger(kWh) ? 0 : Math.abs(kWh) < 10 ? 2 : 1;
+    const size = Math.abs(kWh);
+    const digits = (top != null && Number.isInteger(kWh)) || kWh === 0 ? 0 : size < 10 ? 2 : size < 100 ? 1 : 0;
     return `${kWh.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} kWh`;
   }
 
   /// Bytes as MB, or GB from 1 GB; `top`, the axis's highest, keeps a chart's ticks in one unit.
   const formatBytes = (bytes, top = bytes) => HomeswiftCommon.byteSize(bytes, top);
   function formatPercent(value) { return `${value > 0 && value < 10 ? value.toFixed(1) : Math.round(value)}%`; }
+  /// Milliseconds: one decimal under 10, two when the value has them (an axis's 0.25 and 0.75 ticks, not 0.3 and 0.8).
   function formatMilliseconds(ms) {
     if (ms >= 1000) return `${(ms / 1000).toFixed(ms >= 10000 ? 0 : 1)} s`;
-    return `${ms > 0 && ms < 10 ? ms.toFixed(1) : Math.round(ms)} ms`;
+    const hundredths = Math.abs(ms * 10 - Math.round(ms * 10)) > 1e-6;
+    return `${ms > 0 && ms < 10 ? ms.toFixed(hundredths ? 2 : 1) : Math.round(ms)} ms`;
   }
 
   function formatDuration(seconds) {
@@ -2477,14 +2499,18 @@
     const container = el("div", {});
     // Fields and layout groups shown only when their condition holds, re-checked as the form changes.
     const conditional = [];
-    const watch = (element, condition, index) => {
+    // `require`: the condition makes the field required (`x-schema-form.requiredWhen`) rather than shows it.
+    const watch = (element, condition, index, require = false) => {
       const test = schemaCondition(condition);
-      if (test && element) conditional.push({ element, test, index });
+      if (test && element) conditional.push({ element, test, index, require });
     };
 
     const field = (key, property, current, required, index) => {
       const made = makeField(key, property, current, required, index);
       watch(made.element, property.condition ?? property["x-schema-form"]?.condition, index);
+      // Required only while a condition holds (`x-schema-form.requiredWhen`, read as `condition`s are): a block whose
+      // settings depend on another (an account or keys, by the route chosen) marks the ones it needs now.
+      if (!required) watch(made.element, property["x-schema-form"]?.requiredWhen, index, true);
       return made;
     };
     /// A cron expression (`x-schema-form.type: "schedule"`, the scheduled restart) as a time and the days it runs on,
@@ -2532,7 +2558,8 @@
     const makeField = (key, property, current, required, index) => {
       const title = tr(property.title) || key;
       const help = property.description ? el("div", { class: "help", text: tr(property.description) }) : null;
-      const wrap = (control) => el("label", { class: "field" }, el("span", { class: "field-title" }, title, required ? el("span", { class: "muted", text: ` · ${t("required")}` }) : null), control, help);
+      const marked = required || property["x-schema-form"]?.requiredWhen !== undefined;
+      const wrap = (control) => el("label", { class: "field" }, el("span", { class: "field-title" }, title, marked ? el("span", { class: `muted required-mark${required ? "" : " hidden"}`, text: ` · ${t("required")}` }) : null), control, help);
       const type = property.type;
       if (property["x-schema-form"]?.type === "schedule") return scheduleField(wrap, current);
       const options = property.oneOf && property.oneOf.every((o) => Array.isArray(o.enum)) ? property.oneOf.map((o) => ({ value: o.enum[0], title: tr(o.title) ?? String(o.enum[0]) })) : property.enum ? property.enum.map((v) => ({ value: v, title: String(v) })) : null;
@@ -2678,7 +2705,7 @@
     const restKeys = Object.keys(properties).filter((key) => !fields.has(key));
     const rest = restKeys.map((key) => ({ key, element: render(key) })).filter((entry) => entry.element)
       // A field with a condition is shown in the main part while its condition holds, not under More options.
-      .map(({ key, element }) => ({ element, required: requiredTop.has(key) || properties[key].required === true || Boolean(properties[key].condition ?? properties[key]["x-schema-form"]?.condition), value: value[key] }));
+      .map(({ key, element }) => ({ element, required: requiredTop.has(key) || properties[key].required === true || Boolean(properties[key].condition ?? properties[key]["x-schema-form"]?.condition ?? properties[key]["x-schema-form"]?.requiredWhen), value: value[key] }));
     if (rest.length) {
       const split = splitFields(rest);
       container.append(el("div", { class: "fields" }, split.filter((node) => !node.classList?.contains("more-options"))),
@@ -2695,9 +2722,16 @@
     const applyConditions = () => {
       if (!conditional.length) return;
       const model = getValue();
-      for (const { element, test, index } of conditional) {
-        const shown = test(model, typeof index === "function" ? index() : index);
-        element.classList.toggle("hidden", !shown);
+      const holds = ({ test, index }) => test(model, typeof index === "function" ? index() : index);
+      for (const entry of conditional) if (!entry.require) entry.element.classList.toggle("hidden", !holds(entry));
+      // A field is required while its condition holds and it is on screen (its own and its group's conditions).
+      for (const entry of conditional) {
+        if (!entry.require) continue;
+        const { element } = entry;
+        const needed = holds(entry) && !element.closest(".hidden");
+        element.querySelector(".required-mark")?.classList.toggle("hidden", !needed);
+        const control = element.querySelector("input, select, textarea");
+        if (control) control.required = needed;
       }
     };
     container.addEventListener("input", applyConditions);
