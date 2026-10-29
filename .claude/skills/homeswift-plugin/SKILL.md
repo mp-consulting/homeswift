@@ -117,7 +117,9 @@ elsewhere (`controller.activateForTesting()`, through `@testable import Homeswif
 Fixtures recorded from a real device or the Homebridge plugin go in `Tests/Fixtures` (then
 `exclude: ["Fixtures"]` on the test target), with tokens and serial numbers replaced.
 
-Run the plugin's tests, then the whole suite once: `swift test --scratch-path ~/Library/Caches/homeswift-build`.
+Run the plugin's tests, then the whole suite once: `Scripts/test.sh --scratch-path ~/Library/Caches/homeswift-build`
+(every test target at once). A test waits for what it checks (`eventually`), not a fixed time, and a plugin's own
+delays (polls, retries, settle times) are dependencies the tests shorten, so the suite stays fast.
 
 ## 6. Check it on a bridge
 
