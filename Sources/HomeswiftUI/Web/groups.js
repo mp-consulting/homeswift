@@ -2,33 +2,17 @@
 (() => {
   const { el, api, menuButton } = HomeswiftCommon;
   const { t } = HomeswiftI18n;
-  const allowed = new Set(['Lightbulb', 'Switch', 'Outlet', 'Fan', 'Fanv2', 'WindowCovering']);
   const deviceTypes = [
     ['Lightbulb', 'bulb', t('Lights')], ['Switch', 'switch', t('Switches')],
     ['Outlet', 'outlet', t('Outlets')], ['Fan', 'fan', t('Fans')], ['WindowCovering', 'blind', t('Blinds')]
   ];
   const deviceType = (a) => deviceTypes.find(([type]) => a.services.some((s) => s.type === type || (type === 'Fan' && s.type === 'Fanv2'))) || ['', 'accessory', t('Accessories')];
+  // The order a group's controls are listed in.
   const types = ['On', 'Active', 'Brightness', 'Color Temperature', 'Hue', 'Saturation', 'Rotation Speed', 'Target Position'];
-  // The services a group drives: the accessory's primary one when it has one of these kinds (a Hue light's lightbulb,
-  // not its effect, Flash or gradient-point services), else every one of these kinds.
-  const groupable = (a) => {
-    const services = (a?.services || []).filter((s) => allowed.has(s.type));
-    const primary = services.find((s) => s.primary);
-    return primary ? [primary] : services;
-  };
-  const controls = (a) => {
-    const result = new Map();
-    for (const s of groupable(a)) {
-      for (const c of s.characteristics) if (types.includes(c.type) && c.permissions.includes('pw')) {
-        // A security control (a switch that unlocks a door) is never one tap among others.
-        if (c.security) return new Map();
-        // Ambiguous multi-service accessories are not grouped.
-        if (result.has(c.type)) return new Map();
-        result.set(c.type, { service: s.subtype || s.type, c });
-      }
-    }
-    return result;
-  };
+  // The services a group drives on an accessory: those with a characteristic the bridge marks `group`
+  // (HomeswiftCatalog.groupTargets: the primary service of a Hue light, not its effect switches; never a security control).
+  const groupable = (a) => (a?.services || []).filter((s) => s.characteristics?.some((c) => c.group));
+  const controls = (a) => new Map(groupable(a).flatMap((s) => s.characteristics.filter((c) => c.group).map((c) => [c.type, { service: s.subtype || s.type, c }])));
   const shared = (members) => types.filter((type) => members.length && members.every((a) => controls(a).has(type)));
   const compatible = (members) => shared(members).some((type) => ['On', 'Active', 'Target Position'].includes(type));
   // Follow the first visible member in saved member order, not the first wall on the page.
@@ -178,7 +162,7 @@
           }, 140);
           return;
         }
-        const dismiss = el('button', { type: 'button', class: 'group-feedback-close', 'aria-label': t('Dismiss'), title: t('Dismiss'), onclick: () => notify('') }, HomeswiftCommon.icon('close'));
+        const dismiss = el('button', { type: 'button', class: 'icon-button', 'aria-label': t('Dismiss'), title: t('Dismiss'), onclick: () => notify('') }, HomeswiftCommon.icon('close'));
         const again = retry ? el('button', { type: 'button', class: 'link group-feedback-retry', actionIcon: 'restore', text: t('Try again'), onclick: () => {
           again.disabled = true; again.setAttribute('aria-busy', 'true'); retry();
         } }) : null;

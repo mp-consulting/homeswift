@@ -4,6 +4,7 @@ import Homeswift
 import HomeswiftAI
 import HomeswiftNetwork
 import HomeswiftPlugin
+import NIOConcurrencyHelpers
 import Testing
 
 @testable import HomeswiftMCP
@@ -89,6 +90,20 @@ struct LayoutToolTests {
         #expect(try await reader.tool("set_accessory_layout", ["rooms": ["X"]])["isError"] == true)
     }
 
+    @Test func groupsDriveThePrimaryServiceOnly() {
+        // A Hue light: its lightbulb is primary; its effect switch and gradient point are not what a group drives.
+        let hue = Accessory(id: "hue", name: "Strip", category: .lightbulb, services: [
+            Service(.lightbulb, name: "Strip", optional: [.brightness, .hue], isPrimary: true),
+            Service(.switch, name: "Candle", subtype: "effect:candle"), Service(.lightbulb, name: "Point", subtype: "point:0"),
+        ])
+        #expect(HomeswiftCatalog.groupTargets(hue).map(\.type.name).sorted() == ["Brightness", "Hue", "On"])
+        // Two lightbulbs and no primary one: which would a group drive? Neither.
+        let twin = Accessory(id: "twin", name: "Twin", category: .lightbulb, services: [Service(.lightbulb, subtype: "a"), Service(.lightbulb, subtype: "b")])
+        #expect(HomeswiftCatalog.groupTargets(twin).isEmpty)
+        #expect(HomeswiftCatalog.canGroup([hue, Accessory(id: "plug", name: "Plug", category: .outlet, services: [Service(.outlet)])]))
+        #expect(!HomeswiftCatalog.canGroup([hue, twin]))
+    }
+
     @Test func wallIsArrangedRoomByRoom() async throws {
         let environment = try MCPTestEnvironment(config: """
             {
@@ -100,6 +115,10 @@ struct LayoutToolTests {
         defer { Task { await environment.stop() } }
         let client = DirectClient(server: environment.server)
         try await client.initialize()
+        // Every change to the rooms or the wall is told to whoever follows them (the web UI's event stream).
+        let changes = NIOLockedValueBox(0)
+        let observation = environment.catalog.home.observeLayout { changes.withLockedValue { $0 += 1 } }
+        defer { observation.cancel() }
         _ = try await client.tool("set_accessory_layout", ["accessories": [
             ["id": "Devices:lamp", "room": "Office"], ["id": "Devices:bulb1", "room": "Office"], ["id": "Devices:bulb2", "room": "Office"],
             ["id": "Devices:bulb3", "room": "Hall"], ["id": "Devices:lock", "room": "Hall"],
@@ -113,6 +132,7 @@ struct LayoutToolTests {
         // One room's ids sort that room; the other keeps its order (by plugin and name until one is chosen).
         let sorted = try await client.tool("set_wall_layout", ["grouping": "room", "order": ["Devices:bulb2", "Devices:lamp", "Devices:bulb1"]])
         #expect(sorted["isError"] != true)
+        #expect(changes.withLockedValue { $0 } == 2)
         #expect(sorted["structuredContent"]?["grouping"] == "room")
         #expect(sections(sorted) == ["Office": ["Devices:bulb2", "Devices:lamp", "Devices:bulb1"], "Hall": ["Devices:bulb3", "Devices:lock"]])
         _ = try await client.tool("set_wall_layout", ["order": ["Devices:lock", "Devices:bulb3"]])

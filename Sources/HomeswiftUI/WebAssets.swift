@@ -1815,6 +1815,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
     });
     stream.addEventListener("log", (event) => appendLogLine(JSON.parse(event.data)));
+    // The rooms or the wall changed elsewhere (the chat, an MCP client, another page): the Accessories page draws them
+    // again, once for a burst, unless it is being edited, a dialog is open over it, or the change is the page's own.
+    let layoutTimer = null;
+    stream.addEventListener("layout", () => {
+      clearTimeout(layoutTimer);
+      layoutTimer = setTimeout(() => {
+        if (location.pathname !== "/accessories" || document.querySelector(".wall.editing, dialog[open]") || Date.now() - HomeswiftCommon.lastChange() < 2000) return;
+        route();
+      }, 300);
+    });
     stream.addEventListener("asset", (event) => applyAsset(JSON.parse(event.data)));
   }
   /// Live web files (HOMESWIFT_WEB_ROOT): a stylesheet swaps in place, keeping what is open on the page; a
@@ -6580,13 +6590,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     if (historyOpen && event !== "snapshot") closeHistory();
     switch (event) {
     case "snapshot": setItems(data.items, data.running); if (data.usage) usage = data.usage; break;
-    case "item":
-      items[data.index] = data.item;
-      renderItem(data.index);
-      // The Assistant arranged the wall or the rooms: the Accessories page draws them again.
-      if (data.item.kind === "tool" && ["set_wall_layout", "set_accessory_layout"].includes(data.item.name)
-          && !["running", "failed", "declined"].includes(data.item.state) && location.pathname === "/accessories") window.HomeswiftApp?.route();
-      break;
+    case "item": items[data.index] = data.item; renderItem(data.index); break;
     case "delta": {
       const item = items[data.index];
       if (item) { item.text += data.text; scheduleText(data.index); }
@@ -7491,9 +7495,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       list.prepend(el("div", { class: "sheet-grabber", "aria-hidden": "true" }));
       dragToDismiss(list, { vertical: () => true, dismiss: () => close(true), handle: ".sheet-grabber" });
     }
-    // A modal dialog (an accessory's sheet) is in the top layer, over anything in the page: a menu opened from one goes
-    // in it, or it would open behind.
-    const host = trigger.closest("dialog[open]") ?? document.body;
+    const host = layerHost(trigger);
     if (scrim) host.append(scrim);
     host.append(list);
     if (!sheet) {
@@ -7604,7 +7606,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// The UI's API, with the session cookie: `body` is an object, sent as JSON; a refusal carries the server's
   /// message and its `status`, and a signed-out visitor goes to the sign-in page. `stream: true` answers the Response itself,
   /// for a body read as it arrives.
+  /// When this page last asked the bridge to change something: what it made itself, a change event shortly after
+  /// tells it nothing new.
+  let lastChange = 0;
   async function api(path, { method = "GET", body, stream = false } = {}) {
+    if (method !== "GET") lastChange = Date.now();
     // The Assistant answers in the page's language.
     const options = { method, credentials: "same-origin", headers: { "Accept-Language": window.HomeswiftI18n?.locale || "en" } };
     if (body !== undefined) { options.headers["Content-Type"] = "application/json"; options.body = JSON.stringify(body); }
@@ -7618,12 +7624,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return json;
   }
 
+  /// Where floating UI opened from `anchor` goes: the open modal dialog it is in (an accessory's sheet), which is in the
+  /// top layer over the rest of the page, else the page.
+  const layerHost = (anchor) => anchor?.closest?.("dialog[open]") ?? document.body;
+
   /// Puts `text` on the clipboard. The Clipboard API exists only over HTTPS or on localhost; a page on the
   /// network over plain HTTP copies through a hidden text field instead.
   async function copyText(text) {
     if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
     const field = el("textarea", { value: text, readOnly: true, style: "position:fixed;top:-1000px;opacity:0" });
-    document.body.append(field);
+    // Outside an open modal dialog the field is inert: it could not be selected.
+    layerHost(document.activeElement).append(field);
     field.select();
     const copied = document.execCommand("copy");
     field.remove();
@@ -8537,7 +8548,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           el("button", { type: "button", class: "primary", actionIcon: "eye", text: t("Show"), onclick: apply })));
       popover.addEventListener("keydown", (event) => { if (event.key === "Escape") { event.stopPropagation(); close(); customButton.focus(); } });
       render();
-      document.body.append(popover);
+      layerHost(anchor).append(popover);
       // Under the Custom segment, kept on screen, growing from it.
       const box = anchor.getBoundingClientRect(), width = popover.offsetWidth, height = popover.offsetHeight;
       const left = Math.min(Math.max(8, box.left + box.width / 2 - width / 2), innerWidth - width - 8);
@@ -8597,7 +8608,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     event.preventDefault();
     event.stopPropagation();
     filterTip = el("div", { class: "disabled-filter-tip", role: "status", popover: "manual", text: tap.control.title });
-    (tap.control.closest("dialog[open]") || document.body).append(filterTip);
+    layerHost(tap.control).append(filterTip);
     filterTip.showPopover();
     const rect = tap.control.getBoundingClientRect();
     const bounds = filterTip.getBoundingClientRect();
@@ -8687,7 +8698,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const promptDialog = (message, value = "") => messageDialog(message, { kind: "prompt", value });
 
   window.HomeswiftCommon = {
-    showAlert, confirmDialog, promptDialog, busyButton, scaledCanvas, byteSize,
+    showAlert, confirmDialog, promptDialog, busyButton, scaledCanvas, byteSize, layerHost, lastChange: () => lastChange,
     $, el, icon, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
@@ -8699,33 +8710,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 (() => {
   const { el, api, menuButton } = HomeswiftCommon;
   const { t } = HomeswiftI18n;
-  const allowed = new Set(['Lightbulb', 'Switch', 'Outlet', 'Fan', 'Fanv2', 'WindowCovering']);
   const deviceTypes = [
     ['Lightbulb', 'bulb', t('Lights')], ['Switch', 'switch', t('Switches')],
     ['Outlet', 'outlet', t('Outlets')], ['Fan', 'fan', t('Fans')], ['WindowCovering', 'blind', t('Blinds')]
   ];
   const deviceType = (a) => deviceTypes.find(([type]) => a.services.some((s) => s.type === type || (type === 'Fan' && s.type === 'Fanv2'))) || ['', 'accessory', t('Accessories')];
+  // The order a group's controls are listed in.
   const types = ['On', 'Active', 'Brightness', 'Color Temperature', 'Hue', 'Saturation', 'Rotation Speed', 'Target Position'];
-  // The services a group drives: the accessory's primary one when it has one of these kinds (a Hue light's lightbulb,
-  // not its effect, Flash or gradient-point services), else every one of these kinds.
-  const groupable = (a) => {
-    const services = (a?.services || []).filter((s) => allowed.has(s.type));
-    const primary = services.find((s) => s.primary);
-    return primary ? [primary] : services;
-  };
-  const controls = (a) => {
-    const result = new Map();
-    for (const s of groupable(a)) {
-      for (const c of s.characteristics) if (types.includes(c.type) && c.permissions.includes('pw')) {
-        // A security control (a switch that unlocks a door) is never one tap among others.
-        if (c.security) return new Map();
-        // Ambiguous multi-service accessories are not grouped.
-        if (result.has(c.type)) return new Map();
-        result.set(c.type, { service: s.subtype || s.type, c });
-      }
-    }
-    return result;
-  };
+  // The services a group drives on an accessory: those with a characteristic the bridge marks `group`
+  // (HomeswiftCatalog.groupTargets: the primary service of a Hue light, not its effect switches; never a security control).
+  const groupable = (a) => (a?.services || []).filter((s) => s.characteristics?.some((c) => c.group));
+  const controls = (a) => new Map(groupable(a).flatMap((s) => s.characteristics.filter((c) => c.group).map((c) => [c.type, { service: s.subtype || s.type, c }])));
   const shared = (members) => types.filter((type) => members.length && members.every((a) => controls(a).has(type)));
   const compatible = (members) => shared(members).some((type) => ['On', 'Active', 'Target Position'].includes(type));
   // Follow the first visible member in saved member order, not the first wall on the page.
@@ -8875,7 +8870,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           }, 140);
           return;
         }
-        const dismiss = el('button', { type: 'button', class: 'group-feedback-close', 'aria-label': t('Dismiss'), title: t('Dismiss'), onclick: () => notify('') }, HomeswiftCommon.icon('close'));
+        const dismiss = el('button', { type: 'button', class: 'icon-button', 'aria-label': t('Dismiss'), title: t('Dismiss'), onclick: () => notify('') }, HomeswiftCommon.icon('close'));
         const again = retry ? el('button', { type: 'button', class: 'link group-feedback-retry', actionIcon: 'restore', text: t('Try again'), onclick: () => {
           again.disabled = true; again.setAttribute('aria-busy', 'true'); retry();
         } }) : null;
@@ -22157,26 +22152,30 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 .group-controls .group-name { display: grid; gap: 1px; }
 .group-controls .group-count { color: var(--muted); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
 .group-controls > .level { width: 100%; }
-/* What a group could not change: a tinted callout, its icon, words and close button on a row, Try again under the words. */
+/* What a group could not change: a callout over the whole widget, on frosted glass tinted with the error colour, its
+   icon, words and close button on a row, Try again under the words. It scrolls when long. Dismiss, or Try again once
+   it works, gives the controls back; it stays out of the way in Edit. */
 .group-feedback {
-  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: var(--space-8); row-gap: var(--space-4); align-items: start;
-  margin: var(--space-10) 0 0; padding: var(--space-8) var(--space-4) var(--space-8) var(--space-10);
-  border-radius: var(--radius-md); font-size: var(--text-sm); color: var(--text);
-  background: color-mix(in srgb, var(--error) 9%, transparent); border: 1px solid color-mix(in srgb, var(--error) 26%, transparent);
+  --callout-tint: color-mix(in srgb, var(--error) 10%, transparent);
+  position: absolute; inset: 0; z-index: 4; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: var(--space-8); row-gap: var(--space-4);
+  align-items: start; align-content: safe center; padding: var(--space-14) var(--space-8) var(--space-14) var(--space-14); border-radius: inherit;
+  overflow-y: auto; overscroll-behavior: contain; font-size: var(--text-base); color: var(--text);
+  background: linear-gradient(var(--callout-tint) 0 0), var(--material-thick); -webkit-backdrop-filter: blur(var(--blur)); backdrop-filter: blur(var(--blur));
   animation: materialize var(--normal) var(--ease-out);
 }
-.group-feedback:empty { display: none; }
+.group-feedback:empty, .wall.editing .group-feedback { display: none; }
 .group-feedback > svg { grid-column: 1; grid-row: 1; width: 18px; height: 18px; margin-top: 1px; fill: none; stroke: var(--error); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .group-feedback-text { grid-column: 2; grid-row: 1; display: grid; gap: 2px; }
 .group-feedback-text strong { font-weight: var(--weight-semibold); overflow-wrap: anywhere; }
 .group-feedback-text span { color: var(--muted); font-size: var(--text-xs); overflow-wrap: anywhere; }
 .group-feedback-retry { grid-column: 2; grid-row: 2; justify-self: start; margin-left: calc(-1 * var(--space-6)); font-size: var(--text-sm); white-space: nowrap; }
-.group-feedback-close { grid-column: 3; grid-row: 1; width: 26px; height: 26px; margin-top: -4px; padding: 0; display: grid; place-items: center; border-radius: 50%; background: none; border: 0; color: var(--muted); box-shadow: none; }
-@media (hover: hover) and (pointer: fine) { .group-feedback-close:hover { background: color-mix(in srgb, var(--error) 12%, transparent); color: var(--text); } }
-.group-feedback-close:active { background: color-mix(in srgb, var(--error) 16%, transparent); }
+.group-feedback .icon-button { grid-column: 3; grid-row: 1; width: 26px; height: 26px; margin-top: -4px; background: none; border: 0; box-shadow: none; color: var(--muted); }
+.group-feedback .icon-button svg { width: 14px; height: 14px; }
+@media (hover: hover) and (pointer: fine) { .group-feedback .icon-button:hover { background: var(--callout-tint); color: var(--text); } }
+.group-feedback .icon-button:active { background: var(--callout-tint); }
 /* A thumb's reach: the same look, a 40-pixel target. */
 @media (pointer: coarse) {
-  .group-feedback-close { width: 40px; height: 40px; margin: -10px -6px -10px 0; }
+  .group-feedback .icon-button { width: 40px; height: 40px; margin: -10px -6px -10px 0; }
   .group-feedback-retry { min-height: 40px; }
 }
 .group-feedback.closing { animation: menu-out 140ms var(--ease-out) forwards; pointer-events: none; }
@@ -22184,20 +22183,10 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
   .group-feedback { animation: fade var(--normal) ease; }
   .group-feedback.closing { animation: fade 140ms ease reverse forwards; }
 }
-.group-feedback-close svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
-/* On the wall the callout takes the whole widget, over its controls, on frosted glass; it scrolls when long. Dismiss, or
-   Try again once it works, gives the controls back. */
-.wall .accessory-group .group-feedback:not(:empty) {
-  position: absolute; inset: 0; z-index: 4; margin: 0; padding: var(--space-14) var(--space-8) var(--space-14) var(--space-14);
-  align-content: safe center; overflow-y: auto; overscroll-behavior: contain; border-radius: inherit; border: 0;
-  background: linear-gradient(color-mix(in srgb, var(--error) 10%, transparent), color-mix(in srgb, var(--error) 10%, transparent)), var(--material-thick);
-  -webkit-backdrop-filter: blur(var(--blur)); backdrop-filter: blur(var(--blur));
-}
-.wall .accessory-group .group-feedback-text strong { font-size: var(--text-base); }
-.wall .accessory-group.size-medium .group-feedback:not(:empty) { padding: var(--space-10) var(--space-4) var(--space-10) var(--space-10); }
-.wall .accessory-group.size-medium .group-feedback-text strong { font-size: var(--text-sm); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
-.wall .accessory-group.size-medium .group-feedback-text span { display: none; }
-.wall.editing .accessory-group .group-feedback { display: none; }
+/* A medium group: the names, clamped, without the reasons. */
+.size-medium > .group-feedback { padding: var(--space-10) var(--space-4) var(--space-10) var(--space-10); }
+.size-medium > .group-feedback strong { font-size: var(--text-sm); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+.size-medium > .group-feedback span { display: none; }
 .wall .widget.group-drop-target { outline: 3px solid var(--accent); outline-offset: 3px; }
 .wall .widget.group-drop-target::after { content: "+"; position: absolute; inset: 35% 40%; border-radius: 50%; background: var(--accent); color: white; display: grid; place-items: center; font-size: 32px; pointer-events: none; }
 .accessory-group-dialog { width: min(940px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); padding: var(--space-24); border-radius: var(--radius); border: 1px solid var(--edge); background: var(--material-solid); box-shadow: 0 24px 80px rgba(0,0,0,.25); }
@@ -22625,7 +22614,6 @@ select option:disabled { color: var(--muted); }
 .accessory-group.size-medium .level-label, .accessory-group.size-medium .level-text { font-size: .625rem; }
 .accessory-group.size-medium .level-label { left: 7px; max-width: 58%; overflow: hidden; white-space: nowrap; }
 .accessory-group.size-medium .level-text { right: 7px; }
-.accessory-group.size-medium .group-feedback:empty { display: none; }
 /* Scale the complete switch, including its minimum width and thumb travel. */
 .accessory-group.size-medium .group-controls input[type="checkbox"] { width: 36px; min-width: 36px; height: 22px; border-radius: var(--radius-pill); }
 .accessory-group.size-medium .group-controls input[type="checkbox"]::before { width: 16px; height: 16px; left: 2px; top: 2px; }

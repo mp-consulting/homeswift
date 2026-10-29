@@ -429,6 +429,16 @@
       }
     });
     stream.addEventListener("log", (event) => appendLogLine(JSON.parse(event.data)));
+    // The rooms or the wall changed elsewhere (the chat, an MCP client, another page): the Accessories page draws them
+    // again, once for a burst, unless it is being edited, a dialog is open over it, or the change is the page's own.
+    let layoutTimer = null;
+    stream.addEventListener("layout", () => {
+      clearTimeout(layoutTimer);
+      layoutTimer = setTimeout(() => {
+        if (location.pathname !== "/accessories" || document.querySelector(".wall.editing, dialog[open]") || Date.now() - HomeswiftCommon.lastChange() < 2000) return;
+        route();
+      }, 300);
+    });
     stream.addEventListener("asset", (event) => applyAsset(JSON.parse(event.data)));
   }
   /// Live web files (HOMESWIFT_WEB_ROOT): a stylesheet swaps in place, keeping what is open on the page; a

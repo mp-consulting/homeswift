@@ -12,7 +12,8 @@ All notable changes to this project are documented here. The format follows
   read and change its order, each accessory's size, the default size of each kind of widget and the grouping. An
   `order` of some ids puts them in the places they hold together, so one room is sorted without moving the others.
   It groups accessories that go together (a room's lights, its blinds) into one widget, changes and dissolves groups.
-  The Accessories page draws the wall again when the chat changes it or its rooms.
+  An open Accessories page draws the wall again when it or the rooms change, from the chat, an MCP client or another
+  page (a `layout` event on `/api/events`).
 - `publicURL` in the HomeswiftUI block: the MCP connector on a path of a host name other servers share behind one
   tunnel (`https://mcp.example.com/homeswift`). Requests for that host name under that path, and the OAuth discovery
   documents for it, are answered as `/mcp`, `/oauth` and the sign-in page, whose files and API calls stay under the

@@ -256,9 +256,11 @@ public struct HomeswiftCatalog: Sendable {
             if let room = located.room { json.field("room", .string(room)) }
             json.field("serialNumber", Self.json(information[.serialNumber]?.value ?? .null))
             json.key("services")
+            // What an accessory group on the page drives (`groupTargets`): only a detailed answer lists characteristics.
+            let grouped = detailed ? Set(groupTargets(accessory).map(ObjectIdentifier.init)) : []
             json.array { json in
                 for service in accessory.services where service.type.uuid != ServiceType.accessoryInformation.uuid {
-                    writeService(service, detailed: detailed, to: &json)
+                    writeService(service, detailed: detailed, grouped: grouped, to: &json)
                 }
             }
             json.field("supportsIdentify", .bool(accessory.supportsIdentify))
@@ -267,13 +269,13 @@ public struct HomeswiftCatalog: Sendable {
         }
     }
 
-    private static func writeService<Builder: JSONBuilding>(_ service: Service, detailed: Bool, to json: inout Builder) {
+    private static func writeService<Builder: JSONBuilding>(_ service: Service, detailed: Bool, grouped: Set<ObjectIdentifier>, to json: inout Builder) {
         json.object { json in
             if let controller = service.adaptiveLighting { json.field("adaptiveLighting", adaptiveLightingJSON(controller)) }
             if detailed {
                 json.key("characteristics")
                 json.array { json in
-                    for characteristic in service.characteristics { writeCharacteristic(characteristic, to: &json) }
+                    for characteristic in service.characteristics { writeCharacteristic(characteristic, group: grouped.contains(ObjectIdentifier(characteristic)), to: &json) }
                 }
             }
             if isInternal(service) { json.field("internal", true) }
@@ -289,7 +291,7 @@ public struct HomeswiftCatalog: Sendable {
         }
     }
 
-    private static func writeCharacteristic<Builder: JSONBuilding>(_ characteristic: Characteristic, to json: inout Builder) {
+    private static func writeCharacteristic<Builder: JSONBuilding>(_ characteristic: Characteristic, group: Bool, to json: inout Builder) {
         let type = characteristic.type
         json.object { json in
             if isOpaque(characteristic), !characteristic.isConfidential, let base64 = characteristic.value.stringValue {
@@ -298,6 +300,7 @@ public struct HomeswiftCatalog: Sendable {
             }
             if characteristic.isConfidential { json.field("confidential", true) }
             json.field("format", .string(type.format.rawValue))
+            if group { json.field("group", true) }
             if isInternal(characteristic) { json.field("internal", true) }
             if let maximum = type.maxValue { json.field("maxValue", .number(maximum)) }
             if let step = type.minStep { json.field("minStep", .number(step)) }

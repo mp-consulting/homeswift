@@ -12,23 +12,35 @@ import NIOConcurrencyHelpers
 public final class WallLayout: Sendable {
     static let sizes: Set<String> = ["small", "medium", "large", "xlarge"]
     static let groupings: Set<String> = ["plugin", "room", "none"]
-    /// The kinds of widget (widgets.js's `kindOf`) and each one's own size: what `defaults` are by.
+    /// The kinds of widget (widgets.js's `kindOf`, the `name` of each widget there) and each one's own size: what
+    /// `defaults` are by. A kind added there is added here.
     static let kinds: KeyValuePairs<String, String> = [
         "climate": "xlarge", "air-purifier": "xlarge", "television": "xlarge", "camera": "large", "light": "medium (small without colour)",
         "fan": "medium", "switch-group": "medium", "garage-door": "medium", "lock": "medium", "security-system": "medium", "valve": "medium",
         "toggle": "small", "cover": "small", "sensor": "small", "battery": "small", "remote": "small", "inspector": "small",
     ]
+    static let kindNames = Set(kinds.map(\.key))
     /// Far more than a bridge has: what keeps a page from filling the disk.
     static let maximumAccessories = 5000
 
     public let url: URL
-    private let lock = NIOLock()
+    /// The layout as kept, once read: every change goes through `update`.
+    private let state = NIOLockedValueBox<JSONValue?>(nil)
+    private let onChange: @Sendable () -> Void
 
-    public init(url: URL) { self.url = url }
+    public init(url: URL, onChange: @escaping @Sendable () -> Void = {}) {
+        self.url = url
+        self.onChange = onChange
+    }
 
     /// The layout kept, or an empty one.
     public func load() -> JSONValue {
-        lock.withLock { read() }
+        state.withLockedValue { current in
+            if let current { return current }
+            let loaded = read()
+            current = loaded
+            return loaded
+        }
     }
 
     /// Keeps `body` once checked; answers what was kept.
@@ -39,11 +51,14 @@ public final class WallLayout: Sendable {
     /// Changes the layout kept: `change` gets it and answers the new one, which is checked and kept, both under the lock.
     @discardableResult
     func update(_ change: (JSONValue) throws -> JSONValue) throws -> JSONValue {
-        try lock.withLock {
-            let layout = try Self.checked(change(read()))
+        let layout = try state.withLockedValue { current in
+            let layout = try Self.checked(change(current ?? read()))
             try OwnerOnlyFile.write(Data(layout.text(pretty: true).utf8), to: url)
+            current = layout
             return layout
         }
+        onChange()
+        return layout
     }
 
     private func read() -> JSONValue {
@@ -80,16 +95,14 @@ public final class WallLayout: Sendable {
         guard groupings.contains(grouping) else { throw Invalid(description: "grouping is plugin, room or none") }
         var groups: [JSONValue] = [], groupIDs = Set<String>(), members = Set<String>()
         if let value = object["groups"], value.arrayValue == nil { throw Invalid(description: "groups must be an array") }
-        for group in object["groups"]?.arrayValue ?? [] {
-            guard let id = group["id"]?.stringValue, id.hasPrefix("group:"), isID(id), groupIDs.insert(id).inserted,
-                  let name = group["name"]?.stringValue, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, name.count <= 64,
-                  let ids = group["members"]?.arrayValue, ids.count >= 2, ids.count <= 100 else { throw Invalid(description: "invalid accessory group") }
-            var checkedMembers: [JSONValue] = []
-            for value in ids {
-                guard let member = value.stringValue, isID(member), !member.hasPrefix("group:"), members.insert(member).inserted else { throw Invalid(description: "an accessory belongs to only one group") }
-                checkedMembers.append(.string(member))
+        for value in object["groups"]?.arrayValue ?? [] {
+            guard let group = WallGroup(value), group.id.hasPrefix("group:"), isID(group.id), groupIDs.insert(group.id).inserted else { throw Invalid(description: "invalid accessory group") }
+            guard !group.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, group.name.count <= 64 else { throw Invalid(description: "a group's name is 1 to 64 characters") }
+            guard (2...100).contains(group.members.count) else { throw Invalid(description: "a group has 2 to 100 accessories") }
+            for member in group.members {
+                guard isID(member), !member.hasPrefix("group:"), members.insert(member).inserted else { throw Invalid(description: "an accessory belongs to only one group") }
             }
-            groups.append(["id": .string(id), "name": .string(name), "members": .array(checkedMembers)])
+            groups.append(group.json)
         }
         guard groups.count <= 100 else { throw Invalid(description: "too many groups") }
         var result: [String: JSONValue] = ["order": .array(order), "sizes": .object(sizes), "defaults": .object(defaults), "grouping": .string(grouping)]
@@ -98,50 +111,120 @@ public final class WallLayout: Sendable {
     }
 }
 
+/// An accessory group on the wall: one widget whose controls drive its members.
+struct WallGroup {
+    var id: String
+    var name: String
+    var members: [String]
+
+    init(id: String, name: String, members: [String]) {
+        (self.id, self.name, self.members) = (id, name, members)
+    }
+
+    init?(_ json: JSONValue) {
+        guard let id = json["id"]?.stringValue, let name = json["name"]?.stringValue, let members = json["members"]?.arrayValue else { return nil }
+        let ids = members.compactMap(\.stringValue)
+        guard ids.count == members.count else { return nil }
+        self.init(id: id, name: name, members: ids)
+    }
+
+    var json: JSONValue { ["id": .string(id), "name": .string(name), "members": .array(members.map(JSONValue.string))] }
+}
+
+/// A change to the wall in the making: every widget in its place (the running accessories the saved order does not
+/// list yet included, in the place the page gives them) and the groups. `WallLayout.checked` checks the result.
+private struct WallEdit {
+    var order: [String]
+    var groups: [WallGroup]
+
+    init(_ layout: JSONValue, running: [HomeswiftCatalog.Located]) {
+        let saved = layout["order"]?.arrayValue?.compactMap(\.stringValue) ?? []
+        let placed = HomeswiftCatalog.wallOrder(running, saved: saved).map(\.accessory.id)
+        let listed = Set(placed)
+        order = placed + saved.filter { !listed.contains($0) }
+        groups = (layout["groups"]?.arrayValue ?? []).compactMap(WallGroup.init)
+    }
+
+    func index(of id: String) -> Int? { groups.firstIndex { $0.id == id } }
+
+    mutating func remove(_ ids: Set<String>) {
+        groups.removeAll { ids.contains($0.id) }
+        order.removeAll { ids.contains($0) }
+    }
+
+    /// Makes a group (no id) or changes one. Its members leave the other groups; one left with fewer than two is
+    /// dissolved. A new group takes the place of its first member.
+    mutating func group(id existing: String?, name: String, members: [String]) throws {
+        if let existing, index(of: existing) == nil { throw CatalogError("No group with id \(existing)") }
+        let id = existing ?? "group:\(UUID().uuidString.lowercased())"
+        let joining = Set(members)
+        for index in groups.indices where groups[index].id != id { groups[index].members.removeAll(where: joining.contains) }
+        remove(Set(groups.filter { $0.members.count < 2 }.map(\.id)))
+        let group = WallGroup(id: id, name: name, members: members)
+        if let index = index(of: id) {
+            groups[index] = group
+        } else {
+            groups.append(group)
+            order.insert(id, at: order.firstIndex(where: joining.contains) ?? order.endIndex)
+        }
+    }
+
+    /// Puts `ids` in that order in the places they hold together; one with no place yet goes at the end.
+    mutating func reorder(_ ids: [String]) {
+        var wanted = Set<String>()
+        let ids = ids.filter { wanted.insert($0).inserted }
+        let placed = Set(order)
+        order += ids.filter { !placed.contains($0) }
+        let slots = order.indices.filter { wanted.contains(order[$0]) }
+        for (slot, id) in zip(slots, ids) { order[slot] = id }
+    }
+}
+
 extension HomeswiftCatalog {
-    /// The services an accessory group drives (groups.js): lights, switches, outlets, fans and blinds.
+    /// The services an accessory group drives: lights, switches, outlets, fans and blinds.
     static let groupServices: Set<String> = ["Lightbulb", "Switch", "Outlet", "Fan", "Fanv2", "WindowCovering"]
     static let groupCharacteristics: Set<String> = ["On", "Active", "Brightness", "Color Temperature", "Hue", "Saturation", "Rotation Speed", "Target Position"]
 
-    /// The controls a group can send to `accessory`, as groups.js finds them: those of its primary service when that is
-    /// one a group drives, else of every such service; none when two services share one (which would it be?), or
-    /// when one is a security control.
-    static func groupControls(_ accessory: Accessory) -> Set<String> {
+    /// The characteristics a group drives on `accessory`, which `/api/accessories` marks `group` for the page: those of
+    /// its primary service when that is one a group drives, else of every such service; none when two services share
+    /// one (which would it be?) or when one is a security control (a switch that unlocks a door is never one tap among
+    /// others).
+    static func groupTargets(_ accessory: Accessory) -> [Characteristic] {
         let services = accessory.services.filter { groupServices.contains($0.type.name) }
-        var controls = Set<String>()
+        var targets: [Characteristic] = [], names = Set<String>()
         for service in services.first(where: \.isPrimary).map({ [$0] }) ?? services {
             for characteristic in service.characteristics
             where groupCharacteristics.contains(characteristic.type.name) && characteristic.type.permissions.contains(.pairedWrite) {
-                // A switch that unlocks a door (a security control) is never one tap among others.
-                guard !characteristic.isSecurityControl, controls.insert(characteristic.type.name).inserted else { return [] }
+                guard !characteristic.isSecurityControl, names.insert(characteristic.type.name).inserted else { return [] }
+                targets.append(characteristic)
             }
         }
-        return controls
+        return targets
     }
 
     /// Whether these accessories make a group: what they share turns them on or off, or moves them.
     static func canGroup(_ accessories: [Accessory]) -> Bool {
-        guard let first = accessories.first else { return false }
-        let shared = accessories.dropFirst().reduce(groupControls(first)) { $0.intersection(groupControls($1)) }
-        return !shared.isDisjoint(with: ["On", "Active", "Target Position"])
+        let controls = accessories.map { Set(groupTargets($0).map(\.type.name)) }
+        guard let first = controls.first else { return false }
+        return !controls.dropFirst().reduce(first) { $0.intersection($1) }.isDisjoint(with: ["On", "Active", "Target Position"])
     }
+
+    /// A plugin's place among plugins: by name, those of no plugin last.
+    static func pluginKey(_ name: String) -> (Int, String) { (name.isEmpty ? 1 : 0, name) }
 
     /// The wall as the Accessories page draws it: `grouping`, `defaults`, and `sections` in their order (the rooms, then
     /// no room, when grouped by room; the plugins when grouped by plugin; one otherwise), each with its widgets in
     /// their order: an accessory (id, name, room, plugin, services, the size given to it, `groupable`) or a group
     /// (id, name, `members`), in the section of its first member, where its members' widgets give way to it. Hidden
-    /// accessories are left out, as on the page.
-    public func wallJSON() -> JSONValue {
-        let layout = home.wall.load()
+    /// accessories are left out, as on the page. `layout` and `all` are the wall and the accessories when the caller has them.
+    public func wallJSON(layout: JSONValue? = nil, all: [Located]? = nil) -> JSONValue {
+        let layout = layout ?? home.wall.load()
         let order = layout["order"]?.arrayValue?.compactMap(\.stringValue) ?? []
         let sizes = layout["sizes"]?.objectValue ?? [:]
         let grouping = layout["grouping"]?.stringValue ?? "none"
-        let shown = located().filter { $0.layout?.hidden != true }
+        let shown = (all ?? located()).filter { $0.layout?.hidden != true }
         let rank = Self.wallRanks(shown, saved: order)
-        let groups = (layout["groups"]?.arrayValue ?? []).compactMap { group -> (id: String, name: String, members: [String])? in
-            guard let id = group["id"]?.stringValue, let name = group["name"]?.stringValue else { return nil }
-            return (id, name, group["members"]?.arrayValue?.compactMap(\.stringValue) ?? [])
-        }
+        let groups = (layout["groups"]?.arrayValue ?? []).compactMap(WallGroup.init)
         let grouped = Set(groups.flatMap(\.members))
         let byID = Dictionary(shown.map { ($0.accessory.id, $0) }, uniquingKeysWith: { first, _ in first })
         func entry(_ located: Located) -> JSONValue {
@@ -165,7 +248,7 @@ extension HomeswiftCatalog {
             names = rooms + [""]
         case "plugin":
             section = { $0.platform?.name ?? "" }
-            names = Set(shown.map(section)).sorted { ($0.isEmpty ? 1 : 0, $0) < ($1.isEmpty ? 1 : 0, $1) }
+            names = Set(shown.map(section)).sorted { Self.pluginKey($0) < Self.pluginKey($1) }
         default:
             section = { _ in "" }
             names = [""]
@@ -174,9 +257,10 @@ extension HomeswiftCatalog {
         var widgets: [(section: String, rank: Int, json: JSONValue)] = shown.filter { !grouped.contains($0.accessory.id) }.map { located in
             (section(located), rank[located.accessory.id] ?? 0, entry(located))
         }
+        let position = Dictionary(order.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         for group in groups {
             guard let first = group.members.lazy.compactMap({ byID[$0] }).first else { continue }
-            widgets.append((section(first), order.firstIndex(of: group.id) ?? -1, ["id": .string(group.id), "name": .string(group.name), "members": .array(group.members.map(JSONValue.string))]))
+            widgets.append((section(first), position[group.id] ?? -1, group.json))
         }
         let bySection = Dictionary(grouping: widgets, by: \.section)
         return [
@@ -193,7 +277,7 @@ extension HomeswiftCatalog {
         let rank = Dictionary(saved.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         let byPlugin = all.sorted { a, b in
             let (pa, pb) = (a.platform?.name ?? "", b.platform?.name ?? "")
-            return pa == pb ? a.accessory.name.localizedCompare(b.accessory.name) == .orderedAscending : (pa.isEmpty ? 1 : 0, pa) < (pb.isEmpty ? 1 : 0, pb)
+            return pa == pb ? a.accessory.name.localizedCompare(b.accessory.name) == .orderedAscending : pluginKey(pa) < pluginKey(pb)
         }
         return Dictionary(byPlugin.enumerated().map { ($1.accessory.id, rank[$1.accessory.id] ?? saved.count + $0) }, uniquingKeysWith: { first, _ in first })
     }
@@ -204,6 +288,16 @@ extension HomeswiftCatalog {
         return all.sorted { rank[$0.accessory.id] ?? 0 < rank[$1.accessory.id] ?? 0 }
     }
 
+    /// `changes` merged into `current`: a value sets its key (once `check` takes it), null removes it.
+    static func merged(_ current: JSONValue?, _ changes: [String: JSONValue], check: (String) throws -> Void) rethrows -> JSONValue {
+        var merged = current?.objectValue ?? [:]
+        for (key, value) in changes {
+            try check(key)
+            if value.isNull { merged.removeValue(forKey: key) } else { merged[key] = value }
+        }
+        return .object(merged)
+    }
+
     /// Changes the wall. `body` may hold `groups`, groups to make (no id) or change (an existing id), each a name and
     /// the accessories it controls together, which leave any other group; `ungroup`, group ids to dissolve; `order`,
     /// accessory and group ids in the order to show them, placed in the places they hold together now (so one room's
@@ -212,32 +306,19 @@ extension HomeswiftCatalog {
     public func updateWall(_ body: JSONValue) throws -> JSONValue {
         let all = located()
         let byID = Dictionary(all.map { ($0.accessory.id, $0.accessory) }, uniquingKeysWith: { first, _ in first })
+        let layout: JSONValue
         do {
-            try home.wall.update { current in
-                guard var layout = current.objectValue else { return current }
-                var saved = layout["order"]?.arrayValue?.compactMap(\.stringValue) ?? []
-                var groups = layout["groups"]?.arrayValue ?? []
-                /// Every widget in its place now: the running accessories the order does not list yet included, then
-                /// what it keeps for accessories not running and groups.
-                func fullOrder() -> [String] {
-                    let running = Self.wallOrder(all, saved: saved).map(\.accessory.id)
-                    let listed = Set(running)
-                    return running + saved.filter { !listed.contains($0) }
-                }
-                func removeGroups(_ ids: Set<String>) {
-                    groups.removeAll { ids.contains($0["id"]?.stringValue ?? "") }
-                    saved.removeAll { ids.contains($0) }
-                }
+            layout = try home.wall.update { current in
+                guard var object = current.objectValue else { return current }
+                var edit = WallEdit(current, running: all)
                 for id in body["ungroup"]?.arrayValue?.compactMap(\.stringValue) ?? [] {
-                    guard groups.contains(where: { $0["id"]?.stringValue == id }) else { throw CatalogError("No group with id \(id)") }
-                    removeGroups([id])
+                    guard edit.index(of: id) != nil else { throw CatalogError("No group with id \(id)") }
+                    edit.remove([id])
                 }
                 var claimed = Set<String>()
                 for change in body["groups"]?.arrayValue ?? [] {
                     let members = change["members"]?.arrayValue?.compactMap(\.stringValue) ?? []
                     let name = change["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                    guard !name.isEmpty, name.count <= 64 else { throw CatalogError("A group needs a name of 1 to 64 characters") }
-                    guard Set(members).count == members.count, members.count >= 2 else { throw CatalogError("The group \(name) needs two different accessories or more") }
                     let accessories = try members.map { id in
                         guard let accessory = byID[id] else { throw CatalogError("No accessory with id \(id)") }
                         return accessory
@@ -247,74 +328,32 @@ extension HomeswiftCatalog {
                     guard Self.canGroup(accessories) else {
                         throw CatalogError("The group \(name) has no control its members share: a group turns lights, switches, outlets or fans on and off, or moves blinds")
                     }
-                    let existing = change["id"]?.stringValue
-                    if let existing, !groups.contains(where: { $0["id"]?.stringValue == existing }) { throw CatalogError("No group with id \(existing)") }
-                    let id = existing ?? "group:\(UUID().uuidString.lowercased())"
-                    // Its members leave the other groups; one left with fewer than two is dissolved.
-                    var emptied = Set<String>()
-                    groups = groups.compactMap { group in
-                        guard let other = group["id"]?.stringValue, other != id, var object = group.objectValue else { return group }
-                        let left = (group["members"]?.arrayValue ?? []).filter { !members.contains($0.stringValue ?? "") }
-                        guard left.count >= 2 else { emptied.insert(other); return nil }
-                        object["members"] = .array(left)
-                        return .object(object)
-                    }
-                    removeGroups(emptied)
-                    let group: JSONValue = ["id": .string(id), "name": .string(name), "members": .array(members.map(JSONValue.string))]
-                    if let index = groups.firstIndex(where: { $0["id"]?.stringValue == id }) {
-                        groups[index] = group
-                    } else {
-                        groups.append(group)
-                        // A new group takes the place of its first member on the wall.
-                        var full = fullOrder()
-                        full.insert(id, at: full.firstIndex { members.contains($0) } ?? full.endIndex)
-                        saved = full
-                    }
+                    try edit.group(id: change["id"]?.stringValue, name: name, members: members)
                 }
-                let groupIDs = Set(groups.compactMap { $0["id"]?.stringValue })
+                let known = Set(edit.order).union(edit.groups.map(\.id))
                 func check(_ id: String) throws {
-                    guard byID[id] != nil || groupIDs.contains(id) || saved.contains(id) else { throw CatalogError("No accessory or group with id \(id)") }
+                    guard known.contains(id) else { throw CatalogError("No accessory or group with id \(id)") }
                 }
                 if let value = body["order"], !value.isNull {
                     guard let ids = value.arrayValue?.compactMap(\.stringValue), ids.count == value.arrayValue?.count else { throw CatalogError("order lists accessory ids") }
-                    var seen = Set<String>()
-                    let wanted = try ids.filter { id in
-                        try check(id)
-                        return seen.insert(id).inserted
-                    }
-                    var full = fullOrder()
-                    full += wanted.filter { !full.contains($0) }
-                    let slots = full.indices.filter { seen.contains(full[$0]) }
-                    for (slot, id) in zip(slots, wanted) { full[slot] = id }
-                    saved = full
+                    try ids.forEach(check)
+                    edit.reorder(ids)
                 }
-                layout["order"] = .array(saved.map(JSONValue.string))
-                if body["groups"] != nil || body["ungroup"] != nil { layout["groups"] = .array(groups) }
-                if let changes = body["sizes"]?.objectValue {
-                    var sizes = layout["sizes"]?.objectValue ?? [:]
-                    for (id, size) in changes {
-                        try check(id)
-                        if size.isNull { sizes.removeValue(forKey: id) } else { sizes[id] = size }
-                    }
-                    layout["sizes"] = .object(sizes)
-                }
+                object["order"] = .array(edit.order.map(JSONValue.string))
+                if body["groups"] != nil || body["ungroup"] != nil { object["groups"] = .array(edit.groups.map(\.json)) }
+                if let changes = body["sizes"]?.objectValue { object["sizes"] = try Self.merged(object["sizes"], changes, check: check) }
                 if let changes = body["defaults"]?.objectValue {
-                    var defaults = layout["defaults"]?.objectValue ?? [:]
-                    for (kind, size) in changes {
-                        guard WallLayout.kinds.contains(where: { $0.key == kind }) else {
-                            throw CatalogError("No kind of widget \(kind): \(WallLayout.kinds.map(\.key).joined(separator: ", "))")
-                        }
-                        if size.isNull { defaults.removeValue(forKey: kind) } else { defaults[kind] = size }
+                    object["defaults"] = try Self.merged(object["defaults"], changes) { kind in
+                        guard WallLayout.kindNames.contains(kind) else { throw CatalogError("No kind of widget \(kind): \(WallLayout.kinds.map(\.key).joined(separator: ", "))") }
                     }
-                    layout["defaults"] = .object(defaults)
                 }
-                if let grouping = body["grouping"], !grouping.isNull { layout["grouping"] = grouping }
-                return .object(layout)
+                if let grouping = body["grouping"], !grouping.isNull { object["grouping"] = grouping }
+                return .object(object)
             }
         } catch let error as WallLayout.Invalid {
             throw CatalogError(error.description)
         }
-        return wallJSON()
+        return wallJSON(layout: layout, all: all)
     }
 
     var wallTools: [MCPTool] {

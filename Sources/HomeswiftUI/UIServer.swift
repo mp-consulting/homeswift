@@ -1461,7 +1461,9 @@ final class EventHub: Sendable {
         let log = catalog.logs.observe { [self] line in
             broadcast(event: "log", payload: UIServer.logJSON(line))
         }
-        observations.withLockedValue { $0 = [changes, log] }
+        // The rooms or the wall changed (a page, the chat, an MCP client): the Accessories page draws them again.
+        let layout = catalog.home.observeLayout { [self] in broadcast(event: "layout", payload: [:]) }
+        observations.withLockedValue { $0 = [changes, log, layout] }
     }
 
     func stream(logs: Bool = true) -> AsyncStream<Data> {

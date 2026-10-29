@@ -7,7 +7,7 @@ import NIOConcurrencyHelpers
 public final class Observation: Sendable {
     private let onCancel: NIOLockedValueBox<(@Sendable () -> Void)?>
 
-    init(_ onCancel: @escaping @Sendable () -> Void) {
+    public init(_ onCancel: @escaping @Sendable () -> Void) {
         self.onCancel = NIOLockedValueBox(onCancel)
     }
 

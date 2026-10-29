@@ -240,8 +240,8 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   `sizes` by accessory or group, `defaults` by kind of widget (null goes back to the kind's own), `grouping` `none`,
   `room` or `plugin`. A group needs a control its members share (on and off, or a position) and never takes a
   security control. With `set_accessory_layout`'s rooms,
-  that is what the Assistant needs to compose a wall ("arrange my wall by room"); the Accessories page draws
-  it again when the chat changes it.
+  that is what the Assistant needs to compose a wall ("arrange my wall by room"). An open Accessories page draws
+  the wall again when it or the rooms change, whoever changed them (a `layout` event on the web UI's event stream).
 - **Scenes.** `list_scenes` lists the web UI's scenes with their actions, triggers, conditions and last run, and
   `"security": true` on one that changes a lock, a garage door or an alarm. `run_scene` (an id or a name) runs a
   scene and answers per action; it refuses a scene with a security action, as homebridge-mcp-server's does: those

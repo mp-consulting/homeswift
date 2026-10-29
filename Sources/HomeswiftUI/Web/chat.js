@@ -315,13 +315,7 @@
     if (historyOpen && event !== "snapshot") closeHistory();
     switch (event) {
     case "snapshot": setItems(data.items, data.running); if (data.usage) usage = data.usage; break;
-    case "item":
-      items[data.index] = data.item;
-      renderItem(data.index);
-      // The Assistant arranged the wall or the rooms: the Accessories page draws them again.
-      if (data.item.kind === "tool" && ["set_wall_layout", "set_accessory_layout"].includes(data.item.name)
-          && !["running", "failed", "declined"].includes(data.item.state) && location.pathname === "/accessories") window.HomeswiftApp?.route();
-      break;
+    case "item": items[data.index] = data.item; renderItem(data.index); break;
     case "delta": {
       const item = items[data.index];
       if (item) { item.text += data.text; scheduleText(data.index); }

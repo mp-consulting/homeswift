@@ -462,8 +462,9 @@
       list.prepend(el("div", { class: "sheet-grabber", "aria-hidden": "true" }));
       dragToDismiss(list, { vertical: () => true, dismiss: () => close(true), handle: ".sheet-grabber" });
     }
-    if (scrim) document.body.append(scrim);
-    document.body.append(list);
+    const host = layerHost(trigger);
+    if (scrim) host.append(scrim);
+    host.append(list);
     if (!sheet) {
       // Under the button, its right edges aligned, inside the window; above it when there is no room below.
       const box = trigger.getBoundingClientRect();
@@ -572,7 +573,11 @@
   /// The UI's API, with the session cookie: `body` is an object, sent as JSON; a refusal carries the server's
   /// message and its `status`, and a signed-out visitor goes to the sign-in page. `stream: true` answers the Response itself,
   /// for a body read as it arrives.
+  /// When this page last asked the bridge to change something: what it made itself, a change event shortly after
+  /// tells it nothing new.
+  let lastChange = 0;
   async function api(path, { method = "GET", body, stream = false } = {}) {
+    if (method !== "GET") lastChange = Date.now();
     // The Assistant answers in the page's language.
     const options = { method, credentials: "same-origin", headers: { "Accept-Language": window.HomeswiftI18n?.locale || "en" } };
     if (body !== undefined) { options.headers["Content-Type"] = "application/json"; options.body = JSON.stringify(body); }
@@ -586,12 +591,17 @@
     return json;
   }
 
+  /// Where floating UI opened from `anchor` goes: the open modal dialog it is in (an accessory's sheet), which is in the
+  /// top layer over the rest of the page, else the page.
+  const layerHost = (anchor) => anchor?.closest?.("dialog[open]") ?? document.body;
+
   /// Puts `text` on the clipboard. The Clipboard API exists only over HTTPS or on localhost; a page on the
   /// network over plain HTTP copies through a hidden text field instead.
   async function copyText(text) {
     if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
     const field = el("textarea", { value: text, readOnly: true, style: "position:fixed;top:-1000px;opacity:0" });
-    document.body.append(field);
+    // Outside an open modal dialog the field is inert: it could not be selected.
+    layerHost(document.activeElement).append(field);
     field.select();
     const copied = document.execCommand("copy");
     field.remove();
@@ -1505,7 +1515,7 @@
           el("button", { type: "button", class: "primary", actionIcon: "eye", text: t("Show"), onclick: apply })));
       popover.addEventListener("keydown", (event) => { if (event.key === "Escape") { event.stopPropagation(); close(); customButton.focus(); } });
       render();
-      document.body.append(popover);
+      layerHost(anchor).append(popover);
       // Under the Custom segment, kept on screen, growing from it.
       const box = anchor.getBoundingClientRect(), width = popover.offsetWidth, height = popover.offsetHeight;
       const left = Math.min(Math.max(8, box.left + box.width / 2 - width / 2), innerWidth - width - 8);
@@ -1565,7 +1575,7 @@
     event.preventDefault();
     event.stopPropagation();
     filterTip = el("div", { class: "disabled-filter-tip", role: "status", popover: "manual", text: tap.control.title });
-    (tap.control.closest("dialog[open]") || document.body).append(filterTip);
+    layerHost(tap.control).append(filterTip);
     filterTip.showPopover();
     const rect = tap.control.getBoundingClientRect();
     const bounds = filterTip.getBoundingClientRect();
@@ -1655,7 +1665,7 @@
   const promptDialog = (message, value = "") => messageDialog(message, { kind: "prompt", value });
 
   window.HomeswiftCommon = {
-    showAlert, confirmDialog, promptDialog, busyButton, scaledCanvas, byteSize,
+    showAlert, confirmDialog, promptDialog, busyButton, scaledCanvas, byteSize, layerHost, lastChange: () => lastChange,
     $, el, icon, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
