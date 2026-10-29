@@ -45,6 +45,10 @@ public actor GoveePlugin: HomeswiftPlugin {
         /// Whether devices keep their Eve history (fakegato's files, in the storage directory).
         var history = true
         var retryDelay: Duration = GoveeAccount.retryDelay
+        /// How long a LAN scan waits after the last reply.
+        var lanScanSettleTime: Duration = LANClient.scanSettleTime
+        /// How long an AWS command waits for its publish before the next transport is tried.
+        var awsPublishTimeout: Duration = AWSClient.publishTimeout
     }
 
     /// A device on the bridge and how to reach it.
@@ -199,7 +203,7 @@ public actor GoveePlugin: HomeswiftPlugin {
             for (id, settings) in deviceSettings {
                 if let ip = settings.customIPAddress { custom[id] = ip }
             }
-            let client = LANClient(socket: socket, customAddresses: custom, logger: logger, debug: debug) { [weak self] id, data, ip in
+            let client = LANClient(socket: socket, customAddresses: custom, settleTime: dependencies.lanScanSettleTime, logger: logger, debug: debug) { [weak self] id, data, ip in
                 await self?.receiveUpdateLAN(id, data, ip: ip)
             }
             lanClient = client
@@ -261,7 +265,7 @@ public actor GoveePlugin: HomeswiftPlugin {
         let identity = try GoveeIoTIdentity(pkcs12: store.certificate(), passphrase: credentials.iotPass)
         let clientID = "AP/\(credentials.accountId)/\(api.clientId)"
         let connection = try await dependencies.mqtt(Self.mqttConfiguration(endpoint: credentials.endpoint, clientID: clientID, identity: identity))
-        let client = AWSClient(accountTopic: credentials.topic, connection: connection, debug: debug) { [weak self] payload in
+        let client = AWSClient(accountTopic: credentials.topic, connection: connection, publishTimeout: dependencies.awsPublishTimeout, debug: debug) { [weak self] payload in
             await self?.receiveUpdateAWS(payload)
         }
         awsClient = client

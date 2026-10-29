@@ -50,6 +50,8 @@ struct DeviceEnvironment: Sendable {
     /// Where Eve histories are kept; nil: none.
     var historyDirectory: URL?
     var adaptiveLighting: AdaptiveLightingFactory?
+    /// When a plug shown as a heater or cooler first reads its source sensor.
+    var temperatureSourceFirstRead: Duration = .seconds(5)
 }
 
 /// Adds Adaptive Lighting to a lightbulb that has Brightness and Color Temperature, before the accessory is

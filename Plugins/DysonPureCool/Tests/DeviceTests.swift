@@ -166,7 +166,10 @@ struct DeviceTests {
         let device = DysonDevice(serial: "ABC-AB-12345678", productType: productType, name: "Fan", credentials: "secret", ipAddress: "192.168.1.50", mqtt: dyson.mqtt, logger: testLogger)
         try await device.connect()
         #expect(await eventually { await device.state.connected && dyson.published.count >= 1 })
-        _ = await eventually { await device.state.fanSpeed != 0 || state.isEmpty }
+        // The CURRENT-STATE answer has landed once anything but the connection differs from a blank state: a fan
+        // speed alone is not enough, an off fan in auto mode reports 0.
+        let blank = { var state = DeviceState(); state.connected = true; return state }()
+        _ = await eventually { await device.state != blank || state.isEmpty }
         dyson.clearPublished()
         return (device, dyson)
     }

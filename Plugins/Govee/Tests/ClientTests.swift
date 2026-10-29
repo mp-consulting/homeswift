@@ -170,7 +170,7 @@ func scanReply(_ device: String, sku: String = "H6008", extra: [String: JSONValu
     func client(custom: [String: String] = [:]) -> (LANClient, FakeLANSocket, Received) {
         let socket = FakeLANSocket()
         let received = Received()
-        let client = LANClient(socket: socket, customAddresses: custom, logger: testLogger, debug: quietDebug) { id, data, ip in received.add((id, data, ip)) }
+        let client = LANClient(socket: socket, customAddresses: custom, settleTime: .milliseconds(100), logger: testLogger, debug: quietDebug) { id, data, ip in received.add((id, data, ip)) }
         return (client, socket, received)
     }
 

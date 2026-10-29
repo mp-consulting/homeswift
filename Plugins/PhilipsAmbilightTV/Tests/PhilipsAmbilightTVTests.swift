@@ -36,7 +36,8 @@ final class PhilipsTestEnvironment: @unchecked Sendable {
                 configuration: configuration, context: context,
                 dependencies: .init(transports: FakeTransports(tv: self.tv), discover: { _ in [.init(name: "Fake TV", host: "192.168.1.20")] },
                     lookUpARP: { ip in self.arpTable.withLockedValue { $0[ip] } },
-                    wake: { mac, ip in self.woken.withLockedValue { $0.append((mac, ip)) } }))
+                    wake: { mac, ip in self.woken.withLockedValue { $0.append((mac, ip)) } },
+                    timeScale: tvTimeScale))
             self.plugins.withLockedValue { $0.append(plugin) }
             return plugin
         }
@@ -59,6 +60,9 @@ final class PhilipsTestEnvironment: @unchecked Sendable {
         return host
     }
 }
+
+/// The TVs' timings in these tests: a tenth of the real ones.
+let tvTimeScale = 0.1
 
 /// Polls `condition` until it holds or `timeout` passes.
 /// A ceiling, not a wait: it returns as soon as the condition holds, and a loaded CI runner can take seconds.
@@ -251,7 +255,7 @@ struct PairingTests {
     }
 }
 
-@Suite(.timeLimit(.minutes(2)), .serialized)
+@Suite(.timeLimit(.minutes(2)))
 struct TelevisionTests {
     let environment = PhilipsTestEnvironment()
 
@@ -404,6 +408,10 @@ struct TelevisionTests {
         await tv.notify(["audio/volume": .object(["muted": .bool(true), "current": .number(12)])])
         #expect(await eventually { bridge.server.primary.service(.televisionSpeaker)?[.mute]?.value == .bool(true) })
         #expect(bridge.server.primary.service(.motionSensor, subtype: "state-sensor-mute")?[.motionDetected]?.value == .bool(true))
+        // The TV holds what it notifies, so a poll that lands meanwhile reads the same.
+        let white = JointSpace.AmbilightConfiguration.Color(hue: 255, saturation: 255, brightness: 255)
+        await tv.set(ambilight: .init(styleName: "FOLLOW_COLOR", colorSettings: .init(color: white, colorDelta: .init(hue: 0, saturation: 0, brightness: 0), speed: 0)))
+        await tv.set(ambilightPower: true)
         await tv.notify(["ambilight/currentconfiguration": .object(["styleName": .string("FOLLOW_COLOR"), "colorSettings": .object(["color": .object(["hue": .number(255), "saturation": .number(255), "brightness": .number(255)])])])])
         #expect(await eventually { bridge.server.primary.service(.lightbulb, subtype: "ambilight")?[.hue]?.value == .double(360) })
         #expect(await eventually { bridge.server.primary.service(.lightbulb, subtype: "ambilight")?[.on]?.value == .bool(true) })
@@ -571,7 +579,7 @@ struct TelevisionTests {
         try await device.setAmbilightHue(120)
         #expect(await tv.ambilightWrites.last?.style == "FOLLOW_COLOR")
         // The configured mode's re-apply after switching on does not undo the colour picked meanwhile.
-        try await Task.sleep(for: TVDevice.styleRetryDelays[0] + .milliseconds(500))
+        try await Task.sleep(for: TVDevice.styleRetryDelays[0] * tvTimeScale + .milliseconds(500))
         #expect(await tv.ambilightWrites.last?.style == "FOLLOW_COLOR")
     }
 
