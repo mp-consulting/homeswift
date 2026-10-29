@@ -2420,6 +2420,10 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
   .rows > .row.vault-move { grid-template-columns: auto minmax(0, 1fr); }
   .rows > .row.vault-move > :last-child { grid-column: 2 / -1; }
 }
+/* The vault's cards stand apart as other cards do (`.server` alone sits in a grid's gap), and the move card's status
+   line takes room only once it has something to say. */
+.vault-card { margin-bottom: var(--space-14); }
+.vault-card .status-line:empty { display: none; }
 /* The vault's cards explain themselves: their line under the title wraps instead of being cut. */
 .vault-card .server-head { align-items: flex-start; }
 .vault-card .server-head .muted { margin-top: var(--space-4); line-height: 1.5; white-space: normal; overflow: visible; }
@@ -2436,11 +2440,41 @@ span.warning, .vault-problem .warning { color: var(--warn); }
 .rows > .row.vault-problem > .who > div { white-space: normal; line-height: 1.5; }
 .rows > .row.vault-problem > button { flex-shrink: 0; }
 @media (max-width: 640px) { .rows > .row.vault-problem { flex-wrap: wrap; } .rows > .row.vault-problem > button { margin-left: auto; } }
-/* The Status page's vault widget: its figures, up to three problems as a short list, the way to the Vault page. */
+/* The Status page's vault widget: a head that says whether anything needs doing (its button on the right), then a row
+   per problem, each a link to the Vault page: a dot for how pressing, the entry, what is wrong, a chevron. */
 .vault-status { display: grid; gap: var(--space-12); }
-.vault-status ul { margin: 0; padding-left: 1.25em; display: grid; gap: var(--space-4); }
-.vault-status .actions, .vault-status .facts { margin-top: 0; }
-.vault-status .who .warning { color: var(--warn); }
+.vault-status .server-head { align-items: center; }
+.vault-status .server-head > .button { flex-shrink: 0; margin-left: auto; }
+.vault-status-rows { display: grid; border-top: 1px solid var(--line); margin: 0 calc(-1 * var(--space-20)) calc(-1 * var(--space-10)); }
+.vault-status-row {
+  display: grid; grid-template-columns: auto minmax(0, max-content) minmax(0, 1fr) auto; align-items: center; gap: var(--space-10);
+  padding: var(--space-10) var(--space-20); color: inherit; text-decoration: none;
+  transition: background-color 150ms ease;
+}
+.vault-status-row + .vault-status-row { border-top: 1px solid var(--line); }
+.vault-status-row > svg { width: 16px; height: 16px; color: var(--muted); fill: none; stroke: currentColor; stroke-width: 2; }
+.vault-status-row:active { background: color-mix(in srgb, var(--text) 8%, transparent); }
+@media (hover: hover) and (pointer: fine) { .vault-status-row:hover { background: color-mix(in srgb, var(--text) 5%, transparent); } }
+.vault-status-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.vault-status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.vault-status-row[data-tone="bad"] .vault-status-dot { background: var(--error); box-shadow: 0 0 0 3px color-mix(in srgb, var(--error) 22%, transparent); }
+.vault-status-row[data-tone="warn"] .vault-status-dot { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent); }
+/* Not a problem, something to do: a ring, not a filled dot. */
+.vault-status-row[data-tone="info"] .vault-status-dot { background: none; box-shadow: inset 0 0 0 2px var(--muted); }
+.vault-status-name { font-weight: var(--weight-semibold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-status-row.mono-name .vault-status-name { font-family: var(--mono); font-size: var(--text-sm); }
+.vault-status-says { color: var(--muted); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-status-row[data-tone="bad"] .vault-status-says { color: var(--error); }
+.vault-status-row[data-tone="warn"] .vault-status-says { color: var(--warn); }
+.vault-status-more { margin: 0; padding: var(--space-8) var(--space-20) 0 calc(var(--space-20) + 18px); font-size: var(--text-sm); }
+/* On a phone the button takes the card's width under its head, and a row's text goes under the entry's name. */
+@media (max-width: 640px) {
+  .vault-status .server-head { flex-wrap: wrap; }
+  .vault-status .server-head > .button { order: 3; flex-basis: 100%; justify-content: center; margin-left: 0; }
+  .vault-status-row { grid-template-columns: auto minmax(0, 1fr) auto; row-gap: 2px; }
+  .vault-status-row > svg { grid-row: 1 / span 2; grid-column: 3; }
+  .vault-status-says { grid-column: 2; text-align: left; white-space: normal; font-size: var(--text-sm); }
+}
 .secret-field { display: flex; gap: var(--space-8); align-items: center; }
 .secret-field input { flex: 1; min-width: 0; }
 

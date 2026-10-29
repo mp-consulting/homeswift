@@ -724,32 +724,47 @@
 
   /// A newer release, when the bridge found one (ReleaseWatcher): how to get it on this install, the package to
   /// download on a NAS or the command to run, and its notes.
-  /// The vault at a glance (an administrator's /api/status has it): its entries, those config.json uses, the secrets
-  /// still in config.json, and up to three problems, most pressing first; the Vault page says how to fix them.
+  /// The vault at a glance (an administrator's /api/status has it). The head says whether anything needs doing; then a
+  /// row per problem (up to three, most pressing first) and one for the secrets still in config.json, each a way to
+  /// the Vault page, which says how to fix it.
   function vaultCard(vault) {
     const { problems } = vault;
-    const date = (iso) => new Date(iso).toLocaleDateString(HomeswiftI18n.locale, { dateStyle: "medium" });
-    const says = {
-      missing: (problem) => t("{entry} is not in the vault: the bridge does not start without it", { entry: problem.entry }),
-      failing: (problem) => t("A setting cannot read {entry}", { entry: problem.entry }),
-      expired: (problem) => t("{entry} expired {date}", { entry: problem.entry, date: date(problem.expires) }),
-      expiring: (problem) => t("{entry} expires {date}", { entry: problem.entry, date: date(problem.expires) }),
-    };
     const count = new Set(problems.map((problem) => problem.entry)).size;
     const urgent = problems.some((problem) => problem.state !== "expiring");
-    const summary = count ? tn("One entry needs attention", "{n} entries need attention", count)
-      : vault.entries ? tn("{n} entry, nothing to do", "{n} entries, nothing to do", vault.entries)
-      : t("Empty: config.json's secrets can move here");
+    // "in 12 days", "tomorrow", "3 days ago": how soon matters more than the date, which the row's title keeps.
+    const relative = new Intl.RelativeTimeFormat(HomeswiftI18n.locale, { numeric: "auto" });
+    const fromNow = (iso) => {
+      const days = Math.round((new Date(iso) - Date.now()) / 86_400_000);
+      return Math.abs(days) < 45 ? relative.format(days, "day") : relative.format(Math.round(days / 30), "month");
+    };
+    const says = {
+      missing: () => t("Not in the vault: the bridge does not start without it"),
+      failing: () => t("A setting cannot read it"),
+      expired: (problem) => t("Expired {when}", { when: fromNow(problem.expires) }),
+      expiring: (problem) => t("Expires {when}", { when: fromNow(problem.expires) }),
+    };
+    const row = (tone, name, text, attrs = {}) => el("a", { class: "vault-status-row", href: "/settings/vault", "data-tone": tone, ...attrs },
+      el("span", { class: "vault-status-dot", "aria-hidden": "true" }),
+      el("span", { class: "vault-status-name", text: name }),
+      el("span", { class: "vault-status-says", text }),
+      HomeswiftCommon.icon("forward"));
+    const rows = [
+      ...problems.slice(0, 3).map((problem) => row(problem.state === "expiring" ? "warn" : "bad", problem.entry, says[problem.state]?.(problem) ?? problem.state,
+        { class: "vault-status-row mono-name", title: problem.expires ? new Date(problem.expires).toLocaleString(HomeswiftI18n.locale, { dateStyle: "full", timeStyle: "short" }) : null })),
+      problems.length > 3 ? el("p", { class: "muted vault-status-more", text: tn("And {n} more", "And {n} more", problems.length - 3) }) : null,
+      vault.inConfig ? row("info", tn("{n} secret is still in config.json", "{n} secrets are still in config.json", vault.inConfig), t("Move [to the vault]")) : null,
+    ].filter(Boolean);
+    const headline = count ? tn("One entry needs attention", "{n} entries need attention", count)
+      : vault.entries ? t("Nothing to do") : t("No secrets in the vault yet");
+    const detail = vault.entries ? tn("{n} entry · {used} used by config.json", "{n} entries · {used} used by config.json", vault.entries, { used: vault.inUse })
+      : t("Passwords, keys and tokens, sealed on disk");
     return [el("h2", { text: t("Vault") }),
-      el("div", { class: "card server vault-status" },
+      el("div", { class: "card server vault-status", "data-state": urgent ? "bad" : count ? "warn" : "ok" },
         el("div", { class: "server-head" },
-          tile("key", urgent ? "heat" : count ? "yellow" : "green"),
-          el("div", { class: "who" }, el("strong", { text: t("Passwords, keys and tokens") }),
-            el("div", { class: count ? (urgent ? "error" : "warning") : "muted", text: summary }))),
-        el("div", { class: "facts" },
-          fact(t("Entries"), vault.entries), fact(t("Used by config.json"), vault.inUse), fact(t("Still in config.json"), vault.inConfig)),
-        problems.length ? el("ul", {}, problems.slice(0, 3).map((problem) => el("li", { text: says[problem.state]?.(problem) ?? problem.entry }))) : null,
-        el("div", { class: "actions" }, el("a", { class: "button", href: "/settings/vault", actionIcon: "key", text: t("Open the vault") })))];
+          tile(urgent ? "warning" : "key", urgent ? "heat" : count ? "yellow" : "green"),
+          el("div", { class: "who" }, el("strong", { text: headline }), el("div", { class: "muted", text: detail })),
+          el("a", { class: `button${urgent ? " primary" : ""}`, href: "/settings/vault", actionIcon: "key", text: t("Open the vault") })),
+        rows.length ? el("div", { class: "vault-status-rows" }, rows) : null)];
   }
 
   function updateCard(update) {

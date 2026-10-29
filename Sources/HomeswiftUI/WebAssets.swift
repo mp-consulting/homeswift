@@ -2356,32 +2356,47 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   /// A newer release, when the bridge found one (ReleaseWatcher): how to get it on this install, the package to
   /// download on a NAS or the command to run, and its notes.
-  /// The vault at a glance (an administrator's /api/status has it): its entries, those config.json uses, the secrets
-  /// still in config.json, and up to three problems, most pressing first; the Vault page says how to fix them.
+  /// The vault at a glance (an administrator's /api/status has it). The head says whether anything needs doing; then a
+  /// row per problem (up to three, most pressing first) and one for the secrets still in config.json, each a way to
+  /// the Vault page, which says how to fix it.
   function vaultCard(vault) {
     const { problems } = vault;
-    const date = (iso) => new Date(iso).toLocaleDateString(HomeswiftI18n.locale, { dateStyle: "medium" });
-    const says = {
-      missing: (problem) => t("{entry} is not in the vault: the bridge does not start without it", { entry: problem.entry }),
-      failing: (problem) => t("A setting cannot read {entry}", { entry: problem.entry }),
-      expired: (problem) => t("{entry} expired {date}", { entry: problem.entry, date: date(problem.expires) }),
-      expiring: (problem) => t("{entry} expires {date}", { entry: problem.entry, date: date(problem.expires) }),
-    };
     const count = new Set(problems.map((problem) => problem.entry)).size;
     const urgent = problems.some((problem) => problem.state !== "expiring");
-    const summary = count ? tn("One entry needs attention", "{n} entries need attention", count)
-      : vault.entries ? tn("{n} entry, nothing to do", "{n} entries, nothing to do", vault.entries)
-      : t("Empty: config.json's secrets can move here");
+    // "in 12 days", "tomorrow", "3 days ago": how soon matters more than the date, which the row's title keeps.
+    const relative = new Intl.RelativeTimeFormat(HomeswiftI18n.locale, { numeric: "auto" });
+    const fromNow = (iso) => {
+      const days = Math.round((new Date(iso) - Date.now()) / 86_400_000);
+      return Math.abs(days) < 45 ? relative.format(days, "day") : relative.format(Math.round(days / 30), "month");
+    };
+    const says = {
+      missing: () => t("Not in the vault: the bridge does not start without it"),
+      failing: () => t("A setting cannot read it"),
+      expired: (problem) => t("Expired {when}", { when: fromNow(problem.expires) }),
+      expiring: (problem) => t("Expires {when}", { when: fromNow(problem.expires) }),
+    };
+    const row = (tone, name, text, attrs = {}) => el("a", { class: "vault-status-row", href: "/settings/vault", "data-tone": tone, ...attrs },
+      el("span", { class: "vault-status-dot", "aria-hidden": "true" }),
+      el("span", { class: "vault-status-name", text: name }),
+      el("span", { class: "vault-status-says", text }),
+      HomeswiftCommon.icon("forward"));
+    const rows = [
+      ...problems.slice(0, 3).map((problem) => row(problem.state === "expiring" ? "warn" : "bad", problem.entry, says[problem.state]?.(problem) ?? problem.state,
+        { class: "vault-status-row mono-name", title: problem.expires ? new Date(problem.expires).toLocaleString(HomeswiftI18n.locale, { dateStyle: "full", timeStyle: "short" }) : null })),
+      problems.length > 3 ? el("p", { class: "muted vault-status-more", text: tn("And {n} more", "And {n} more", problems.length - 3) }) : null,
+      vault.inConfig ? row("info", tn("{n} secret is still in config.json", "{n} secrets are still in config.json", vault.inConfig), t("Move [to the vault]")) : null,
+    ].filter(Boolean);
+    const headline = count ? tn("One entry needs attention", "{n} entries need attention", count)
+      : vault.entries ? t("Nothing to do") : t("No secrets in the vault yet");
+    const detail = vault.entries ? tn("{n} entry · {used} used by config.json", "{n} entries · {used} used by config.json", vault.entries, { used: vault.inUse })
+      : t("Passwords, keys and tokens, sealed on disk");
     return [el("h2", { text: t("Vault") }),
-      el("div", { class: "card server vault-status" },
+      el("div", { class: "card server vault-status", "data-state": urgent ? "bad" : count ? "warn" : "ok" },
         el("div", { class: "server-head" },
-          tile("key", urgent ? "heat" : count ? "yellow" : "green"),
-          el("div", { class: "who" }, el("strong", { text: t("Passwords, keys and tokens") }),
-            el("div", { class: count ? (urgent ? "error" : "warning") : "muted", text: summary }))),
-        el("div", { class: "facts" },
-          fact(t("Entries"), vault.entries), fact(t("Used by config.json"), vault.inUse), fact(t("Still in config.json"), vault.inConfig)),
-        problems.length ? el("ul", {}, problems.slice(0, 3).map((problem) => el("li", { text: says[problem.state]?.(problem) ?? problem.entry }))) : null,
-        el("div", { class: "actions" }, el("a", { class: "button", href: "/settings/vault", actionIcon: "key", text: t("Open the vault") })))];
+          tile(urgent ? "warning" : "key", urgent ? "heat" : count ? "yellow" : "green"),
+          el("div", { class: "who" }, el("strong", { text: headline }), el("div", { class: "muted", text: detail })),
+          el("a", { class: `button${urgent ? " primary" : ""}`, href: "/settings/vault", actionIcon: "key", text: t("Open the vault") })),
+        rows.length ? el("div", { class: "vault-status-rows" }, rows) : null)];
   }
 
   function updateCard(update) {
@@ -10787,13 +10802,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         "i18n-es.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Spanish (Spain): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("es", {
+  "Not in the vault: the bridge does not start without it": "No está en la bóveda: el puente no se inicia sin ella",
+  "Expired {when}": "Caducó {when}",
+  "Expires {when}": "Caduca {when}",
+  "And {n} more": "Y {n} más",
+  "Move [to the vault]": "Mover",
+  "Nothing to do": "Nada que hacer",
+  "No secrets in the vault yet": "Aún no hay secretos en la bóveda",
+  "{n} entry · {used} used by config.json": "{n} entrada · {used} usada por config.json",
+  "{n} entries · {used} used by config.json": "{n} entradas · {used} usadas por config.json",
+  "Passwords, keys and tokens, sealed on disk": "Contraseñas, claves y tokens, sellados en el disco",
   "Passwords, keys and tokens, and what needs attention": "Contraseñas, claves y tokens, y lo que requiere atención",
-  "Passwords, keys and tokens": "Contraseñas, claves y tokens",
-  "{n} entry, nothing to do": "{n} entrada, nada que hacer",
-  "{n} entries, nothing to do": "{n} entradas, nada que hacer",
-  "Empty: config.json's secrets can move here": "Vacía: los secretos de config.json pueden venir aquí",
-  "Used by config.json": "Usadas por config.json",
-  "Still in config.json": "Aún en config.json",
   "A setting cannot read it": "Un ajuste no puede leerla",
   "Used {date}": "Usada el {date}",
   "Never used": "Nunca usada",
@@ -10804,10 +10823,6 @@ HomeswiftI18n.add("es", {
   "Add it…": "Añadirla…",
   "One entry needs attention": "Una entrada requiere atención",
   "{n} entries need attention": "{n} entradas requieren atención",
-  "{entry} is not in the vault: the bridge does not start without it": "{entry} no está en la bóveda: el puente no se inicia sin ella",
-  "A setting cannot read {entry}": "Un ajuste no puede leer {entry}",
-  "{entry} expired {date}": "{entry} caducó el {date}",
-  "{entry} expires {date}": "{entry} caduca el {date}",
   "Open the vault": "Abrir la bóveda",
   "Move it here: the plugin keeps working with the same value.": "Muévelo aquí: el plugin sigue funcionando con el mismo valor.",
   "Show the value": "Mostrar el valor",
@@ -13192,13 +13207,17 @@ HomeswiftI18n.add("es", {
         "i18n-fr.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in French: English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("fr", {
+  "Not in the vault: the bridge does not start without it": "Absente du coffre : le pont ne démarre pas sans elle",
+  "Expired {when}": "A expiré {when}",
+  "Expires {when}": "Expire {when}",
+  "And {n} more": "Et {n} de plus",
+  "Move [to the vault]": "Déplacer",
+  "Nothing to do": "Rien à faire",
+  "No secrets in the vault yet": "Aucun secret dans le coffre pour l’instant",
+  "{n} entry · {used} used by config.json": "{n} entrée · {used} utilisée par config.json",
+  "{n} entries · {used} used by config.json": "{n} entrées · {used} utilisées par config.json",
+  "Passwords, keys and tokens, sealed on disk": "Mots de passe, clés et jetons, scellés sur le disque",
   "Passwords, keys and tokens, and what needs attention": "Mots de passe, clés et jetons, et ce qui demande votre attention",
-  "Passwords, keys and tokens": "Mots de passe, clés et jetons",
-  "{n} entry, nothing to do": "{n} entrée, rien à faire",
-  "{n} entries, nothing to do": "{n} entrées, rien à faire",
-  "Empty: config.json's secrets can move here": "Vide : les secrets de config.json peuvent venir ici",
-  "Used by config.json": "Utilisées par config.json",
-  "Still in config.json": "Encore dans config.json",
   "A setting cannot read it": "Un réglage ne peut pas la lire",
   "Used {date}": "Utilisée le {date}",
   "Never used": "Jamais utilisée",
@@ -13209,10 +13228,6 @@ HomeswiftI18n.add("fr", {
   "Add it…": "L’ajouter…",
   "One entry needs attention": "Une entrée demande votre attention",
   "{n} entries need attention": "{n} entrées demandent votre attention",
-  "{entry} is not in the vault: the bridge does not start without it": "{entry} n’est pas dans le coffre : le pont ne démarre pas sans elle",
-  "A setting cannot read {entry}": "Un réglage ne peut pas lire {entry}",
-  "{entry} expired {date}": "{entry} a expiré le {date}",
-  "{entry} expires {date}": "{entry} expire le {date}",
   "Open the vault": "Ouvrir le coffre",
   "Move it here: the plugin keeps working with the same value.": "Déplacez-le ici : le plugin continue de fonctionner avec la même valeur.",
   "Show the value": "Afficher la valeur",
@@ -15597,13 +15612,17 @@ HomeswiftI18n.add("fr", {
         "i18n-pt.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Portuguese (Portugal): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("pt", {
+  "Not in the vault: the bridge does not start without it": "Não está no cofre: a ponte não arranca sem ela",
+  "Expired {when}": "Expirou {when}",
+  "Expires {when}": "Expira {when}",
+  "And {n} more": "E mais {n}",
+  "Move [to the vault]": "Mover",
+  "Nothing to do": "Nada a fazer",
+  "No secrets in the vault yet": "Ainda não há segredos no cofre",
+  "{n} entry · {used} used by config.json": "{n} entrada · {used} usada por config.json",
+  "{n} entries · {used} used by config.json": "{n} entradas · {used} usadas por config.json",
+  "Passwords, keys and tokens, sealed on disk": "Palavras-passe, chaves e tokens, selados no disco",
   "Passwords, keys and tokens, and what needs attention": "Palavras-passe, chaves e tokens, e o que precisa de atenção",
-  "Passwords, keys and tokens": "Palavras-passe, chaves e tokens",
-  "{n} entry, nothing to do": "{n} entrada, nada a fazer",
-  "{n} entries, nothing to do": "{n} entradas, nada a fazer",
-  "Empty: config.json's secrets can move here": "Vazio: os segredos de config.json podem vir para aqui",
-  "Used by config.json": "Usadas por config.json",
-  "Still in config.json": "Ainda em config.json",
   "A setting cannot read it": "Uma definição não a consegue ler",
   "Used {date}": "Usada a {date}",
   "Never used": "Nunca usada",
@@ -15614,10 +15633,6 @@ HomeswiftI18n.add("pt", {
   "Add it…": "Adicioná-la…",
   "One entry needs attention": "Uma entrada precisa de atenção",
   "{n} entries need attention": "{n} entradas precisam de atenção",
-  "{entry} is not in the vault: the bridge does not start without it": "{entry} não está no cofre: a ponte não arranca sem ela",
-  "A setting cannot read {entry}": "Uma definição não consegue ler {entry}",
-  "{entry} expired {date}": "{entry} expirou a {date}",
-  "{entry} expires {date}": "{entry} expira a {date}",
   "Open the vault": "Abrir o cofre",
   "Move it here: the plugin keeps working with the same value.": "Mova-o para aqui: o plugin continua a funcionar com o mesmo valor.",
   "Show the value": "Mostrar o valor",
@@ -22597,6 +22612,10 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
   .rows > .row.vault-move { grid-template-columns: auto minmax(0, 1fr); }
   .rows > .row.vault-move > :last-child { grid-column: 2 / -1; }
 }
+/* The vault's cards stand apart as other cards do (`.server` alone sits in a grid's gap), and the move card's status
+   line takes room only once it has something to say. */
+.vault-card { margin-bottom: var(--space-14); }
+.vault-card .status-line:empty { display: none; }
 /* The vault's cards explain themselves: their line under the title wraps instead of being cut. */
 .vault-card .server-head { align-items: flex-start; }
 .vault-card .server-head .muted { margin-top: var(--space-4); line-height: 1.5; white-space: normal; overflow: visible; }
@@ -22613,11 +22632,41 @@ span.warning, .vault-problem .warning { color: var(--warn); }
 .rows > .row.vault-problem > .who > div { white-space: normal; line-height: 1.5; }
 .rows > .row.vault-problem > button { flex-shrink: 0; }
 @media (max-width: 640px) { .rows > .row.vault-problem { flex-wrap: wrap; } .rows > .row.vault-problem > button { margin-left: auto; } }
-/* The Status page's vault widget: its figures, up to three problems as a short list, the way to the Vault page. */
+/* The Status page's vault widget: a head that says whether anything needs doing (its button on the right), then a row
+   per problem, each a link to the Vault page: a dot for how pressing, the entry, what is wrong, a chevron. */
 .vault-status { display: grid; gap: var(--space-12); }
-.vault-status ul { margin: 0; padding-left: 1.25em; display: grid; gap: var(--space-4); }
-.vault-status .actions, .vault-status .facts { margin-top: 0; }
-.vault-status .who .warning { color: var(--warn); }
+.vault-status .server-head { align-items: center; }
+.vault-status .server-head > .button { flex-shrink: 0; margin-left: auto; }
+.vault-status-rows { display: grid; border-top: 1px solid var(--line); margin: 0 calc(-1 * var(--space-20)) calc(-1 * var(--space-10)); }
+.vault-status-row {
+  display: grid; grid-template-columns: auto minmax(0, max-content) minmax(0, 1fr) auto; align-items: center; gap: var(--space-10);
+  padding: var(--space-10) var(--space-20); color: inherit; text-decoration: none;
+  transition: background-color 150ms ease;
+}
+.vault-status-row + .vault-status-row { border-top: 1px solid var(--line); }
+.vault-status-row > svg { width: 16px; height: 16px; color: var(--muted); fill: none; stroke: currentColor; stroke-width: 2; }
+.vault-status-row:active { background: color-mix(in srgb, var(--text) 8%, transparent); }
+@media (hover: hover) and (pointer: fine) { .vault-status-row:hover { background: color-mix(in srgb, var(--text) 5%, transparent); } }
+.vault-status-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.vault-status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.vault-status-row[data-tone="bad"] .vault-status-dot { background: var(--error); box-shadow: 0 0 0 3px color-mix(in srgb, var(--error) 22%, transparent); }
+.vault-status-row[data-tone="warn"] .vault-status-dot { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent); }
+/* Not a problem, something to do: a ring, not a filled dot. */
+.vault-status-row[data-tone="info"] .vault-status-dot { background: none; box-shadow: inset 0 0 0 2px var(--muted); }
+.vault-status-name { font-weight: var(--weight-semibold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-status-row.mono-name .vault-status-name { font-family: var(--mono); font-size: var(--text-sm); }
+.vault-status-says { color: var(--muted); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-status-row[data-tone="bad"] .vault-status-says { color: var(--error); }
+.vault-status-row[data-tone="warn"] .vault-status-says { color: var(--warn); }
+.vault-status-more { margin: 0; padding: var(--space-8) var(--space-20) 0 calc(var(--space-20) + 18px); font-size: var(--text-sm); }
+/* On a phone the button takes the card's width under its head, and a row's text goes under the entry's name. */
+@media (max-width: 640px) {
+  .vault-status .server-head { flex-wrap: wrap; }
+  .vault-status .server-head > .button { order: 3; flex-basis: 100%; justify-content: center; margin-left: 0; }
+  .vault-status-row { grid-template-columns: auto minmax(0, 1fr) auto; row-gap: 2px; }
+  .vault-status-row > svg { grid-row: 1 / span 2; grid-column: 3; }
+  .vault-status-says { grid-column: 2; text-align: left; white-space: normal; font-size: var(--text-sm); }
+}
 .secret-field { display: flex; gap: var(--space-8); align-items: center; }
 .secret-field input { flex: 1; min-width: 0; }
 
