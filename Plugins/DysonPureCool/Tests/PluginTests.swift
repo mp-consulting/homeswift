@@ -124,7 +124,7 @@ struct PluginTests {
         #expect(thermostat[.temperatureDisplayUnits]?.value == .int(0))
         // The temperature sensor carries the offset; the thermostat shows the raw reading.
         #expect(accessory.service(.temperatureSensor)?[.currentTemperature]?.value == .double(15))
-        #expect(heater[.active]?.value == .int(1))
+        #expect(await eventually { heater[.active]?.value == .int(1) })
         #expect(heater[.currentHeaterCoolerState]?.value == .int(2))
         #expect(heater[.heatingThresholdTemperature]?.value == .double(22))
         #expect(heater[.targetHeaterCoolerState]?.value == .int(1))

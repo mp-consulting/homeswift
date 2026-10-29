@@ -313,8 +313,7 @@ extension PluginHost {
         #expect(await eventually { lightbulb[.brightness]?.value == .int(30) })
         #expect(lightbulb[.on]?.value == .bool(true))
         environment.lan.deliver(["msg": ["cmd": "devStatus", "data": ["onOff": 0, "brightness": 75]]], from: "192.168.1.20")
-        #expect(await eventually { lightbulb[.on]?.value == .bool(false) })
-        #expect(lightbulb[.brightness]?.value == .int(75))
+        #expect(await eventually { lightbulb[.on]?.value == .bool(false) && lightbulb[.brightness]?.value == .int(75) })
     }
 
     @Test func ignoredAndMatterDevicesStayOut() async throws {
@@ -385,6 +384,8 @@ extension PluginHost {
         #expect(status.json["devices"]?.arrayValue?.contains { $0["deviceId"] == .string(lightID) && $0["lan"] == "enabled" } == true)
 
         #expect(await !plugin.store.values.isEmpty)
+        // Once the start's sync is over: a reading it brings after the clear is new state, not the old written back.
+        #expect(await eventually { await !plugin.httpSyncInProgress })
         let cleared = try await request("clear-cache", [:])
         #expect(cleared.json["success"] == true)
         let storage = environment.directory.appendingPathComponent("plugins/Govee-Govee")

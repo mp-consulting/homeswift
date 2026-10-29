@@ -54,6 +54,8 @@ struct PlatformTests {
     }
 
     @Test func retriesLoginWithBackoff() async throws {
+        // The first retry 600 ms in rather than 150: still pending when a loaded runner gets to look.
+        let environment = EWeLinkTestEnvironment(clock: EWeLinkClock(scale: 0.04))
         environment.cloud.update { $0.loginAnswers = [["error": 500, "msg": "busy"], ["error": 500, "msg": "busy"]] }
         let host = try await environment.start(devices: [device("1000aaaaaa", uiid: 1)], settings: ["mode": "wan"])
         #expect(environment.accessory(host, "1000aaaaaa") == nil)
@@ -356,7 +358,7 @@ struct AccessoryTests {
         #expect(outlet[EveCharacteristic.voltage] != nil && outlet[EveCharacteristic.electricCurrent] != nil)
         environment.push("1000aaaaaa", ["power": "12.5", "voltage": "231.5", "current": "0.06"])
         #expect(await eventually { outlet[.outletInUse]?.value == true })
-        #expect(outlet[EveCharacteristic.currentConsumption]?.value == 13 && outlet[EveCharacteristic.voltage]?.value == 231.5)
+        #expect(await eventually { outlet[EveCharacteristic.currentConsumption]?.value == 13 && outlet[EveCharacteristic.voltage]?.value == 231.5 })
         environment.push("1000aaaaaa", ["power": "2"])
         #expect(await eventually { outlet[.outletInUse]?.value == false })
         await host.stop()
@@ -546,7 +548,8 @@ struct AccessoryTests {
         #expect(door.service(.contactSensor)?[.contactSensorState]?.value == 0)
         environment.push("1000aaaaaa", ["switch": "on", "battery": 30])
         #expect(await eventually { door.service(.contactSensor)?[.contactSensorState]?.value == 1 })
-        #expect(door.service(.battery)?[.batteryLevel]?.value == 30 && door.service(.battery)?[.statusLowBattery]?.value == 1)
+        // The battery is its own service, updated after the contact.
+        #expect(await eventually { door.service(.battery)?[.batteryLevel]?.value == 30 && door.service(.battery)?[.statusLowBattery]?.value == 1 })
 
         let simulated = try #require(environment.accessory(host, "1000bbbbbb")?.service(.contactSensor))
         environment.push("1000bbbbbb", ["switch": "on"])

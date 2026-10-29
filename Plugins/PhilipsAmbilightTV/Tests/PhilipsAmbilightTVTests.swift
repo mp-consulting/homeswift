@@ -407,7 +407,7 @@ struct TelevisionTests {
         await tv.set(muted: true)
         await tv.notify(["audio/volume": .object(["muted": .bool(true), "current": .number(12)])])
         #expect(await eventually { bridge.server.primary.service(.televisionSpeaker)?[.mute]?.value == .bool(true) })
-        #expect(bridge.server.primary.service(.motionSensor, subtype: "state-sensor-mute")?[.motionDetected]?.value == .bool(true))
+        #expect(await eventually { bridge.server.primary.service(.motionSensor, subtype: "state-sensor-mute")?[.motionDetected]?.value == .bool(true) })
         // The TV holds what it notifies, so a poll that lands meanwhile reads the same.
         let white = JointSpace.AmbilightConfiguration.Color(hue: 255, saturation: 255, brightness: 255)
         await tv.set(ambilight: .init(styleName: "FOLLOW_COLOR", colorSettings: .init(color: white, colorDelta: .init(hue: 0, saturation: 0, brightness: 0), speed: 0)))

@@ -421,7 +421,9 @@ import Testing
         try await Task.sleep(for: .milliseconds(5))
         #expect(try await gate.run { ran.withLockedValue { $0 += 1 } } == false)
         #expect(try await first)
-        try await Task.sleep(for: .milliseconds(80))
+        // The cooldown's end, however late a loaded runner gets to it.
+        let deadline = ContinuousClock.now + .seconds(10)
+        while gate.isBusy, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
         #expect(try await gate.run { ran.withLockedValue { $0 += 1 } })
         #expect(ran.withLockedValue { $0 } == 2)
     }

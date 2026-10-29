@@ -670,7 +670,7 @@ actor TVDevice {
         styleRetry = Task { [weak self] in
             for delay in delays {
                 do { try await Task.sleep(for: delay) } catch { return }
-                guard let self, await self.ambilight.on else { return }
+                guard let self, await self.ambilight.on, !Task.isCancelled else { return }
                 await self.reapplyStyle(style, algorithm: algorithm)
             }
         }
@@ -678,6 +678,8 @@ actor TVDevice {
 
     private func reapplyStyle(_ style: String, algorithm: String?) async {
         guard let current = try? await client.ambilightConfiguration() else { return }
+        // A colour picked while the read was on its way cancelled the retry: it is the style now.
+        guard !Task.isCancelled else { return }
         ambilight.style = current.style
         guard current.style != style else { return }
         logger.debug("Ambilight style drifted to \(current.style); re-applying \(style)")

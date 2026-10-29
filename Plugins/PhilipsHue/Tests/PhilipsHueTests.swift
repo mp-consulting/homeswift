@@ -250,9 +250,13 @@ struct PhilipsHueTests {
         #expect(await eventually { await plugin.storedBridge.bridgeID != nil })
         await plugin.use(host: "192.0.2.11")
         #expect(await eventually { await plugin.storedBridge.applicationKey == nil })
-        // Let a read that was already on its way land, then check that none starts with the dropped key.
-        try await Task.sleep(for: .milliseconds(300))
-        let before = environment.bridge.sent.count
+        // Let a read that was already on its way land (requests stop coming), then check that none starts with the dropped key.
+        var before = -1
+        let deadline = ContinuousClock.now + .seconds(10)
+        while environment.bridge.sent.count != before, ContinuousClock.now < deadline {
+            before = environment.bridge.sent.count
+            try await Task.sleep(for: .milliseconds(300))
+        }
         try await Task.sleep(for: .milliseconds(300))
         #expect(!environment.bridge.sent.dropFirst(before).contains { $0.path == "/clip/v2/resource" })
         await host.stop()

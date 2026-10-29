@@ -90,10 +90,12 @@ import Testing
     static let interface = MDNSResponder.Interface(index: 7, name: "eth0", addresses: [[192, 168, 1, 5]])
     static let peer = try! SocketAddress(ipAddress: "192.168.1.20", port: 5353)
 
-    func makeResponder(interface: MDNSResponder.Interface = interface) throws -> (MDNSResponder, Wire) {
+    /// A responder at a tenth of the protocol's delays by default: a probe every 25 ms, announcements 100 ms apart.
+    func makeResponder(interface: MDNSResponder.Interface = interface, timeScale: Double = 0.1) throws -> (MDNSResponder, Wire) {
         let responder = MDNSResponder()
         let wire = Wire()
         try responder.loop.submit {
+            responder.timeScale = timeScale
             responder.send = { _, destination, bytes in
                 if let message = try? DNSMessage(bytes: bytes) { wire.sent.withLockedValue { $0.append((destination, message)) } }
             }
@@ -149,7 +151,7 @@ import Testing
 
         // A TXT change is announced.
         responder.update(id: id, txt: txt("0"))
-        try await Task.sleep(for: .milliseconds(100))
+        try await wire.wait { $0.contains { $0.message.answers.contains { $0.data == .txt(Array(txt("0"))) } } }
         #expect(wire.take().contains { $0.message.answers.contains { $0.data == .txt(Array(txt("0"))) } })
 
         try await responder.unregister(id: id).get()
@@ -188,7 +190,7 @@ import Testing
         try await wire.wait { $0.filter(\.message.isResponse).count >= 2 }
         let announcement = try #require(wire.take().first { $0.message.isResponse })
         try deliver(announcement.message, to: responder)
-        try await Task.sleep(for: .milliseconds(1300))
+        try await Task.sleep(for: .milliseconds(200))
         // No new probes: the name stays.
         #expect(wire.take().allSatisfy { $0.message.isResponse })
         try await responder.unregister(id: id).get()
@@ -218,7 +220,8 @@ import Testing
     }
 
     @Test func multicastsARecordAtMostOnceASecond() async throws {
-        let (responder, wire) = try makeResponder()
+        // The protocol's own second: five deliveries on a loaded runner fit in it.
+        let (responder, wire) = try makeResponder(timeScale: 1)
         let id = try await responder.register(name: "Homeswift", port: 51826, txt: txt("1"), interfaces: [], logger: testLogger).get()
         try await wire.wait { $0.filter(\.message.isResponse).count >= 2 }
         _ = wire.take()
