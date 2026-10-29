@@ -60,6 +60,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A menu opened from an accessory's sheet (its ⋯) shows over the sheet; it opened behind it.
 - An accessory group no longer takes a security control (a switch that unlocks a door), so a tap on the group
   cannot open a door.
 - Accessories › Graph: a node's tooltip sits over its node; inside the page's glass card it showed some 200 px off.

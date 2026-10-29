@@ -7491,8 +7491,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       list.prepend(el("div", { class: "sheet-grabber", "aria-hidden": "true" }));
       dragToDismiss(list, { vertical: () => true, dismiss: () => close(true), handle: ".sheet-grabber" });
     }
-    if (scrim) document.body.append(scrim);
-    document.body.append(list);
+    // A modal dialog (an accessory's sheet) is in the top layer, over anything in the page: a menu opened from one goes
+    // in it, or it would open behind.
+    const host = trigger.closest("dialog[open]") ?? document.body;
+    if (scrim) host.append(scrim);
+    host.append(list);
     if (!sheet) {
       // Under the button, its right edges aligned, inside the window; above it when there is no room below.
       const box = trigger.getBoundingClientRect();
