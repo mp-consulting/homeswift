@@ -8,6 +8,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- The Assistant arranges the Accessories wall: `get_wall_layout` and `set_wall_layout` (MCP, and the web UI's chat)
+  read and change its order, each accessory's size, the default size of each kind of widget and the grouping. An
+  `order` of some ids puts them in the places they hold together, so one room is sorted without moving the others.
+  It groups accessories that go together (a room's lights, its blinds) into one widget, changes and dissolves groups.
+  An open Accessories page draws the wall again when it or the rooms change, from the chat, an MCP client or another
+  page (a `layout` event on `/api/events`).
 - `publicURL` in the HomeswiftUI block: the MCP connector on a path of a host name other servers share behind one
   tunnel (`https://mcp.example.com/homeswift`). Requests for that host name under that path, and the OAuth discovery
   documents for it, are answered as `/mcp`, `/oauth` and the sign-in page, whose files and API calls stay under the
@@ -55,6 +61,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- An accessory group's failed change is a callout: the members that did not change, each one's reason, Try again for
+  those members and a close button, over the whole group widget. It was a line of plain text without the reason, letter
+  by letter on a medium group.
+- A link in an accessory's sheet (Show its log, Plugin settings) closes the sheet: the next page opened under it,
+  behind the sheet and its blur.
+- A menu opened from an accessory's sheet (its ⋯) shows over the sheet; it opened behind it.
+- An accessory group no longer takes a security control (a switch that unlocks a door), so a tap on the group
+  cannot open a door.
 - Accessories › Graph: a node's tooltip sits over its node; inside the page's glass card it showed some 200 px off.
 - Accessories › Graph: an accessory, and a group of them, shows the icon its tile shows (a battery for a power station
   filed as Other), not a generic square.

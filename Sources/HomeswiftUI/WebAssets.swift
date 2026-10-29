@@ -1721,6 +1721,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   let leaveGuard = null;   // a page with unsaved changes: false keeps it
   let shownPath = null;
   function route() {
+    // A dialog belongs to the view it opened on (an accessory's sheet, whose menu links to its log): a new view closes
+    // it, or it would stay over the next one. The restart overlay outlives views.
+    for (const dialog of document.querySelectorAll("dialog[open]")) if (dialog !== restartOverlay) dialog.close();
     const decode = (part) => { try { return decodeURIComponent(part); } catch { return part; } };
     let [name = "status", ...args] = location.pathname.split("/").filter(Boolean).map(decode);
     if (adminSections.has(name) && !isAdmin()) {
@@ -1815,6 +1818,20 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
     });
     stream.addEventListener("log", (event) => appendLogLine(JSON.parse(event.data)));
+    // The rooms or the wall changed elsewhere (the chat, an MCP client, another page): the Accessories page draws them
+    // again, once for a burst, unless the change is the page's own. While it is being edited or a dialog is open over
+    // it, the redraw waits for them to end, so a save from Edit does not put back what changed meanwhile.
+    let layoutTimer = null;
+    const redrawLayout = () => {
+      if (location.pathname !== "/accessories") return;
+      if (document.querySelector(".wall.editing, dialog[open]")) { layoutTimer = setTimeout(redrawLayout, 1000); return; }
+      route();
+    };
+    stream.addEventListener("layout", () => {
+      clearTimeout(layoutTimer);
+      if (Date.now() - HomeswiftCommon.lastChange() < 2000) return;
+      layoutTimer = setTimeout(redrawLayout, 300);
+    });
     stream.addEventListener("asset", (event) => applyAsset(JSON.parse(event.data)));
   }
   /// Live web files (HOMESWIFT_WEB_ROOT): a stylesheet swaps in place, keeping what is open on the page; a
@@ -7485,8 +7502,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       list.prepend(el("div", { class: "sheet-grabber", "aria-hidden": "true" }));
       dragToDismiss(list, { vertical: () => true, dismiss: () => close(true), handle: ".sheet-grabber" });
     }
-    if (scrim) document.body.append(scrim);
-    document.body.append(list);
+    const host = layerHost(trigger);
+    if (scrim) host.append(scrim);
+    host.append(list);
     if (!sheet) {
       // Under the button, its right edges aligned, inside the window; above it when there is no room below.
       const box = trigger.getBoundingClientRect();
@@ -7595,7 +7613,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// The UI's API, with the session cookie: `body` is an object, sent as JSON; a refusal carries the server's
   /// message and its `status`, and a signed-out visitor goes to the sign-in page. `stream: true` answers the Response itself,
   /// for a body read as it arrives.
+  /// When this page last asked the bridge to change something: what it made itself, a change event shortly after
+  /// tells it nothing new.
+  let lastChange = 0;
   async function api(path, { method = "GET", body, stream = false } = {}) {
+    if (method !== "GET") lastChange = Date.now();
     // The Assistant answers in the page's language.
     const options = { method, credentials: "same-origin", headers: { "Accept-Language": window.HomeswiftI18n?.locale || "en" } };
     if (body !== undefined) { options.headers["Content-Type"] = "application/json"; options.body = JSON.stringify(body); }
@@ -7609,12 +7631,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return json;
   }
 
+  /// Where floating UI opened from `anchor` goes: the open modal dialog it is in (an accessory's sheet), which is in the
+  /// top layer over the rest of the page, else the page.
+  const layerHost = (anchor) => anchor?.closest?.("dialog[open]") ?? document.body;
+
   /// Puts `text` on the clipboard. The Clipboard API exists only over HTTPS or on localhost; a page on the
   /// network over plain HTTP copies through a hidden text field instead.
   async function copyText(text) {
     if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
     const field = el("textarea", { value: text, readOnly: true, style: "position:fixed;top:-1000px;opacity:0" });
-    document.body.append(field);
+    // Outside an open modal dialog the field is inert: it could not be selected.
+    layerHost(document.activeElement).append(field);
     field.select();
     const copied = document.execCommand("copy");
     field.remove();
@@ -8528,7 +8555,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           el("button", { type: "button", class: "primary", actionIcon: "eye", text: t("Show"), onclick: apply })));
       popover.addEventListener("keydown", (event) => { if (event.key === "Escape") { event.stopPropagation(); close(); customButton.focus(); } });
       render();
-      document.body.append(popover);
+      layerHost(anchor).append(popover);
       // Under the Custom segment, kept on screen, growing from it.
       const box = anchor.getBoundingClientRect(), width = popover.offsetWidth, height = popover.offsetHeight;
       const left = Math.min(Math.max(8, box.left + box.width / 2 - width / 2), innerWidth - width - 8);
@@ -8588,7 +8615,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     event.preventDefault();
     event.stopPropagation();
     filterTip = el("div", { class: "disabled-filter-tip", role: "status", popover: "manual", text: tap.control.title });
-    (tap.control.closest("dialog[open]") || document.body).append(filterTip);
+    layerHost(tap.control).append(filterTip);
     filterTip.showPopover();
     const rect = tap.control.getBoundingClientRect();
     const bounds = filterTip.getBoundingClientRect();
@@ -8678,7 +8705,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const promptDialog = (message, value = "") => messageDialog(message, { kind: "prompt", value });
 
   window.HomeswiftCommon = {
-    showAlert, confirmDialog, promptDialog, busyButton, scaledCanvas, byteSize,
+    showAlert, confirmDialog, promptDialog, busyButton, scaledCanvas, byteSize, lastChange: () => lastChange,
     $, el, icon, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
@@ -8690,31 +8717,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 (() => {
   const { el, api, menuButton } = HomeswiftCommon;
   const { t } = HomeswiftI18n;
-  const allowed = new Set(['Lightbulb', 'Switch', 'Outlet', 'Fan', 'Fanv2', 'WindowCovering']);
   const deviceTypes = [
     ['Lightbulb', 'bulb', t('Lights')], ['Switch', 'switch', t('Switches')],
     ['Outlet', 'outlet', t('Outlets')], ['Fan', 'fan', t('Fans')], ['WindowCovering', 'blind', t('Blinds')]
   ];
   const deviceType = (a) => deviceTypes.find(([type]) => a.services.some((s) => s.type === type || (type === 'Fan' && s.type === 'Fanv2'))) || ['', 'accessory', t('Accessories')];
+  // The order a group's controls are listed in.
   const types = ['On', 'Active', 'Brightness', 'Color Temperature', 'Hue', 'Saturation', 'Rotation Speed', 'Target Position'];
-  // The services a group drives: the accessory's primary one when it has one of these kinds (a Hue light's lightbulb,
-  // not its effect, Flash or gradient-point services), else every one of these kinds.
-  const groupable = (a) => {
-    const services = (a?.services || []).filter((s) => allowed.has(s.type));
-    const primary = services.find((s) => s.primary);
-    return primary ? [primary] : services;
-  };
-  const controls = (a) => {
-    const result = new Map();
-    for (const s of groupable(a)) {
-      for (const c of s.characteristics) if (types.includes(c.type) && c.permissions.includes('pw')) {
-        // Ambiguous multi-service accessories are not grouped.
-        if (result.has(c.type)) return new Map();
-        result.set(c.type, { service: s.subtype || s.type, c });
-      }
-    }
-    return result;
-  };
+  // The services a group drives on an accessory: those with a characteristic the bridge marks `group`
+  // (HomeswiftCatalog.groupTargets: the primary service of a Hue light, not its effect switches; never a security control).
+  const groupable = (a) => (a?.services || []).filter((s) => s.characteristics?.some((c) => c.group));
+  const controls = (a) => new Map(groupable(a).flatMap((s) => s.characteristics.filter((c) => c.group).map((c) => [c.type, { service: s.subtype || s.type, c }])));
   const shared = (members) => types.filter((type) => members.length && members.every((a) => controls(a).has(type)));
   const compatible = (members) => shared(members).some((type) => ['On', 'Active', 'Target Position'].includes(type));
   // Follow the first visible member in saved member order, not the first wall on the page.
@@ -8846,7 +8859,36 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const groupIcon = matchingType ? memberTypes[0][1] : 'group';
       const groupTone = matchingType ? ({ Lightbulb: 'orange', Switch: 'green', Outlet: 'green', Fan: 'teal' }[memberTypes[0][0]] || 'blue') : 'blue';
       const glyph = HomeswiftCommon.tile(groupIcon, groupTone);
-      const result = el('p', { class: 'group-feedback', role: 'status' });
+      const result = el('div', { class: 'group-feedback', role: 'status' });
+      // A callout over the widget: what did not change, why (each device's own reason, once), and a way to try again.
+      // The controls under it are inert while it shows; focus goes to Try again when a change failed, and back to the
+      // controls when it goes. Escape dismisses it.
+      let closing = null, missingNoted = false;
+      const cover = (shown) => { for (const sibling of result.parentElement?.children ?? []) if (sibling !== result) sibling.inert = shown; };
+      const notify = (text, { reasons = [], retry = null, focus = false } = {}) => {
+        clearTimeout(closing); closing = null; result.classList.remove('closing');
+        if (!text) {
+          if (!result.childElementCount) return;
+          const hadFocus = result.contains(document.activeElement);
+          result.classList.add('closing');
+          closing = setTimeout(() => {
+            closing = null; result.classList.remove('closing'); result.replaceChildren(); cover(false);
+            if (hadFocus) result.parentElement?.querySelector('.group-controls :is(input, button, [tabindex="0"])')?.focus({ preventScroll: true });
+          }, 140);
+          return;
+        }
+        const dismiss = el('button', { type: 'button', class: 'icon-button', 'aria-label': t('Dismiss'), title: t('Dismiss'), onclick: () => notify('') }, HomeswiftCommon.icon('close'));
+        const again = retry ? el('button', { type: 'button', class: 'link group-feedback-retry', actionIcon: 'restore', text: t('Try again'), onclick: () => {
+          again.disabled = true; again.setAttribute('aria-busy', 'true'); retry();
+        } }) : null;
+        result.replaceChildren(
+          HomeswiftCommon.icon('warning'),
+          el('div', { class: 'group-feedback-text' }, el('strong', { text, title: text }), [...new Set(reasons)].map((reason) => el('span', { text: reason }))),
+          again, dismiss);
+        cover(true);
+        if (focus) (again ?? dismiss).focus({ preventScroll: true });
+      };
+      result.addEventListener('keydown', (event) => { if (event.key === 'Escape') { event.stopPropagation(); notify(''); } });
       const body = el('div', { class: 'group-controls' });
       const draw = () => {
         const states = people.flatMap((accessory) => groupable(accessory).flatMap((service) => {
@@ -8867,13 +8909,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           const high = Math.min(...targets.map(({ c }) => c.maxValue ?? (temperature ? 500 : type === 'Hue' ? 360 : 100)));
           if (!isBool && low > high) return null;
           let input, busy = false;
-          const commit = async (value) => {
+          // Sends `value` to the members (`only`, the indexes of those that failed, on Try again).
+          const commit = async (value, only = present.map((_, i) => i)) => {
             if (editing || busy) return;
             busy = true; input.inert = true; input.setAttribute('aria-disabled', 'true');
-            const outcomes = await Promise.allSettled(present.map((a, i) => api(`/api/accessories/${encodeURIComponent(a.id)}`, { method: 'PUT', body: { service: targets[i].service, characteristic: type, value } })));
-            outcomes.forEach((outcome, i) => { if (outcome.status === 'fulfilled') targets[i].c.value = value; });
-            const failed = outcomes.flatMap((outcome, i) => outcome.status === 'rejected' ? [present[i].displayName || present[i].name] : []);
-            result.textContent = failed.length ? t('Could not update: {names}', { names: failed.join(', ') }) : '';
+            const outcomes = await Promise.allSettled(only.map((i) => api(`/api/accessories/${encodeURIComponent(present[i].id)}`, { method: 'PUT', body: { service: targets[i].service, characteristic: type, value } })));
+            outcomes.forEach((outcome, n) => { if (outcome.status === 'fulfilled') targets[only[n]].c.value = value; });
+            const failed = only.filter((_, n) => outcomes[n].status === 'rejected');
+            notify(failed.length ? t('Could not update: {names}', { names: failed.map((i) => present[i].displayName || present[i].name).join(', ') }) : '', {
+              reasons: outcomes.flatMap((outcome) => outcome.status === 'rejected' && outcome.reason?.message ? [outcome.reason.message] : []),
+              retry: () => commit(value, failed), focus: true,
+            });
             busy = false; input.inert = editing; input.blur(); draw();
           };
           if (isBool) {
@@ -8907,18 +8953,19 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           }
           return input;
         }).filter(Boolean));
-        if (people.some((a) => !a)) result.textContent = t('Some group members are unavailable.');
+        // Said once: dismissed, it stays away while the members that are there can be used.
+        if (people.some((a) => !a) && !missingNoted) { missingNoted = true; notify(t('Some group members are unavailable.')); }
       };
       const node = el('div', { class: `widget size-${layout.sizes?.[group.id] || 'large'} accessory-group`, 'data-id': group.id, 'data-search': [group.name, ...people.map((a) => a?.name || '')].join(' ').toLowerCase() },
         el('div', { class: 'server-head' }, glyph, el('div', { class: 'who' }, el('strong', { text: group.name }), el('div', { class: 'muted', text: people.map((a) => a?.displayName || a?.name || '—').join(', ') })),
           menuButton(t('Actions for {name}', { name: group.name }), () => [
             ...(moveToRoom ? [{ label: t('Move to room…'), icon: 'room', onSelect: async () => {
-              try { await moveToRoom(group); } catch (error) { result.textContent = error.message; }
+              try { await moveToRoom(group); } catch (error) { notify(error.message); }
             } }] : []),
             { label: t('Edit group'), icon: 'edit', onSelect: () => edit([], group) },
             { label: t('Ungroup'), icon: 'ungroup', onSelect: async () => {
               const before = layout.groups; layout.groups = before.filter((g) => g !== group);
-              try { await persist(); refresh(); } catch (error) { layout.groups = before; result.textContent = error.message; }
+              try { await persist(); refresh(); } catch (error) { layout.groups = before; notify(error.message); }
             } }
           ])), body, result);
       draw(); cards.add({ node, draw, members: new Set(group.members) }); return node;
@@ -22113,8 +22160,41 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 .group-controls .group-name { display: grid; gap: 1px; }
 .group-controls .group-count { color: var(--muted); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
 .group-controls > .level { width: 100%; }
-.group-feedback { font-size: var(--text-xs); color: var(--danger); }
-.group-feedback:empty { display: none; }
+/* What a group could not change: a callout over the whole widget, on frosted glass tinted with the error colour, its
+   icon, words and close button on a row, Try again under the words. It scrolls when long. Dismiss, or Try again once
+   it works, gives the controls back; it stays out of the way in Edit. */
+.group-feedback {
+  --callout-tint: color-mix(in srgb, var(--error) 10%, transparent);
+  position: absolute; inset: 0; z-index: 4; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: var(--space-8); row-gap: var(--space-4);
+  align-items: start; align-content: safe center; padding: var(--space-14) var(--space-8) var(--space-14) var(--space-14); border-radius: inherit;
+  overflow-y: auto; overscroll-behavior: contain; font-size: var(--text-base); color: var(--text);
+  background: linear-gradient(var(--callout-tint) 0 0), var(--material-thick); -webkit-backdrop-filter: blur(var(--blur)); backdrop-filter: blur(var(--blur));
+  animation: materialize var(--normal) var(--ease-out);
+}
+.group-feedback:empty, .wall.editing .group-feedback { display: none; }
+.group-feedback > svg { grid-column: 1; grid-row: 1; width: 18px; height: 18px; margin-top: 1px; fill: none; stroke: var(--error); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.group-feedback-text { grid-column: 2; grid-row: 1; display: grid; gap: 2px; }
+.group-feedback-text strong { font-weight: var(--weight-semibold); overflow-wrap: anywhere; }
+.group-feedback-text span { color: var(--muted); font-size: var(--text-xs); overflow-wrap: anywhere; }
+.group-feedback-retry { grid-column: 2; grid-row: 2; justify-self: start; margin-left: calc(-1 * var(--space-6)); font-size: var(--text-sm); white-space: nowrap; }
+.group-feedback .icon-button { grid-column: 3; grid-row: 1; width: 26px; height: 26px; margin-top: -4px; background: none; border: 0; box-shadow: none; color: var(--muted); }
+.group-feedback .icon-button svg { width: 14px; height: 14px; }
+@media (hover: hover) and (pointer: fine) { .group-feedback .icon-button:hover { background: var(--callout-tint); color: var(--text); } }
+.group-feedback .icon-button:active { background: var(--callout-tint); }
+/* A thumb's reach: the same look, a 40-pixel target. */
+@media (pointer: coarse) {
+  .group-feedback .icon-button { width: 40px; height: 40px; margin: -10px -6px -10px 0; }
+  .group-feedback-retry { min-height: 40px; }
+}
+.group-feedback.closing { animation: menu-out 140ms var(--ease-out) forwards; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) {
+  .group-feedback { animation: fade var(--normal) ease; }
+  .group-feedback.closing { animation: fade 140ms ease reverse forwards; }
+}
+/* A medium group: the names, clamped, without the reasons. */
+.size-medium > .group-feedback { padding: var(--space-10) var(--space-4) var(--space-10) var(--space-10); }
+.size-medium > .group-feedback strong { font-size: var(--text-sm); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+.size-medium > .group-feedback span { display: none; }
 .wall .widget.group-drop-target { outline: 3px solid var(--accent); outline-offset: 3px; }
 .wall .widget.group-drop-target::after { content: "+"; position: absolute; inset: 35% 40%; border-radius: 50%; background: var(--accent); color: white; display: grid; place-items: center; font-size: 32px; pointer-events: none; }
 .accessory-group-dialog { width: min(940px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); padding: var(--space-24); border-radius: var(--radius); border: 1px solid var(--edge); background: var(--material-solid); box-shadow: 0 24px 80px rgba(0,0,0,.25); }
@@ -22493,7 +22573,6 @@ select option:disabled { color: var(--muted); }
 .wall.editing > .accessory-group { cursor: default; }
 .wall.editing > .accessory-group > .server-head { visibility: hidden; }
 .edit-caption > svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; color: var(--muted); }
-.wall.editing > .accessory-group .group-feedback:not(:empty) { position: relative; z-index: 3; margin-bottom: 42px; }
 /* A corner grip leaves more of the bottom edge for the size controls. */
 .wall.editing .edit-bar { right: 24px; }
 .wall.editing .resize-handle,
@@ -22543,7 +22622,6 @@ select option:disabled { color: var(--muted); }
 .accessory-group.size-medium .level-label, .accessory-group.size-medium .level-text { font-size: .625rem; }
 .accessory-group.size-medium .level-label { left: 7px; max-width: 58%; overflow: hidden; white-space: nowrap; }
 .accessory-group.size-medium .level-text { right: 7px; }
-.accessory-group.size-medium .group-feedback:empty { display: none; }
 /* Scale the complete switch, including its minimum width and thumb travel. */
 .accessory-group.size-medium .group-controls input[type="checkbox"] { width: 36px; min-width: 36px; height: 22px; border-radius: var(--radius-pill); }
 .accessory-group.size-medium .group-controls input[type="checkbox"]::before { width: 16px; height: 16px; left: 2px; top: 2px; }

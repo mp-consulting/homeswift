@@ -2,31 +2,17 @@
 (() => {
   const { el, api, menuButton } = HomeswiftCommon;
   const { t } = HomeswiftI18n;
-  const allowed = new Set(['Lightbulb', 'Switch', 'Outlet', 'Fan', 'Fanv2', 'WindowCovering']);
   const deviceTypes = [
     ['Lightbulb', 'bulb', t('Lights')], ['Switch', 'switch', t('Switches')],
     ['Outlet', 'outlet', t('Outlets')], ['Fan', 'fan', t('Fans')], ['WindowCovering', 'blind', t('Blinds')]
   ];
   const deviceType = (a) => deviceTypes.find(([type]) => a.services.some((s) => s.type === type || (type === 'Fan' && s.type === 'Fanv2'))) || ['', 'accessory', t('Accessories')];
+  // The order a group's controls are listed in.
   const types = ['On', 'Active', 'Brightness', 'Color Temperature', 'Hue', 'Saturation', 'Rotation Speed', 'Target Position'];
-  // The services a group drives: the accessory's primary one when it has one of these kinds (a Hue light's lightbulb,
-  // not its effect, Flash or gradient-point services), else every one of these kinds.
-  const groupable = (a) => {
-    const services = (a?.services || []).filter((s) => allowed.has(s.type));
-    const primary = services.find((s) => s.primary);
-    return primary ? [primary] : services;
-  };
-  const controls = (a) => {
-    const result = new Map();
-    for (const s of groupable(a)) {
-      for (const c of s.characteristics) if (types.includes(c.type) && c.permissions.includes('pw')) {
-        // Ambiguous multi-service accessories are not grouped.
-        if (result.has(c.type)) return new Map();
-        result.set(c.type, { service: s.subtype || s.type, c });
-      }
-    }
-    return result;
-  };
+  // The services a group drives on an accessory: those with a characteristic the bridge marks `group`
+  // (HomeswiftCatalog.groupTargets: the primary service of a Hue light, not its effect switches; never a security control).
+  const groupable = (a) => (a?.services || []).filter((s) => s.characteristics?.some((c) => c.group));
+  const controls = (a) => new Map(groupable(a).flatMap((s) => s.characteristics.filter((c) => c.group).map((c) => [c.type, { service: s.subtype || s.type, c }])));
   const shared = (members) => types.filter((type) => members.length && members.every((a) => controls(a).has(type)));
   const compatible = (members) => shared(members).some((type) => ['On', 'Active', 'Target Position'].includes(type));
   // Follow the first visible member in saved member order, not the first wall on the page.
@@ -158,7 +144,36 @@
       const groupIcon = matchingType ? memberTypes[0][1] : 'group';
       const groupTone = matchingType ? ({ Lightbulb: 'orange', Switch: 'green', Outlet: 'green', Fan: 'teal' }[memberTypes[0][0]] || 'blue') : 'blue';
       const glyph = HomeswiftCommon.tile(groupIcon, groupTone);
-      const result = el('p', { class: 'group-feedback', role: 'status' });
+      const result = el('div', { class: 'group-feedback', role: 'status' });
+      // A callout over the widget: what did not change, why (each device's own reason, once), and a way to try again.
+      // The controls under it are inert while it shows; focus goes to Try again when a change failed, and back to the
+      // controls when it goes. Escape dismisses it.
+      let closing = null, missingNoted = false;
+      const cover = (shown) => { for (const sibling of result.parentElement?.children ?? []) if (sibling !== result) sibling.inert = shown; };
+      const notify = (text, { reasons = [], retry = null, focus = false } = {}) => {
+        clearTimeout(closing); closing = null; result.classList.remove('closing');
+        if (!text) {
+          if (!result.childElementCount) return;
+          const hadFocus = result.contains(document.activeElement);
+          result.classList.add('closing');
+          closing = setTimeout(() => {
+            closing = null; result.classList.remove('closing'); result.replaceChildren(); cover(false);
+            if (hadFocus) result.parentElement?.querySelector('.group-controls :is(input, button, [tabindex="0"])')?.focus({ preventScroll: true });
+          }, 140);
+          return;
+        }
+        const dismiss = el('button', { type: 'button', class: 'icon-button', 'aria-label': t('Dismiss'), title: t('Dismiss'), onclick: () => notify('') }, HomeswiftCommon.icon('close'));
+        const again = retry ? el('button', { type: 'button', class: 'link group-feedback-retry', actionIcon: 'restore', text: t('Try again'), onclick: () => {
+          again.disabled = true; again.setAttribute('aria-busy', 'true'); retry();
+        } }) : null;
+        result.replaceChildren(
+          HomeswiftCommon.icon('warning'),
+          el('div', { class: 'group-feedback-text' }, el('strong', { text, title: text }), [...new Set(reasons)].map((reason) => el('span', { text: reason }))),
+          again, dismiss);
+        cover(true);
+        if (focus) (again ?? dismiss).focus({ preventScroll: true });
+      };
+      result.addEventListener('keydown', (event) => { if (event.key === 'Escape') { event.stopPropagation(); notify(''); } });
       const body = el('div', { class: 'group-controls' });
       const draw = () => {
         const states = people.flatMap((accessory) => groupable(accessory).flatMap((service) => {
@@ -179,13 +194,17 @@
           const high = Math.min(...targets.map(({ c }) => c.maxValue ?? (temperature ? 500 : type === 'Hue' ? 360 : 100)));
           if (!isBool && low > high) return null;
           let input, busy = false;
-          const commit = async (value) => {
+          // Sends `value` to the members (`only`, the indexes of those that failed, on Try again).
+          const commit = async (value, only = present.map((_, i) => i)) => {
             if (editing || busy) return;
             busy = true; input.inert = true; input.setAttribute('aria-disabled', 'true');
-            const outcomes = await Promise.allSettled(present.map((a, i) => api(`/api/accessories/${encodeURIComponent(a.id)}`, { method: 'PUT', body: { service: targets[i].service, characteristic: type, value } })));
-            outcomes.forEach((outcome, i) => { if (outcome.status === 'fulfilled') targets[i].c.value = value; });
-            const failed = outcomes.flatMap((outcome, i) => outcome.status === 'rejected' ? [present[i].displayName || present[i].name] : []);
-            result.textContent = failed.length ? t('Could not update: {names}', { names: failed.join(', ') }) : '';
+            const outcomes = await Promise.allSettled(only.map((i) => api(`/api/accessories/${encodeURIComponent(present[i].id)}`, { method: 'PUT', body: { service: targets[i].service, characteristic: type, value } })));
+            outcomes.forEach((outcome, n) => { if (outcome.status === 'fulfilled') targets[only[n]].c.value = value; });
+            const failed = only.filter((_, n) => outcomes[n].status === 'rejected');
+            notify(failed.length ? t('Could not update: {names}', { names: failed.map((i) => present[i].displayName || present[i].name).join(', ') }) : '', {
+              reasons: outcomes.flatMap((outcome) => outcome.status === 'rejected' && outcome.reason?.message ? [outcome.reason.message] : []),
+              retry: () => commit(value, failed), focus: true,
+            });
             busy = false; input.inert = editing; input.blur(); draw();
           };
           if (isBool) {
@@ -219,18 +238,19 @@
           }
           return input;
         }).filter(Boolean));
-        if (people.some((a) => !a)) result.textContent = t('Some group members are unavailable.');
+        // Said once: dismissed, it stays away while the members that are there can be used.
+        if (people.some((a) => !a) && !missingNoted) { missingNoted = true; notify(t('Some group members are unavailable.')); }
       };
       const node = el('div', { class: `widget size-${layout.sizes?.[group.id] || 'large'} accessory-group`, 'data-id': group.id, 'data-search': [group.name, ...people.map((a) => a?.name || '')].join(' ').toLowerCase() },
         el('div', { class: 'server-head' }, glyph, el('div', { class: 'who' }, el('strong', { text: group.name }), el('div', { class: 'muted', text: people.map((a) => a?.displayName || a?.name || '—').join(', ') })),
           menuButton(t('Actions for {name}', { name: group.name }), () => [
             ...(moveToRoom ? [{ label: t('Move to room…'), icon: 'room', onSelect: async () => {
-              try { await moveToRoom(group); } catch (error) { result.textContent = error.message; }
+              try { await moveToRoom(group); } catch (error) { notify(error.message); }
             } }] : []),
             { label: t('Edit group'), icon: 'edit', onSelect: () => edit([], group) },
             { label: t('Ungroup'), icon: 'ungroup', onSelect: async () => {
               const before = layout.groups; layout.groups = before.filter((g) => g !== group);
-              try { await persist(); refresh(); } catch (error) { layout.groups = before; result.textContent = error.message; }
+              try { await persist(); refresh(); } catch (error) { layout.groups = before; notify(error.message); }
             } }
           ])), body, result);
       draw(); cards.add({ node, draw, members: new Set(group.members) }); return node;

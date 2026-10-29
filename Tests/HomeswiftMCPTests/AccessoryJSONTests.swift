@@ -52,6 +52,7 @@ import Testing
                     detail["format"] = .string(type.format.rawValue)
                     detail["permissions"] = .array(type.permissions.map(\.rawValue).sorted().map(JSONValue.string))
                     if characteristic.isSecurityControl { detail["security"] = true }
+                    if HomeswiftCatalog.groupTargets(located.accessory).contains(where: { $0 === characteristic }) { detail["group"] = true }
                     if characteristic.isConfidential { detail["confidential"] = true }
                     if HomeswiftCatalog.isInternal(characteristic) { detail["internal"] = true }
                     if HomeswiftCatalog.isOpaque(characteristic), !characteristic.isConfidential, let base64 = characteristic.value.stringValue {

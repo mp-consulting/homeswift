@@ -2688,8 +2688,41 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 .group-controls .group-name { display: grid; gap: 1px; }
 .group-controls .group-count { color: var(--muted); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
 .group-controls > .level { width: 100%; }
-.group-feedback { font-size: var(--text-xs); color: var(--danger); }
-.group-feedback:empty { display: none; }
+/* What a group could not change: a callout over the whole widget, on frosted glass tinted with the error colour, its
+   icon, words and close button on a row, Try again under the words. It scrolls when long. Dismiss, or Try again once
+   it works, gives the controls back; it stays out of the way in Edit. */
+.group-feedback {
+  --callout-tint: color-mix(in srgb, var(--error) 10%, transparent);
+  position: absolute; inset: 0; z-index: 4; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: var(--space-8); row-gap: var(--space-4);
+  align-items: start; align-content: safe center; padding: var(--space-14) var(--space-8) var(--space-14) var(--space-14); border-radius: inherit;
+  overflow-y: auto; overscroll-behavior: contain; font-size: var(--text-base); color: var(--text);
+  background: linear-gradient(var(--callout-tint) 0 0), var(--material-thick); -webkit-backdrop-filter: blur(var(--blur)); backdrop-filter: blur(var(--blur));
+  animation: materialize var(--normal) var(--ease-out);
+}
+.group-feedback:empty, .wall.editing .group-feedback { display: none; }
+.group-feedback > svg { grid-column: 1; grid-row: 1; width: 18px; height: 18px; margin-top: 1px; fill: none; stroke: var(--error); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.group-feedback-text { grid-column: 2; grid-row: 1; display: grid; gap: 2px; }
+.group-feedback-text strong { font-weight: var(--weight-semibold); overflow-wrap: anywhere; }
+.group-feedback-text span { color: var(--muted); font-size: var(--text-xs); overflow-wrap: anywhere; }
+.group-feedback-retry { grid-column: 2; grid-row: 2; justify-self: start; margin-left: calc(-1 * var(--space-6)); font-size: var(--text-sm); white-space: nowrap; }
+.group-feedback .icon-button { grid-column: 3; grid-row: 1; width: 26px; height: 26px; margin-top: -4px; background: none; border: 0; box-shadow: none; color: var(--muted); }
+.group-feedback .icon-button svg { width: 14px; height: 14px; }
+@media (hover: hover) and (pointer: fine) { .group-feedback .icon-button:hover { background: var(--callout-tint); color: var(--text); } }
+.group-feedback .icon-button:active { background: var(--callout-tint); }
+/* A thumb's reach: the same look, a 40-pixel target. */
+@media (pointer: coarse) {
+  .group-feedback .icon-button { width: 40px; height: 40px; margin: -10px -6px -10px 0; }
+  .group-feedback-retry { min-height: 40px; }
+}
+.group-feedback.closing { animation: menu-out 140ms var(--ease-out) forwards; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) {
+  .group-feedback { animation: fade var(--normal) ease; }
+  .group-feedback.closing { animation: fade 140ms ease reverse forwards; }
+}
+/* A medium group: the names, clamped, without the reasons. */
+.size-medium > .group-feedback { padding: var(--space-10) var(--space-4) var(--space-10) var(--space-10); }
+.size-medium > .group-feedback strong { font-size: var(--text-sm); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+.size-medium > .group-feedback span { display: none; }
 .wall .widget.group-drop-target { outline: 3px solid var(--accent); outline-offset: 3px; }
 .wall .widget.group-drop-target::after { content: "+"; position: absolute; inset: 35% 40%; border-radius: 50%; background: var(--accent); color: white; display: grid; place-items: center; font-size: 32px; pointer-events: none; }
 .accessory-group-dialog { width: min(940px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); padding: var(--space-24); border-radius: var(--radius); border: 1px solid var(--edge); background: var(--material-solid); box-shadow: 0 24px 80px rgba(0,0,0,.25); }
@@ -3068,7 +3101,6 @@ select option:disabled { color: var(--muted); }
 .wall.editing > .accessory-group { cursor: default; }
 .wall.editing > .accessory-group > .server-head { visibility: hidden; }
 .edit-caption > svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; color: var(--muted); }
-.wall.editing > .accessory-group .group-feedback:not(:empty) { position: relative; z-index: 3; margin-bottom: 42px; }
 /* A corner grip leaves more of the bottom edge for the size controls. */
 .wall.editing .edit-bar { right: 24px; }
 .wall.editing .resize-handle,
@@ -3118,7 +3150,6 @@ select option:disabled { color: var(--muted); }
 .accessory-group.size-medium .level-label, .accessory-group.size-medium .level-text { font-size: .625rem; }
 .accessory-group.size-medium .level-label { left: 7px; max-width: 58%; overflow: hidden; white-space: nowrap; }
 .accessory-group.size-medium .level-text { right: 7px; }
-.accessory-group.size-medium .group-feedback:empty { display: none; }
 /* Scale the complete switch, including its minimum width and thumb travel. */
 .accessory-group.size-medium .group-controls input[type="checkbox"] { width: 36px; min-width: 36px; height: 22px; border-radius: var(--radius-pill); }
 .accessory-group.size-medium .group-controls input[type="checkbox"]::before { width: 16px; height: 16px; left: 2px; top: 2px; }

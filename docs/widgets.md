@@ -57,7 +57,8 @@ widgets slide into their new places. Focus the corner handle and use arrow keys 
 
 The bridge keeps the layout in `ui-layout.json` next to config.json, the same for every user of the web UI: the
 order, the size of each accessory you sized, the size of each kind, and the grouping. An accessory the layout
-does not list yet goes at the end, by plugin and name.
+does not list yet goes at the end, by plugin and name. The Assistant arranges it too ("compose an optimized wall",
+"sort the Office by use"), through the MCP server's `get_wall_layout` and `set_wall_layout` (docs/mcp.md).
 
 ### All controls
 
@@ -360,7 +361,7 @@ Use **Create group** on Accessories, or in Edit mode drag a compatible accessory
 
 When the wall is split by room or plugin, a group appears in the section of its first visible member in saved selection order. By default, grouping keeps the members’ room assignments. Choosing a room in the group editor moves the selected members in Homeswift only. The room selector and device-type filters show available counts that follow the search. Clear filters restores all rooms and device types; selected members stay selected. On small screens, Cancel and Save remain visible while the picker scrolls.
 
-Groups offer only shared writable controls for lights, switches/outlets, fans and window coverings. A member with several such services joins through its primary one (a Philips Hue light's lightbulb, not its effect, Flash or gradient-point services); one without a primary service, whose services share a control, stays out. When the members differ, the switch is half lit with its thumb between, "2 of 5 on" under its name, and a tap turns them all on; a slider shows the spread, solid to the lowest member and lighter to the highest ("40–80 %"; a band between the two on colour temperature), until it is moved. Partial failures identify the devices that could not be updated. Locks and alarm controls are excluded. Membership is saved in `ui-layout.json`. The **No Response** filter shows individual unavailable or paused accessories, including group members.
+Groups offer only shared writable controls for lights, switches/outlets, fans and window coverings. A member with several such services joins through its primary one (a Philips Hue light's lightbulb, not its effect, Flash or gradient-point services); one without a primary service, whose services share a control, stays out. When the members differ, the switch is half lit with its thumb between, "2 of 5 on" under its name, and a tap turns them all on; a slider shows the spread, solid to the lowest member and lighter to the highest ("40–80 %"; a band between the two on colour temperature), until it is moved. When some members do not change, a callout under the controls names them with each one's reason (a device that did not answer, a paused plugin), with **Try again** for those members only and a button to dismiss it. It covers the whole group widget until it is dismissed (or Escape) or Try again works (a medium group shows the names without the reasons); the controls under it cannot be reached meanwhile, focus moves to Try again and comes back to the controls after, and it stays out of the way in Edit. Locks, alarm controls and security controls (a switch that unlocks a door) are excluded. The Assistant makes and changes groups too (`set_wall_layout`, docs/mcp.md). Membership is saved in `ui-layout.json`. The **No Response** filter shows individual unavailable or paused accessories, including group members.
 
 Group brightness and colour-temperature controls use the same pill sliders as individual lights, with temperature shown in kelvin and differing values marked **Mixed**.
 

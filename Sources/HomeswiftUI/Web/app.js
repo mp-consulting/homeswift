@@ -335,6 +335,9 @@
   let leaveGuard = null;   // a page with unsaved changes: false keeps it
   let shownPath = null;
   function route() {
+    // A dialog belongs to the view it opened on (an accessory's sheet, whose menu links to its log): a new view closes
+    // it, or it would stay over the next one. The restart overlay outlives views.
+    for (const dialog of document.querySelectorAll("dialog[open]")) if (dialog !== restartOverlay) dialog.close();
     const decode = (part) => { try { return decodeURIComponent(part); } catch { return part; } };
     let [name = "status", ...args] = location.pathname.split("/").filter(Boolean).map(decode);
     if (adminSections.has(name) && !isAdmin()) {
@@ -429,6 +432,20 @@
       }
     });
     stream.addEventListener("log", (event) => appendLogLine(JSON.parse(event.data)));
+    // The rooms or the wall changed elsewhere (the chat, an MCP client, another page): the Accessories page draws them
+    // again, once for a burst, unless the change is the page's own. While it is being edited or a dialog is open over
+    // it, the redraw waits for them to end, so a save from Edit does not put back what changed meanwhile.
+    let layoutTimer = null;
+    const redrawLayout = () => {
+      if (location.pathname !== "/accessories") return;
+      if (document.querySelector(".wall.editing, dialog[open]")) { layoutTimer = setTimeout(redrawLayout, 1000); return; }
+      route();
+    };
+    stream.addEventListener("layout", () => {
+      clearTimeout(layoutTimer);
+      if (Date.now() - HomeswiftCommon.lastChange() < 2000) return;
+      layoutTimer = setTimeout(redrawLayout, 300);
+    });
     stream.addEventListener("asset", (event) => applyAsset(JSON.parse(event.data)));
   }
   /// Live web files (HOMESWIFT_WEB_ROOT): a stylesheet swaps in place, keeping what is open on the page; a

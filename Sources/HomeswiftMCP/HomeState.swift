@@ -48,11 +48,15 @@ public final class JSONFileStore<Value: Codable & Sendable>: Sendable {
 }
 
 /// What the web UI and the MCP server keep about the home besides config.json: the accessory layout (rooms,
-/// hidden accessories, display names, Quick Controls), the scenes and their automations, the notification
+/// hidden accessories, display names, Quick Controls), the wall's order and sizes, the scenes and their automations, the notification
 /// settings, and the moods that can still be undone. Each is its own owner-only file next to config.json; `HomeswiftCatalog.startHome` runs the
 /// automations and the notification sources.
 public final class HomeState: Sendable {
     public let layout: JSONFileStore<AccessoryLayout>
+    /// The Accessories page's wall: order, sizes, grouping (`ui-layout.json`).
+    public let wall: WallLayout
+    /// Who follows changes to the rooms and the wall, from any writer (the pages, the chat, an MCP client).
+    let layoutObservers = NIOLockedValueBox<[UUID: @Sendable () -> Void]>([:])
     public let scenes: JSONFileStore<SceneFile>
     public let notifications: JSONFileStore<NotificationSettings>
     /// The moods and plugin scenes that set the lights and can still be undone, with what the lights were.
@@ -73,11 +77,26 @@ public final class HomeState: Sendable {
 
     public init(directory: URL) {
         layout = JSONFileStore(url: directory.appendingPathComponent("accessory-layout.json")) { AccessoryLayout() }
+        let observers = layoutObservers
+        wall = WallLayout(url: directory.appendingPathComponent("ui-layout.json")) { Self.notify(observers) }
         scenes = JSONFileStore(url: directory.appendingPathComponent("scenes.json")) { SceneFile() }
         notifications = JSONFileStore(url: directory.appendingPathComponent("notifications.json")) { NotificationSettings() }
         sceneUndo = JSONFileStore(url: directory.appendingPathComponent("scene-undo.json")) { [:] }
         heldMoods = JSONFileStore(url: directory.appendingPathComponent("held-moods.json")) { [] }
         httpBox = NIOLockedValueBox(HTTPClient())
+    }
+
+    /// Calls `observer` after each change to the rooms or the wall, until the observation is cancelled.
+    public func observeLayout(_ observer: @escaping @Sendable () -> Void) -> Observation {
+        let id = UUID()
+        layoutObservers.withLockedValue { $0[id] = observer }
+        return Observation { [layoutObservers] in _ = layoutObservers.withLockedValue { $0.removeValue(forKey: id) } }
+    }
+
+    func layoutChanged() { Self.notify(layoutObservers) }
+
+    private static func notify(_ observers: NIOLockedValueBox<[UUID: @Sendable () -> Void]>) {
+        for observer in observers.withLockedValue({ Array($0.values) }) { observer() }
     }
 
     public var http: any HTTPSending {

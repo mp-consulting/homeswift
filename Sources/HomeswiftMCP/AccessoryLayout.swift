@@ -152,6 +152,7 @@ extension HomeswiftCatalog {
             }
             guard layout.rooms.count <= AccessoryLayout.maxRooms else { throw CatalogError("At most \(AccessoryLayout.maxRooms) rooms") }
         }
+        home.layoutChanged()
         return layoutJSON()
     }
 
