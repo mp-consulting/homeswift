@@ -2,7 +2,7 @@ import Foundation
 import Homeswift
 import Logging
 
-// A bridge with a lamp, a switch and a temperature sensor that drifts, for pairing with the Home app.
+// A bridge with a lamp (with Adaptive Lighting), a switch and a temperature sensor that drifts, for pairing with the Home app.
 
 /// Writes straight to the file descriptor: unbuffered, so lines reach log files (brew services) at once.
 func say(_ text: String) {
@@ -19,6 +19,8 @@ if CommandLine.arguments.dropFirst().contains(where: { $0 == "--help" || $0 == "
         Environment:
           HAP_SETUP_CODE  setup code to use, e.g. 031-45-154 (default: random on first launch)
           HAP_DEBUG       log every request
+
+        SIGUSR1 turns the lamp's Adaptive Lighting on again with the last schedule the Home app sent.
         """)
     exit(0)
 }
@@ -29,9 +31,11 @@ LoggingSystem.bootstrap { label in
     return handler
 }
 
-let lightbulb = Service(.lightbulb, name: "Demo Lamp", optional: [.brightness], isPrimary: true)
+let lightbulb = Service(.lightbulb, name: "Demo Lamp", optional: [.brightness, .colorTemperature], isPrimary: true)
 lightbulb.characteristic(.on).onWrite(changesOnly: true) { say("Lamp on: \($0.boolValue ?? false)") }
 lightbulb.characteristic(.brightness).onWrite(changesOnly: true) { say("Lamp brightness: \($0.intValue ?? 0)%") }
+lightbulb.characteristic(.colorTemperature).onWrite(changesOnly: true) { say("Lamp colour temperature: \($0.intValue ?? 0) mired") }
+let adaptiveLighting = AdaptiveLightingController(lightbulb)
 let lamp = Accessory(
     id: "demo-lamp", name: "Demo Lamp", model: "Lamp", category: .lightbulb, services: [lightbulb],
     onIdentify: { say("Identify: Demo Lamp") })
@@ -94,4 +98,11 @@ let signals = [SIGINT, SIGTERM].map { number in
     source.resume()
     return source
 }
+// SIGUSR1 turns the lamp's Adaptive Lighting on again with the last schedule the Home app sent.
+signal(SIGUSR1, SIG_IGN)
+let resume = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
+resume.setEventHandler { @Sendable [adaptiveLighting] in
+    say(adaptiveLighting.resumeAdaptiveLighting() ? "Adaptive Lighting resumed" : "Adaptive Lighting: nothing to resume")
+}
+resume.resume()
 dispatchMain()

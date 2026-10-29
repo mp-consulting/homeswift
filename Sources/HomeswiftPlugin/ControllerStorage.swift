@@ -39,6 +39,17 @@ final class ControllerStorage: Sendable {
 }
 
 extension PluginContext {
+    /// Adaptive Lighting, in automatic mode, for a light that can have it (`canHaveAdaptiveLighting`), its schedule
+    /// kept across launches; nil for one that cannot. Call it before the accessory is added, for its iids, and keep the
+    /// controller with the light's services (the service holds it weakly). The controller sets Color Temperature
+    /// through its write handler; pass the device's reports to `disableIfChangedElsewhere(mireds:)`.
+    public func adaptiveLighting(for lightbulb: Service, accessoryID: String, customTemperatureAdjustment: Int = 0) -> AdaptiveLightingController? {
+        guard Self.canHaveAdaptiveLighting(lightbulb) else { return nil }
+        let controller = AdaptiveLightingController(lightbulb, mode: .automatic, customTemperatureAdjustment: customTemperatureAdjustment, logger: logger)
+        configureController(controller, accessoryID: accessoryID)
+        return controller
+    }
+
     /// The controller storage of this instance, next to its accessory cache.
     var controllerStorage: ControllerStorage {
         controllerStorages.withLockedValue { storages in

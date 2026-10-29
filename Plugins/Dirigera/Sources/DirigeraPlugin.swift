@@ -111,6 +111,8 @@ public actor DirigeraPlugin: HomeswiftPlugin {
         let service: Service
         var battery: Service? = nil
         let writer: LightChangeBatcher?
+        /// A light with brightness and white temperature: its Adaptive Lighting, kept as long as it is shown.
+        var adaptiveLighting: AdaptiveLightingController? = nil
         let shape: String
     }
 
@@ -253,6 +255,16 @@ public actor DirigeraPlugin: HomeswiftPlugin {
             if !device.isStandalone { return showGroupChange(device, reachabilityChanged: event["data"]?["isReachable"] != nil, on: hub) }
             if let services = accessories[id] {
                 if let writer = services.writer, await writer.isSettling(within: DirigeraLightCommands.settleTime) { return }
+                // A white or a colour set elsewhere (the IKEA app, a remote) stops Adaptive Lighting, as the Home app
+                // does when it sets one; not while a fade of the bridge's own may still report its steps.
+                let attributes = event["data"]?["attributes"]
+                let colour = attributes?["colorMode"]?.stringValue == "color"
+                if let adaptive = services.adaptiveLighting, adaptive.isAdaptiveLightingActive,
+                   colour || (attributes?["colorTemperature"] != nil && device.mirek != nil),
+                   await services.writer?.isSettling(within: .milliseconds(transitionMs) + DirigeraLightCommands.settleTime) != true,
+                   adaptive.disableIfChangedElsewhere(mireds: colour ? nil : device.mirek) {
+                    logger.info("\(device.name): colour changed outside HomeKit, Adaptive Lighting off")
+                }
                 Self.showValues(device, on: services)
             }
         case "remotePressEvent":
@@ -331,6 +343,7 @@ public actor DirigeraPlugin: HomeswiftPlugin {
         let fail: @Sendable (any Error) -> HAPStatusError = { _ in HAPStatusError(.serviceCommunicationFailure) }
         let service: Service
         var writer: LightChangeBatcher?
+        var adaptiveLighting: AdaptiveLightingController?
         var battery: Service?
         switch device.kind {
         case .contact:
@@ -373,6 +386,8 @@ public actor DirigeraPlugin: HomeswiftPlugin {
             bulb[.colorTemperature]?.onWrite { value in
                 do { try await lightWriter.set(.mirek(value.intValue ?? 300)) } catch { throw fail(error) }
             }
+            // Adaptive Lighting, once turned on in the Home app: the controller sets the white through the handler above.
+            adaptiveLighting = context.adaptiveLighting(for: bulb, accessoryID: Self.accessoryID(deviceID: device.id))
             service = bulb
             writer = lightWriter
         case .motion, .lightSensor, .environment, .leak, .blinds, .airPurifier, .controller:
@@ -384,7 +399,7 @@ public actor DirigeraPlugin: HomeswiftPlugin {
             serialNumber: device.serial, firmwareRevision: device.firmware.isEmpty ? "1.0.0" : device.firmware,
             category: device.kind == .outlet ? .outlet : device.kind == .contact ? .sensor : .lightbulb, services: [service] + (battery.map { [$0] } ?? []),
             onIdentify: { try? await client.identify(deviceID: deviceID) })
-        let built = DeviceServices(accessory: accessory, service: service, battery: battery, writer: writer, shape: shape)
+        let built = DeviceServices(accessory: accessory, service: service, battery: battery, writer: writer, adaptiveLighting: adaptiveLighting, shape: shape)
         Self.showValues(device, on: built)
         accessory.isUnavailable = !device.reachable
         if let room = device.room { accessory.suggestedRoom = room }

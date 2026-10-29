@@ -70,7 +70,7 @@ extension PhilipsAmbilightTVPlugin {
           { label: t("Edit"), icon: "edit", onSelect: () => openEditor(tv) },
           { label: t("Show its log"), icon: "logs", href: `/logs/${encodeURIComponent(`${platform}:${tv.mac}`)}` },
           window.HomeswiftChat?.available() ? { label: t("Ask the Assistant"), icon: HomeswiftCommon.sparkle(), onSelect: () => HomeswiftChat.ask(t("About my TV {name}: ", { name: tv.name })) } : null,
-          { label: t("Remove"), icon: "trash", danger: true, onSelect: () => removeTV(tv).catch((e) => alert(e.message)) },
+          { label: t("Remove"), icon: "trash", danger: true, onSelect: () => removeTV(tv).catch((e) => HomeswiftCommon.showAlert(e.message)) },
         ])));
   }
 
@@ -118,7 +118,7 @@ extension PhilipsAmbilightTVPlugin {
   let editing = null;   // { tv, sources: [{ id, name, kind, customName, visible }], saved: JSON }
 
   async function openSources(tv) {
-    if (!closeEditor()) return;
+    if (!(await closeEditor())) return;
     editing = { tv, sources: [], saved: "" };
     breadcrumb(t("Inputs of {name}", { name: tv.name }), closeSources);
     sourcesCard.classList.remove("hidden");
@@ -136,8 +136,8 @@ extension PhilipsAmbilightTVPlugin {
   }
 
   /// Closes the inputs editor; false when the person keeps unsaved changes.
-  function closeSources() {
-    if (editing && isDirty() && !confirm(t("Discard the changes to the inputs?"))) return false;
+  async function closeSources() {
+    if (editing && isDirty() && !await HomeswiftCommon.confirmDialog(t("Discard the changes to the inputs?"))) return false;
     if (editing) breadcrumb(null);
     editing = null;
     sourcesCard.classList.add("hidden");
@@ -338,7 +338,7 @@ extension PhilipsAmbilightTVPlugin {
   }
 
   async function resetSources() {
-    if (!confirm(t("Put the inputs of {name} back in the TV's order, all shown, with their own names?", { name: editing.tv.name }))) return;
+    if (!await HomeswiftCommon.confirmDialog(t("Put the inputs of {name} back in the TV's order, all shown, with their own names?", { name: editing.tv.name }))) return;
     const tv = editing.tv;
     await updateDevice(tv.mac, (device) => { delete device.sources; });
     // The plugin reloads with the TV's order; read it back.
@@ -408,7 +408,7 @@ extension PhilipsAmbilightTVPlugin {
   }
 
   async function openEditor(tv) {
-    if (!closeSources() || !closeEditor()) return;
+    if (!(await closeSources()) || !(await closeEditor())) return;
     editorCard.classList.remove("hidden");
     breadcrumb(t("Edit {name}", { name: tv.name }), closeEditor);
     editorCard.replaceChildren(el("p", { class: "muted", text: t("Loading {name}…", { name: tv.name }) }));
@@ -424,8 +424,8 @@ extension PhilipsAmbilightTVPlugin {
   }
 
   /// Closes the editor; false when the person keeps unsaved changes.
-  function closeEditor() {
-    if (editorState && JSON.stringify(editorState.draft) !== editorState.saved && !confirm(t("Discard the changes to this TV?"))) return false;
+  async function closeEditor() {
+    if (editorState && JSON.stringify(editorState.draft) !== editorState.saved && !await HomeswiftCommon.confirmDialog(t("Discard the changes to this TV?"))) return false;
     if (!editorCard.classList.contains("hidden")) breadcrumb(null);
     editorState = null;
     editorCard.classList.add("hidden");
@@ -476,7 +476,7 @@ extension PhilipsAmbilightTVPlugin {
         el("div", { class: "repair" },
           el("div", {}, el("strong", { text: t("Pairing") }),
             el("p", { class: "help", text: tv.pinned ? t("Paired, with the TV's certificate pinned. Pair again after a reset of the TV, when it refuses Homeswift.") : t("Paired without a pinned certificate. Pair again to pin it.") })),
-          el("button", { actionIcon: "restore", text: t("Pair again"), onclick: () => { if (closeEditor()) repair(tv); } })));
+          el("button", { actionIcon: "restore", text: t("Pair again"), onclick: async () => { if (await closeEditor()) repair(tv); } })));
       break;
     }
     case "remote":
@@ -576,8 +576,8 @@ extension PhilipsAmbilightTVPlugin {
   }
 
   async function removeTV(tv) {
-    if (!confirm(t("Remove {name}? It leaves the Home app, with its scenes and automations.", { name: tv.name }))) return;
-    if (editingTV(tv) && (!closeSources() || !closeEditor())) return;
+    if (!await HomeswiftCommon.confirmDialog(t("Remove {name}? It leaves the Home app, with its scenes and automations.", { name: tv.name }))) return;
+    if (editingTV(tv) && (!(await closeSources()) || !(await closeEditor()))) return;
     await updateDevice(tv.mac, () => null);
     await refresh();
   }

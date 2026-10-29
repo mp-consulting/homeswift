@@ -64,4 +64,4 @@ EOF
 platform=$(sed -n 's/.*"platform"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$block" | head -1)
 echo
 echo "== the log (${platform:-all})"
-if [ -n "$platform" ]; then grep -i -e "$platform" -e "error" -e "warning" "$directory/bridge.log" || true; else cat "$directory/bridge.log"; fi
+if [ -n "$platform" ]; then grep -i -e "$platform" -e "error" -e "warning" -e "Adaptive Lighting" "$directory/bridge.log" || true; else cat "$directory/bridge.log"; fi

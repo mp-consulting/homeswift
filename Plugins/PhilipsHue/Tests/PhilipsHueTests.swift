@@ -345,6 +345,24 @@ struct PhilipsHueTests {
         await host.stop()
     }
 
+    /// A light with brightness and white temperature has Adaptive Lighting: the controller sets the white through the
+    /// bridge, a read that finds that white keeps it, a colour set in the Hue app stops it.
+    @Test func adaptiveLightingFollowsTheBridgeAndStopsOnChangesElsewhere() async throws {
+        let host = try await environment.start(settings: ["host": "192.0.2.10", "transitionMs": 0])
+        let bulb = try #require(try await accessory(host, deskID).service(.lightbulb))
+        let controller = try #require(bulb.adaptiveLighting)
+        try controller.activateForTesting()
+        #expect(await eventually { environment.bridge.puts.contains { $0.path == "/clip/v2/resource/light/light-2" && $0.body["color_temperature"]?["mirek"] == 300 } })
+        try await Task.sleep(for: PhilipsHuePlugin.settleTime + .milliseconds(200))
+        environment.bridge.change("light-2") { $0["color_temperature"] = ["mirek": 300, "mirek_valid": true, "mirek_schema": ["mirek_minimum": 153, "mirek_maximum": 454]] }
+        await environment.plugin?.refresh()
+        #expect(controller.isAdaptiveLightingActive)
+        environment.bridge.change("light-2") { $0["color_temperature"] = ["mirek": .null, "mirek_valid": false, "mirek_schema": ["mirek_minimum": 153, "mirek_maximum": 454]] }
+        await environment.plugin?.refresh()
+        #expect(!controller.isAdaptiveLightingActive)
+        await host.stop()
+    }
+
     @Test func scenesEffectsAndFlash() async throws {
         let host = try await environment.start(settings: ["host": "192.0.2.10", "flashSwitch": true, "dynamicScenes": true])
         let scenes = try await accessory(host, scenesID)

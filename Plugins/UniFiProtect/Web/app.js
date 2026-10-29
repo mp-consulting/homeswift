@@ -83,9 +83,9 @@
       el("div", { class: "fact" }, el("span", { text: t("Events") }), el("b", { text: live.events ? t("Live") : live.connected ? t("Every 2 minutes") : "—" })),
       el("div", { class: "fact" }, el("span", { text: t("Certificate") }), el("b", { text: controller.verifyTls ? t("Verified") : live.tlsFingerprint ? t("Pinned") : t("Not yet seen") }))) : null;
     const remove = async () => {
-      if (!confirm(t("Remove {name}?", { name: controller.name || controller.address }))) return;
+      if (!await HomeswiftCommon.confirmDialog(t("Remove {name}?", { name: controller.name || controller.address }))) return;
       state.block.controllers.splice(index, 1);
-      try { await saveBlock(); } catch (e) { alert(t("Unable to remove the controller: {error}", { error: e.message })); }
+      try { await saveBlock(); } catch (e) { HomeswiftCommon.showAlert(t("Unable to remove the controller: {error}", { error: e.message })); }
       await renderControllers();
       if (!controllers().length) showDiscovery(false);
     };
@@ -661,20 +661,20 @@
         const result = await saveBlock();
         markDirty();
         const pending = result?.restartNeeded || [];
-        if (pending.length) alert(t("Saved. Restart Homeswift to apply: {changes}.", { changes: pending.join("; ") }));
-      } catch (e) { alert(e.message); }
+        if (pending.length) HomeswiftCommon.showAlert(t("Saved. Restart Homeswift to apply: {changes}.", { changes: pending.join("; ") }));
+      } catch (e) { HomeswiftCommon.showAlert(e.message); }
     });
   }
 
   async function discardOptions() {
-    if (!confirm(t("Discard the changes?"))) return;
+    if (!await HomeswiftCommon.confirmDialog(t("Discard the changes?"))) return;
     state.block = JSON.parse(state.savedOptions);
     markDirty();
     renderOptions();
   }
 
-  function leaveOptions() {
-    if (isOptionsDirty() && !confirm(t("Leave without saving the changes?"))) return;
+  async function leaveOptions() {
+    if (isOptionsDirty() && !await HomeswiftCommon.confirmDialog(t("Leave without saving the changes?"))) return;
     if (isOptionsDirty()) state.block = JSON.parse(state.savedOptions);
     markDirty();
     showScreen("controllersScreen");

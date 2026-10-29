@@ -133,10 +133,10 @@ extension UniFiAccessPlugin {
 
   async function removeController(index) {
     const ctrl = controllers()[index];
-    if (!confirm(t("Remove {name}? Its devices leave HomeKit.", { name: ctrl.name || ctrl.address }))) return;
+    if (!await HomeswiftCommon.confirmDialog(t("Remove {name}? Its devices leave HomeKit.", { name: ctrl.name || ctrl.address }))) return;
     try {
       await writeBlock((current) => { (current.controllers || []).splice(index, 1); });
-    } catch (e) { alert(t("Unable to remove the controller: {message}", { message: e.message })); }
+    } catch (e) { HomeswiftCommon.showAlert(t("Unable to remove the controller: {message}", { message: e.message })); }
     renderControllers();
   }
 
@@ -149,8 +149,8 @@ extension UniFiAccessPlugin {
   $("#open-support").addEventListener("click", () => { show("support-screen"); breadcrumb(t("Support"), backToControllers); });
   $("#back-from-support").addEventListener("click", backToControllers);
 
-  function backToControllers() {
-    if (!leaveOptions()) return;
+  async function backToControllers() {
+    if (!(await leaveOptions())) return;
     breadcrumb(null);
     show("controllers-screen");
     renderControllers();
@@ -562,9 +562,9 @@ extension UniFiAccessPlugin {
   function updateSaveBar() { $("#options-save").classList.toggle("hidden", !optionsDirty()); }
 
   /// Leaving the options screen: false when the person keeps unsaved changes.
-  function leaveOptions() {
+  async function leaveOptions() {
     if ($("#options-screen").classList.contains("hidden") || !optionsDirty()) return true;
-    if (!confirm(t("Discard the changes to the feature options?"))) return false;
+    if (!await HomeswiftCommon.confirmDialog(t("Discard the changes to the feature options?"))) return false;
     options.working = JSON.parse(options.saved);
     updateSaveBar();
     return true;
@@ -583,7 +583,7 @@ extension UniFiAccessPlugin {
       await writeBlock((current) => { if (working.length) current.options = working; else delete current.options; });
       options.saved = JSON.stringify(working);
       updateSaveBar();
-    } catch (e) { alert(t("Unable to save the feature options: {message}", { message: e.message })); }
+    } catch (e) { HomeswiftCommon.showAlert(t("Unable to save the feature options: {message}", { message: e.message })); }
   }));
   addEventListener("beforeunload", (event) => { if (!$("#options-screen").classList.contains("hidden") && optionsDirty()) event.preventDefault(); });
 

@@ -101,12 +101,12 @@ h2 { margin: 0 0 10px; }
   }
 
   async function removeHub(host) {
-    if (!confirm(t("Remove the hub at {host} from config.json?", { host }))) return;
+    if (!await HomeswiftCommon.confirmDialog(t("Remove the hub at {host} from config.json?", { host }))) return;
     await request("unpair", { method: "POST", body: { host } }).catch(() => {});
     await updateBlock((draft) => {
       const list = (draft.hubs || []).filter((hub) => hub.host !== host);
       if (list.length) draft.hubs = list; else delete draft.hubs;
-    }).catch((e) => alert(e.message));
+    }).catch((e) => HomeswiftCommon.showAlert(e.message));
     block = await readBlock();
     found = found.filter((other) => other !== host);
     await refresh();
@@ -180,7 +180,7 @@ h2 { margin: 0 0 10px; }
     const id = accessory.id.slice("Dirigera:".length);
     const item = devices.find((entry) => entry.group === id);
     return [
-      { label: t("Identify"), icon: "identify", onSelect: () => request("identify", { method: "POST", body: { host: item?.host, id } }).catch((e) => alert(e.message)) },
+      { label: t("Identify"), icon: "identify", onSelect: () => request("identify", { method: "POST", body: { host: item?.host, id } }).catch((e) => HomeswiftCommon.showAlert(e.message)) },
       item ? { label: t("Leave out of the Home app"), icon: "eye", onSelect: () => toggleList("excludeDevices", item.name) } : null,
       { label: t("Show its log"), icon: "logs", href: `/logs/${encodeURIComponent(accessory.id)}` },
     ].filter(Boolean);
@@ -236,7 +236,7 @@ h2 { margin: 0 0 10px; }
         tileNode.classList.remove("fired");
         void tileNode.offsetWidth;
         tileNode.classList.add("fired");
-      } catch (e) { alert(e.message); } finally { tileNode.classList.remove("busy"); }
+      } catch (e) { HomeswiftCommon.showAlert(e.message); } finally { tileNode.classList.remove("busy"); }
     };
     tileNode.addEventListener("click", run);
     tileNode.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); run(); } });

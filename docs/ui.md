@@ -142,9 +142,9 @@ screenshots, and what a plugin does to get good ones.
   one. A group shows its members' shared writable controls; it is not a HomeKit accessory. Its menu edits the members
   or ungroups them, and **No Response** shows the members that do not answer. [widgets.md](widgets.md#accessory-groups)
   describes the devices and the storage.
-- **Natural Lighting**: a light with a writable colour temperature and no Adaptive Lighting controller on the bridge
-  can follow Homeswift's own daily schedule. It leaves power and brightness alone and pauses on a manual colour change.
-  Wingman reports the current white temperature in kelvin; it cannot confirm or turn on Apple's Adaptive Lighting.
+- **Adaptive Lighting**: the sun swatch of a light with Adaptive Lighting turns it off, or on again with the schedule the
+  Home app last sent, started now as the Home app starts it ([widgets.md](widgets.md)). Wingman reports an Apple Home
+  light's white temperature in kelvin; it cannot confirm or turn on Apple's Adaptive Lighting.
 
 **Graph** (`/accessories/graph`; the page's tabs are **Wall** and **Graph**): a radial graph with homeswift at the
 centre, each bridge an icon on the first ring, its plugins on the second, each device type on the third, and each
@@ -677,3 +677,10 @@ folder with a new identity: the web UI on `127.0.0.1` without sign-in, plugin bl
 paused, so nothing reaches a device or a cloud, and two generated images as wallpapers. It renders in headless Chrome in
 light mode at 2x, replaces this machine's name and the folder's paths in what the API answers, and removes the folder
 when it ends. The Accessories page's images are [widgets.md](widgets.md#screenshots)'s.
+
+### Quick controls on phones
+
+Quick controls groups its heading, page link and shortcuts in one card. Saved scenes use photographic tiles
+with readable names; the row scrolls horizontally on a phone. Scenes without artwork keep a plain tile.
+
+![Quick controls on a phone](images/ui/quick-controls-phone.png)

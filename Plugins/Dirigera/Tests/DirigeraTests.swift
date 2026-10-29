@@ -245,6 +245,34 @@ struct DirigeraTests {
         await host.stop()
     }
 
+    /// A light with brightness and white temperature has Adaptive Lighting: the controller sets the white through the
+    /// hub, the hub reporting that white keeps it, a white or a colour set in the IKEA app stops it.
+    @Test func adaptiveLightingFollowsTheHubAndStopsOnChangesElsewhere() async throws {
+        let host = try await environment.start(settings: ["hubs": [["host": "192.0.2.20", "token": FakeHub.token]], "transitionMs": 0])
+        #expect(try await accessory(host, hallID).service(.lightbulb)?.adaptiveLighting == nil)
+        let bulb = try #require(try await accessory(host, sofaID).service(.lightbulb))
+        let controller = try #require(bulb.adaptiveLighting)
+        try controller.activateForTesting()
+        #expect(await eventually { environment.hub.patches.contains { $0.path == "/v1/devices/bulb-1" && $0.body.contains(#""colorTemperature":3333"#) } })
+        try await Task.sleep(for: DirigeraLightCommands.settleTime + .milliseconds(200))
+        let event = { (attributes: JSONValue) in
+            environment.hub.events.continuation.yield(["type": "deviceStateChanged", "data": ["id": "bulb-1", "attributes": attributes]])
+        }
+        event(["colorTemperature": 3333, "lightLevel": 60])
+        event(["isOn": true])
+        #expect(await eventually { bulb[.colorTemperature]?.value == .int(300) })
+        #expect(controller.isAdaptiveLightingActive)
+        event(["colorTemperature": 2202])
+        #expect(await eventually { !controller.isAdaptiveLightingActive })
+        #expect(bulb[.colorTemperature]?.value == .int(454))
+
+        try controller.activateForTesting()
+        try await Task.sleep(for: DirigeraLightCommands.settleTime + .milliseconds(200))
+        event(["colorMode": "color", "colorHue": 120])
+        #expect(await eventually { !controller.isAdaptiveLightingActive })
+        await host.stop()
+    }
+
     @Test func scenesTriggerAndUndo() async throws {
         let host = try await environment.start()
         let scene = try #require(try await accessory(host, scenesID).service(.switch, subtype: "scene:scene-1"))

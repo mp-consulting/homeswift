@@ -327,7 +327,7 @@
       });
       return await readBlock();
     } catch (e) {
-      alert(e.message);
+      HomeswiftCommon.showAlert(e.message);
       return null;
     }
   }
@@ -446,7 +446,7 @@
           if (!response.ok) throw new Error(t("This file is not a picture."));
           await setPicture(scene, await response.blob(), tileNode);
           dialog.close();
-        } catch (e) { alert(e.message); }
+        } catch (e) { HomeswiftCommon.showAlert(e.message); }
       } }, el("img", { src: `/artwork-${artwork.id}.webp`, alt: "", loading: "lazy" }), el("span", { class: "name", text: artwork.name })));
       dialog.addEventListener("close", () => dialog.remove());
       document.body.append(dialog); dialog.showModal(); search.focus();
@@ -487,7 +487,7 @@
         cache.set(scene.id, { version: String(version), data: Promise.resolve(data) });
         await refresh();
       } catch (e) {
-        alert(e.message);
+        HomeswiftCommon.showAlert(e.message);
       } finally {
         tileNode.classList.remove("busy");
       }
@@ -505,7 +505,7 @@
         cache.delete(scene.id);
         await refresh();
       } catch (e) {
-        alert(e.message);
+        HomeswiftCommon.showAlert(e.message);
       }
     }
 
@@ -678,7 +678,7 @@
       try {
         await (control ? act(control, () => pair(host), null) : pair(host));
       } catch (e) {
-        alert(e.message);
+        HomeswiftCommon.showAlert(e.message);
       } finally {
         pairingUntil.delete(host);
         asking.delete(host);

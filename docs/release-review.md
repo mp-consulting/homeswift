@@ -59,8 +59,6 @@ Relevant checks:
    the largest `minStep` does not guarantee a value every member accepts.
 3. Consolidate the appended mobile-navigation CSS blocks into one component section. Several successive overrides
    make the final hover, active and layout rules harder to trace.
-4. Give Natural Lighting an explicit reconciliation/cleanup path for deleted accessories and services. Its observer
-   table otherwise retains obsolete characteristic objects until that entry is reconfigured or the process exits.
 
 ## Validation and release preparation
 

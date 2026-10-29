@@ -385,6 +385,32 @@ struct AccessoryTests {
         await host.stop()
     }
 
+    /// A light with brightness and colour temperature has Adaptive Lighting, `adaptiveLightingShift` mireds warmer, unless
+    /// that is -1: the controller sets the white, a report of that white keeps it, a colour set elsewhere stops it.
+    @Test func lightsHaveAdaptiveLightingUnlessShiftedToMinusOne() async throws {
+        let white: JSONValue = ["switch": "on", "ltype": "white", "white": ["br": 20, "ct": 50]]
+        let host = try await start([
+            device("1000aaaaaa", uiid: 36, params: ["switch": "off", "bright": 40]),
+            device("1000bbbbbb", uiid: 104, params: white),
+            device("1000cccccc", uiid: 104, params: white),
+        ], ["lightDevices": [["deviceId": "1000bbbbbb", "adaptiveLightingShift": 10], ["deviceId": "1000cccccc", "adaptiveLightingShift": -1]]])
+        #expect(environment.accessory(host, "1000aaaaaa")?.service(.lightbulb)?.adaptiveLighting == nil)
+        #expect(environment.accessory(host, "1000cccccc")?.service(.lightbulb)?.adaptiveLighting == nil)
+        let bulb = try #require(environment.accessory(host, "1000bbbbbb")?.service(.lightbulb))
+        let controller = try #require(bulb.adaptiveLighting)
+        #expect(controller.customTemperatureAdjustment == 10)
+        try controller.activateForTesting(mireds: 290)
+        #expect(await eventually { bulb[.colorTemperature]?.value == .int(300) })
+        let sent = try #require(environment.socket.commands.last?["white"]?["ct"]?.doubleValue)
+        environment.push("1000bbbbbb", ["white": ["br": 20, "ct": .number(sent)]])
+        environment.push("1000bbbbbb", ["switch": "on"])
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(controller.isAdaptiveLightingActive)
+        environment.push("1000bbbbbb", ["ltype": "color", "color": ["r": 255, "g": 0, "b": 0, "br": 20]])
+        #expect(await eventually { !controller.isAdaptiveLightingActive })
+        await host.stop()
+    }
+
     @Test func airConditionersClampTheirTarget() async throws {
         let host = try await start([device("1000aaaaaa", uiid: 151, params: ["power": "on", "mode": "cool", "temperature": 40])])
         let service = try #require(environment.accessory(host, "1000aaaaaa")?.service(.heaterCooler))

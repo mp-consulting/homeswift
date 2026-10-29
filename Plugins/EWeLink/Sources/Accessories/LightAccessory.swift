@@ -8,6 +8,10 @@ final class LightAccessory: BaseAccessory {
     let supportsBrightness: Bool
     let supportsColorTemperature: Bool
     let supportsColor: Bool
+    /// With brightness and colour temperature: Adaptive Lighting, unless the light's `adaptiveLightingShift` is -1.
+    private(set) var adaptiveLighting: AdaptiveLightingController?
+    /// Set while the whole state is applied again: no report of a change, so Adaptive Lighting is left alone.
+    private var resyncing = false
 
     override init(platform: EWeLinkPlatform, record: AccessoryRecord, box: DeviceBox) {
         let params = box.params
@@ -56,6 +60,12 @@ final class LightAccessory: BaseAccessory {
             onWrite(service.characteristic(.saturation)) { [weak self] value in try await self?.setColor(saturation: value.doubleValue) }
         }
         applyInitialState()
+        // Adaptive Lighting, once turned on in the Home app: the controller sets the temperature through the handler
+        // above, `adaptiveLightingShift` mireds warmer. After the initial state, which reports no change.
+        let shift = configuration.light(record.deviceID)?.adaptiveLightingShift ?? 0
+        if shift != -1 {
+            adaptiveLighting = platform.context.adaptiveLighting(for: service, accessoryID: record.id, customTemperatureAdjustment: Int(max(0, shift).rounded()))
+        }
     }
 
     private func mired(_ params: DeviceParams) -> Double {
@@ -101,7 +111,19 @@ final class LightAccessory: BaseAccessory {
         }
     }
 
+    override func refreshFromDevice() {
+        resyncing = true
+        defer { resyncing = false }
+        super.refreshFromDevice()
+    }
+
     override func updateState(_ params: DeviceParams) {
+        // A colour, or another white, set elsewhere (the eWeLink app, a remote) stops Adaptive Lighting.
+        let colour = params["ltype"] == "color"
+        if !resyncing, let adaptiveLighting, colour || params["colorTemp"] != nil || params["white"]?["ct"] != nil,
+           adaptiveLighting.disableIfChangedElsewhere(mireds: colour ? nil : Int(mired(params).rounded())) {
+            logInfo("Colour changed outside HomeKit, Adaptive Lighting off")
+        }
         mergeDeviceParams(params)
         let on = params["switch"] == "on"
         service.characteristic(.on).value = .bool(on)

@@ -155,7 +155,7 @@
     const current = HomeswiftCommon.preferences().language || "auto";
     const choose = async (code) => {
       if (code === current) return;
-      try { HomeswiftCommon.applyPreferences(await api("/api/preferences", { method: "PUT", body: { language: code } })); } catch (e) { alert(e.message); }
+      try { HomeswiftCommon.applyPreferences(await api("/api/preferences", { method: "PUT", body: { language: code } })); } catch (e) { HomeswiftCommon.showAlert(e.message); }
     };
     HomeswiftCommon.menu(trigger, [
       { label: t("Automatic"), icon: flag(null), checked: current === "auto", onSelect: () => choose("auto") },
@@ -212,7 +212,7 @@
     } catch (e) {
       if (e instanceof ApiError) {
         closeRestartOverlay();
-        alert(e.message); button.disabled = false; return;
+        HomeswiftCommon.showAlert(e.message); button.disabled = false; return;
       }
       // A disconnected or aborted request can mean the restart already began.
     }
@@ -361,14 +361,14 @@
     return el("span", { class: "spinner", role: "status", "aria-label": t("Loading") });
   }
   /// Shows the view at `path` without loading the page again; `replace` keeps it out of the history.
-  function navigate(path, { replace = false } = {}) {
-    if (leaveGuard && !leaveGuard()) return;
+  async function navigate(path, { replace = false } = {}) {
+    if (leaveGuard && !(await leaveGuard())) return;
     history[replace ? "replaceState" : "pushState"](null, "", path);
     route();
   }
-  window.addEventListener("popstate", () => {
+  window.addEventListener("popstate", async () => {
     if (!(auth && auth.authenticated)) return;
-    if (leaveGuard && !leaveGuard()) { history.pushState(null, "", shownPath); return; }
+    if (leaveGuard && !(await leaveGuard())) { history.pushState(null, "", shownPath); return; }
     route();
   });
   // A link within the UI changes the view in place. A plugin's own page (/plugins/<slug>) is a page of its own,
@@ -611,7 +611,7 @@
       } catch (e) {
         layout = before;
         renderDashboard(layout);
-        alert(e.message);
+        HomeswiftCommon.showAlert(e.message);
       }
     };
     HomeswiftCommon.menu(trigger, [
@@ -1223,14 +1223,14 @@
   function accessoryActions(accessory, arrange = []) {
     const use = [
       accessory.history ? { label: t("History"), icon: "chart", onSelect: () => HomeswiftAdmin.history(accessory) } : null,
-      accessory.supportsIdentify ? { label: t("Identify"), icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(accessory.id)}/identify`, { method: "POST" }).catch((e) => alert(e.message)) } : null,
+      accessory.supportsIdentify ? { label: t("Identify"), icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(accessory.id)}/identify`, { method: "POST" }).catch((e) => HomeswiftCommon.showAlert(e.message)) } : null,
       window.HomeswiftChat?.available() ? { label: t("Ask the Assistant"), icon: sparkle(), onSelect: () => HomeswiftChat.ask(t("About {name}: ", { name: accessory.name })) } : null,
     ];
     const layout = [...arrange, ...(isAdmin() ? window.HomeswiftHome?.layoutActions(accessory) ?? [] : [])];
     const manage = [
       // A paused plugin's accessories do nothing until it runs again.
       accessory.paused && isAdmin() ? { label: t("Resume {name}", { name: accessory.platformName }), icon: "play", onSelect: async () => {
-        try { await setPaused(accessory.platform, accessory.platformName, false); route(); } catch (e) { alert(e.message); }
+        try { await setPaused(accessory.platform, accessory.platformName, false); route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
       } } : null,
       isAdmin() ? { label: t("Show its log"), icon: "logs", href: `/logs/${accessory.slug ?? encodeURIComponent(accessory.id)}` } : null,
       accessory.platform && isAdmin() ? { label: t("Plugin settings"), icon: "gear", href: `/plugins/${slug(accessory.platformName || accessory.platform)}` } : null,
@@ -1747,7 +1747,7 @@
     function blockActions(block, plugin, instance) {
       if (block.system) return [{ label: t("Settings"), icon: "gear", href: settingsLink(block) }, { label: t("Edit as JSON"), icon: "code", href: expertLink(block, "json") }];
       const toggle = async (paused) => {
-        try { await setPaused(block.platform, block.name, paused); route(); } catch (e) { alert(e.message); }
+        try { await setPaused(block.platform, block.name, paused); route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
       };
       return [
         plugin && plugin.hasPages && instance && !instance.paused ? { label: t("Open its page"), icon: "open", href: pluginPage(block) } : null,
@@ -1782,7 +1782,7 @@
         location.href = pluginPage({ slug: slug(block.name) });
       } catch (e) {
         button.disabled = false;
-        alert(e.message);
+        HomeswiftCommon.showAlert(e.message);
       }
     }
 
@@ -1853,8 +1853,8 @@
 
   /// Takes a block out of config.json, after asking: its accessories leave the Home app.
   async function removeBlock(block, after = () => route()) {
-    if (!confirm(t("Remove \"{name}\" from config.json? Its accessories leave the Home app.", { name: block.name }))) return;
-    try { await api(`/api/config/platforms/${block.index}`, { method: "DELETE" }); leaveGuard = null; after(); } catch (e) { alert(e.message); }
+    if (!await HomeswiftCommon.confirmDialog(t("Remove \"{name}\" from config.json? Its accessories leave the Home app.", { name: block.name }))) return;
+    try { await api(`/api/config/platforms/${block.index}`, { method: "DELETE" }); leaveGuard = null; after(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
   }
 
   /// A block's address: its plugin's own page when it has one, else its settings. `expertLink` is always the form
@@ -2089,7 +2089,7 @@
         el("p", { class: "muted", text: t("Takes the block out of config.json. Its accessories leave the Home app, with their rooms, scenes and automations.") })),
       el("button", { actionIcon: "trash", class: "danger", text: t("Remove"), onclick: () => removeBlock(block, () => navigate("/plugins")) })) : null;
 
-    leaveGuard = () => !dirty() || isNew || confirm(t("Leave without saving your changes?"));
+    leaveGuard = async () => !dirty() || isNew || await HomeswiftCommon.confirmDialog(t("Leave without saving your changes?"));
     leaveGuard.quiet = () => isNew || !dirty();
     show(main,
       breadcrumb([t("Plugins"), "/plugins"], [block.name, isNew ? "/plugins" : settingsLink(block)], [isNew ? t("Add") : hasPage ? t("Expert") : t("Settings")]),
@@ -2200,8 +2200,8 @@
     const editor = el("details", { class: "more budget-editor" },
       el("summary", { text: t("Edit the budgets") }),
       el("div", { class: "fields" }, limits.map(([key, label]) => el("label", { class: "field" }, el("span", { class: "field-title", text: label }), inputs[key]))),
-      el("div", { class: "actions" }, budgetMessage, el("button", { actionIcon: "check", class: "primary", text: t("Save the budgets"), onclick: () => {
-        if (dirty() && !confirm(t("The form below has other unsaved changes: save them with the budgets?"))) return;
+      el("div", { class: "actions" }, budgetMessage, el("button", { actionIcon: "check", class: "primary", text: t("Save the budgets"), onclick: async () => {
+        if (dirty() && !await HomeswiftCommon.confirmDialog(t("The form below has other unsaved changes: save them with the budgets?"))) return;
         const budget = {};
         for (const [key] of limits) if (inputs[key].value !== "" && Number(inputs[key].value) > 0) budget[key] = Number(inputs[key].value);
         const value = formValue();
@@ -2851,8 +2851,8 @@
       el("span", { class: app.scope === "admin" ? "pill status admin" : "pill status standby", text: scopes[app.scope] || app.scope }),
       menuButton(t("Actions for {name}", { name: app.client }), () => [
         { label: t("Disconnect"), icon: "trash", danger: true, onSelect: async () => {
-          if (!confirm(t("Disconnect {name}? It is refused at once and must sign in again.", { name: app.client }))) return;
-          try { await api(`/api/account/apps/${encodeURIComponent(app.id)}`, { method: "DELETE" }); route(); } catch (e) { alert(e.message); }
+          if (!await HomeswiftCommon.confirmDialog(t("Disconnect {name}? It is refused at once and must sign in again.", { name: app.client }))) return;
+          try { await api(`/api/account/apps/${encodeURIComponent(app.id)}`, { method: "DELETE" }); route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
         } },
       ])));
     return el("div", { class: "card account-form" },
@@ -3068,9 +3068,9 @@
         user.you ? { label: t("Your account"), icon: "user", href: "/account" } : null,
         lastAdmin ? null : { label: user.you ? t("Remove your account") : t("Remove"), icon: "trash", danger: true, onSelect: async () => {
           const names = { name: user.name, username: user.username };
-          if (!confirm(user.you ? t("Remove {name} ({username})? They are signed out at once. That is you: this browser is signed out too.", names)
+          if (!await HomeswiftCommon.confirmDialog(user.you ? t("Remove {name} ({username})? They are signed out at once. That is you: this browser is signed out too.", names)
             : t("Remove {name} ({username})? They are signed out at once.", names))) return;
-          try { await api(`/api/users/${encodeURIComponent(user.username)}`, { method: "DELETE" }); if (user.you) await loadAuth(); else route(); } catch (e) { alert(e.message); }
+          try { await api(`/api/users/${encodeURIComponent(user.username)}`, { method: "DELETE" }); if (user.you) await loadAuth(); else route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
         } },
       ]);
       list.append(el("div", { class: "card", "data-key": `user:${user.username.toLowerCase()}` },
@@ -3157,8 +3157,8 @@
           el("span", { class: expired ? "pill status bad" : "muted", text: expired ? t("Expired") : "" }),
           menuButton(t("Actions for the token {name}", { name: token.name }), () => [
             { label: t("Revoke"), icon: "trash", danger: true, onSelect: async () => {
-              if (!confirm(t("Revoke the token “{name}”? Scripts using it are refused at once.", { name: token.name }))) return;
-              try { await api(`/api/tokens/${encodeURIComponent(token.id)}`, { method: "DELETE" }); route(); } catch (e) { alert(e.message); }
+              if (!await HomeswiftCommon.confirmDialog(t("Revoke the token “{name}”? Scripts using it are refused at once.", { name: token.name }))) return;
+              try { await api(`/api/tokens/${encodeURIComponent(token.id)}`, { method: "DELETE" }); route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
             } },
           ])));
     });
@@ -3243,7 +3243,7 @@
         const remove = own.length > 1 ? t("Remove your image {n}", { n: index + 1 }) : t("Remove your image");
         return el("div", { class: "wallpaper-own" }, choice,
           el("button", { type: "button", class: "wallpaper-remove", "aria-label": remove, title: remove, onclick: async () => {
-            try { preferences = HomeswiftCommon.applyPreferences(await api(`/api/preferences/wallpaper/${encodeURIComponent(id)}`, { method: "DELETE" })); draw(); } catch (e) { alert(e.message); }
+            try { preferences = HomeswiftCommon.applyPreferences(await api(`/api/preferences/wallpaper/${encodeURIComponent(id)}`, { method: "DELETE" })); draw(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
           } }, HomeswiftCommon.icon("close")));
       };
       body.replaceChildren(
@@ -3565,7 +3565,7 @@
         saveDetails.checked = (await api("/api/logs/settings", { method: "PUT", body: { saveDetails: saveDetails.checked } })).saveDetails;
       } catch (e) {
         saveDetails.checked = !saveDetails.checked;
-        alert(e.message);
+        HomeswiftCommon.showAlert(e.message);
       }
       saveDetails.disabled = false;
     });
@@ -3608,8 +3608,8 @@
         phone ? { separator: true } : null,
         { label: chosen ? t("Download this range") : t("Download the whole log"), icon: "download", href: `/api/logs/download${query.size ? `?${query}` : ""}` },
         { label: t("Empty the log…"), icon: "trash", danger: true, onSelect: async () => {
-          if (!confirm(t("Empty the log? Every line goes, in memory and the files kept on disk (up to a week). This cannot be undone."))) return;
-          try { await api("/api/logs/truncate", { method: "POST", body: {} }); await load(); } catch (e) { alert(e.message); }
+          if (!await HomeswiftCommon.confirmDialog(t("Empty the log? Every line goes, in memory and the files kept on disk (up to a week). This cannot be undone."))) return;
+          try { await api("/api/logs/truncate", { method: "POST", body: {} }); await load(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
         } },
       ];
     });
@@ -3650,7 +3650,7 @@
     let controller = null;
     button.addEventListener("click", async () => {
       const picked = lines();
-      if (!picked.length) { alert(t("No line is shown: widen the range or the filters first.")); return; }
+      if (!picked.length) { HomeswiftCommon.showAlert(t("No line is shown: widen the range or the filters first.")); return; }
       controller?.abort();
       const own = controller = new AbortController();
       let closed = false;

@@ -483,10 +483,10 @@ details.type.empty > summary .entry-name { color: var(--muted); }
     markDirty();
   }
 
-  function remove(type, index) {
+  async function remove(type, index) {
     const device = config[type]?.[index];
     if (!device) return;
-    if (!confirm(t("Remove “{name}” and its settings from the configuration? The change is kept once you click Save Configuration.", { name: displayName(type, index, device) }))) return;
+    if (!await HomeswiftCommon.confirmDialog(t("Remove “{name}” and its settings from the configuration? The change is kept once you click Save Configuration.", { name: displayName(type, index, device) }))) return;
     config[type].splice(index, 1);
     if (config[type].length === 0) delete config[type];
     if (editing && editing.type === type) closeEditor();
@@ -943,7 +943,7 @@ details.type.empty > summary .entry-name { color: var(--muted); }
   // MARK: Tools
 
   async function clearCache(button) {
-    if (!confirm(t("Clear the cache? This removes the saved login, the IoT certificate and the device data. Restart Homeswift afterwards."))) return;
+    if (!await HomeswiftCommon.confirmDialog(t("Clear the cache? This removes the saved login, the IoT certificate and the device data. Restart Homeswift afterwards."))) return;
     const result = $("#clear-result");
     await act(button, async () => {
       try {

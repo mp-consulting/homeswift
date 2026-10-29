@@ -168,7 +168,7 @@
     },
 
     async revoke(button) {
-      if (!confirm(t("Revoke access? The plugin stops until you authenticate again."))) return;
+      if (!await HomeswiftCommon.confirmDialog(t("Revoke access? The plugin stops until you authenticate again."))) return;
       await act(button, async () => {
         await request("auth/revoke", { method: "POST", body: { clientId: block?.clientId, clientSecret: block?.clientSecret } });
         await this.load();
@@ -215,7 +215,7 @@
         devices.load();
         auth.load();
       } catch (e) {
-        alert(t("Could not save the authentication method: {error}", { error: e.message }));
+        HomeswiftCommon.showAlert(t("Could not save the authentication method: {error}", { error: e.message }));
       }
     },
   };

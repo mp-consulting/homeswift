@@ -12,6 +12,31 @@ All notable changes to this project are documented here. The format follows
   tunnel (`https://mcp.example.com/homeswift`). Requests for that host name under that path, and the OAuth discovery
   documents for it, are answered as `/mcp`, `/oauth` and the sign-in page, whose files and API calls stay under the
   path. Off without it.
+- Adaptive Lighting on every IKEA DIRIGERA, Philips Hue and eWeLink light with brightness and white temperature. A colour
+  or a white set elsewhere (the vendor's app, a remote, a scene) turns it off, as the Home app does. eWeLink's
+  `adaptiveLightingShift` now applies: mireds warmer, or -1 for none.
+- Plugin contributors check Adaptive Lighting: `Scripts/new-plugin.swift` gives a light with Brightness and Color
+  Temperature a controller, the bridge's debug log (and `check-on-bridge.sh`) names a light without one, and
+  CONTRIBUTING.md and the pull request template list it.
+
+### Changed
+
+- Adaptive Lighting resumes as the Home app turns it on: the last schedule's transition id, a start time of now, and its
+  day's curve rotated to begin at the white for this time of day, so it covers a whole day again
+  (`AdaptiveLightingController.resumeAdaptiveLighting()`). It moved the schedule by whole days before, which could end
+  it early or refuse a time of day. The Home app shows a resumed schedule as on. `homeswift-demo`'s lamp has Adaptive
+  Lighting, and `SIGUSR1` resumes it.
+
+### Removed
+
+- Homeswift Natural Lighting, the bridge's own daily white schedule for lights without Adaptive Lighting: its sun
+  toggle, `PUT /api/accessories/<id>/natural-lighting` and `naturalLighting` in `/api/accessories` and the event
+  stream. A `natural-lighting.json` left in the configuration directory is no longer read.
+
+### Fixed
+
+- Quick controls groups its heading and scene shortcuts in one card; photographic scene tiles replace cramped
+  thumbnail pills and scroll horizontally on phones.
 
 ## [0.14.0] - 2026-10-28
 

@@ -343,7 +343,7 @@
   async function editChildBridge(entry) {
     const path = `/api/config/block/${encodeURIComponent(entry.platform)}/${encodeURIComponent(entry.name)}`;
     let block;
-    try { block = await api(path); } catch (error) { alert(error.message); return; }
+    try { block = await api(path); } catch (error) { HomeswiftCommon.showAlert(error.message); return; }
     const enabled = el("input", { type: "checkbox", checked: Boolean(block._bridge) });
     const name = el("input", { value: block._bridge?.name ?? "", placeholder: entry.name });
     const port = el("input", { type: "number", min: 1, max: 65535, value: block._bridge?.port ?? "", placeholder: t("Automatic") });

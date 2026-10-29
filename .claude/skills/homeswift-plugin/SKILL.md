@@ -64,6 +64,11 @@ swift test --scratch-path ~/Library/Caches/homeswift-build --filter <Name>Tests
 - **Transport:** replace the API's implementation with the real client on `HomeswiftNetwork` (`HTTPClient`, `MQTTClient`,
   `WebSocket`, `UDPSocket`, `MDNSQuery`, `TLSOptions`, `Backoff`). No new package dependency; if something is
   missing there, say so instead of working around it. Keep the protocol so tests inject a fake.
+- **Adaptive Lighting:** every Lightbulb with Brightness and Color Temperature gets an `AdaptiveLightingController`
+  from `context.adaptiveLighting(for:accessoryID:)`, even when the Homebridge plugin has none (the skeleton writes it
+  for such a light). Keep it with the light's services (the service holds it weakly), and pass the device's reports
+  of its colour to `disableIfChangedElsewhere(mireds:)` (nil for a colour): not the echo of the bridge's own write,
+  nor what a fade of its own may still report (`Plugins/Dirigera`, `Plugins/PhilipsHue`).
 - **Accessories:** the same services and props as the Homebridge plugin. Ids are `"\(platform):\(stable id)"`
   with the same stable id it used (serial, MAC, cloud device id) and never a name or an address.
 - **Crypto and byte layouts:** port them exactly from the source and test them against values the source
@@ -106,7 +111,9 @@ asks too often or a write that is not coalesced.
 Tests never reach a device, an account or the network. Put the fake transport in `Tests/` and drive the plugin
 through `PluginHost` as the skeleton's tests do. Cover at least: a minimal block decodes; each device becomes an
 accessory with the expected id, services and props; a write from HomeKit reaches the device; a change on the
-device reaches HomeKit; an unreachable device gives No Response rather than a crash; the schema is current.
+device reaches HomeKit; an unreachable device gives No Response rather than a crash; the schema is current; a light
+with Brightness and Color Temperature has Adaptive Lighting, kept by its own white and turned off by a colour set
+elsewhere (`controller.activateForTesting()`, through `@testable import Homeswift`, turns one on as the Home app would).
 Fixtures recorded from a real device or the Homebridge plugin go in `Tests/Fixtures` (then
 `exclude: ["Fixtures"]` on the test target), with tokens and serial numbers replaced.
 
@@ -123,7 +130,7 @@ echo '{"platform": "<pluginAlias>", "name": "<Display Name>"}' > /tmp/block.json
 ```
 
 It starts the bridge in a temporary directory with its MCP server on, prints `list_accessories` and the plugin's
-log lines, and stops it. Without devices, expect the plugin's own "cannot reach" messages and no crash; with the
+log lines, and stops it. A line saying a light has "no Adaptive Lighting" is a light to give a controller. Without devices, expect the plugin's own "cannot reach" messages and no crash; with the
 user's devices (ask for the block, never for credentials in chat), the accessories should match what the
 Homebridge plugin shows. Do not leave a bridge running: two bridges with the same identity make the Home app
 drop pairings.

@@ -428,10 +428,7 @@ final class LightDevice: GoveeDevice {
             mired = min(max(Govee.round(1_000_000 / Double(kelvin)), Self.minMired), Self.maxMired)
             hs = Colour.m2hs(mired!)
             rgb = Colour.hs2rgb(Double(hs.hue), Double(hs.saturation))
-            if kelvin != cacheKelvin {
-                changed = true
-                significant = abs(kelvin - cacheKelvin) > 100
-            }
+            changed = kelvin != cacheKelvin
         } else if let reported = update.rgb {
             rgb = reported
             hs = Colour.rgb2hs(rgb)
@@ -443,6 +440,20 @@ final class LightDevice: GoveeDevice {
             return
         }
         guard changed else { return }
+        let firstReport = !colourReported
+        colourReported = true
+        // A colour, or a white more than Govee's 100 K step from the one shown, set elsewhere stops Adaptive Lighting;
+        // checked before the report is shown. A light that takes whites as colours (BLE only) echoes them, so only a
+        // significant colour change counts.
+        var stopped = false
+        if !colourSafeMode, !firstReport, let adaptiveLighting {
+            if let mired, let kelvin = update.kelvin {
+                let step = Int((1_000_000 / Double(max(kelvin - 100, 1)) - 1_000_000 / Double(kelvin)).rounded(.up))
+                stopped = adaptiveLighting.disableIfChangedElsewhere(mireds: Int(mired.rounded()), tolerance: step)
+            } else {
+                stopped = significant && adaptiveLighting.disableIfChangedElsewhere(mireds: nil)
+            }
+        }
         self.update(lightbulb[.hue], hs.hue)
         self.update(lightbulb[.saturation], hs.saturation)
         (cacheR, cacheG, cacheB) = (rgb.r, rgb.g, rgb.b)
@@ -455,12 +466,7 @@ final class LightDevice: GoveeDevice {
         } else {
             log("\(Lang.curColour) [rgb \(cacheR) \(cacheG) \(cacheB)]")
         }
-        let firstReport = !colourReported
-        colourReported = true
-        if !colourSafeMode, significant, !firstReport, let adaptiveLighting, adaptiveLighting.isAdaptiveLightingActive {
-            adaptiveLighting.disableAdaptiveLighting()
-            log(Lang.alDisabled)
-        }
+        if stopped { log(Lang.alDisabled) }
     }
 
     static func format(_ number: Double) -> String { DeviceUpdate.format(number) }

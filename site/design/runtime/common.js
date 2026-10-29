@@ -1583,7 +1583,7 @@
 
   /// Runs `work` with `button` busy: disabled, and its spinner shown after `delay` ms, so a quick action shows none. An
   /// error goes to `report` (the default alerts it); `report` null rethrows it.
-  async function busyButton(button, work, { report = (e) => alert(e.message), delay = 0 } = {}) {
+  async function busyButton(button, work, { report = (e) => HomeswiftCommon.showAlert(e.message), delay = 0 } = {}) {
     if (button) button.disabled = true;
     const spin = button ? setTimeout(() => button.classList.add("busy"), delay) : null;
     try {
@@ -1618,8 +1618,44 @@
     return `${whole.format(bytes)} B`;
   }
 
+  // Queue modal messages so simultaneous failures never stack focus traps.
+  let dialogQueue = Promise.resolve();
+  let dialogSequence = 0;
+  function messageDialog(message, { kind = "alert", value = "" } = {}) {
+    const show = () => new Promise((resolve) => {
+      const previousFocus = document.activeElement;
+      const id = `message-dialog-${++dialogSequence}`;
+      const input = kind === "prompt" ? el("input", { type: "text", value, "aria-labelledby": `${id}-body` }) : null;
+      const cancel = kind !== "alert" ? el("button", { type: "button", actionIcon: "close", text: t("Cancel"), onclick: () => dialog.close("cancel") }) : null;
+      const ok = el("button", { type: "submit", class: "primary", actionIcon: "check", text: kind === "confirm" ? t("Continue") : t("OK") });
+      const form = el("form", { method: "dialog" },
+        el("h2", { id: `${id}-title`, text: kind === "alert" ? t("Message") : kind === "prompt" ? t("Enter a value") : t("Confirm") }),
+        el("p", { id: `${id}-body`, class: "dialog-message", text: String(message) }), input,
+        el("div", { class: "actions" }, cancel, ok));
+      const dialog = el("dialog", { class: "admin-dialog card message-dialog", "aria-labelledby": `${id}-title`, "aria-describedby": `${id}-body` }, form);
+      form.addEventListener("submit", (event) => { event.preventDefault(); dialog.close("ok"); });
+      dialog.addEventListener("close", () => {
+        const result = dialog.returnValue === "ok";
+        const answer = input ? (result ? input.value : null) : result;
+        dialog.remove();
+        if (previousFocus?.isConnected) previousFocus.focus();
+        resolve(answer);
+      }, { once: true });
+      document.body.append(dialog);
+      dialog.showModal();
+      (input || cancel || ok).focus();
+      input?.select();
+    });
+    const result = dialogQueue.then(show);
+    dialogQueue = result.catch(() => {});
+    return result;
+  }
+  const showAlert = (message) => messageDialog(message);
+  const confirmDialog = (message) => messageDialog(message, { kind: "confirm" });
+  const promptDialog = (message, value = "") => messageDialog(message, { kind: "prompt", value });
+
   window.HomeswiftCommon = {
-    busyButton, scaledCanvas, byteSize,
+    showAlert, confirmDialog, promptDialog, busyButton, scaledCanvas, byteSize,
     $, el, icon, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
