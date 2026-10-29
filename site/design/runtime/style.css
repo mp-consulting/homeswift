@@ -1112,6 +1112,8 @@ textarea.short { min-height: 220px; }
   border: 1px solid var(--edge); box-shadow: 0 18px 44px rgba(25, 34, 56, 0.24), inset 0 1px 0 var(--edge-light);
   animation: menu-in 180ms var(--ease-out);
 }
+.menu .menu-search { width: 100%; margin-bottom: var(--space-4); }
+.menu .menu-empty { margin: 0; padding: var(--space-8) var(--space-10); font-size: var(--text-sm); }
 .menu { max-height: min(480px, calc(100dvh - 24px)); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; grid-auto-rows: max-content; touch-action: pan-y; }
 .menu:focus { outline: none; }
 .menu.closing { animation: menu-out 140ms var(--ease-out) forwards; pointer-events: none; }
@@ -2069,9 +2071,20 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 .quick-scene-label > svg { flex: none; width: 18px; height: 18px; }
 .quick-scene-label > span { overflow-wrap: anywhere; }
 .scene-run.busy { opacity: 0.6; }
+.scene-run.coloured { color: #fff; }
+.scene-run.coloured::after { content: ""; position: absolute; inset: 0; background: linear-gradient(transparent 30%, rgba(0, 0, 0, .55)); z-index: -1; }
+.scene-run.active { box-shadow: 0 0 0 2px var(--accent); }
+.scene-run .scene-active { position: absolute; top: var(--space-10); right: var(--space-10); }
+.scene-source { display: block; font-size: var(--text-xs); font-weight: var(--weight-medium); opacity: 0.8; }
+.hub-scenes { display: grid; gap: var(--space-12); }
+.hub-scene-room { display: grid; gap: var(--space-8); }
+.hub-scene-tile { display: grid; gap: var(--space-4); min-width: 0; }
+.hub-scene-tile > .scene-run { width: 100%; }
+.hub-scene-actions { display: flex; flex-wrap: wrap; gap: var(--space-10); }
+.hub-scene-actions button { font-size: var(--text-xs); }
 @media (max-width: 640px) {
   .quick-scenes { grid-template-columns: none; grid-template-rows: auto; grid-auto-flow: column; grid-auto-columns: min(240px, 85%); overflow-x: auto; scroll-snap-type: x proximity; padding: var(--space-4); }
-  .quick-scenes > .scene-run { scroll-snap-align: start; }
+  .quick-scenes > .scene-run, .quick-scenes > .hub-scene-tile { scroll-snap-align: start; }
 }
 .scene-card .server-head > button { flex: none; }
 /* Moods: the rooms as chips, what plays, the Assistant's box, the collection as pills with their colours. Pills and chips
@@ -2186,6 +2199,11 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .notice-list p { margin: var(--space-4) 0; font-size: var(--text-md); }
 .secret-note { margin: 0 0 var(--space-8); font-size: var(--text-sm); color: var(--warn); }
 .admin-dialog { margin: auto; width: min(520px, calc(100% - 24px)); max-height: calc(100% - 48px); overflow: auto; padding: var(--space-20) 22px; color: var(--text); background-color: var(--material-solid); }
+/* A modal grows in from a little smaller, in place (it has no trigger to grow from), with its backdrop fading in. */
+.admin-dialog:not(.sheet)[open] { animation: dialog-in 200ms var(--ease-out); }
+.admin-dialog:not(.sheet)[open]::backdrop { animation: fade 200ms ease; }
+@keyframes dialog-in { from { opacity: 0; transform: scale(0.96); } }
+@media (prefers-reduced-motion: reduce) { .admin-dialog:not(.sheet)[open] { animation: fade 160ms ease; } }
 .admin-dialog.wide { width: min(980px, calc(100% - 24px)); }
 .admin-dialog::backdrop { background: rgba(10, 14, 24, 0.35); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
 .admin-dialog h2 { margin: 0 0 var(--space-10); }
@@ -2391,6 +2409,74 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .assistant-setup-example { margin-top: var(--space-24); }
 .assistant-setup-example summary { cursor: pointer; font-size: var(--text-md); }
 .assistant-setup-example p { font-size: var(--text-md); line-height: 1.6; }
+
+/* The Vault page: a secret of config.json to move, its entry's name editable; a field's vault picker beside it. */
+.rows > .row.vault-move { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 16rem); transition: opacity 160ms ease; }
+.rows > .row.vault-move input[type="text"] { width: 100%; }
+/* A secret left in config.json stays readable but steps back, so the ones that move stand out. */
+.rows > .row.vault-move.left { opacity: 0.55; }
+.vault-shares { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); }
+@media (max-width: 640px) {
+  .rows > .row.vault-move { grid-template-columns: auto minmax(0, 1fr); }
+  .rows > .row.vault-move > :last-child { grid-column: 2 / -1; }
+}
+/* The vault's cards stand apart as other cards do (`.server` alone sits in a grid's gap), and the move card's status
+   line takes room only once it has something to say. */
+.vault-card { margin-bottom: var(--space-14); }
+.vault-card .status-line:empty { display: none; }
+/* The vault's cards explain themselves: their line under the title wraps instead of being cut. */
+.vault-card .server-head { align-items: flex-start; }
+.vault-card .server-head .muted { margin-top: var(--space-4); line-height: 1.5; white-space: normal; overflow: visible; }
+/* An entry's kind and who uses it, on one line; the count of users opens where config.json names it. */
+.vault-detail { display: flex; align-items: center; gap: var(--space-6); min-width: 0; }
+.vault-detail > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-detail .vault-users { padding: 0; font: inherit; color: inherit; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: 2px; }
+@media (hover: hover) and (pointer: fine) { .vault-detail .vault-users:hover { color: var(--text); } }
+span.warning, .vault-problem .warning { color: var(--warn); }
+.vault-when { flex-shrink: 0; white-space: nowrap; }
+/* On a phone an entry's date gives way to its name and kind; an expiry stays, it is a warning. */
+@media (max-width: 640px) { .vault-when > .muted { display: none; } }
+/* A problem's entry, what to do and where config.json names it, with the button that fixes it on the right. */
+.rows > .row.vault-problem > .who > div { white-space: normal; line-height: 1.5; }
+.rows > .row.vault-problem > button { flex-shrink: 0; }
+@media (max-width: 640px) { .rows > .row.vault-problem { flex-wrap: wrap; } .rows > .row.vault-problem > button { margin-left: auto; } }
+/* The Status page's vault widget: a head that says whether anything needs doing (its button on the right), then a row
+   per problem, each a link to the Vault page: a dot for how pressing, the entry, what is wrong, a chevron. */
+.vault-status { display: grid; gap: var(--space-12); }
+.vault-status .server-head { align-items: center; }
+.vault-status .server-head > .button { flex-shrink: 0; margin-left: auto; }
+.vault-status-rows { display: grid; border-top: 1px solid var(--line); margin: 0 calc(-1 * var(--space-20)) calc(-1 * var(--space-10)); }
+.vault-status-row {
+  display: grid; grid-template-columns: auto minmax(0, max-content) minmax(0, 1fr) auto; align-items: center; gap: var(--space-10);
+  padding: var(--space-10) var(--space-20); color: inherit; text-decoration: none;
+  transition: background-color 150ms ease;
+}
+.vault-status-row + .vault-status-row { border-top: 1px solid var(--line); }
+.vault-status-row > svg { width: 16px; height: 16px; color: var(--muted); fill: none; stroke: currentColor; stroke-width: 2; }
+.vault-status-row:active { background: color-mix(in srgb, var(--text) 8%, transparent); }
+@media (hover: hover) and (pointer: fine) { .vault-status-row:hover { background: color-mix(in srgb, var(--text) 5%, transparent); } }
+.vault-status-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.vault-status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.vault-status-row[data-tone="bad"] .vault-status-dot { background: var(--error); box-shadow: 0 0 0 3px color-mix(in srgb, var(--error) 22%, transparent); }
+.vault-status-row[data-tone="warn"] .vault-status-dot { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent); }
+/* Not a problem, something to do: a ring, not a filled dot. */
+.vault-status-row[data-tone="info"] .vault-status-dot { background: none; box-shadow: inset 0 0 0 2px var(--muted); }
+.vault-status-name { font-weight: var(--weight-semibold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-status-row.mono-name .vault-status-name { font-family: var(--mono); font-size: var(--text-sm); }
+.vault-status-says { color: var(--muted); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-status-row[data-tone="bad"] .vault-status-says { color: var(--error); }
+.vault-status-row[data-tone="warn"] .vault-status-says { color: var(--warn); }
+.vault-status-more { margin: 0; padding: var(--space-8) var(--space-20) 0 calc(var(--space-20) + 18px); font-size: var(--text-sm); }
+/* On a phone the button takes the card's width under its head, and a row's text goes under the entry's name. */
+@media (max-width: 640px) {
+  .vault-status .server-head { flex-wrap: wrap; }
+  .vault-status .server-head > .button { order: 3; flex-basis: 100%; justify-content: center; margin-left: 0; }
+  .vault-status-row { grid-template-columns: auto minmax(0, 1fr) auto; row-gap: 2px; }
+  .vault-status-row > svg { grid-row: 1 / span 2; grid-column: 3; }
+  .vault-status-says { grid-column: 2; text-align: left; white-space: normal; font-size: var(--text-sm); }
+}
+.secret-field { display: flex; gap: var(--space-8); align-items: center; }
+.secret-field input { flex: 1; min-width: 0; }
 
 /* Backup creation and recovery share a compact, responsive workspace. */
 .backup-actions-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: var(--space-20); margin: var(--space-24) 0 32px; }
@@ -2916,6 +3002,7 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
 }
 .status-footer > .link:hover, .status-footer > .link[aria-expanded="true"] { background: rgba(255,255,255,.1); border-color: rgba(255,255,255,.28); }
 .status-footer > .link:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 3px; }
+.status-footer > a.link:hover { text-decoration: none; }
 @media (max-width: 640px) {
   .status-footer { gap: var(--space-12); padding: var(--space-12) 88px var(--space-12) var(--space-16); }
   .status-footer-summary { display: block; }
@@ -2938,7 +3025,8 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
   .status-footer { display: grid; grid-template-columns: minmax(0, 1fr) 40px; gap: var(--space-4) var(--space-12); }
   .status-footer-summary { display: contents; }
   .status-footer-summary .health { grid-column: 1; grid-row: 1; }
-  .status-footer > .link { grid-column: 2; grid-row: 1; }
+  .status-footer { grid-template-columns: minmax(0, 1fr) 40px 40px; }
+  .status-footer > .link { grid-row: 1; }
   .status-footer-meta { grid-column: 1 / -1; grid-row: 2; min-width: 0; }
 }
 

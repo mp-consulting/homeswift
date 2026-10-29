@@ -82,8 +82,8 @@ final class DaikinEnvironment: @unchecked Sendable {
         var registry = PluginRegistry()
         let cloud = cloud, sockets = sockets, timing = timing, tokens = tokens
         registry.register(platform: DaikinCloudPlugin.platform, name: DaikinCloudPlugin.name, webFiles: DaikinCloudPlugin.webFiles) { json, context in
-            self.storageBox.withLockedValue { $0 = context.storageDirectory }
-            if let (mode, set) = tokens { try TokenFile.save(set, to: context.storageDirectory.appendingPathComponent(mode.tokenFileName)) }
+            self.storageBox.withLockedValue { $0 = context.storageDirectory }; self.contextBox.withLockedValue { $0 = context }
+            if let (mode, set) = tokens { try TokenFile.save(set, to: context.secretFile(mode.tokenFileName, as: JSONValue.self)) }
             var dependencies = DaikinCloudPlugin.Dependencies()
             dependencies.transport = { _ in cloud.http }
             dependencies.webSocket = sockets?.connect
@@ -112,6 +112,12 @@ final class DaikinEnvironment: @unchecked Sendable {
     }
 
     var storage: URL { storageBox.withLockedValue { $0! } }
+    private let contextBox = NIOLockedValueBox<PluginContext?>(nil)
+
+    /// The instance's token set in the vault, by the Homebridge file's name it is kept under.
+    func tokenFile(named name: String) -> TokenLocation {
+        contextBox.withLockedValue { $0! }.secretFile(name, as: JSONValue.self)
+    }
 }
 
 var developerBlock: [String: Any] {
@@ -214,8 +220,8 @@ struct PluginTests {
         }
         let host = try await environment.start(developerBlock)
         defer { Task { await host.stop() } }
-        #expect(environment.log.contains("TokenSet is invalid, removing TokenSet file"))
-        #expect(!FileManager.default.fileExists(atPath: environment.storage.appendingPathComponent(".daikin-controller-cloud-tokenset").path))
+        #expect(environment.log.contains("TokenSet is invalid, removing it"))
+        #expect(TokenFile.load(environment.tokenFile(named: ".daikin-controller-cloud-tokenset")) == nil)
         #expect(host.mainBridge.server.accessories.count == 1)
     }
 
@@ -238,7 +244,7 @@ struct PluginTests {
         #expect(await eventually { host.mainBridge.server.accessories.count > 1 })
         // The file says expired, as it does on disk until the instance's next call refreshes it.
         try TokenFile.save(TokenSet(access_token: "old", refresh_token: "r", token_type: "Bearer", expires_at: 1),
-                       to: environment.storage.appendingPathComponent(".daikin-controller-cloud-tokenset"))
+                       to: environment.tokenFile(named: ".daikin-controller-cloud-tokenset"))
         let test = try await environment.request("POST", "auth/test")
         #expect(test.json["success"] == true)
     }
@@ -249,7 +255,7 @@ struct PluginTests {
         defer { Task { await host.stop() } }
         #expect(environment.log.contains("[Auth] Authentication successful!"))
         #expect(host.mainBridge.server.accessories.count == 3)
-        #expect(TokenFile.load(environment.storage.appendingPathComponent(".daikin-mobile-tokenset"))?.access_token == "dev-access")
+        #expect(TokenFile.load(environment.tokenFile(named: ".daikin-mobile-tokenset"))?.access_token == "dev-access")
         // Without a WebSocket client, it polls.
         #expect(environment.log.contains("[WebSocket] No WebSocket client: polling only"))
     }
@@ -397,7 +403,7 @@ struct PluginTests {
         #expect(test.json["message"] == "Connection successful! Found 2 device(s).")
         // Revoking deletes both token files.
         #expect(try await environment.request("POST", "auth/revoke", body: [:]).json["success"] == true)
-        #expect(TokenFile.load(environment.storage.appendingPathComponent(".daikin-mobile-tokenset")) == nil)
+        #expect(TokenFile.load(environment.tokenFile(named: ".daikin-mobile-tokenset")) == nil)
         #expect(try await environment.request("GET", "auth/status").json["authenticated"] == false)
     }
 
@@ -428,7 +434,7 @@ struct PluginTests {
         #expect(redirect.text.contains("Authentication successful!"))
         let poll = try await environment.request("GET", "auth/poll")
         #expect(poll.json["success"] == true)
-        #expect(TokenFile.load(environment.storage.appendingPathComponent(".daikin-controller-cloud-tokenset"))?.access_token == "dev-access")
+        #expect(TokenFile.load(environment.tokenFile(named: ".daikin-controller-cloud-tokenset"))?.access_token == "dev-access")
         // The instance connects without a restart.
         #expect(await eventually { host.mainBridge.server.accessories.count == 3 })
     }

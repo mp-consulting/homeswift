@@ -19,7 +19,7 @@ enum WebAssets {
   const app = () => window.HomeswiftApp;
   const api = (...args) => app().api(...args);
 
-  const pages = [["bridge", t("Bridge"), "bridge"], ["child-bridges", t("Child bridges"), "child"], ["backups", t("Backups"), "archive"], ["audit", t("Audit log"), "shield"], ["assistant", t("Assistant"), "sparkle"]];
+  const pages = [["bridge", t("Bridge"), "bridge"], ["child-bridges", t("Child bridges"), "child"], ["backups", t("Backups"), "archive"], ["vault", t("Vault"), "key"], ["audit", t("Audit log"), "shield"], ["assistant", t("Assistant"), "sparkle"]];
 
   const dateTime = new Intl.DateTimeFormat(locale, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
   const fullDate = new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
@@ -62,7 +62,7 @@ enum WebAssets {
   async function view(main, [page = ""] = []) {
     // Settings opens on its first page, Bridge.
     if (!page) { history.replaceState(null, "", "/settings/bridge"); page = "bridge"; }
-    const draw = { bridge: bridgePage, "child-bridges": childBridgesPage, backups: backupsPage, audit: auditPage, assistant: (main) => app().assistantPage(main, subnav("assistant")) }[page];
+    const draw = { bridge: bridgePage, "child-bridges": childBridgesPage, backups: backupsPage, vault: vaultPage, audit: auditPage, assistant: (main) => app().assistantPage(main, subnav("assistant")) }[page];
     if (!draw) { app().show(main, app().pageHead(t("Settings"), t("No such page.")), subnav(null)); return; }
     await draw(main);
   }
@@ -542,6 +542,252 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     });
     if (folded) nodes.push(el("span", { class: "diff-fold", text: `  … ${tn("{n} unchanged line", "{n} unchanged lines", folded)}\n` }));
     return el("div", {}, el("p", { class: "muted", text: `− ${before}   + ${after}` }), el("pre", { class: "diff" }, nodes));
+  }
+
+  // ---- Vault: the bridge's credentials by name, their values never shown ---------------------------------------
+
+  const kindNames = { login: t("Login"), apiKey: t("API key"), token: t("Token"), secret: t("Secret [vault]") };
+  const fieldNames = { password: t("Password"), username: t("Username"), key: t("Key"), token: t("Token"), value: t("Value") };
+  const fieldName = (field) => fieldNames[field] ?? field;
+
+  async function vaultPage(main) {
+    const [vault, plan] = await Promise.all([api("/api/vault"), api("/api/vault/migration")]);
+    const add = el("button", { actionIcon: "plus", class: "primary", text: t("Add a secret"), onclick: () => entryDialog(null, vault) });
+    app().show(main,
+      app().pageHead(t("Vault"), t("The bridge's passwords, keys and tokens by name, sealed on disk. config.json names them as vault:<name>; a saved value is never shown again.")),
+      subnav("vault"),
+      vault.problems.length ? healthCard(vault.problems, vault) : null,
+      plan.items.length ? migrationCard(plan, vault) : null,
+      sectionHead(t("Entries"), vault.entries.length ? tn("{n} entry", "{n} entries", vault.entries.length) : "", add),
+      vault.entries.length ? el("div", { class: "card rows" }, vault.entries.map((entry) => entryRow(entry, vault)))
+        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("key")),
+          el("p", { class: "muted", text: t("None yet: add one, or move config.json's secrets here.") })));
+  }
+
+  /// When an entry expires, as a warning from 30 days before.
+  function expiry(entry) {
+    if (!entry.expires) return null;
+    const date = new Date(entry.expires);
+    const days = (date - Date.now()) / 86_400_000;
+    if (days < 0) return el("span", { class: "error", text: t("Expired {date}", { date: when(entry.expires) }) });
+    return el("span", { class: days < 30 ? "warning" : "muted", text: t("Expires {date}", { date: when(entry.expires) }) });
+  }
+
+  /// Each kind's glyph and tone: a list of names reads by kind at a glance.
+  const kindLooks = { login: ["user", "blue"], apiKey: ["key", "violet"], token: ["shield", "teal"], secret: ["lock", "grey"] };
+
+  function entryRow(entry, vault) {
+    const [glyph, tone] = kindLooks[entry.kind] ?? ["key", "grey"];
+    const detail = el("div", { class: "row-detail hidden", id: `vault-users-${entry.name}` },
+      el("p", { class: "muted", text: t("config.json names it in:") }), el("pre", { class: "mono", text: entry.usedBy.join("\n") }));
+    // Who uses it: the count opens the settings that name it, where the eye already is.
+    const users = entry.usedBy.length
+      ? el("button", { type: "button", class: "link vault-users", actionIcon: "search", "aria-expanded": "false", "aria-controls": detail.id,
+        text: tn("Used by {n} setting", "Used by {n} settings", entry.usedBy.length),
+        onclick: (event) => event.currentTarget.setAttribute("aria-expanded", String(!detail.classList.toggle("hidden"))) })
+      : el("span", { text: entry.owner ? t("Kept by {plugin}", { plugin: entry.owner }) : t("Not used yet") });
+    // A login names its fields; the other kinds hold one value, which the kind already says.
+    const kind = entry.kind === "login" ? `${kindNames.login} · ${entry.fields.map(fieldName).join(", ")}` : kindNames[entry.kind] ?? entry.kind;
+    return el("div", { class: "row-block" },
+      el("div", { class: "row" },
+        tile(glyph, tone),
+        el("div", { class: "who" }, el("strong", { class: "mono", text: entry.name, title: entry.name }),
+          el("div", { class: "muted vault-detail" }, el("span", { text: kind }), el("span", { "aria-hidden": "true", text: "·" }), users)),
+        el("span", { class: "vault-when" }, entry.health === "missing" || entry.health === "failing" ? el("span", { class: "error", text: t("A setting cannot read it") })
+          // When it was last read; "Not used yet" beside the kind already says it for an entry nothing names.
+          : expiry(entry) ?? (entry.used || entry.usedBy.length ? el("span", { class: "muted", text: entry.used ? t("Used {date}", { date: when(entry.used) }) : t("Never used") }) : null)),
+        menuButton(t("Actions for {name}", { name: entry.name }), () => [
+          { label: t("Copy the reference"), icon: "copy", onSelect: () => HomeswiftCommon.copyText(`vault:${entry.name}`) },
+          { label: t("Replace the value…"), icon: "edit", onSelect: () => entryDialog(entry, vault) },
+          { label: t("Delete…"), icon: "trash", danger: true, onSelect: () => removeEntry(entry) },
+        ])),
+      detail);
+  }
+
+  /// The server's rule for an entry's name (Redaction.vaultNamePattern) as an input's `pattern`, which browsers read
+  /// with the `v` flag: there a `-` in a class is escaped.
+  const namePattern = (vault) => vault.namePattern.replaceAll("-]", "\\-]");
+
+  /// Adds an entry (`entry` null, `suggested` its name) or replaces an entry's values: values are typed, never shown, and
+  /// an empty field keeps the one saved.
+  function entryDialog(entry, vault, suggested = "") {
+    const { kinds } = vault;
+    const editing = Boolean(entry);
+    const name = el("input", { type: "text", value: entry?.name ?? suggested, required: !editing, disabled: editing, autocomplete: "off", spellcheck: false,
+      pattern: namePattern(vault), placeholder: "unifi-home" });
+    const kind = el("select", {}, kinds.map(({ kind: value }) => el("option", { value, text: kindNames[value] ?? value, selected: value === (entry?.kind ?? "secret") })));
+    const username = el("input", { type: "text", autocomplete: "off", placeholder: editing && entry.fields.includes("username") ? t("Unchanged") : "" });
+    const secret = el("input", { type: "password", autocomplete: "new-password", required: !editing, placeholder: editing ? t("Unchanged") : "", spellcheck: false });
+    // A long key pasted in is checked by eye before it is sealed for good.
+    const reveal = el("button", { type: "button", class: "icon-button", "aria-label": t("Show the value"), title: t("Show the value"), "aria-pressed": "false" }, HomeswiftCommon.icon("eye"));
+    reveal.addEventListener("click", () => {
+      const shown = secret.type === "password";
+      secret.type = shown ? "text" : "password";
+      reveal.setAttribute("aria-pressed", String(shown));
+      reveal.setAttribute("aria-label", shown ? t("Hide the value") : t("Show the value"));
+      reveal.title = reveal.getAttribute("aria-label");
+      secret.focus();
+    });
+    const expires = el("input", { type: "date", value: entry?.expires ? entry.expires.slice(0, 10) : "" });
+    const mainField = () => kinds.find((k) => k.kind === kind.value)?.mainField ?? "value";
+    const secretTitle = el("span", { class: "field-title" });
+    const userField = el("label", { class: "field" }, el("span", { class: "field-title", text: t("Username") }), username);
+    const sync = () => {
+      secretTitle.textContent = fieldName(mainField());
+      userField.classList.toggle("hidden", kind.value !== "login");
+      // Another kind starts again: its values are all typed anew.
+      secret.required = !editing || kind.value !== entry.kind;
+    };
+    kind.addEventListener("change", sync);
+    const message = el("p", { class: "status-line error", role: "status" });
+    const save = el("button", { class: "primary", actionIcon: "check", text: editing ? t("Replace") : t("Add [entry]"), value: "ok" });
+    const cancel = el("button", { actionIcon: "close", text: t("Cancel"), value: "cancel", type: "button" });
+    const form = el("form", { method: "dialog" },
+      el("h2", { id: "vault-entry-title", text: editing ? t("Replace the value of {name}", { name: entry.name }) : t("Add a secret") }),
+      el("p", { class: "muted", text: t("The value is sealed with this bridge's key and never shown again: keep the original in your password manager.") }),
+      // Replacing a value keeps the name: the title says which entry.
+      editing ? null : el("label", { class: "field" }, el("span", { class: "field-title", text: t("Name") }), name),
+      el("label", { class: "field" }, el("span", { class: "field-title", text: t("Kind") }), kind),
+      userField,
+      el("label", { class: "field" }, secretTitle, el("span", { class: "secret-field" }, secret, reveal)),
+      el("label", { class: "field" }, el("span", { class: "field-title", text: t("Expires") }), expires,
+        el("div", { class: "help", text: t("Optional: the page warns a month before.") })),
+      message,
+      el("div", { class: "actions" }, cancel, save));
+    const dialog = el("dialog", { class: "admin-dialog card", "aria-labelledby": "vault-entry-title" }, form);
+    sync();
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const fields = {};
+      if (secret.value) fields[mainField()] = secret.value;
+      if (kind.value === "login" && username.value) fields.username = username.value;
+      // A save sends a value: the date alone is not a change the server takes.
+      if (!Object.keys(fields).length) { message.textContent = editing ? t("Type a new value to replace it.") : t("Type the value."); return; }
+      const target = editing ? entry.name : name.value.trim();
+      busy(save, async () => {
+        const body = { kind: kind.value, fields, expires: expires.value ? new Date(`${expires.value}T00:00:00`).toISOString() : null };
+        await api(`/api/vault/${encodeURIComponent(target)}`, { method: "PUT", body });
+        dialog.close("ok");
+        app().route();
+      }, (e) => { message.textContent = e.message; });
+    });
+    cancel.addEventListener("click", () => dialog.close("cancel"));
+    dialog.addEventListener("close", () => dialog.remove());
+    document.body.append(dialog);
+    dialog.showModal();
+    (editing ? secret : name).focus();
+  }
+
+  async function removeEntry(entry) {
+    if (entry.usedBy.length) {
+      HomeswiftCommon.showAlert(t("config.json still names {name} in {settings}: give those settings another value first.", { name: entry.name, settings: entry.usedBy.join(", ") }));
+      return;
+    }
+    const ok = await confirmAction({
+      title: t("Delete {name}?", { name: entry.name }), confirmLabel: t("Delete"),
+      text: entry.owner ? t("{plugin} keeps it: it signs in again, or asks you to pair again, without it.", { plugin: entry.owner }) : t("Its value is gone for good: the vault keeps no copy."),
+    });
+    if (!ok) return;
+    await busy(null, async () => { await api(`/api/vault/${encodeURIComponent(entry.name)}`, { method: "DELETE" }); app().route(); });
+  }
+
+  /// What needs attention, most pressing first (VaultHealth): references to entries the vault does not have, references
+  /// that cannot read their entry, entries expired or expiring. Each row has the step that fixes it.
+  function healthCard(problems, vault) {
+    const count = new Set(problems.map((problem) => problem.entry)).size;
+    const says = {
+      missing: () => t("Not in the vault: the bridge does not start until it is added again, or its settings get another value."),
+      failing: () => t("A setting cannot read it: it names a field the entry does not have, or another plugin's entry."),
+      expired: (problem) => t("Expired {date}: replace the value.", { date: when(problem.expires) }),
+      expiring: (problem) => t("Expires {date}: replace the value before then.", { date: when(problem.expires) }),
+    };
+    const fix = (problem) => {
+      const entry = vault.entries.find((item) => item.name === problem.entry);
+      if (problem.state === "missing") return el("button", { actionIcon: "plus", type: "button", text: t("Add it…"), onclick: () => entryDialog(null, vault, problem.entry) });
+      // A plugin's own entry is replaced by the plugin; a setting that names it is changed in that plugin's form.
+      return entry && !entry.owner ? el("button", { actionIcon: "edit", type: "button", text: t("Replace the value…"), onclick: () => entryDialog(entry, vault) }) : null;
+    };
+    return el("div", { class: "card server vault-card" },
+      el("div", { class: "server-head" }, tile("warning", "orange"),
+        el("div", { class: "who" }, el("strong", { text: tn("One entry needs attention", "{n} entries need attention", count) }))),
+      el("div", { class: "rows" }, problems.map((problem) => el("div", { class: "row vault-problem" },
+        el("div", { class: "who" }, el("strong", { class: "mono", text: problem.entry }),
+          el("div", { class: problem.state === "expiring" ? "warning" : "error", text: says[problem.state]?.(problem) ?? problem.state }),
+          problem.usedBy.length ? el("div", { class: "muted mono", text: problem.usedBy.join(", ") }) : null),
+        fix(problem)))));
+  }
+
+  /// config.json's secrets that are not in the vault yet, each with the entry it would become: untick to leave one,
+  /// rename an entry, then move them.
+  function migrationCard(plan, vault) {
+    const names = {};
+    const excluded = new Set(plan.items.filter((item) => item.excluded).map((item) => item.id));
+    const message = el("p", { class: "status-line muted", role: "status" });
+    // The row that names a new entry, by the entry's name: the rows that share it follow its name as it is edited.
+    const namers = {};
+    const followers = [];
+    const rows = plan.items.map((item) => {
+      const setting = `${item.name} · ${item.path}`;
+      const box = el("input", { type: "checkbox", checked: !item.excluded, "aria-label": t("Move {setting}", { setting }) });
+      let target;
+      if (item.shared) {
+        // An entry another row names (or the vault has): its name is set there, so it is shown, not asked.
+        target = el("span", { class: "muted vault-shares" });
+        followers.push({ item, target });
+      } else {
+        target = el("input", { type: "text", value: item.entry, class: "mono", autocomplete: "off", spellcheck: false, disabled: item.excluded,
+          pattern: namePattern(vault), "aria-label": t("Entry for {setting}", { setting }) });
+        namers[item.entry] = target;
+        target.addEventListener("input", () => {
+          const typed = target.value.trim();
+          if (typed && typed !== item.entry) names[item.id] = typed; else delete names[item.id];
+          showShared();
+        });
+      }
+      box.addEventListener("change", () => {
+        if (box.checked) excluded.delete(item.id); else excluded.add(item.id);
+        if (target.tagName === "INPUT") target.disabled = !box.checked;
+        row.classList.toggle("left", !box.checked);
+        count();
+      });
+      const row = el("div", { class: `row vault-move${item.excluded ? " left" : ""}` },
+        box, el("div", { class: "who" }, el("strong", { text: item.name }), el("div", { class: "muted mono", text: item.path, title: item.path })), target);
+      return row;
+    });
+    const showShared = () => {
+      for (const { item, target } of followers) {
+        const namer = namers[item.entry];
+        target.textContent = t("Shares {entry}", { entry: namer?.value.trim() || item.entry });
+      }
+    };
+    const move = el("button", { actionIcon: "key", class: "primary", onclick: (event) => {
+      const button = event.currentTarget;
+      confirmAction({
+        title: t("Move config.json's secrets to the vault?"), confirmLabel: t("Move"), danger: false, confirmIcon: "key",
+        text: [t("Each one becomes an entry, and config.json names it as vault:<name>. config.json is backed up first: restoring that backup undoes it."),
+          t("A copy of config.json no longer works on Homebridge: its secrets stay in this bridge's vault.")],
+      }).then((ok) => ok && busy(button, async () => {
+        const result = await api("/api/vault/migration", { method: "POST", body: { names, exclude: [...excluded] } });
+        message.className = "status-line ok";
+        message.textContent = `${tn("{n} secret moved.", "{n} secrets moved.", result.moved)} ${result.applied ? app().savedText(result.applied) : ""}`;
+        setTimeout(() => app().route(), 1200);
+      }, (e) => { message.className = "status-line error"; message.textContent = e.message; }));
+    } });
+    // The button says how many it moves, and waits while none is ticked.
+    const count = () => {
+      const moving = plan.items.length - excluded.size;
+      move.textContent = tn("Move {n} secret", "Move {n} secrets", moving);
+      move.disabled = moving === 0;
+    };
+    count();
+    showShared();
+    return el("div", { class: "card server vault-card" },
+      el("div", { class: "server-head" }, tile("key", "violet"),
+        el("div", { class: "who" }, el("strong", { text: tn("{n} secret is still in config.json", "{n} secrets are still in config.json", plan.items.length) }),
+          el("div", { class: "muted", text: tn("Move it here: the plugin keeps working with the same value.", "Move them here: identical values share one entry, and each plugin keeps working with the same value.", plan.items.length) }))),
+      el("div", { class: "rows" }, rows),
+      el("div", { class: "actions" }, move),
+      message);
   }
 
   // ---- Audit log -----------------------------------------------------------------------------------------
@@ -1420,7 +1666,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   let secretRule = null;
   /// The server's rule (Redaction): whether a key holds a secret.
   const isSecretKey = (key) => Boolean(secretRule) && secretRule.keys.test(key) && !secretRule.except.test(key);
-  const readSecretRule = (plugins) => plugins.secretRule ? { keys: new RegExp(plugins.secretRule.keys, "i"), except: new RegExp(plugins.secretRule.except, "i"), placeholder: plugins.secretRule.placeholder } : null;
+  const readSecretRule = (plugins) => plugins.secretRule ? {
+    keys: new RegExp(plugins.secretRule.keys, "i"), except: new RegExp(plugins.secretRule.except, "i"), placeholder: plugins.secretRule.placeholder,
+    reference: new RegExp(plugins.secretRule.reference),
+  } : null;
+  /// The server's rule (Redaction.referencePattern): whether a value names a secret kept elsewhere (`vault:<name>`).
+  const isReference = (value) => Boolean(secretRule) && secretRule.reference.test(value);
 
   async function loadAuth() {
     auth = await api("/api/auth/state");
@@ -1904,6 +2155,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("div", { class: "stat" }, HomeswiftCommon.icon("history"), el("b", { text: formatDuration(status.uptimeSeconds) }), el("span", { text: t("Up [uptime]") })))],
       quick: () => window.HomeswiftHome?.quickSection(accessories),
       digest: () => status.assistant ? digestWidget() : null,
+      vault: () => isAdmin() && status.vault ? vaultCard(status.vault) : null,
       activity: () => activity(accessories, withSlugs(status.bridges, "bridge")),
       energy: () => energy(),
       bridges: () => [el("h2", { text: status.bridges.length === 1 ? t("Bridge") : t("Bridges and accessories") }),
@@ -1994,6 +2246,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // Each user's own, kept on the server with their other preferences (/api/preferences, `dashboard`).
 
   const dashboardWidgets = [["overview", t("Overview"), t("Health, accessories, plugins, uptime")], ["quick", t("Quick controls"), t("Favourite accessories and scenes")], ["digest", t("Daily digest"), t("The Assistant's summary of the day")],
+    ["vault", t("Vault"), t("Passwords, keys and tokens, and what needs attention")],
     ["activity", t("Activity"), t("Memory, CPU and response times")], ["energy", t("Energy"), t("Solar, home, grid and batteries")], ["bridges", t("Bridges"), t("Pairing codes and what each bridge runs")], ["system", t("System"), t("The machine, and Restart")]];
 
   /// The widgets in the user's order (new ones last), and those hidden.
@@ -2103,6 +2356,49 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   /// A newer release, when the bridge found one (ReleaseWatcher): how to get it on this install, the package to
   /// download on a NAS or the command to run, and its notes.
+  /// The vault at a glance (an administrator's /api/status has it). The head says whether anything needs doing; then a
+  /// row per problem (up to three, most pressing first) and one for the secrets still in config.json, each a way to
+  /// the Vault page, which says how to fix it.
+  function vaultCard(vault) {
+    const { problems } = vault;
+    const count = new Set(problems.map((problem) => problem.entry)).size;
+    const urgent = problems.some((problem) => problem.state !== "expiring");
+    // "in 12 days", "tomorrow", "3 days ago": how soon matters more than the date, which the row's title keeps.
+    const relative = new Intl.RelativeTimeFormat(HomeswiftI18n.locale, { numeric: "auto" });
+    const fromNow = (iso) => {
+      const days = Math.round((new Date(iso) - Date.now()) / 86_400_000);
+      return Math.abs(days) < 45 ? relative.format(days, "day") : relative.format(Math.round(days / 30), "month");
+    };
+    const says = {
+      missing: () => t("Not in the vault: the bridge does not start without it"),
+      failing: () => t("A setting cannot read it"),
+      expired: (problem) => t("Expired {when}", { when: fromNow(problem.expires) }),
+      expiring: (problem) => t("Expires {when}", { when: fromNow(problem.expires) }),
+    };
+    const row = (tone, name, text, attrs = {}) => el("a", { class: "vault-status-row", href: "/settings/vault", "data-tone": tone, ...attrs },
+      el("span", { class: "vault-status-dot", "aria-hidden": "true" }),
+      el("span", { class: "vault-status-name", text: name }),
+      el("span", { class: "vault-status-says", text }),
+      HomeswiftCommon.icon("forward"));
+    const rows = [
+      ...problems.slice(0, 3).map((problem) => row(problem.state === "expiring" ? "warn" : "bad", problem.entry, says[problem.state]?.(problem) ?? problem.state,
+        { class: "vault-status-row mono-name", title: problem.expires ? new Date(problem.expires).toLocaleString(HomeswiftI18n.locale, { dateStyle: "full", timeStyle: "short" }) : null })),
+      problems.length > 3 ? el("p", { class: "muted vault-status-more", text: tn("And {n} more", "And {n} more", problems.length - 3) }) : null,
+      vault.inConfig ? row("info", tn("{n} secret is still in config.json", "{n} secrets are still in config.json", vault.inConfig), t("Move [to the vault]")) : null,
+    ].filter(Boolean);
+    const headline = count ? tn("One entry needs attention", "{n} entries need attention", count)
+      : vault.entries ? t("Nothing to do") : t("No secrets in the vault yet");
+    const detail = vault.entries ? tn("{n} entry · {used} used by config.json", "{n} entries · {used} used by config.json", vault.entries, { used: vault.inUse })
+      : t("Passwords, keys and tokens, sealed on disk");
+    return [el("h2", { text: t("Vault") }),
+      el("div", { class: "card server vault-status", "data-state": urgent ? "bad" : count ? "warn" : "ok" },
+        el("div", { class: "server-head" },
+          tile(urgent ? "warning" : "key", urgent ? "heat" : count ? "yellow" : "green"),
+          el("div", { class: "who" }, el("strong", { text: headline }), el("div", { class: "muted", text: detail })),
+          el("a", { class: `button${urgent ? " primary" : ""}`, href: "/settings/vault", actionIcon: "key", text: t("Open the vault") })),
+        rows.length ? el("div", { class: "vault-status-rows" }, rows) : null)];
+  }
+
   function updateCard(update) {
     if (!update?.available) return null;
     const released = update.publishedAt ? new Date(update.publishedAt).toLocaleDateString(HomeswiftI18n.locale) : null;
@@ -4046,7 +4342,32 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
       const input = el("input", { type: property["x-schema-form"] && property["x-schema-form"].type === "password" ? "password" : "text", value: current ?? "", placeholder: tr(property.placeholder ?? property["x-schema-form"]?.placeholder) ?? property.default ?? "", required });
       if (property["x-schema-form"]?.type === "file") return { element: el("div", {}, wrap(input), dropZone(key, input, property["x-schema-form"].accept)), get: () => (input.value === "" ? undefined : input.value) };
+      // A secret's key (the rule references resolve by): a value typed, or an entry of the vault.
+      if (isSecretKey(key)) return secretField(wrap, input);
       return { element: wrap(input), get: () => (input.value === "" ? undefined : input.value) };
+    };
+    /// A secret's field with the vault's menu beside it: an entry picked is written `vault:<name>` and shown as it is,
+    /// a name rather than the secret; a typed value stays masked when the schema masks it.
+    const secretField = (wrap, input) => {
+      const masked = input.type === "password";
+      const reveal = () => { input.type = masked && !isReference(input.value) ? "password" : "text"; };
+      const pick = el("button", { type: "button", class: "icon-button", "aria-label": t("Choose from the vault"), title: t("Choose from the vault") }, HomeswiftCommon.icon("key"));
+      pick.addEventListener("click", async (event) => {
+        event.preventDefault();
+        const keyboard = event.detail === 0;
+        let entries = [];
+        try { entries = (await api("/api/vault")).entries; } catch { /* the menu still opens the vault */ }
+        const choose = (value) => { input.value = value; reveal(); input.dispatchEvent(new Event("input", { bubbles: true })); };
+        HomeswiftCommon.menu(pick, [
+          // The entry the field names now is ticked.
+          ...entries.map((entry) => ({ label: entry.name, icon: "key", checked: input.value === `vault:${entry.name}`, onSelect: () => choose(`vault:${entry.name}`) })),
+          isReference(input.value) ? { label: t("Type a value instead"), icon: "edit", pinned: true, onSelect: () => { choose(""); input.focus(); } } : null,
+          { label: entries.length ? t("Open the vault") : t("Add one in the vault"), icon: "gear", pinned: true, href: "/settings/vault" },
+        ].filter(Boolean), { keyboard, search: entries.length ? t("Search the vault") : null });
+      });
+      input.addEventListener("input", reveal);
+      reveal();
+      return { element: wrap(el("span", { class: "secret-field" }, input, pick)), get: () => (input.value === "" ? undefined : input.value) };
     };
 
     /// Required fields and the ones that hold a value show; the rest wait under "More options", unless that would
@@ -7395,12 +7716,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// { separator: true }; `checked` makes a ticked choice. { label, choices: [{ label, badge, checked, onSelect }] }
   /// draws a labelled row of square choices, such as the widget sizes.
   /// Opened from the keyboard, its first item takes the focus; from a click, the menu does, so no item looks
-  /// chosen before the pointer or an arrow key gets to it.
-  function menu(trigger, items, { keyboard = false, onReorder } = {}) {
+  /// chosen before the pointer or an arrow key gets to it. `search` (its placeholder) puts a search field on top that
+  /// keeps the items whose label holds what is typed, and takes the focus instead; an item with `pinned` always stays.
+  function menu(trigger, items, { keyboard = false, onReorder, search } = {}) {
     if (openMenu?.trigger === trigger) { openMenu.close(); return; }
     openMenu?.close(true);
     let pending = false, cancelDrag = null;
     const refreshDisabled = [];
+    const searchable = [];
+    const fold = (text) => text.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
     const nodes = items.filter(Boolean).map((item) => {
       if (item.separator) return el("hr", { class: "menu-separator", role: "separator" });
       if (item.choices) {
@@ -7493,9 +7817,26 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           if (typeof checked === "boolean") node.setAttribute("aria-checked", String(checked));
         } finally { pending = false; node.removeAttribute("aria-busy"); }
       });
+      if (search && !item.pinned && item.label) searchable.push([node, fold(item.label)]);
       return node;
     });
-    const entries = () => [...list.querySelectorAll('[role^="menuitem"]:not([aria-disabled="true"])')];
+    const entries = () => [...list.querySelectorAll('[role^="menuitem"]:not([aria-disabled="true"]):not(.hidden)')];
+    // The search field: what is typed, without case or accents, against each item's label.
+    const field = search ? el("input", { type: "search", class: "menu-search", placeholder: search, "aria-label": search, autocomplete: "off" }) : null;
+    const nothing = search ? el("p", { class: "menu-empty muted hidden", text: t("Nothing matches.") }) : null;
+    if (field) {
+      field.addEventListener("input", () => {
+        const query = fold(field.value.trim());
+        let shown = 0;
+        for (const [node, label] of searchable) {
+          const match = !query || label.includes(query);
+          node.classList.toggle("hidden", !match);
+          if (match) shown++;
+        }
+        nothing.classList.toggle("hidden", !searchable.length || shown > 0);
+      });
+      nodes.unshift(field, nothing);
+    }
     // On a phone a card's menu is an action sheet over a dimmed page, at the bottom within the thumb's reach, as
     // iOS's; the header's (the account) still drops down from its button.
     const sheet = matchMedia("(max-width: 640px)").matches && !trigger.closest("header");
@@ -7521,7 +7862,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     trigger.setAttribute("aria-expanded", "true");
     const focusAt = (index) => entries()[(index + entries().length) % entries().length]?.focus();
     const onKey = (event) => {
+      // In the search field the keys edit the text; Down goes to the first item it keeps, Enter chooses it.
+      if (field && document.activeElement === field) {
+        if (event.key === "Escape") { event.preventDefault(); close(); }
+        else if (event.key === "ArrowDown") { event.preventDefault(); focusAt(0); }
+        else if (event.key === "Enter") { event.preventDefault(); entries()[0]?.click(); }
+        else if (event.key === "Tab") close(true);
+        return;
+      }
       const index = entries().indexOf(document.activeElement);
+      if (event.key === "ArrowUp" && field && index <= 0) { event.preventDefault(); field.focus(); return; }
       if (event.key === "Escape") { event.preventDefault(); close(); }
       else if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && document.activeElement.closest(".menu-choice-row")) {
         event.preventDefault();
@@ -7554,7 +7904,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     document.addEventListener("pointerdown", onPointer, true);
     addEventListener("resize", onResize);
     openMenu = { trigger, list, close };
-    if (keyboard) focusAt(0); else list.focus({ preventScroll: true });
+    // A search field takes the focus, but not on a phone's sheet, where the keyboard would cover the items.
+    if (field && !sheet) field.focus({ preventScroll: true });
+    else if (keyboard) focusAt(0); else list.focus({ preventScroll: true });
   }
 
   /// A touch drags a panel or a sheet out along its edge (right, or down on a phone), 1:1 from where it was grabbed,
@@ -9232,6 +9584,73 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return button;
   }
 
+  /// A scene a plugin's hub keeps (Hue, IKEA, Govee): its picture or its colours, its source, whether the hub says it
+  /// is on now. Running it recalls it on the hub.
+  function hubSceneButton(scene) {
+    const picture = artworkImage(scene.artworkId, "quick-scene-image");
+    const colours = (scene.colours || []).filter((colour) => /^#[0-9a-f]{3,8}$/i.test(colour));
+    const button = el("button", { type: "button", class: `scene-run hub-scene${picture ? " pictured" : colours.length ? " coloured" : ""}${scene.active ? " active" : ""}`, title: t("Run {name}", { name: scene.name }) },
+      picture,
+      el("span", { class: "quick-scene-label" }, HomeswiftCommon.icon("play"),
+        el("span", {}, el("span", { text: scene.name }), el("span", { class: "scene-source", text: scene.source.pluginName }))),
+      scene.active ? el("span", { class: "pill scene-active", text: t("Scene active") }) : null);
+    if (!picture && colours.length) button.style.background = colours.length > 1 ? `linear-gradient(135deg, ${colours.join(", ")})` : colours[0];
+    button.addEventListener("click", async () => { if (await runScene(scene, button)) app.route(); });
+    const stop = scene.stoppable ? el("button", { type: "button", class: "link", actionIcon: "stop", text: t("Stop"), onclick: async () => {
+      stop.disabled = true;
+      try {
+        const result = await app.api(`/api/scenes/${encodeURIComponent(scene.id)}/stop`, { method: "POST", body: {} });
+        if (!result.ok) HomeswiftCommon.showAlert(result.failed.map((f) => HomeswiftI18n.message(f.error)).join("\n"));
+        app.route();
+      } catch (e) { HomeswiftCommon.showAlert(e.message); stop.disabled = false; }
+    } }) : null;
+    // A Homeswift scene that recalls it, to give it triggers and conditions.
+    const automate = el("button", { type: "button", class: "link", actionIcon: "history", text: t("Automate"), onclick: async () => {
+      automate.disabled = true;
+      try {
+        const saved = await app.api("/api/scenes", { method: "POST", body: { name: scene.name.slice(0, 64), artworkId: scene.artworkId || null, actions: [{ recall: scene.id }] } });
+        app.navigate(`/scenes/${encodeURIComponent(saved.id)}`);
+      } catch (e) { HomeswiftCommon.showAlert(e.message); automate.disabled = false; }
+    } });
+    return el("div", { class: "hub-scene-tile" }, button, el("div", { class: "hub-scene-actions" }, stop, automate));
+  }
+
+  /// The scenes of the plugins' hubs, by room, with a source filter when there are several. `filter(query)` hides
+  /// those whose name does not match; answers how many show.
+  function hubScenesSection(scenes) {
+    if (!scenes.length) return { node: null, filter: () => 0 };
+    const other = t("Other");
+    const rooms = [...new Set(scenes.map((scene) => scene.room || other))].sort((a, b) => a === other ? 1 : b === other ? -1 : a.localeCompare(b, HomeswiftI18n.locale));
+    const sourceKey = (scene) => `${scene.source.platform}:${scene.source.name}`;
+    const sources = [...new Map(scenes.map((scene) => [sourceKey(scene), scene.source.name])).entries()];
+    const source = sources.length > 1 ? el("select", { "aria-label": t("Source") }, el("option", { value: "", text: t("All sources") }),
+      sources.map(([key, name]) => el("option", { value: key, text: name }))) : null;
+    const tiles = scenes.map((scene) => ({ scene, node: hubSceneButton(scene) }));
+    const groups = rooms.map((room) => {
+      const members = tiles.filter(({ scene }) => (scene.room || other) === room);
+      return { members, node: el("div", { class: "hub-scene-room" }, el("div", { class: "service-name", text: room }), el("div", { class: "quick-scenes" }, members.map(({ node }) => node))) };
+    });
+    const count = el("span", { class: "pill", text: String(scenes.length) });
+    let query = "";
+    const filter = (text = query) => {
+      query = text;
+      let shown = 0;
+      for (const { scene, node } of tiles) {
+        node.hidden = !scene.name.toLocaleLowerCase().includes(query) || (source?.value && sourceKey(scene) !== source.value);
+        if (!node.hidden) shown += 1;
+      }
+      for (const group of groups) group.node.hidden = group.members.every(({ node }) => node.hidden);
+      count.textContent = String(shown);
+      return shown;
+    };
+    source?.addEventListener("change", () => filter());
+    const node = el("section", { class: "hub-scenes" },
+      el("div", { class: "section-head" }, el("h2", { text: t("Scenes from your hubs") }), count, source),
+      el("p", { class: "muted", text: t("Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; change them in their own app.") }),
+      groups.map(({ node }) => node));
+    return { node, filter };
+  }
+
   /// Runs a scene; one that changes a lock, a door or an alarm asks first, as the cards' own controls do.
   async function runScene(scene, button) {
     let confirmSecurity = false;
@@ -9244,7 +9663,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     if (button) button.disabled = true;
     try {
       const result = await app.api(`/api/scenes/${encodeURIComponent(scene.id)}/run`, { method: "POST", body: { confirmSecurity } });
-      if (!result.ok) {
+      if (!result.ok && result.results) {
         const failures = result.results.filter((r) => !r.ok).map((r) => `${r.name || r.id} ${r.characteristic}: ${HomeswiftI18n.message(r.error || r.skipped)}`);
         HomeswiftCommon.showAlert(t("{scene} ran, but not everything worked:\n{failures}", { scene: scene.name, failures: failures.join("\n") }));
       }
@@ -9494,7 +9913,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const [data, accessories] = await Promise.all([app.api("/api/scenes"), app.api("/api/accessories")]);
     const names = new Map(accessories.map((a) => [a.id, displayName(a)]));
     const card = (scene) => {
-      const actions = scene.actions.map((action) => el("div", { class: "control" },
+      const actions = scene.actions.map((action) => action.recall ? el("div", { class: "control" },
+        el("span", { text: action.missing ? t("{name} (gone)", { name: action.name || action.recall }) : action.name || action.recall }),
+        el("span", { class: "value", text: t("Hub scene") })) : el("div", { class: "control" },
         el("span", { text: action.missing ? t("{name} (gone)", { name: action.name || action.id }) : action.name || action.id }),
         el("span", { class: "value", text: `${action.characteristic} → ${typeof action.value === "boolean" && !app.enumLabels[action.characteristic] ? (action.value ? t("On") : t("Off")) : app.labelFor(action.characteristic, action.value)}` })));
       const lastVars = scene.lastRun ? { date: dateTimeFormat.format(new Date(scene.lastRun.at)), trigger: scene.lastRun.trigger } : null;
@@ -9514,8 +9935,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       return el("div", { class: "card server scene-card" },
         artworkImage(scene.artworkId),
         el("div", { class: "server-head" }, tile("play", scene.security ? "violet" : "orange"),
-          el("div", { class: "who" }, el("a", { class: "card-title", href: `/scenes/${encodeURIComponent(scene.id)}` }, el("strong", { text: scene.name })),
-            el("div", { class: "muted", text: scene.triggers.length ? scene.triggers.map((trigger) => describeTrigger(trigger, names)).join(" · ") : t("Run by hand") })),
+          el("div", { class: "who" }, el("a", { class: "card-title", href: `/scenes/${encodeURIComponent(scene.id)}` }, el("strong", { text: scene.name }),
+              scene.active ? el("span", { class: "pill scene-active", text: t("Scene active") }) : null),
+            el("div", { class: "muted", text: [scene.room, scene.triggers.length ? scene.triggers.map((trigger) => describeTrigger(trigger, names)).join(" · ") : t("Run by hand")].filter(Boolean).join(" · ") })),
           el("div", { class: "scene-run-actions" }, run, stop)),
         el("details", { class: "scene-card-details" }, el("summary", { text: t("Details") }), el("div", { class: "controls" }, actions)),
         scene.security ? el("p", { class: "muted note", text: t("It changes a lock, a door or an alarm: the page asks before running it, and automations leave those actions out.") }) : null,
@@ -9531,21 +9953,23 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     };
     const sceneCount = el("span", { class: "pill", text: String(data.scenes.length) });
     const sceneCards = data.scenes.map((scene) => ({ scene, node: card(scene) }));
+    const hubScenes = hubScenesSection(data.pluginScenes || []);
     const search = el("input", { type: "search", class: "search", placeholder: t("Filter text"), "aria-label": t("Your scenes") });
     const noMatches = el("p", { class: "card empty", hidden: true, text: t("Nothing in this range matches.") });
     search.addEventListener("input", () => {
       const query = search.value.trim().toLocaleLowerCase();
       for (const { scene, node } of sceneCards) node.hidden = !scene.name.toLocaleLowerCase().includes(query);
       sceneCount.textContent = String(sceneCards.filter(({ node }) => !node.hidden).length);
-      noMatches.hidden = sceneCards.some(({ node }) => !node.hidden);
+      const hubShown = hubScenes.filter(query);
+      noMatches.hidden = sceneCards.some(({ node }) => !node.hidden) || hubShown > 0;
     });
     app.show(main,
       app.pageHead(t("Scenes"), t("Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; the Home app does not see them."),
         data.scenes.length ? el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") }) : null),
-      el("div", { class: "section-head" }, el("h2", { text: t("Your scenes") }), sceneCount, data.scenes.length ? [search, HomeswiftCommon.clearFilters([[search, ""]])] : null),
+      el("div", { class: "section-head" }, el("h2", { text: t("Your scenes") }), sceneCount, data.scenes.length || hubScenes.node ? [search, HomeswiftCommon.clearFilters([[search, ""]])] : null),
       data.scenes.length ? el("div", { class: "grid scene-grid" }, sceneCards.map(({ node }) => node))
         : el("div", { class: "card empty scenes-empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("play")), el("p", { class: "muted", text: t("No scene yet. A scene sets several accessories at once, such as every light of a room for the evening.") }), el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") })),
-      noMatches, moodsSection(accessories), locationCard(data));
+      noMatches, hubScenes.node, moodsSection(accessories), locationCard(data));
   }
 
   /// Where sunrise and sunset are computed for: Glass UI took its weather widget's city; here it is typed, or
@@ -9930,7 +10354,29 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       remove.setAttribute("aria-label", label);
       return remove;
     };
+    const hubScenes = data.pluginScenes || [];
+    /// A hub's scene to recall: its name and source, not editable; removed and added again to change it.
+    const addRecall = (id) => {
+      const known = hubScenes.find((scene) => scene.id === id);
+      const action = scene.actions.find((a) => a.recall === id);
+      const name = known?.name || action?.name || id;
+      const fields = rowShell(el("p", { class: "muted", text: known ? t("Recalled on {source}.", { source: known.source.name }) : t("This hub's scene is gone: the run skips it.") }));
+      const summary = el("summary", { class: "scene-action-summary" }, HomeswiftCommon.icon("play"),
+        el("span", {}, el("strong", { text: name }), el("small", { text: t("Hub scene") })), HomeswiftCommon.icon("down"));
+      const row = el("details", { class: "scene-action" }, summary, fields);
+      row.read = () => [{ recall: id }];
+      fields.append(deleteButton(row, actions, t("Delete action")));
+      actions.add(row);
+      actionList.append(row);
+    };
+    const recallPicker = hubScenes.length ? (() => {
+      const select = el("select", { "aria-label": t("Hub scene") }, el("option", { value: "", text: t("Add a hub scene…") }),
+        hubScenes.map((hub) => el("option", { value: hub.id, text: `${hub.name} · ${hub.source.name}` })));
+      select.addEventListener("change", () => { if (select.value) addRecall(select.value); select.value = ""; });
+      return select;
+    })() : null;
     const addAction = (action = {}) => {
+      if (action.recall) return addRecall(action.recall);
       const pick = {};
       const [accessory, control, value] = characteristicPicker(choices, pick, { id: action.id, service: action.service, characteristic: action.characteristic, value: action.value, list: colorControls });
       control.setAttribute("aria-label", t("Control"));
@@ -10096,7 +10542,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     node(t("Conditions"), "shield", "condition", t("An automatic run goes ahead only when all of these hold. Running it by hand ignores them."), conditions,
       [conditionList, el("button", { actionIcon: "plus", type: "button", text: t("Add a condition"), onclick: () => addCondition() })]);
     node(t("Actions"), "bulb", "action", t("The values to set, in this order."), actions,
-      [actionList, el("button", { actionIcon: "plus", type: "button", text: t("Add an action"), onclick: () => addAction() }), capture]);
+      [actionList, el("button", { actionIcon: "plus", type: "button", text: t("Add an action"), onclick: () => addAction() }), recallPicker, capture]);
     canvas.append(el("div", { class: "scene-flow-connector", "aria-hidden": "true" }, HomeswiftCommon.icon("down")),
       el("div", { class: "scene-flow-terminal finish" }, HomeswiftCommon.icon("check"), el("span", { text: t("Finish") })));
     let zoom = 1;
@@ -10356,6 +10802,95 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         "i18n-es.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Spanish (Spain): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("es", {
+  "Not in the vault: the bridge does not start without it": "No está en la bóveda: el puente no se inicia sin ella",
+  "Expired {when}": "Caducó {when}",
+  "Expires {when}": "Caduca {when}",
+  "And {n} more": "Y {n} más",
+  "Move [to the vault]": "Mover",
+  "Nothing to do": "Nada que hacer",
+  "No secrets in the vault yet": "Aún no hay secretos en la bóveda",
+  "{n} entry · {used} used by config.json": "{n} entrada · {used} usada por config.json",
+  "{n} entries · {used} used by config.json": "{n} entradas · {used} usadas por config.json",
+  "Passwords, keys and tokens, sealed on disk": "Contraseñas, claves y tokens, sellados en el disco",
+  "Passwords, keys and tokens, and what needs attention": "Contraseñas, claves y tokens, y lo que requiere atención",
+  "A setting cannot read it": "Un ajuste no puede leerla",
+  "Used {date}": "Usada el {date}",
+  "Never used": "Nunca usada",
+  "Not in the vault: the bridge does not start until it is added again, or its settings get another value.": "No está en la bóveda: el puente no se inicia hasta que se vuelva a añadir o sus ajustes tengan otro valor.",
+  "A setting cannot read it: it names a field the entry does not have, or another plugin's entry.": "Un ajuste no puede leerla: nombra un campo que la entrada no tiene, o la entrada de otro plugin.",
+  "Expired {date}: replace the value.": "Caducó el {date}: sustituye el valor.",
+  "Expires {date}: replace the value before then.": "Caduca el {date}: sustituye el valor antes.",
+  "Add it…": "Añadirla…",
+  "One entry needs attention": "Una entrada requiere atención",
+  "{n} entries need attention": "{n} entradas requieren atención",
+  "Open the vault": "Abrir la bóveda",
+  "Move it here: the plugin keeps working with the same value.": "Muévelo aquí: el plugin sigue funcionando con el mismo valor.",
+  "Show the value": "Mostrar el valor",
+  "Hide the value": "Ocultar el valor",
+  "Shares {entry}": "Comparte {entry}",
+  "Move {n} secret": "Mover {n} secreto",
+  "Move {n} secrets": "Mover {n} secretos",
+  "Type the API key to test another provider or address: a saved key goes only to the saved one.": "Escribe la clave de API para probar otro proveedor u otra dirección: una clave guardada solo va a los guardados.",
+  "Search the vault": "Buscar en la bóveda",
+  "Nothing matches.": "No hay coincidencias.",
+  "Vault": "Bóveda",
+  "Login": "Inicio de sesión",
+  "API key": "Clave de API",
+  "Token": "Token",
+  "Secret [vault]": "Secreto",
+  "Key": "Clave",
+  "Add a secret": "Añadir un secreto",
+  "The bridge's passwords, keys and tokens by name, sealed on disk. config.json names them as vault:<name>; a saved value is never shown again.": "Las contraseñas, claves y tokens del puente, por nombre, cifrados en el disco. config.json los nombra como vault:<name>; un valor guardado no vuelve a mostrarse nunca.",
+  "Entries": "Entradas",
+  "None yet: add one, or move config.json's secrets here.": "Ninguna todavía: añade una, o mueve aquí los secretos de config.json.",
+  "Expired {date}": "Caducó el {date}",
+  "Expires {date}": "Caduca el {date}",
+  "Kept by {plugin}": "Guardado por {plugin}",
+  "Not used yet": "Aún sin usar",
+  "config.json names it in:": "config.json lo nombra en:",
+  "Copy the reference": "Copiar la referencia",
+  "Replace the value…": "Sustituir el valor…",
+  "Unchanged": "Sin cambios",
+  "Replace": "Sustituir",
+  "Add [entry]": "Añadir",
+  "Replace the value of {name}": "Sustituir el valor de {name}",
+  "The value is sealed with this bridge's key and never shown again: keep the original in your password manager.": "El valor se cifra con la clave de este puente y no vuelve a mostrarse nunca: guarda el original en tu gestor de contraseñas.",
+  "Kind": "Tipo",
+  "Optional: the page warns a month before.": "Opcional: la página avisa un mes antes.",
+  "Type the value.": "Escribe el valor.",
+  "Type a new value to replace it.": "Escribe un valor nuevo para sustituirlo.",
+  "config.json still names {name} in {settings}: give those settings another value first.": "config.json todavía nombra {name} en {settings}: da antes otro valor a esos ajustes.",
+  "Delete {name}?": "¿Eliminar {name}?",
+  "{plugin} keeps it: it signs in again, or asks you to pair again, without it.": "{plugin} lo guarda: sin él, vuelve a iniciar sesión, o te pide que lo vincules de nuevo.",
+  "Its value is gone for good: the vault keeps no copy.": "Su valor desaparece para siempre: la bóveda no guarda ninguna copia.",
+  "Move {setting}": "Mover {setting}",
+  "Entry for {setting}": "Entrada para {setting}",
+  "Move config.json's secrets to the vault?": "¿Mover los secretos de config.json a la bóveda?",
+  "Move": "Mover",
+  "Each one becomes an entry, and config.json names it as vault:<name>. config.json is backed up first: restoring that backup undoes it.": "Cada uno se convierte en una entrada, y config.json la nombra como vault:<name>. Antes se hace una copia de seguridad de config.json: restaurarla lo deshace.",
+  "A copy of config.json no longer works on Homebridge: its secrets stay in this bridge's vault.": "Una copia de config.json ya no funciona en Homebridge: sus secretos se quedan en la bóveda de este puente.",
+  "Move them here: identical values share one entry, and each plugin keeps working with the same value.": "Muévelos aquí: los valores idénticos comparten una entrada, y cada plugin sigue funcionando con el mismo valor.",
+  "Used by {n} setting": "Usado por {n} ajuste",
+  "Used by {n} settings": "Usado por {n} ajustes",
+  "{n} secret moved.": "{n} secreto movido.",
+  "{n} secrets moved.": "{n} secretos movidos.",
+  "{n} secret is still in config.json": "{n} secreto sigue en config.json",
+  "{n} secrets are still in config.json": "{n} secretos siguen en config.json",
+  "Choose from the vault": "Elegir de la bóveda",
+  "Type a value instead": "Escribir un valor en su lugar",
+  "Open the vault": "Abrir la bóveda",
+  "Add one in the vault": "Añadir uno en la bóveda",
+  "Automate": "Automatizar",
+  "Hub scene": "Escena del hub",
+  "Recalled on {source}.": "Se activa en {source}.",
+  "This hub's scene is gone: the run skips it.": "Esta escena del hub ya no existe: la ejecución la omite.",
+  "Add a hub scene…": "Añadir una escena del hub…",
+  "Source": "Origen",
+  "All sources": "Todos los orígenes",
+  "Scene active": "Escena activa",
+  "Scenes from your hubs": "Escenas de tus hubs",
+  "Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; change them in their own app.": "Las guardan los hubs de tus plugins, como un puente Hue, un hub IKEA o luces Govee. Ejecútalas aquí; cámbialas en su propia app.",
+
   "Start time": "Hora de inicio",
   "End time": "Hora de fin",
 
@@ -12672,6 +13207,95 @@ HomeswiftI18n.add("es", {
         "i18n-fr.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in French: English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("fr", {
+  "Not in the vault: the bridge does not start without it": "Absente du coffre : le pont ne démarre pas sans elle",
+  "Expired {when}": "A expiré {when}",
+  "Expires {when}": "Expire {when}",
+  "And {n} more": "Et {n} de plus",
+  "Move [to the vault]": "Déplacer",
+  "Nothing to do": "Rien à faire",
+  "No secrets in the vault yet": "Aucun secret dans le coffre pour l’instant",
+  "{n} entry · {used} used by config.json": "{n} entrée · {used} utilisée par config.json",
+  "{n} entries · {used} used by config.json": "{n} entrées · {used} utilisées par config.json",
+  "Passwords, keys and tokens, sealed on disk": "Mots de passe, clés et jetons, scellés sur le disque",
+  "Passwords, keys and tokens, and what needs attention": "Mots de passe, clés et jetons, et ce qui demande votre attention",
+  "A setting cannot read it": "Un réglage ne peut pas la lire",
+  "Used {date}": "Utilisée le {date}",
+  "Never used": "Jamais utilisée",
+  "Not in the vault: the bridge does not start until it is added again, or its settings get another value.": "Absente du coffre : le pont ne démarre pas tant qu’elle n’est pas ajoutée à nouveau, ou que ses réglages n’ont pas une autre valeur.",
+  "A setting cannot read it: it names a field the entry does not have, or another plugin's entry.": "Un réglage ne peut pas la lire : il nomme un champ que l’entrée n’a pas, ou l’entrée d’un autre plugin.",
+  "Expired {date}: replace the value.": "Expirée le {date} : remplacez la valeur.",
+  "Expires {date}: replace the value before then.": "Expire le {date} : remplacez la valeur d’ici là.",
+  "Add it…": "L’ajouter…",
+  "One entry needs attention": "Une entrée demande votre attention",
+  "{n} entries need attention": "{n} entrées demandent votre attention",
+  "Open the vault": "Ouvrir le coffre",
+  "Move it here: the plugin keeps working with the same value.": "Déplacez-le ici : le plugin continue de fonctionner avec la même valeur.",
+  "Show the value": "Afficher la valeur",
+  "Hide the value": "Masquer la valeur",
+  "Shares {entry}": "Partage {entry}",
+  "Move {n} secret": "Déplacer {n} secret",
+  "Move {n} secrets": "Déplacer {n} secrets",
+  "Type the API key to test another provider or address: a saved key goes only to the saved one.": "Saisissez la clé d’API pour tester un autre fournisseur ou une autre adresse : une clé enregistrée ne va qu’à ceux enregistrés.",
+  "Search the vault": "Rechercher dans le coffre",
+  "Nothing matches.": "Aucun résultat.",
+  "Vault": "Coffre",
+  "Login": "Identifiant",
+  "API key": "Clé d’API",
+  "Token": "Jeton",
+  "Secret [vault]": "Secret",
+  "Key": "Clé",
+  "Add a secret": "Ajouter un secret",
+  "The bridge's passwords, keys and tokens by name, sealed on disk. config.json names them as vault:<name>; a saved value is never shown again.": "Les mots de passe, clés et jetons du pont, par nom, chiffrés sur le disque. config.json les nomme vault:<name> ; une valeur enregistrée n’est plus jamais affichée.",
+  "Entries": "Entrées",
+  "None yet: add one, or move config.json's secrets here.": "Aucune pour l’instant : ajoutez-en une, ou déplacez ici les secrets de config.json.",
+  "Expired {date}": "Expiré le {date}",
+  "Expires {date}": "Expire le {date}",
+  "Kept by {plugin}": "Gardé par {plugin}",
+  "Not used yet": "Pas encore utilisé",
+  "config.json names it in:": "config.json le nomme dans :",
+  "Copy the reference": "Copier la référence",
+  "Replace the value…": "Remplacer la valeur…",
+  "Unchanged": "Inchangé",
+  "Replace": "Remplacer",
+  "Add [entry]": "Ajouter",
+  "Replace the value of {name}": "Remplacer la valeur de {name}",
+  "The value is sealed with this bridge's key and never shown again: keep the original in your password manager.": "La valeur est chiffrée avec la clé de ce pont et n’est plus jamais affichée : gardez l’originale dans votre gestionnaire de mots de passe.",
+  "Kind": "Type",
+  "Optional: the page warns a month before.": "Facultatif : la page prévient un mois avant.",
+  "Type the value.": "Saisissez la valeur.",
+  "Type a new value to replace it.": "Saisissez une nouvelle valeur pour la remplacer.",
+  "config.json still names {name} in {settings}: give those settings another value first.": "config.json nomme encore {name} dans {settings} : donnez d’abord une autre valeur à ces réglages.",
+  "Delete {name}?": "Supprimer {name} ?",
+  "{plugin} keeps it: it signs in again, or asks you to pair again, without it.": "{plugin} le garde : sans lui, il se reconnecte, ou vous demande de l’appairer à nouveau.",
+  "Its value is gone for good: the vault keeps no copy.": "Sa valeur disparaît pour de bon : le coffre n’en garde aucune copie.",
+  "Move {setting}": "Déplacer {setting}",
+  "Entry for {setting}": "Entrée pour {setting}",
+  "Move config.json's secrets to the vault?": "Déplacer les secrets de config.json dans le coffre ?",
+  "Move": "Déplacer",
+  "Each one becomes an entry, and config.json names it as vault:<name>. config.json is backed up first: restoring that backup undoes it.": "Chacun devient une entrée, et config.json la nomme vault:<name>. config.json est d’abord sauvegardé : restaurer cette sauvegarde annule l’opération.",
+  "A copy of config.json no longer works on Homebridge: its secrets stay in this bridge's vault.": "Une copie de config.json ne fonctionne plus sur Homebridge : ses secrets restent dans le coffre de ce pont.",
+  "Move them here: identical values share one entry, and each plugin keeps working with the same value.": "Déplacez-les ici : les valeurs identiques partagent une entrée, et chaque plugin continue de fonctionner avec la même valeur.",
+  "Used by {n} setting": "Utilisé par {n} réglage",
+  "Used by {n} settings": "Utilisé par {n} réglages",
+  "{n} secret moved.": "{n} secret déplacé.",
+  "{n} secrets moved.": "{n} secrets déplacés.",
+  "{n} secret is still in config.json": "{n} secret est encore dans config.json",
+  "{n} secrets are still in config.json": "{n} secrets sont encore dans config.json",
+  "Choose from the vault": "Choisir dans le coffre",
+  "Type a value instead": "Saisir plutôt une valeur",
+  "Open the vault": "Ouvrir le coffre",
+  "Add one in the vault": "En ajouter une dans le coffre",
+  "Automate": "Automatiser",
+  "Hub scene": "Scène du hub",
+  "Recalled on {source}.": "Rappelée sur {source}.",
+  "This hub's scene is gone: the run skips it.": "Cette scène du hub n’existe plus : l’exécution la saute.",
+  "Add a hub scene…": "Ajouter une scène du hub…",
+  "Source": "Source",
+  "All sources": "Toutes les sources",
+  "Scene active": "Scène active",
+  "Scenes from your hubs": "Scènes de vos hubs",
+  "Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; change them in their own app.": "Gardées par les hubs de vos plugins, comme un pont Hue, un hub IKEA ou des lumières Govee. Lancez-les ici ; modifiez-les dans leur propre app.",
+
   "Start time": "Début",
   "End time": "Fin",
 
@@ -14988,6 +15612,95 @@ HomeswiftI18n.add("fr", {
         "i18n-pt.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Portuguese (Portugal): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("pt", {
+  "Not in the vault: the bridge does not start without it": "Não está no cofre: a ponte não arranca sem ela",
+  "Expired {when}": "Expirou {when}",
+  "Expires {when}": "Expira {when}",
+  "And {n} more": "E mais {n}",
+  "Move [to the vault]": "Mover",
+  "Nothing to do": "Nada a fazer",
+  "No secrets in the vault yet": "Ainda não há segredos no cofre",
+  "{n} entry · {used} used by config.json": "{n} entrada · {used} usada por config.json",
+  "{n} entries · {used} used by config.json": "{n} entradas · {used} usadas por config.json",
+  "Passwords, keys and tokens, sealed on disk": "Palavras-passe, chaves e tokens, selados no disco",
+  "Passwords, keys and tokens, and what needs attention": "Palavras-passe, chaves e tokens, e o que precisa de atenção",
+  "A setting cannot read it": "Uma definição não a consegue ler",
+  "Used {date}": "Usada a {date}",
+  "Never used": "Nunca usada",
+  "Not in the vault: the bridge does not start until it is added again, or its settings get another value.": "Não está no cofre: a ponte não arranca até ser adicionada de novo, ou as suas definições terem outro valor.",
+  "A setting cannot read it: it names a field the entry does not have, or another plugin's entry.": "Uma definição não a consegue ler: nomeia um campo que a entrada não tem, ou a entrada de outro plugin.",
+  "Expired {date}: replace the value.": "Expirou a {date}: substitua o valor.",
+  "Expires {date}: replace the value before then.": "Expira a {date}: substitua o valor antes disso.",
+  "Add it…": "Adicioná-la…",
+  "One entry needs attention": "Uma entrada precisa de atenção",
+  "{n} entries need attention": "{n} entradas precisam de atenção",
+  "Open the vault": "Abrir o cofre",
+  "Move it here: the plugin keeps working with the same value.": "Mova-o para aqui: o plugin continua a funcionar com o mesmo valor.",
+  "Show the value": "Mostrar o valor",
+  "Hide the value": "Ocultar o valor",
+  "Shares {entry}": "Partilha {entry}",
+  "Move {n} secret": "Mover {n} segredo",
+  "Move {n} secrets": "Mover {n} segredos",
+  "Type the API key to test another provider or address: a saved key goes only to the saved one.": "Introduza a chave de API para testar outro fornecedor ou outro endereço: uma chave guardada só vai para os guardados.",
+  "Search the vault": "Pesquisar no cofre",
+  "Nothing matches.": "Nenhum resultado.",
+  "Vault": "Cofre",
+  "Login": "Início de sessão",
+  "API key": "Chave de API",
+  "Token": "Token",
+  "Secret [vault]": "Segredo",
+  "Key": "Chave",
+  "Add a secret": "Adicionar um segredo",
+  "The bridge's passwords, keys and tokens by name, sealed on disk. config.json names them as vault:<name>; a saved value is never shown again.": "As palavras-passe, chaves e tokens da ponte, por nome, cifrados no disco. O config.json nomeia-os como vault:<name>; um valor guardado nunca volta a ser mostrado.",
+  "Entries": "Entradas",
+  "None yet: add one, or move config.json's secrets here.": "Ainda nenhuma: adicione uma, ou mova para aqui os segredos do config.json.",
+  "Expired {date}": "Expirou a {date}",
+  "Expires {date}": "Expira a {date}",
+  "Kept by {plugin}": "Guardado por {plugin}",
+  "Not used yet": "Ainda sem uso",
+  "config.json names it in:": "O config.json nomeia-o em:",
+  "Copy the reference": "Copiar a referência",
+  "Replace the value…": "Substituir o valor…",
+  "Unchanged": "Sem alterações",
+  "Replace": "Substituir",
+  "Add [entry]": "Adicionar",
+  "Replace the value of {name}": "Substituir o valor de {name}",
+  "The value is sealed with this bridge's key and never shown again: keep the original in your password manager.": "O valor é cifrado com a chave desta ponte e nunca volta a ser mostrado: guarde o original no gestor de palavras-passe.",
+  "Kind": "Tipo",
+  "Optional: the page warns a month before.": "Opcional: a página avisa um mês antes.",
+  "Type the value.": "Introduza o valor.",
+  "Type a new value to replace it.": "Introduza um valor novo para o substituir.",
+  "config.json still names {name} in {settings}: give those settings another value first.": "O config.json ainda nomeia {name} em {settings}: dê primeiro outro valor a essas definições.",
+  "Delete {name}?": "Eliminar {name}?",
+  "{plugin} keeps it: it signs in again, or asks you to pair again, without it.": "O {plugin} guarda-o: sem ele, volta a iniciar sessão, ou pede para emparelhar de novo.",
+  "Its value is gone for good: the vault keeps no copy.": "O valor desaparece de vez: o cofre não guarda nenhuma cópia.",
+  "Move {setting}": "Mover {setting}",
+  "Entry for {setting}": "Entrada para {setting}",
+  "Move config.json's secrets to the vault?": "Mover os segredos do config.json para o cofre?",
+  "Move": "Mover",
+  "Each one becomes an entry, and config.json names it as vault:<name>. config.json is backed up first: restoring that backup undoes it.": "Cada um passa a ser uma entrada, e o config.json nomeia-a como vault:<name>. Primeiro é feita uma cópia de segurança do config.json: restaurá-la desfaz a operação.",
+  "A copy of config.json no longer works on Homebridge: its secrets stay in this bridge's vault.": "Uma cópia do config.json deixa de funcionar no Homebridge: os segredos ficam no cofre desta ponte.",
+  "Move them here: identical values share one entry, and each plugin keeps working with the same value.": "Mova-os para aqui: valores idênticos partilham uma entrada, e cada plugin continua a funcionar com o mesmo valor.",
+  "Used by {n} setting": "Usado por {n} definição",
+  "Used by {n} settings": "Usado por {n} definições",
+  "{n} secret moved.": "{n} segredo movido.",
+  "{n} secrets moved.": "{n} segredos movidos.",
+  "{n} secret is still in config.json": "{n} segredo ainda está no config.json",
+  "{n} secrets are still in config.json": "{n} segredos ainda estão no config.json",
+  "Choose from the vault": "Escolher do cofre",
+  "Type a value instead": "Introduzir antes um valor",
+  "Open the vault": "Abrir o cofre",
+  "Add one in the vault": "Adicionar uma no cofre",
+  "Automate": "Automatizar",
+  "Hub scene": "Cena do hub",
+  "Recalled on {source}.": "Ativada em {source}.",
+  "This hub's scene is gone: the run skips it.": "Esta cena do hub já não existe: a execução ignora-a.",
+  "Add a hub scene…": "Adicionar uma cena do hub…",
+  "Source": "Origem",
+  "All sources": "Todas as origens",
+  "Scene active": "Cena ativa",
+  "Scenes from your hubs": "Cenas dos seus hubs",
+  "Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; change them in their own app.": "Guardadas pelos hubs dos seus plugins, como uma ponte Hue, um hub IKEA ou luzes Govee. Execute-as aqui; altere-as na app delas.",
+
   "Start time": "Hora de início",
   "End time": "Hora de fim",
 
@@ -20591,6 +21304,8 @@ textarea.short { min-height: 220px; }
   border: 1px solid var(--edge); box-shadow: 0 18px 44px rgba(25, 34, 56, 0.24), inset 0 1px 0 var(--edge-light);
   animation: menu-in 180ms var(--ease-out);
 }
+.menu .menu-search { width: 100%; margin-bottom: var(--space-4); }
+.menu .menu-empty { margin: 0; padding: var(--space-8) var(--space-10); font-size: var(--text-sm); }
 .menu { max-height: min(480px, calc(100dvh - 24px)); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; grid-auto-rows: max-content; touch-action: pan-y; }
 .menu:focus { outline: none; }
 .menu.closing { animation: menu-out 140ms var(--ease-out) forwards; pointer-events: none; }
@@ -21548,9 +22263,20 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 .quick-scene-label > svg { flex: none; width: 18px; height: 18px; }
 .quick-scene-label > span { overflow-wrap: anywhere; }
 .scene-run.busy { opacity: 0.6; }
+.scene-run.coloured { color: #fff; }
+.scene-run.coloured::after { content: ""; position: absolute; inset: 0; background: linear-gradient(transparent 30%, rgba(0, 0, 0, .55)); z-index: -1; }
+.scene-run.active { box-shadow: 0 0 0 2px var(--accent); }
+.scene-run .scene-active { position: absolute; top: var(--space-10); right: var(--space-10); }
+.scene-source { display: block; font-size: var(--text-xs); font-weight: var(--weight-medium); opacity: 0.8; }
+.hub-scenes { display: grid; gap: var(--space-12); }
+.hub-scene-room { display: grid; gap: var(--space-8); }
+.hub-scene-tile { display: grid; gap: var(--space-4); min-width: 0; }
+.hub-scene-tile > .scene-run { width: 100%; }
+.hub-scene-actions { display: flex; flex-wrap: wrap; gap: var(--space-10); }
+.hub-scene-actions button { font-size: var(--text-xs); }
 @media (max-width: 640px) {
   .quick-scenes { grid-template-columns: none; grid-template-rows: auto; grid-auto-flow: column; grid-auto-columns: min(240px, 85%); overflow-x: auto; scroll-snap-type: x proximity; padding: var(--space-4); }
-  .quick-scenes > .scene-run { scroll-snap-align: start; }
+  .quick-scenes > .scene-run, .quick-scenes > .hub-scene-tile { scroll-snap-align: start; }
 }
 .scene-card .server-head > button { flex: none; }
 /* Moods: the rooms as chips, what plays, the Assistant's box, the collection as pills with their colours. Pills and chips
@@ -21665,6 +22391,11 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .notice-list p { margin: var(--space-4) 0; font-size: var(--text-md); }
 .secret-note { margin: 0 0 var(--space-8); font-size: var(--text-sm); color: var(--warn); }
 .admin-dialog { margin: auto; width: min(520px, calc(100% - 24px)); max-height: calc(100% - 48px); overflow: auto; padding: var(--space-20) 22px; color: var(--text); background-color: var(--material-solid); }
+/* A modal grows in from a little smaller, in place (it has no trigger to grow from), with its backdrop fading in. */
+.admin-dialog:not(.sheet)[open] { animation: dialog-in 200ms var(--ease-out); }
+.admin-dialog:not(.sheet)[open]::backdrop { animation: fade 200ms ease; }
+@keyframes dialog-in { from { opacity: 0; transform: scale(0.96); } }
+@media (prefers-reduced-motion: reduce) { .admin-dialog:not(.sheet)[open] { animation: fade 160ms ease; } }
 .admin-dialog.wide { width: min(980px, calc(100% - 24px)); }
 .admin-dialog::backdrop { background: rgba(10, 14, 24, 0.35); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
 .admin-dialog h2 { margin: 0 0 var(--space-10); }
@@ -21870,6 +22601,74 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .assistant-setup-example { margin-top: var(--space-24); }
 .assistant-setup-example summary { cursor: pointer; font-size: var(--text-md); }
 .assistant-setup-example p { font-size: var(--text-md); line-height: 1.6; }
+
+/* The Vault page: a secret of config.json to move, its entry's name editable; a field's vault picker beside it. */
+.rows > .row.vault-move { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 16rem); transition: opacity 160ms ease; }
+.rows > .row.vault-move input[type="text"] { width: 100%; }
+/* A secret left in config.json stays readable but steps back, so the ones that move stand out. */
+.rows > .row.vault-move.left { opacity: 0.55; }
+.vault-shares { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); }
+@media (max-width: 640px) {
+  .rows > .row.vault-move { grid-template-columns: auto minmax(0, 1fr); }
+  .rows > .row.vault-move > :last-child { grid-column: 2 / -1; }
+}
+/* The vault's cards stand apart as other cards do (`.server` alone sits in a grid's gap), and the move card's status
+   line takes room only once it has something to say. */
+.vault-card { margin-bottom: var(--space-14); }
+.vault-card .status-line:empty { display: none; }
+/* The vault's cards explain themselves: their line under the title wraps instead of being cut. */
+.vault-card .server-head { align-items: flex-start; }
+.vault-card .server-head .muted { margin-top: var(--space-4); line-height: 1.5; white-space: normal; overflow: visible; }
+/* An entry's kind and who uses it, on one line; the count of users opens where config.json names it. */
+.vault-detail { display: flex; align-items: center; gap: var(--space-6); min-width: 0; }
+.vault-detail > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-detail .vault-users { padding: 0; font: inherit; color: inherit; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: 2px; }
+@media (hover: hover) and (pointer: fine) { .vault-detail .vault-users:hover { color: var(--text); } }
+span.warning, .vault-problem .warning { color: var(--warn); }
+.vault-when { flex-shrink: 0; white-space: nowrap; }
+/* On a phone an entry's date gives way to its name and kind; an expiry stays, it is a warning. */
+@media (max-width: 640px) { .vault-when > .muted { display: none; } }
+/* A problem's entry, what to do and where config.json names it, with the button that fixes it on the right. */
+.rows > .row.vault-problem > .who > div { white-space: normal; line-height: 1.5; }
+.rows > .row.vault-problem > button { flex-shrink: 0; }
+@media (max-width: 640px) { .rows > .row.vault-problem { flex-wrap: wrap; } .rows > .row.vault-problem > button { margin-left: auto; } }
+/* The Status page's vault widget: a head that says whether anything needs doing (its button on the right), then a row
+   per problem, each a link to the Vault page: a dot for how pressing, the entry, what is wrong, a chevron. */
+.vault-status { display: grid; gap: var(--space-12); }
+.vault-status .server-head { align-items: center; }
+.vault-status .server-head > .button { flex-shrink: 0; margin-left: auto; }
+.vault-status-rows { display: grid; border-top: 1px solid var(--line); margin: 0 calc(-1 * var(--space-20)) calc(-1 * var(--space-10)); }
+.vault-status-row {
+  display: grid; grid-template-columns: auto minmax(0, max-content) minmax(0, 1fr) auto; align-items: center; gap: var(--space-10);
+  padding: var(--space-10) var(--space-20); color: inherit; text-decoration: none;
+  transition: background-color 150ms ease;
+}
+.vault-status-row + .vault-status-row { border-top: 1px solid var(--line); }
+.vault-status-row > svg { width: 16px; height: 16px; color: var(--muted); fill: none; stroke: currentColor; stroke-width: 2; }
+.vault-status-row:active { background: color-mix(in srgb, var(--text) 8%, transparent); }
+@media (hover: hover) and (pointer: fine) { .vault-status-row:hover { background: color-mix(in srgb, var(--text) 5%, transparent); } }
+.vault-status-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.vault-status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.vault-status-row[data-tone="bad"] .vault-status-dot { background: var(--error); box-shadow: 0 0 0 3px color-mix(in srgb, var(--error) 22%, transparent); }
+.vault-status-row[data-tone="warn"] .vault-status-dot { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent); }
+/* Not a problem, something to do: a ring, not a filled dot. */
+.vault-status-row[data-tone="info"] .vault-status-dot { background: none; box-shadow: inset 0 0 0 2px var(--muted); }
+.vault-status-name { font-weight: var(--weight-semibold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-status-row.mono-name .vault-status-name { font-family: var(--mono); font-size: var(--text-sm); }
+.vault-status-says { color: var(--muted); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-status-row[data-tone="bad"] .vault-status-says { color: var(--error); }
+.vault-status-row[data-tone="warn"] .vault-status-says { color: var(--warn); }
+.vault-status-more { margin: 0; padding: var(--space-8) var(--space-20) 0 calc(var(--space-20) + 18px); font-size: var(--text-sm); }
+/* On a phone the button takes the card's width under its head, and a row's text goes under the entry's name. */
+@media (max-width: 640px) {
+  .vault-status .server-head { flex-wrap: wrap; }
+  .vault-status .server-head > .button { order: 3; flex-basis: 100%; justify-content: center; margin-left: 0; }
+  .vault-status-row { grid-template-columns: auto minmax(0, 1fr) auto; row-gap: 2px; }
+  .vault-status-row > svg { grid-row: 1 / span 2; grid-column: 3; }
+  .vault-status-says { grid-column: 2; text-align: left; white-space: normal; font-size: var(--text-sm); }
+}
+.secret-field { display: flex; gap: var(--space-8); align-items: center; }
+.secret-field input { flex: 1; min-width: 0; }
 
 /* Backup creation and recovery share a compact, responsive workspace. */
 .backup-actions-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: var(--space-20); margin: var(--space-24) 0 32px; }

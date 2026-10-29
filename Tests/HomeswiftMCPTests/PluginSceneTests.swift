@@ -1,0 +1,151 @@
+import Foundation
+import Homeswift
+import HomeswiftPlugin
+import Testing
+
+@testable import HomeswiftMCP
+
+/// The scenes plugins' hubs keep, listed and run with Homeswift's own (docs/scenes-design.md).
+@Suite struct PluginSceneTests {
+    static let config = """
+        {
+          "bridge": { "name": "Test Bridge", "username": "0E:11:22:33:44:55", "pin": "031-45-154", "port": 0 },
+          "platforms": [ { "platform": "Devices", "name": "Devices", "colourBulbs": 2, "mirroredBulb": true } ]
+        }
+        """
+
+    /// list_scenes lists the hub's scene with its source, in the Homeswift room named as the hub's room (case aside).
+    @Test func listsHubScenesInTheirRoom() async throws {
+        let environment = try MCPTestEnvironment(config: Self.config)
+        try await environment.start()
+        defer { Task { await environment.stop() } }
+        let client = DirectClient(server: environment.server)
+        try await client.initialize()
+        let listed = try await client.tool("list_scenes")["structuredContent"]
+        let scene = try #require(listed?["pluginScenes"]?[0])
+        #expect(scene["id"] == "Devices:Devices:magenta")
+        #expect(scene["name"] == "Magenta")
+        #expect(scene["room"] == "Salon")
+        #expect(scene["hubRoom"] == "salon")
+        #expect(scene["active"] == false)
+        #expect(scene["colours"] == ["#ff00ff"])
+        #expect(scene["capabilities"] == ["recall"])
+        #expect(scene["source"]?["pluginName"] == "Devices Plugin")
+    }
+
+    /// run_scene recalls a hub scene by id or by name; the lights it changed are held, and stopping that run puts
+    /// them back.
+    @Test func runsHubScenesAndHoldsTheirLights() async throws {
+        let environment = try MCPTestEnvironment(config: Self.config)
+        try await environment.start()
+        defer { Task { await environment.stop() } }
+        let client = DirectClient(server: environment.server)
+        try await client.initialize()
+        let bulb = try #require(environment.catalog.find(id: "Devices:bulb1"))
+        let hue = try environment.catalog.characteristic(in: bulb, service: nil, characteristic: "Hue")
+
+        let ran = try await client.tool("run_scene", ["scene": "Devices:Devices:magenta"])["structuredContent"]
+        #expect(ran?["ok"] == true)
+        #expect(hue.value == .double(300))
+        let run = try #require(ran?["run"]?.stringValue)
+        _ = try await client.tool("stop_mood", ["run": .string(run)])
+        #expect(hue.value == .double(10))
+
+        let byName = try await environment.catalog.runScene("magenta")
+        #expect(byName["sceneId"] == "Devices:Devices:magenta")
+        #expect(hue.value == .double(300))
+    }
+
+    /// stop_scene puts back what a hub's scene changed, by the hub scene's id; the list says it can until then.
+    @Test func stopSceneUndoesAHubScene() async throws {
+        let environment = try MCPTestEnvironment(config: Self.config)
+        try await environment.start()
+        defer { Task { await environment.stop() } }
+        let client = DirectClient(server: environment.server)
+        try await client.initialize()
+        let hue = try environment.catalog.characteristic(in: try #require(environment.catalog.find(id: "Devices:bulb1")), service: nil, characteristic: "Hue")
+        _ = try await client.tool("run_scene", ["scene": "Devices:Devices:magenta"])
+        #expect(await environment.catalog.allScenesJSON()["pluginScenes"]?[0]?["stoppable"] == true)
+        let stopped = try await client.tool("stop_scene", ["scene": "Devices:Devices:magenta"])["structuredContent"]
+        #expect(stopped?["ok"] == true)
+        #expect(hue.value == .double(10))
+        #expect(await environment.catalog.allScenesJSON()["pluginScenes"]?[0]?["stoppable"] == false)
+    }
+
+    /// A saved scene can recall a hub's scene among its values; stopping the scene puts those lights back too.
+    @Test func aSceneRecallsAHubScene() async throws {
+        let environment = try MCPTestEnvironment(config: Self.config)
+        try await environment.start()
+        defer { Task { await environment.stop() } }
+        let catalog = environment.catalog
+        let hue = try catalog.characteristic(in: try #require(catalog.find(id: "Devices:bulb1")), service: nil, characteristic: "Hue")
+        let lamp = try catalog.characteristic(in: try #require(catalog.find(id: "Devices:lamp")), service: nil, characteristic: "Brightness")
+        let saved = try catalog.createScene(["name": "Evening", "actions": [["recall": "Devices:Devices:magenta"], ["id": "Devices:lamp", "characteristic": "Brightness", "value": 70]]])
+        let id = try #require(saved["id"]?.stringValue)
+        let listed = await catalog.allScenesJSON()["scenes"]?[0]?["actions"]?[0]
+        #expect(listed?["recall"] == "Devices:Devices:magenta")
+        #expect(listed?["name"] == "Magenta")
+        let ran = try await catalog.runScene(id)
+        #expect(ran["ok"] == true)
+        #expect(hue.value == .double(300))
+        #expect(lamp.value == .int(70))
+        #expect(catalog.scenesJSON()["scenes"]?[0]?["stoppable"] == true)
+        #expect(try await catalog.stopScene(id)["ok"] == true)
+        #expect(hue.value == .double(10))
+        #expect(lamp.value == .int(40))
+        // A hub's scene that went away is skipped and reported.
+        let gone = try catalog.createScene(["name": "Gone", "actions": [["recall": "Devices:Devices:nope"]]])
+        let result = try await catalog.runScene(try #require(gone["id"]?.stringValue))
+        #expect(result["ok"] == false)
+        #expect(await catalog.allScenesJSON()["scenes"]?[1]?["actions"]?[0]?["missing"] == true)
+    }
+
+    /// An MCP client composes a scene and runs it without saving it; stop_scene with its run puts it back, and
+    /// save_scene keeps a plan. A plan that unlocks is refused.
+    @Test func plansRunUndoAndSave() async throws {
+        let environment = try MCPTestEnvironment(config: Self.config)
+        try await environment.start()
+        defer { Task { await environment.stop() } }
+        let client = DirectClient(server: environment.server)
+        try await client.initialize()
+        let catalog = environment.catalog
+        let lamp = try catalog.characteristic(in: try #require(catalog.find(id: "Devices:lamp")), service: nil, characteristic: "Brightness")
+        let hue = try catalog.characteristic(in: try #require(catalog.find(id: "Devices:bulb1")), service: nil, characteristic: "Hue")
+        let plan: JSONValue = ["name": "Cozy", "actions": [["id": "Devices:lamp", "characteristic": "Brightness", "value": 25], ["recall": "Devices:Devices:magenta"]]]
+
+        let ran = try await client.tool("run_scene", ["plan": plan])["structuredContent"]
+        #expect(ran?["ok"] == true)
+        #expect(ran?["plan"]?["actions"]?.arrayValue?.count == 2)
+        #expect(lamp.value == .int(25))
+        #expect(hue.value == .double(300))
+        #expect(catalog.scenesJSON()["scenes"] == [])
+        let run = try #require(ran?["run"]?.stringValue)
+        #expect(try await client.tool("stop_scene", ["scene": .string(run)])["structuredContent"]?["ok"] == true)
+        #expect(lamp.value == .int(40))
+        #expect(hue.value == .double(10))
+
+        let dry = try await client.tool("save_scene", ["name": "Cozy", "plan": plan, "dryRun": true])["structuredContent"]
+        #expect(dry?["dryRun"] == true)
+        #expect(catalog.scenesJSON()["scenes"] == [])
+        _ = try await client.tool("save_scene", ["name": "Cozy", "plan": plan])
+        #expect(catalog.scenesJSON()["scenes"]?[0]?["name"] == "Cozy")
+
+        let unlock = try await client.tool("run_scene", ["plan": ["actions": [["id": "Devices:lock", "characteristic": "Lock Target State", "value": 0]]]])
+        #expect(unlock["isError"] == true)
+        #expect(!environment.written.contains { $0.0 == "lock.target" })
+    }
+
+    /// A Homeswift scene is active while every value it sets is what its accessory shows.
+    @Test func homeswiftScenesKnowWhenTheyAreActive() async throws {
+        let environment = try MCPTestEnvironment()
+        try await environment.start()
+        defer { Task { await environment.stop() } }
+        let catalog = environment.catalog
+        _ = try catalog.createScene(["name": "Reading", "actions": [["id": "Devices:lamp", "characteristic": "Brightness", "value": 40]]])
+        _ = try catalog.createScene(["name": "Bright", "actions": [["id": "Devices:lamp", "characteristic": "Brightness", "value": 90]]])
+        let scenes = await catalog.allScenesJSON()["scenes"]?.arrayValue ?? []
+        #expect(scenes.first { $0["name"] == "Reading" }?["active"] == true)
+        #expect(scenes.first { $0["name"] == "Bright" }?["active"] == false)
+        #expect(await catalog.allScenesJSON()["pluginScenes"] == [])
+    }
+}

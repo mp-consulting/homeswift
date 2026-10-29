@@ -562,6 +562,8 @@ public final class UIServer: Sendable {
         let username = caller.username
         // Settings, child bridges, backups, the audit log: Admin.swift.
         if let reply = try await adminAPI(route, request, caller: caller) { return reply }
+        // The vault's entries and the migration (VaultRoutes.swift).
+        if let reply = try await vaultAPI(route, request, caller: caller) { return reply }
         let body = request.body.isEmpty ? JSONValue.null : try JSONValue(data: request.body)
         // Approving an OAuth client, and the account's connected apps (OAuthRoutes.swift).
         if let reply = oauthAPI(route, request, body: body, caller: caller) { return reply }
@@ -619,7 +621,10 @@ public final class UIServer: Sendable {
                 var plugins = catalog.pluginsJSON().objectValue ?? [:]
                 plugins["blocks"] = .array(blocks)
                 // The key rule the server seals and redacts by; the settings page reads it from here.
-                plugins["secretRule"] = ["keys": .string(Redaction.secretKeyPattern), "except": .string(Redaction.notSecretKeyPattern), "placeholder": .string(Redaction.placeholder)]
+                plugins["secretRule"] = [
+                    "keys": .string(Redaction.secretKeyPattern), "except": .string(Redaction.notSecretKeyPattern), "placeholder": .string(Redaction.placeholder),
+                    "reference": .string(Redaction.referencePattern),
+                ]
                 return .json(.object(plugins))
             case ["config"]:
                 // Secrets show as the placeholder, as the block views show them; a save that keeps it keeps the stored value.
@@ -1150,6 +1155,8 @@ public final class UIServer: Sendable {
         status["username"] = .string(username)
         status["system"] = HomeswiftCatalog.systemJSON()
         if let update = options.releases?.json() { status["update"] = update }
+        // The vault's widget, for the administrators who can act on it.
+        if admin, let vault = catalog.vaultSummary() { status["vault"] = vault }
         return .object(status)
     }
 

@@ -57,29 +57,31 @@ struct OAuthTests {
         }
     }
 
-    @Test func tokenFileIsOwnerOnlyAndValidated() throws {
-        let url = directory.appendingPathComponent(".daikin-mobile-tokenset")
-        #expect(TokenFile.load(url) == nil)
-        let tokens = TokenSet(access_token: "a", refresh_token: "r", token_type: "Bearer", expires_in: 3600, expires_at: 1_700_000_000)
-        try TokenFile.save(tokens, to: url)
-        #expect(TokenFile.load(url) == tokens)
-        let permissions = try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int
-        #expect(permissions == 0o600)
-        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path) == [".daikin-mobile-tokenset"])
-        try Data("not json".utf8).write(to: url)
-        #expect(TokenFile.load(url) == nil)
-        try Data(#"{"refresh_token":"r"}"#.utf8).write(to: url)
-        #expect(TokenFile.load(url) == nil)
-        // A token file written by the Homebridge plugin.
-        try Data(#"{"access_token":"a","refresh_token":"r","token_type":"Bearer","expires_in":3600,"expires_at":1767000000,"scope":"openid"}"#.utf8).write(to: url)
-        #expect(TokenFile.load(url)?.expires_at == 1_767_000_000)
-        TokenFile.delete(url)
-        TokenFile.delete(url)
-        #expect(!FileManager.default.fileExists(atPath: url.path))
+    @Test func tokenSetIsSealedAndValidated() throws {
+        let location = tokenLocation(directory, ".daikin-mobile-tokenset")
+        let legacy = try #require(location.legacyFile)
+        #expect(TokenFile.load(location) == nil)
+        let tokens = TokenSet(access_token: "a-access", refresh_token: "r", token_type: "Bearer", expires_in: 3600, expires_at: 1_700_000_000)
+        try TokenFile.save(tokens, to: location)
+        #expect(TokenFile.load(location) == tokens)
+        #expect(try !String(contentsOf: location.vault.url, encoding: .utf8).contains("a-access"))
+        #expect(!FileManager.default.fileExists(atPath: legacy.path))
+        TokenFile.delete(location)
+        TokenFile.delete(location)
+        #expect(TokenFile.load(location) == nil)
+
+        // A file that is not a token set stays where it is, unread.
+        try Data("not json".utf8).write(to: legacy)
+        #expect(TokenFile.load(location) == nil)
+        // A token file written by the Homebridge plugin moves into the vault.
+        try Data(#"{"access_token":"a","refresh_token":"r","token_type":"Bearer","expires_in":3600,"expires_at":1767000000,"scope":"openid"}"#.utf8).write(to: legacy)
+        #expect(TokenFile.load(location)?.expires_at == 1_767_000_000)
+        #expect(!FileManager.default.fileExists(atPath: legacy.path))
+        #expect(TokenFile.load(location)?.expires_at == 1_767_000_000)
     }
 
     @Test func tokenClientRefreshes() async throws {
-        let url = directory.appendingPathComponent("tokens")
+        let url = tokenLocation(directory, "tokens")
         try TokenFile.save(TokenSet(access_token: "old", refresh_token: "refresh", token_type: "Bearer", expires_at: 1), to: url)
         let calls = NIOLockedValueBox(0)
         let release = Signal()
@@ -108,7 +110,7 @@ struct OAuthTests {
     }
 
     @Test func aFailedRefreshIsTriedAgain() async throws {
-        let url = directory.appendingPathComponent("tokens")
+        let url = tokenLocation(directory, "tokens")
         try TokenFile.save(TokenSet(access_token: "old", refresh_token: "refresh", token_type: "Bearer", expires_at: 1), to: url)
         let attempts = NIOLockedValueBox(0)
         let client = TokenClient(file: url) { _ in
@@ -126,7 +128,7 @@ struct OAuthTests {
 
     /// Revoking from the page while a poll refreshes: the refresh's answer must not write the login back.
     @Test func aRefreshInFlightDoesNotRestoreClearedTokens() async throws {
-        let url = directory.appendingPathComponent("tokens")
+        let url = tokenLocation(directory, "tokens")
         try TokenFile.save(TokenSet(access_token: "old", refresh_token: "refresh", token_type: "Bearer", expires_at: 1), to: url)
         let started = Signal()
         let release = Signal()
@@ -140,12 +142,12 @@ struct OAuthTests {
         await client.clear()
         release.fire()
         await #expect(throws: DaikinError("Not authenticated. Please authenticate first.")) { try await refresh.value }
-        #expect(!FileManager.default.fileExists(atPath: url.path))
+        #expect(TokenFile.load(url) == nil)
         #expect(!(await client.isAuthenticated()))
     }
 
     @Test func expiredWithoutARefreshToken() async throws {
-        let url = directory.appendingPathComponent("tokens")
+        let url = tokenLocation(directory, "tokens")
         try TokenFile.save(TokenSet(access_token: "old", token_type: "Bearer", expires_at: 1), to: url)
         let client = TokenClient(file: url) { _ in Issue.record("refreshed"); throw DaikinError("no") }
         await #expect(throws: DaikinError("Token expired and no refresh token available. Please re-authenticate.")) { try await client.accessToken() }
@@ -340,3 +342,11 @@ struct OAuthTests {
 
 /// SHA-256 of a string.
 private func SHA256Digest(_ string: String) -> [UInt8] { Array(SHA256.hash(data: Data(string.utf8))) }
+
+/// A token set's entry in the vault of `directory`, with the Homebridge plugin's file of `name` beside it.
+func tokenLocation(_ directory: URL, _ name: String) -> TokenLocation {
+    SecretFile(
+        vault: CredentialVault(storage: directory), entryName: TokenLocation.entryName(instance: "daikincloud-test", file: name),
+        owner: "DaikinCloud/test", legacyFile: directory.appendingPathComponent(name)
+    )
+}

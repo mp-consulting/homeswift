@@ -422,6 +422,21 @@ struct PhilipsHueTests {
         await host.stop()
     }
 
+    /// Homeswift's Scenes page lists the bridge's scenes by room, without the excluded ones, and recalls them as their
+    /// switches do.
+    @Test func scenesReachHomeswiftsScenesPage() async throws {
+        let host = try await environment.start(settings: ["host": "192.0.2.10", "excludeScenes": ["Living room/Concentrate"]])
+        _ = try await accessory(host, scenesID)
+        let plugin = try #require(environment.plugin)
+        let scenes = await plugin.scenes()
+        #expect(scenes.map(\.id) == ["smart-1", "scene-1"])
+        #expect(scenes.allSatisfy { $0.room == "Living room" && $0.capabilities == [.recall] })
+        #expect(scenes.first { $0.id == "scene-1" }?.colours.isEmpty == false)
+        try await plugin.recallScene(id: "scene-1")
+        #expect(environment.bridge.puts.last == .init(method: "PUT", path: "/clip/v2/resource/scene/scene-1", body: ["recall": ["action": "active", "duration": 100]]))
+        await host.stop()
+    }
+
     /// A scene with a transition of its own is recalled with it, from the page and from the Home app; the others keep
     /// `transitionMs`.
     @Test func aSceneTakesItsOwnTransition() async throws {

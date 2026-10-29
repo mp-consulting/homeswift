@@ -371,6 +371,17 @@ final class LightDevice: GoveeDevice {
         }
     }
 
+    /// The scenes picked from the Govee library (the switches), by subtype: what Homeswift's Scenes page lists.
+    var librarySceneNames: [(key: String, name: String)] {
+        scenes.filter { $0.key.hasPrefix(Self.sceneServicePrefix) }.map { ($0.key, $0.name) }
+    }
+
+    /// Applies a library pick by subtype, as its switch does.
+    func applyScene(key: String) async throws {
+        guard let scene = scenes.first(where: { $0.key == key }) else { throw PluginSceneError("no such scene") }
+        try await internalSceneUpdate(scene, true, isService: true)
+    }
+
     private func internalSceneUpdate(_ scene: ActiveScene, _ value: Bool, isService: Bool) async throws {
         guard value else { return }
         do {

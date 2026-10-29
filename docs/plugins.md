@@ -119,7 +119,9 @@ public actor MyDevicesPlugin: HomeswiftPlugin {
   `characteristic.revert(to:after:)` puts a value back after a write the device refused;
   `context.removeAccessories(keeping:)` drops accessories of devices that are gone. In `HomeswiftPlugin`, `TaskBag`
   holds the tasks `stop()` cancels, `LatestCallGuard` lets the last of quick slider writes through,
-  `PersistedDictionary` and `context.jsonFile(_:as:)` keep values in owner-only JSON files, `context.pictures(_:)` keeps
+  `PersistedDictionary` and `context.jsonFile(_:as:)` keep values in owner-only JSON files, `context.secretFile(_:as:)`
+  keeps a token or a key the same way but sealed in the bridge's vault (docs/vault-design.md), in the instance's
+  namespace, moving the plain file of that name there the first time it reads it, `context.pictures(_:)` keeps
 pictures a page uploads (`data:` URLs of JPEG, PNG or WebP, checked by their bytes; the Hue and DIRIGERA scene tiles), and `EveHistory` is
   fakegato-history for the Eve app.
 - **History and energy.** `context.recordValue(_:series:)` records a reading for the Status page's history (a minute
@@ -255,6 +257,32 @@ device, a cloud or a config file can send any of them. Convert with `Int(saturat
 clamps, nil for NaN; `Int(saturating: x, in: 0...100)` clamps to a range), `JSONValue.saturatingIntValue`
 for JSON, `Int(clamping:)` for a wider integer, and `x.finite` to drop NaN and infinity from a reading.
 
+### Secrets
+
+Passwords, keys and tokens go through the bridge's vault (docs/vault-design.md); a plugin does little for it.
+
+- **In the configuration.** A secret sits under a key the bridge reads as one (`password`, `token`, `apiKey`,
+  `secret`, `privateKey`, `credential`, `pin`…: `Redaction.secretKeyPattern`). Under such a key config.json may hold
+  the value, a sealed `enc:v1:` copy, or a reference (`vault:<entry>[#field]`, `env:<VARIABLE>`, `file:/path`), and
+  the plugin always receives the plain value: the runtime opens and resolves the block before `init`, and masks the
+  value in logs, MCP replies and the Assistant's prompts. Keep the Homebridge plugin's option names; a secret under
+  another name (Govee's `localKey`) is neither sealed nor resolved, so say so in the README.
+- **Tokens the plugin gets at run time** (a cloud's session, a hub's token, a client key) go in
+  `context.secretFile(_:as:)`, never `jsonFile` or `PersistedDictionary`: `load()`, `save(_:)` and `remove()` as
+  `jsonFile`, sealed in the vault as `plugin.<instance>.<file>`, an entry only that instance's block can read. Give it
+  the Homebridge plugin's file name: a file of that name in the plugin's folder (one copied from Homebridge) moves in
+  the first time it is read, and `legacyFile:` names one kept elsewhere. What it holds under secret-named keys is
+  masked in logs from then on.
+
+  ```swift
+  let tokens = context.secretFile("ewelink-tokens.json", as: Session.self)
+  if let session = tokens.load() { … } else { try tokens.save(try await signIn()) }
+  ```
+- **What a plugin never does:** read `vault.json` or another entry, log a value (masking is a safety net, not
+  permission), or write a secret anywhere else on disk.
+- **Tests** run `secretFile` on a temporary storage directory (the vault's key is made on the first save); a test
+  config that names `vault:` entries adds them first with `CredentialVault(storage:).set(_:_:)`.
+
 ### Web pages
 
 A plugin can give the web UI a page of its own: a `Web/` directory next to `Sources`, embedded as
@@ -269,6 +297,25 @@ primary service, link the others to it, give ranges their real `minStep` and bou
 what the device does, mark what opens or unlocks with `isSecurityControl`, and give a light with a white
 temperature an `AdaptiveLightingController`. [widgets.md](widgets.md) shows what each choice does, with examples,
 and how a plugin's own page draws its accessories with the same widgets.
+
+### Scenes
+
+A plugin whose hub keeps scenes (a Hue Bridge, a DIRIGERA hub, a Govee light's picks) lists them with
+`scenes()` and recalls one with `recallScene(id:)`. The web UI's Scenes page shows them with Homeswift's own scenes,
+in the room named as the hub's room or zone (or the room of `accessoryIDs`, when the plugin knows the lights), and
+`list_scenes` and `run_scene` take them too. Homeswift asks each time it lists them, so answer from what the plugin
+already knows; it keeps no copy. A recall is held like a scene's run: the lights it changed can be put back.
+`Plugins/PhilipsHue/Sources/HueScenes.swift` is the example; [scenes-design.md](scenes-design.md) has where this goes.
+
+```swift
+public func scenes() async -> [PluginScene] {
+    snapshot.scenes.map { PluginScene(id: $0.id, name: $0.name, room: $0.roomName, active: $0.isActive, colours: $0.swatches) }
+}
+
+public func recallScene(id: String) async throws {
+    try await recall(sceneID: id)
+}
+```
 
 ### What the Assistant can do
 

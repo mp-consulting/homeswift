@@ -28,7 +28,8 @@ writeFileSync(join(storage, "config.json"), JSON.stringify({
     { platform: "HomeswiftUI", name: "Web UI", port, host: "127.0.0.1", auth: "none", checkForUpdates: false, scheduledBackupDisable: true },
     { platform: "ElgatoKeyLights", name: "Desk Lights", _paused: true },
     { platform: "PhilipsHue", name: "Philips Hue", host: "192.168.1.20", transitionMs: 400, _paused: true },
-    { platform: "Govee", name: "Govee", _paused: true },
+    // A demonstration key, for the Vault page's secrets still in config.json.
+    { platform: "Govee", name: "Govee", apiKey: "demo-govee-api-key", _paused: true },
     { platform: "DysonPureCool", name: "Dyson", _paused: true },
   ],
 }, null, 2));
@@ -168,6 +169,7 @@ try {
   await shot("logs-phone", "/logs?level=trace", { width: 390, height: 844, mobile: true, ready: ".log-filter-panel" });
   await shot("appearance", "/appearance", { ready: ".wallpapers", tall: 1300 });
   await shot("backups", "/settings/backups", { ready: ".drop-zone", tall: 1000 });
+  await shot("vault", "/settings/vault", { ready: ".vault-move", tall: 800 });
 } finally {
   socket.close();
   const exited = new Promise((done) => chrome.once("exit", done));

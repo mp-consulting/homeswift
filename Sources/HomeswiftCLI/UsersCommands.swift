@@ -37,15 +37,22 @@ enum UsersCommands {
         }
     }
 
-    /// The first line of standard input; a terminal gets a prompt without echo.
     static func readPassword() throws -> String {
-        if isatty(STDIN_FILENO) != 0 {
-            guard let typed = getpass("Password: ") else { throw CommandError("no password") }
-            return String(cString: typed)
-        }
-        guard let line = readLine(strippingNewline: true), !line.isEmpty else {
-            throw CommandError("no password on standard input")
-        }
-        return line
+        try readSecret(prompt: "Password: ", what: "password")
     }
+}
+
+/// The first line of standard input; a terminal gets `prompt` without echo. `what` names it in the errors. The users'
+/// passwords and the vault's values are read this way.
+func readSecret(prompt: String, what: String) throws -> String {
+    if isatty(STDIN_FILENO) != 0 {
+        guard let typed = getpass(prompt) else { throw CommandError("no \(what)") }
+        let value = String(cString: typed)
+        guard !value.isEmpty else { throw CommandError("no \(what)") }
+        return value
+    }
+    guard let line = readLine(strippingNewline: true), !line.isEmpty else {
+        throw CommandError("no \(what) on standard input")
+    }
+    return line
 }

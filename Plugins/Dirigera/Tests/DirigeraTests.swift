@@ -200,11 +200,13 @@ struct DirigeraTests {
         let answer = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "pair", body: ["host": "192.0.2.20"], user: "admin"))
         #expect(answer.json["paired"] == "192.0.2.20")
         _ = try await accessory(host, sofaID)
-        let directory = environment.directory
+        // The token is kept sealed in the vault, under the instance's namespace.
+        let vault = CredentialVault(storage: environment.directory)
         #expect(await eventually {
-            let files = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: nil)?.compactMap { $0 as? URL } ?? []
-            return files.first { $0.lastPathComponent == "hubs.json" }.flatMap { try? String(contentsOf: $0, encoding: .utf8) }?.contains(FakeHub.token) == true
+            let entry = (try? vault.names())?.first { $0.hasPrefix("plugin.") && $0.hasSuffix(".hubs.json") }
+            return entry.flatMap { try? vault.entry(named: $0)?.fields["token"] }?.contains(FakeHub.token) == true
         })
+        #expect(try !String(contentsOf: vault.url, encoding: .utf8).contains(FakeHub.token))
         await host.stop()
     }
 
@@ -392,6 +394,22 @@ struct DirigeraTests {
     }
 
     /// The Assistant lists the scenes and runs the one it picked, through the actions.
+    /// Homeswift's Scenes page lists the hub's user scenes, by the hub's address and their id, and triggers them.
+    @Test func scenesReachHomeswiftsScenesPage() async throws {
+        let host = try await environment.start()
+        _ = try await accessory(host, scenesID)
+        let plugin = try #require(environment.plugin)
+        let scenes = await plugin.scenes()
+        let movie = try #require(scenes.first { $0.name == "Movie night" })
+        #expect(movie.id == "192.0.2.20|scene-1")
+        #expect(movie.active == nil)
+        #expect(!scenes.contains { $0.id.hasSuffix("|scene-2") })
+        try await plugin.recallScene(id: movie.id)
+        #expect(environment.hub.sent.last?.path == "/v1/scenes/scene-1/trigger")
+        await #expect(throws: (any Error).self) { try await plugin.recallScene(id: "192.0.2.20|nope") }
+        await host.stop()
+    }
+
     @Test func theAssistantRunsAScene() async throws {
         let host = try await environment.start()
         _ = try await accessory(host, scenesID)

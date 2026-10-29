@@ -91,6 +91,13 @@ public protocol HomeswiftPlugin: Sendable {
     /// prefer a low-bandwidth channel. Defaults to nil: the card shows the camera's snapshots instead, from its
     /// `CameraController`.
     func liveFeed(accessoryID: String) async throws -> CameraLiveFeed?
+
+    /// The scenes the plugin's hub keeps, for Homeswift to list with its own (`PluginScene`). Asked each time they
+    /// are listed, so answer from what the plugin already knows rather than asking the hub. Defaults to none.
+    func scenes() async -> [PluginScene]
+
+    /// Recalls one of `scenes()` by its `PluginScene.id`. Defaults to throwing.
+    func recallScene(id: String) async throws
 }
 
 extension HomeswiftPlugin {
@@ -281,6 +288,8 @@ public final class PluginContext: @unchecked Sendable {
     let cache: AccessoryCache
     let externals: ExternalAccessories
     private let storageURL: URL
+    /// Where `vault.json` and `secrets.key` are: the bridge's storage directory (`secretFile`).
+    let vaultStorage: URL
     private let assistantBox: NIOLockedValueBox<AssistantService?>
     private let assistantBackground: String?
     private let recordSink: @Sendable (String, Double, EnergyTag?) -> Void
@@ -354,7 +363,7 @@ public final class PluginContext: @unchecked Sendable {
 
     init(
         platform: String, name: String, key: String, logger: Logger, bridge: PluginHost.Bridge, cache: AccessoryCache, storageURL: URL,
-        assistant: NIOLockedValueBox<AssistantService?>, externals: ExternalAccessories, assistantBackground: String? = nil,
+        vaultStorage: URL, assistant: NIOLockedValueBox<AssistantService?>, externals: ExternalAccessories, assistantBackground: String? = nil,
         recordSink: @escaping @Sendable (String, Double, EnergyTag?) -> Void = { _, _, _ in },
         energyImportSink: @escaping @Sendable ([EnergyHourImport]) -> Void = { _ in },
         energyProgressSink: @escaping @Sendable (EnergyImportProgress) -> Void = { _ in }
@@ -370,6 +379,7 @@ public final class PluginContext: @unchecked Sendable {
         self.bridge = bridge
         self.cache = cache
         self.storageURL = storageURL
+        self.vaultStorage = vaultStorage
         assistantBox = assistant
         self.externals = externals
     }

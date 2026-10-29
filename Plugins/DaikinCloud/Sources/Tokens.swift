@@ -124,21 +124,22 @@ enum TokenResponse {
     }
 }
 
-/// The token file: owner-only, replaced atomically, ignored when it does not hold a valid token set.
+/// Where a token set is kept: an entry of the vault, which the Homebridge plugin's file of the same name in the
+/// plugin's folder (`.daikin-mobile-tokenset`) moves into the first time it is read.
+typealias TokenLocation = SecretFile<JSONValue>
+
+/// The token set, sealed in the vault, ignored when it does not hold a valid one.
 enum TokenFile {
-    static func load(_ url: URL) -> TokenSet? {
-        guard let data = try? Data(contentsOf: url), let json = try? JSONValue(data: data) else { return nil }
-        return try? TokenSet.validate(json).get()
+    static func load(_ file: TokenLocation) -> TokenSet? {
+        file.load().flatMap { try? TokenSet.validate($0).get() }
     }
 
-    static func save(_ tokens: TokenSet, to url: URL) throws {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try OwnerOnlyFile.write(encoder.encode(tokens), to: url)
+    static func save(_ tokens: TokenSet, to file: TokenLocation) throws {
+        try file.save(JSONValue(encoding: tokens))
     }
 
-    static func delete(_ url: URL) {
-        try? FileManager.default.removeItem(at: url)
+    static func delete(_ file: TokenLocation) {
+        file.remove()
     }
 }
 
@@ -154,7 +155,7 @@ protocol OAuthProvider: Sendable {
 actor TokenClient: OAuthProvider {
     typealias Refresh = @Sendable (_ refreshToken: String) async throws -> TokenSet
 
-    let file: URL
+    let file: TokenLocation
     private(set) var tokens: TokenSet?
     private var refreshing: Task<TokenSet, any Error>?
     /// Bumped when the tokens are cleared or reloaded: a refresh that started before keeps its answer to
@@ -163,7 +164,7 @@ actor TokenClient: OAuthProvider {
     private let requestRefresh: Refresh
     private let onError: @Sendable (String) -> Void
 
-    init(file: URL, onError: @escaping @Sendable (String) -> Void = { _ in }, refresh: @escaping Refresh) {
+    init(file: TokenLocation, onError: @escaping @Sendable (String) -> Void = { _ in }, refresh: @escaping Refresh) {
         self.file = file
         self.onError = onError
         requestRefresh = refresh

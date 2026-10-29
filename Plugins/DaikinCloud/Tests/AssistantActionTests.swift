@@ -55,7 +55,7 @@ struct AssistantActionTests {
 
         let revoked = try await call("revoke", on: environment)
         #expect(revoked.json["success"] == true)
-        #expect(TokenFile.load(environment.storage.appendingPathComponent(AuthMode.developerPortal.tokenFileName)) == nil)
+        #expect(TokenFile.load(environment.tokenFile(named: AuthMode.developerPortal.tokenFileName)) == nil)
         #expect(environment.cloud.http.all.contains { $0.url == DeveloperPortalOAuth.revokeEndpoint })
         #expect(try await call("status", on: environment).json["authenticated"] == false)
     }

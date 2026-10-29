@@ -132,6 +132,18 @@ actor DevicesPlugin: HomeswiftPlugin {
         guard request.method == "POST", request.path == "pair", let ip = request.body["ip"]?.stringValue else { return .error(404, "nothing there") }
         return PluginWebResponse(["device": ["ip": .string(ip), "mac": "AA:BB:CC:00:11:22", "username": "homeswift", "password": "s3cret-pass"]])
     }
+
+    /// The devices' own hub keeps one scene, Magenta, in its room "salon", when there are colour bulbs.
+    func scenes() async -> [PluginScene] {
+        guard (configuration.colourBulbs ?? 0) > 0 else { return [] }
+        return [PluginScene(id: "magenta", name: "Magenta", room: "salon", active: false, colours: ["#ff00ff"])]
+    }
+
+    /// Recalls Magenta as `POST scene` does.
+    func recallScene(id: String) async throws {
+        guard id == "magenta" else { throw PluginSceneError("no such scene") }
+        _ = try await handleWebRequest(PluginWebRequest(method: "POST", path: "scene", query: [:], body: .null, user: "test"))
+    }
 }
 
 /// A model that follows a script: each step answers a request with text or tool calls.

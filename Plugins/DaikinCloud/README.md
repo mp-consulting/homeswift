@@ -47,9 +47,10 @@ HTTPS server on that port for the redirect (the browser warns once about its sel
 after ten minutes; when the redirect cannot reach it, paste the URL the browser ends on. Once logged in, the
 instance connects without a restart.
 
-Tokens are kept in the plugin's folder (`~/.homeswift/plugins/DaikinCloud-<name>/`), owner-only:
-`.daikin-controller-cloud-tokenset` (Developer Portal) and `.daikin-mobile-tokenset` (Mobile App), the Homebridge
-plugin's files, so one copied from a Homebridge storage path works. The callback server's certificate is in
+Tokens are kept sealed in the bridge's vault (`vault.json`, docs/vault-design.md), in entries named after the
+Homebridge plugin's files `.daikin-controller-cloud-tokenset` (Developer Portal) and `.daikin-mobile-tokenset` (Mobile
+App). A file copied from a Homebridge storage path into the plugin's folder (`~/.homeswift/plugins/DaikinCloud-<name>/`)
+still works: the plugin moves it into the vault when it reads it, and removes it. The callback server's certificate is in
 `daikin-cloud-certs/`, the last quota in `.daikin-rate-limit.json`.
 
 The Assistant (the web UI's chat, MCP clients) can check the login, list the units, read the quota, test the
