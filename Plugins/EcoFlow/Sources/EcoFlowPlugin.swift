@@ -89,6 +89,8 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
     private var devices: [String: DeviceServices] = [:]
     /// The devices as the last read reported them, for the plugin's page.
     private var latest: [EcoFlowDevice] = []
+    /// The page's order, each serial number's place, read from `orderFile` once and kept as it is saved.
+    private var orderPlaces: [String: Int]?
     /// Each device's `recorded` series, with the name and route they were made for.
     private var recordedSeries: [String: (name: String, route: EcoFlowModel.Route, keys: [String: (series: RecordedSeries, tag: EnergyTag?)])] = [:]
     private var logger: Logger { context.logger }
@@ -333,6 +335,7 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
                 return .error(400, "ids must list the devices' serial numbers")
             }
             try context.jsonFile(Self.orderFile, as: [String].self).save(ids)
+            orderPlaces = Self.places(ids)
             return PluginWebResponse(.object(["ids": .array(ids.map { .string($0) })]))
         default: return .error(404, "EcoFlow has no web API at \(request.path)")
         }
@@ -340,11 +343,18 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
 
     /// The devices in the page's order: the ones it placed first, then the others as they were reported.
     func ordered(_ devices: [EcoFlowDevice]) -> [EcoFlowDevice] {
-        let order = context.jsonFile(Self.orderFile, as: [String].self).load() ?? []
-        let place = Dictionary(order.enumerated().map { ($1, $0) }) { first, _ in first }
+        if orderPlaces == nil { orderPlaces = Self.places(context.jsonFile(Self.orderFile, as: [String].self).load() ?? []) }
+        let place = orderPlaces ?? [:]
+        // The devices it has not placed come after the last place, as reported.
+        let after = (place.values.max() ?? -1) + 1
         return devices.enumerated().sorted { a, b in
-            (place[a.element.id] ?? order.count + a.offset, a.offset) < (place[b.element.id] ?? order.count + b.offset, b.offset)
+            (place[a.element.id] ?? after + a.offset, a.offset) < (place[b.element.id] ?? after + b.offset, b.offset)
         }.map(\.element)
+    }
+
+    /// Each serial number's place in an order, the first one kept when it appears twice.
+    static func places(_ order: [String]) -> [String: Int] {
+        Dictionary(order.enumerated().map { ($1, $0) }) { first, _ in first }
     }
 
     private func power() -> PluginWebResponse {

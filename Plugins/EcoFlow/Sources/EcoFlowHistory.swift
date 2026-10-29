@@ -108,9 +108,10 @@ struct EcoFlowHistory: Sendable {
     /// The account's first STREAM, from the app's device list.
     func stream(token: String) async throws -> String {
         let list = try await send("/app/user/device/list", method: "GET", body: nil, token: token)
-        let serials = (list["data"] as? [[String: Any]] ?? []).compactMap { $0["sn"] as? String }
-        guard let serial = serials.first(where: { EcoFlowModel.model(serial: $0)?.kind == .stream }) else { throw Failure.noStream }
-        return serial
+        guard let stream = EcoFlowAppAPI.listedDevices(list["data"]).first(where: { EcoFlowModel.model(serial: $0.serial)?.kind == .stream }) else {
+            throw Failure.noStream
+        }
+        return stream.serial
     }
 
     func space(serial: String, token: String) async throws -> Space {

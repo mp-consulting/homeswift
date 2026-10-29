@@ -41,22 +41,6 @@ private func propertyPayload(soc: Int64? = nil, solar: Float? = nil, home: Float
     return Data(payload)
 }
 
-/// A broker that refuses a subscription to every device's topic, as EcoFlow's does.
-private final class RefusingWildcard: MQTTConnection, Sendable {
-    struct Refused: Error {}
-    let inner = FakeMQTTConnection()
-    func connect() async throws { try await inner.connect() }
-    func disconnect() async { await inner.disconnect() }
-    func subscribe(_ topic: String, qos: MQTTQoS) async throws {
-        if topic.hasSuffix("/+") { throw Refused() }
-        try await inner.subscribe(topic, qos: qos)
-    }
-    func unsubscribe(_ topic: String) async throws { try await inner.unsubscribe(topic) }
-    func publish(_ message: MQTTMessage) async throws { try await inner.publish(message) }
-    var messages: AsyncStream<MQTTMessage> { inner.messages }
-    var states: AsyncStream<MQTTConnectionState> { inner.states }
-}
-
 /// The app's sign-in and its MQTT certificate, as the fake HTTP server answers them.
 private let signInAnswers: [String: String] = [
     "/auth/login": #"{"code":"0","message":"Success","data":{"token":"session-token","user":{"userId":42}}}"#,
@@ -254,20 +238,6 @@ struct EcoFlowAppTests {
         #expect(try await api.devices().first?.state.battery.batteryLevel == 56, "the precise 55.78, rounded; never the backup state's 0")
     }
 
-    /// With no serials configured, the route subscribes to the account's property topics and lists each device
-    /// that reports.
-    @Test func devicesAreDiscoveredFromTheStream() async throws {
-        let transport = FakeTransport(answers: signInAnswers)
-        let broker = FakeMQTTConnection()
-        let api = EcoFlowAppAPI(email: "owner@example.test", password: password, serials: [], transport: transport) { _ in broker }
-        _ = try await api.devices()
-        #expect(broker.subscriptions["/app/device/property/+"] != nil)
-
-        broker.receive("/app/device/property/\(serial)", payload: propertyPayload(soc: 58, battery: 40))
-        let found = await eventually { (try? await api.devices())?.map(\.id) == [serial] }
-        #expect(found)
-    }
-
     /// With no serials configured, the account's devices come from the app's device list, each subscribed to by its
     /// serial number: EcoFlow's broker refuses the wildcard. A device the route does not read gets no subscription.
     @Test func devicesComeFromTheAppsDeviceList() async throws {
@@ -324,14 +294,16 @@ struct EcoFlowAppTests {
         #expect(device.state.knowsBatteryLevel == false)
     }
 
-    /// A refused wildcard, with no device list to fall back on, says to list the devices, not that the sign-in failed.
-    @Test func aRefusedWildcardAsksForTheSerials() async throws {
+    /// With no serial number from the configuration or the device list, the route asks for them: EcoFlow's broker
+    /// refuses a subscription to every device at once, so none is tried. The retry message is not about the sign-in.
+    @Test func noSerialAtAllAsksForThem() async throws {
         let transport = FakeTransport(answers: signInAnswers)
-        let broker = RefusingWildcard()
+        let broker = FakeMQTTConnection()
         let api = EcoFlowAppAPI(email: "owner@example.test", password: password, serials: [], transport: transport) { _ in broker }
         await #expect(throws: EcoFlowAppAPI.Failure.noDevices) {
             _ = try await api.devices()
         }
+        #expect(broker.subscriptions.isEmpty)
         #expect(EcoFlowAppAPI.Failure.retryLater.description.contains("sign-in") == false)
     }
 

@@ -169,13 +169,17 @@
     const style = getComputedStyle(list);
     const row = parseFloat(style.getPropertyValue("--pack-row"));
     const gap = parseFloat(style.getPropertyValue("--pack-gap")) || 0;
-    for (const node of list.children) {
-      // The layout height: a card's entrance (a scale) or its drag (a translate) does not change its place.
-      node.style.gridRowEnd = row > 0 ? `span ${Math.ceil((node.offsetHeight + gap) / row)}` : "";
-    }
+    // Every height read first, then every span written: one layout, where a read after each write would make one per
+    // card. The layout height: a card's entrance (a scale) or its drag (a translate) does not change its place.
+    const nodes = [...list.children];
+    const heights = nodes.map((node) => node.offsetHeight);
+    nodes.forEach((node, index) => { node.style.gridRowEnd = row > 0 ? `span ${Math.ceil((heights[index] + gap) / row)}` : ""; });
   }
   let packing = 0;
+  // The observer's first report after `observeCards` is the cards just packed: skipped.
+  let observed = false;
   const packer = new ResizeObserver(() => {
+    if (!observed) { observed = true; return; }
     cancelAnimationFrame(packing);
     packing = requestAnimationFrame(pack);
   });
@@ -190,6 +194,7 @@
     observeCards();
   }
   function observeCards() {
+    observed = false;
     packer.disconnect();
     packer.observe(list);
     for (const node of list.children) packer.observe(node);
@@ -202,6 +207,8 @@
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
   // While a card is dragged, the readings that arrive wait: drawing the cards again would drop it.
   let sorting = false;
+  // A drag or an order on its way to the plugin: the polls' answers wait (`saving` is below).
+  const held = () => sorting || saving > 0;
 
   // Six dots in two columns, the usual grip; a button, so the keyboard reaches it.
   function handle(device) {
@@ -239,13 +246,13 @@
       try {
         await request("order", { method: "POST", body: { ids: known.map((device) => device.id) } });
       } catch (error) {
+        // The plugin kept the order before: the next answer, though the same as the last, draws it again.
+        lastAnswer = "";
         HomeswiftCommon.showAlert(HomeswiftI18n.message(error.message));
       } finally {
         saving--;
       }
-      lastAnswer = "";
     });
-    return saves;
   }
 
   // The arrow keys on a grip: up and left move the card back a place, down and right forward.
@@ -260,8 +267,8 @@
     if (from < 0 || to < 0 || to >= known.length) return;
     // No slide: a key press moves the card at once, as keyboard actions should.
     known.splice(to, 0, ...known.splice(from, 1));
+    // render() keeps the focus on the moved card's grip.
     render();
-    list.querySelector(`.device[data-id="${CSS.escape(id)}"] .handle`)?.focus();
     saveOrder();
   });
 
@@ -453,12 +460,10 @@
 
   // Each device once in the block's `devices`, an entry already there kept as it is. The plugin reloads with them.
   async function addToConfiguration(devices) {
-    await homeswift.updateBlock((block) => {
-      const entries = block.devices || [];
+    await homeswift.updateDevices((entries) => {
       for (const device of devices) {
         if (!entries.some((entry) => entry.id === device.id)) entries.push({ id: device.id, name: device.name });
       }
-      block.devices = entries;
     });
     lastAnswer = "";
     await refresh();
@@ -468,10 +473,10 @@
   let lastAnswer = "";
   async function refresh() {
     // While a card is dragged, an answer would put back the order it is changing: it is read again after.
-    if (sorting || saving) return;
+    if (held()) return;
     try {
       const body = await request("power");
-      if (sorting || saving) return;
+      if (held()) return;
       const devices = body.devices ?? [];
       const answer = JSON.stringify([devices, body.waiting ?? []]);
       if (answer === lastAnswer) return;
@@ -484,7 +489,7 @@
     } catch (error) {
       lastAnswer = "";
       // A card being dragged, or an order being saved, keeps the cards: the next poll says it again.
-      if (sorting || saving) return;
+      if (held()) return;
       replaceCards(el("p", { class: "note", text: HomeswiftI18n.message(error.message) }));
     }
   }

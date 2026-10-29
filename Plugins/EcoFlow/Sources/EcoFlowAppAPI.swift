@@ -9,7 +9,7 @@ import HomeswiftNetwork
 /// The devices are the ones listed in the plugin's `devices` option, by serial number, and the account's others from
 /// the app's device list: a list in the configuration names devices, it does not leave the others out. The broker
 /// refuses a subscription to every device's topic at once (`/app/device/property/+`), so each one is subscribed to by
-/// its serial number. The wildcard is tried only when there is no serial number at all.
+/// its serial number; with none at all, the route asks for them.
 actor EcoFlowAppAPI: EcoFlowAPI {
     typealias MQTTFactory = @Sendable (MQTTConfiguration) async throws -> any MQTTConnection
 
@@ -26,7 +26,7 @@ actor EcoFlowAppAPI: EcoFlowAPI {
             case .refused(let message): "the EcoFlow app's sign-in refused the request: \(message)"
             case .unexpectedResponse(let path): "the EcoFlow app's \(path) answered with an unexpected body"
             case .retryLater: "the EcoFlow app could not be read a few minutes ago; trying again later"
-            case .noDevices: "the EcoFlow app's device list has no device this route reads, or could not be read, and the broker refuses to report every device at once: list the devices by serial number in the plugin's settings"
+            case .noDevices: "the EcoFlow app's device list has no device this route reads, or could not be read: list the devices by serial number in the plugin's settings"
             }
         }
     }
@@ -44,7 +44,6 @@ actor EcoFlowAppAPI: EcoFlowAPI {
     private let password: String
     /// The serial numbers read: the configured ones, then the app's device list's others once it is read.
     private var serials: [String]
-    private var configured: Set<String>
     /// The configuration's serial numbers, first in `serials` whatever the device list says.
     private let configuredSerials: [String]
     private let transport: any HTTPSending
@@ -71,8 +70,6 @@ actor EcoFlowAppAPI: EcoFlowAPI {
     /// straight to that device's readings, its serial number not read out of the topic again.
     private var topics: [String: (index: Int, complete: Bool)] = [:]
     private var lastFailure: ContinuousClock.Instant?
-    /// Serial numbers seen on the stream, when neither the configuration nor the device list gave any.
-    private var discovered: Set<String> = []
     /// Checks each answer's shape against its schema, so a change in the app's API is logged.
     private let schemas = EcoFlowNotices()
 
@@ -82,7 +79,6 @@ actor EcoFlowAppAPI: EcoFlowAPI {
         self.email = email
         self.password = password
         self.serials = serials
-        self.configured = Set(serials)
         self.configuredSerials = serials
         self.transport = transport
         self.makeConnection = mqtt
@@ -100,7 +96,7 @@ actor EcoFlowAppAPI: EcoFlowAPI {
         }
         let now = ContinuousClock.now
         var devices: [EcoFlowDevice] = []
-        for serial in knownSerials {
+        for serial in serials {
             // A model this route does not read is left out: logged once when the plugin does not read it at all, not
             // when the developer API does (a Smart Home Panel 2).
             guard let model = EcoFlowModel.model(serial: serial), let keys = model.app else {
@@ -134,11 +130,6 @@ actor EcoFlowAppAPI: EcoFlowAPI {
         return devices
     }
 
-    /// The devices to read: the configured serials or the device list's, else the ones that have reported.
-    private var knownSerials: [String] {
-        serials.isEmpty ? discovered.sorted() : serials
-    }
-
     nonisolated var name: String { "EcoFlow app" }
 
     /// Ends the listener and the poller and closes the connection, when the plugin stops.
@@ -165,23 +156,14 @@ actor EcoFlowAppAPI: EcoFlowAPI {
         // still read.
         let known = Set(configuredSerials)
         serials = configuredSerials + listed.filter { !known.contains($0) && EcoFlowModel.model(serial: $0)?.app != nil }
-        configured = Set(serials)
+        guard !serials.isEmpty else { throw Failure.noDevices }
         let connection = try await makeConnection(configuration)
         try await connection.connect()
         do {
-            if serials.isEmpty {
-                // Every device on the account that reports, as its topic shows it. EcoFlow's broker refuses it.
-                do {
-                    try await connection.subscribe("/app/device/property/+")
-                } catch {
-                    throw Failure.noDevices
-                }
-            } else {
-                for serial in serials {
-                    try await connection.subscribe("/app/device/property/\(serial)")
-                    // The answer to the read request: a portable station's full state comes only here.
-                    try await connection.subscribe("/app/\(session.userID)/\(serial)/thing/property/get_reply")
-                }
+            for serial in serials {
+                try await connection.subscribe("/app/device/property/\(serial)")
+                // The answer to the read request: a portable station's full state comes only here.
+                try await connection.subscribe("/app/\(session.userID)/\(serial)/thing/property/get_reply")
             }
         } catch {
             // Not kept: the next attempt opens a connection of its own.
@@ -212,7 +194,7 @@ actor EcoFlowAppAPI: EcoFlowAPI {
     /// devices stay live without the app open. A model the plugin does not read is not asked.
     private func requestProperties() async {
         guard let connection, !userID.isEmpty else { return }
-        for serial in knownSerials {
+        for serial in serials {
             guard let model = EcoFlowModel.model(serial: serial), model.app != nil else { continue }
             requestSeq += 1
             let payload = model.format == .json ? Self.quotaRequest(seq: requestSeq) : EcoFlowProtobuf.propertyRequest(seq: requestSeq)
@@ -227,24 +209,42 @@ actor EcoFlowAppAPI: EcoFlowAPI {
         return (try? JSONSerialization.data(withJSONObject: request, options: [.sortedKeys])) ?? Data()
     }
 
+    /// A device of the app's device list (`/app/user/device/list`).
+    struct ListedDevice: Equatable {
+        var serial: String
+        var name: String?
+        var productType: Int?
+        var online: Bool?
+    }
+
+    /// The devices of the device list's `data`, each once, in its order; an entry without a serial number is skipped.
+    /// The app route and the history import read the list through here.
+    static func listedDevices(_ data: Any?) -> [ListedDevice] {
+        var devices: [ListedDevice] = []
+        for item in data as? [[String: Any]] ?? [] {
+            guard let serial = item["sn"] as? String, !serial.isEmpty, !devices.contains(where: { $0.serial == serial }) else { continue }
+            devices.append(ListedDevice(serial: serial, name: item["deviceName"] as? String,
+                                        productType: (item["productType"] as? NSNumber)?.intValue,
+                                        online: (item["online"] as? NSNumber).map { $0.intValue == 1 }))
+        }
+        return devices
+    }
+
     /// The app's own list of the account's devices: their names, and their product types for the log. Returns their
     /// serial numbers, in the list's order. A failure leaves each device under its serial number and returns none.
-    @discardableResult
     private func loadDeviceList(token: String) async -> [String] {
         guard let object = try? await send("/app/user/device/list", method: "GET", body: nil,
                                            headers: [(name: "Accept", value: "application/json"),
                                                      (name: "Authorization", value: "Bearer \(token)")]) else { return [] }
         let list = object["data"]
         await schemas.record(EcoFlowSchema.appDeviceList, problems: EcoFlowSchema.appDeviceList.problems(in: list))
-        var serials: [String] = []
-        for item in list as? [[String: Any]] ?? [] {
-            guard let serial = item["sn"] as? String, !serial.isEmpty else { continue }
-            names[serial] = item["deviceName"] as? String
-            productTypes[serial] = (item["productType"] as? NSNumber)?.intValue
-            listedOnline[serial] = (item["online"] as? NSNumber).map { $0.intValue == 1 }
-            if !serials.contains(serial) { serials.append(serial) }
+        let devices = Self.listedDevices(list)
+        for device in devices {
+            names[device.serial] = device.name
+            productTypes[device.serial] = device.productType
+            listedOnline[device.serial] = device.online
         }
-        return serials
+        return devices.map(\.serial)
     }
 
     func receive(_ message: MQTTMessage) {
@@ -258,11 +258,7 @@ actor EcoFlowAppAPI: EcoFlowAPI {
         let prefix = "/app/device/property/"
         if message.topic.hasPrefix(prefix) {
             serial = String(message.topic.dropFirst(prefix.count))
-            if serials.isEmpty {
-                discovered.insert(serial)
-            } else if !configured.contains(serial) {
-                return
-            }
+            guard serials.contains(serial) else { return }
             complete = false
         } else {
             // /app/<user>/<serial>/thing/property/get_reply: the answer to the read request, the device's full state.
