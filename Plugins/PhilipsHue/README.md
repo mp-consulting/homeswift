@@ -118,7 +118,8 @@ with a countdown for the link button, and its address to change), then four tabs
   **Autoplay** in the tile's ⋯ menu is the scene's own Autoplay on the bridge, so it plays whenever it is recalled
   (neither for a natural light scene, which follows the time of day, nor for one without a palette). Drop a picture on
   a tile (or choose one from its ⋯ menu) to give the scene its own: the page shrinks it to 640 pixels, and the bridge
-  keeps it in the plugin's folder (`scene-pictures/`, JPEG, PNG or WebP, checked by its bytes, 1 MB at most). The same
+  keeps it with every scene's picture (`scene-pictures/` beside config.json, JPEG, PNG or WebP, checked by its bytes,
+  1 MB at most), so Homeswift's Scenes page shows it too. The same
   menu removes it, leaves the scene out of the Home app, and gives it a **Speed** of its own (the transition its
   recall takes, from the page and the Home app; Settings' speed otherwise).
 - **Settings**: the transition on a 12-step speed scale (Very slow to Extreme; Fast, 100 ms, by default), the polling

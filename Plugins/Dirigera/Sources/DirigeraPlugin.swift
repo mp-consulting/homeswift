@@ -137,7 +137,7 @@ public actor DirigeraPlugin: HomeswiftPlugin {
         self.context = context
         self.dependencies = dependencies
         store = context.jsonFile("hubs.json")
-        pictures = context.pictures("scene-pictures")
+        pictures = context.scenePictures()
         stored = store.load() ?? [:]
     }
 

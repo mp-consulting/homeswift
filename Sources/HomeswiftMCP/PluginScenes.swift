@@ -43,7 +43,7 @@ extension HomeswiftCatalog {
         return rooms.first { $0.compare(hubRoom, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame }
     }
 
-    func pluginSceneJSON(_ found: FoundPluginScene, rooms: [String]) -> JSONValue {
+    func pluginSceneJSON(_ found: FoundPluginScene, rooms: [String], pictures: [String: String]) -> JSONValue {
         let entry = host.registry.entry(for: found.instance.platform)
         var object: [String: JSONValue] = [
             "id": .string(found.id), "name": .string(found.scene.name),
@@ -51,6 +51,7 @@ extension HomeswiftCatalog {
             "hubRoom": found.scene.room.map(JSONValue.string) ?? .null,
             "active": found.scene.active.map(JSONValue.bool) ?? .null,
             "colours": .array(found.scene.colours.prefix(5).map(JSONValue.string)),
+            "picture": pictures[found.id].map(JSONValue.string) ?? .null,
             "stoppable": .bool(home.lightRuns.withLockedValue { $0.values.contains { $0.show.id == "scene:" + found.id } }),
             "capabilities": .array(PluginScene.Capability.allCases.filter(found.scene.capabilities.contains).map { .string($0.rawValue) }),
             "source": [
@@ -67,7 +68,8 @@ extension HomeswiftCatalog {
         guard var answer = scenesJSON(now: now).objectValue else { return scenesJSON(now: now) }
         let rooms = Array(Set(located().compactMap(\.room))).sorted()
         let found = await foundPluginScenes()
-        answer["pluginScenes"] = .array(found.map { pluginSceneJSON($0, rooms: rooms) })
+        let pictures = scenePictures.versions()
+        answer["pluginScenes"] = .array(found.map { pluginSceneJSON($0, rooms: rooms, pictures: pictures) })
         let names = Dictionary(found.map { ($0.id, $0.scene.name) }, uniquingKeysWith: { first, _ in first })
         answer["scenes"] = answer["scenes"]?.arrayValue.map { scenes in
             .array(scenes.map { scene in

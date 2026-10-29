@@ -16,6 +16,9 @@ import NIOHTTP1
 //   DELETE /api/scenes/<id>
 //   POST   /api/scenes/<id>/run               {"confirmSecurity": true} once the person agreed to its locks and doors; a
 //                                             plugin scene's id (`<platform>:<instance>:<hub id>`) recalls it
+//   GET    /api/scenes/<id>/picture?v=<version> the picture a person gave a scene (Homeswift's or a hub's), as an image
+//   PUT    /api/scenes/<id>/picture           {"data": a JPEG, PNG or WebP data: URL}; answers its version
+//   DELETE /api/scenes/<id>/picture
 //   GET    /api/scenes/templates              the templates, the plans tried that can be stopped, whether the Assistant writes
 //   POST   /api/scenes/try                    {"template" | "description" | "plan", "room" | "ids"}: runs it now, unsaved
 //   GET    /api/notifications                 settings, secrets as ********
@@ -97,6 +100,19 @@ extension UIServer {
             logger.info("Web UI ran a scene", metadata: ["user": "\(username)", "scene": "\(scene["name"]?.stringValue ?? "")", "ok": "\(result["ok"]?.boolValue ?? false)"])
             return .json(result)
 
+        case (.GET, let path) where path.count == 3 && path[0] == "scenes" && path[2] == "picture":
+            guard let picture = catalog.scenePicture(path[1]) else { return .error(404, "no picture for that scene") }
+            // The page asks for it by version (`?v=`), so a browser keeps it until it changes.
+            return .data(status: 200, contentType: picture.type, body: picture.data, headers: ["Cache-Control": "private, max-age=31536000, immutable"])
+        case (.PUT, let path) where path.count == 3 && path[0] == "scenes" && path[2] == "picture":
+            guard let data = body["data"]?.stringValue else { return .error(400, "a picture is required") }
+            let result = try await catalog.setScenePicture(path[1], dataURL: data)
+            logger.info("Web UI gave a scene a picture", metadata: ["user": "\(username)", "scene": "\(path[1])"])
+            return .json(result)
+        case (.DELETE, let path) where path.count == 3 && path[0] == "scenes" && path[2] == "picture":
+            try await catalog.removeScenePicture(path[1])
+            logger.info("Web UI removed a scene's picture", metadata: ["user": "\(username)", "scene": "\(path[1])"])
+            return .json(JSONValue.object([:]))
         case (.POST, let path) where path.count == 3 && path[0] == "scenes" && path[2] == "stop":
             let result = try await catalog.stopScene(path[1], allowSecurity: body["confirmSecurity"]?.boolValue == true)
             logger.info("Web UI stopped a scene", metadata: ["user": "\(username)", "scene": "\(path[1])"])

@@ -5189,7 +5189,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   views.import = (main) => window.HomeswiftImport.view(main);
   views.welcome = (main) => window.HomeswiftImport.welcome(main);
   window.HomeswiftHome?.install({
-    views, api, show, pageHead, breadcrumb, accessoryCard, navigate, route: () => route(),
+    views, api, show, pageHead, breadcrumb, accessoryCard, navigate, route: () => route(), isAdmin,
     enumLabels: HomeswiftWidgets.enumLabels, labelFor: HomeswiftWidgets.labelFor, withSlugs,
   });
   // The Settings pages (admin.js) draw with the same helpers.
@@ -8661,6 +8661,23 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return canvas;
   }
 
+  /// A picture file a person picked or dropped, as a JPEG `data:` URL at most 640 pixels wide: what a scene's picture
+  /// is sent as (the server takes JPEG, PNG or WebP up to 1 MB).
+  async function pictureDataURL(file) {
+    if (!/^image\//.test(file.type)) throw new Error(t("This file is not a picture."));
+    const bitmap = await createImageBitmap(file).catch(() => { throw new Error(t("This file is not a picture.")); });
+    const canvas = scaledCanvas(bitmap, 640);
+    bitmap.close?.();
+    return canvas.toDataURL("image/jpeg", 0.85);
+  }
+
+  /// Opens the file picker for one picture; calls `chosen(file)`.
+  function choosePictureFile(chosen) {
+    const input = el("input", { type: "file", accept: "image/jpeg,image/png,image/webp,image/heic" });
+    input.addEventListener("change", () => { if (input.files?.[0]) chosen(input.files[0]); });
+    input.click();
+  }
+
   /// A byte count as every page shows sizes: whole KB under a megabyte, one decimal MB or GB. `scale` picks the unit
   /// (the largest value a list shows, so its rows agree); it defaults to the count itself.
   function byteSize(bytes, scale = bytes) {
@@ -8709,7 +8726,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const promptDialog = (message, value = "") => messageDialog(message, { kind: "prompt", value });
 
   window.HomeswiftCommon = {
-    showAlert, confirmDialog, promptDialog, busyButton, scaledCanvas, byteSize, lastChange: () => lastChange,
+    showAlert, confirmDialog, promptDialog, busyButton, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, lastChange: () => lastChange,
     $, el, icon, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
@@ -9154,6 +9171,31 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       ? el("img", { class: className, src: `/artwork-${id}.webp`, alt: "", loading: "lazy", decoding: "async" }) : null;
   }
 
+  /// A scene's picture: the one a person gave it (by version, so the browser keeps it until it changes), else its
+  /// catalogue artwork.
+  function sceneImage(scene, className = "scene-artwork") {
+    if (typeof scene.picture === "string" && /^[a-z0-9]+$/.test(scene.picture)) {
+      return el("img", { class: className, src: `/api/scenes/${encodeURIComponent(scene.id)}/picture?v=${scene.picture}`, alt: "", loading: "lazy", decoding: "async" });
+    }
+    return artworkImage(scene.artworkId, className);
+  }
+
+  /// The menu entries that give a scene, Homeswift's or a hub's, a picture of the person's own or take it away.
+  function pictureMenu(scene) {
+    const path = `/api/scenes/${encodeURIComponent(scene.id)}/picture`;
+    return [
+      { label: scene.picture ? t("Change the picture…") : t("Choose a picture…"), icon: "camera", onSelect: () => HomeswiftCommon.choosePictureFile(async (file) => {
+        try {
+          await app.api(path, { method: "PUT", body: { data: await HomeswiftCommon.pictureDataURL(file) } });
+          app.route();
+        } catch (e) { HomeswiftCommon.showAlert(e.message); }
+      }) },
+      scene.picture ? { label: t("Remove the picture"), icon: "trash", onSelect: async () => {
+        try { await app.api(path, { method: "DELETE" }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
+      } } : null,
+    ].filter(Boolean);
+  }
+
   const artworkThemeNames = {
     "Essentials": t("Essentials"),
     "Get cozy": t("Get cozy"),
@@ -9235,7 +9277,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
 
   function sceneButton(scene) {
-    const picture = artworkImage(scene.artworkId, "quick-scene-image");
+    const picture = sceneImage(scene, "quick-scene-image");
     const button = el("button", { type: "button", class: `scene-run${picture ? " pictured" : ""}`, title: t("Run {name}", { name: scene.name }) }, picture, el("span", { class: "quick-scene-label" }, HomeswiftCommon.icon("play"), el("span", { text: scene.name })));
     button.addEventListener("click", () => runScene(scene, button));
     return button;
@@ -9244,7 +9286,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// A scene a plugin's hub keeps (Hue, IKEA, Govee): its picture or its colours, its source, whether the hub says it
   /// is on now. Running it recalls it on the hub.
   function hubSceneButton(scene) {
-    const picture = artworkImage(scene.artworkId, "quick-scene-image");
+    const picture = sceneImage(scene, "quick-scene-image");
     const colours = (scene.colours || []).filter((colour) => /^#[0-9a-f]{3,8}$/i.test(colour));
     const button = el("button", { type: "button", class: `scene-run hub-scene${picture ? " pictured" : colours.length ? " coloured" : ""}${scene.active ? " active" : ""}`, title: t("Run {name}", { name: scene.name }) },
       picture,
@@ -9269,7 +9311,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         app.navigate(`/scenes/${encodeURIComponent(saved.id)}`);
       } catch (e) { HomeswiftCommon.showAlert(e.message); automate.disabled = false; }
     } });
-    return el("div", { class: "hub-scene-tile" }, button, el("div", { class: "hub-scene-actions" }, stop, automate));
+    const menu = !app.isAdmin() ? null : menuButton(t("Actions for {name}", { name: scene.name }), () => pictureMenu(scene));
+    return el("div", { class: "hub-scene-tile" }, button, el("div", { class: "hub-scene-actions" }, stop, automate, menu));
   }
 
   /// The scenes of the plugins' hubs, by room, with a source filter when there are several. `filter(query)` hides
@@ -9591,7 +9634,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         } catch (e) { HomeswiftCommon.showAlert(e.message); stop.disabled = false; }
       } }) : null;
       return el("div", { class: "card server scene-card" },
-        artworkImage(scene.artworkId),
+        sceneImage(scene),
         el("div", { class: "server-head" }, tile("play", scene.security ? "violet" : "orange"),
           el("div", { class: "who" }, el("a", { class: "card-title", href: `/scenes/${encodeURIComponent(scene.id)}` }, el("strong", { text: scene.name }),
               scene.active ? el("span", { class: "pill scene-active", text: t("Scene active") }) : null),
@@ -9603,6 +9646,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           menuButton(t("Actions for {name}", { name: scene.name }), () => [
             { label: t("Run"), icon: "play", onSelect: () => runScene(scene) },
             { label: t("Edit"), icon: "edit", href: `/scenes/${encodeURIComponent(scene.id)}` },
+            ...pictureMenu(scene),
             { label: t("Delete"), icon: "trash", danger: true, onSelect: async () => {
               if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete the scene {name}?", { name: scene.name }), text: t("This removes the scene and its automatic triggers. This cannot be undone."), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
               try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
@@ -18888,18 +18932,10 @@ HomeswiftI18n.add("pt", {
       return data;
     }
 
-    async function shrink(file) {
-      if (!/^image\//.test(file.type)) throw new Error(t("This file is not a picture."));
-      const bitmap = await createImageBitmap(file).catch(() => { throw new Error(t("This file is not a picture.")); });
-      const canvas = HomeswiftCommon.scaledCanvas(bitmap, 640);
-      bitmap.close?.();
-      return canvas.toDataURL("image/jpeg", 0.85);
-    }
-
     async function setPicture(scene, file, tileNode) {
       tileNode.classList.add("busy");
       try {
-        const data = await shrink(file);
+        const data = await HomeswiftCommon.pictureDataURL(file);
         const { version } = await request("scene-picture", { method: "POST", body: { id: scene.id, data } });
         cache.set(scene.id, { version: String(version), data: Promise.resolve(data) });
         await refresh();
@@ -18911,9 +18947,7 @@ HomeswiftI18n.add("pt", {
     }
 
     function choosePicture(scene, tileNode) {
-      const input = el("input", { type: "file", accept: "image/jpeg,image/png,image/webp,image/heic" });
-      input.addEventListener("change", () => { if (input.files?.[0]) setPicture(scene, input.files[0], tileNode); });
-      input.click();
+      HomeswiftCommon.choosePictureFile((file) => setPicture(scene, file, tileNode));
     }
 
     async function removePicture(scene) {

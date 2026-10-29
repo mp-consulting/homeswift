@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Scene pictures of your own on the Scenes page: a scene's or a hub scene's ⋯ menu chooses a picture or removes it
+  (`/api/scenes/<id>/picture`). The bridge keeps every scene's picture in `scene-pictures/`; the Hue and IKEA pages
+  show and change the same ones (`PluginContext.scenePictures()`), and the pictures they kept before move there once.
 - Scene templates and scenes the Assistant writes: the mood collection and the scene gallery are templates
   (`list_scene_templates`), which `run_scene` tries and `save_scene` keeps for a room's lights, as values set once, an
   effect each brand plays its own way, or a timed sequence; a `description` does the same through the bridge's
@@ -26,7 +29,7 @@ All notable changes to this project are documented here. The format follows
 - Scenes from plugins' hubs: a plugin lists its hub's scenes with `scenes()` and recalls one with `recallScene(id:)`
   (`PluginScene`). Philips Hue (rooms and zones), IKEA DIRIGERA (user scenes) and Govee (the library scenes picked for
   a light) do. The Scenes page shows them under Homeswift's own, by room, with a source filter; `list_scenes` lists them
-  as `pluginScenes` and `run_scene` recalls them, holding the lights they change so `stop_mood` puts them back.
+  as `pluginScenes` and `run_scene` recalls them, holding the lights they change so `stop_scene` puts them back.
   Homeswift's scenes now say their room and whether they are active. The first step of unifying moods and scenes
   (docs/scenes-design.md).
 - The Assistant arranges the Accessories wall: `get_wall_layout` and `set_wall_layout` (MCP, and the web UI's chat)

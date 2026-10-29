@@ -295,7 +295,9 @@ public final class PluginContext: @unchecked Sendable {
     let bridge: PluginHost.Bridge
     let cache: AccessoryCache
     let externals: ExternalAccessories
-    private let storageURL: URL
+    let storageURL: URL
+    /// The bridge's storage directory (`homeswift -U`), which holds `plugins/<key>`.
+    var storageRoot: URL { storageURL.deletingLastPathComponent().deletingLastPathComponent() }
     private let assistantBox: NIOLockedValueBox<AssistantService?>
     private let assistantBackground: String?
     private let recordSink: @Sendable (String, Double, EnergyTag?) -> Void

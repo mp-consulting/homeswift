@@ -181,6 +181,9 @@ a page to keep on a phone's home screen.
 
 Scenes are kept in `scenes.json` next to config.json (owner-only), with each one's last run. A scene's card says its
 room when its accessories share one, and **Scene active** while every value it sets is what its accessories show.
+Its ⋯ menu gives it a picture of your own (**Choose a picture…**, shrunk to 640 pixels; JPEG, PNG or WebP up to 1 MB)
+or takes it away; a hub's scene has the same menu, and its picture is the one the Hue or IKEA page shows. The bridge
+keeps them in `scene-pictures/` next to config.json.
 
 **Scenes from your hubs**, under them: the scenes plugins' hubs keep (a Hue Bridge's rooms and zones, a DIRIGERA hub,
 the scenes picked for Govee lights), by room, with their pictures or colours and a source filter when there are

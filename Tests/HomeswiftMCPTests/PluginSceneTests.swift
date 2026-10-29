@@ -149,4 +149,27 @@ import Testing
         #expect(scenes.first { $0["name"] == "Bright" }?["active"] == false)
         #expect(await catalog.allScenesJSON()["pluginScenes"] == [])
     }
+
+    /// A scene's picture is the core's, a hub's scene's too: listed by version, refused for a scene that does not
+    /// exist, and gone with the scene.
+    @Test func scenesHavePicturesOfTheirOwn() async throws {
+        let environment = try MCPTestEnvironment(config: Self.config)
+        try await environment.start()
+        defer { Task { await environment.stop() } }
+        let catalog = environment.catalog
+        let jpeg = "data:image/jpeg;base64," + (Data([0xFF, 0xD8, 0xFF, 0xE0]) + Data(repeating: 7, count: 16)).base64EncodedString()
+        let hub = try await catalog.setScenePicture("Devices:Devices:magenta", dataURL: jpeg)
+        #expect(await catalog.allScenesJSON()["pluginScenes"]?[0]?["picture"] == hub["picture"])
+        #expect(catalog.scenePicture("Devices:Devices:magenta")?.type == "image/jpeg")
+        let saved = try catalog.createScene(["name": "Reading", "actions": [["id": "Devices:lamp", "characteristic": "Brightness", "value": 40]]])
+        let id = try #require(saved["id"]?.stringValue)
+        _ = try await catalog.setScenePicture(id, dataURL: jpeg)
+        #expect(catalog.scenesJSON()["scenes"]?[0]?["picture"]?.stringValue != nil)
+        await #expect(throws: CatalogError.self) { try await catalog.setScenePicture("nope", dataURL: jpeg) }
+        await #expect(throws: CatalogError.self) { try await catalog.setScenePicture(id, dataURL: "data:image/png;base64,PHN2Zz4=") }
+        try catalog.deleteScene(id: id)
+        #expect(catalog.scenePicture(id) == nil)
+        try await catalog.removeScenePicture("Devices:Devices:magenta")
+        #expect(await catalog.allScenesJSON()["pluginScenes"]?[0]?["picture"] == .null)
+    }
 }

@@ -158,6 +158,31 @@
       ? el("img", { class: className, src: `/artwork-${id}.webp`, alt: "", loading: "lazy", decoding: "async" }) : null;
   }
 
+  /// A scene's picture: the one a person gave it (by version, so the browser keeps it until it changes), else its
+  /// catalogue artwork.
+  function sceneImage(scene, className = "scene-artwork") {
+    if (typeof scene.picture === "string" && /^[a-z0-9]+$/.test(scene.picture)) {
+      return el("img", { class: className, src: `/api/scenes/${encodeURIComponent(scene.id)}/picture?v=${scene.picture}`, alt: "", loading: "lazy", decoding: "async" });
+    }
+    return artworkImage(scene.artworkId, className);
+  }
+
+  /// The menu entries that give a scene, Homeswift's or a hub's, a picture of the person's own or take it away.
+  function pictureMenu(scene) {
+    const path = `/api/scenes/${encodeURIComponent(scene.id)}/picture`;
+    return [
+      { label: scene.picture ? t("Change the picture…") : t("Choose a picture…"), icon: "camera", onSelect: () => HomeswiftCommon.choosePictureFile(async (file) => {
+        try {
+          await app.api(path, { method: "PUT", body: { data: await HomeswiftCommon.pictureDataURL(file) } });
+          app.route();
+        } catch (e) { HomeswiftCommon.showAlert(e.message); }
+      }) },
+      scene.picture ? { label: t("Remove the picture"), icon: "trash", onSelect: async () => {
+        try { await app.api(path, { method: "DELETE" }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
+      } } : null,
+    ].filter(Boolean);
+  }
+
   const artworkThemeNames = {
     "Essentials": t("Essentials"),
     "Get cozy": t("Get cozy"),
@@ -239,7 +264,7 @@
   }
 
   function sceneButton(scene) {
-    const picture = artworkImage(scene.artworkId, "quick-scene-image");
+    const picture = sceneImage(scene, "quick-scene-image");
     const button = el("button", { type: "button", class: `scene-run${picture ? " pictured" : ""}`, title: t("Run {name}", { name: scene.name }) }, picture, el("span", { class: "quick-scene-label" }, HomeswiftCommon.icon("play"), el("span", { text: scene.name })));
     button.addEventListener("click", () => runScene(scene, button));
     return button;
@@ -248,7 +273,7 @@
   /// A scene a plugin's hub keeps (Hue, IKEA, Govee): its picture or its colours, its source, whether the hub says it
   /// is on now. Running it recalls it on the hub.
   function hubSceneButton(scene) {
-    const picture = artworkImage(scene.artworkId, "quick-scene-image");
+    const picture = sceneImage(scene, "quick-scene-image");
     const colours = (scene.colours || []).filter((colour) => /^#[0-9a-f]{3,8}$/i.test(colour));
     const button = el("button", { type: "button", class: `scene-run hub-scene${picture ? " pictured" : colours.length ? " coloured" : ""}${scene.active ? " active" : ""}`, title: t("Run {name}", { name: scene.name }) },
       picture,
@@ -273,7 +298,8 @@
         app.navigate(`/scenes/${encodeURIComponent(saved.id)}`);
       } catch (e) { HomeswiftCommon.showAlert(e.message); automate.disabled = false; }
     } });
-    return el("div", { class: "hub-scene-tile" }, button, el("div", { class: "hub-scene-actions" }, stop, automate));
+    const menu = !app.isAdmin() ? null : menuButton(t("Actions for {name}", { name: scene.name }), () => pictureMenu(scene));
+    return el("div", { class: "hub-scene-tile" }, button, el("div", { class: "hub-scene-actions" }, stop, automate, menu));
   }
 
   /// The scenes of the plugins' hubs, by room, with a source filter when there are several. `filter(query)` hides
@@ -595,7 +621,7 @@
         } catch (e) { HomeswiftCommon.showAlert(e.message); stop.disabled = false; }
       } }) : null;
       return el("div", { class: "card server scene-card" },
-        artworkImage(scene.artworkId),
+        sceneImage(scene),
         el("div", { class: "server-head" }, tile("play", scene.security ? "violet" : "orange"),
           el("div", { class: "who" }, el("a", { class: "card-title", href: `/scenes/${encodeURIComponent(scene.id)}` }, el("strong", { text: scene.name }),
               scene.active ? el("span", { class: "pill scene-active", text: t("Scene active") }) : null),
@@ -607,6 +633,7 @@
           menuButton(t("Actions for {name}", { name: scene.name }), () => [
             { label: t("Run"), icon: "play", onSelect: () => runScene(scene) },
             { label: t("Edit"), icon: "edit", href: `/scenes/${encodeURIComponent(scene.id)}` },
+            ...pictureMenu(scene),
             { label: t("Delete"), icon: "trash", danger: true, onSelect: async () => {
               if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete the scene {name}?", { name: scene.name }), text: t("This removes the scene and its automatic triggers. This cannot be undone."), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
               try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }

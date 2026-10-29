@@ -393,6 +393,7 @@ public final class UIServer: Sendable {
             if [["status"], ["accessories"], ["plugins"], ["metrics"], ["metrics", "energy"], ["metrics", "energy", "history"], ["events"], ["assistant"]].contains(route) { return .read }
             if route.count == 3, route[0] == "cameras" { return .read }
             if route.count == 3, route[0] == "accessories", route[2] == "history" { return .read }
+            if route.count == 3, route[0] == "scenes", route[2] == "picture" { return .read }
             // The rooms, scenes and Quick Controls the Accessories and Status pages show; this browser's Web Push.
             if [["layout"], ["rooms"], ["scenes"], ["scenes", "templates"], ["notifications", "push"]].contains(route) { return .read }
             if route == ["assistant", "chat"] { return .control }

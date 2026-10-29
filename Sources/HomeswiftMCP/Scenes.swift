@@ -350,7 +350,8 @@ extension HomeswiftCatalog {
     /// security control, the location, and the next sunrise and sunset there.
     public func scenesJSON(now: Date = Date()) -> JSONValue {
         let file = home.scenes.value
-        var answer: [String: JSONValue] = ["scenes": .array(file.scenes.map(sceneJSON)), "artworks": .array(SceneArtwork.all.map(\.json))]
+        let pictures = scenePictures.versions()
+        var answer: [String: JSONValue] = ["scenes": .array(file.scenes.map { sceneJSON($0, pictures: pictures) }), "artworks": .array(SceneArtwork.all.map(\.json))]
         if let location = file.location {
             answer["location"] = (try? JSONValue(encoding: location)) ?? .null
             answer["nextSunrise"] = Solar.next(.sunrise, latitude: location.lat, longitude: location.lon, after: now).map { .string(Timestamp.iso8601($0)) } ?? .null
@@ -361,8 +362,10 @@ extension HomeswiftCatalog {
         return .object(answer)
     }
 
-    func sceneJSON(_ scene: Scene) -> JSONValue {
+    /// A scene for the page; `pictures` is the scene pictures' versions, when the caller listed them already.
+    func sceneJSON(_ scene: Scene, pictures: [String: String]? = nil) -> JSONValue {
         guard var object = (try? JSONValue(encoding: scene))?.objectValue else { return .null }
+        object["picture"] = (pictures ?? scenePictures.versions())[scene.id].map(JSONValue.string) ?? .null
         let security = securityActions(of: scene)
         object["security"] = .bool(!security.isEmpty)
         let undo = home.sceneUndo.value[scene.id]
@@ -457,6 +460,7 @@ extension HomeswiftCatalog {
             guard file.scenes.contains(where: { $0.id == id }) else { throw CatalogError("No scene \(id)") }
             file.scenes.removeAll { $0.id == id }
         }
+        scenePictures.remove(key: id)
     }
 
     /// Sets where sunrise and sunset are computed for; nil forgets it.

@@ -19,8 +19,9 @@ is the design agreed before the work started; each slice below lands on its own 
   "Other".
 - **Active.** A plugin scene is active when its hub says so (Hue does, DIRIGERA does not); a static Homeswift
   scene while every value matches; an animated one while it plays.
-- **Artwork.** The core keeps every scene's artwork, plugin scenes' included (by plugin scene id); the plugins'
-  `scene-pictures` are migrated once.
+- **Artwork.** The core keeps every scene's artwork, plugin scenes' included (by plugin scene id), in
+  `scene-pictures/`; a plugin's page reads and writes the same pictures through `context.scenePictures()`, and the
+  plugins' own `scene-pictures` are moved there once.
 
 ## Animation
 
