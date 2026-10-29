@@ -52,6 +52,8 @@ All notable changes to this project are documented here. The format follows
 - EcoFlow: a STREAM read from the developer API's REST values no longer shows the system's battery level (or 0, on
   an AC Pro) as its own: REST has no unit's level, so it is unknown there, and with Both the EcoFlow app's reading,
   which has it, is used instead.
+- EcoFlow: each bridge connects to the developer API's MQTT with a client id of its own, kept across restarts, rather
+  than the account alone: two bridges with the same developer keys no longer cut each other's live readings off.
 - Quick controls groups its heading and scene shortcuts in one card; photographic scene tiles replace cramped
   thumbnail pills and scroll horizontally on phones.
 

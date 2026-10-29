@@ -1,6 +1,7 @@
 import Foundation
 import HomeswiftNetwork
 import HomeswiftNetworkTestSupport
+import NIOConcurrencyHelpers
 import Testing
 
 @testable import HomeswiftEcoFlow
@@ -23,6 +24,22 @@ struct EcoFlowDeveloperStreamTests {
         var cloud = EcoFlowCloud(accessKey: "access", secretKey: "secret", baseURL: EcoFlowCloud.euBaseURL, transport: transport)
         cloud.stream = EcoFlowDeveloperStream(cloud: cloud, mqtt: { _ in broker })
         return cloud
+    }
+
+    /// The client id is the account and this bridge's suffix, the same at every connection: two bridges with the same
+    /// keys no longer share one, and no new id is made per connection.
+    @Test func theClientIDIsTheAccountAndTheBridgesSuffix() async throws {
+        let transport = FakeTransport(answers: answers)
+        let broker = FakeMQTTConnection()
+        let ids = NIOLockedValueBox<[String]>([])
+        var cloud = EcoFlowCloud(accessKey: "access", secretKey: "secret", baseURL: EcoFlowCloud.euBaseURL, transport: transport)
+        cloud.stream = EcoFlowDeveloperStream(cloud: cloud, clientSuffix: "0a1b2c3d") { configuration in
+            ids.withLockedValue { $0.append(configuration.clientID) }
+            return broker
+        }
+        _ = try await cloud.devices()
+        #expect(ids.withLockedValue { $0 } == ["open-account_homeswift_0a1b2c3d"])
+        #expect(EcoFlowDeveloperStream.clientID(account: "open-account", suffix: "") == "open-account")
     }
 
     @Test func theBatteryAndThePowerComeFromTheMQTTPushes() async throws {

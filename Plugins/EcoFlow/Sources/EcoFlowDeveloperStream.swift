@@ -19,6 +19,8 @@ actor EcoFlowDeveloperStream {
 
     private let cloud: EcoFlowCloud
     private let makeConnection: MQTTFactory
+    /// This bridge's part of the MQTT client id (`clientID`); empty in tests.
+    private let clientSuffix: String
     private var connection: (any MQTTConnection)?
     private var account = ""
     private var listener: Task<Void, Never>?
@@ -30,9 +32,18 @@ actor EcoFlowDeveloperStream {
     /// Each quota topic's serial number.
     private var topicSerials: [String: String] = [:]
 
-    init(cloud: EcoFlowCloud, mqtt: @escaping MQTTFactory) {
+    init(cloud: EcoFlowCloud, clientSuffix: String = "", mqtt: @escaping MQTTFactory) {
         self.cloud = cloud
+        self.clientSuffix = clientSuffix
         self.makeConnection = mqtt
+    }
+
+    /// The MQTT client id: the account and this bridge's own suffix. The broker keeps one connection per client id, so
+    /// two bridges with the same developer keys and the account alone as their id took each other's turn. It stays
+    /// the same across reconnects and restarts: EcoFlow is reported to block an account's MQTT (refused, "Not
+    /// authorized", until new keys) after too many client ids in a day, which a new id per connection ran into.
+    static func clientID(account: String, suffix: String) -> String {
+        suffix.isEmpty ? account : "\(account)_homeswift_\(suffix)"
     }
 
     /// Connects on first use, then subscribes to the quota of each serial not yet subscribed to.
@@ -43,7 +54,7 @@ actor EcoFlowDeveloperStream {
             let login = try await cloud.mqttAccount()
             let configuration = MQTTConfiguration(
                 transport: .tls(host: login.host, port: login.port, options: .system),
-                clientID: login.account, username: login.account, password: login.password,
+                clientID: Self.clientID(account: login.account, suffix: clientSuffix), username: login.account, password: login.password,
                 reconnect: .init(delay: .seconds(5), maximumDelay: .seconds(60)))
             let connection = try await makeConnection(configuration)
             try await connection.connect()

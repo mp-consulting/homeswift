@@ -157,6 +157,17 @@ struct EcoFlowTests {
         await host.stop()
     }
 
+    /// The bridge's part of the developer MQTT client id is made once and kept: the same at every start.
+    @Test func theClientSuffixIsKept() async throws {
+        let host = try await environment.start()
+        let plugin = try #require(environment.plugin)
+        let context = await plugin.context
+        let first = EcoFlowPlugin.clientSuffix(context)
+        #expect(first.count == 8 && first.allSatisfy(\.isHexDigit))
+        #expect(EcoFlowPlugin.clientSuffix(context) == first)
+        await host.stop()
+    }
+
     @Test func eachDeviceBecomesAnAccessory() async throws {
         let host = try await environment.start(settings: ["devices": [["id": "dev-1", "name": "Renamed"]]])
         #expect(await eventually { host.mainBridge.server.accessories.contains { $0.id == accessoryID } })

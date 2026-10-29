@@ -165,7 +165,10 @@ plugin's own.
 name and the authentication parameters (`accessKey`, `nonce`, `timestamp`), carried in headers, to
 `https://api.ecoflow.com` or `https://api-e.ecoflow.com`. The plugin lists the devices, connects to the developer MQTT
 broker with the certificate from `/iot-open/sign/certification`, and subscribes to each device's
-`/open/<account>/<serial>/quota`. A device's REST quota is asked for only while its pushes are incomplete.
+`/open/<account>/<serial>/quota`. A device's REST quota is asked for only while its pushes are incomplete. Its MQTT
+client id is the account and a suffix of this bridge's own (`<account>_homeswift_<8 hex>`, kept in `mqtt-client.json`):
+the broker keeps one connection per client id, so two bridges with the same keys no longer cut each other off, and the
+id never changes, since EcoFlow is reported to block an account's MQTT after too many client ids in a day.
 
 **EcoFlow app.** The plugin signs in to `/auth/login` with the password base64-encoded, as the app does, reads the MQTT
 account from `/iot-auth/app/certification` and the devices (names, product types, and the serial numbers when none

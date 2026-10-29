@@ -96,7 +96,8 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
     private var logger: Logger { context.logger }
 
     public init(configuration: Configuration, context: PluginContext) {
-        self.init(configuration: configuration, context: context, dependencies: Self.dependencies(for: configuration))
+        self.init(configuration: configuration, context: context,
+                  dependencies: Self.dependencies(for: configuration, clientSuffix: Self.clientSuffix(context)))
     }
 
     init(configuration: Configuration, context: PluginContext, dependencies: Dependencies) {
@@ -107,14 +108,25 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
 
     /// The route's APIs whose settings are present, read together: the developer API (access key and secret key) and
     /// the EcoFlow app (email and password). No api while none is set.
-    static func dependencies(for configuration: Configuration) -> Dependencies {
+    /// This bridge's part of the developer MQTT client id (EcoFlowDeveloperStream.clientID): made once, then kept in the
+    /// plugin's storage, so it is the same at every connection.
+    static let clientFile = "mqtt-client.json"
+    static func clientSuffix(_ context: PluginContext) -> String {
+        let file = context.jsonFile(clientFile, as: String.self)
+        if let kept = file.load(), !kept.isEmpty { return kept }
+        let suffix = Secrets.hex(Secrets.randomBytes(4))
+        try? file.save(suffix)
+        return suffix
+    }
+
+    static func dependencies(for configuration: Configuration, clientSuffix: String = "") -> Dependencies {
         let route = Route(configuration.route)
         var apis: [any EcoFlowAPI] = []
         // The developer API first: a device both APIs report is read from it.
         if let (accessKey, secretKey) = developerKeys(configuration) {
             let baseURL = configuration.region?.lowercased() == "eu" ? EcoFlowCloud.euBaseURL : EcoFlowCloud.usBaseURL
             var cloud = EcoFlowCloud(accessKey: accessKey, secretKey: secretKey, baseURL: baseURL, transport: HTTPClient())
-            cloud.stream = EcoFlowDeveloperStream(cloud: cloud, mqtt: { MQTTClient($0) })
+            cloud.stream = EcoFlowDeveloperStream(cloud: cloud, clientSuffix: clientSuffix, mqtt: { MQTTClient($0) })
             apis.append(cloud)
         }
         if route != .developer, let email = configuration.email, !email.isEmpty,
