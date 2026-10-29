@@ -49,6 +49,8 @@ public final class SecretResolver: @unchecked Sendable {
     private let fileFolders: [String]
     private let variables: [String]?
     private var entries: [String: VaultEntry]?
+    /// The entries a reference read, for `recordUse`.
+    public private(set) var used: Set<String> = []
 
     public init(storage: URL, environment: [String: String] = ProcessInfo.processInfo.environment, readFile: @escaping (String) throws -> Data = { try Data(contentsOf: URL(fileURLWithPath: $0)) }) {
         vault = CredentialVault(storage: storage)
@@ -76,6 +78,7 @@ public final class SecretResolver: @unchecked Sendable {
             guard let value = entry.value(field: field) else {
                 throw failure(field.map { "the entry has no field \($0)" } ?? "the entry has no \(entry.kind.mainField) field; name one with #field")
             }
+            used.insert(name)
             return value
         case .environment(let name):
             if let variables, !variables.contains(where: { $0.hasSuffix("*") ? name.hasPrefix($0.dropLast()) : name == $0 }) {
@@ -95,6 +98,11 @@ public final class SecretResolver: @unchecked Sendable {
             guard !text.isEmpty else { throw SecretReferenceError.Failure(reference: reference, reason: "the file is empty") }
             return text
         }
+    }
+
+    /// Notes in the vault when the entries read were last used. Failing to write it changes nothing else.
+    public func recordUse(now: Date = Date()) {
+        try? vault.recordUse(used, now: now)
     }
 
     /// `value`, the block of `platform`'s instance `name`, with every reference under a secret-named key (`SecretWalk`)
@@ -157,6 +165,7 @@ public enum ConfigurationSecrets {
             if next != block { result.platforms[index].json = next.encoded() }
         }
         try secrets.finish()
+        resolver.recordUse()
         return result
     }
 
@@ -166,9 +175,10 @@ public enum ConfigurationSecrets {
         let secrets = Opened()
         let revealed = try SecretBox.revealed(block, storage: storage) { secrets.values.append($0) }
         let platform = block["platform"]?.stringValue ?? ""
-        let next = SecretResolver(storage: storage, environment: environment)
-            .resolving(revealed, platform: platform, name: block["name"]?.stringValue ?? platform, resolved: &secrets.values, failures: &secrets.failures)
+        let resolver = SecretResolver(storage: storage, environment: environment)
+        let next = resolver.resolving(revealed, platform: platform, name: block["name"]?.stringValue ?? platform, resolved: &secrets.values, failures: &secrets.failures)
         try secrets.finish()
+        resolver.recordUse()
         return next
     }
 

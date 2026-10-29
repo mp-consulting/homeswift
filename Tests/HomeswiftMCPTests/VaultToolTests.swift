@@ -95,4 +95,27 @@ struct VaultToolTests {
         #expect(try environment.catalog.vault.names().count == 2)
         #expect(try !String(contentsOf: environment.configURL, encoding: .utf8).contains("fresh-secret-7"))
     }
+
+    @Test func listVaultShowsHealthAndTheDigestHearsOfIt() async throws {
+        let environment = try MCPTestEnvironment(config: """
+            {
+              "bridge": { "name": "Test Bridge", "username": "0E:11:22:33:44:55", "pin": "031-45-154", "port": 0 },
+              "platforms": [ { "platform": "Devices", "name": "Devices", "token": "vault:devices", "password": "vault:gone" } ]
+            }
+            """)
+        let catalog = environment.catalog
+        try catalog.vault.set("devices", VaultEntry(kind: .token, fields: ["token": "listed-secret-5"], expires: Date().addingTimeInterval(86_400)))
+        let client = DirectClient(server: environment.server)
+        try await client.initialize()
+        let reply = try await client.tool("list_vault")
+        #expect(!reply.text().contains("listed-secret-5"))
+        let listed = try #require(reply["structuredContent"])
+        let entry = try #require(listed["entries"]?[0])
+        #expect(entry["name"] == "devices" && entry["health"] == "expiring" && entry["usedBy"] == ["Devices/Devices:token"])
+        #expect(listed["problems"]?.arrayValue?.map { $0["state"] } == ["missing", "expiring"])
+        #expect(HomeswiftCatalog.administratorOnly.contains("list_vault"))
+
+        let status = try #require(catalog.digestInput().status)
+        #expect(status["vault"]?.arrayValue?.map { $0["entry"] } == ["gone", "devices"])
+    }
 }

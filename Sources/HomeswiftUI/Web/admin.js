@@ -547,7 +547,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     app().show(main,
       app().pageHead(t("Vault"), t("The bridge's passwords, keys and tokens by name, sealed on disk. config.json names them as vault:<name>; a saved value is never shown again.")),
       subnav("vault"),
-      vault.missing.length ? missingCard(vault.missing) : null,
+      vault.problems.length ? healthCard(vault.problems, vault) : null,
       plan.items.length ? migrationCard(plan, vault) : null,
       sectionHead(t("Entries"), vault.entries.length ? tn("{n} entry", "{n} entries", vault.entries.length) : "", add),
       vault.entries.length ? el("div", { class: "card rows" }, vault.entries.map((entry) => entryRow(entry, vault)))
@@ -584,7 +584,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         tile(glyph, tone),
         el("div", { class: "who" }, el("strong", { class: "mono", text: entry.name, title: entry.name }),
           el("div", { class: "muted vault-detail" }, el("span", { text: kind }), el("span", { "aria-hidden": "true", text: "·" }), users)),
-        el("span", { class: "vault-when" }, expiry(entry) ?? el("span", { class: "muted", text: t("Changed {date}", { date: when(entry.changed) }) })),
+        el("span", { class: "vault-when" }, entry.health === "missing" || entry.health === "failing" ? el("span", { class: "error", text: t("A setting cannot read it") })
+          // When it was last read; "Not used yet" beside the kind already says it for an entry nothing names.
+          : expiry(entry) ?? (entry.used || entry.usedBy.length ? el("span", { class: "muted", text: entry.used ? t("Used {date}", { date: when(entry.used) }) : t("Never used") }) : null)),
         menuButton(t("Actions for {name}", { name: entry.name }), () => [
           { label: t("Copy the reference"), icon: "copy", onSelect: () => HomeswiftCommon.copyText(`vault:${entry.name}`) },
           { label: t("Replace the value…"), icon: "edit", onSelect: () => entryDialog(entry, vault) },
@@ -597,12 +599,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// with the `v` flag: there a `-` in a class is escaped.
   const namePattern = (vault) => vault.namePattern.replaceAll("-]", "\\-]");
 
-  /// Adds an entry (`entry` null) or replaces an entry's values: values are typed, never shown, and an empty field keeps
-  /// the one saved.
-  function entryDialog(entry, vault) {
+  /// Adds an entry (`entry` null, `suggested` its name) or replaces an entry's values: values are typed, never shown, and
+  /// an empty field keeps the one saved.
+  function entryDialog(entry, vault, suggested = "") {
     const { kinds } = vault;
     const editing = Boolean(entry);
-    const name = el("input", { type: "text", value: entry?.name ?? "", required: !editing, disabled: editing, autocomplete: "off", spellcheck: false,
+    const name = el("input", { type: "text", value: entry?.name ?? suggested, required: !editing, disabled: editing, autocomplete: "off", spellcheck: false,
       pattern: namePattern(vault), placeholder: "unifi-home" });
     const kind = el("select", {}, kinds.map(({ kind: value }) => el("option", { value, text: kindNames[value] ?? value, selected: value === (entry?.kind ?? "secret") })));
     const username = el("input", { type: "text", autocomplete: "off", placeholder: editing && entry.fields.includes("username") ? t("Unchanged") : "" });
@@ -680,14 +682,30 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     await busy(null, async () => { await api(`/api/vault/${encodeURIComponent(entry.name)}`, { method: "DELETE" }); app().route(); });
   }
 
-  /// References to entries the vault no longer has: the bridge does not start with them.
-  function missingCard(missing) {
+  /// What needs attention, most pressing first (VaultHealth): references to entries the vault does not have, references
+  /// that cannot read their entry, entries expired or expiring. Each row has the step that fixes it.
+  function healthCard(problems, vault) {
+    const count = new Set(problems.map((problem) => problem.entry)).size;
+    const says = {
+      missing: () => t("Not in the vault: the bridge does not start until it is added again, or its settings get another value."),
+      failing: () => t("A setting cannot read it: it names a field the entry does not have, or another plugin's entry."),
+      expired: (problem) => t("Expired {date}: replace the value.", { date: when(problem.expires) }),
+      expiring: (problem) => t("Expires {date}: replace the value before then.", { date: when(problem.expires) }),
+    };
+    const fix = (problem) => {
+      const entry = vault.entries.find((item) => item.name === problem.entry);
+      if (problem.state === "missing") return el("button", { actionIcon: "plus", type: "button", text: t("Add it…"), onclick: () => entryDialog(null, vault, problem.entry) });
+      // A plugin's own entry is replaced by the plugin; a setting that names it is changed in that plugin's form.
+      return entry && !entry.owner ? el("button", { actionIcon: "edit", type: "button", text: t("Replace the value…"), onclick: () => entryDialog(entry, vault) }) : null;
+    };
     return el("div", { class: "card server vault-card" },
       el("div", { class: "server-head" }, tile("warning", "orange"),
-        el("div", { class: "who" }, el("strong", { text: t("config.json names entries the vault does not have") }),
-          el("div", { class: "muted", text: t("The bridge does not start until each one is added again, or its settings get another value.") }))),
-      el("div", { class: "rows" }, missing.map((item) => el("div", { class: "row" },
-        el("div", { class: "who" }, el("strong", { class: "mono", text: item.name }), el("div", { class: "muted mono", text: item.usedBy.join(", ") }))))));
+        el("div", { class: "who" }, el("strong", { text: tn("One entry needs attention", "{n} entries need attention", count) }))),
+      el("div", { class: "rows" }, problems.map((problem) => el("div", { class: "row vault-problem" },
+        el("div", { class: "who" }, el("strong", { class: "mono", text: problem.entry }),
+          el("div", { class: problem.state === "expiring" ? "warning" : "error", text: says[problem.state]?.(problem) ?? problem.state }),
+          problem.usedBy.length ? el("div", { class: "muted mono", text: problem.usedBy.join(", ") }) : null),
+        fix(problem)))));
   }
 
   /// config.json's secrets that are not in the vault yet, each with the entry it would become: untick to leave one,

@@ -71,11 +71,14 @@ extension HomeswiftCatalog {
 
     /// What the digest is written from: the status, the warnings and errors of the last `hours` (the latest 150, as
     /// Glass UI picks them, through `safe`: a confirmation code is a warning line, and the digest goes back to
-    /// clients) and the accessories with their values.
+    /// clients), the accessories with their values, and the vault's problems (`vaultHealth`) in the status.
     public func digestInput(hours: Double = 24, now: Date = Date()) -> DailyDigestInput {
         let lines = logs.lines(from: now.addingTimeInterval(-hours * 3600), to: now, limit: 20_000).map(\.formatted)
+        var status = statusJSON().objectValue ?? [:]
+        let vault = vaultHealth(now: now)
+        if !vault.problems.isEmpty { status["vault"] = vault.json }
         return DailyDigestInput(
-            date: DailyDigestInput.today(now), status: statusJSON(),
+            date: DailyDigestInput.today(now), status: .object(status),
             logs: DailyDigestInput.problemLines(lines).suffix(150).map(Self.safe),
             accessories: .array(located().map { Self.accessoryJSON($0, detailed: false) }))
     }

@@ -27,6 +27,7 @@ public struct SecretFile<Value: Codable>: Sendable {
     /// The stored value; nil when there is none or it does not decode. A legacy file is moved into the vault here.
     public func load() -> Value? {
         if let text = (try? vault.entry(named: entryName))?.fields[Self.field] {
+            try? vault.recordUse([entryName])
             return decoded(Data(text.utf8))
         }
         guard let legacyFile, let data = try? Data(contentsOf: legacyFile), let value = decoded(data) else { return nil }

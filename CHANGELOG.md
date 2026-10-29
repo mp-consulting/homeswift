@@ -30,6 +30,12 @@ All notable changes to this project are documented here. The format follows
   and the Assistant's block with the entry it becomes, merge identical values into one entry, back up config.json and
   write it with `vault:` references. From then on a new plain secret in a save goes to the vault too. The Assistant's
   connection test opens sealed keys and references before it sends them.
+- The vault's health: each entry keeps when it was last used (a reference resolved, or the plugin read its token; once
+  an hour at most), and `VaultHealth` finds what needs attention: references to entries that are gone or that cannot
+  read their entry, and entries expired or expiring within 30 days. The Vault page lists them on top with the step that
+  fixes each, a new Status widget shows the vault's figures and its problems to administrators, and the daily digest
+  hears of them. The MCP tool `list_vault` (read, administrators only) lists entries, their users, dates and health,
+  never a value.
 - Plugins' tokens in the vault: `context.secretFile(_:as:)` keeps a token or a key like `jsonFile`, sealed in the
   instance's namespace of the vault, and moves the plain file of that name into it the first time it reads it. eWeLink's
   session (`ewelink-tokens.json`), DaikinCloud's token sets (`.daikin-*-tokenset`, so one copied from Homebridge still

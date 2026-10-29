@@ -62,22 +62,46 @@ extension HomeswiftCatalog {
 
     // MARK: Entries
 
-    /// The vault as the Vault page shows it: each entry's name, kind, field names, dates, owner and the config values
-    /// that name it (`usedBy`), never a value; the references to entries that are gone; the kinds and the name rule.
-    public func vaultJSON() throws -> JSONValue {
-        let users = VaultMigration.references(in: try readConfig())
+    /// What needs attention in the vault (`VaultHealth`): references that do not resolve, entries expired or expiring.
+    /// Empty when the file or the vault cannot be read.
+    public func vaultHealth(now: Date = Date()) -> VaultHealth {
+        guard let config = try? readConfig(), let entries = try? vault.listing() else { return VaultHealth(problems: []) }
+        return VaultHealth.check(config: config, entries: entries, now: now)
+    }
+
+    /// The Status page's vault widget: how many entries, how many config.json names, the secrets config.json still holds
+    /// (what the migration would move) and the problems. Nil when the vault cannot be read.
+    public func vaultSummary(now: Date = Date()) -> JSONValue? {
+        guard let config = try? readConfig(), let entries = try? vault.listing() else { return nil }
+        let users = VaultMigration.references(in: config)
+        let left = (try? VaultMigration.plan(stored: config, opened: config, existing: [:]).items.count) ?? 0
+        return [
+            "entries": .number(Double(entries.count)), "inUse": .number(Double(entries.keys.filter { users[$0] != nil }.count)),
+            "inConfig": .number(Double(left)), "problems": VaultHealth.check(config: config, entries: entries, now: now).json,
+        ]
+    }
+
+    /// The vault as the Vault page and `list_vault` show it: each entry's name, kind, field names, dates (last used
+    /// included), owner, worst problem (`health`) and the config values that name it (`usedBy`), never a value; the
+    /// problems, most pressing first; the kinds and the name rule.
+    public func vaultJSON(now: Date = Date()) throws -> JSONValue {
+        let config = try readConfig()
+        let users = VaultMigration.references(in: config)
         let entries = try vault.listing()
+        let health = VaultHealth.check(config: config, entries: entries, now: now)
+        let states = health.states
         let iso = { (date: Date?) in date.map { JSONValue.string(Timestamp.iso8601($0)) } ?? .null }
         return [
             "entries": .array(entries.sorted { $0.key < $1.key }.map { name, entry in
                 [
                     "name": .string(name), "kind": .string(entry.kind.rawValue), "fields": .array(entry.fields.keys.sorted().map(JSONValue.string)),
-                    "created": iso(entry.created), "changed": iso(entry.changed), "expires": iso(entry.expires),
+                    "created": iso(entry.created), "changed": iso(entry.changed), "expires": iso(entry.expires), "used": iso(entry.used),
+                    "health": states[name].map { .string($0.rawValue) } ?? .null,
                     "owner": entry.owner.map(JSONValue.string) ?? .null, "usedBy": .array((users[name] ?? []).map(JSONValue.string)),
                 ]
             }),
-            // References to entries that are gone: the bridge does not start with them.
-            "missing": .array(users.keys.filter { entries[$0] == nil }.sorted().map { name in ["name": .string(name), "usedBy": .array((users[name] ?? []).map(JSONValue.string))] }),
+            // References to entries that are gone (the bridge does not start with them) come first.
+            "problems": health.json,
             "kinds": .array(VaultEntry.Kind.allCases.map { ["kind": .string($0.rawValue), "mainField": .string($0.mainField)] }),
             "namePattern": .string(Redaction.vaultNamePattern),
         ]
@@ -118,6 +142,18 @@ extension HomeswiftCatalog {
     var vaultTools: [MCPTool] {
         let catalog = self
         return [
+            MCPTool(
+                name: "list_vault", title: "List the vault's entries",
+                description: "The vault's entries by name: kind, field names, owner (a plugin's own token), created, changed, last used and expiry "
+                    + "dates, the config.json values that name each one (usedBy, as <platform>/<name>:<path>) and its health. problems lists what "
+                    + "needs attention, most pressing first: missing (config.json names an entry the vault does not have, so the bridge does not "
+                    + "start), failing (a reference names a field the entry lacks, or another plugin's entry), expired, expiring (within 30 days). "
+                    + "No value is ever shown; values are set on the web UI's Vault page or with homeswift vault set.",
+                inputSchema: ["type": "object", "properties": [:]],
+                scope: .read, idempotent: true
+            ) { _ in
+                .json(try catalog.vaultJSON())
+            },
             MCPTool(
                 name: "migrate_to_vault", title: "Move config.json's secrets into the vault",
                 description: "Moves every secret of the plugin blocks (and the Assistant's key) into the vault: each becomes an entry, identical values "

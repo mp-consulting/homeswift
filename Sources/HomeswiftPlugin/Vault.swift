@@ -25,15 +25,20 @@ public struct VaultEntry: Codable, Sendable, Equatable {
     public var created: Date
     public var changed: Date
     public var expires: Date?
+    /// When a reference or the plugin that owns it last read it (`CredentialVault.recordUse`), to the hour.
+    public var used: Date?
     /// Nil for an entry a person made; a plugin instance's namespace (`EWeLink/<instance>`) for one it wrote.
     public var owner: String?
 
-    public init(kind: Kind, fields: [String: String], created: Date = Date(), changed: Date? = nil, expires: Date? = nil, owner: String? = nil) {
+    public init(
+        kind: Kind, fields: [String: String], created: Date = Date(), changed: Date? = nil, expires: Date? = nil, used: Date? = nil, owner: String? = nil
+    ) {
         self.kind = kind
         self.fields = fields
         self.created = created
         self.changed = changed ?? created
         self.expires = expires
+        self.used = used
         self.owner = owner
     }
 
@@ -90,7 +95,7 @@ public struct CredentialVault: Sendable {
         try read().keys.sorted()
     }
 
-    /// Adds or replaces the entry `name`; a replaced entry keeps its creation date.
+    /// Adds or replaces the entry `name`; a replaced entry keeps its creation date and when it was last used.
     public func set(_ name: String, _ entry: VaultEntry) throws {
         try set([name: entry])
     }
@@ -105,7 +110,10 @@ public struct CredentialVault: Sendable {
             for (name, entry) in entries {
                 var sealed = entry
                 sealed.fields = try entry.fields.mapValues { try box.seal($0) }
-                if let previous = stored[name] { sealed.created = previous.created }
+                if let previous = stored[name] {
+                    sealed.created = previous.created
+                    sealed.used = sealed.used ?? previous.used
+                }
                 stored[name] = sealed
             }
             try write(stored)
@@ -127,6 +135,27 @@ public struct CredentialVault: Sendable {
         try set(name, VaultEntry(kind: kind, fields: merged, changed: Date(), expires: expires ?? existing?.expires, owner: existing?.owner))
         Redaction.rememberSecrets(fields.values)
         return existing == nil
+    }
+
+    /// How long a read is not written again: a bridge that resolves its config on every save writes `vault.json` once an
+    /// hour at most.
+    public static let useResolution: TimeInterval = 3600
+
+    /// Notes that the entries `names` were read at `now`, without opening them; an entry read within the last hour is
+    /// left as it is, and a name the vault does not have is skipped.
+    public func recordUse(_ names: Set<String>, now: Date = Date()) throws {
+        guard !names.isEmpty else { return }
+        try Self.writes.withLock {
+            var stored = try read()
+            var changed = false
+            for name in names {
+                guard var entry = stored[name], entry.used.map({ now.timeIntervalSince($0) >= Self.useResolution }) ?? true else { continue }
+                entry.used = now
+                stored[name] = entry
+                changed = true
+            }
+            if changed { try write(stored) }
+        }
     }
 
     /// Removes the entry `name`; false when there was none.

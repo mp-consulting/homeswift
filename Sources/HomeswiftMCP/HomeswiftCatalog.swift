@@ -87,7 +87,7 @@ public struct HomeswiftCatalog: Sendable {
     /// log, the cached accessories, the pairings, the child bridges' health, and writing the digest. Hidden from the
     /// principals of users who are not administrators (the web UI's chat, the apps they connect).
     public static let administratorOnly: Set<String> = [
-        "get_config", "list_config_backups", "get_recent_logs", "search_logs", "get_cached_accessories", "get_pairing_info", "get_child_bridge_health",
+        "get_config", "list_config_backups", "list_vault", "get_recent_logs", "search_logs", "get_cached_accessories", "get_pairing_info", "get_child_bridge_health",
         "homeswift://logs/recent", "homeswift://child-bridge/{id}", "diagnose-logs", "audit-config", digestRefresh,
     ]
 

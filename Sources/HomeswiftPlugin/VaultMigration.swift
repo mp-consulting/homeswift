@@ -159,16 +159,31 @@ public struct VaultMigration: Sendable {
     /// Who names each entry in config.json: entry name to the ids (`<platform>/<name>:<path>`) of the values that are
     /// `vault:<entry>` references, under secret-named keys of the platform blocks.
     public static func references(in config: JSONValue) -> [String: [String]] {
-        var users: [String: [String]] = [:]
+        Dictionary(grouping: uses(in: config), by: \.entry).mapValues { $0.map(\.id) }
+    }
+
+    /// One `vault:` reference of config.json: the entry and field it reads, where it is, and whose block it is in.
+    public struct Use: Sendable, Equatable {
+        public var entry: String
+        public var field: String?
+        /// `<platform>/<name>:<path>`.
+        public var id: String
+        /// `<platform>/<name>`, the owner a plugin's own entry must have.
+        public var block: String
+    }
+
+    /// Every `vault:` reference under a secret-named key of the platform blocks, in the file's order.
+    public static func uses(in config: JSONValue) -> [Use] {
+        var uses: [Use] = []
         for block in config["platforms"]?.arrayValue ?? [] {
             let platform = block["platform"]?.stringValue ?? ""
             let name = block["name"]?.stringValue ?? platform
             SecretWalk.forEach(block) { path, _, value in
-                guard let text = value.stringValue, case .vault(let entry, _) = SecretReference(text) else { return }
-                users[entry, default: []].append("\(platform)/\(name):\(SecretWalk.text(path))")
+                guard let text = value.stringValue, case .vault(let entry, let field) = SecretReference(text) else { return }
+                uses.append(Use(entry: entry, field: field, id: "\(platform)/\(name):\(SecretWalk.text(path))", block: "\(platform)/\(name)"))
             }
         }
-        return users
+        return uses
     }
 
     // MARK: Names and kinds

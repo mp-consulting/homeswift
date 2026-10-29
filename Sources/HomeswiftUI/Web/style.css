@@ -2428,10 +2428,19 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .vault-detail > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vault-detail .vault-users { padding: 0; font: inherit; color: inherit; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: 2px; }
 @media (hover: hover) and (pointer: fine) { .vault-detail .vault-users:hover { color: var(--text); } }
-span.warning { color: var(--warn); }
+span.warning, .vault-problem .warning { color: var(--warn); }
 .vault-when { flex-shrink: 0; white-space: nowrap; }
 /* On a phone an entry's date gives way to its name and kind; an expiry stays, it is a warning. */
 @media (max-width: 640px) { .vault-when > .muted { display: none; } }
+/* A problem's entry, what to do and where config.json names it, with the button that fixes it on the right. */
+.rows > .row.vault-problem > .who > div { white-space: normal; line-height: 1.5; }
+.rows > .row.vault-problem > button { flex-shrink: 0; }
+@media (max-width: 640px) { .rows > .row.vault-problem { flex-wrap: wrap; } .rows > .row.vault-problem > button { margin-left: auto; } }
+/* The Status page's vault widget: its figures, up to three problems as a short list, the way to the Vault page. */
+.vault-status { display: grid; gap: var(--space-12); }
+.vault-status ul { margin: 0; padding-left: 1.25em; display: grid; gap: var(--space-4); }
+.vault-status .actions, .vault-status .facts { margin-top: 0; }
+.vault-status .who .warning { color: var(--warn); }
 .secret-field { display: flex; gap: var(--space-8); align-items: center; }
 .secret-field input { flex: 1; min-width: 0; }
 

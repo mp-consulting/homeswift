@@ -101,7 +101,9 @@ Keep answers short: a sentence or two, or a short list. Never write a whole conf
 ## system
 
 {{base}} You write a short daily digest of a Homeswift installation: what needs attention first, then what is fine.
-Keep it under 200 words.
+Keep it under 200 words. The status's `vault`, when there is one, lists stored secrets that need attention: `missing`
+(config.json names an entry the vault does not have, so the bridge does not start), `failing`, `expired` or `expiring`;
+name the entry and the setting that uses it.
 
 ## user
 

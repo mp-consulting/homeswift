@@ -556,7 +556,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     app().show(main,
       app().pageHead(t("Vault"), t("The bridge's passwords, keys and tokens by name, sealed on disk. config.json names them as vault:<name>; a saved value is never shown again.")),
       subnav("vault"),
-      vault.missing.length ? missingCard(vault.missing) : null,
+      vault.problems.length ? healthCard(vault.problems, vault) : null,
       plan.items.length ? migrationCard(plan, vault) : null,
       sectionHead(t("Entries"), vault.entries.length ? tn("{n} entry", "{n} entries", vault.entries.length) : "", add),
       vault.entries.length ? el("div", { class: "card rows" }, vault.entries.map((entry) => entryRow(entry, vault)))
@@ -593,7 +593,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         tile(glyph, tone),
         el("div", { class: "who" }, el("strong", { class: "mono", text: entry.name, title: entry.name }),
           el("div", { class: "muted vault-detail" }, el("span", { text: kind }), el("span", { "aria-hidden": "true", text: "·" }), users)),
-        el("span", { class: "vault-when" }, expiry(entry) ?? el("span", { class: "muted", text: t("Changed {date}", { date: when(entry.changed) }) })),
+        el("span", { class: "vault-when" }, entry.health === "missing" || entry.health === "failing" ? el("span", { class: "error", text: t("A setting cannot read it") })
+          // When it was last read; "Not used yet" beside the kind already says it for an entry nothing names.
+          : expiry(entry) ?? (entry.used || entry.usedBy.length ? el("span", { class: "muted", text: entry.used ? t("Used {date}", { date: when(entry.used) }) : t("Never used") }) : null)),
         menuButton(t("Actions for {name}", { name: entry.name }), () => [
           { label: t("Copy the reference"), icon: "copy", onSelect: () => HomeswiftCommon.copyText(`vault:${entry.name}`) },
           { label: t("Replace the value…"), icon: "edit", onSelect: () => entryDialog(entry, vault) },
@@ -606,12 +608,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// with the `v` flag: there a `-` in a class is escaped.
   const namePattern = (vault) => vault.namePattern.replaceAll("-]", "\\-]");
 
-  /// Adds an entry (`entry` null) or replaces an entry's values: values are typed, never shown, and an empty field keeps
-  /// the one saved.
-  function entryDialog(entry, vault) {
+  /// Adds an entry (`entry` null, `suggested` its name) or replaces an entry's values: values are typed, never shown, and
+  /// an empty field keeps the one saved.
+  function entryDialog(entry, vault, suggested = "") {
     const { kinds } = vault;
     const editing = Boolean(entry);
-    const name = el("input", { type: "text", value: entry?.name ?? "", required: !editing, disabled: editing, autocomplete: "off", spellcheck: false,
+    const name = el("input", { type: "text", value: entry?.name ?? suggested, required: !editing, disabled: editing, autocomplete: "off", spellcheck: false,
       pattern: namePattern(vault), placeholder: "unifi-home" });
     const kind = el("select", {}, kinds.map(({ kind: value }) => el("option", { value, text: kindNames[value] ?? value, selected: value === (entry?.kind ?? "secret") })));
     const username = el("input", { type: "text", autocomplete: "off", placeholder: editing && entry.fields.includes("username") ? t("Unchanged") : "" });
@@ -689,14 +691,30 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     await busy(null, async () => { await api(`/api/vault/${encodeURIComponent(entry.name)}`, { method: "DELETE" }); app().route(); });
   }
 
-  /// References to entries the vault no longer has: the bridge does not start with them.
-  function missingCard(missing) {
+  /// What needs attention, most pressing first (VaultHealth): references to entries the vault does not have, references
+  /// that cannot read their entry, entries expired or expiring. Each row has the step that fixes it.
+  function healthCard(problems, vault) {
+    const count = new Set(problems.map((problem) => problem.entry)).size;
+    const says = {
+      missing: () => t("Not in the vault: the bridge does not start until it is added again, or its settings get another value."),
+      failing: () => t("A setting cannot read it: it names a field the entry does not have, or another plugin's entry."),
+      expired: (problem) => t("Expired {date}: replace the value.", { date: when(problem.expires) }),
+      expiring: (problem) => t("Expires {date}: replace the value before then.", { date: when(problem.expires) }),
+    };
+    const fix = (problem) => {
+      const entry = vault.entries.find((item) => item.name === problem.entry);
+      if (problem.state === "missing") return el("button", { actionIcon: "plus", type: "button", text: t("Add it…"), onclick: () => entryDialog(null, vault, problem.entry) });
+      // A plugin's own entry is replaced by the plugin; a setting that names it is changed in that plugin's form.
+      return entry && !entry.owner ? el("button", { actionIcon: "edit", type: "button", text: t("Replace the value…"), onclick: () => entryDialog(entry, vault) }) : null;
+    };
     return el("div", { class: "card server vault-card" },
       el("div", { class: "server-head" }, tile("warning", "orange"),
-        el("div", { class: "who" }, el("strong", { text: t("config.json names entries the vault does not have") }),
-          el("div", { class: "muted", text: t("The bridge does not start until each one is added again, or its settings get another value.") }))),
-      el("div", { class: "rows" }, missing.map((item) => el("div", { class: "row" },
-        el("div", { class: "who" }, el("strong", { class: "mono", text: item.name }), el("div", { class: "muted mono", text: item.usedBy.join(", ") }))))));
+        el("div", { class: "who" }, el("strong", { text: tn("One entry needs attention", "{n} entries need attention", count) }))),
+      el("div", { class: "rows" }, problems.map((problem) => el("div", { class: "row vault-problem" },
+        el("div", { class: "who" }, el("strong", { class: "mono", text: problem.entry }),
+          el("div", { class: problem.state === "expiring" ? "warning" : "error", text: says[problem.state]?.(problem) ?? problem.state }),
+          problem.usedBy.length ? el("div", { class: "muted mono", text: problem.usedBy.join(", ") }) : null),
+        fix(problem)))));
   }
 
   /// config.json's secrets that are not in the vault yet, each with the entry it would become: untick to leave one,
@@ -2137,6 +2155,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("div", { class: "stat" }, HomeswiftCommon.icon("history"), el("b", { text: formatDuration(status.uptimeSeconds) }), el("span", { text: t("Up [uptime]") })))],
       quick: () => window.HomeswiftHome?.quickSection(accessories),
       digest: () => status.assistant ? digestWidget() : null,
+      vault: () => isAdmin() && status.vault ? vaultCard(status.vault) : null,
       activity: () => activity(accessories, withSlugs(status.bridges, "bridge")),
       energy: () => energy(),
       bridges: () => [el("h2", { text: status.bridges.length === 1 ? t("Bridge") : t("Bridges and accessories") }),
@@ -2227,6 +2246,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // Each user's own, kept on the server with their other preferences (/api/preferences, `dashboard`).
 
   const dashboardWidgets = [["overview", t("Overview"), t("Health, accessories, plugins, uptime")], ["quick", t("Quick controls"), t("Favourite accessories and scenes")], ["digest", t("Daily digest"), t("The Assistant's summary of the day")],
+    ["vault", t("Vault"), t("Passwords, keys and tokens, and what needs attention")],
     ["activity", t("Activity"), t("Memory, CPU and response times")], ["energy", t("Energy"), t("Solar, home, grid and batteries")], ["bridges", t("Bridges"), t("Pairing codes and what each bridge runs")], ["system", t("System"), t("The machine, and Restart")]];
 
   /// The widgets in the user's order (new ones last), and those hidden.
@@ -2336,6 +2356,34 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   /// A newer release, when the bridge found one (ReleaseWatcher): how to get it on this install, the package to
   /// download on a NAS or the command to run, and its notes.
+  /// The vault at a glance (an administrator's /api/status has it): its entries, those config.json uses, the secrets
+  /// still in config.json, and up to three problems, most pressing first; the Vault page says how to fix them.
+  function vaultCard(vault) {
+    const { problems } = vault;
+    const date = (iso) => new Date(iso).toLocaleDateString(HomeswiftI18n.locale, { dateStyle: "medium" });
+    const says = {
+      missing: (problem) => t("{entry} is not in the vault: the bridge does not start without it", { entry: problem.entry }),
+      failing: (problem) => t("A setting cannot read {entry}", { entry: problem.entry }),
+      expired: (problem) => t("{entry} expired {date}", { entry: problem.entry, date: date(problem.expires) }),
+      expiring: (problem) => t("{entry} expires {date}", { entry: problem.entry, date: date(problem.expires) }),
+    };
+    const count = new Set(problems.map((problem) => problem.entry)).size;
+    const urgent = problems.some((problem) => problem.state !== "expiring");
+    const summary = count ? tn("One entry needs attention", "{n} entries need attention", count)
+      : vault.entries ? tn("{n} entry, nothing to do", "{n} entries, nothing to do", vault.entries)
+      : t("Empty: config.json's secrets can move here");
+    return [el("h2", { text: t("Vault") }),
+      el("div", { class: "card server vault-status" },
+        el("div", { class: "server-head" },
+          tile("key", urgent ? "heat" : count ? "yellow" : "green"),
+          el("div", { class: "who" }, el("strong", { text: t("Passwords, keys and tokens") }),
+            el("div", { class: count ? (urgent ? "error" : "warning") : "muted", text: summary }))),
+        el("div", { class: "facts" },
+          fact(t("Entries"), vault.entries), fact(t("Used by config.json"), vault.inUse), fact(t("Still in config.json"), vault.inConfig)),
+        problems.length ? el("ul", {}, problems.slice(0, 3).map((problem) => el("li", { text: says[problem.state]?.(problem) ?? problem.entry }))) : null,
+        el("div", { class: "actions" }, el("a", { class: "button", href: "/settings/vault", actionIcon: "key", text: t("Open the vault") })))];
+  }
+
   function updateCard(update) {
     if (!update?.available) return null;
     const released = update.publishedAt ? new Date(update.publishedAt).toLocaleDateString(HomeswiftI18n.locale) : null;
@@ -10739,6 +10787,28 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         "i18n-es.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Spanish (Spain): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("es", {
+  "Passwords, keys and tokens, and what needs attention": "Contraseñas, claves y tokens, y lo que requiere atención",
+  "Passwords, keys and tokens": "Contraseñas, claves y tokens",
+  "{n} entry, nothing to do": "{n} entrada, nada que hacer",
+  "{n} entries, nothing to do": "{n} entradas, nada que hacer",
+  "Empty: config.json's secrets can move here": "Vacía: los secretos de config.json pueden venir aquí",
+  "Used by config.json": "Usadas por config.json",
+  "Still in config.json": "Aún en config.json",
+  "A setting cannot read it": "Un ajuste no puede leerla",
+  "Used {date}": "Usada el {date}",
+  "Never used": "Nunca usada",
+  "Not in the vault: the bridge does not start until it is added again, or its settings get another value.": "No está en la bóveda: el puente no se inicia hasta que se vuelva a añadir o sus ajustes tengan otro valor.",
+  "A setting cannot read it: it names a field the entry does not have, or another plugin's entry.": "Un ajuste no puede leerla: nombra un campo que la entrada no tiene, o la entrada de otro plugin.",
+  "Expired {date}: replace the value.": "Caducó el {date}: sustituye el valor.",
+  "Expires {date}: replace the value before then.": "Caduca el {date}: sustituye el valor antes.",
+  "Add it…": "Añadirla…",
+  "One entry needs attention": "Una entrada requiere atención",
+  "{n} entries need attention": "{n} entradas requieren atención",
+  "{entry} is not in the vault: the bridge does not start without it": "{entry} no está en la bóveda: el puente no se inicia sin ella",
+  "A setting cannot read {entry}": "Un ajuste no puede leer {entry}",
+  "{entry} expired {date}": "{entry} caducó el {date}",
+  "{entry} expires {date}": "{entry} caduca el {date}",
+  "Open the vault": "Abrir la bóveda",
   "Move it here: the plugin keeps working with the same value.": "Muévelo aquí: el plugin sigue funcionando con el mismo valor.",
   "Show the value": "Mostrar el valor",
   "Hide the value": "Ocultar el valor",
@@ -10763,7 +10833,6 @@ HomeswiftI18n.add("es", {
   "Kept by {plugin}": "Guardado por {plugin}",
   "Not used yet": "Aún sin usar",
   "config.json names it in:": "config.json lo nombra en:",
-  "Changed {date}": "Cambiado el {date}",
   "Copy the reference": "Copiar la referencia",
   "Replace the value…": "Sustituir el valor…",
   "Unchanged": "Sin cambios",
@@ -10779,8 +10848,6 @@ HomeswiftI18n.add("es", {
   "Delete {name}?": "¿Eliminar {name}?",
   "{plugin} keeps it: it signs in again, or asks you to pair again, without it.": "{plugin} lo guarda: sin él, vuelve a iniciar sesión, o te pide que lo vincules de nuevo.",
   "Its value is gone for good: the vault keeps no copy.": "Su valor desaparece para siempre: la bóveda no guarda ninguna copia.",
-  "config.json names entries the vault does not have": "config.json nombra entradas que la bóveda no tiene",
-  "The bridge does not start until each one is added again, or its settings get another value.": "El puente no arranca hasta que cada una se añada de nuevo, o sus ajustes tengan otro valor.",
   "Move {setting}": "Mover {setting}",
   "Entry for {setting}": "Entrada para {setting}",
   "Move config.json's secrets to the vault?": "¿Mover los secretos de config.json a la bóveda?",
@@ -13125,6 +13192,28 @@ HomeswiftI18n.add("es", {
         "i18n-fr.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in French: English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("fr", {
+  "Passwords, keys and tokens, and what needs attention": "Mots de passe, clés et jetons, et ce qui demande votre attention",
+  "Passwords, keys and tokens": "Mots de passe, clés et jetons",
+  "{n} entry, nothing to do": "{n} entrée, rien à faire",
+  "{n} entries, nothing to do": "{n} entrées, rien à faire",
+  "Empty: config.json's secrets can move here": "Vide : les secrets de config.json peuvent venir ici",
+  "Used by config.json": "Utilisées par config.json",
+  "Still in config.json": "Encore dans config.json",
+  "A setting cannot read it": "Un réglage ne peut pas la lire",
+  "Used {date}": "Utilisée le {date}",
+  "Never used": "Jamais utilisée",
+  "Not in the vault: the bridge does not start until it is added again, or its settings get another value.": "Absente du coffre : le pont ne démarre pas tant qu’elle n’est pas ajoutée à nouveau, ou que ses réglages n’ont pas une autre valeur.",
+  "A setting cannot read it: it names a field the entry does not have, or another plugin's entry.": "Un réglage ne peut pas la lire : il nomme un champ que l’entrée n’a pas, ou l’entrée d’un autre plugin.",
+  "Expired {date}: replace the value.": "Expirée le {date} : remplacez la valeur.",
+  "Expires {date}: replace the value before then.": "Expire le {date} : remplacez la valeur d’ici là.",
+  "Add it…": "L’ajouter…",
+  "One entry needs attention": "Une entrée demande votre attention",
+  "{n} entries need attention": "{n} entrées demandent votre attention",
+  "{entry} is not in the vault: the bridge does not start without it": "{entry} n’est pas dans le coffre : le pont ne démarre pas sans elle",
+  "A setting cannot read {entry}": "Un réglage ne peut pas lire {entry}",
+  "{entry} expired {date}": "{entry} a expiré le {date}",
+  "{entry} expires {date}": "{entry} expire le {date}",
+  "Open the vault": "Ouvrir le coffre",
   "Move it here: the plugin keeps working with the same value.": "Déplacez-le ici : le plugin continue de fonctionner avec la même valeur.",
   "Show the value": "Afficher la valeur",
   "Hide the value": "Masquer la valeur",
@@ -13149,7 +13238,6 @@ HomeswiftI18n.add("fr", {
   "Kept by {plugin}": "Gardé par {plugin}",
   "Not used yet": "Pas encore utilisé",
   "config.json names it in:": "config.json le nomme dans :",
-  "Changed {date}": "Modifié le {date}",
   "Copy the reference": "Copier la référence",
   "Replace the value…": "Remplacer la valeur…",
   "Unchanged": "Inchangé",
@@ -13165,8 +13253,6 @@ HomeswiftI18n.add("fr", {
   "Delete {name}?": "Supprimer {name} ?",
   "{plugin} keeps it: it signs in again, or asks you to pair again, without it.": "{plugin} le garde : sans lui, il se reconnecte, ou vous demande de l’appairer à nouveau.",
   "Its value is gone for good: the vault keeps no copy.": "Sa valeur disparaît pour de bon : le coffre n’en garde aucune copie.",
-  "config.json names entries the vault does not have": "config.json nomme des entrées que le coffre n’a pas",
-  "The bridge does not start until each one is added again, or its settings get another value.": "Le pont ne démarre pas tant que chacune n’est pas ajoutée à nouveau, ou que ses réglages n’ont pas une autre valeur.",
   "Move {setting}": "Déplacer {setting}",
   "Entry for {setting}": "Entrée pour {setting}",
   "Move config.json's secrets to the vault?": "Déplacer les secrets de config.json dans le coffre ?",
@@ -15511,6 +15597,28 @@ HomeswiftI18n.add("fr", {
         "i18n-pt.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Portuguese (Portugal): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("pt", {
+  "Passwords, keys and tokens, and what needs attention": "Palavras-passe, chaves e tokens, e o que precisa de atenção",
+  "Passwords, keys and tokens": "Palavras-passe, chaves e tokens",
+  "{n} entry, nothing to do": "{n} entrada, nada a fazer",
+  "{n} entries, nothing to do": "{n} entradas, nada a fazer",
+  "Empty: config.json's secrets can move here": "Vazio: os segredos de config.json podem vir para aqui",
+  "Used by config.json": "Usadas por config.json",
+  "Still in config.json": "Ainda em config.json",
+  "A setting cannot read it": "Uma definição não a consegue ler",
+  "Used {date}": "Usada a {date}",
+  "Never used": "Nunca usada",
+  "Not in the vault: the bridge does not start until it is added again, or its settings get another value.": "Não está no cofre: a ponte não arranca até ser adicionada de novo, ou as suas definições terem outro valor.",
+  "A setting cannot read it: it names a field the entry does not have, or another plugin's entry.": "Uma definição não a consegue ler: nomeia um campo que a entrada não tem, ou a entrada de outro plugin.",
+  "Expired {date}: replace the value.": "Expirou a {date}: substitua o valor.",
+  "Expires {date}: replace the value before then.": "Expira a {date}: substitua o valor antes disso.",
+  "Add it…": "Adicioná-la…",
+  "One entry needs attention": "Uma entrada precisa de atenção",
+  "{n} entries need attention": "{n} entradas precisam de atenção",
+  "{entry} is not in the vault: the bridge does not start without it": "{entry} não está no cofre: a ponte não arranca sem ela",
+  "A setting cannot read {entry}": "Uma definição não consegue ler {entry}",
+  "{entry} expired {date}": "{entry} expirou a {date}",
+  "{entry} expires {date}": "{entry} expira a {date}",
+  "Open the vault": "Abrir o cofre",
   "Move it here: the plugin keeps working with the same value.": "Mova-o para aqui: o plugin continua a funcionar com o mesmo valor.",
   "Show the value": "Mostrar o valor",
   "Hide the value": "Ocultar o valor",
@@ -15535,7 +15643,6 @@ HomeswiftI18n.add("pt", {
   "Kept by {plugin}": "Guardado por {plugin}",
   "Not used yet": "Ainda sem uso",
   "config.json names it in:": "O config.json nomeia-o em:",
-  "Changed {date}": "Alterado a {date}",
   "Copy the reference": "Copiar a referência",
   "Replace the value…": "Substituir o valor…",
   "Unchanged": "Sem alterações",
@@ -15551,8 +15658,6 @@ HomeswiftI18n.add("pt", {
   "Delete {name}?": "Eliminar {name}?",
   "{plugin} keeps it: it signs in again, or asks you to pair again, without it.": "O {plugin} guarda-o: sem ele, volta a iniciar sessão, ou pede para emparelhar de novo.",
   "Its value is gone for good: the vault keeps no copy.": "O valor desaparece de vez: o cofre não guarda nenhuma cópia.",
-  "config.json names entries the vault does not have": "O config.json nomeia entradas que o cofre não tem",
-  "The bridge does not start until each one is added again, or its settings get another value.": "A ponte não arranca até cada uma ser adicionada de novo, ou as suas definições terem outro valor.",
   "Move {setting}": "Mover {setting}",
   "Entry for {setting}": "Entrada para {setting}",
   "Move config.json's secrets to the vault?": "Mover os segredos do config.json para o cofre?",
@@ -22500,10 +22605,19 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .vault-detail > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vault-detail .vault-users { padding: 0; font: inherit; color: inherit; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: 2px; }
 @media (hover: hover) and (pointer: fine) { .vault-detail .vault-users:hover { color: var(--text); } }
-span.warning { color: var(--warn); }
+span.warning, .vault-problem .warning { color: var(--warn); }
 .vault-when { flex-shrink: 0; white-space: nowrap; }
 /* On a phone an entry's date gives way to its name and kind; an expiry stays, it is a warning. */
 @media (max-width: 640px) { .vault-when > .muted { display: none; } }
+/* A problem's entry, what to do and where config.json names it, with the button that fixes it on the right. */
+.rows > .row.vault-problem > .who > div { white-space: normal; line-height: 1.5; }
+.rows > .row.vault-problem > button { flex-shrink: 0; }
+@media (max-width: 640px) { .rows > .row.vault-problem { flex-wrap: wrap; } .rows > .row.vault-problem > button { margin-left: auto; } }
+/* The Status page's vault widget: its figures, up to three problems as a short list, the way to the Vault page. */
+.vault-status { display: grid; gap: var(--space-12); }
+.vault-status ul { margin: 0; padding-left: 1.25em; display: grid; gap: var(--space-4); }
+.vault-status .actions, .vault-status .facts { margin-top: 0; }
+.vault-status .who .warning { color: var(--warn); }
 .secret-field { display: flex; gap: var(--space-8); align-items: center; }
 .secret-field input { flex: 1; min-width: 0; }
 

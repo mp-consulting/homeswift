@@ -523,6 +523,7 @@
         el("div", { class: "stat" }, HomeswiftCommon.icon("history"), el("b", { text: formatDuration(status.uptimeSeconds) }), el("span", { text: t("Up [uptime]") })))],
       quick: () => window.HomeswiftHome?.quickSection(accessories),
       digest: () => status.assistant ? digestWidget() : null,
+      vault: () => isAdmin() && status.vault ? vaultCard(status.vault) : null,
       activity: () => activity(accessories, withSlugs(status.bridges, "bridge")),
       energy: () => energy(),
       bridges: () => [el("h2", { text: status.bridges.length === 1 ? t("Bridge") : t("Bridges and accessories") }),
@@ -613,6 +614,7 @@
   // Each user's own, kept on the server with their other preferences (/api/preferences, `dashboard`).
 
   const dashboardWidgets = [["overview", t("Overview"), t("Health, accessories, plugins, uptime")], ["quick", t("Quick controls"), t("Favourite accessories and scenes")], ["digest", t("Daily digest"), t("The Assistant's summary of the day")],
+    ["vault", t("Vault"), t("Passwords, keys and tokens, and what needs attention")],
     ["activity", t("Activity"), t("Memory, CPU and response times")], ["energy", t("Energy"), t("Solar, home, grid and batteries")], ["bridges", t("Bridges"), t("Pairing codes and what each bridge runs")], ["system", t("System"), t("The machine, and Restart")]];
 
   /// The widgets in the user's order (new ones last), and those hidden.
@@ -722,6 +724,34 @@
 
   /// A newer release, when the bridge found one (ReleaseWatcher): how to get it on this install, the package to
   /// download on a NAS or the command to run, and its notes.
+  /// The vault at a glance (an administrator's /api/status has it): its entries, those config.json uses, the secrets
+  /// still in config.json, and up to three problems, most pressing first; the Vault page says how to fix them.
+  function vaultCard(vault) {
+    const { problems } = vault;
+    const date = (iso) => new Date(iso).toLocaleDateString(HomeswiftI18n.locale, { dateStyle: "medium" });
+    const says = {
+      missing: (problem) => t("{entry} is not in the vault: the bridge does not start without it", { entry: problem.entry }),
+      failing: (problem) => t("A setting cannot read {entry}", { entry: problem.entry }),
+      expired: (problem) => t("{entry} expired {date}", { entry: problem.entry, date: date(problem.expires) }),
+      expiring: (problem) => t("{entry} expires {date}", { entry: problem.entry, date: date(problem.expires) }),
+    };
+    const count = new Set(problems.map((problem) => problem.entry)).size;
+    const urgent = problems.some((problem) => problem.state !== "expiring");
+    const summary = count ? tn("One entry needs attention", "{n} entries need attention", count)
+      : vault.entries ? tn("{n} entry, nothing to do", "{n} entries, nothing to do", vault.entries)
+      : t("Empty: config.json's secrets can move here");
+    return [el("h2", { text: t("Vault") }),
+      el("div", { class: "card server vault-status" },
+        el("div", { class: "server-head" },
+          tile("key", urgent ? "heat" : count ? "yellow" : "green"),
+          el("div", { class: "who" }, el("strong", { text: t("Passwords, keys and tokens") }),
+            el("div", { class: count ? (urgent ? "error" : "warning") : "muted", text: summary }))),
+        el("div", { class: "facts" },
+          fact(t("Entries"), vault.entries), fact(t("Used by config.json"), vault.inUse), fact(t("Still in config.json"), vault.inConfig)),
+        problems.length ? el("ul", {}, problems.slice(0, 3).map((problem) => el("li", { text: says[problem.state]?.(problem) ?? problem.entry }))) : null,
+        el("div", { class: "actions" }, el("a", { class: "button", href: "/settings/vault", actionIcon: "key", text: t("Open the vault") })))];
+  }
+
   function updateCard(update) {
     if (!update?.available) return null;
     const released = update.publishedAt ? new Date(update.publishedAt).toLocaleDateString(HomeswiftI18n.locale) : null;

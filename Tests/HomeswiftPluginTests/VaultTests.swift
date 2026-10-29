@@ -228,4 +228,60 @@ struct VaultTests {
         #expect(try JSONValue(data: opened.platforms[0].json)["password"]?.stringValue == unique)
         #expect(Redaction.redactText("value \(unique) seen") == "value \(Redaction.placeholder) seen")
     }
+
+    @Test func resolvingAnEntryNotesWhenItWasUsedOnceAnHour() throws {
+        let directory = storage()
+        let vault = CredentialVault(storage: directory)
+        try vault.set("unifi", VaultEntry(kind: .secret, fields: ["value": "pw-used-1"]))
+        try vault.set("idle", VaultEntry(kind: .secret, fields: ["value": "pw-idle-2"]))
+        _ = try ConfigurationSecrets.opening(configuration(#"{ "platform": "UniFi", "name": "UniFi", "password": "vault:unifi" }"#), storage: directory)
+        let used = try #require(try vault.listing()["unifi"]?.used)
+        #expect(abs(used.timeIntervalSinceNow) < 60)
+        #expect(try vault.listing()["idle"]?.used == nil)
+
+        // Within the hour nothing is written; after it, the new date.
+        try vault.recordUse(["unifi"], now: used.addingTimeInterval(600))
+        #expect(try vault.listing()["unifi"]?.used == used)
+        let later = used.addingTimeInterval(CredentialVault.useResolution)
+        try vault.recordUse(["unifi", "gone"], now: later)
+        #expect(try vault.listing()["unifi"]?.used == later)
+        // Replacing the value keeps it.
+        try vault.update("unifi", kind: .secret, fields: ["value": "pw-new-3"])
+        #expect(try vault.listing()["unifi"]?.used == later)
+    }
+
+    @Test func aPluginReadingItsTokenNotesTheUse() throws {
+        let file = SecretFile<[String: String]>(vault: CredentialVault(storage: storage()), entryName: "plugin.home.tokens", owner: "eWeLink/Home")
+        try file.save(["token": "plugin-token-4"])
+        #expect(try file.vault.listing()["plugin.home.tokens"]?.used == nil)
+        #expect(file.load() == ["token": "plugin-token-4"])
+        #expect(try file.vault.listing()["plugin.home.tokens"]?.used != nil)
+    }
+
+    @Test func healthReportsWhatNeedsAttentionMostPressingFirst() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let day: TimeInterval = 86_400
+        let config: JSONValue = ["platforms": [
+            ["platform": "UniFi", "name": "Home", "password": "vault:unifi", "apiKey": "vault:unifi#username", "token": "vault:gone"],
+            ["platform": "Govee", "name": "Govee", "apiKey": "vault:govee", "token": "vault:plugin.home.tokens"],
+            ["platform": "Hue", "name": "Hue", "token": "vault:hue"],
+        ]]
+        let entries: [String: VaultEntry] = [
+            "unifi": VaultEntry(kind: .secret, fields: ["value": "x"], expires: now.addingTimeInterval(-day)),
+            "govee": VaultEntry(kind: .apiKey, fields: ["key": "x"], expires: now.addingTimeInterval(10 * day)),
+            "hue": VaultEntry(kind: .token, fields: ["token": "x"], expires: now.addingTimeInterval(90 * day)),
+            "plugin.home.tokens": VaultEntry(kind: .token, fields: ["token": "x"], owner: "eWeLink/Home"),
+        ]
+        let health = VaultHealth.check(config: config, entries: entries, now: now)
+        #expect(health.problems.map { "\($0.entry) \($0.state.rawValue)" } == [
+            "gone missing", "plugin.home.tokens failing", "unifi failing", "unifi expired", "govee expiring",
+        ])
+        #expect(health.problems[0].usedBy == ["UniFi/Home:token"])
+        #expect(health.problems[1].reason == "the entry belongs to eWeLink/Home")
+        #expect(health.problems[2].usedBy == ["UniFi/Home:apiKey"])
+        #expect(health.problems[2].reason == "the entry has no field username")
+        #expect(health.problems[3].usedBy == ["UniFi/Home:apiKey", "UniFi/Home:password"])
+        #expect(health.states == ["gone": .missing, "plugin.home.tokens": .failing, "unifi": .failing, "govee": .expiring])
+        #expect(VaultHealth.check(config: ["platforms": []], entries: ["hue": entries["hue"]!], now: now).problems.isEmpty)
+    }
 }

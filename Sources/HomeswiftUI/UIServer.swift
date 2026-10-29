@@ -1155,6 +1155,8 @@ public final class UIServer: Sendable {
         status["username"] = .string(username)
         status["system"] = HomeswiftCatalog.systemJSON()
         if let update = options.releases?.json() { status["update"] = update }
+        // The vault's widget, for the administrators who can act on it.
+        if admin, let vault = catalog.vaultSummary() { status["vault"] = vault }
         return .object(status)
     }
 

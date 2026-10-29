@@ -79,7 +79,9 @@ An entry has:
   and Assistant prompts, on top of today's key-name and shape rules.
 - **Audit.** Creates, replaces, deletes and migrations go to the audit log with who made them; reads only update
   last used.
-- **Health.** The daily digest and the Status page report failing and expiring entries.
+- **Health.** The daily digest and the Status page report failing and expiring entries (`VaultHealth`: missing,
+  failing, expired, expiring within 30 days); `list_vault` lists entries with their health for MCP clients. Last used
+  is written once an hour at most, so resolving on every save does not rewrite `vault.json` each time.
 
 ## Migration
 
