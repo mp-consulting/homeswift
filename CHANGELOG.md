@@ -13,6 +13,11 @@ All notable changes to this project are documented here. The format follows
   documents for it, are answered as `/mcp`, `/oauth` and the sign-in page, whose files and API calls stay under the
   path. Off without it.
 
+### Fixed
+
+- Quick controls groups its heading and scene shortcuts in one card; photographic scene tiles replace cramped
+  thumbnail pills and scroll horizontally on phones.
+
 ## [0.14.0] - 2026-10-28
 
 ### Added

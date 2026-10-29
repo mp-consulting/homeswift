@@ -78,7 +78,7 @@ extension WingmanPlugin {
   }
 
   async function forget(wingman) {
-    if (!confirm(t("Remove {name}? Its Apple Home accessories leave Homeswift. Remove this bridge from Wingman's Paired Bridges too.", { name: wingman.name }))) return;
+    if (!await HomeswiftCommon.confirmDialog(t("Remove {name}? Its Apple Home accessories leave Homeswift. Remove this bridge from Wingman's Paired Bridges too.", { name: wingman.name }))) return;
     await removeEntry(wingman.id);
     setTimeout(refresh, 600);
   }

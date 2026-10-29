@@ -352,7 +352,7 @@ enum WebAssets {
   async function editChildBridge(entry) {
     const path = `/api/config/block/${encodeURIComponent(entry.platform)}/${encodeURIComponent(entry.name)}`;
     let block;
-    try { block = await api(path); } catch (error) { alert(error.message); return; }
+    try { block = await api(path); } catch (error) { HomeswiftCommon.showAlert(error.message); return; }
     const enabled = el("input", { type: "checkbox", checked: Boolean(block._bridge) });
     const name = el("input", { value: block._bridge?.name ?? "", placeholder: entry.name });
     const port = el("input", { type: "number", min: 1, max: 65535, value: block._bridge?.port ?? "", placeholder: t("Automatic") });
@@ -1532,7 +1532,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const current = HomeswiftCommon.preferences().language || "auto";
     const choose = async (code) => {
       if (code === current) return;
-      try { HomeswiftCommon.applyPreferences(await api("/api/preferences", { method: "PUT", body: { language: code } })); } catch (e) { alert(e.message); }
+      try { HomeswiftCommon.applyPreferences(await api("/api/preferences", { method: "PUT", body: { language: code } })); } catch (e) { HomeswiftCommon.showAlert(e.message); }
     };
     HomeswiftCommon.menu(trigger, [
       { label: t("Automatic"), icon: flag(null), checked: current === "auto", onSelect: () => choose("auto") },
@@ -1589,7 +1589,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     } catch (e) {
       if (e instanceof ApiError) {
         closeRestartOverlay();
-        alert(e.message); button.disabled = false; return;
+        HomeswiftCommon.showAlert(e.message); button.disabled = false; return;
       }
       // A disconnected or aborted request can mean the restart already began.
     }
@@ -1738,14 +1738,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return el("span", { class: "spinner", role: "status", "aria-label": t("Loading") });
   }
   /// Shows the view at `path` without loading the page again; `replace` keeps it out of the history.
-  function navigate(path, { replace = false } = {}) {
-    if (leaveGuard && !leaveGuard()) return;
+  async function navigate(path, { replace = false } = {}) {
+    if (leaveGuard && !(await leaveGuard())) return;
     history[replace ? "replaceState" : "pushState"](null, "", path);
     route();
   }
-  window.addEventListener("popstate", () => {
+  window.addEventListener("popstate", async () => {
     if (!(auth && auth.authenticated)) return;
-    if (leaveGuard && !leaveGuard()) { history.pushState(null, "", shownPath); return; }
+    if (leaveGuard && !(await leaveGuard())) { history.pushState(null, "", shownPath); return; }
     route();
   });
   // A link within the UI changes the view in place. A plugin's own page (/plugins/<slug>) is a page of its own,
@@ -1988,7 +1988,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       } catch (e) {
         layout = before;
         renderDashboard(layout);
-        alert(e.message);
+        HomeswiftCommon.showAlert(e.message);
       }
     };
     HomeswiftCommon.menu(trigger, [
@@ -2600,14 +2600,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function accessoryActions(accessory, arrange = []) {
     const use = [
       accessory.history ? { label: t("History"), icon: "chart", onSelect: () => HomeswiftAdmin.history(accessory) } : null,
-      accessory.supportsIdentify ? { label: t("Identify"), icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(accessory.id)}/identify`, { method: "POST" }).catch((e) => alert(e.message)) } : null,
+      accessory.supportsIdentify ? { label: t("Identify"), icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(accessory.id)}/identify`, { method: "POST" }).catch((e) => HomeswiftCommon.showAlert(e.message)) } : null,
       window.HomeswiftChat?.available() ? { label: t("Ask the Assistant"), icon: sparkle(), onSelect: () => HomeswiftChat.ask(t("About {name}: ", { name: accessory.name })) } : null,
     ];
     const layout = [...arrange, ...(isAdmin() ? window.HomeswiftHome?.layoutActions(accessory) ?? [] : [])];
     const manage = [
       // A paused plugin's accessories do nothing until it runs again.
       accessory.paused && isAdmin() ? { label: t("Resume {name}", { name: accessory.platformName }), icon: "play", onSelect: async () => {
-        try { await setPaused(accessory.platform, accessory.platformName, false); route(); } catch (e) { alert(e.message); }
+        try { await setPaused(accessory.platform, accessory.platformName, false); route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
       } } : null,
       isAdmin() ? { label: t("Show its log"), icon: "logs", href: `/logs/${accessory.slug ?? encodeURIComponent(accessory.id)}` } : null,
       accessory.platform && isAdmin() ? { label: t("Plugin settings"), icon: "gear", href: `/plugins/${slug(accessory.platformName || accessory.platform)}` } : null,
@@ -3124,7 +3124,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     function blockActions(block, plugin, instance) {
       if (block.system) return [{ label: t("Settings"), icon: "gear", href: settingsLink(block) }, { label: t("Edit as JSON"), icon: "code", href: expertLink(block, "json") }];
       const toggle = async (paused) => {
-        try { await setPaused(block.platform, block.name, paused); route(); } catch (e) { alert(e.message); }
+        try { await setPaused(block.platform, block.name, paused); route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
       };
       return [
         plugin && plugin.hasPages && instance && !instance.paused ? { label: t("Open its page"), icon: "open", href: pluginPage(block) } : null,
@@ -3159,7 +3159,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         location.href = pluginPage({ slug: slug(block.name) });
       } catch (e) {
         button.disabled = false;
-        alert(e.message);
+        HomeswiftCommon.showAlert(e.message);
       }
     }
 
@@ -3230,8 +3230,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   /// Takes a block out of config.json, after asking: its accessories leave the Home app.
   async function removeBlock(block, after = () => route()) {
-    if (!confirm(t("Remove \"{name}\" from config.json? Its accessories leave the Home app.", { name: block.name }))) return;
-    try { await api(`/api/config/platforms/${block.index}`, { method: "DELETE" }); leaveGuard = null; after(); } catch (e) { alert(e.message); }
+    if (!await HomeswiftCommon.confirmDialog(t("Remove \"{name}\" from config.json? Its accessories leave the Home app.", { name: block.name }))) return;
+    try { await api(`/api/config/platforms/${block.index}`, { method: "DELETE" }); leaveGuard = null; after(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
   }
 
   /// A block's address: its plugin's own page when it has one, else its settings. `expertLink` is always the form
@@ -3466,7 +3466,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("p", { class: "muted", text: t("Takes the block out of config.json. Its accessories leave the Home app, with their rooms, scenes and automations.") })),
       el("button", { actionIcon: "trash", class: "danger", text: t("Remove"), onclick: () => removeBlock(block, () => navigate("/plugins")) })) : null;
 
-    leaveGuard = () => !dirty() || isNew || confirm(t("Leave without saving your changes?"));
+    leaveGuard = async () => !dirty() || isNew || await HomeswiftCommon.confirmDialog(t("Leave without saving your changes?"));
     leaveGuard.quiet = () => isNew || !dirty();
     show(main,
       breadcrumb([t("Plugins"), "/plugins"], [block.name, isNew ? "/plugins" : settingsLink(block)], [isNew ? t("Add") : hasPage ? t("Expert") : t("Settings")]),
@@ -3577,8 +3577,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const editor = el("details", { class: "more budget-editor" },
       el("summary", { text: t("Edit the budgets") }),
       el("div", { class: "fields" }, limits.map(([key, label]) => el("label", { class: "field" }, el("span", { class: "field-title", text: label }), inputs[key]))),
-      el("div", { class: "actions" }, budgetMessage, el("button", { actionIcon: "check", class: "primary", text: t("Save the budgets"), onclick: () => {
-        if (dirty() && !confirm(t("The form below has other unsaved changes: save them with the budgets?"))) return;
+      el("div", { class: "actions" }, budgetMessage, el("button", { actionIcon: "check", class: "primary", text: t("Save the budgets"), onclick: async () => {
+        if (dirty() && !await HomeswiftCommon.confirmDialog(t("The form below has other unsaved changes: save them with the budgets?"))) return;
         const budget = {};
         for (const [key] of limits) if (inputs[key].value !== "" && Number(inputs[key].value) > 0) budget[key] = Number(inputs[key].value);
         const value = formValue();
@@ -4228,8 +4228,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("span", { class: app.scope === "admin" ? "pill status admin" : "pill status standby", text: scopes[app.scope] || app.scope }),
       menuButton(t("Actions for {name}", { name: app.client }), () => [
         { label: t("Disconnect"), icon: "trash", danger: true, onSelect: async () => {
-          if (!confirm(t("Disconnect {name}? It is refused at once and must sign in again.", { name: app.client }))) return;
-          try { await api(`/api/account/apps/${encodeURIComponent(app.id)}`, { method: "DELETE" }); route(); } catch (e) { alert(e.message); }
+          if (!await HomeswiftCommon.confirmDialog(t("Disconnect {name}? It is refused at once and must sign in again.", { name: app.client }))) return;
+          try { await api(`/api/account/apps/${encodeURIComponent(app.id)}`, { method: "DELETE" }); route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
         } },
       ])));
     return el("div", { class: "card account-form" },
@@ -4445,9 +4445,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         user.you ? { label: t("Your account"), icon: "user", href: "/account" } : null,
         lastAdmin ? null : { label: user.you ? t("Remove your account") : t("Remove"), icon: "trash", danger: true, onSelect: async () => {
           const names = { name: user.name, username: user.username };
-          if (!confirm(user.you ? t("Remove {name} ({username})? They are signed out at once. That is you: this browser is signed out too.", names)
+          if (!await HomeswiftCommon.confirmDialog(user.you ? t("Remove {name} ({username})? They are signed out at once. That is you: this browser is signed out too.", names)
             : t("Remove {name} ({username})? They are signed out at once.", names))) return;
-          try { await api(`/api/users/${encodeURIComponent(user.username)}`, { method: "DELETE" }); if (user.you) await loadAuth(); else route(); } catch (e) { alert(e.message); }
+          try { await api(`/api/users/${encodeURIComponent(user.username)}`, { method: "DELETE" }); if (user.you) await loadAuth(); else route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
         } },
       ]);
       list.append(el("div", { class: "card", "data-key": `user:${user.username.toLowerCase()}` },
@@ -4534,8 +4534,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           el("span", { class: expired ? "pill status bad" : "muted", text: expired ? t("Expired") : "" }),
           menuButton(t("Actions for the token {name}", { name: token.name }), () => [
             { label: t("Revoke"), icon: "trash", danger: true, onSelect: async () => {
-              if (!confirm(t("Revoke the token “{name}”? Scripts using it are refused at once.", { name: token.name }))) return;
-              try { await api(`/api/tokens/${encodeURIComponent(token.id)}`, { method: "DELETE" }); route(); } catch (e) { alert(e.message); }
+              if (!await HomeswiftCommon.confirmDialog(t("Revoke the token “{name}”? Scripts using it are refused at once.", { name: token.name }))) return;
+              try { await api(`/api/tokens/${encodeURIComponent(token.id)}`, { method: "DELETE" }); route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
             } },
           ])));
     });
@@ -4620,7 +4620,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const remove = own.length > 1 ? t("Remove your image {n}", { n: index + 1 }) : t("Remove your image");
         return el("div", { class: "wallpaper-own" }, choice,
           el("button", { type: "button", class: "wallpaper-remove", "aria-label": remove, title: remove, onclick: async () => {
-            try { preferences = HomeswiftCommon.applyPreferences(await api(`/api/preferences/wallpaper/${encodeURIComponent(id)}`, { method: "DELETE" })); draw(); } catch (e) { alert(e.message); }
+            try { preferences = HomeswiftCommon.applyPreferences(await api(`/api/preferences/wallpaper/${encodeURIComponent(id)}`, { method: "DELETE" })); draw(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
           } }, HomeswiftCommon.icon("close")));
       };
       body.replaceChildren(
@@ -4942,7 +4942,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         saveDetails.checked = (await api("/api/logs/settings", { method: "PUT", body: { saveDetails: saveDetails.checked } })).saveDetails;
       } catch (e) {
         saveDetails.checked = !saveDetails.checked;
-        alert(e.message);
+        HomeswiftCommon.showAlert(e.message);
       }
       saveDetails.disabled = false;
     });
@@ -4985,8 +4985,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         phone ? { separator: true } : null,
         { label: chosen ? t("Download this range") : t("Download the whole log"), icon: "download", href: `/api/logs/download${query.size ? `?${query}` : ""}` },
         { label: t("Empty the log…"), icon: "trash", danger: true, onSelect: async () => {
-          if (!confirm(t("Empty the log? Every line goes, in memory and the files kept on disk (up to a week). This cannot be undone."))) return;
-          try { await api("/api/logs/truncate", { method: "POST", body: {} }); await load(); } catch (e) { alert(e.message); }
+          if (!await HomeswiftCommon.confirmDialog(t("Empty the log? Every line goes, in memory and the files kept on disk (up to a week). This cannot be undone."))) return;
+          try { await api("/api/logs/truncate", { method: "POST", body: {} }); await load(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
         } },
       ];
     });
@@ -5027,7 +5027,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     let controller = null;
     button.addEventListener("click", async () => {
       const picked = lines();
-      if (!picked.length) { alert(t("No line is shown: widen the range or the filters first.")); return; }
+      if (!picked.length) { HomeswiftCommon.showAlert(t("No line is shown: widen the range or the filters first.")); return; }
       controller?.abort();
       const own = controller = new AbortController();
       let closed = false;
@@ -8535,7 +8535,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   /// Runs `work` with `button` busy: disabled, and its spinner shown after `delay` ms, so a quick action shows none. An
   /// error goes to `report` (the default alerts it); `report` null rethrows it.
-  async function busyButton(button, work, { report = (e) => alert(e.message), delay = 0 } = {}) {
+  async function busyButton(button, work, { report = (e) => HomeswiftCommon.showAlert(e.message), delay = 0 } = {}) {
     if (button) button.disabled = true;
     const spin = button ? setTimeout(() => button.classList.add("busy"), delay) : null;
     try {
@@ -8570,8 +8570,44 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return `${whole.format(bytes)} B`;
   }
 
+  // Queue modal messages so simultaneous failures never stack focus traps.
+  let dialogQueue = Promise.resolve();
+  let dialogSequence = 0;
+  function messageDialog(message, { kind = "alert", value = "" } = {}) {
+    const show = () => new Promise((resolve) => {
+      const previousFocus = document.activeElement;
+      const id = `message-dialog-${++dialogSequence}`;
+      const input = kind === "prompt" ? el("input", { type: "text", value, "aria-labelledby": `${id}-body` }) : null;
+      const cancel = kind !== "alert" ? el("button", { type: "button", actionIcon: "close", text: t("Cancel"), onclick: () => dialog.close("cancel") }) : null;
+      const ok = el("button", { type: "submit", class: "primary", actionIcon: "check", text: kind === "confirm" ? t("Continue") : t("OK") });
+      const form = el("form", { method: "dialog" },
+        el("h2", { id: `${id}-title`, text: kind === "alert" ? t("Message") : kind === "prompt" ? t("Enter a value") : t("Confirm") }),
+        el("p", { id: `${id}-body`, class: "dialog-message", text: String(message) }), input,
+        el("div", { class: "actions" }, cancel, ok));
+      const dialog = el("dialog", { class: "admin-dialog card message-dialog", "aria-labelledby": `${id}-title`, "aria-describedby": `${id}-body` }, form);
+      form.addEventListener("submit", (event) => { event.preventDefault(); dialog.close("ok"); });
+      dialog.addEventListener("close", () => {
+        const result = dialog.returnValue === "ok";
+        const answer = input ? (result ? input.value : null) : result;
+        dialog.remove();
+        if (previousFocus?.isConnected) previousFocus.focus();
+        resolve(answer);
+      }, { once: true });
+      document.body.append(dialog);
+      dialog.showModal();
+      (input || cancel || ok).focus();
+      input?.select();
+    });
+    const result = dialogQueue.then(show);
+    dialogQueue = result.catch(() => {});
+    return result;
+  }
+  const showAlert = (message) => messageDialog(message);
+  const confirmDialog = (message) => messageDialog(message, { kind: "confirm" });
+  const promptDialog = (message, value = "") => messageDialog(message, { kind: "prompt", value });
+
   window.HomeswiftCommon = {
-    busyButton, scaledCanvas, byteSize,
+    showAlert, confirmDialog, promptDialog, busyButton, scaledCanvas, byteSize,
     $, el, icon, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
@@ -8867,11 +8903,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   /// What an accessory card's menu adds: its room, a name for these pages, Quick Controls, hiding.
   function layoutActions(accessory) {
-    const change = (fields) => changeLayout({ accessories: { [accessory.id]: fields } }).then(() => app.route()).catch((e) => alert(e.message));
+    const change = (fields) => changeLayout({ accessories: { [accessory.id]: fields } }).then(() => app.route()).catch((e) => HomeswiftCommon.showAlert(e.message));
     return [
       { label: accessory.room ? t("Room: {room}…", { room: accessory.room }) : t("Put in a room…"), icon: "room", onSelect: () => chooseRoom(accessory, change) },
-      { label: t("Name on these pages…"), icon: "edit", onSelect: () => {
-        const name = prompt(t("A name for {name} on these pages (the Home app keeps its own). Empty goes back to {name}.", { name: accessory.name }), accessory.displayName || "");
+      { label: t("Name on these pages…"), icon: "edit", onSelect: async () => {
+        const name = await HomeswiftCommon.promptDialog(t("A name for {name} on these pages (the Home app keeps its own). Empty goes back to {name}.", { name: accessory.name }), accessory.displayName || "");
         if (name !== null) change({ name: name.trim() || null });
       } },
       { label: accessory.favourite ? t("Remove from Quick Controls") : t("Add to Quick Controls"), icon: "star", onSelect: () => change({ favourite: !accessory.favourite }) },
@@ -8882,7 +8918,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   async function chooseRoom(accessory, change, note = "") {
     let rooms = [];
     try { rooms = (await app.api("/api/rooms")).rooms.map((room) => room.name); } catch {}
-    const room = prompt((rooms.length
+    const room = await HomeswiftCommon.promptDialog((rooms.length
       ? t("The room of {name}. Rooms: {rooms}. A new name adds the room; empty takes it out of its room.", { name: displayName(accessory), rooms: rooms.join(", ") })
       : t("The room of {name}. A new name adds the room; empty takes it out of its room.", { name: displayName(accessory) })) + (note ? `\n\n${note}` : ""), accessory.room || "");
     if (room !== null) await change({ room: room.trim() || null });
@@ -8974,6 +9010,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         if (standalone) section.append(el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("star")), el("p", { class: "muted", text: t("Nothing here yet. On the Accessories page, a card's menu adds it to the Quick Controls; scenes you make show here too.") })));
         return;
       }
+      section.classList.add("card");
       const rooms = [...new Set(favourites.map((a) => a.room).filter(Boolean))];
       // `append` is the DOM's: it writes null and arrays as text, so the parts go in flat and without the empty ones.
       section.append(...[
@@ -9067,7 +9104,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
 
   function sceneButton(scene) {
-    const button = el("button", { class: "scene-run", title: t("Run {name}", { name: scene.name }) }, artworkImage(scene.artworkId, "mood-swatch") || tile("play", scene.security ? "violet" : "orange"), el("span", { text: scene.name }));
+    const picture = artworkImage(scene.artworkId, "quick-scene-image");
+    const button = el("button", { type: "button", class: `scene-run${picture ? " pictured" : ""}`, title: t("Run {name}", { name: scene.name }) }, picture, el("span", { class: "quick-scene-label" }, HomeswiftCommon.icon("play"), el("span", { text: scene.name })));
     button.addEventListener("click", () => runScene(scene, button));
     return button;
   }
@@ -9077,7 +9115,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     let confirmSecurity = false;
     if (scene.security) {
       const which = scene.actions.filter((a) => a.security).map((a) => `${a.name || a.id}: ${a.characteristic}`).join(", ");
-      if (!confirm(t("{scene} changes a lock, a door or an alarm ({which}). Run it?", { scene: scene.name, which }))) return;
+      if (!await HomeswiftCommon.confirmDialog(t("{scene} changes a lock, a door or an alarm ({which}). Run it?", { scene: scene.name, which }))) return;
       confirmSecurity = true;
     }
     button?.classList.add("busy");
@@ -9086,10 +9124,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const result = await app.api(`/api/scenes/${encodeURIComponent(scene.id)}/run`, { method: "POST", body: { confirmSecurity } });
       if (!result.ok) {
         const failures = result.results.filter((r) => !r.ok).map((r) => `${r.name || r.id} ${r.characteristic}: ${HomeswiftI18n.message(r.error || r.skipped)}`);
-        alert(t("{scene} ran, but not everything worked:\n{failures}", { scene: scene.name, failures: failures.join("\n") }));
+        HomeswiftCommon.showAlert(t("{scene} ran, but not everything worked:\n{failures}", { scene: scene.name, failures: failures.join("\n") }));
       }
       return result;
-    } catch (e) { alert(e.message); } finally {
+    } catch (e) { HomeswiftCommon.showAlert(e.message); } finally {
       button?.classList.remove("busy");
       if (button) button.disabled = false;
     }
@@ -9343,13 +9381,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       run.addEventListener("click", async () => { if (await runScene(scene, run)) app.route(); });
       const stop = scene.stoppable ? el("button", { type: "button", actionIcon: "stop", text: t("Stop"), onclick: async () => {
         const confirmSecurity = scene.security || scene.stopSecurity;
-        if (confirmSecurity && !confirm(t("Restore the previous state of this scene’s locks, doors or alarms?"))) return;
+        if (confirmSecurity && !await HomeswiftCommon.confirmDialog(t("Restore the previous state of this scene’s locks, doors or alarms?"))) return;
         stop.disabled = true;
         try {
           const result = await app.api(`/api/scenes/${encodeURIComponent(scene.id)}/stop`, { method: "POST", body: { confirmSecurity } });
-          if (!result.ok) alert(result.failed.map((f) => HomeswiftI18n.message(f.error)).join("\n"));
+          if (!result.ok) HomeswiftCommon.showAlert(result.failed.map((f) => HomeswiftI18n.message(f.error)).join("\n"));
           app.route();
-        } catch (e) { alert(e.message); stop.disabled = false; }
+        } catch (e) { HomeswiftCommon.showAlert(e.message); stop.disabled = false; }
       } }) : null;
       return el("div", { class: "card server scene-card" },
         artworkImage(scene.artworkId),
@@ -9365,7 +9403,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             { label: t("Edit"), icon: "edit", href: `/scenes/${encodeURIComponent(scene.id)}` },
             { label: t("Delete"), icon: "trash", danger: true, onSelect: async () => {
               if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete the scene {name}?", { name: scene.name }), text: t("This removes the scene and its automatic triggers. This cannot be undone."), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
-              try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); app.route(); } catch (e) { alert(e.message); }
+              try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
             } },
           ])));
     };
@@ -10750,6 +10788,9 @@ HomeswiftI18n.add("es", {
   "Camera": "Cámara",
   "Camera Operating Mode": "Modo de funcionamiento de la cámara",
   "Camera Operating Mode Indicator": "Indicador de funcionamiento de la cámara",
+  "Message": "Mensaje",
+  "Enter a value": "Introduce un valor",
+  "Confirm": "Confirmar",
   "Cancel": "Cancelar",
   "Candle flicker": "Vela parpadeante",
   "Candlelight": "Luz de velas",
@@ -13067,6 +13108,9 @@ HomeswiftI18n.add("fr", {
   "Camera": "Caméra",
   "Camera Operating Mode": "Mode de fonctionnement de la caméra",
   "Camera Operating Mode Indicator": "Voyant de fonctionnement de la caméra",
+  "Message": "Message",
+  "Enter a value": "Saisir une valeur",
+  "Confirm": "Confirmer",
   "Cancel": "Annuler",
   "Candle flicker": "Bougie vacillante",
   "Candlelight": "Aux chandelles",
@@ -15384,6 +15428,9 @@ HomeswiftI18n.add("pt", {
   "Camera": "Câmara",
   "Camera Operating Mode": "Modo de funcionamento da câmara",
   "Camera Operating Mode Indicator": "Indicador de funcionamento da câmara",
+  "Message": "Mensagem",
+  "Enter a value": "Introduzir um valor",
+  "Confirm": "Confirmar",
   "Cancel": "Cancelar",
   "Candle flicker": "Vela tremeluzente",
   "Candlelight": "Luz de velas",
@@ -18337,7 +18384,7 @@ HomeswiftI18n.add("pt", {
       });
       return await readBlock();
     } catch (e) {
-      alert(e.message);
+      HomeswiftCommon.showAlert(e.message);
       return null;
     }
   }
@@ -18456,7 +18503,7 @@ HomeswiftI18n.add("pt", {
           if (!response.ok) throw new Error(t("This file is not a picture."));
           await setPicture(scene, await response.blob(), tileNode);
           dialog.close();
-        } catch (e) { alert(e.message); }
+        } catch (e) { HomeswiftCommon.showAlert(e.message); }
       } }, el("img", { src: `/artwork-${artwork.id}.webp`, alt: "", loading: "lazy" }), el("span", { class: "name", text: artwork.name })));
       dialog.addEventListener("close", () => dialog.remove());
       document.body.append(dialog); dialog.showModal(); search.focus();
@@ -18497,7 +18544,7 @@ HomeswiftI18n.add("pt", {
         cache.set(scene.id, { version: String(version), data: Promise.resolve(data) });
         await refresh();
       } catch (e) {
-        alert(e.message);
+        HomeswiftCommon.showAlert(e.message);
       } finally {
         tileNode.classList.remove("busy");
       }
@@ -18515,7 +18562,7 @@ HomeswiftI18n.add("pt", {
         cache.delete(scene.id);
         await refresh();
       } catch (e) {
-        alert(e.message);
+        HomeswiftCommon.showAlert(e.message);
       }
     }
 
@@ -18688,7 +18735,7 @@ HomeswiftI18n.add("pt", {
       try {
         await (control ? act(control, () => pair(host), null) : pair(host));
       } catch (e) {
-        alert(e.message);
+        HomeswiftCommon.showAlert(e.message);
       } finally {
         pairingUntil.delete(host);
         asking.delete(host);
@@ -21364,10 +21411,20 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 .suggest.ai-busy { opacity: 0.8; }
 .quick { margin: 0 0 var(--space-6); }
 .quick .service-name { margin-top: var(--space-16); }
-.quick-scenes { display: flex; flex-wrap: wrap; gap: var(--space-10); margin: 0 0 var(--space-14); }
-.scene-run { display: inline-flex; align-items: center; gap: var(--space-10); padding: var(--space-6) var(--space-16) var(--space-6) var(--space-6); border-radius: var(--radius-pill); font-weight: var(--weight-medium); }
-.scene-run .tile { width: 30px; height: 30px; border-radius: 50%; }
+.quick > .section-head { margin-bottom: var(--space-16); gap: var(--space-12); }
+.quick-scenes { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--space-12); margin: 0; }
+.scene-run { position: relative; isolation: isolate; display: grid; align-items: end; min-width: 0; min-height: 140px; padding: var(--space-14); overflow: hidden; border-radius: var(--radius-lg); text-align: left; font-weight: var(--weight-semibold); }
+.scene-run.pictured { color: #fff; background: #172437; }
+.quick-scene-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: -2; }
+.scene-run.pictured::after { content: ""; position: absolute; inset: 0; background: linear-gradient(transparent 20%, rgba(0, 0, 0, .8)); z-index: -1; }
+.quick-scene-label { display: flex; align-items: center; gap: var(--space-8); }
+.quick-scene-label > svg { flex: none; width: 18px; height: 18px; }
+.quick-scene-label > span { overflow-wrap: anywhere; }
 .scene-run.busy { opacity: 0.6; }
+@media (max-width: 640px) {
+  .quick-scenes { grid-template-columns: none; grid-template-rows: auto; grid-auto-flow: column; grid-auto-columns: min(240px, 85%); overflow-x: auto; scroll-snap-type: x proximity; padding: var(--space-4); }
+  .quick-scenes > .scene-run { scroll-snap-align: start; }
+}
 .scene-card .server-head > button { flex: none; }
 /* Moods: the rooms as chips, what plays, the Assistant's box, the collection as pills with their colours. Pills and chips
    are controls: no text selection or callout on a long press, press feedback at once, the lift on hover only with a
@@ -22970,6 +23027,10 @@ select option:disabled { color: var(--muted); }
   .scene-flow-body .scene-condition-remove { align-self: stretch; width: 100%; margin-top: var(--space-4); }
 }
 
+.message-dialog { max-width: min(560px, calc(100vw - 32px)); }
+.dialog-message { white-space: pre-wrap; overflow-wrap: anywhere; }
+.message-dialog input { width: 100%; min-width: 0; }
+
 """#),
         "sw.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI's service worker: it only shows the bridge's push notifications (Notifications page, "this browser")
@@ -23212,7 +23273,7 @@ self.addEventListener("notificationclick", (event) => {
       }
       if (characteristic.security && !held) {
         const label = characteristic.format === "bool" ? (value ? t("On") : t("Off")) : labelFor(characteristic.type, value);
-        if (!confirm(t("Set {setting} of {name} to {value}?", { setting: typeName(characteristic.type).toLowerCase(), name: accessory.name, value: label }))) { ctx.paint(); return; }
+        if (!await HomeswiftCommon.confirmDialog(t("Set {setting} of {name} to {value}?", { setting: typeName(characteristic.type).toLowerCase(), name: accessory.name, value: label }))) { ctx.paint(); return; }
       }
       const before = characteristic.value;
       characteristic.value = value;
@@ -24779,7 +24840,7 @@ self.addEventListener("notificationclick", (event) => {
       full ? null : { label: t("All controls"), icon: "sliders", onSelect: () => open(ctx.accessory, ctx.options) },
       full ? null : { separator: true },
       ...(ctx.options.actions ? ctx.options.actions(ctx.accessory)
-        : ctx.accessory.supportsIdentify ? [{ label: t("Identify"), icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(ctx.accessory.id)}/identify`, { method: "POST" }).catch((e) => alert(e.message)) }] : []),
+        : ctx.accessory.supportsIdentify ? [{ label: t("Identify"), icon: "identify", onSelect: () => api(`/api/accessories/${encodeURIComponent(ctx.accessory.id)}/identify`, { method: "POST" }).catch((e) => HomeswiftCommon.showAlert(e.message)) }] : []),
     ];
     return menuButton(t("Actions for {name}", { name: ctx.accessory.name }), items);
   }

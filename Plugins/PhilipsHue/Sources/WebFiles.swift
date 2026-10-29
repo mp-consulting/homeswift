@@ -169,7 +169,7 @@ h2 { margin: 0 0 10px; }
     const id = accessory.id.slice(prefix.length);
     const item = items().find((entry) => entry.id === id);
     return [
-      { label: t("Identify"), icon: "identify", onSelect: () => request("identify", { method: "POST", body: { id } }).catch((e) => alert(e.message)) },
+      { label: t("Identify"), icon: "identify", onSelect: () => request("identify", { method: "POST", body: { id } }).catch((e) => HomeswiftCommon.showAlert(e.message)) },
       item ? { label: t("Leave out of the Home app"), icon: "eye", onSelect: () => toggleList(listKey, item.name) } : null,
       { label: t("Show its log"), icon: "logs", href: `/logs/${encodeURIComponent(accessory.id)}` },
     ].filter(Boolean);
@@ -242,7 +242,7 @@ h2 { margin: 0 0 10px; }
           await request("autoplay", { method: "POST", body: { id: scene.id, on: !on } });
           on = !on;
           refresh();
-        } catch (e) { alert(e.message); }
+        } catch (e) { HomeswiftCommon.showAlert(e.message); }
         return on;
       },
     };
@@ -308,7 +308,7 @@ h2 { margin: 0 0 10px; }
       scene.smart && !/natural light/i.test(scene.name) ? el("span", { class: "kind", text: t("Natural light") }) : null);
     const send = async (path, body) => {
       button.classList.add("busy");
-      try { await request(path, { method: "POST", body }); await refresh(); } catch (e) { alert(e.message); } finally { button.classList.remove("busy"); }
+      try { await request(path, { method: "POST", body }); await refresh(); } catch (e) { HomeswiftCommon.showAlert(e.message); } finally { button.classList.remove("busy"); }
     };
     const recall = (dynamic) => send("recall", { id: scene.id, dynamic });
     // A tap recalls the scene; on an active one, it switches the room off, as the Home app's switch does.

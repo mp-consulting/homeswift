@@ -2042,10 +2042,20 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 .suggest.ai-busy { opacity: 0.8; }
 .quick { margin: 0 0 var(--space-6); }
 .quick .service-name { margin-top: var(--space-16); }
-.quick-scenes { display: flex; flex-wrap: wrap; gap: var(--space-10); margin: 0 0 var(--space-14); }
-.scene-run { display: inline-flex; align-items: center; gap: var(--space-10); padding: var(--space-6) var(--space-16) var(--space-6) var(--space-6); border-radius: var(--radius-pill); font-weight: var(--weight-medium); }
-.scene-run .tile { width: 30px; height: 30px; border-radius: 50%; }
+.quick > .section-head { margin-bottom: var(--space-16); gap: var(--space-12); }
+.quick-scenes { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--space-12); margin: 0; }
+.scene-run { position: relative; isolation: isolate; display: grid; align-items: end; min-width: 0; min-height: 140px; padding: var(--space-14); overflow: hidden; border-radius: var(--radius-lg); text-align: left; font-weight: var(--weight-semibold); }
+.scene-run.pictured { color: #fff; background: #172437; }
+.quick-scene-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: -2; }
+.scene-run.pictured::after { content: ""; position: absolute; inset: 0; background: linear-gradient(transparent 20%, rgba(0, 0, 0, .8)); z-index: -1; }
+.quick-scene-label { display: flex; align-items: center; gap: var(--space-8); }
+.quick-scene-label > svg { flex: none; width: 18px; height: 18px; }
+.quick-scene-label > span { overflow-wrap: anywhere; }
 .scene-run.busy { opacity: 0.6; }
+@media (max-width: 640px) {
+  .quick-scenes { grid-template-columns: none; grid-template-rows: auto; grid-auto-flow: column; grid-auto-columns: min(240px, 85%); overflow-x: auto; scroll-snap-type: x proximity; padding: var(--space-4); }
+  .quick-scenes > .scene-run { scroll-snap-align: start; }
+}
 .scene-card .server-head > button { flex: none; }
 /* Moods: the rooms as chips, what plays, the Assistant's box, the collection as pills with their colours. Pills and chips
    are controls: no text selection or callout on a long press, press feedback at once, the lift on hover only with a
@@ -3647,3 +3657,7 @@ select option:disabled { color: var(--muted); }
   .scene-flow-body .editor-row { padding: var(--space-10); gap: var(--space-12); }
   .scene-flow-body .scene-condition-remove { align-self: stretch; width: 100%; margin-top: var(--space-4); }
 }
+
+.message-dialog { max-width: min(560px, calc(100vw - 32px)); }
+.dialog-message { white-space: pre-wrap; overflow-wrap: anywhere; }
+.message-dialog input { width: 100%; min-width: 0; }

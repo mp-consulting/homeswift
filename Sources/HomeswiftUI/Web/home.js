@@ -29,11 +29,11 @@
 
   /// What an accessory card's menu adds: its room, a name for these pages, Quick Controls, hiding.
   function layoutActions(accessory) {
-    const change = (fields) => changeLayout({ accessories: { [accessory.id]: fields } }).then(() => app.route()).catch((e) => alert(e.message));
+    const change = (fields) => changeLayout({ accessories: { [accessory.id]: fields } }).then(() => app.route()).catch((e) => HomeswiftCommon.showAlert(e.message));
     return [
       { label: accessory.room ? t("Room: {room}…", { room: accessory.room }) : t("Put in a room…"), icon: "room", onSelect: () => chooseRoom(accessory, change) },
-      { label: t("Name on these pages…"), icon: "edit", onSelect: () => {
-        const name = prompt(t("A name for {name} on these pages (the Home app keeps its own). Empty goes back to {name}.", { name: accessory.name }), accessory.displayName || "");
+      { label: t("Name on these pages…"), icon: "edit", onSelect: async () => {
+        const name = await HomeswiftCommon.promptDialog(t("A name for {name} on these pages (the Home app keeps its own). Empty goes back to {name}.", { name: accessory.name }), accessory.displayName || "");
         if (name !== null) change({ name: name.trim() || null });
       } },
       { label: accessory.favourite ? t("Remove from Quick Controls") : t("Add to Quick Controls"), icon: "star", onSelect: () => change({ favourite: !accessory.favourite }) },
@@ -44,7 +44,7 @@
   async function chooseRoom(accessory, change, note = "") {
     let rooms = [];
     try { rooms = (await app.api("/api/rooms")).rooms.map((room) => room.name); } catch {}
-    const room = prompt((rooms.length
+    const room = await HomeswiftCommon.promptDialog((rooms.length
       ? t("The room of {name}. Rooms: {rooms}. A new name adds the room; empty takes it out of its room.", { name: displayName(accessory), rooms: rooms.join(", ") })
       : t("The room of {name}. A new name adds the room; empty takes it out of its room.", { name: displayName(accessory) })) + (note ? `\n\n${note}` : ""), accessory.room || "");
     if (room !== null) await change({ room: room.trim() || null });
@@ -136,6 +136,7 @@
         if (standalone) section.append(el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("star")), el("p", { class: "muted", text: t("Nothing here yet. On the Accessories page, a card's menu adds it to the Quick Controls; scenes you make show here too.") })));
         return;
       }
+      section.classList.add("card");
       const rooms = [...new Set(favourites.map((a) => a.room).filter(Boolean))];
       // `append` is the DOM's: it writes null and arrays as text, so the parts go in flat and without the empty ones.
       section.append(...[
@@ -229,7 +230,8 @@
   }
 
   function sceneButton(scene) {
-    const button = el("button", { class: "scene-run", title: t("Run {name}", { name: scene.name }) }, artworkImage(scene.artworkId, "mood-swatch") || tile("play", scene.security ? "violet" : "orange"), el("span", { text: scene.name }));
+    const picture = artworkImage(scene.artworkId, "quick-scene-image");
+    const button = el("button", { type: "button", class: `scene-run${picture ? " pictured" : ""}`, title: t("Run {name}", { name: scene.name }) }, picture, el("span", { class: "quick-scene-label" }, HomeswiftCommon.icon("play"), el("span", { text: scene.name })));
     button.addEventListener("click", () => runScene(scene, button));
     return button;
   }
@@ -239,7 +241,7 @@
     let confirmSecurity = false;
     if (scene.security) {
       const which = scene.actions.filter((a) => a.security).map((a) => `${a.name || a.id}: ${a.characteristic}`).join(", ");
-      if (!confirm(t("{scene} changes a lock, a door or an alarm ({which}). Run it?", { scene: scene.name, which }))) return;
+      if (!await HomeswiftCommon.confirmDialog(t("{scene} changes a lock, a door or an alarm ({which}). Run it?", { scene: scene.name, which }))) return;
       confirmSecurity = true;
     }
     button?.classList.add("busy");
@@ -248,10 +250,10 @@
       const result = await app.api(`/api/scenes/${encodeURIComponent(scene.id)}/run`, { method: "POST", body: { confirmSecurity } });
       if (!result.ok) {
         const failures = result.results.filter((r) => !r.ok).map((r) => `${r.name || r.id} ${r.characteristic}: ${HomeswiftI18n.message(r.error || r.skipped)}`);
-        alert(t("{scene} ran, but not everything worked:\n{failures}", { scene: scene.name, failures: failures.join("\n") }));
+        HomeswiftCommon.showAlert(t("{scene} ran, but not everything worked:\n{failures}", { scene: scene.name, failures: failures.join("\n") }));
       }
       return result;
-    } catch (e) { alert(e.message); } finally {
+    } catch (e) { HomeswiftCommon.showAlert(e.message); } finally {
       button?.classList.remove("busy");
       if (button) button.disabled = false;
     }
@@ -505,13 +507,13 @@
       run.addEventListener("click", async () => { if (await runScene(scene, run)) app.route(); });
       const stop = scene.stoppable ? el("button", { type: "button", actionIcon: "stop", text: t("Stop"), onclick: async () => {
         const confirmSecurity = scene.security || scene.stopSecurity;
-        if (confirmSecurity && !confirm(t("Restore the previous state of this scene’s locks, doors or alarms?"))) return;
+        if (confirmSecurity && !await HomeswiftCommon.confirmDialog(t("Restore the previous state of this scene’s locks, doors or alarms?"))) return;
         stop.disabled = true;
         try {
           const result = await app.api(`/api/scenes/${encodeURIComponent(scene.id)}/stop`, { method: "POST", body: { confirmSecurity } });
-          if (!result.ok) alert(result.failed.map((f) => HomeswiftI18n.message(f.error)).join("\n"));
+          if (!result.ok) HomeswiftCommon.showAlert(result.failed.map((f) => HomeswiftI18n.message(f.error)).join("\n"));
           app.route();
-        } catch (e) { alert(e.message); stop.disabled = false; }
+        } catch (e) { HomeswiftCommon.showAlert(e.message); stop.disabled = false; }
       } }) : null;
       return el("div", { class: "card server scene-card" },
         artworkImage(scene.artworkId),
@@ -527,7 +529,7 @@
             { label: t("Edit"), icon: "edit", href: `/scenes/${encodeURIComponent(scene.id)}` },
             { label: t("Delete"), icon: "trash", danger: true, onSelect: async () => {
               if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete the scene {name}?", { name: scene.name }), text: t("This removes the scene and its automatic triggers. This cannot be undone."), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
-              try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); app.route(); } catch (e) { alert(e.message); }
+              try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
             } },
           ])));
     };

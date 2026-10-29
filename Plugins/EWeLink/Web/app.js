@@ -209,7 +209,7 @@
   $("#save").addEventListener("click", (event) => saveConfiguration(event.currentTarget));
   $("#save-settings").addEventListener("click", (event) => saveConfiguration(event.currentTarget));
   $("#back").addEventListener("click", () => { showStep("devices"); loadDevices(); });
-  $("#restart").addEventListener("click", (event) => act(event.currentTarget, restart).catch((e) => alert(e.message)));
+  $("#restart").addEventListener("click", (event) => act(event.currentTarget, restart).catch((e) => HomeswiftCommon.showAlert(e.message)));
 
   // MARK: Config changes made elsewhere (the Expert editor, another tab, the Assistant), as the Homebridge page's
   // configChanged: the web UI sends no such event, so the block is read again whenever the page comes back into
@@ -238,7 +238,7 @@
   // MARK: Start: the block, then the plugin's session if it has one.
 
   (async () => {
-    try { await readBlock(); } catch (e) { alert(e.message); }
+    try { await readBlock(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
     prefillLogin();
     prefillSettings();
     try {

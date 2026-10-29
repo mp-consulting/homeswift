@@ -677,3 +677,10 @@ folder with a new identity: the web UI on `127.0.0.1` without sign-in, plugin bl
 paused, so nothing reaches a device or a cloud, and two generated images as wallpapers. It renders in headless Chrome in
 light mode at 2x, replaces this machine's name and the folder's paths in what the API answers, and removes the folder
 when it ends. The Accessories page's images are [widgets.md](widgets.md#screenshots)'s.
+
+### Quick controls on phones
+
+Quick controls groups its heading, page link and shortcuts in one card. Saved scenes use photographic tiles
+with readable names; the row scrolls horizontally on a phone. Scenes without artwork keep a plain tile.
+
+![Quick controls on a phone](images/ui/quick-controls-phone.png)

@@ -75,7 +75,7 @@
         el("span", { class: "muted", text: [light.host && `${light.host}:${light.port}`, light.pinned ? t("from config.json") : null, light.mac].filter(Boolean).join(" · ") }),
         // The same menu as the Accessories page's cards, with what this page adds.
         HomeswiftCommon.menuButton(t("Actions for {name}", { name: light.name }), () => [
-          !disabled && light.reachable ? { label: t("Identify"), icon: "identify", onSelect: () => request(`identify?mac=${encodeURIComponent(light.mac)}`, { method: "POST" }).catch((e) => alert(e.message)) } : null,
+          !disabled && light.reachable ? { label: t("Identify"), icon: "identify", onSelect: () => request(`identify?mac=${encodeURIComponent(light.mac)}`, { method: "POST" }).catch((e) => HomeswiftCommon.showAlert(e.message)) } : null,
           { label: t("Settings"), icon: "gear", onSelect: () => openSettings(light) },
           disabled ? null : { label: t("Show its log"), icon: "logs", href: `/logs/${encodeURIComponent(`ElgatoKeyLights:${canonicalMAC(light.mac)}`)}` },
           window.HomeswiftChat?.available() ? { label: t("Ask the Assistant"), icon: HomeswiftCommon.sparkle(), onSelect: () => HomeswiftChat.ask(t("About my light {name}: ", { name: light.name })) } : null,
@@ -161,8 +161,8 @@
 
   let editing = null;   // { light, draft, saved }
 
-  function openSettings(light) {
-    if (!closeSettings()) return;
+  async function openSettings(light) {
+    if (!(await closeSettings())) return;
     const entry = entryFor(light.mac) || { mac: light.mac, name: light.name };
     editing = { light, draft: structuredClone(entry), saved: JSON.stringify(entry), exists: Boolean(entryFor(light.mac)) };
     panel.classList.remove("hidden");
@@ -171,8 +171,8 @@
     panel.scrollIntoView({ behavior: reducedMotion.matches ? "auto" : "smooth", block: "start" });
   }
 
-  function closeSettings() {
-    if (editing && JSON.stringify(editing.draft) !== editing.saved && !confirm(t("Discard the changes to this light?"))) return false;
+  async function closeSettings() {
+    if (editing && JSON.stringify(editing.draft) !== editing.saved && !await HomeswiftCommon.confirmDialog(t("Discard the changes to this light?"))) return false;
     if (editing) breadcrumb(null);
     editing = null;
     panel.classList.add("hidden");
@@ -261,11 +261,11 @@
     const { light } = editing;
     if (!(await removeLight(light))) return;
     editing.draft = JSON.parse(editing.saved);
-    closeSettings();
+    await closeSettings();
   }
 
   async function removeLight(light) {
-    if (!confirm(light.pinned
+    if (!await HomeswiftCommon.confirmDialog(light.pinned
       ? t("Remove the settings of {name} from config.json? It is only reached through its address there, so it leaves the Home app.", { name: light.name })
       : t("Remove the settings of {name} from config.json? Bonjour still finds it, with the platform's settings.", { name: light.name }))) return false;
     try {
@@ -274,7 +274,7 @@
         if (index >= 0) devices.splice(index, 1);
       });
     } catch (e) {
-      alert(e.message);
+      HomeswiftCommon.showAlert(e.message);
       return false;
     }
     setTimeout(refresh, 600);
