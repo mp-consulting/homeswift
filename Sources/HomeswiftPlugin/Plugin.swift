@@ -91,6 +91,13 @@ public protocol HomeswiftPlugin: Sendable {
     /// prefer a low-bandwidth channel. Defaults to nil: the card shows the camera's snapshots instead, from its
     /// `CameraController`.
     func liveFeed(accessoryID: String) async throws -> CameraLiveFeed?
+
+    /// The scenes the plugin's hub keeps, for Homeswift to list with its own (`PluginScene`). Asked each time they
+    /// are listed, so answer from what the plugin already knows rather than asking the hub. Defaults to none.
+    func scenes() async -> [PluginScene]
+
+    /// Recalls one of `scenes()` by its `PluginScene.id`. Defaults to throwing.
+    func recallScene(id: String) async throws
 }
 
 extension HomeswiftPlugin {

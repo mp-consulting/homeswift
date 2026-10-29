@@ -359,6 +359,8 @@ extension HomeswiftCatalog {
         } ?? false)
         object["stoppable"] = .bool((undo.map { Date().timeIntervalSince($0.at) < MoodRules.undoSeconds && !$0.actions.isEmpty } ?? false)
             || home.runningMoods.withLockedValue { $0.values.contains { $0.mood.id == "scene:" + scene.id } })
+        object["room"] = sharedRoom(of: scene.actions.map(\.id)).map(JSONValue.string) ?? .null
+        object["active"] = .bool(isActive(scene))
         object["actions"] = .array(scene.actions.map { action in
             var entry = (try? JSONValue(encoding: action))?.objectValue ?? [:]
             if let found = find(id: action.id) {
@@ -370,6 +372,20 @@ extension HomeswiftCatalog {
             return .object(entry)
         })
         return .object(object)
+    }
+
+    /// Whether every value the scene sets is what its accessory shows now. A light switched off shows no colour: once
+    /// a scene's On is false, its other values for that light are not compared.
+    func isActive(_ scene: Scene) -> Bool {
+        guard !scene.actions.isEmpty else { return false }
+        let off = Set(scene.actions.filter { Self.normalized($0.characteristic) == Self.normalized("On") && SceneRules.number($0.value) == 0 }.map { "\($0.id)|\($0.service ?? "")" })
+        return scene.actions.allSatisfy { action in
+            if off.contains("\(action.id)|\(action.service ?? "")"), Self.normalized(action.characteristic) != Self.normalized("On") { return true }
+            guard let found = find(id: action.id), let target = try? characteristic(in: found, service: action.service, characteristic: action.characteristic) else { return false }
+            let current = Self.value(of: target)
+            if let a = SceneRules.number(current), let b = SceneRules.number(action.value) { return abs(a - b) <= max(1, target.type.minStep ?? 0) }
+            return SceneRules.compare(current, "eq", action.value)
+        }
     }
 
     /// The actions of a scene that unlock, open or disarm (security controls).
@@ -473,7 +489,14 @@ extension HomeswiftCatalog {
     /// control runs only with `allowSecurity` (a person confirmed); otherwise it is skipped and reported. An
     /// automatic run checks the conditions first, and records why it did not go ahead.
     public func runScene(_ reference: String, trigger: SceneRunTrigger = .manual, allowSecurity: Bool = false) async throws -> JSONValue {
-        let scene = try scene(reference)
+        let scene: Scene
+        do {
+            scene = try self.scene(reference)
+        } catch {
+            // Not one of Homeswift's: a scene of a plugin's hub.
+            guard let found = await pluginScene(reference) else { throw error }
+            return try await runPluginScene(found, by: "scene \(trigger.rawValue)")
+        }
         guard home.runningScenes.withLockedValue({ $0.insert(scene.id).inserted }) else { throw CatalogError("This scene is already running") }
         defer { _ = home.runningScenes.withLockedValue { $0.remove(scene.id) } }
         if trigger != .manual, let reason = conditionsFail(scene.conditions) {
@@ -697,19 +720,25 @@ extension HomeswiftCatalog {
         return [
             MCPTool(
                 name: "list_scenes", title: "List scenes",
-                description: "The scenes kept by Homeswift: named sets of accessory values applied together, with their actions (security: true marks a lock, door or alarm), "
-                    + "triggers (time of day and days, cron, sunrise or sunset with an offset, a characteristic change), conditions and last run.",
-                outputSchema: Output.object(["scenes": ["type": "array"]], required: ["scenes"]),
+                description: "The scenes: scenes kept by Homeswift, named sets of accessory values applied together, with their room, whether they are active now, their actions "
+                    + "(security: true marks a lock, door or alarm), triggers (time of day and days, cron, sunrise or sunset with an offset, a characteristic change), conditions and last run; "
+                    + "and pluginScenes, the scenes plugins' hubs keep (a Hue Bridge's, an IKEA hub's, a Govee light's), with their room, source and whether the hub reports them active. "
+                    + "run_scene runs either kind by id.",
+                outputSchema: Output.object(["scenes": ["type": "array"], "pluginScenes": ["type": "array"]], required: ["scenes"]),
                 scope: .read, idempotent: true
-            ) { _ in .json(catalog.scenesJSON()) },
+            ) { _ in .json(await catalog.allScenesJSON()) },
             MCPTool(
                 name: "run_scene", title: "Run scene",
                 description: "Runs a scene now: every action is applied and the result per action is returned. Scenes that lock or unlock, open or close, or arm or disarm something "
                     + "are refused: apply those actions with set_security_accessory, which asks the user to confirm, or let the user run the scene in the web UI.",
-                inputSchema: ["type": "object", "required": ["scene"], "properties": ["scene": ["type": "string", "minLength": 1, "description": "The scene id or name, from list_scenes"]]],
+                inputSchema: ["type": "object", "required": ["scene"], "properties": ["scene": ["type": "string", "minLength": 1, "description": "The scene id or name, from list_scenes (scenes or pluginScenes)"]]],
                 scope: .control, idempotent: true
             ) { call in
-                let scene = try catalog.scene(try call.string("scene"))
+                let reference = try call.string("scene")
+                guard let scene = try? catalog.scene(reference) else {
+                    guard let found = await catalog.pluginScene(reference) else { return .json(try await catalog.runScene(reference)) }
+                    return .json(try await catalog.runPluginScene(found, by: "MCP \(call.session.principal.name)"))
+                }
                 let sensitive = catalog.securityActions(of: scene)
                 guard sensitive.isEmpty else {
                     let names = sensitive.map { "\(catalog.find(id: $0.id)?.accessory.name ?? $0.id) \($0.characteristic)" }.joined(separator: ", ")

@@ -236,6 +236,57 @@
     return button;
   }
 
+  /// A scene a plugin's hub keeps (Hue, IKEA, Govee): its picture or its colours, its source, whether the hub says it
+  /// is on now. Running it recalls it on the hub.
+  function hubSceneButton(scene) {
+    const picture = artworkImage(scene.artworkId, "quick-scene-image");
+    const colours = (scene.colours || []).filter((colour) => /^#[0-9a-f]{3,8}$/i.test(colour));
+    const button = el("button", { type: "button", class: `scene-run hub-scene${picture ? " pictured" : colours.length ? " coloured" : ""}${scene.active ? " active" : ""}`, title: t("Run {name}", { name: scene.name }) },
+      picture,
+      el("span", { class: "quick-scene-label" }, HomeswiftCommon.icon("play"),
+        el("span", {}, el("span", { text: scene.name }), el("span", { class: "scene-source", text: scene.source.pluginName }))),
+      scene.active ? el("span", { class: "pill scene-active", text: t("Scene active") }) : null);
+    if (!picture && colours.length) button.style.background = colours.length > 1 ? `linear-gradient(135deg, ${colours.join(", ")})` : colours[0];
+    button.addEventListener("click", async () => { if (await runScene(scene, button)) app.route(); });
+    return button;
+  }
+
+  /// The scenes of the plugins' hubs, by room, with a source filter when there are several. `filter(query)` hides
+  /// those whose name does not match; answers how many show.
+  function hubScenesSection(scenes) {
+    if (!scenes.length) return { node: null, filter: () => 0 };
+    const other = t("Other");
+    const rooms = [...new Set(scenes.map((scene) => scene.room || other))].sort((a, b) => a === other ? 1 : b === other ? -1 : a.localeCompare(b, HomeswiftI18n.locale));
+    const sourceKey = (scene) => `${scene.source.platform}:${scene.source.name}`;
+    const sources = [...new Map(scenes.map((scene) => [sourceKey(scene), scene.source.name])).entries()];
+    const source = sources.length > 1 ? el("select", { "aria-label": t("Source") }, el("option", { value: "", text: t("All sources") }),
+      sources.map(([key, name]) => el("option", { value: key, text: name }))) : null;
+    const tiles = scenes.map((scene) => ({ scene, node: hubSceneButton(scene) }));
+    const groups = rooms.map((room) => {
+      const members = tiles.filter(({ scene }) => (scene.room || other) === room);
+      return { members, node: el("div", { class: "hub-scene-room" }, el("div", { class: "service-name", text: room }), el("div", { class: "quick-scenes" }, members.map(({ node }) => node))) };
+    });
+    const count = el("span", { class: "pill", text: String(scenes.length) });
+    let query = "";
+    const filter = (text = query) => {
+      query = text;
+      let shown = 0;
+      for (const { scene, node } of tiles) {
+        node.hidden = !scene.name.toLocaleLowerCase().includes(query) || (source?.value && sourceKey(scene) !== source.value);
+        if (!node.hidden) shown += 1;
+      }
+      for (const group of groups) group.node.hidden = group.members.every(({ node }) => node.hidden);
+      count.textContent = String(shown);
+      return shown;
+    };
+    source?.addEventListener("change", () => filter());
+    const node = el("section", { class: "hub-scenes" },
+      el("div", { class: "section-head" }, el("h2", { text: t("Scenes from your hubs") }), count, source),
+      el("p", { class: "muted", text: t("Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; change them in their own app.") }),
+      groups.map(({ node }) => node));
+    return { node, filter };
+  }
+
   /// Runs a scene; one that changes a lock, a door or an alarm asks first, as the cards' own controls do.
   async function runScene(scene, button) {
     let confirmSecurity = false;
@@ -248,7 +299,7 @@
     if (button) button.disabled = true;
     try {
       const result = await app.api(`/api/scenes/${encodeURIComponent(scene.id)}/run`, { method: "POST", body: { confirmSecurity } });
-      if (!result.ok) {
+      if (!result.ok && result.results) {
         const failures = result.results.filter((r) => !r.ok).map((r) => `${r.name || r.id} ${r.characteristic}: ${HomeswiftI18n.message(r.error || r.skipped)}`);
         HomeswiftCommon.showAlert(t("{scene} ran, but not everything worked:\n{failures}", { scene: scene.name, failures: failures.join("\n") }));
       }
@@ -518,8 +569,9 @@
       return el("div", { class: "card server scene-card" },
         artworkImage(scene.artworkId),
         el("div", { class: "server-head" }, tile("play", scene.security ? "violet" : "orange"),
-          el("div", { class: "who" }, el("a", { class: "card-title", href: `/scenes/${encodeURIComponent(scene.id)}` }, el("strong", { text: scene.name })),
-            el("div", { class: "muted", text: scene.triggers.length ? scene.triggers.map((trigger) => describeTrigger(trigger, names)).join(" · ") : t("Run by hand") })),
+          el("div", { class: "who" }, el("a", { class: "card-title", href: `/scenes/${encodeURIComponent(scene.id)}` }, el("strong", { text: scene.name }),
+              scene.active ? el("span", { class: "pill scene-active", text: t("Scene active") }) : null),
+            el("div", { class: "muted", text: [scene.room, scene.triggers.length ? scene.triggers.map((trigger) => describeTrigger(trigger, names)).join(" · ") : t("Run by hand")].filter(Boolean).join(" · ") })),
           el("div", { class: "scene-run-actions" }, run, stop)),
         el("details", { class: "scene-card-details" }, el("summary", { text: t("Details") }), el("div", { class: "controls" }, actions)),
         scene.security ? el("p", { class: "muted note", text: t("It changes a lock, a door or an alarm: the page asks before running it, and automations leave those actions out.") }) : null,
@@ -535,21 +587,23 @@
     };
     const sceneCount = el("span", { class: "pill", text: String(data.scenes.length) });
     const sceneCards = data.scenes.map((scene) => ({ scene, node: card(scene) }));
+    const hubScenes = hubScenesSection(data.pluginScenes || []);
     const search = el("input", { type: "search", class: "search", placeholder: t("Filter text"), "aria-label": t("Your scenes") });
     const noMatches = el("p", { class: "card empty", hidden: true, text: t("Nothing in this range matches.") });
     search.addEventListener("input", () => {
       const query = search.value.trim().toLocaleLowerCase();
       for (const { scene, node } of sceneCards) node.hidden = !scene.name.toLocaleLowerCase().includes(query);
       sceneCount.textContent = String(sceneCards.filter(({ node }) => !node.hidden).length);
-      noMatches.hidden = sceneCards.some(({ node }) => !node.hidden);
+      const hubShown = hubScenes.filter(query);
+      noMatches.hidden = sceneCards.some(({ node }) => !node.hidden) || hubShown > 0;
     });
     app.show(main,
       app.pageHead(t("Scenes"), t("Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; the Home app does not see them."),
         data.scenes.length ? el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") }) : null),
-      el("div", { class: "section-head" }, el("h2", { text: t("Your scenes") }), sceneCount, data.scenes.length ? [search, HomeswiftCommon.clearFilters([[search, ""]])] : null),
+      el("div", { class: "section-head" }, el("h2", { text: t("Your scenes") }), sceneCount, data.scenes.length || hubScenes.node ? [search, HomeswiftCommon.clearFilters([[search, ""]])] : null),
       data.scenes.length ? el("div", { class: "grid scene-grid" }, sceneCards.map(({ node }) => node))
         : el("div", { class: "card empty scenes-empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("play")), el("p", { class: "muted", text: t("No scene yet. A scene sets several accessories at once, such as every light of a room for the evening.") }), el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") })),
-      noMatches, moodsSection(accessories), locationCard(data));
+      noMatches, hubScenes.node, moodsSection(accessories), locationCard(data));
   }
 
   /// Where sunrise and sunset are computed for: Glass UI took its weather widget's city; here it is typed, or

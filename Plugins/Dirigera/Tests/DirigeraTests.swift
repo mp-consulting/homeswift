@@ -392,6 +392,22 @@ struct DirigeraTests {
     }
 
     /// The Assistant lists the scenes and runs the one it picked, through the actions.
+    /// Homeswift's Scenes page lists the hub's user scenes, by the hub's address and their id, and triggers them.
+    @Test func scenesReachHomeswiftsScenesPage() async throws {
+        let host = try await environment.start()
+        _ = try await accessory(host, scenesID)
+        let plugin = try #require(environment.plugin)
+        let scenes = await plugin.scenes()
+        let movie = try #require(scenes.first { $0.name == "Movie night" })
+        #expect(movie.id == "192.0.2.20|scene-1")
+        #expect(movie.active == nil)
+        #expect(!scenes.contains { $0.id.hasSuffix("|scene-2") })
+        try await plugin.recallScene(id: movie.id)
+        #expect(environment.hub.sent.last?.path == "/v1/scenes/scene-1/trigger")
+        await #expect(throws: (any Error).self) { try await plugin.recallScene(id: "192.0.2.20|nope") }
+        await host.stop()
+    }
+
     @Test func theAssistantRunsAScene() async throws {
         let host = try await environment.start()
         _ = try await accessory(host, scenesID)

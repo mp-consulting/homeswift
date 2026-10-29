@@ -179,7 +179,13 @@ a page to keep on a phone's home screen.
   automations, with nobody to ask, leave those actions out and say so in the scene's last run. Glass UI sets them like
   any value.
 
-Scenes are kept in `scenes.json` next to config.json (owner-only), with each one's last run.
+Scenes are kept in `scenes.json` next to config.json (owner-only), with each one's last run. A scene's card says its
+room when its accessories share one, and **Scene active** while every value it sets is what its accessories show.
+
+**Scenes from your hubs**, under them: the scenes plugins' hubs keep (a Hue Bridge's rooms and zones, a DIRIGERA hub,
+the scenes picked for Govee lights), by room, with their pictures or colours and a source filter when there are
+several. A tap recalls one on its hub; Hue's say **Scene active** while the bridge says so. They are changed in their
+own app.
 
 **Moods**, on the same page: the rooms that have lights as chips, and the collection of moods by kind, each drawn with
 photographic thumbnails. A tap plays one on the room's lights; the pill stays lit while it plays, with the mood and **Stop** under

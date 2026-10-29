@@ -270,6 +270,25 @@ what the device does, mark what opens or unlocks with `isSecurityControl`, and g
 temperature an `AdaptiveLightingController`. [widgets.md](widgets.md) shows what each choice does, with examples,
 and how a plugin's own page draws its accessories with the same widgets.
 
+### Scenes
+
+A plugin whose hub keeps scenes (a Hue Bridge, a DIRIGERA hub, a Govee light's picks) lists them with
+`scenes()` and recalls one with `recallScene(id:)`. The web UI's Scenes page shows them with Homeswift's own scenes,
+in the room named as the hub's room or zone (or the room of `accessoryIDs`, when the plugin knows the lights), and
+`list_scenes` and `run_scene` take them too. Homeswift asks each time it lists them, so answer from what the plugin
+already knows; it keeps no copy. A recall is held like a scene's run: the lights it changed can be put back.
+`Plugins/PhilipsHue/Sources/HueScenes.swift` is the example; [scenes-design.md](scenes-design.md) has where this goes.
+
+```swift
+public func scenes() async -> [PluginScene] {
+    snapshot.scenes.map { PluginScene(id: $0.id, name: $0.name, room: $0.roomName, active: $0.isActive, colours: $0.swatches) }
+}
+
+public func recallScene(id: String) async throws {
+    try await recall(sceneID: id)
+}
+```
+
 ### What the Assistant can do
 
 `assistantActions` describes routes of `handleWebRequest` for a model, so the Assistant (the web UI's chat,

@@ -242,9 +242,12 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   security control. With `set_accessory_layout`'s rooms,
   that is what the Assistant needs to compose a wall ("arrange my wall by room"). An open Accessories page draws
   the wall again when it or the rooms change, whoever changed them (a `layout` event on the web UI's event stream).
-- **Scenes.** `list_scenes` lists the web UI's scenes with their actions, triggers, conditions and last run, and
-  `"security": true` on one that changes a lock, a garage door or an alarm. `run_scene` (an id or a name) runs a
-  scene and answers per action; it refuses a scene with a security action, as homebridge-mcp-server's does: those
+- **Scenes.** `list_scenes` lists the web UI's scenes with their room, whether they are active now, their actions,
+  triggers, conditions and last run, and `"security": true` on one that changes a lock, a garage door or an alarm;
+  and `pluginScenes`, the scenes plugins' hubs keep (a Hue Bridge's, a DIRIGERA hub's, a Govee light's picks), with
+  their room, source and whether the hub says they are on. `run_scene` (an id or a name) runs either kind; a hub's
+  scene is recalled and the lights it changed are held, so `stop_mood` with the run it answers puts them back. A
+  Homeswift scene answers per action; it refuses a scene with a security action, as homebridge-mcp-server's does: those
   go through `set_security_accessory`, which asks, or the web UI, where the signed-in user confirms. `save_scene`
   makes a scene from the current values of `ids` (only `characteristics`, when given), never capturing a security
   control; `dryRun` lists the actions. The `scene-builder` prompt ends with it.

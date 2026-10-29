@@ -1,5 +1,11 @@
 // The web UI in Portuguese (Portugal): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("pt", {
+  "Source": "Origem",
+  "All sources": "Todas as origens",
+  "Scene active": "Cena ativa",
+  "Scenes from your hubs": "Cenas dos seus hubs",
+  "Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; change them in their own app.": "Guardadas pelos hubs dos seus plugins, como uma ponte Hue, um hub IKEA ou luzes Govee. Execute-as aqui; altere-as na app delas.",
+
   "Start time": "Hora de início",
   "End time": "Hora de fim",
 

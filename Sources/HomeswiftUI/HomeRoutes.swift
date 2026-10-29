@@ -9,12 +9,13 @@ import NIOHTTP1
 //   GET    /api/rooms                        rooms with their accessories
 //   PUT    /api/rooms                        rooms, hidden, display names, Quick Controls (HomeswiftCatalog.updateLayout)
 //   POST   /api/rooms/suggest                the Assistant's rooms and names, to review
-//   GET    /api/scenes                        scenes, location, next sunrise and sunset
+//   GET    /api/scenes                        scenes, the plugins' hubs' scenes, location, next sunrise and sunset
 //   POST   /api/scenes                        a new scene
 //   PUT    /api/scenes/location               where sunrise and sunset are computed for
 //   PUT    /api/scenes/<id>                   a scene changed
 //   DELETE /api/scenes/<id>
-//   POST   /api/scenes/<id>/run               {"confirmSecurity": true} once the person agreed to its locks and doors
+//   POST   /api/scenes/<id>/run               {"confirmSecurity": true} once the person agreed to its locks and doors; a
+//                                             plugin scene's id (`<platform>:<instance>:<hub id>`) recalls it
 //   GET    /api/moods                         the collection of moods and those playing
 //   POST   /api/moods/start                   {"mood" | "description" | "plan", "room" | "ids", "durationSeconds"?}
 //   POST   /api/moods/stop                    {"run"?}: one, or every mood playing
@@ -58,7 +59,7 @@ extension UIServer {
             }
 
         case (.GET, ["scenes"]):
-            return .json(catalog.scenesJSON())
+            return .json(await catalog.allScenesJSON())
         case (.POST, ["scenes"]):
             let scene = try catalog.createScene(body)
             logger.info("Web UI created a scene", metadata: ["user": "\(username)", "scene": "\(scene["name"]?.stringValue ?? "")"])
@@ -78,7 +79,12 @@ extension UIServer {
             // a card's own control asks before it changes one.
             let confirmed = body["confirmSecurity"]?.boolValue == true
             let scene = catalog.scenesJSON()["scenes"]?.arrayValue?.first { $0["id"]?.stringValue == path[1] }
-            guard let scene else { return .error(404, "No scene \(path[1])") }
+            guard let scene else {
+                // A scene of a plugin's hub: no lock, door or alarm in it.
+                let result = try await catalog.runScene(path[1], trigger: .manual)
+                logger.info("Web UI recalled a scene", metadata: ["user": "\(username)", "scene": "\(result["name"]?.stringValue ?? "")"])
+                return .json(result)
+            }
             if scene["security"]?.boolValue == true, !confirmed {
                 return .error(409, "This scene changes a lock, a door or an alarm: confirm to run it")
             }

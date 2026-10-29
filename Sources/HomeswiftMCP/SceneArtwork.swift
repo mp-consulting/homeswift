@@ -13,6 +13,18 @@ public struct SceneArtwork: Sendable {
              steps: [MoodStep(colors, assign: .spread, seconds: 1)])
     }
     public static func find(_ id: String) -> SceneArtwork? { all.first { $0.id == id } ?? moodPhotographs.first { $0.id == id } }
+    /// The gallery picture with a scene's name, letters and digits compared case aside, as plugin pages match a hub's
+    /// scenes (plugin.js's `matchedArtwork`): Hue's standard scenes share the gallery's titles.
+    public static func matching(name: String) -> SceneArtwork? {
+        let key = normalized(name)
+        guard !key.isEmpty else { return nil }
+        return all.first { normalized($0.name) == key }
+    }
+
+    private static func normalized(_ text: String) -> String {
+        String(text.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }.map(Character.init))
+    }
+
     public static func forMood(_ id: String?) -> SceneArtwork? {
         guard let id else { return nil }
         if id.hasPrefix("gallery-") { return find(String(id.dropFirst(8))) }
