@@ -9181,14 +9181,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
 
   /// The menu entries that give a scene, Homeswift's or a hub's, a picture of the person's own or take it away.
-  function pictureMenu(scene) {
+  /// `tileNode` shows busy while the picture is shrunk and sent.
+  function pictureMenu(scene, tileNode) {
     const path = `/api/scenes/${encodeURIComponent(scene.id)}/picture`;
     return [
       { label: scene.picture ? t("Change the picture…") : t("Choose a picture…"), icon: "camera", onSelect: () => HomeswiftCommon.choosePictureFile(async (file) => {
+        tileNode?.classList.add("busy");
         try {
           await app.api(path, { method: "PUT", body: { data: await HomeswiftCommon.pictureDataURL(file) } });
           app.route();
-        } catch (e) { HomeswiftCommon.showAlert(e.message); }
+        } catch (e) { HomeswiftCommon.showAlert(e.message); tileNode?.classList.remove("busy"); }
       }) },
       scene.picture ? { label: t("Remove the picture"), icon: "trash", onSelect: async () => {
         try { await app.api(path, { method: "DELETE" }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
@@ -9311,7 +9313,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         app.navigate(`/scenes/${encodeURIComponent(saved.id)}`);
       } catch (e) { HomeswiftCommon.showAlert(e.message); automate.disabled = false; }
     } });
-    const menu = !app.isAdmin() ? null : menuButton(t("Actions for {name}", { name: scene.name }), () => [...hubSceneMenu(scene), ...pictureMenu(scene)]);
+    const menu = !app.isAdmin() ? null : menuButton(t("Actions for {name}", { name: scene.name }), () => [...hubSceneMenu(scene), ...pictureMenu(scene, button)]);
     return el("div", { class: "hub-scene-tile" }, button, el("div", { class: "hub-scene-actions" }, stop, automate, menu));
   }
 
@@ -21930,7 +21932,16 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 .quick-scene-label { display: flex; align-items: center; gap: var(--space-8); }
 .quick-scene-label > svg { flex: none; width: 18px; height: 18px; }
 .quick-scene-label > span { overflow-wrap: anywhere; }
-.scene-run.busy { opacity: 0.6; }
+.scene-run { transition: transform 160ms var(--ease-out), opacity 200ms ease, box-shadow 200ms ease-out; }
+.scene-run.busy { opacity: 0.6; cursor: progress; }
+.quick-scene-image { transition: transform 300ms var(--ease-out); }
+@media (hover: hover) and (pointer: fine) {
+  .scene-run.pictured:hover .quick-scene-image { transform: scale(1.03); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .scene-run, .quick-scene-image { transition: opacity 200ms ease, box-shadow 200ms ease-out; }
+  .scene-run:active:not(:disabled), .scene-run.pictured:hover .quick-scene-image { transform: none; }
+}
 .scene-run.coloured { color: #fff; }
 .scene-run.coloured::after { content: ""; position: absolute; inset: 0; background: linear-gradient(transparent 30%, rgba(0, 0, 0, .55)); z-index: -1; }
 .scene-run.active { box-shadow: 0 0 0 2px var(--accent); }
@@ -21941,7 +21952,9 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 .hub-scene-tile { display: grid; gap: var(--space-4); min-width: 0; }
 .hub-scene-tile > .scene-run { width: 100%; }
 .hub-scene-actions { display: flex; flex-wrap: wrap; gap: var(--space-10); }
-.hub-scene-actions button { font-size: var(--text-xs); }
+.hub-scene-actions { align-items: center; }
+.hub-scene-actions button { font-size: var(--text-xs); min-height: 32px; }
+@media (pointer: coarse) { .hub-scene-actions button { min-height: 44px; } }
 .animation-settings { display: grid; gap: var(--space-10); margin-top: var(--space-10); }
 .animation-colours { display: flex; gap: var(--space-10); }
 .animation-lights { display: grid; gap: var(--space-6); }

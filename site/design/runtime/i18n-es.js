@@ -2339,5 +2339,19 @@ HomeswiftI18n.add("es", {
   "{done} of {total}": "{done} de {total}",
   "The {name} history could not be imported: {message}": "No se pudo importar el historial de {name}: {message}",
   "History from {name} since {date}, updated {ago}": "Historial de {name} desde el {date}, actualizado {ago}",
-  "History from {name}, updated {ago}": "Historial de {name}, actualizado {ago}"
+  "History from {name}, updated {ago}": "Historial de {name}, actualizado {ago}",
+  "Rename…": "Renombrar…",
+  "A new name for {name} on {hub}.": "Un nombre nuevo para {name} en {hub}.",
+  "Keep the lights as they are": "Guardar las luces como están",
+  "Update {name}?": "¿Actualizar {name}?",
+  "{name} on {hub} will set its lights as they are now.": "{name} en {hub} pondrá sus luces como están ahora.",
+  "Update": "Actualizar",
+  "Delete from {hub}": "Eliminar de {hub}",
+  "This removes it from {hub} and its own app too. This cannot be undone.": "Desaparece de {hub} y de su app. No se puede deshacer.",
+  "Keep it on": "Guardarla en",
+  "Keep it in Homeswift": "Guardarla en Homeswift",
+  "Save to {hub} ({place})": "Guardar en {hub} ({place})",
+  "A switch in the Home app": "Un interruptor en la app Casa",
+  "On the Homeswift Scenes accessory: turning it on runs the scene (without its locks, doors and alarms), turning it off puts the lights back.": "En el accesorio Escenas de Homeswift: al encenderlo se ejecuta la escena (sin sus cerraduras, puertas ni alarmas) y al apagarlo las luces vuelven a como estaban.",
+  "In the Home app": "En la app Casa"
 });

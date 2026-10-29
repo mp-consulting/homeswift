@@ -73,6 +73,9 @@ public final class PluginHost: @unchecked Sendable {
         /// The bridge's name, or the external accessory's.
         public var name: String { isExternal ? server.primary.name : storedName }
 
+        /// The key of the platform instance that claimed this accessory id here.
+        func claimant(of id: String) -> String? { owners.withLockedValue { $0[id]?.key } }
+
         func claim(_ id: String, for key: String, name: String) throws {
             try owners.withLockedValue { owners in
                 if let owner = owners[id], owner.key != key {
@@ -137,6 +140,16 @@ public final class PluginHost: @unchecked Sendable {
     private let bridgeList: NIOLockedValueBox<[Bridge]>
     let externals: ExternalAccessories
     public var mainBridge: Bridge { bridges[0] }
+    /// The platform instance that published the accessory `id` on `bridge` (its claim, or the external accessory's
+    /// owner), without describing every instance as `platforms` does.
+    public func platform(owning id: String, on bridge: Bridge) -> PlatformInstance? {
+        guard let key = bridge.isExternal ? bridge.ownerKey : bridge.claimant(of: id),
+              let instance = instances.first(where: { $0.context.key == key }) else { return nil }
+        return PlatformInstance(
+            name: instance.context.name, platform: instance.context.platform, pluginName: instance.entry.name, bridge: instance.context.bridge,
+            accessoryIDs: instance.context.accessories.map(\.id), paused: instance.block.paused)
+    }
+
     public var platforms: [PlatformInstance] {
         instances.map {
             PlatformInstance(

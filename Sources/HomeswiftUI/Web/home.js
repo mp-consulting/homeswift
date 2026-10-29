@@ -168,14 +168,16 @@
   }
 
   /// The menu entries that give a scene, Homeswift's or a hub's, a picture of the person's own or take it away.
-  function pictureMenu(scene) {
+  /// `tileNode` shows busy while the picture is shrunk and sent.
+  function pictureMenu(scene, tileNode) {
     const path = `/api/scenes/${encodeURIComponent(scene.id)}/picture`;
     return [
       { label: scene.picture ? t("Change the picture…") : t("Choose a picture…"), icon: "camera", onSelect: () => HomeswiftCommon.choosePictureFile(async (file) => {
+        tileNode?.classList.add("busy");
         try {
           await app.api(path, { method: "PUT", body: { data: await HomeswiftCommon.pictureDataURL(file) } });
           app.route();
-        } catch (e) { HomeswiftCommon.showAlert(e.message); }
+        } catch (e) { HomeswiftCommon.showAlert(e.message); tileNode?.classList.remove("busy"); }
       }) },
       scene.picture ? { label: t("Remove the picture"), icon: "trash", onSelect: async () => {
         try { await app.api(path, { method: "DELETE" }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
@@ -298,7 +300,7 @@
         app.navigate(`/scenes/${encodeURIComponent(saved.id)}`);
       } catch (e) { HomeswiftCommon.showAlert(e.message); automate.disabled = false; }
     } });
-    const menu = !app.isAdmin() ? null : menuButton(t("Actions for {name}", { name: scene.name }), () => [...hubSceneMenu(scene), ...pictureMenu(scene)]);
+    const menu = !app.isAdmin() ? null : menuButton(t("Actions for {name}", { name: scene.name }), () => [...hubSceneMenu(scene), ...pictureMenu(scene, button)]);
     return el("div", { class: "hub-scene-tile" }, button, el("div", { class: "hub-scene-actions" }, stop, automate, menu));
   }
 

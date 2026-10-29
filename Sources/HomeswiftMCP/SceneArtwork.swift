@@ -18,8 +18,11 @@ public struct SceneArtwork: Sendable {
     public static func matching(name: String) -> SceneArtwork? {
         let key = normalized(name)
         guard !key.isEmpty else { return nil }
-        return all.first { normalized($0.name) == key }
+        return byNormalizedName[key]
     }
+
+    /// The gallery by its names as `matching` compares them, made once: a scene list matches every hub scene.
+    private static let byNormalizedName: [String: SceneArtwork] = Dictionary(all.map { (normalized($0.name), $0) }, uniquingKeysWith: { first, _ in first })
 
     private static func normalized(_ text: String) -> String {
         String(text.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }.map(Character.init))

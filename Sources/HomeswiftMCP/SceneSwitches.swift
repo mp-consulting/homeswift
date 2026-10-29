@@ -15,7 +15,7 @@ extension HomeswiftCatalog {
     func syncSceneSwitches() {
         let server = host.mainBridge.server
         let chosen = home.scenes.value.scenes.filter { $0.homeKit == true }
-        let existing = server.accessories.first { $0.id == Self.sceneSwitchesID }
+        let existing = server.accessory(id: Self.sceneSwitchesID)
         guard !chosen.isEmpty else {
             if let existing { try? server.remove(existing) }
             return
@@ -54,7 +54,7 @@ extension HomeswiftCatalog {
 
     /// Shows on each switch whether its scene is active, or can still be stopped.
     func refreshSceneSwitches() {
-        guard let accessory = host.mainBridge.server.accessories.first(where: { $0.id == Self.sceneSwitchesID }) else { return }
+        guard let accessory = host.mainBridge.server.accessory(id: Self.sceneSwitchesID) else { return }
         for scene in home.scenes.value.scenes where scene.homeKit == true {
             guard let on = accessory.services.first(where: { $0.subtype == "scene:" + scene.id })?[.on] else { continue }
             let value = HAPValue.bool(sceneSwitchIsOn(scene))

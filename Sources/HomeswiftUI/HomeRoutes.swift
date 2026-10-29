@@ -96,7 +96,7 @@ extension UIServer {
             logger.info("Web UI changed a scene", metadata: ["user": "\(username)", "scene": "\(scene["name"]?.stringValue ?? "")"])
             return .json(scene)
         case (.DELETE, let path) where path.count == 2 && path[0] == "scenes":
-            guard catalog.scenesJSON()["scenes"]?.arrayValue?.contains(where: { $0["id"]?.stringValue == path[1] }) == true else {
+            guard catalog.savedScene(path[1]) != nil else {
                 // A hub's scene: the page asked the person first.
                 let removed = try await catalog.deleteHubScene(path[1])
                 logger.notice("Web UI removed a scene from its hub", metadata: ["user": "\(username)", "scene": "\(removed["name"]?.stringValue ?? "")"])
@@ -109,18 +109,17 @@ extension UIServer {
             // A scene with a lock, a door or an alarm runs them only once the person confirmed on the page, as
             // a card's own control asks before it changes one.
             let confirmed = body["confirmSecurity"]?.boolValue == true
-            let scene = catalog.scenesJSON()["scenes"]?.arrayValue?.first { $0["id"]?.stringValue == path[1] }
-            guard let scene else {
+            guard let scene = catalog.savedScene(path[1]) else {
                 // A scene of a plugin's hub: no lock, door or alarm in it.
                 let result = try await catalog.runScene(path[1], trigger: .manual)
                 logger.info("Web UI recalled a scene", metadata: ["user": "\(username)", "scene": "\(result["name"]?.stringValue ?? "")"])
                 return .json(result)
             }
-            if scene["security"]?.boolValue == true, !confirmed {
+            if scene.security, !confirmed {
                 return .error(409, "This scene changes a lock, a door or an alarm: confirm to run it")
             }
             let result = try await catalog.runScene(path[1], trigger: .manual, allowSecurity: confirmed)
-            logger.info("Web UI ran a scene", metadata: ["user": "\(username)", "scene": "\(scene["name"]?.stringValue ?? "")", "ok": "\(result["ok"]?.boolValue ?? false)"])
+            logger.info("Web UI ran a scene", metadata: ["user": "\(username)", "scene": "\(scene.name)", "ok": "\(result["ok"]?.boolValue ?? false)"])
             return .json(result)
 
         case (.GET, let path) where path.count == 3 && path[0] == "scenes" && path[2] == "picture":

@@ -66,8 +66,12 @@ extension HomeswiftCatalog {
 
     /// What the Scenes page and list_scenes show: Homeswift's scenes, then those of the plugins' hubs.
     public func allScenesJSON(now: Date = Date()) async -> JSONValue {
+        await withLookup { await allScenesJSONIndexed(now: now) }
+    }
+
+    private func allScenesJSONIndexed(now: Date) async -> JSONValue {
         guard var answer = scenesJSON(now: now).objectValue else { return scenesJSON(now: now) }
-        let rooms = Array(Set(located().compactMap(\.room))).sorted()
+        let rooms = Array(Set((Self.lookup.map { Array($0.values) } ?? located()).compactMap(\.room))).sorted()
         let found = await foundPluginScenes()
         let pictures = scenePictures.versions()
         answer["pluginScenes"] = .array(found.map { pluginSceneJSON($0, rooms: rooms, pictures: pictures) })

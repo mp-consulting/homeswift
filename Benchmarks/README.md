@@ -280,6 +280,34 @@ twice, the better run of each:
 | `GET /api/logs?accessory=` | 22 ms | 3.2 ms | 23 ms | 3.1 ms |
 | `GET /api/logs`, 4 connections, CPU per request | 10 538 µs | 2 849 µs | 11 176 µs | 2 198 µs |
 
+### Scenes
+
+`bridge-bench.py` seeds `scenes.json` with `--scenes` scenes (40 by default, four lamps' On, Brightness, Hue and
+Saturation each, one in two on a schedule) and times `GET /api/scenes`, a run and a stop, `list_scenes` and
+`run_scene`. Apple M1, 2026-10-29, 60 accessories, `main` (`2c937ff`) against the unified scenes branch, interleaved,
+while other sessions kept the load average between 60 and 350: the ratios held from run to run, the milliseconds did
+not, so CPU per request is the figure to read.
+
+| Scenes, 40 | `main` | branch |
+|---|---:|---:|
+| `GET /api/scenes`, 4 connections, CPU per request | 49 211 µs | 9 241 µs |
+| MCP `list_scenes`, 4 connections, CPU per request | 50 197 µs | 9 357 µs |
+| `GET /api/scenes` p50 | 35 ms | 6.6 ms |
+| `POST /api/scenes/<id>/run` p50 | 42 ms | 4.2 ms |
+
+Before its own fixes the branch was twice as slow as `main` here (122 ms and 214 ms p50 in a run under the same
+load), from the hubs' scenes and pictures it lists. Where it went, from `sample`:
+
+- **Looking accessories up.** `find(id:)` described every plugin instance (each one's accessory ids) and sorted each
+  bridge's accessories to find one, and a scene list looks up each action's accessory four times. A bridge finds an
+  accessory by its aid now (`HAPServer.accessory(id:)`), its instance by the bridge's claim
+  (`PluginHost.platform(owning:on:)`), and a scene list indexes every accessory once (`withLookup`).
+- **Characteristic names.** `normalized(_:)` read Unicode properties for every character of every candidate
+  characteristic's name; ASCII names go by their bytes, and `name(_:normalizesTo:)` compares without a copy.
+- **`JSONValue(encoding:)`** read its `JSONEncoder` output back through `JSONDecoder`'s generic path; it uses
+  `JSONValue`'s own parser now (every scene and action goes through it).
+- **The run route** built the whole scene list to read one scene's security flag (`savedScene(_:)` now).
+
 Where the time went, from `sample`:
 
 - **Foundation's JSON coders.** `JSONValue` went through `JSONEncoder` and `JSONDecoder`, whose generic paths

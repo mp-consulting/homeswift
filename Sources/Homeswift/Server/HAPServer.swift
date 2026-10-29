@@ -169,6 +169,11 @@ public final class HAPServer: @unchecked Sendable {
         state.withLockedValue { $0.accessories.sorted { $0.key < $1.key }.map(\.value) }
     }
 
+    /// The accessory with this id, or nil: a lookup by its aid, not a scan of `accessories` (which sorts them).
+    public func accessory(id: String) -> Accessory? {
+        state.withLockedValue { state in state.persisted.aids[id].flatMap { state.accessories[$0] } }
+    }
+
     /// Adds a bridged accessory, before or while running. Once running, HomeKit picks it up from the new
     /// configuration number; before, `start()` hashes the whole database once.
     public func add(_ accessory: Accessory) throws {

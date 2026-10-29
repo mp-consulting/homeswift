@@ -249,4 +249,16 @@ import Testing
         _ = try catalog.updateScene(id: id, ["name": "Reading time", "homeKit": false, "actions": [["id": "Devices:lamp", "characteristic": "Brightness", "value": 75]]])
         #expect(!server.accessories.contains { $0.id == "Homeswift:scenes" })
     }
+
+    /// Characteristic names compare by letters and digits, case aside, ASCII or not.
+    @Test func namesNormalizeAsBefore() {
+        for name in ["Target Lock State", "targetLockState", "target-lock-state", "PM2.5 Density", "Température", "Ünïcode Näme 2", ""] {
+            let normal = name.lowercased().filter { $0.isLetter || $0.isNumber }
+            #expect(HomeswiftCatalog.normalized(name) == normal)
+            #expect(HomeswiftCatalog.name(name, normalizesTo: normal))
+            #expect(!HomeswiftCatalog.name(name + "x", normalizesTo: normal))
+        }
+        #expect(!HomeswiftCatalog.name("Brightness", normalizesTo: "bright"))
+        #expect(SceneArtwork.matching(name: "arctic AURORA!")?.id == "arctic-aurora")
+    }
 }

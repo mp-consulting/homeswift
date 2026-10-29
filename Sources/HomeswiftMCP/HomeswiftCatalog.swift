@@ -134,11 +134,33 @@ public struct HomeswiftCatalog: Sendable {
 
     public func find(id: String) -> Located? {
         guard id != "bridge" else { return nil }
+        if let lookup = Self.lookup { return lookup[id] }
         for bridge in host.bridges {
-            guard let accessory = bridge.server.accessories.first(where: { $0.id == id }) else { continue }
-            return Located(accessory: accessory, bridge: bridge, platform: Owners(host.platforms).instance(of: id, on: bridge), layout: home.layout.value.accessories[id])
+            guard let accessory = bridge.server.accessory(id: id) else { continue }
+            // Its instance by its claim; an accessory no instance claimed is looked for in every instance's list.
+            let platform = host.platform(owning: id, on: bridge) ?? Owners(host.platforms).instance(of: id, on: bridge)
+            return Located(accessory: accessory, bridge: bridge, platform: platform, layout: home.layout.value.accessories[id])
         }
         return nil
+    }
+
+    /// Every accessory by id while a request that looks many up runs (`withLookup`): a scene list looks up each of
+    /// its actions' accessories several times.
+    @TaskLocal static var lookup: [String: Located]?
+
+    /// Runs `body` with every accessory indexed once (`find(id:)` reads the index).
+    func withLookup<T>(_ body: () throws -> T) rethrows -> T {
+        guard Self.lookup == nil else { return try body() }
+        return try Self.$lookup.withValue(lookupIndex()) { try body() }
+    }
+
+    func withLookup<T>(_ body: () async throws -> T) async rethrows -> T {
+        guard Self.lookup == nil else { return try await body() }
+        return try await Self.$lookup.withValue(lookupIndex()) { try await body() }
+    }
+
+    private func lookupIndex() -> [String: Located] {
+        Dictionary(located().map { ($0.accessory.id, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
     /// The instance an accessory belongs to: the first that lists it, on the accessory's bridge (any bridge for
@@ -206,7 +228,34 @@ public struct HomeswiftCatalog: Sendable {
 
     /// `"Target Lock State"`, `"targetLockState"` and `"target-lock-state"` name the same characteristic.
     static func normalized(_ name: String) -> String {
-        name.lowercased().filter { $0.isLetter || $0.isNumber }
+        // ASCII names (every HAP type's) by their bytes: the Unicode properties isLetter reads cost most of a scene list.
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(name.utf8.count)
+        for byte in name.utf8 {
+            switch byte {
+            case UInt8(ascii: "A")...UInt8(ascii: "Z"): bytes.append(byte + 32)
+            case UInt8(ascii: "a")...UInt8(ascii: "z"), UInt8(ascii: "0")...UInt8(ascii: "9"): bytes.append(byte)
+            case 0x80...: return name.lowercased().filter { $0.isLetter || $0.isNumber }
+            default: continue
+            }
+        }
+        return String(decoding: bytes, as: UTF8.self)
+    }
+
+    /// Whether `name` normalizes to `wanted` (already normalized), without making the normalized copy.
+    static func name(_ name: String, normalizesTo wanted: String) -> Bool {
+        var expected = wanted.utf8.makeIterator()
+        for byte in name.utf8 {
+            let folded: UInt8
+            switch byte {
+            case UInt8(ascii: "A")...UInt8(ascii: "Z"): folded = byte + 32
+            case UInt8(ascii: "a")...UInt8(ascii: "z"), UInt8(ascii: "0")...UInt8(ascii: "9"): folded = byte
+            case 0x80...: return normalized(name) == wanted
+            default: continue
+            }
+            guard expected.next() == folded else { return false }
+        }
+        return expected.next() == nil
     }
 
     public static func accessoryJSON(_ located: Located, detailed: Bool, lastRing: String? = nil) -> JSONValue {
@@ -351,10 +400,11 @@ public struct HomeswiftCatalog: Sendable {
         let services = located.accessory.services.filter { service in
             guard let serviceName else { return service.type.uuid != ServiceType.accessoryInformation.uuid }
             let wanted = Self.normalized(serviceName)
-            return Self.normalized(service.type.name) == wanted || service.subtype.map(Self.normalized) == wanted || service[.name]?.value.stringValue.map(Self.normalized) == wanted
+            return Self.name(service.type.name, normalizesTo: wanted) || service.subtype.map { Self.name($0, normalizesTo: wanted) } == true
+                || service[.name]?.value.stringValue.map { Self.name($0, normalizesTo: wanted) } == true
         }
         let wanted = Self.normalized(characteristicName)
-        let matches = services.flatMap { $0.characteristics.filter { Self.normalized($0.type.name) == wanted } }
+        let matches = services.flatMap { $0.characteristics.filter { Self.name($0.type.name, normalizesTo: wanted) } }
         guard let first = matches.first else {
             throw CatalogError("\(located.accessory.name) has no characteristic \(characteristicName)\(serviceName.map { " on service \($0)" } ?? "")")
         }

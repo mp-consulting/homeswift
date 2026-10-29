@@ -360,6 +360,10 @@ extension HomeswiftCatalog {
     /// What the Scenes page and list_scenes show: each scene with its accessories' names and whether it changes a
     /// security control, the location, and the next sunrise and sunset there.
     public func scenesJSON(now: Date = Date()) -> JSONValue {
+        withLookup { scenesJSONIndexed(now: now) }
+    }
+
+    private func scenesJSONIndexed(now: Date) -> JSONValue {
         let file = home.scenes.value
         let pictures = scenePictures.versions()
         var answer: [String: JSONValue] = ["scenes": .array(file.scenes.map { sceneJSON($0, pictures: pictures) }), "artworks": .array(SceneArtwork.all.map(\.json))]
@@ -434,6 +438,12 @@ extension HomeswiftCatalog {
             guard action.recall == nil, let found = find(id: action.id), let target = try? characteristic(in: found, service: action.service, characteristic: action.characteristic) else { return false }
             return target.isSecurityControl
         }
+    }
+
+    /// A saved scene's name and whether it changes a lock, a door or an alarm; nil for any other id (a hub's scene).
+    public func savedScene(_ id: String) -> (name: String, security: Bool)? {
+        guard let scene = home.scenes.value.scenes.first(where: { $0.id == id }) else { return nil }
+        return (scene.name, !securityActions(of: scene).isEmpty)
     }
 
     func scene(_ reference: String) throws -> Scene {
