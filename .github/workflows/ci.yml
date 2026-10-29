@@ -31,6 +31,10 @@ jobs:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          # The history without file contents, for Scripts/restore-mtimes.swift.
+          fetch-depth: 0
+          filter: blob:none
 
       - name: Use the newest Xcode on the runner
         # The image's default can lag behind; local builds use the current Xcode, so CI should too.
@@ -39,6 +43,25 @@ jobs:
           sudo xcode-select -s "$XCODE"
           xcodebuild -version
           swift --version
+
+      - name: Date the files by their last commit
+        # A checkout dates every file now, which would rebuild all of the package's own code over the cached build.
+        run: swift Scripts/restore-mtimes.swift
+
+      - name: Key the build cache
+        # Builds reuse the last one's .build: the dependencies (two BoringSSLs, swift-nio) and what did not change.
+        # Keyed by the toolchain and Package.resolved; main saves one per commit, a pull request one for its first
+        # successful run (a failed one may lack the release build).
+        id: build-key
+        run: echo "key=build-${{ runner.os }}-$(swift --version 2>&1 | cksum | cut -d' ' -f1)-${{ hashFiles('Package.resolved') }}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the build
+        id: restore-build
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build
+          key: ${{ steps.build-key.outputs.key }}-${{ github.event_name == 'pull_request' && format('pr{0}', github.event.number) || github.sha }}
+          restore-keys: ${{ steps.build-key.outputs.key }}-
 
       - name: Test
         # A watchdog prints the test process's stacks and fails when the tests stall, rather than waiting for the job.
@@ -52,14 +75,46 @@ jobs:
       - name: Build
         run: swift build -c release
 
+      - name: Save the build
+        if: ${{ success() && steps.restore-build.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build
+          key: ${{ steps.restore-build.outputs.cache-primary-key }}
+
   linux:
     runs-on: ubuntu-latest
     container: swift:6.2
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          # The history without file contents, for Scripts/restore-mtimes.swift.
+          fetch-depth: 0
+          filter: blob:none
 
       - name: Install Avahi's dns_sd
         run: apt-get update && apt-get install -y --no-install-recommends libavahi-compat-libdnssd-dev
+
+      - name: Date the files by their last commit
+        # A checkout dates every file now, which would rebuild all of the package's own code over the cached build.
+        run: |
+          git config --global --add safe.directory "$PWD"
+          swift Scripts/restore-mtimes.swift
+
+      - name: Key the build cache
+        # Builds reuse the last one's .build: the dependencies (two BoringSSLs, swift-nio) and what did not change.
+        # Keyed by the toolchain and Package.resolved; main saves one per commit, a pull request one for its first
+        # successful run (a failed one may lack the release build).
+        id: build-key
+        run: echo "key=build-${{ runner.os }}-$(swift --version 2>&1 | cksum | cut -d' ' -f1)-${{ hashFiles('Package.resolved') }}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the build
+        id: restore-build
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build
+          key: ${{ steps.build-key.outputs.key }}-${{ github.event_name == 'pull_request' && format('pr{0}', github.event.number) || github.sha }}
+          restore-keys: ${{ steps.build-key.outputs.key }}-
 
       - name: Test
         timeout-minutes: 25
@@ -71,3 +126,10 @@ jobs:
 
       - name: Build
         run: swift build -c release
+
+      - name: Save the build
+        if: ${{ success() && steps.restore-build.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build
+          key: ${{ steps.restore-build.outputs.cache-primary-key }}
