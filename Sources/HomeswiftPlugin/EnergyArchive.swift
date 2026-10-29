@@ -254,6 +254,17 @@ public final class EnergyArchive: @unchecked Sendable {
         return (flows, whole || imported.isEmpty)
     }
 
+    /// The hours from `from` to `to` that some source imported, oldest first: their flows, the sources added up.
+    public func importedHours(from: Date, to: Date) -> [(start: Date, flows: EnergyFlows)] {
+        let first = Self.hourStart(from), last = Int(to.timeIntervalSince1970)
+        return hours.withLockedValue { hours in
+            hours.compactMap { key, hour -> (start: Date, flows: EnergyFlows)? in
+                guard key >= first, key <= last, let imported = hour.imported, !imported.isEmpty else { return nil }
+                return (Date(timeIntervalSince1970: TimeInterval(key)), imported.values.reduce(EnergyFlows()) { $0.adding($1) })
+            }
+        }.sorted { $0.start < $1.start }
+    }
+
     /// The first hour with anything known.
     public var earliest: Date? { hours.withLockedValue { $0.keys.min() }.map { Date(timeIntervalSince1970: TimeInterval($0)) } }
 

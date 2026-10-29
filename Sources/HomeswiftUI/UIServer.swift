@@ -1299,6 +1299,7 @@ public final class UIServer: Sendable {
             "power": .array(report.power.map { point in
                 var object: [String: JSONValue] = ["t": .number(point.start.timeIntervalSince1970)]
                 for (role, watts) in point.watts { object[role.rawValue] = .number((watts * 10).rounded() / 10) }
+                if point.imported { object["imported"] = .bool(true) }
                 return .object(object)
             }),
             "levels": .array(report.levels.map { level in

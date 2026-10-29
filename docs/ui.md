@@ -80,7 +80,8 @@ browser. The Quick Controls ([below](#quick-controls)) sit at the top of the pag
 - **Today**: solar produced, home use, the share of it solar covered, and grid import, as figures.
 - **Power**: solar, the home, the grid (importing above zero, exporting below) and the batteries (charging above
   zero), each added up across devices, and each device's battery level. Its own range: 24 hours (the default), today,
-  yesterday or 7 days (`?energy=7d`).
+  yesterday or 7 days (`?energy=7d`). Where the bridge recorded nothing (before it ran, while it was stopped), the power
+  lines show what a plugin imported for those hours, each hour at its average, and the line under the chart says so.
 - **History**: the energy in kWh as stacked bars, a **Week**, **Month** (a bar per day) or **Year** (a bar per month)
   at a time, with the periods before and after (`?energy-view=month&energy-date=2026-05-01`). Above the line is where
   the home's energy came from (solar as it was produced, the batteries, the grid), below it where the rest went (into
@@ -294,7 +295,10 @@ plugins compiled into this homeswift, with a search and a sort.
 The form follows the schema's `condition`s (`functionBody` or an expression, as Homebridge's form reads them): a field
 shows only when its condition holds for the block or, in a list, for its entry (`arrayIndices`). The page runs no code
 from the schema: it reads the part of JavaScript conditions use (`model.a.b`, `[arrayIndices]`, literals,
-`.includes()`, `!`, comparisons, `&&`, `||`) and shows a field whose condition it cannot read. A boolean with
+`.includes()`, `!`, comparisons, `&&`, `||`) and shows a field whose condition it cannot read. A field with
+`"x-schema-form": { "requiredWhen": "model.route === 'app'" }` is marked required, and its input `required`, only while
+that condition holds and the field is on screen: settings that depend on another (an account or keys, by the route
+chosen). A boolean with
 `"x-schema-form": { "invert": true }` shows its switch on while the value is false, for a key that turns something off
 under a title that turns it on (the web UI's daily backup). A certificate or key field takes a dropped PEM file, which
 the bridge checks and keeps owner-only under `files/` next to config.json.

@@ -2339,8 +2339,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if (shown.length) {
         const points = report.power.map((point) => ({ ...point, time: point.t * 1000 }));
         draw(power, shown.map((role) => ({ label: role.label, tone: role.tone, value: (point) => point[role.id] ?? null })), points, from.getTime(), to.getTime(), step, formatWatts);
-        const last = points.at(-1);
-        power.detail.textContent = last ? t("Latest: {values}", { values: shown.filter((role) => last[role.id] != null).map((role) => `${role.label} ${formatWatts(last[role.id])}`).join(" · ") }) : "";
+        // The latest the bridge recorded; steps it recorded nothing in come from an imported hourly history, said so.
+        const last = points.findLast((point) => !point.imported);
+        const latest = last ? t("Latest: {values}", { values: shown.filter((role) => last[role.id] != null).map((role) => `${role.label} ${formatWatts(last[role.id])}`).join(" · ") }) : "";
+        const imported = points.some((point) => point.imported) ? t("Where the bridge recorded nothing, the line shows the imported hourly history.") : "";
+        power.detail.textContent = [latest, imported].filter(Boolean).join(" ");
       }
       levels.node.hidden = !report.levels.length;
       if (report.levels.length) {
@@ -3859,9 +3862,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if (test && element) conditional.push({ element, test, index });
     };
 
+    // Fields required only while a condition holds (`x-schema-form.requiredWhen`, read as `condition`s are): a block
+    // whose settings depend on another (an account or keys, by the route chosen) marks the ones it needs now.
+    const requiredWhen = [];
     const field = (key, property, current, required, index) => {
       const made = makeField(key, property, current, required, index);
       watch(made.element, property.condition ?? property["x-schema-form"]?.condition, index);
+      const test = !required && schemaCondition(property["x-schema-form"]?.requiredWhen);
+      if (test && made.element) requiredWhen.push({ element: made.element, test, index });
       return made;
     };
     /// A cron expression (`x-schema-form.type: "schedule"`, the scheduled restart) as a time and the days it runs on,
@@ -3909,7 +3917,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const makeField = (key, property, current, required, index) => {
       const title = tr(property.title) || key;
       const help = property.description ? el("div", { class: "help", text: tr(property.description) }) : null;
-      const wrap = (control) => el("label", { class: "field" }, el("span", { class: "field-title" }, title, required ? el("span", { class: "muted", text: ` · ${t("required")}` }) : null), control, help);
+      const marked = required || property["x-schema-form"]?.requiredWhen !== undefined;
+      const wrap = (control) => el("label", { class: "field" }, el("span", { class: "field-title" }, title, marked ? el("span", { class: `muted required-mark${required ? "" : " hidden"}`, text: ` · ${t("required")}` }) : null), control, help);
       const type = property.type;
       if (property["x-schema-form"]?.type === "schedule") return scheduleField(wrap, current);
       const options = property.oneOf && property.oneOf.every((o) => Array.isArray(o.enum)) ? property.oneOf.map((o) => ({ value: o.enum[0], title: tr(o.title) ?? String(o.enum[0]) })) : property.enum ? property.enum.map((v) => ({ value: v, title: String(v) })) : null;
@@ -4055,7 +4064,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const restKeys = Object.keys(properties).filter((key) => !fields.has(key));
     const rest = restKeys.map((key) => ({ key, element: render(key) })).filter((entry) => entry.element)
       // A field with a condition is shown in the main part while its condition holds, not under More options.
-      .map(({ key, element }) => ({ element, required: requiredTop.has(key) || properties[key].required === true || Boolean(properties[key].condition ?? properties[key]["x-schema-form"]?.condition), value: value[key] }));
+      .map(({ key, element }) => ({ element, required: requiredTop.has(key) || properties[key].required === true || Boolean(properties[key].condition ?? properties[key]["x-schema-form"]?.condition ?? properties[key]["x-schema-form"]?.requiredWhen), value: value[key] }));
     if (rest.length) {
       const split = splitFields(rest);
       container.append(el("div", { class: "fields" }, split.filter((node) => !node.classList?.contains("more-options"))),
@@ -4070,11 +4079,18 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     };
     // A hidden field keeps its value, as Homebridge's form does; it only leaves the screen.
     const applyConditions = () => {
-      if (!conditional.length) return;
+      if (!conditional.length && !requiredWhen.length) return;
       const model = getValue();
       for (const { element, test, index } of conditional) {
         const shown = test(model, typeof index === "function" ? index() : index);
         element.classList.toggle("hidden", !shown);
+      }
+      // A field is required while its condition holds and it is on screen (its own and its group's conditions).
+      for (const { element, test, index } of requiredWhen) {
+        const needed = test(model, typeof index === "function" ? index() : index) && !element.closest(".hidden");
+        element.querySelector(".required-mark")?.classList.toggle("hidden", !needed);
+        const control = element.querySelector("input, select, textarea");
+        if (control) control.required = needed;
       }
     };
     container.addEventListener("input", applyConditions);
@@ -12494,6 +12510,7 @@ HomeswiftI18n.add("es", {
   "Battery level": "Nivel de batería",
   "Each device's charge": "La carga de cada dispositivo",
   "Energy by day": "Energía por día",
+  "Where the bridge recorded nothing, the line shows the imported hourly history.": "Donde el puente no registró nada, la línea muestra el historial por horas importado.",
   "Latest: {values}": "Últimos valores: {values}",
   "Solar produced": "Solar producida",
   "Home used": "Consumo de la casa",
@@ -14808,6 +14825,7 @@ HomeswiftI18n.add("fr", {
   "Battery level": "Niveau de batterie",
   "Each device's charge": "La charge de chaque appareil",
   "Energy by day": "Énergie par jour",
+  "Where the bridge recorded nothing, the line shows the imported hourly history.": "Là où le pont n'a rien enregistré, la courbe montre l'historique horaire importé.",
   "Latest: {values}": "Dernières valeurs : {values}",
   "Solar produced": "Solaire produit",
   "Home used": "Consommation de la maison",
@@ -17122,6 +17140,7 @@ HomeswiftI18n.add("pt", {
   "Battery level": "Nível da bateria",
   "Each device's charge": "A carga de cada dispositivo",
   "Energy by day": "Energia por dia",
+  "Where the bridge recorded nothing, the line shows the imported hourly history.": "Onde a ponte não registou nada, a linha mostra o histórico por hora importado.",
   "Latest: {values}": "Últimos valores: {values}",
   "Solar produced": "Solar produzida",
   "Home used": "Consumo da casa",
