@@ -345,6 +345,21 @@ struct UsersServerTests {
         #expect(await environment.server.chat.conversation(for: "milo", admin: true).toolNames.contains("set_accessory"))
     }
 
+    @Test func tellsPagesWhenTheWallChanges() async throws {
+        let environment = try UITestEnvironment()
+        _ = try await environment.start()
+        defer { Task { await environment.stop() } }
+        // A change from any writer (here the store the MCP tools use) reaches every open page's event stream.
+        let stream = environment.server.events.stream(logs: false)
+        _ = try environment.server.catalog.home.wall.save(["grouping": "room"])
+        var text = ""
+        for await chunk in stream {
+            text += String(decoding: chunk, as: UTF8.self)
+            if text.contains("event: layout") { break }
+        }
+        #expect(text.contains("event: layout"))
+    }
+
     @Test func keepsTheLogFromOtherUsersEventStreams() async throws {
         let hub = EventHub()
         let stream = hub.stream(logs: false)

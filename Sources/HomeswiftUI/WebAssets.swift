@@ -1819,14 +1819,18 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     });
     stream.addEventListener("log", (event) => appendLogLine(JSON.parse(event.data)));
     // The rooms or the wall changed elsewhere (the chat, an MCP client, another page): the Accessories page draws them
-    // again, once for a burst, unless it is being edited, a dialog is open over it, or the change is the page's own.
+    // again, once for a burst, unless the change is the page's own. While it is being edited or a dialog is open over
+    // it, the redraw waits for them to end, so a save from Edit does not put back what changed meanwhile.
     let layoutTimer = null;
+    const redrawLayout = () => {
+      if (location.pathname !== "/accessories") return;
+      if (document.querySelector(".wall.editing, dialog[open]")) { layoutTimer = setTimeout(redrawLayout, 1000); return; }
+      route();
+    };
     stream.addEventListener("layout", () => {
       clearTimeout(layoutTimer);
-      layoutTimer = setTimeout(() => {
-        if (location.pathname !== "/accessories" || document.querySelector(".wall.editing, dialog[open]") || Date.now() - HomeswiftCommon.lastChange() < 2000) return;
-        route();
-      }, 300);
+      if (Date.now() - HomeswiftCommon.lastChange() < 2000) return;
+      layoutTimer = setTimeout(redrawLayout, 300);
     });
     stream.addEventListener("asset", (event) => applyAsset(JSON.parse(event.data)));
   }
@@ -8701,7 +8705,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const promptDialog = (message, value = "") => messageDialog(message, { kind: "prompt", value });
 
   window.HomeswiftCommon = {
-    showAlert, confirmDialog, promptDialog, busyButton, scaledCanvas, byteSize, layerHost, lastChange: () => lastChange,
+    showAlert, confirmDialog, promptDialog, busyButton, scaledCanvas, byteSize, lastChange: () => lastChange,
     $, el, icon, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
@@ -8859,7 +8863,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       // A callout over the widget: what did not change, why (each device's own reason, once), and a way to try again.
       // The controls under it are inert while it shows; focus goes to Try again when a change failed, and back to the
       // controls when it goes. Escape dismisses it.
-      let closing = null;
+      let closing = null, missingNoted = false;
       const cover = (shown) => { for (const sibling of result.parentElement?.children ?? []) if (sibling !== result) sibling.inert = shown; };
       const notify = (text, { reasons = [], retry = null, focus = false } = {}) => {
         clearTimeout(closing); closing = null; result.classList.remove('closing');
@@ -8949,7 +8953,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           }
           return input;
         }).filter(Boolean));
-        if (people.some((a) => !a) && !result.childElementCount) notify(t('Some group members are unavailable.'));
+        // Said once: dismissed, it stays away while the members that are there can be used.
+        if (people.some((a) => !a) && !missingNoted) { missingNoted = true; notify(t('Some group members are unavailable.')); }
       };
       const node = el('div', { class: `widget size-${layout.sizes?.[group.id] || 'large'} accessory-group`, 'data-id': group.id, 'data-search': [group.name, ...people.map((a) => a?.name || '')].join(' ').toLowerCase() },
         el('div', { class: 'server-head' }, glyph, el('div', { class: 'who' }, el('strong', { text: group.name }), el('div', { class: 'muted', text: people.map((a) => a?.displayName || a?.name || '—').join(', ') })),

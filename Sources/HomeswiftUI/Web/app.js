@@ -433,14 +433,18 @@
     });
     stream.addEventListener("log", (event) => appendLogLine(JSON.parse(event.data)));
     // The rooms or the wall changed elsewhere (the chat, an MCP client, another page): the Accessories page draws them
-    // again, once for a burst, unless it is being edited, a dialog is open over it, or the change is the page's own.
+    // again, once for a burst, unless the change is the page's own. While it is being edited or a dialog is open over
+    // it, the redraw waits for them to end, so a save from Edit does not put back what changed meanwhile.
     let layoutTimer = null;
+    const redrawLayout = () => {
+      if (location.pathname !== "/accessories") return;
+      if (document.querySelector(".wall.editing, dialog[open]")) { layoutTimer = setTimeout(redrawLayout, 1000); return; }
+      route();
+    };
     stream.addEventListener("layout", () => {
       clearTimeout(layoutTimer);
-      layoutTimer = setTimeout(() => {
-        if (location.pathname !== "/accessories" || document.querySelector(".wall.editing, dialog[open]") || Date.now() - HomeswiftCommon.lastChange() < 2000) return;
-        route();
-      }, 300);
+      if (Date.now() - HomeswiftCommon.lastChange() < 2000) return;
+      layoutTimer = setTimeout(redrawLayout, 300);
     });
     stream.addEventListener("asset", (event) => applyAsset(JSON.parse(event.data)));
   }

@@ -148,7 +148,7 @@
       // A callout over the widget: what did not change, why (each device's own reason, once), and a way to try again.
       // The controls under it are inert while it shows; focus goes to Try again when a change failed, and back to the
       // controls when it goes. Escape dismisses it.
-      let closing = null;
+      let closing = null, missingNoted = false;
       const cover = (shown) => { for (const sibling of result.parentElement?.children ?? []) if (sibling !== result) sibling.inert = shown; };
       const notify = (text, { reasons = [], retry = null, focus = false } = {}) => {
         clearTimeout(closing); closing = null; result.classList.remove('closing');
@@ -238,7 +238,8 @@
           }
           return input;
         }).filter(Boolean));
-        if (people.some((a) => !a) && !result.childElementCount) notify(t('Some group members are unavailable.'));
+        // Said once: dismissed, it stays away while the members that are there can be used.
+        if (people.some((a) => !a) && !missingNoted) { missingNoted = true; notify(t('Some group members are unavailable.')); }
       };
       const node = el('div', { class: `widget size-${layout.sizes?.[group.id] || 'large'} accessory-group`, 'data-id': group.id, 'data-search': [group.name, ...people.map((a) => a?.name || '')].join(' ').toLowerCase() },
         el('div', { class: 'server-head' }, glyph, el('div', { class: 'who' }, el('strong', { text: group.name }), el('div', { class: 'muted', text: people.map((a) => a?.displayName || a?.name || '—').join(', ') })),
