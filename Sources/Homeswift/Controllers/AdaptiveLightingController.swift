@@ -356,17 +356,18 @@ public final class AdaptiveLightingController: SerializableController, @unchecke
     public static let changedElsewhereTolerance = 5
 
     /// The device reported its colour: `mireds`, the white it shows, or nil for a colour. Turns Adaptive Lighting off,
-    /// as the Home app does when it sets one, when that is a colour or a white more than `changedElsewhereTolerance`
-    /// from the Color Temperature shown: the device was set by something else (its app, a remote, a scene). Call it
-    /// with the device's reports, not the echo of the bridge's own write still on its way. True when it turned it off.
+    /// as the Home app does when it sets one, when that is a colour or a white more than `tolerance` mireds from the
+    /// Color Temperature shown: the device was set by something else (its app, a remote, a scene). A device that rounds
+    /// coarser than `changedElsewhereTolerance` passes its own step. Call it with the device's reports, not the echo of
+    /// the bridge's own write still on its way. True when it turned it off.
     @discardableResult
-    public func disableIfChangedElsewhere(mireds: Int?) -> Bool {
+    public func disableIfChangedElsewhere(mireds: Int?, tolerance: Int = changedElsewhereTolerance) -> Bool {
         guard isAdaptiveLightingActive else { return false }
         if let mireds {
             let characteristic = lightbulb.characteristic(.colorTemperature)
             guard let shown = characteristic.value.intValue else { return false }
             let low = Int(characteristic.type.minValue ?? 140), high = Int(characteristic.type.maxValue ?? 500)
-            guard abs(min(max(mireds, low), high) - shown) > Self.changedElsewhereTolerance else { return false }
+            guard abs(min(max(mireds, low), high) - shown) > tolerance else { return false }
         }
         disableAdaptiveLighting()
         return true

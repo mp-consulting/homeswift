@@ -41,14 +41,13 @@ enum KeyLightAccessory {
 
         // Changes made elsewhere (the Control Center app, the light's buttons) reach HomeKit as events. A poll
         // reports only what differs from what was sent, so a white a few mireds away was set elsewhere: Adaptive
-        // Lighting stops, as when the Home app sets one.
+        // Lighting stops, as when the Home app sets one (`disableIfChangedElsewhere`).
         await device.setStateHandler { state in
             if let on = state.on { lightbulb.characteristic(.on).value = .bool(on == 1) }
             if let brightness = state.brightness { lightbulb.characteristic(.brightness).value = .int(brightness) }
             if let temperature = state.temperature {
                 let clamped = LightState.clamp(temperature: temperature)
-                let current = lightbulb.characteristic(.colorTemperature).value.intValue ?? clamped
-                if adaptiveLighting.isAdaptiveLightingActive, abs(current - clamped) > 3 { adaptiveLighting.disableAdaptiveLighting() }
+                adaptiveLighting.disableIfChangedElsewhere(mireds: clamped)
                 lightbulb.characteristic(.colorTemperature).value = .int(clamped)
             }
         }
