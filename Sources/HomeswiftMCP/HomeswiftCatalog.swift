@@ -648,7 +648,7 @@ public struct HomeswiftCatalog: Sendable {
             // `platform` and the runtime's own keys (`_bridge`, `_paused`) are not the plugin's to describe.
             let settings = { (fields: [String: JSONValue]) in JSONValue.object(fields.filter { $0.key != "platform" && !$0.key.hasPrefix("_") }) }
             // The block as it was: in the same place (a renamed one too), else by platform and name (the file reordered).
-            let same = before.indices.contains(index) && before[index]["platform"] == block["platform"] ? before[index] : nil
+            let same: JSONValue? = before.indices.contains(index) && before[index]["platform"] == block["platform"] ? before[index] : nil
             let old = (same ?? before.first { key($0) == key(block) })?.objectValue.map(settings)
             let now = settings(fields)
             for found in JSONSchema.problems(now, against: schema) {
