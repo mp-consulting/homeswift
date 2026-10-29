@@ -224,6 +224,8 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
     private func importHistoryLoop(_ history: EcoFlowHistory) async {
         while !Task.isCancelled {
             let imported = await importHistory(history, serial: historySerial)
+            // The answers whose shape changed, and a chart the cloud stopped answering: each logged once.
+            for change in await history.schemas.drain() { logger.warning("\(change)") }
             try? await Task.sleep(for: imported ? Self.historyInterval : Self.historyRetry)
         }
     }

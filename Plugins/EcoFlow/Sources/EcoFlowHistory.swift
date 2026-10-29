@@ -14,6 +14,8 @@ struct EcoFlowHistory: Sendable {
     let email: String
     let password: String
     let transport: any HTTPSending
+    /// Changes in the answers' shapes, and a chart the cloud stops answering, for the plugin's log (EcoFlowSchema).
+    let schemas = EcoFlowNotices()
     /// The pauses before a chart is asked for again after a failure: the cloud answers a "Server error" now and then,
     /// and one month's failure would otherwise end the whole import.
     var retryDelays: [Duration] = [.seconds(2), .seconds(6)]
@@ -32,9 +34,9 @@ struct EcoFlowHistory: Sendable {
     static let batteryCode = "BKW3_SYSTEM-Pro_App-BATTERY-BATTERY-ENERGY-FLOW-chart_battery_bar_dual_charging_discharging_sys-DAY-CHART_DATA"
     static let gridCode = "BKW3_SYSTEM-Pro_App-GRID-GRID-ENERGY-FLOW-chart_grid_bar_dual_es_sys-DAY-CHART_DATA"
     /// Each two-way chart's directions: the `extra` of its points, and the flow each fills.
-    nonisolated(unsafe) static let twoWay: [(code: String, ways: [(extra: String, field: WritableKeyPath<EnergyFlows, Double?>)])] = [
-        (batteryCode, [("1", \.batteryCharge), ("2", \.batteryDischarge)]),
-        (gridCode, [("1", \.gridImport), ("2", \.gridExport)]),
+    nonisolated(unsafe) static let twoWay: [(code: String, name: String, ways: [(extra: String, field: WritableKeyPath<EnergyFlows, Double?>)])] = [
+        (batteryCode, "battery", [("1", \.batteryCharge), ("2", \.batteryDischarge)]),
+        (gridCode, "grid", [("1", \.gridImport), ("2", \.gridExport)]),
     ]
 
     enum Failure: Error, CustomStringConvertible {
@@ -99,14 +101,27 @@ struct EcoFlowHistory: Sendable {
                     hours[hour, default: EnergyFlows()][keyPath: field] = wattHours
                 }
             }
-            for (code, field) in [(Self.solarCode, \EnergyFlows.solar), (Self.homeCode, \EnergyFlows.home)] {
-                add(Self.points(try await chart(code, space: space, from: from, to: to, token: token), format: format), to: field)
+            for (code, name, field) in [(Self.solarCode, "solar", \EnergyFlows.solar), (Self.homeCode, "home", \EnergyFlows.home)] {
+                let data = try await chart(code, space: space, from: from, to: to, token: token)
+                await schemas.record(EcoFlowSchema.historyChart(name), problems: EcoFlowSchema.historyChart(name).problems(in: data))
+                add(Self.points(data, format: format), to: field)
             }
             for chart2 in Self.twoWay where twoWay {
-                guard let data = try? await chart(chart2.code, serial: serial, from: from, to: to, token: token) else {
+                let data: Any?
+                do {
+                    data = try await chart(chart2.code, serial: serial, from: from, to: to, token: token)
+                    await schemas.report("refused \(chart2.name)", nil,
+                                         recovered: "The EcoFlow cloud answers the \(chart2.name) history chart again")
+                } catch {
+                    // A chart that stops answering is what a renamed code looks like: said once, until it answers again.
+                    await schemas.report("refused \(chart2.name)",
+                                         "The EcoFlow cloud did not answer the \(chart2.name) history chart (\(error)): the history goes on without the battery and the grid",
+                                         recovered: "")
                     twoWay = false
                     break
                 }
+                let schema = EcoFlowSchema.historyChart(chart2.name, twoWay: true)
+                await schemas.record(schema, problems: schema.problems(in: data))
                 for way in chart2.ways { add(Self.points(data, format: format, extra: way.extra), to: way.field) }
             }
             let batch = hours.keys.sorted().map { EnergyHourImport(start: $0, flows: hours[$0]!) }
@@ -135,6 +150,7 @@ struct EcoFlowHistory: Sendable {
     /// The account's first STREAM, from the app's device list.
     func stream(token: String) async throws -> String {
         let list = try await send("/app/user/device/list", method: "GET", body: nil, token: token)
+        await schemas.record(EcoFlowSchema.historyDevices, problems: EcoFlowSchema.historyDevices.problems(in: list["data"]))
         guard let stream = EcoFlowAppAPI.listedDevices(list["data"]).first(where: { EcoFlowModel.model(serial: $0.serial)?.kind == .stream }) else {
             throw Failure.noStream
         }
@@ -143,6 +159,7 @@ struct EcoFlowHistory: Sendable {
 
     func space(serial: String, token: String) async throws -> Space {
         let info = try await send("/app/space/getSpaceInfoBySn?sn=\(serial)", method: "GET", body: nil, token: token)
+        await schemas.record(EcoFlowSchema.historySpace, problems: EcoFlowSchema.historySpace.problems(in: info))
         guard let data = info["data"] as? [String: Any], let id = data["spaceId"] as? String else { throw Failure.noSpace }
         let properties = data["properties"] as? [[String: Any]] ?? []
         let zone = properties.first { $0["key"] as? String == "timezone" }?["value"] as? String
@@ -150,6 +167,7 @@ struct EcoFlowHistory: Sendable {
         // When the system was set up: the history starts there. Not knowing it, a year back is asked.
         if let systems = try? await send("/app/space/system/list?spaceId=\(id)", method: "GET", body: nil, token: token),
            let list = (systems["data"] as? [String: Any])?["systemList"] as? [[String: Any]] {
+            await schemas.record(EcoFlowSchema.historySystems, problems: EcoFlowSchema.historySystems.problems(in: list))
             let format = Self.formatter(space.timeZone)
             space.created = list.compactMap { ($0["createTime"] as? String).flatMap(format.date(from:)) }.min()
         }

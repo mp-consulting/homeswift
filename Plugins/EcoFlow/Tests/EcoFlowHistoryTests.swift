@@ -64,6 +64,18 @@ final class FakeCloud: HTTPSending, Sendable {
     }
 }
 
+/// The fake cloud, its solar chart's points without their unit: a change in the answer's shape.
+final class ReshapedCloud: HTTPSending, Sendable {
+    let cloud = FakeCloud()
+
+    func send(_ request: HomeswiftNetwork.HTTPRequest) async throws -> HomeswiftNetwork.HTTPResponse {
+        let response = try await cloud.send(request)
+        let json = try? JSONSerialization.jsonObject(with: request.body ?? Data()) as? [String: Any]
+        guard request.url.path == "/app/commonQuery/query", json?["code"] as? String == EcoFlowHistory.solarCode else { return response }
+        return HomeswiftNetwork.HTTPResponse(status: 200, body: Data(String(decoding: response.body, as: UTF8.self).replacingOccurrences(of: #","unit":"wh""#, with: "").utf8))
+    }
+}
+
 /// The fake cloud, refusing the first chart with the cloud's "Server error".
 final class FlakyCloud: HTTPSending, Sendable {
     let cloud = FakeCloud()
@@ -108,6 +120,24 @@ struct EcoFlowHistoryTests {
         #expect((first["params"] as? [String: String]) == ["spaceId": "S1", "rootSpaceId": "S1", "beginTime": "2026-09-01 00:00:00", "endTime": "2026-09-30 23:59:59"])
     }
 
+    /// Answers of the expected shape report nothing.
+    @Test func expectedAnswersReportNoChange() async throws {
+        let history = EcoFlowHistory(email: "me@example.test", password: "secret", transport: FakeCloud())
+        try await history.hours(serial: nil, since: nil, now: local("2026-10-02 12:30:00"))
+        #expect(await history.schemas.drain().isEmpty)
+    }
+
+    /// A chart whose answer changed shape is reported once, naming the chart and what changed; the next import, with
+    /// the same change, says nothing more.
+    @Test func aChangedAnswerIsReportedOnce() async throws {
+        let history = EcoFlowHistory(email: "me@example.test", password: "secret", transport: ReshapedCloud())
+        try await history.hours(serial: "BK11", since: nil, now: local("2026-10-02 12:30:00"))
+        let changes = await history.schemas.drain()
+        #expect(changes == ["The EcoFlow answer for app/commonQuery/query solar changed: missing or not as expected: [*].unit"])
+        try await history.hours(serial: "BK11", since: nil, now: local("2026-10-02 12:30:00"))
+        #expect(await history.schemas.drain().isEmpty, "once")
+    }
+
     /// A system whose cloud refuses the battery and grid charts keeps its solar and home history, and is not asked for
     /// them again month after month.
     @Test func aSystemWithoutBatteryChartsKeepsSolarAndHome() async throws {
@@ -119,6 +149,9 @@ struct EcoFlowHistoryTests {
         #expect(hours.first?.flows == EnergyFlows(solar: 100, home: 400))
         let queries = cloud.requests.withLockedValue { $0 }.filter { $0.url.path == "/app/commonQuery/query" }
         #expect(queries.count == 4 + 1, "solar and home for two months, and the battery chart once")
+        let changes = await history.schemas.drain()
+        #expect(changes.count == 1)
+        #expect(changes.first?.contains("did not answer the battery history chart") == true, "a refused chart is said, as a renamed code would be")
     }
 
     /// Without a serial number, the account's first STREAM in the app's device list is the history's.

@@ -17,7 +17,7 @@ struct EcoFlowSchemaTests {
 
     @Test func aListsItemsAreCheckedOneByOne() {
         let answer: [[String: Any]] = [["sn": "A", "deviceName": "STREAM", "online": 1], ["sn": "B", "online": 0]]
-        #expect(EcoFlowSchema.deviceList.problems(in: answer) == ["[1].deviceName"])
+        #expect(EcoFlowSchema.deviceList.problems(in: answer) == ["[*].deviceName"])
         #expect(EcoFlowSchema.deviceList.problems(in: "not a list") == ["items"])
     }
 

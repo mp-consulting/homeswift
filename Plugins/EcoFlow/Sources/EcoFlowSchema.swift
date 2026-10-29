@@ -16,14 +16,14 @@ struct EcoFlowSchema: Sendable {
     let fields: [Field]
     let items: [Field]
 
-    /// The problems in an answer: each field that is missing or not of its kind, by path.
+    /// The problems in an answer: each field that is missing or not of its kind, by path; an item field once, as
+    /// `[*].path`, however many items lack it, so the same change reads the same in every answer (a month of points
+    /// or another) and is reported once.
     func problems(in value: Any?) -> [String] {
         var problems = fields.filter { !Self.matches(value, $0) }.map(\.path)
         if !items.isEmpty {
             guard let list = value as? [Any] else { return problems + ["items"] }
-            for (index, item) in list.enumerated() {
-                problems += items.filter { !Self.matches(item, $0) }.map { "[\(index)].\($0.path)" }
-            }
+            problems += items.filter { field in list.contains { !Self.matches($0, field) } }.map { "[*].\($0.path)" }
         }
         return problems
     }
@@ -64,6 +64,21 @@ extension EcoFlowSchema {
         Field(path: "data.url", kind: .text), Field(path: "data.certificateAccount", kind: .text),
         Field(path: "data.certificatePassword", kind: .text),
     ], items: [])
+
+    // The energy history's answers (EcoFlowHistory): the space, its systems, and each chart's points.
+    static let historySpace = EcoFlowSchema(endpoint: "app/space/getSpaceInfoBySn", fields: [
+        Field(path: "data.spaceId", kind: .text), Field(path: "data.rootSpaceId", kind: .text), Field(path: "data.properties", kind: .array),
+    ], items: [])
+    /// The device list as the history reads it: only the serial numbers.
+    static let historyDevices = EcoFlowSchema(endpoint: "app/user/device/list (history)", fields: [], items: [Field(path: "sn", kind: .text)])
+    /// Checked on `data.systemList`, each system's set-up time.
+    static let historySystems = EcoFlowSchema(endpoint: "app/space/system/list", fields: [], items: [Field(path: "createTime", kind: .text)])
+    /// A chart's points: the value as a number or as text; a two-way chart's with their direction (`extra`).
+    static func historyChart(_ name: String, twoWay: Bool = false) -> EcoFlowSchema {
+        EcoFlowSchema(endpoint: "app/commonQuery/query \(name)", fields: [], items: [
+            Field(path: "indexName", kind: .text), Field(path: "indexValue", kind: .identifier), Field(path: "unit", kind: .text),
+        ] + (twoWay ? [Field(path: "extra", kind: .identifier)] : []))
+    }
 }
 
 /// What the plugin logs about its APIs, kept until the plugin reads it: an answer whose shape changed, an API that

@@ -182,7 +182,11 @@ answer without the app open. The messages are protobuf, read by field number wit
 encrypted (`enc_type` 1), which is an XOR with the low byte of the header's sequence number.
 
 **Changes in the APIs.** Each answer is checked against the shape the plugin reads; a change is logged once, and once
-more when it matches again. An API that fails is logged the same way, and the other API's devices still show.
+more when it matches again. An API that fails is logged the same way, and the other API's devices still show. The
+energy history's answers are checked too (the space, its systems, the device list, each chart's points), after each
+import; a list field missing from its items is named once (`[*].unit`), so a change reads the same in every answer. A
+battery or grid chart the cloud stops answering, as a renamed code would, is logged once, and the import goes on with
+solar and home use.
 
 ## Credits
 
