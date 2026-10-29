@@ -52,7 +52,6 @@ public final class JSONFileStore<Value: Codable & Sendable>: Sendable {
 /// settings, and the moods that can still be undone. Each is its own owner-only file next to config.json; `HomeswiftCatalog.startHome` runs the
 /// automations and the notification sources.
 public final class HomeState: Sendable {
-    public let naturalLighting: NaturalLighting
     public let layout: JSONFileStore<AccessoryLayout>
     public let scenes: JSONFileStore<SceneFile>
     public let notifications: JSONFileStore<NotificationSettings>
@@ -73,7 +72,6 @@ public final class HomeState: Sendable {
     let dispatch = NIOLockedValueBox(DispatchState())
 
     public init(directory: URL) {
-        naturalLighting = NaturalLighting(directory: directory)
         layout = JSONFileStore(url: directory.appendingPathComponent("accessory-layout.json")) { AccessoryLayout() }
         scenes = JSONFileStore(url: directory.appendingPathComponent("scenes.json")) { SceneFile() }
         notifications = JSONFileStore(url: directory.appendingPathComponent("notifications.json")) { NotificationSettings() }

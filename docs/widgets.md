@@ -78,19 +78,13 @@ widget shows. An accessory no widget knows gets those rows, so nothing a plugin 
 - **Adaptive Lighting.** A light with Adaptive Lighting has a sun swatch first among its colours (a round button
   beside the white slider for a light without colours). HomeKit starts Adaptive Lighting: when you turn it on in
   the Home app, the Home app sends a day's schedule of whites, which a home hub renews. The bridge keeps the last
-  schedule; the swatch turns it off, and on again by resuming that schedule, moved by whole days so it keeps its
-  times of day. A light whose Adaptive Lighting was never turned on in the Home app says so when the swatch is
-  pressed. Picking a colour or a white turns it off, as in the Home app.
+  schedule; the swatch turns it off, and on again by resuming that schedule as the Home app turns it on: the same
+  schedule, starting now at the white for this time of day, for a day. The Home app then shows it on. A light whose
+  Adaptive Lighting was never turned on in the Home app says so when the swatch is pressed. Picking a colour or a
+  white turns it off, as in the Home app.
 
   Apple Home lights mirrored through Wingman show their latest reported colour temperature in kelvin in the
-  status line, when available. Their Apple Adaptive Lighting schedule stays in Apple Home. Lights with writable
-  colour temperature and no bridge Adaptive Lighting controller offer a separate **Homeswift Natural Lighting**
-  sun toggle. It saves an opt-in per light and uses the browser's time zone: 2200 K at night, 4000 K at 09:00,
-  5000 K at midday–15:00, 3500 K at 18:00, and 2200 K at 21:00, interpolating between these points and clamping
-  to the lamp's range. It checks once per minute while Homeswift runs, without changing power or brightness.
-  Manual colour writes through Homeswift pause it; a different white temperature reported by another controller
-  also pauses it on the next check. Press the sun to resume. Pauses and opt-ins survive restarts.
-  This is a clock-based schedule, not a sunrise/location calculation or Apple's Adaptive Lighting.
+  status line, when available. Their Apple Adaptive Lighting schedule stays in Apple Home.
 
   The Apple Home source filter uses the Home app icon, a count badge and an accessible switch.
 
@@ -358,10 +352,6 @@ script renders in light mode at 2x and rewrites the page's accessory data as it 
 | `GET /api/layout` | The wall: `{ order, sizes, defaults, grouping, groups }`. |
 | `PUT /api/layout` | Keeps it, checked: ids in `order` and `sizes`, sizes `small`, `medium`, `large` or `xlarge`, `defaults` by kind (`climate`, `light`…), `grouping` `none`, `plugin` or `room` (the rooms of `/api/rooms`), and `groups` containing `{ id, name, members }`. |
 | `PUT /api/accessories/<id>/adaptive-lighting` | `{ "on": true }` resumes the Home app's last schedule, `false` turns it off; `service` picks the lightbulb when there are several. 409 with what to do when there is no schedule. |
-
-`PUT /api/accessories/<id>/natural-lighting` takes `{ "on": true, "timeZone": "Europe/Lisbon" }`,
-with an optional `service` to choose a lightbulb service. Use `on: false` to remove its schedule. This is
-Homeswift's schedule, not an API for enabling Apple Adaptive Lighting.
 
 In `/api/accessories`, a light with Adaptive Lighting has `adaptiveLighting: { active, resumable }` on its
 service, and an accessory of a paused plugin `paused: true`.

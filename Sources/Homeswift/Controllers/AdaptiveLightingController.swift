@@ -206,23 +206,17 @@ public final class AdaptiveLightingController: SerializableController, @unchecke
     /// Whether `resumeAdaptiveLighting()` can turn it on: off, with a schedule HomeKit sent before.
     public var canResumeAdaptiveLighting: Bool { state.withLockedValue { $0.activeTransition == nil && $0.lastTransition != nil } }
 
-    /// Turns Adaptive Lighting on again with the last schedule the Home app sent, its clock moved by whole days so
-    /// that now falls in it (the curve keeps its times of day): the web UI's Adaptive swatch. The Home app sees it
-    /// on, and a home hub renews it as it renews any. False when it is on already, when HomeKit never sent a
-    /// schedule, or when the schedule's curve does not reach the time of day it is now.
+    /// Turns Adaptive Lighting on again with the last schedule the Home app sent, as the Home app itself does: the
+    /// same transition id, a start time of now, and the curve rotated so it begins at the point for this time of day
+    /// (`rotated(_:toStartAt:)`). The web UI's Adaptive swatch and moods use it. False when it is on already, when
+    /// HomeKit never sent a schedule, or when a curve shorter than a day does not reach the time of day it is now.
     @discardableResult
     public func resumeAdaptiveLighting() -> Bool {
         let now = clock()
         let resumed = state.withLockedValue { state -> Bool in
-            guard state.activeTransition == nil, var transition = state.lastTransition else { return false }
-            let day = 86_400_000
-            let elapsed = now - transition.timeMillisOffset - transition.transitionStartMillis
-            // Whole days, rounded down, also for a schedule that starts later than now.
-            let days = elapsed >= 0 ? elapsed / day : -((day - 1 - elapsed) / day)
-            transition.timeMillisOffset += days * day
-            let length = transition.transitionCurve.reduce(0) { $0 + $1.transitionTime + ($1.duration ?? 0) }
-            let position = now - transition.timeMillisOffset - transition.transitionStartMillis
-            guard position >= 0, position <= length else { return false }
+            guard state.activeTransition == nil, let last = state.lastTransition,
+                let transition = Self.rotated(last, toStartAt: now - last.timeMillisOffset)
+            else { return false }
             state.activeTransition = transition
             state.lastTransition = transition
             state.lastTransitionPointInfo = nil
@@ -232,6 +226,78 @@ public final class AdaptiveLightingController: SerializableController, @unchecke
         logger.debug("Adaptive lighting was resumed", metadata: ["lightbulb": "\(displayName)"])
         handleActiveTransitionUpdated(fromDeserializer: false)
         return true
+    }
+
+    static let dayMillis = 86_400_000
+
+    /// `transition` started again at `start` (milliseconds on the clock of the controller that sent it), the way the
+    /// Home app sends a schedule it turns on again: the same transition id, `start` as its start time, and a curve
+    /// that begins with the point for that time of day. The Home app's curves cover a day and end where they begin,
+    /// so such a curve wraps around and still covers a day; a shorter one keeps what is left of it, and is nil at a
+    /// time of day it does not reach.
+    static func rotated(_ transition: Transition, toStartAt start: Int) -> Transition? {
+        let curve = transition.transitionCurve
+        guard curve.count >= 2 else { return nil }
+        // When each point is reached, counted from the first one.
+        var reach = [0]
+        for index in 1..<curve.count {
+            reach.append(reach[index - 1] + (curve[index - 1].duration ?? 0) + curve[index].transitionTime)
+        }
+        let length = reach[curve.count - 1]
+        guard length > 0 else { return nil }
+        let wraps = abs(length - dayMillis) <= 60_000
+        let period = wraps ? length : dayMillis
+        let elapsed = start - transition.transitionStartMillis - curve[0].transitionTime
+        let position = (elapsed % period + period) % period
+        guard position < length, let index = (0..<curve.count - 1).last(where: { reach[$0] <= position }) else { return nil }
+
+        let lower = curve[index]
+        let upper = curve[index + 1]
+        let hold = lower.duration ?? 0
+        let into = position - reach[index]
+        // The point for now; how long until the next one; how long the lower one holds and the ramp from it to
+        // now take when the curve comes round again.
+        let point: TransitionCurveEntry
+        let untilNext: Int
+        let heldAtEnd: Int
+        let rampAtEnd: Int
+        if into < hold {
+            point = TransitionCurveEntry(
+                temperature: lower.temperature, brightnessAdjustmentFactor: lower.brightnessAdjustmentFactor, transitionTime: 0,
+                duration: hold - into)
+            (untilNext, heldAtEnd, rampAtEnd) = (upper.transitionTime, into, 0)
+        } else {
+            // Past the hold and before the next point, so the ramp to it takes time.
+            let fraction = Double(into - hold) / Double(upper.transitionTime)
+            point = TransitionCurveEntry(
+                temperature: lower.temperature + (upper.temperature - lower.temperature) * fraction,
+                brightnessAdjustmentFactor: lower.brightnessAdjustmentFactor
+                    + (upper.brightnessAdjustmentFactor - lower.brightnessAdjustmentFactor) * fraction,
+                transitionTime: 0)
+            (untilNext, heldAtEnd, rampAtEnd) = (reach[index + 1] - position, hold, into - hold)
+        }
+
+        var rotated = [point]
+        // The last point is the first one again, so the curve goes on with the second.
+        let order = Array(index + 1..<curve.count) + (wraps ? Array(1..<index + 1) : [])
+        for (offset, number) in order.enumerated() {
+            var entry = curve[number]
+            if offset == 0 { entry.transitionTime = untilNext }
+            if number == curve.count - 1 { entry.duration = wraps ? curve[0].duration : nil }
+            rotated.append(entry)
+        }
+        if wraps {
+            rotated[rotated.count - 1].duration = heldAtEnd
+            rotated.append(TransitionCurveEntry(
+                temperature: point.temperature, brightnessAdjustmentFactor: point.brightnessAdjustmentFactor, transitionTime: rampAtEnd))
+        }
+
+        var result = transition
+        result.transitionStartMillis = start
+        // HomeKit's start time: milliseconds since 2001, eight bytes little-endian.
+        result.transitionStartBuffer = HAPTLV.hexString(HAPTLV.uint64(UInt64(max(0, start - epoch2001Millis))))
+        result.transitionCurve = rotated
+        return result.clamped()
     }
 
     /// When the current schedule started, in milliseconds since 1970 (see `timeOffset`).

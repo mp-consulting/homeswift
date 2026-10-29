@@ -792,15 +792,6 @@ public final class UIServer: Sendable {
             if route.count == 3, route[0] == "config", route[1] == "platforms" {
                 return try await replacePlatformBlock(at: route[2], with: body, checkSchemas: request.query["force"] != "true", username: username)
             }
-            if route.count == 3, route[0] == "accessories", route[2] == "natural-lighting" {
-                guard let found = catalog.find(id: route[1]) else { return .error(404, "no accessory \(route[1])") }
-                guard let on = body["on"]?.boolValue, let zone = body["timeZone"]?.stringValue else { return .error(400, "on and timeZone are required") }
-                do {
-                    let result = try await catalog.home.naturalLighting.configure(found, service: body["service"]?.stringValue, on: on, timeZone: zone, catalog: catalog)
-                    logger.info("Web UI changed Natural Lighting", metadata: ["user": "\(username)", "accessory": "\(found.accessory.name)", "on": "\(on)"])
-                    return .json(result)
-                } catch let error as CatalogError { return .error(409, error.description) }
-            }
             if route.count == 3, route[0] == "accessories", route[2] == "adaptive-lighting" {
                 // { "on": true } resumes the schedule the Home app last sent; false turns it off.
                 guard let found = catalog.find(id: route[1]) else { return .error(404, "no accessory \(route[1])") }
@@ -1458,7 +1449,6 @@ final class EventHub: Sendable {
                     "id": .string(accessory.id), "characteristic": .string(characteristic.type.name), "value": characteristic.isConfidential ? .null : HomeswiftCatalog.json(value),
                     // Whether the device answers: No Response on its card follows it (`Accessory.isUnavailable`).
                     "unavailable": .bool(accessory.isUnavailable),
-                    "naturalLighting": catalog.home.naturalLighting.json(for: accessory.id) ?? [:],
                 ]
                 if let service {
                     payload["service"] = .string(service.type.name)

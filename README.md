@@ -27,8 +27,7 @@ It is also a Homebridge written in Swift: the `homeswift` bridge reads a Homebri
 runs the plugins compiled into it, one small binary, no Node.js, no npm. Fourteen plugins come with it, from Elgato Key
 Lights to UniFi Protect cameras, Philips Hue and IKEA DIRIGERA straight from their bridges, and Wingman, which brings in the Home app's own accessories through a Mac; [docs/plugins.md](docs/plugins.md) explains how to write or port one. Its web UI
 shows every accessory as a widget of its kind, on a wall you arrange. Drag and resize tiles, combine compatible
-lights, switches, fans or blinds into dashboard groups, and filter devices that do not respond. Lights with
-writable colour temperature can follow an opt-in Homeswift Natural Lighting schedule. See
+lights, switches, fans or blinds into dashboard groups, and filter devices that do not respond. See
 [the widget guide](docs/widgets.md) and [the web UI guide](docs/ui.md).
 
 The **Scenes** page includes 143 original photographic palettes in 28 themes, searchable and sortable,

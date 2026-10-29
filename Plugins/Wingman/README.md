@@ -70,8 +70,7 @@ Apple Home: the next Wingman discovery can bring it back. Use `exclude` to keep 
 
 ## Limits
 
-- Apple Adaptive Lighting remains managed in Apple Home. A separate **Homeswift Natural Lighting** sun toggle
-  is available for lights with writable colour temperature (see [widgets](../../docs/widgets.md)). Their status
+- Apple Adaptive Lighting remains managed in Apple Home. A light's status
   displays the latest colour temperature reported by Wingman, in kelvin, when available. This is a cached reading,
   not confirmation that Adaptive Lighting is active. Manual colour changes may disable Apple's schedule.
 - Wingman runs only on Macs registered in its developer's team (HomeKit is not available to Developer ID apps).

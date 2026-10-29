@@ -472,30 +472,6 @@ struct LogFilterTests {
 
     /// A light with Adaptive Lighting says so; on needs a schedule the Home app sent (409, with what to do), off
     /// always works. A device that does not answer is refused in words, not as a Swift error.
-    @Test func naturalLightingRoutePersistsPausesAndRefusesUnsupportedLights() async throws {
-        let environment = try UITestEnvironment(auth: .none)
-        let base = try await environment.start()
-        defer { Task { await environment.stop() } }
-        let browser = Browser(base: base)
-        let accessory = try #require(environment.server.catalog.find(id: "Lamps:lamp")?.accessory)
-        let light = try #require(accessory.services.first { $0.type.uuid == ServiceType.lightbulb.uuid })
-        light.characteristic(adding: .colorTemperature).value = 300
-        light[.on]?.value = true
-        let url = "/api/accessories/Lamps:lamp/natural-lighting"
-        #expect(try await browser.put(url, ["on": true]).status == 400)
-        #expect(try await browser.put(url, ["on": true, "timeZone": "invalid"]).status == 409)
-        let enabled = try await browser.put(url, ["on": true, "timeZone": "Europe/Lisbon"])
-        #expect(enabled.status == 200)
-        #expect(enabled.json?["Lightbulb"]?["paused"] == false)
-        let listed = try await browser.get("/api/accessories").json?.arrayValue?.first { $0["id"] == "Lamps:lamp" }
-        #expect(listed?["naturalLighting"]?["Lightbulb"]?["enabled"] == true)
-        _ = try await browser.put("/api/accessories/Lamps:lamp", ["characteristic": "Color Temperature", "value": 300])
-        let paused = try await browser.get("/api/accessories").json?.arrayValue?.first { $0["id"] == "Lamps:lamp" }
-        #expect(paused?["naturalLighting"]?["Lightbulb"]?["paused"] == true)
-        #expect(try await browser.put(url, ["on": false, "timeZone": "Europe/Lisbon"]).json == [:])
-        #expect(try await browser.put("/api/accessories/Lamps:strip/natural-lighting", ["on": true, "timeZone": "UTC"]).status == 409)
-    }
-
     @Test func turnsAdaptiveLightingOnAndOffAndExplainsRefusals() async throws {
         let environment = try UITestEnvironment(auth: .none)
         let base = try await environment.start()

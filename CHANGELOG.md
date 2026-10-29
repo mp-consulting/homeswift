@@ -13,6 +13,20 @@ All notable changes to this project are documented here. The format follows
   documents for it, are answered as `/mcp`, `/oauth` and the sign-in page, whose files and API calls stay under the
   path. Off without it.
 
+### Changed
+
+- Adaptive Lighting resumes as the Home app turns it on: the last schedule's transition id, a start time of now, and its
+  day's curve rotated to begin at the white for this time of day, so it covers a whole day again
+  (`AdaptiveLightingController.resumeAdaptiveLighting()`). It moved the schedule by whole days before, which could end
+  it early or refuse a time of day. The Home app shows a resumed schedule as on. `homeswift-demo`'s lamp has Adaptive
+  Lighting, and `SIGUSR1` resumes it.
+
+### Removed
+
+- Homeswift Natural Lighting, the bridge's own daily white schedule for lights without Adaptive Lighting: its sun
+  toggle, `PUT /api/accessories/<id>/natural-lighting` and `naturalLighting` in `/api/accessories` and the event
+  stream. A `natural-lighting.json` left in the configuration directory is no longer read.
+
 ### Fixed
 
 - Quick controls groups its heading and scene shortcuts in one card; photographic scene tiles replace cramped

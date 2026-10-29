@@ -144,9 +144,62 @@ struct AdaptiveLightingTests {
         #expect(!controller.isAdaptiveLightingActive)
     }
 
-    /// Off, the last schedule stays (saved too) and resumes moved by whole days, at the same time of day; at a time
-    /// its curve does not reach, it does not.
-    @Test func resumesTheLastScheduleWholeDaysLater() async throws {
+    /// A curve's temperature and factor `offset` milliseconds after its start, as `scheduleNextUpdate` computes them.
+    static func value(_ curve: [AdaptiveLightingController.TransitionCurveEntry], at offset: Int) -> (Double, Double)? {
+        var reached = 0
+        for index in 0..<curve.count - 1 {
+            let lower = curve[index], upper = curve[index + 1]
+            reached += lower.transitionTime
+            let hold = lower.duration ?? 0
+            if offset <= reached + hold + upper.transitionTime, offset >= reached {
+                if offset - reached <= hold { return (lower.temperature, lower.brightnessAdjustmentFactor) }
+                let fraction = upper.transitionTime == 0 ? 1 : Double(offset - reached - hold) / Double(upper.transitionTime)
+                return (lower.temperature + (upper.temperature - lower.temperature) * fraction,
+                        lower.brightnessAdjustmentFactor + (upper.brightnessAdjustmentFactor - lower.brightnessAdjustmentFactor) * fraction)
+            }
+            reached += hold
+        }
+        return nil
+    }
+
+    /// A day's curve that ends where it begins (the Home app's) starts again at any time of day as the Home app
+    /// sends it: the same id, the new start time, a curve that still covers a day and gives the same values at the
+    /// same times, in a ramp or in a hold.
+    @Test func rotatesADaysCurveToStartNow() throws {
+        let hour = 3_600_000
+        let curve: [AdaptiveLightingController.TransitionCurveEntry] = [
+            .init(temperature: 360, brightnessAdjustmentFactor: -0.6, transitionTime: 0),
+            .init(temperature: 350, brightnessAdjustmentFactor: -1.4, transitionTime: 4 * hour, duration: 2 * hour),
+            .init(temperature: 500, brightnessAdjustmentFactor: -0.6, transitionTime: 8 * hour, duration: 3 * hour),
+            .init(temperature: 360, brightnessAdjustmentFactor: -0.6, transitionTime: 7 * hour),
+        ]
+        let start = 1_700_000_000_000
+        let transition = AdaptiveLightingController.Transition(
+            iid: 11, transitionStartMillis: start, timeMillisOffset: 0, transitionId: "0f7f5c26-8c8f-4d7a-9b8e-3c2a1d0e9f8b",
+            transitionStartBuffer: "00", id3: "aabb", brightnessCharacteristicIID: 10,
+            brightnessAdjustmentRange: .init(minBrightnessValue: 10, maxBrightnessValue: 100), transitionCurve: curve,
+            updateInterval: 60_000, notifyIntervalThreshold: 600_000)
+        // Two days and some hours later: in the first ramp, in a hold, at a point, in the last ramp.
+        for shift in [hour, 5 * hour, 4 * hour, 12 * hour + 30 * 60_000, 15 * hour, 23 * hour] {
+            let now = start + 2 * AdaptiveLightingController.dayMillis + shift
+            let rotated = try #require(AdaptiveLightingController.rotated(transition, toStartAt: now))
+            #expect(rotated.transitionStartMillis == now)
+            #expect(rotated.transitionId == transition.transitionId && rotated.id3 == "aabb")
+            #expect(rotated.transitionStartBuffer == HAPTLV.hexString(HAPTLV.uint64(UInt64(now - AdaptiveLightingController.epoch2001Millis))))
+            let length = rotated.transitionCurve.reduce(0) { $0 + $1.transitionTime + ($1.duration ?? 0) }
+            #expect(length == AdaptiveLightingController.dayMillis)
+            #expect(rotated.transitionCurve.first?.transitionTime == 0)
+            for offset in stride(from: 0, through: AdaptiveLightingController.dayMillis, by: 15 * 60_000) {
+                let original = try #require(Self.value(curve, at: (shift + offset) % AdaptiveLightingController.dayMillis))
+                let moved = try #require(Self.value(rotated.transitionCurve, at: offset))
+                #expect(abs(original.0 - moved.0) < 1e-9 && abs(original.1 - moved.1) < 1e-9, "shift \(shift) offset \(offset)")
+            }
+        }
+    }
+
+    /// Off, the last schedule stays (saved too) and resumes starting now, at the point for this time of day; at a
+    /// time a curve shorter than a day does not reach, it does not.
+    @Test func resumesTheLastScheduleStartingNow() async throws {
         let lightbulb = Self.lightbulb(hueAndSaturation: true)
         lightbulb.characteristic(.brightness).value = .int(50)
         lightbulb.characteristic(.colorTemperature).onWrite { _ in }
@@ -177,7 +230,8 @@ struct AdaptiveLightingTests {
         #expect(controller.resumeAdaptiveLighting())
         #expect(controller.isAdaptiveLightingActive)
         #expect(!controller.canResumeAdaptiveLighting)
-        #expect(controller.timeOffset == 600_000 + 3 * 86_400_000)
+        #expect(controller.timeOffset == 600_000)
+        #expect(controller.startTimeOfTransition == clock.now - 600_000)
         #expect(lightbulb[.characteristicValueActiveTransitionCount]?.value == .int(1))
         #expect(saves.withLockedValue { $0 } == 1)
         await controller.scheduleNextUpdate(dryRun: true)

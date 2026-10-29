@@ -591,7 +591,6 @@ extension HomeswiftCatalog {
         }
         guard fresh else { return }
         await runDueScenes(at: minute)
-        await home.naturalLighting.tick(self, at: now)
         await checkNotificationSources(now: now)
     }
 
