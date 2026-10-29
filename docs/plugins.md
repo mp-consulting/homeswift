@@ -257,6 +257,32 @@ device, a cloud or a config file can send any of them. Convert with `Int(saturat
 clamps, nil for NaN; `Int(saturating: x, in: 0...100)` clamps to a range), `JSONValue.saturatingIntValue`
 for JSON, `Int(clamping:)` for a wider integer, and `x.finite` to drop NaN and infinity from a reading.
 
+### Secrets
+
+Passwords, keys and tokens go through the bridge's vault (docs/vault-design.md); a plugin does little for it.
+
+- **In the configuration.** A secret sits under a key the bridge reads as one (`password`, `token`, `apiKey`,
+  `secret`, `privateKey`, `credential`, `pin`…: `Redaction.secretKeyPattern`). Under such a key config.json may hold
+  the value, a sealed `enc:v1:` copy, or a reference (`vault:<entry>[#field]`, `env:<VARIABLE>`, `file:/path`), and
+  the plugin always receives the plain value: the runtime opens and resolves the block before `init`, and masks the
+  value in logs, MCP replies and the Assistant's prompts. Keep the Homebridge plugin's option names; a secret under
+  another name (Govee's `localKey`) is neither sealed nor resolved, so say so in the README.
+- **Tokens the plugin gets at run time** (a cloud's session, a hub's token, a client key) go in
+  `context.secretFile(_:as:)`, never `jsonFile` or `PersistedDictionary`: `load()`, `save(_:)` and `remove()` as
+  `jsonFile`, sealed in the vault as `plugin.<instance>.<file>`, an entry only that instance's block can read. Give it
+  the Homebridge plugin's file name: a file of that name in the plugin's folder (one copied from Homebridge) moves in
+  the first time it is read, and `legacyFile:` names one kept elsewhere. What it holds under secret-named keys is
+  masked in logs from then on.
+
+  ```swift
+  let tokens = context.secretFile("ewelink-tokens.json", as: Session.self)
+  if let session = tokens.load() { … } else { try tokens.save(try await signIn()) }
+  ```
+- **What a plugin never does:** read `vault.json` or another entry, log a value (masking is a safety net, not
+  permission), or write a secret anywhere else on disk.
+- **Tests** run `secretFile` on a temporary storage directory (the vault's key is made on the first save); a test
+  config that names `vault:` entries adds them first with `CredentialVault(storage:).set(_:_:)`.
+
 ### Web pages
 
 A plugin can give the web UI a page of its own: a `Web/` directory next to `Sources`, embedded as

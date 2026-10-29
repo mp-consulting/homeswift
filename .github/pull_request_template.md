@@ -17,6 +17,7 @@ Delete this section if the pull request adds no plugin. CONTRIBUTING.md explains
 - [ ] Every light with Brightness and Color Temperature has Adaptive Lighting, turned off by colour changes made outside HomeKit; `check-on-bridge.sh` names none without it
 - [ ] Tests use fake transports: no device, account or network
 - [ ] No token, password, key or setup code is logged
+- [ ] Secrets are under secret-named keys; tokens the plugin stores use `context.secretFile`, not a plain file
 - [ ] No new package dependency
 - [ ] Light on the bridge: push or a bounded poll, backoff on failures, only changes set, writes coalesced; memory and CPU flat on the Status page
 - [ ] README: what it does, the configuration, the ported plugin and its license, the maintainer

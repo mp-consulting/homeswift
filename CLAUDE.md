@@ -113,7 +113,9 @@ node Scripts/generate-definitions.js <hap-nodejs> > Sources/Homeswift/Model/Defi
   option names of the Homebridge plugin they port, and are registered in `Sources/HomeswiftCLI/Plugins.swift`.
   Plugins depend on `Homeswift`, `HomeswiftPlugin` and shared transport targets of this package (`HomeswiftNetwork`), never
   on a new package. An accessory HomeKit wants on its own (a television, a camera) goes through
-  `context.publishExternal`, which gives it a HAP server of its own under `external/`.
+  `context.publishExternal`, which gives it a HAP server of its own under `external/`. A token a plugin stores goes
+  in `context.secretFile` (sealed in the vault), never `jsonFile`; a secret in its configuration sits under a
+  secret-named key (`Redaction.secretKeyPattern`), which the runtime seals, resolves and masks (docs/plugins.md, "Secrets").
 - The executable target is `HomeswiftCLI`, not `homeswift`: that name is `Homeswift` on a case-insensitive
   file system.
 - The Assistant: providers talk to the APIs over plain HTTP (no SDKs), through `HTTPTransport` so tests use
