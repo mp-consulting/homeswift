@@ -648,7 +648,7 @@
         el("div", { class: "server-head" }, tile("play", scene.security ? "violet" : "orange"),
           el("div", { class: "who" }, el("a", { class: "card-title", href: `/scenes/${encodeURIComponent(scene.id)}` }, el("strong", { text: scene.name }),
               scene.active ? el("span", { class: "pill scene-active", text: t("Scene active") }) : null),
-            el("div", { class: "muted", text: [scene.room, scene.animation ? t("Animated: {style}", { style: scene.animation.effect ? effectStyleNames()[scene.animation.effect.style] || scene.animation.effect.style : t("Timed sequence") }) : null, scene.triggers.length ? scene.triggers.map((trigger) => describeTrigger(trigger, names)).join(" · ") : t("Run by hand")].filter(Boolean).join(" · ") })),
+            el("div", { class: "muted", text: [scene.room, scene.homeKit ? t("In the Home app") : null, scene.animation ? t("Animated: {style}", { style: scene.animation.effect ? effectStyleNames()[scene.animation.effect.style] || scene.animation.effect.style : t("Timed sequence") }) : null, scene.triggers.length ? scene.triggers.map((trigger) => describeTrigger(trigger, names)).join(" · ") : t("Run by hand")].filter(Boolean).join(" · ") })),
           el("div", { class: "scene-run-actions" }, run, stop)),
         el("details", { class: "scene-card-details" }, el("summary", { text: t("Details") }), el("div", { class: "controls" }, actions)),
         scene.security ? el("p", { class: "muted note", text: t("It changes a lock, a door or an alarm: the page asks before running it, and automations leave those actions out.") }) : null,
@@ -1037,6 +1037,9 @@
     const choices = accessories.filter((a) => !a.hidden || scene.actions.some((x) => x.id === a.id));
 
     const name = el("input", { type: "text", value: scene.name, maxLength: 64, required: true, placeholder: t("Evening") });
+    const homeKit = el("input", { type: "checkbox", checked: Boolean(scene.homeKit) });
+    const homeKitRow = el("label", { class: "toggle compact" }, homeKit, el("span", {}, el("span", { text: t("A switch in the Home app") }),
+      el("span", { class: "help", text: t("On the Homeswift Scenes accessory: turning it on runs the scene (without its locks, doors and alarms), turning it off puts the lights back.") })));
     let artworkId = scene.artworkId || null;
     const themes = await loadArtworkThemes();
     const artworkPreview = el("div", { class: "artwork-preview" }, artworkImage(artworkId));
@@ -1336,7 +1339,7 @@
       if (!isNew) return;
       const read = [...actions].flatMap((row) => row.read());
       const fits = read.length && !read.some((a) => a.recall || !hubLight.has(String(a.characteristic).toLowerCase().replace(/\s/g, "")))
-        && ![...triggers].length && !animation.read();
+        && ![...triggers].length && !animation.read() && !homeKit.checked;
       const ids = fits ? [...new Set(read.map((a) => a.id))].sort() : [];
       const key = ids.join("|");
       if (key === targetsAsked) return;
@@ -1351,7 +1354,7 @@
     };
     const form = el("form", { class: "card scene-editor", onsubmit: async (event) => {
       event.preventDefault();
-      const body = { name: name.value.trim(), artworkId, actions: [...actions].flatMap((row) => row.read()), triggers: [...triggers].map((row) => row.read()), conditions: [...conditions].map((row) => row.read()), animation: animation.read() };
+      const body = { name: name.value.trim(), artworkId, homeKit: homeKit.checked, actions: [...actions].flatMap((row) => row.read()), triggers: [...triggers].map((row) => row.read()), conditions: [...conditions].map((row) => row.read()), animation: animation.read() };
       save.disabled = true;
       if (isNew && keepOn.value && !keepOn.hidden) {
         try {
@@ -1372,7 +1375,7 @@
       } catch (e) { say(line, e.message, "error"); }
       save.disabled = false;
     } },
-      field(t("Name"), name), artworkPreview, artworkPicker,
+      field(t("Name"), name), homeKitRow, artworkPreview, artworkPicker,
       flow,
       el("div", { class: "save-bar" }, save, keepOn, el("a", { class: "button", actionIcon: "close", href: "/scenes", text: t("Cancel") }),
         isNew ? null : el("span", { class: "spacer" }),

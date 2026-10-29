@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Homeswift's scenes in the Home app: a scene can be a switch (the editor's **A switch in the Home app**, `homeKit`) of
+  one Homeswift Scenes accessory; on runs it without its security actions, off puts the lights back.
 - eWeLink plays animated scenes natively on a SONOFF L2 strip with its own scenes (candle, sunrise, sunset, rainbow,
   ocean, moonlight, sunshine, dream, music), as homebridge-ewelink lists them.
 - Scenes written to the hubs: a new scene of lights only can be saved to the Hue room or zone, or the IKEA hub, that

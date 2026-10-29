@@ -74,8 +74,9 @@ The AI composes a scene and runs it without saving it, as moods did:
 - **Templates:** the mood collection and the gallery become templates applied to a room, artwork included.
 - **The Assistant:** writes a draft scene from a description, previewed (with undo), saved when confirmed;
   `save_scene` takes a `description`.
-- **HomeKit:** a Homeswift scene can be a switch, chosen per scene, on one "Homeswift Scenes" accessory; the
-  plugins' scene switches stay as they are.
+- **HomeKit:** a Homeswift scene can be a switch, chosen per scene (`homeKit`), on one "Homeswift Scenes" accessory
+  (`Homeswift:scenes`, a switch per scene with subtype `scene:<id>`; `SceneSwitches.swift`); the plugins' scene
+  switches stay as they are.
 - **Govee** provides the scenes picked on its page; the library stays a place to pick from.
 - **Removed:** `list_moods`, `start_mood`, `stop_mood`, `/api/moods/*`, `held-moods.json`, `design-mood.md`;
   `stop_scene` and `undo_scene` are added.

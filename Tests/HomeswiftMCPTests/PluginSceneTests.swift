@@ -217,4 +217,36 @@ import Testing
         _ = try await environment.catalog.deleteHubScene(id)
         #expect(plugin.hubScenes.withLockedValue { $0.isEmpty })
     }
+
+    /// A scene chosen for HomeKit is a switch of the Homeswift Scenes accessory: on runs it, off puts the lights back,
+    /// and it goes when no scene is chosen. Its iid stays while the scene does.
+    @Test func scenesBecomeHomeKitSwitches() async throws {
+        let environment = try MCPTestEnvironment()
+        try await environment.start()
+        defer { Task { await environment.stop() } }
+        let catalog = environment.catalog
+        let server = environment.host.mainBridge.server
+        let lamp = try catalog.characteristic(in: try #require(catalog.find(id: "Devices:lamp")), service: nil, characteristic: "Brightness")
+        let saved = try catalog.createScene(["name": "Reading", "homeKit": true, "actions": [["id": "Devices:lamp", "characteristic": "Brightness", "value": 75]]])
+        let id = try #require(saved["id"]?.stringValue)
+        _ = try catalog.createScene(["name": "Other", "actions": [["id": "Devices:lamp", "characteristic": "Brightness", "value": 10]]])
+        let accessory = try #require(server.accessories.first { $0.id == "Homeswift:scenes" })
+        #expect(accessory.services.compactMap(\.subtype) == ["scene:" + id])
+        let on = try #require(accessory.services.first { $0.subtype == "scene:" + id }?[.on])
+        let iid = on.iid
+        #expect(on.value == .bool(false))
+
+        try await on.write(true)
+        #expect(await eventually { lamp.value == .int(75) })
+        #expect(await eventually { on.value == .bool(true) })
+        try await on.write(false)
+        #expect(await eventually { lamp.value == .int(40) })
+        #expect(catalog.scenesJSON()["scenes"]?[0]?["lastRun"]?["trigger"] == "homeKit")
+
+        // Renamed, it keeps its iid; chosen for nothing, the accessory goes.
+        _ = try catalog.updateScene(id: id, ["name": "Reading time", "actions": [["id": "Devices:lamp", "characteristic": "Brightness", "value": 75]]])
+        #expect(server.accessories.first { $0.id == "Homeswift:scenes" }?.services.first { $0.subtype == "scene:" + id }?[.on]?.iid == iid)
+        _ = try catalog.updateScene(id: id, ["name": "Reading time", "homeKit": false, "actions": [["id": "Devices:lamp", "characteristic": "Brightness", "value": 75]]])
+        #expect(!server.accessories.contains { $0.id == "Homeswift:scenes" })
+    }
 }

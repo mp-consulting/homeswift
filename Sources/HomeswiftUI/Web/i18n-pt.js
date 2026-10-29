@@ -2350,5 +2350,8 @@ HomeswiftI18n.add("pt", {
   "This removes it from {hub} and its own app too. This cannot be undone.": "Ela sai de {hub} e da sua app. Não pode ser desfeito.",
   "Keep it on": "Guardá-la em",
   "Keep it in Homeswift": "Guardá-la no Homeswift",
-  "Save to {hub} ({place})": "Guardar em {hub} ({place})"
+  "Save to {hub} ({place})": "Guardar em {hub} ({place})",
+  "A switch in the Home app": "Um interruptor na app Casa",
+  "On the Homeswift Scenes accessory: turning it on runs the scene (without its locks, doors and alarms), turning it off puts the lights back.": "No acessório Cenas do Homeswift: ligá-lo executa a cena (sem as fechaduras, portas e alarmes), desligá-lo repõe as luzes como estavam.",
+  "In the Home app": "Na app Casa"
 });

@@ -563,6 +563,7 @@ extension HomeswiftCatalog {
         guard home.running.withLockedValue({ $0 == nil }) else { return }
         seedWatchedValues()
         restoreHeldLights()
+        syncSceneSwitches()
         let catalog = self
         let ticker = Task {
             while !Task.isCancelled {

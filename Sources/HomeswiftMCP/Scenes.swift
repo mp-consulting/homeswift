@@ -89,6 +89,8 @@ public struct Scene: Codable, Sendable, Equatable {
     public var lastSkipped: SceneRunRecord?
     /// What it plays on its lights after its actions, when it moves.
     public var animation: SceneAnimation? = nil
+    /// A switch in the Home app runs it (`SceneSwitches.swift`).
+    public var homeKit: Bool? = nil
 }
 
 public struct SceneLocation: Codable, Sendable, Equatable {
@@ -108,7 +110,11 @@ public struct SceneFile: Codable, Sendable, Equatable {
 }
 
 public enum SceneRunTrigger: String, Sendable {
-    case manual, schedule, sun, characteristic
+    /// `homeKit`: its switch in the Home app, which a person turned on.
+    case manual, schedule, sun, characteristic, homeKit
+
+    /// Run by a trigger rather than a person: conditions apply, and a failure is notified.
+    var isAutomatic: Bool { self == .schedule || self == .sun || self == .characteristic }
 }
 
 enum SceneRules {
@@ -332,8 +338,13 @@ enum SceneRules {
             else if let id = value.stringValue, SceneArtwork.find(id) != nil { artworkId = id }
             else { throw CatalogError("Unknown scene artwork") }
         } else { artworkId = existing?.artworkId }
+        let homeKit: Bool?
+        if let value = object["homeKit"], !value.isNull {
+            guard let on = value.boolValue else { throw CatalogError("homeKit is true or false") }
+            homeKit = on ? true : nil
+        } else { homeKit = object["homeKit"] == nil ? existing?.homeKit : nil }
         return Scene(artworkId: artworkId, id: id, name: name, actions: try actions.enumerated().map { try action($1, index: $0) }, triggers: triggers, conditions: conditions,
-                     lastRun: existing?.lastRun, lastSkipped: existing?.lastSkipped, animation: animation)
+                     lastRun: existing?.lastRun, lastSkipped: existing?.lastSkipped, animation: animation, homeKit: homeKit)
     }
 
     static func newID() -> String {
@@ -442,6 +453,7 @@ extension HomeswiftCatalog {
             file.scenes.append(scene)
         }
         seedWatchedValues()
+        syncSceneSwitches()
         return sceneJSON(scene)
     }
 
@@ -452,6 +464,7 @@ extension HomeswiftCatalog {
             return file.scenes[index]
         }
         seedWatchedValues()
+        syncSceneSwitches()
         return sceneJSON(updated)
     }
 
@@ -461,6 +474,7 @@ extension HomeswiftCatalog {
             file.scenes.removeAll { $0.id == id }
         }
         scenePictures.remove(key: id)
+        syncSceneSwitches()
     }
 
     /// Sets where sunrise and sunset are computed for; nil forgets it.
@@ -535,7 +549,7 @@ extension HomeswiftCatalog {
     func run(_ scene: Scene, trigger: SceneRunTrigger, allowSecurity: Bool) async throws -> JSONValue {
         guard home.runningScenes.withLockedValue({ $0.insert(scene.id).inserted }) else { throw CatalogError("This scene is already running") }
         defer { _ = home.runningScenes.withLockedValue { $0.remove(scene.id) } }
-        if trigger != .manual, let reason = conditionsFail(scene.conditions) {
+        if trigger.isAutomatic, let reason = conditionsFail(scene.conditions) {
             logger.info("Scene \"\(scene.name)\" not run (\(trigger.rawValue)): \(reason)")
             record(scene.id) { $0.lastSkipped = SceneRunRecord(at: SceneRules.now(), ok: true, trigger: trigger.rawValue, reason: reason) }
             return ["sceneId": .string(scene.id), "name": .string(scene.name), "ok": true, "results": [], "skipped": .string(reason)]
@@ -591,6 +605,7 @@ extension HomeswiftCatalog {
                     result["ok"] = false
                     result["skipped"] = .string(trigger == .manual
                         ? "a lock, door or alarm: a person confirms it (set_security_accessory, or the web UI)"
+                        : trigger == .homeKit ? "a lock, door or alarm: the Home app's scene switch leaves them out"
                         : "a lock, door or alarm: automations do not change them")
                     results.append(.object(result))
                     continue
@@ -634,17 +649,19 @@ extension HomeswiftCatalog {
         let ok = failed == 0
         let note = held > 0 ? "\(held) security action(s) not run" : nil
         record(scene.id) { $0.lastRun = SceneRunRecord(at: SceneRules.now(), ok: ok, trigger: trigger.rawValue, reason: note) }
-        if trigger != .manual, !ok {
+        if trigger.isAutomatic, !ok {
             await notify(.sceneFailed, title: "Scene \(scene.name) failed", message: "\(failed) of \(scene.actions.count) actions failed when the \(trigger.rawValue) trigger ran it.", path: "/scenes", subject: scene.id)
         }
         var answer: [String: JSONValue] = ["sceneId": .string(scene.id), "name": .string(scene.name), "ok": .bool(ok), "results": .array(results)]
         if let note { answer["note"] = .string(note) }
         if let animated { answer["animation"] = animated }
+        refreshSceneSwitches()
         return .object(answer)
     }
 
     /// Stops a saved scene and restores its captured state. Later manual changes to non-light controls are preserved.
     public func stopScene(_ reference: String, allowSecurity: Bool = false) async throws -> JSONValue {
+        defer { refreshSceneSwitches() }
         // A saved scene by id or name; else what ran under this id (a hub's scene, a plan).
         let id: String
         if let scene = try? scene(reference) {
