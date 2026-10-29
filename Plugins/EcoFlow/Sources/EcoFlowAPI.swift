@@ -374,7 +374,9 @@ struct EcoFlowCloud: EcoFlowAPI {
                     await schemas.record(EcoFlowSchema.quota, problems: EcoFlowSchema.quota.problems(in: quota))
                 }
                 let readings = EcoFlowState.numbers(quota)
-                guard keys.stateOfCharge.contains(where: { readings[$0] != nil }) else { continue }
+                // A quota with none of the model's state-of-charge keys is no live data, except a STREAM's: its REST
+                // quota never has the unit's level, only its power (EcoFlowModel.streamDeveloper).
+                guard model.kind == .stream || keys.stateOfCharge.contains(where: { readings[$0] != nil }) else { continue }
                 reading = (EcoFlowState(readings: readings, keys: keys), .rest)
             }
             guard reading.state.hasReadings else { continue }

@@ -23,6 +23,8 @@ actor FakeAPI: EcoFlowAPI {
 
     func schemaChanges() -> [String] { [] }
 
+    func add(_ device: EcoFlowDevice) { list.append(device) }
+
     /// A change made elsewhere, in the device's own app.
     func update(deviceID: String, _ change: @Sendable (inout EcoFlowState) -> Void) {
         for index in list.indices where list[index].id == deviceID { change(&list[index].state) }
@@ -113,6 +115,48 @@ struct EcoFlowTests {
         #expect(inverter.energyTag("grid") == nil)
     }
 
+    /// The page's order is kept by the plugin and answers `power` in it; a device it has not placed comes after the
+    /// others. Each device says whether the configuration lists it.
+    @Test func thePagesOrderIsKept() async throws {
+        await environment.api.add(EcoFlowDevice(id: "dev-2", name: "Second", online: true))
+        await environment.api.add(EcoFlowDevice(id: "dev-3", name: "Third", online: true))
+        let host = try await environment.start(settings: ["devices": [["id": "dev-1", "name": "Renamed"]]])
+        let plugin = try #require(environment.plugin)
+        let power = { @Sendable () async throws -> [JSONValue] in
+            try await plugin.handleWebRequest(PluginWebRequest(method: "GET", path: "power", user: "admin")).json["devices"]?.arrayValue ?? []
+        }
+        #expect(await eventually { (try? await power().count) == 3 })
+        #expect(try await power().map { $0["id"]?.stringValue } == ["dev-1", "dev-2", "dev-3"])
+        #expect(try await power().map { $0["configured"] } == [.bool(true), .bool(false), .bool(false)])
+
+        let saved = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "order", body: ["ids": ["dev-3", "dev-1"]], user: "admin"))
+        #expect(saved.status == 200)
+        #expect(try await power().map { $0["id"]?.stringValue } == ["dev-3", "dev-1", "dev-2"])
+
+        let refused = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "order", body: ["ids": "dev-1"], user: "admin"))
+        #expect(refused.status == 400)
+        await host.stop()
+    }
+
+    /// A device whose level is not known yet is on the plugin's page, not in HomeKit: a new accessory would show 0 %.
+    /// Once its level arrives, it gets its accessory.
+    @Test func aDeviceWaitsForItsLevelBeforeHomeKit() async throws {
+        var quiet = EcoFlowDevice(id: "dev-quiet", name: "Quiet", online: false)
+        quiet.state = EcoFlowState(soc: nil, power: EcoFlowState.Power())
+        await environment.api.add(quiet)
+        let host = try await environment.start()
+        let plugin = try #require(environment.plugin)
+        #expect(await eventually { host.mainBridge.server.accessories.contains { $0.id == accessoryID } })
+        let listed = try await plugin.handleWebRequest(PluginWebRequest(method: "GET", path: "power", user: "admin")).json["devices"]?.arrayValue ?? []
+        #expect(listed.contains { $0["id"]?.stringValue == "dev-quiet" }, "on the page")
+        #expect(!host.mainBridge.server.accessories.contains { $0.id == EcoFlowPlugin.accessoryID(deviceID: "dev-quiet") }, "not in HomeKit yet")
+
+        await environment.api.update(deviceID: "dev-quiet") { $0 = EcoFlowState(soc: 64, power: EcoFlowState.Power()) }
+        await plugin.refresh()
+        #expect(host.mainBridge.server.accessories.contains { $0.id == EcoFlowPlugin.accessoryID(deviceID: "dev-quiet") })
+        await host.stop()
+    }
+
     @Test func eachDeviceBecomesAnAccessory() async throws {
         let host = try await environment.start(settings: ["devices": [["id": "dev-1", "name": "Renamed"]]])
         #expect(await eventually { host.mainBridge.server.accessories.contains { $0.id == accessoryID } })
@@ -153,22 +197,27 @@ struct EcoFlowTests {
         #expect(sorted == unsorted)
     }
 
+    /// A STREAM's level is its own `f32ShowSoc` (the MQTT pushes). The REST quota's `cmsBattSoc` is the system's, or 0
+    /// on a unit that does not lead it: never a unit's level, so a quota without `f32ShowSoc` does not know the level.
     @Test func theStateReadsTheQuota() {
         func state(_ quota: [String: Double]) -> EcoFlowState { EcoFlowState(readings: quota, keys: EcoFlowModel.streamDeveloper) }
-        let discharging = state(["cmsBattSoc": 58.4, "powGetBpCms": -636.0, "powGetPvSum": 508.0,
+        let discharging = state(["f32ShowSoc": 58.4, "powGetBpCms": -636.0, "powGetPvSum": 508.0,
                                  "powGetSysLoad": 1380.0, "powGetSysGrid": 872.0])
         #expect(discharging.battery.batteryLevel == 58)
         #expect(discharging.battery.chargingState == 0)
         #expect(discharging.battery.statusLowBattery == 0)
         #expect(discharging.power == EcoFlowState.Power(solar: 508, home: 1380, grid: 872, battery: -636))
 
-        let charging = state(["cmsBattSoc": 26, "powGetBpCms": 35.0])
+        let charging = state(["f32ShowSoc": 26, "powGetBpCms": 35.0])
         #expect(charging.battery.chargingState == 1)
 
-        let low = state(["cmsBattSoc": 5])
+        let low = state(["f32ShowSoc": 5])
         #expect(low.battery.statusLowBattery == 1)
-        #expect(state(["cmsBattSoc": 140]).battery.batteryLevel == 100)
-        #expect(state(["cmsBattSoc": 0, "f32ShowSoc": 86.79]).battery.batteryLevel == 87, "this unit's percentage first")
+        #expect(state(["f32ShowSoc": 140]).battery.batteryLevel == 100)
+        #expect(state(["cmsBattSoc": 0, "f32ShowSoc": 86.79]).battery.batteryLevel == 87, "this unit's percentage")
+        // The system's 62 beside units at 85 and 40 (an Ultra leading an AC Pro), and an AC Pro's 0: neither is a level.
+        #expect(state(["cmsBattSoc": 62, "powGetBpCms": 35.0]).knowsBatteryLevel == false)
+        #expect(state(["cmsBattSoc": 0, "powGetBpCms": 35.0]).knowsBatteryLevel == false)
         #expect(EcoFlowState().battery.batteryLevel == 0)
     }
 
@@ -201,8 +250,9 @@ struct EcoFlowTests {
         #expect(devices[0].tested)
         #expect(devices[0].name == "STREAM Ultra")
         #expect(devices[0].online)
-        #expect(devices[0].state.battery.batteryLevel == 58)
+        #expect(devices[0].state.knowsBatteryLevel == false, "the REST quota's cmsBattSoc is the system's, not this unit's")
         #expect(devices[0].state.battery.chargingState == 1)
+        #expect(devices[0].state.power.solar == 184)
 
         let requests = transport.requests.withLockedValue { $0 }
         #expect(requests.count == 2)
@@ -230,7 +280,8 @@ struct EcoFlowTests {
         let cloud = EcoFlowCloud(accessKey: "ak", secretKey: "sk", baseURL: URL(string: "https://api.example.test")!, transport: transport)
         let devices = try await cloud.devices()
         #expect(devices.map(\.id) == ["BK11-TEST-ULTRA"])
-        #expect(devices.first?.state.battery.batteryLevel == 58)
+        #expect(devices.first?.state.power.battery == 35)
+        #expect(devices.first?.state.knowsBatteryLevel == false)
         #expect(!transport.requests.withLockedValue { $0 }.contains { $0.url.absoluteString.contains("HW52") }, "a plug is not asked")
         #expect(await cloud.schemaChanges() == ["Left out the device HW52… on the developer API: Smart Plug, which the plugin does not read"])
         _ = try await cloud.devices()

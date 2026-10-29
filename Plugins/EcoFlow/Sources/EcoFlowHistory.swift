@@ -13,6 +13,9 @@ struct EcoFlowHistory: Sendable {
     let email: String
     let password: String
     let transport: any HTTPSending
+    /// The pauses before a chart is asked for again after a failure: the cloud answers a "Server error" now and then,
+    /// and one month's failure would otherwise end the whole import.
+    var retryDelays: [Duration] = [.seconds(2), .seconds(6)]
 
     /// The headers the app sends: the space and history services answer a bare 400 without them.
     static let appHeaders: [(name: String, value: String)] = [
@@ -24,12 +27,13 @@ struct EcoFlowHistory: Sendable {
     static let homeCode = "SPACE-APP-LOAD-ENERGY-BAR-DAY"
 
     enum Failure: Error, CustomStringConvertible {
-        case signIn(String), noSpace, refused(String, String), http(String, Int)
+        case signIn(String), noSpace, noStream, refused(String, String), http(String, Int)
 
         var description: String {
             switch self {
             case .signIn(let message): "the EcoFlow app's sign-in failed: \(message)"
             case .noSpace: "the STREAM belongs to no home in the EcoFlow app"
+            case .noStream: "the EcoFlow account has no STREAM, whose home the history is kept for"
             case .refused(let path, let message): "\(path) was refused: \(message)"
             case .http(let path, let status): "\(path) answered HTTP \(status)"
             }
@@ -47,11 +51,13 @@ struct EcoFlowHistory: Sendable {
 
     /// Each whole hour from the month `since` is in (the system's set-up without it) to now, oldest first: solar and
     /// home use, in watt-hours. The hour under way is left out. `month` hears each month as it arrives, with how many
-    /// are done of how many, so the history fills in while the import runs.
+    /// are done of how many, so the history fills in while the import runs. Without a serial number, the account's
+    /// first STREAM in the app's device list is the one.
     @discardableResult
-    func hours(serial: String, since: Date?, now: Date = Date(),
+    func hours(serial: String?, since: Date?, now: Date = Date(),
                month report: @Sendable ([EnergyHourImport], _ done: Int, _ total: Int) async -> Void = { _, _, _ in }) async throws -> [EnergyHourImport] {
         let token = try await signIn()
+        let serial = if let serial { serial } else { try await stream(token: token) }
         let space = try await space(serial: serial, token: token)
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = space.timeZone
@@ -99,6 +105,14 @@ struct EcoFlowHistory: Sendable {
         return token
     }
 
+    /// The account's first STREAM, from the app's device list.
+    func stream(token: String) async throws -> String {
+        let list = try await send("/app/user/device/list", method: "GET", body: nil, token: token)
+        let serials = (list["data"] as? [[String: Any]] ?? []).compactMap { $0["sn"] as? String }
+        guard let serial = serials.first(where: { EcoFlowModel.model(serial: $0)?.kind == .stream }) else { throw Failure.noStream }
+        return serial
+    }
+
     func space(serial: String, token: String) async throws -> Space {
         let info = try await send("/app/space/getSpaceInfoBySn?sn=\(serial)", method: "GET", body: nil, token: token)
         guard let data = info["data"] as? [String: Any], let id = data["spaceId"] as? String else { throw Failure.noSpace }
@@ -119,8 +133,17 @@ struct EcoFlowHistory: Sendable {
         let body = try JSONSerialization.data(withJSONObject: [
             "code": code, "params": ["spaceId": space.id, "rootSpaceId": space.rootID, "beginTime": from, "endTime": to],
         ])
-        let object = try await send("/app/commonQuery/query", method: "POST", body: body, token: token)
-        return Self.points(object["data"], format: format)
+        var attempt = 0
+        while true {
+            do {
+                let object = try await send("/app/commonQuery/query", method: "POST", body: body, token: token)
+                return Self.points(object["data"], format: format)
+            } catch {
+                guard attempt < retryDelays.count, !Task.isCancelled else { throw error }
+                try await Task.sleep(for: retryDelays[attempt])
+                attempt += 1
+            }
+        }
     }
 
     /// The points of a chart's answer: `{"indexName": "chart_data", "indexValue": 731.0, "time": "2026-10-26 08:00:00",

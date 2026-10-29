@@ -22,6 +22,7 @@ final class FakeCloud: HTTPSending, Sendable {
         case "/auth/login": body = #"{"code":"0","message":"Success","data":{"token":"T0KEN","user":{"userId":"1"}}}"#
         case "/app/space/getSpaceInfoBySn":
             body = #"{"code":"0","data":{"spaceId":"S1","rootSpaceId":"S1","properties":[{"key":"address","value":"1 Demo Street"},{"key":"timezone","value":"Europe/Lisbon"}]}}"#
+        case "/app/user/device/list": body = #"{"code":"0","data":[{"sn":"R655-RIVER"},{"sn":"BK11-STREAM"}]}"#
         case "/app/space/system/list": body = #"{"code":"0","data":{"systemList":[{"systemNo":"N1","createTime":"2026-09-30 10:00:00"}]}}"#
         case "/app/commonQuery/query":
             let json = try JSONSerialization.jsonObject(with: request.body ?? Data()) as? [String: Any] ?? [:]
@@ -35,6 +36,22 @@ final class FakeCloud: HTTPSending, Sendable {
         default: return HomeswiftNetwork.HTTPResponse(status: 404)
         }
         return HomeswiftNetwork.HTTPResponse(status: 200, body: Data(body.utf8))
+    }
+}
+
+/// The fake cloud, refusing the first chart with the cloud's "Server error".
+final class FlakyCloud: HTTPSending, Sendable {
+    let cloud = FakeCloud()
+    /// The charts asked for, the refused one included.
+    let charts = NIOLockedValueBox(0)
+
+    func send(_ request: HomeswiftNetwork.HTTPRequest) async throws -> HomeswiftNetwork.HTTPResponse {
+        let first = request.url.path == "/app/commonQuery/query" && charts.withLockedValue { count in
+            defer { count += 1 }
+            return count == 0
+        }
+        if first { return HomeswiftNetwork.HTTPResponse(status: 200, body: Data(#"{"code":"500","message":"Server error"}"#.utf8)) }
+        return try await cloud.send(request)
     }
 }
 
@@ -63,6 +80,26 @@ struct EcoFlowHistoryTests {
         let first = try #require(try JSONSerialization.jsonObject(with: requests[3].body ?? Data()) as? [String: Any])
         #expect(first["code"] as? String == EcoFlowHistory.solarCode)
         #expect((first["params"] as? [String: String]) == ["spaceId": "S1", "rootSpaceId": "S1", "beginTime": "2026-09-01 00:00:00", "endTime": "2026-09-30 23:59:59"])
+    }
+
+    /// Without a serial number, the account's first STREAM in the app's device list is the history's.
+    @Test func theStreamComesFromTheDeviceListWhenNoneIsKnown() async throws {
+        let cloud = FakeCloud()
+        let history = EcoFlowHistory(email: "me@example.test", password: "secret", transport: cloud)
+        let hours = try await history.hours(serial: nil, since: nil, now: local("2026-10-02 12:30:00"))
+        #expect(hours.count == 24 + 24 + 12)
+        let space = try #require(cloud.requests.withLockedValue { $0 }.first { $0.url.path == "/app/space/getSpaceInfoBySn" })
+        #expect(space.url.query == "sn=BK11-STREAM")
+    }
+
+    /// A chart the cloud refuses once ("Server error") is asked for again: the import goes on.
+    @Test func aRefusedChartIsAskedAgain() async throws {
+        let cloud = FlakyCloud()
+        var history = EcoFlowHistory(email: "me@example.test", password: "secret", transport: cloud)
+        history.retryDelays = [.zero]
+        let hours = try await history.hours(serial: "BK11", since: nil, now: local("2026-10-02 12:30:00"))
+        #expect(hours.count == 24 + 24 + 12)
+        #expect(cloud.charts.withLockedValue { $0 } == 4 + 1, "a chart a month and flow, and the refused one again")
     }
 
     @Test func aTopUpStartsTheDayOfItsSince() async throws {
@@ -131,6 +168,25 @@ struct EcoFlowHistoryTests {
         let failed = try #require(host.energyImportProgress.first)
         #expect(failed.state == .failed)
         #expect(failed.message?.contains("wrong password") == true)
+    }
+
+    /// An account without a STREAM has no history: the import reports nothing, fails nothing, and waits the usual
+    /// interval rather than trying again in minutes.
+    @Test func anAccountWithoutAStreamHasNothingToImport() async throws {
+        final class NoStream: HTTPSending, Sendable {
+            func send(_ request: HomeswiftNetwork.HTTPRequest) async throws -> HomeswiftNetwork.HTTPResponse {
+                let body = request.url.path == "/auth/login" ? #"{"code":"0","data":{"token":"T","user":{"userId":"1"}}}"#
+                    : #"{"code":"0","data":[{"sn":"R655-RIVER"}]}"#
+                return HomeswiftNetwork.HTTPResponse(status: 200, body: Data(body.utf8))
+            }
+        }
+        let environment = TestEnvironment()
+        let host = try await environment.start()
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        let imported = await plugin.importHistory(EcoFlowHistory(email: "me@example.test", password: "secret", transport: NoStream()), serial: nil)
+        #expect(imported, "nothing failed")
+        #expect(host.energyImportProgress.isEmpty, "no import to show")
     }
 
     @Test func aRefusedSignInSaysSo() async {

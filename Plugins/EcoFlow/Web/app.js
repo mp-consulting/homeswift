@@ -2,7 +2,7 @@
 // app does. The page refreshes every few seconds while it is visible; it reads `GET power` from the plugin.
 (() => {
   "use strict";
-  const { t } = HomeswiftI18n;
+  const { t, tn } = HomeswiftI18n;
   const { $, el, request } = homeswift;
 
   const list = $("#devices");
@@ -75,7 +75,7 @@
 
   // The battery's graphic beside its percentage, as on the Accessories tiles: the bars filled by the level.
   function batteryGraphic(level) {
-    const node = el("span", { class: "battery-mini", "aria-hidden": "true" });
+    const node = el("span", { class: level === null ? "battery-mini unknown" : "battery-mini", "aria-hidden": "true" });
     const filled = level === null ? 0 : level >= 67 ? 3 : level >= 34 ? 2 : level >= 10 ? 1 : 0;
     const bars = [0, 1, 2].map((index) => `<rect class="bat-bar${index < filled ? " on" : ""}" x="${4.5 + index * 3.9}" y="8.8" width="2.6" height="6.4" rx="0.6"/>`).join("");
     node.innerHTML = `<svg viewBox="0 0 24 24"><rect class="bat-body" x="2" y="6.5" width="17" height="11" rx="2"/><path class="bat-terminal" d="M21.5 10.5v3"/>${bars}</svg>`;
@@ -84,11 +84,12 @@
 
   // Where a device's values come from: the developer API's MQTT pushes, its REST quota, or the EcoFlow app's stream.
   // Each device's values all come from one source, shown beside its name.
-  const sourceLabel = (source) => ({ mqtt: "MQTT", rest: "REST", app: t("App") })[source] ?? source;
+  // The badge names the service, the settings to look at when a device stops updating; its tooltip, the channel.
+  const sourceLabel = (source) => ({ mqtt: t("Developer API"), rest: t("Developer API"), app: t("EcoFlow app") })[source] ?? source;
   const sourceTip = (source) => ({
-    mqtt: t("Values from the developer API's MQTT pushes"),
-    rest: t("Values from the developer API's REST quota"),
-    app: t("Values from the EcoFlow app's stream"),
+    mqtt: t("Live, from the developer API's MQTT pushes"),
+    rest: t("Read at the developer API's interval, from its REST values"),
+    app: t("Live, from the EcoFlow app's stream"),
   })[source] ?? "";
 
   // Each reading's flow, as the app shows it: [label, IN when positive, tooltip, full width]. A device lists the
@@ -132,30 +133,228 @@
 
   function card(device, enter) {
     const level = device.batteryLevel === null ? null : Math.round(device.batteryLevel);
+    // Offline with nothing reported since the plugin started: no charging state or flows to show, only that.
+    const silent = !device.online && level === null && (device.series ?? []).every((key) => !device[key]);
     const battery = el("div", { class: "battery-line" },
       el("div", { class: "figure", "data-tip": t("The battery's state of charge") }, batteryGraphic(level), level === null ? "–" : figure(String(level), "%")),
-      el("div", { class: "battery-state" }, remaining(device),
+      el("div", { class: "battery-state" }, remaining(device), silent ? null :
         el("span", { class: `pill ${device.charging ? "on" : ""}`, text: device.charging ? t("Charging") : t("Not charging"), "data-tip": t("Whether the battery is charging now") })));
     const shown = (device.series ?? []).filter((key) => flows[key]);
-    const flowList = el("div", { class: "flows" }, shown.map((key) => {
+    const flowList = silent ? null : el("div", { class: "flows" }, shown.map((key) => {
       const [label, inWhenPositive, tip, wide] = flows[key];
       return flow(t(label), device[key], inWhenPositive, historyOf(device.id, key), t(tip), wide);
     }));
-    const status = device.online ? null : el("p", { class: "note", text: t("Offline: showing the last readings") });
+    // Offline: the last readings, or none when the device has sent nothing since the plugin started.
+    const status = device.online ? null : el("p", { class: "note",
+      text: silent ? t("Offline: no readings since the plugin started") : t("Offline: showing the last readings") });
     const panels = (device.panels ?? []).length
       ? el("div", { class: "panels" }, el("p", { class: "caption", text: t("Solar by panel") }),
           el("div", { class: "panel-row" }, device.panels.map((value, index) =>
-            el("div", { class: "pv-tile", "data-tip": t("Power from this solar panel input") }, el("span", { class: "label" }, `PV${index + 1}`, el("span", { class: "way in", text: t("IN") })),
+            el("div", { class: "pv-tile", "data-tip": t("Power from this solar panel input") }, el("span", { class: "label" }, `PV${index + 1}`, value >= 1 ? arrow("in") : null),
               el("span", { class: "value" }, power(value).number, el("small", { text: ` ${power(value).unit}` }))))))
       : null;
-    return el("article", { class: `card device${enter ? " enter" : ""}`, "aria-label": device.name },
+    return el("article", { class: `card device${enter ? " enter" : ""}`, "aria-label": device.name, "data-id": device.id },
       el("div", { class: "device-head" },
         el("div", { class: "title-line" }, el("h2", { text: device.name }),
           el("span", { class: "way source", text: sourceLabel(device.source), "data-tip": sourceTip(device.source) }),
-          device.tested === false ? untested() : null),
+          device.tested === false ? untested() : null, known.length > 1 ? handle(device) : null),
         el("p", { class: "serial", text: device.model ? `${device.model} · ${device.id}` : device.id })),
       battery, flowList, panels, status);
   }
+
+  // MARK: Packing. In two columns each card spans the rows its height takes (the CSS's `--pack-row` rows, the gap
+  // below it included), so the shorter column takes the next card. One column, or no packing rows, clears the spans.
+  // A card's height changes with its readings, the fonts and the width: a ResizeObserver packs again after each.
+  function pack() {
+    const style = getComputedStyle(list);
+    const row = parseFloat(style.getPropertyValue("--pack-row"));
+    const gap = parseFloat(style.getPropertyValue("--pack-gap")) || 0;
+    for (const node of list.children) {
+      // The layout height: a card's entrance (a scale) or its drag (a translate) does not change its place.
+      node.style.gridRowEnd = row > 0 ? `span ${Math.ceil((node.offsetHeight + gap) / row)}` : "";
+    }
+  }
+  let packing = 0;
+  const packer = new ResizeObserver(() => {
+    cancelAnimationFrame(packing);
+    packing = requestAnimationFrame(pack);
+  });
+  // The cards are made anew at each render. The list keeps its height while they are swapped in and measured (each new
+  // card spans one 2px row until it is packed: the list would shrink and the page scroll back to the top), they are
+  // packed at once, and the observer follows them.
+  function replaceCards(...nodes) {
+    list.style.minHeight = `${list.offsetHeight}px`;
+    list.replaceChildren(...nodes);
+    pack();
+    list.style.minHeight = "";
+    observeCards();
+  }
+  function observeCards() {
+    packer.disconnect();
+    packer.observe(list);
+    for (const node of list.children) packer.observe(node);
+  }
+
+  // MARK: Order. A card is dragged by its grip to another place (the others make room), or moved with the arrow keys
+  // while its grip has the focus. The order is the plugin's, kept for every viewer; nothing is written to config.json,
+  // which would reload the plugin.
+
+  const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+  // While a card is dragged, the readings that arrive wait: drawing the cards again would drop it.
+  let sorting = false;
+
+  // Six dots in two columns, the usual grip; a button, so the keyboard reaches it.
+  function handle(device) {
+    const grip = el("button", { type: "button", class: "handle", "aria-label": t("Move {name}", { name: device.name }),
+      title: t("Drag to reorder, or use the arrow keys") });
+    grip.innerHTML = '<svg viewBox="0 0 10 16" aria-hidden="true"><circle cx="2.5" cy="3" r="1.4"/><circle cx="7.5" cy="3" r="1.4"/><circle cx="2.5" cy="8" r="1.4"/><circle cx="7.5" cy="8" r="1.4"/><circle cx="2.5" cy="13" r="1.4"/><circle cx="7.5" cy="13" r="1.4"/></svg>';
+    return grip;
+  }
+
+  const cardsNow = () => [...list.querySelectorAll(".device[data-id]")];
+
+  // Moves the cards in the page to their new places from where they were: each slides from its old position (FLIP).
+  function slide(before) {
+    if (reducedMotion.matches) return;
+    for (const node of cardsNow()) {
+      const from = before.get(node.dataset.id);
+      if (!from || node.classList.contains("dragging")) continue;
+      const to = node.getBoundingClientRect();
+      const dx = from.left - to.left, dy = from.top - to.top;
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
+      node.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], { duration: 220, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" });
+    }
+  }
+  const positions = () => new Map(cardsNow().map((node) => [node.dataset.id, node.getBoundingClientRect()]));
+
+  // The new order, for the plugin; `known` follows at once, and the next answer comes in it.
+  // Polls wait for it (`saving`), as they wait for a drag: an answer from before it would show the old order. The
+  // saves go one after the other, each with the order as it is when its turn comes: two quick key presses must not
+  // reach the plugin in the wrong order.
+  let saving = 0;
+  let saves = Promise.resolve();
+  function saveOrder() {
+    saving++;
+    saves = saves.then(async () => {
+      try {
+        await request("order", { method: "POST", body: { ids: known.map((device) => device.id) } });
+      } catch (error) {
+        HomeswiftCommon.showAlert(HomeswiftI18n.message(error.message));
+      } finally {
+        saving--;
+      }
+      lastAnswer = "";
+    });
+    return saves;
+  }
+
+  // The arrow keys on a grip: up and left move the card back a place, down and right forward.
+  list.addEventListener("keydown", (event) => {
+    const grip = event.target.closest(".handle");
+    const step = { ArrowUp: -1, ArrowLeft: -1, ArrowDown: 1, ArrowRight: 1 }[event.key];
+    if (!grip || !step || sorting) return;
+    event.preventDefault();
+    const id = grip.closest(".device").dataset.id;
+    const from = known.findIndex((device) => device.id === id);
+    const to = from + step;
+    if (from < 0 || to < 0 || to >= known.length) return;
+    // No slide: a key press moves the card at once, as keyboard actions should.
+    known.splice(to, 0, ...known.splice(from, 1));
+    render();
+    list.querySelector(`.device[data-id="${CSS.escape(id)}"] .handle`)?.focus();
+    saveOrder();
+  });
+
+  // Dragging with Pointer Events, so mouse, pen and touch behave the same. The card stays under the pointer where it
+  // was grabbed; over another card, it takes that card's place and the others slide to theirs.
+  list.addEventListener("pointerdown", (event) => {
+    const grip = event.target.closest(".handle");
+    if (!grip || event.button !== 0 || sorting) return;
+    event.preventDefault();
+    const node = grip.closest(".device");
+    const id = node.dataset.id;
+    const start = { x: event.clientX, y: event.clientY + window.scrollY, left: node.offsetLeft, top: node.offsetTop };
+    const startOrder = known.map((device) => device.id).join();
+    const pointer = event.pointerId;
+    sorting = true;
+    node.classList.add("dragging");
+    list.classList.add("sorting");
+    // The card's offset from its place in the grid, kept under the pointer as the place (and the page) moves.
+    let shift = { x: 0, y: 0 };
+    const follow = (x, y) => {
+      shift = { x: x - start.x - (node.offsetLeft - start.left), y: y + window.scrollY - start.y - (node.offsetTop - start.top) };
+      node.style.transform = `translate(${shift.x}px, ${shift.y}px)`;
+    };
+    // Where the pointer is, and the page scrolling under it near the window's top or bottom edge: a card can be taken
+    // to a place out of sight. The sticky header covers the top, so its zone is deeper.
+    let last = { x: event.clientX, y: event.clientY };
+    let frame = 0;
+    // As far as the page went when the drag began: the card, pushed past the end, would make it longer and longer.
+    const deepest = document.documentElement.scrollHeight - innerHeight;
+    const scrollStep = () => {
+      const top = 110, bottom = 70, fastest = 22;
+      const speed = last.y < top ? -fastest * (1 - Math.max(last.y, 0) / top)
+        : last.y > innerHeight - bottom ? fastest * (1 - Math.max(innerHeight - last.y, 0) / bottom) : 0;
+      if (speed && (speed < 0 || window.scrollY < deepest)) {
+        const before = window.scrollY;
+        window.scrollTo(0, Math.min(deepest, window.scrollY + (Math.round(speed) || Math.sign(speed))));
+        if (window.scrollY !== before) update(last.x, last.y);
+      }
+      frame = requestAnimationFrame(scrollStep);
+    };
+    frame = requestAnimationFrame(scrollStep);
+    const move = (moveEvent) => {
+      if (moveEvent.pointerId !== pointer) return;
+      last = { x: moveEvent.clientX, y: moveEvent.clientY };
+      update(last.x, last.y);
+    };
+    const update = (x, y) => {
+      // The card under the pointer, when the pointer has left the dragged card's own place (where it is, less the
+      // shift that keeps it under the pointer).
+      const rect = node.getBoundingClientRect();
+      const inOwn = x >= rect.left - shift.x && x <= rect.right - shift.x && y >= rect.top - shift.y && y <= rect.bottom - shift.y;
+      const target = inOwn ? null : cardsNow().find((other) => {
+        if (other === node) return false;
+        const rect = other.getBoundingClientRect();
+        return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+      });
+      if (target) {
+        const from = known.findIndex((device) => device.id === id);
+        const to = known.findIndex((device) => device.id === target.dataset.id);
+        const before = positions();
+        known.splice(to, 0, ...known.splice(from, 1));
+        if (from < to) target.after(node); else target.before(node);
+        slide(before);
+      }
+      follow(x, y);
+    };
+    const end = (endEvent) => {
+      if (endEvent.pointerId !== pointer) return;
+      cancelAnimationFrame(frame);
+      removeEventListener("pointermove", move);
+      removeEventListener("pointerup", end);
+      removeEventListener("pointercancel", end);
+      list.classList.remove("sorting");
+      // The card settles into its place from where it was let go.
+      node.classList.add("settling");
+      node.classList.remove("dragging");
+      node.style.transform = "";
+      const done = () => {
+        if (!sorting) return;
+        node.classList.remove("settling");
+        sorting = false;
+        render();
+      };
+      node.addEventListener("transitionend", done, { once: true });
+      // A card let go where it was, or without motion, has no transition to end.
+      setTimeout(done, reducedMotion.matches ? 0 : 400);
+      if (known.map((device) => device.id).join() !== startOrder) saveOrder();
+    };
+    // On the window, not captured by the grip: moving the card in the page releases a capture.
+    addEventListener("pointermove", move);
+    addEventListener("pointerup", end);
+    addEventListener("pointercancel", end);
+  });
 
   // A device still on its way: its name, and shimmering lines where its battery and flows will be. Before the first
   // answer, one stands for whatever the plugin will report.
@@ -215,8 +414,9 @@
   // `pending` is the configured devices with no readings yet; null until the plugin has answered once.
   let pending = null;
   function render() {
+    if (sorting) return;
     if (pending === null) {
-      list.replaceChildren(placeholder(null));
+      replaceCards(placeholder(null));
       return;
     }
     const cards = known.map((device) => {
@@ -225,14 +425,53 @@
       return card(device, enter);
     });
     const placeholders = pending.map(placeholder);
-    list.replaceChildren(...(cards.length + placeholders.length === 0 ? [waiting()] : [...cards, ...placeholders]));
+    // The grip with the focus keeps it: the cards are drawn again at every change of the readings.
+    const focused = document.activeElement?.closest?.(".device .handle")?.closest(".device")?.dataset.id;
+    replaceCards(...(cards.length + placeholders.length === 0 ? [waiting()] : [...cards, ...placeholders]));
+    if (focused) list.querySelector(`.device[data-id="${CSS.escape(focused)}"] .handle`)?.focus({ preventScroll: true });
+  }
+
+  // The devices the plugin reads that the configuration's `devices` does not list, with the button that adds them
+  // under the name they report: listed, a device is read by its serial number, and its name can be changed in the
+  // plugin's settings.
+  const unsaved = $("#unsaved");
+  // Drawn again only when the devices it lists change: a button made anew at every reading would lose a click.
+  let unsavedShown = "";
+  function renderUnsaved() {
+    const missing = known.filter((device) => device.configured === false);
+    const key = missing.map((device) => `${device.id}\n${device.name}`).join("\n");
+    if (key === unsavedShown) return;
+    unsavedShown = key;
+    unsaved.classList.toggle("hidden", missing.length === 0);
+    if (missing.length === 0) return;
+    unsaved.replaceChildren(
+      el("p", { class: "note", text: tn("{n} device is not in the configuration yet. Add it to keep it by its serial number and to rename it in the settings.",
+        "{n} devices are not in the configuration yet. Add them to keep them by their serial numbers and to rename them in the settings.", missing.length) }),
+      el("button", { actionIcon: "plus", class: "primary", text: t("Add to the configuration"),
+        onclick: (event) => homeswift.act(event.currentTarget, () => addToConfiguration(missing)) }));
+  }
+
+  // Each device once in the block's `devices`, an entry already there kept as it is. The plugin reloads with them.
+  async function addToConfiguration(devices) {
+    await homeswift.updateBlock((block) => {
+      const entries = block.devices || [];
+      for (const device of devices) {
+        if (!entries.some((entry) => entry.id === device.id)) entries.push({ id: device.id, name: device.name });
+      }
+      block.devices = entries;
+    });
+    lastAnswer = "";
+    await refresh();
   }
 
   // The cards are drawn again only when the readings changed: the plugin's values change at its own poll.
   let lastAnswer = "";
   async function refresh() {
+    // While a card is dragged, an answer would put back the order it is changing: it is read again after.
+    if (sorting || saving) return;
     try {
       const body = await request("power");
+      if (sorting || saving) return;
       const devices = body.devices ?? [];
       const answer = JSON.stringify([devices, body.waiting ?? []]);
       if (answer === lastAnswer) return;
@@ -241,9 +480,12 @@
       pending = body.waiting ?? [];
       loadHistory(true);
       render();
+      renderUnsaved();
     } catch (error) {
       lastAnswer = "";
-      list.replaceChildren(el("p", { class: "note", text: HomeswiftI18n.message(error.message) }));
+      // A card being dragged, or an order being saved, keeps the cards: the next poll says it again.
+      if (sorting || saving) return;
+      replaceCards(el("p", { class: "note", text: HomeswiftI18n.message(error.message) }));
     }
   }
 

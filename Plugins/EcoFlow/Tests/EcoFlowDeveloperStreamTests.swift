@@ -30,9 +30,11 @@ struct EcoFlowDeveloperStreamTests {
         let broker = FakeMQTTConnection()
         let cloud = makeCloud(transport: transport, broker: broker)
 
-        // Before any push, the REST quota is what the device reports.
+        // Before any push, the REST quota is what the device reports: its power, and no level (its cmsBattSoc is the
+        // system's).
         let before = try #require(try await cloud.devices().first)
-        #expect(before.state.battery.batteryLevel == 68)
+        #expect(before.state.knowsBatteryLevel == false)
+        #expect(before.state.power.solar == 1000)
 
         broker.receive(topic, payload: Data(#"{"f32ShowSoc":86.79,"powGetPvSum":1317,"powGetSysLoad":500,"powGetSysGrid":0,"powGetBpCms":300,"gridConnectionPower":1168.2,"powGetPv":700,"powGetPv2":617,"powGetPv3":0,"powGetPv4":0,"powGetSchuko1":12,"powGetSchuko2":0}"#.utf8))
         let updated = await eventually {
@@ -60,11 +62,11 @@ struct EcoFlowDeveloperStreamTests {
         // A push with only some of the values would mix the two sources, so the REST quota stands for the device.
         broker.receive(topic, payload: Data(#"{"f32ShowSoc":86.79,"powGetPvSum":1317}"#.utf8))
         let listed = await eventually {
-            (try? await cloud.devices().first)?.state.battery.batteryLevel == 68
+            (try? await cloud.devices().first)?.source == .rest
         }
         #expect(listed)
         let device = try #require(try await cloud.devices().first)
-        #expect(device.source == .rest)
+        #expect(device.state.knowsBatteryLevel == false, "nor the push's level: one source for the whole device")
         #expect(device.state.power.solar == 1000, "the REST value, not the push's")
     }
 

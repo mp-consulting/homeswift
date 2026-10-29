@@ -25,7 +25,9 @@ on a real device: the plugin's page marks them **Untested**.
 |---|---|---|
 | Each device the route reads | A Battery service on its own accessory, named after the device: its level, charging state, low below 10 % | Its power, laid out by kind (below), with the last hour of each reading and its source (MQTT, REST or App) |
 
-HomeKit has no characteristic for watts, so the power is on the plugin's page only. The page refreshes every few
+HomeKit has no characteristic for watts, so the power is on the plugin's page only, a card per device, two to a row
+on a wide screen; a card's grip drags it to another place (or moves it with the arrow keys), and the plugin keeps the
+order for every viewer. The page refreshes every few
 seconds and records each reading for the Status page's graphs. A STREAM's solar, home, grid and battery power and every device's
 battery level also feed the Status page's **Energy** section, added up across STREAM units: with an Ultra and an AC
 Pro, the Ultra reports the whole system's flows and the AC Pro 0 for each.
@@ -33,7 +35,8 @@ Pro, the Ultra reports the whole system's flows and the AC Pro 0 for each.
 With the EcoFlow app's email and password, the plugin also imports the cloud's energy history into the Status page's
 month and year views (**Import the energy history**, `importHistory`, on by default): each hour's solar production and
 home use since the system was set up, from the app's Space dashboard (home use from the system's smart meter when it has
-one). The first import takes everything (a request per month and flow); then the last two days are taken again every 6
+one), for the home of the account's first STREAM (one that reports, else one configured, else the app's device list's).
+The first import takes everything (a request per month and flow); then the last two days are taken again every 6
 hours, as the cloud fills hours in late. The cloud has no grid or battery history, so those come only from the days the
 bridge records. The space's answers carry the home's address: only its id and time zone are read, and no answer is logged.
 
@@ -41,7 +44,7 @@ bridge records. The space's answers carry the home's address: only its id and ti
 
 | Reading | Developer API (MQTT and REST) | EcoFlow app (field) | Positive means |
 |---|---|---|---|
-| Battery | `f32ShowSoc` (MQTT), `cmsBattSoc` (REST) | 32/50: 25, else 6 | percent, rounded as the app shows it |
+| Battery | `f32ShowSoc` (MQTT only) | 32/50: 25, else 6 | percent, rounded as the app shows it |
 | Solar | `powGetPvSum` | 517 | generation |
 | Home | `powGetSysLoad` | 516 | consumption |
 | Grid | `powGetSysGrid` | 515 | import from the grid (export is negative) |
@@ -51,7 +54,7 @@ bridge records. The space's answers carry the home's address: only its id and ti
 | AC1, AC2 | `powGetSchuko1`, `powGetSchuko2` | 1210, 1211 | supplying an appliance |
 
 The developer API's MQTT pushes stand for a device once they carry the battery and the five power flows; until then,
-and after a restart, the REST quota does. The REST `cmsBattSoc` drifts from the app's figure; `f32ShowSoc` matches it.
+and after a restart, the REST quota does. The REST quota has no unit's level: its `cmsBattSoc` is the whole system's on the unit that leads it (62 beside units at 85 and 40) and 0 on the others, so on REST alone a STREAM's level is not known, and with Both the app's route, which has it, is read instead. `f32ShowSoc` matches the app.
 The STREAM AC Pro has no solar input, so the page shows no panels for it.
 
 On the app's stream, the flows are in the status message (254/21) and the battery in the battery pack's message (32/50),
@@ -139,13 +142,19 @@ Add an `EcoFlow` platform block to `config.json`:
   bridge's owner can read; the secret key is sent only in each request's signature, never in a URL or a log.
 - **Region:** `us` or `eu`, the region your developer account was created in.
 - **Email and password:** your EcoFlow account's, for the app.
-- **Devices:** the serial numbers the app reads (it has no wildcard subscription), with optional names. A name
-  replaces the one the device reports.
+- **Devices:** the serial numbers the app reads, with optional names. A name replaces the one the device reports.
+  Without a list, the app reads the account's devices from its device list (EcoFlow's broker refuses a subscription to
+  every device at once). The plugin's page offers to add the devices it reads to this list (**Add to the
+  configuration**), under the names they report.
 - **Import the energy history:** `importHistory`, on by default; it needs the email and password (above, [What it
   does](#what-it-does)).
-- **Developer API interval:** `pollingInterval`, the seconds between reads of the developer API, 60 by default, 30 at
-  least; the form shows it when the route uses the developer API. The app's stream is live: the devices it reads (a
-  RIVER, a RAPID) update every few seconds whatever the interval, as they do in the app.
+- **Interval** (under Developer API): `pollingInterval`, the seconds between reads of the developer API's REST values, 60 by
+  default, 30 at least; the form shows it when the route uses the developer API. Both routes also use MQTT, which is
+  live whatever the interval: the developer API's pushes for a STREAM, and the app's stream for every device it reads (a
+  RIVER, a RAPID), as in the app.
+- **The form** groups the settings by route: **EcoFlow account** (email, password, the history import) and **Developer
+  API** (keys, region, interval), each shown when the route uses it. The email and password are marked required on the
+  EcoFlow app route, the keys on the developer API's; with Both, either pair, or both, will do.
 
 Every option is optional. There is no Homebridge plugin to stay compatible with, so the option names are the
 plugin's own.
@@ -159,8 +168,8 @@ broker with the certificate from `/iot-open/sign/certification`, and subscribes 
 `/open/<account>/<serial>/quota`. A device's REST quota is asked for only while its pushes are incomplete.
 
 **EcoFlow app.** The plugin signs in to `/auth/login` with the password base64-encoded, as the app does, reads the MQTT
-account from `/iot-auth/app/certification` and the devices (names, product types) from `/app/user/device/list`, then
-subscribes to each device's `/app/device/property/<serial>` and `/app/<user>/<serial>/thing/property/get_reply`. Every
+account from `/iot-auth/app/certification` and the devices (names, product types, and the serial numbers when none
+are configured) from `/app/user/device/list`, then subscribes to each device's `/app/device/property/<serial>` and `/app/<user>/<serial>/thing/property/get_reply`. Every
 minute it sends each device the read request the app sends when it opens one (`thing/property/get`), so the devices
 answer without the app open. The messages are protobuf, read by field number without the schema; most pushes are
 encrypted (`enc_type` 1), which is an XOR with the low byte of the header's sequence number.

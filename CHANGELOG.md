@@ -18,6 +18,13 @@ All notable changes to this project are documented here. The format follows
 - Plugin contributors check Adaptive Lighting: `Scripts/new-plugin.swift` gives a light with Brightness and Color
   Temperature a controller, the bridge's debug log (and `check-on-bridge.sh`) names a light without one, and
   CONTRIBUTING.md and the pull request template list it.
+- EcoFlow: the plugin's page shows the devices two to a row on a wide screen, and a device's card can be dragged by
+  its grip (or moved with the arrow keys) to another place; the plugin keeps the order.
+- Plugin forms: `"x-schema-form": { "requiredWhen": <condition> }` marks a field required only while its condition holds
+  and the field is shown. EcoFlow's form groups its settings by route (EcoFlow account, Developer API, Devices) and marks
+  the email and password, or the keys, required on the route that needs them.
+- Status: the Energy section's Power chart draws an imported history's hours (a device cloud's solar and home use)
+  where the bridge recorded nothing, each at its average, and says so under the chart.
 
 ### Changed
 
@@ -35,6 +42,16 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- EcoFlow: without `devices`, the EcoFlow app route reads the account's devices from the app's device list instead
+  of the wildcard subscription EcoFlow's broker refuses, so it no longer needs serial numbers; its failure is no longer
+  logged as a failed sign-in. The energy history import finds the account's STREAM in the device list when none has
+  reported, and the plugin's page offers to add the devices it reads to `devices` (**Add to the configuration**).
+- EcoFlow: a month of the energy history the cloud refuses ("Server error") is asked for again, and a failed import is
+  tried again after 10 minutes instead of 6 hours. A device the EcoFlow app lists offline (a RAPID Pro X) is shown
+  offline rather than left out.
+- EcoFlow: a STREAM read from the developer API's REST values no longer shows the system's battery level (or 0, on
+  an AC Pro) as its own: REST has no unit's level, so it is unknown there, and with Both the EcoFlow app's reading,
+  which has it, is used instead.
 - Quick controls groups its heading and scene shortcuts in one card; photographic scene tiles replace cramped
   thumbnail pills and scroll horizontally on phones.
 

@@ -41,6 +41,32 @@ struct EcoFlowAllTests {
         #expect(devices.map(\.source) == [.app])
     }
 
+    /// A STREAM the developer API reads from its REST quota has no level of its own: the app's route, which has it, is
+    /// read instead; while the app's route has no level either, the developer API's copy stands.
+    @Test func aDeviceIsReadFromTheRouteThatKnowsItsLevel() async throws {
+        let model = EcoFlowModel.model(serial: "BK31-TEST")
+        var developer = EcoFlowDevice(id: "BK31-TEST", name: "STREAM AC Pro", online: true, model: model)
+        developer.source = .rest
+        developer.state = EcoFlowState(readings: ["cmsBattSoc": 0, "powGetBpCms": -120], keys: EcoFlowModel.streamDeveloper)
+        var app = EcoFlowDevice(id: "BK31-TEST", name: "STREAM AC Pro", online: true, model: model)
+        app.source = .app
+        app.state = EcoFlowState(soc: 40, power: EcoFlowState.Power())
+        #expect(developer.tested && app.tested)
+        let devices = try await EcoFlowAll(apis: [Listed(listed: [developer]), Listed(listed: [app])]).devices()
+        #expect(devices.map(\.source) == [.app])
+        #expect(devices.first?.state.battery.batteryLevel == 40)
+
+        app.state = EcoFlowState(soc: nil, power: EcoFlowState.Power())
+        let neither = try await EcoFlowAll(apis: [Listed(listed: [developer]), Listed(listed: [app])]).devices()
+        #expect(neither.map(\.source) == [.rest])
+
+        // The app's stream gone quiet (offline, an old level) does not stand for a device the developer API reads live.
+        app.state = EcoFlowState(soc: 40, power: EcoFlowState.Power())
+        app.online = false
+        let quiet = try await EcoFlowAll(apis: [Listed(listed: [developer]), Listed(listed: [app])]).devices()
+        #expect(quiet.map(\.source) == [.rest])
+    }
+
     /// Counts its reads.
     actor Counting: EcoFlowAPI {
         let listed: [EcoFlowDevice]

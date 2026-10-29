@@ -7,8 +7,8 @@ import HomeswiftNetwork
 /// shows its last values, marked offline, rather than the REST quota. A push is fresh for ten minutes; the devices
 /// push irregularly, so a shorter window would mark them offline between pushes.
 ///
-/// The battery's percentage is `f32ShowSoc`, the figure the EcoFlow app shows (rounded to the nearest percent). The REST quota's
-/// `cmsBattSoc` drifts from the app's figure, so the battery reads from here when it is available.
+/// The battery's percentage is `f32ShowSoc`, the figure the EcoFlow app shows (rounded to the nearest percent). The REST
+/// quota has no unit's percentage (its `cmsBattSoc` is the system's, or 0), so the level comes only from here.
 actor EcoFlowDeveloperStream {
     typealias MQTTFactory = @Sendable (MQTTConfiguration) async throws -> any MQTTConnection
 
