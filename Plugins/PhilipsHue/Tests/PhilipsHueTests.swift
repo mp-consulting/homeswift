@@ -200,7 +200,7 @@ func eventually(timeout: Duration = .seconds(5), _ condition: @Sendable () async
     return await condition()
 }
 
-@Suite(.timeLimit(.minutes(1)), .serialized)
+@Suite(.timeLimit(.minutes(1)))
 struct PhilipsHueTests {
     let environment = TestEnvironment()
     let stripID = PhilipsHuePlugin.accessoryID(lightID: "light-1")
@@ -625,7 +625,7 @@ struct PhilipsHueTests {
     }
 }
 
-@Suite(.timeLimit(.minutes(1)), .serialized)
+@Suite(.timeLimit(.minutes(1)))
 struct HueSensorTests {
     let environment = TestEnvironment()
     let sensorID = PhilipsHuePlugin.sensorAccessoryID(deviceID: "dev-3")

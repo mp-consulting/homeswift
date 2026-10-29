@@ -10,7 +10,7 @@ import Testing
 
 /// What the review of the port found: stops that come during a start, numbers that trapped, payloads that wiped
 /// a device's JSON, sockets opened twice, and the routes the Assistant calls.
-@Suite(.timeLimit(.minutes(1)), .serialized) struct RobustnessTests {
+@Suite(.timeLimit(.minutes(1))) struct RobustnessTests {
     static let sensorID = ProtectPlatform.accessoryID(Fixtures.sensorMAC)
     static let doorbellID = ProtectPlatform.accessoryID(Fixtures.doorbellMAC)
 

@@ -123,7 +123,7 @@ public class FfmpegProcess: @unchecked Sendable {
         guard let child, !child.hasExited else { return }
         child.end()
         child.kill(SIGTERM)
-        DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(FFMPEG_INPUT_TIMEOUT)) { child.kill(SIGKILL) }
+        DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(options.config.inputTimeout)) { child.kill(SIGKILL) }
     }
 
     /// The command line FFmpeg runs with.
@@ -280,7 +280,7 @@ public class FfmpegProcess: @unchecked Sendable {
     }
 
     /// Stops FFmpeg: `q` on standard input (unless FFmpeg reads its input there), closes its input and output, sends SIGTERM, and
-    /// SIGKILL after `FFMPEG_INPUT_TIMEOUT` if it is still running.
+    /// SIGKILL after `inputTimeout` (`FFMPEG_INPUT_TIMEOUT`) if it is still running.
     func stopProcess() {
         let (child, arguments) = base.withLockedValue { ($0.child, $0.commandLineArgs) }
         // Nothing to kill when the process has already ended.
@@ -295,7 +295,7 @@ public class FfmpegProcess: @unchecked Sendable {
     }
 
     /// Asks `child` to quit: `q` on standard input (unless FFmpeg reads its input there), then its input and output closed.
-    /// Returns the SIGKILL failsafe, due after `FFMPEG_INPUT_TIMEOUT`: it holds the process it was armed for, so a restart
+    /// Returns the SIGKILL failsafe, due after `inputTimeout`: it holds the process it was armed for, so a restart
     /// meanwhile neither cancels it nor turns it on the new process. The caller sends SIGTERM.
     private func beginStop(_ child: Subprocess, arguments: [String]) -> Task<Void, Never> {
         if !arguments.contains("pipe:0") {
@@ -303,8 +303,9 @@ public class FfmpegProcess: @unchecked Sendable {
         }
         child.end()
         child.destroyStdout()
+        let timeout = options.config.inputTimeout
         return Task {
-            try? await Task.sleep(for: .milliseconds(FFMPEG_INPUT_TIMEOUT))
+            try? await Task.sleep(for: .milliseconds(timeout))
             guard !Task.isCancelled else { return }
             child.kill(SIGKILL)
         }

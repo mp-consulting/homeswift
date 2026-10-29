@@ -98,12 +98,14 @@ public final class FfmpegStreamingProcess: FfmpegProcess, @unchecked Sendable {
         let log = self.log
         let sessionId = self.sessionId
         let delegate = self.delegate
+        let inputTimeout = options.config.inputTimeout
         Task { [weak self] in
             do {
                 let channel = try await DatagramBootstrap(group: group)
                     .channelInitializer { channel in
                         channel.eventLoop.makeCompletedFuture {
                             try channel.pipeline.syncOperations.addHandler(StreamHealthHandler(
+                                timeout: inputTimeout,
                                 onTimeout: {
                                     log.debug("Video stream appears to be inactive for 5 seconds. Stopping stream.")
                                     delegate.forceStopStreamingSession(sessionId)
@@ -191,8 +193,10 @@ private final class StreamHealthHandler: ChannelInboundHandler {
     private let onTimeout: @Sendable () -> Void
     private let onError: @Sendable (any Error) -> Void
     private var streamTimeout: Scheduled<Void>?
+    private let timeout: Int
 
-    init(onTimeout: @escaping @Sendable () -> Void, onError: @escaping @Sendable (any Error) -> Void) {
+    init(timeout: Int, onTimeout: @escaping @Sendable () -> Void, onError: @escaping @Sendable (any Error) -> Void) {
+        self.timeout = timeout
         self.onTimeout = onTimeout
         self.onError = onError
     }
@@ -200,7 +204,7 @@ private final class StreamHealthHandler: ChannelInboundHandler {
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         streamTimeout?.cancel()
         let onTimeout = self.onTimeout
-        streamTimeout = context.eventLoop.scheduleTask(in: .milliseconds(Int64(FFMPEG_INPUT_TIMEOUT))) { onTimeout() }
+        streamTimeout = context.eventLoop.scheduleTask(in: .milliseconds(Int64(timeout))) { onTimeout() }
     }
 
     func channelInactive(context: ChannelHandlerContext) {

@@ -104,7 +104,7 @@ extension PluginHost {
     func accessory(_ id: String) -> Accessory? { mainBridge.server.accessories.first { $0.id == "Govee:\(id)" } }
 }
 
-@Suite(.serialized) struct PluginTests {
+@Suite struct PluginTests {
     @Test func decodesARealisticBlock() throws {
         let json = #"""
         {
@@ -234,8 +234,8 @@ extension PluginHost {
         let humidity = try #require(host.accessory(thermoID)?.service(.humiditySensor))
         #expect(await eventually { thermometer[.currentTemperature]?.value.doubleValue == 22.1 && humidity[.currentRelativeHumidity]?.value.doubleValue == 52 })
         #expect(host.accessory(thermoID)?.service(.battery)?[.batteryLevel]?.value.intValue == 94)
-        // 65535 is "no reading": the pool sensor keeps its humidity.
-        #expect(host.accessory(poolID)?.service(.temperatureSensor)?[.currentTemperature]?.value.doubleValue == 28.5)
+        // 65535 is "no reading": the pool sensor keeps its humidity. Its device reports on its own.
+        #expect(await eventually { host.accessory(poolID)?.service(.temperatureSensor)?[.currentTemperature]?.value.doubleValue == 28.5 })
         #expect(host.accessory(poolID)?.service(.humiditySensor)?[.currentRelativeHumidity]?.value.doubleValue == 0)
         #expect(await eventually { host.accessory(leakID)?.service(.battery)?[.batteryLevel]?.value.intValue == 80 })
         #expect(host.accessory(leakID)?.service(.leakSensor)?[.leakDetected]?.value == .int(0))
@@ -505,7 +505,7 @@ extension PluginHost {
     #endif
 }
 
-@Suite(.serialized) struct UpstreamParityTests {
+@Suite struct UpstreamParityTests {
     /// The Homebridge plugin's TV-type plugs are bridged accessories: no pairing of their own.
     @Test func plugsShownAsTelevisionsStayOnTheBridge() async throws {
         let plugID = "AA:BB:CC:DD:EE:FF:00:99"
