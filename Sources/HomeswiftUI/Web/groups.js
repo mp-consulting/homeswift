@@ -161,16 +161,35 @@
       const groupTone = matchingType ? ({ Lightbulb: 'orange', Switch: 'green', Outlet: 'green', Fan: 'teal' }[memberTypes[0][0]] || 'blue') : 'blue';
       const glyph = HomeswiftCommon.tile(groupIcon, groupTone);
       const result = el('div', { class: 'group-feedback', role: 'status' });
-      // A callout under the controls: what did not change, why (each device's own reason, once), and a way to try again.
-      const notify = (text, { reasons = [], retry = null } = {}) => {
-        if (!text) { result.replaceChildren(); return; }
+      // A callout over the widget: what did not change, why (each device's own reason, once), and a way to try again.
+      // The controls under it are inert while it shows; focus goes to Try again when a change failed, and back to the
+      // controls when it goes. Escape dismisses it.
+      let closing = null;
+      const cover = (shown) => { for (const sibling of result.parentElement?.children ?? []) if (sibling !== result) sibling.inert = shown; };
+      const notify = (text, { reasons = [], retry = null, focus = false } = {}) => {
+        clearTimeout(closing); closing = null; result.classList.remove('closing');
+        if (!text) {
+          if (!result.childElementCount) return;
+          const hadFocus = result.contains(document.activeElement);
+          result.classList.add('closing');
+          closing = setTimeout(() => {
+            closing = null; result.classList.remove('closing'); result.replaceChildren(); cover(false);
+            if (hadFocus) result.parentElement?.querySelector('.group-controls :is(input, button, [tabindex="0"])')?.focus({ preventScroll: true });
+          }, 140);
+          return;
+        }
         const dismiss = el('button', { type: 'button', class: 'group-feedback-close', 'aria-label': t('Dismiss'), title: t('Dismiss'), onclick: () => notify('') }, HomeswiftCommon.icon('close'));
+        const again = retry ? el('button', { type: 'button', class: 'link group-feedback-retry', actionIcon: 'restore', text: t('Try again'), onclick: () => {
+          again.disabled = true; again.setAttribute('aria-busy', 'true'); retry();
+        } }) : null;
         result.replaceChildren(
           HomeswiftCommon.icon('warning'),
-          el('div', { class: 'group-feedback-text' }, el('strong', { text }), [...new Set(reasons)].map((reason) => el('span', { text: reason }))),
-          retry ? el('button', { type: 'button', class: 'link group-feedback-retry', actionIcon: 'restore', text: t('Try again'), onclick: retry }) : null,
-          dismiss);
+          el('div', { class: 'group-feedback-text' }, el('strong', { text, title: text }), [...new Set(reasons)].map((reason) => el('span', { text: reason }))),
+          again, dismiss);
+        cover(true);
+        if (focus) (again ?? dismiss).focus({ preventScroll: true });
       };
+      result.addEventListener('keydown', (event) => { if (event.key === 'Escape') { event.stopPropagation(); notify(''); } });
       const body = el('div', { class: 'group-controls' });
       const draw = () => {
         const states = people.flatMap((accessory) => groupable(accessory).flatMap((service) => {
@@ -200,7 +219,7 @@
             const failed = only.filter((_, n) => outcomes[n].status === 'rejected');
             notify(failed.length ? t('Could not update: {names}', { names: failed.map((i) => present[i].displayName || present[i].name).join(', ') }) : '', {
               reasons: outcomes.flatMap((outcome) => outcome.status === 'rejected' && outcome.reason?.message ? [outcome.reason.message] : []),
-              retry: () => commit(value, failed),
+              retry: () => commit(value, failed), focus: true,
             });
             busy = false; input.inert = editing; input.blur(); draw();
           };

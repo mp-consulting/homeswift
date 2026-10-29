@@ -8858,16 +8858,35 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const groupTone = matchingType ? ({ Lightbulb: 'orange', Switch: 'green', Outlet: 'green', Fan: 'teal' }[memberTypes[0][0]] || 'blue') : 'blue';
       const glyph = HomeswiftCommon.tile(groupIcon, groupTone);
       const result = el('div', { class: 'group-feedback', role: 'status' });
-      // A callout under the controls: what did not change, why (each device's own reason, once), and a way to try again.
-      const notify = (text, { reasons = [], retry = null } = {}) => {
-        if (!text) { result.replaceChildren(); return; }
+      // A callout over the widget: what did not change, why (each device's own reason, once), and a way to try again.
+      // The controls under it are inert while it shows; focus goes to Try again when a change failed, and back to the
+      // controls when it goes. Escape dismisses it.
+      let closing = null;
+      const cover = (shown) => { for (const sibling of result.parentElement?.children ?? []) if (sibling !== result) sibling.inert = shown; };
+      const notify = (text, { reasons = [], retry = null, focus = false } = {}) => {
+        clearTimeout(closing); closing = null; result.classList.remove('closing');
+        if (!text) {
+          if (!result.childElementCount) return;
+          const hadFocus = result.contains(document.activeElement);
+          result.classList.add('closing');
+          closing = setTimeout(() => {
+            closing = null; result.classList.remove('closing'); result.replaceChildren(); cover(false);
+            if (hadFocus) result.parentElement?.querySelector('.group-controls :is(input, button, [tabindex="0"])')?.focus({ preventScroll: true });
+          }, 140);
+          return;
+        }
         const dismiss = el('button', { type: 'button', class: 'group-feedback-close', 'aria-label': t('Dismiss'), title: t('Dismiss'), onclick: () => notify('') }, HomeswiftCommon.icon('close'));
+        const again = retry ? el('button', { type: 'button', class: 'link group-feedback-retry', actionIcon: 'restore', text: t('Try again'), onclick: () => {
+          again.disabled = true; again.setAttribute('aria-busy', 'true'); retry();
+        } }) : null;
         result.replaceChildren(
           HomeswiftCommon.icon('warning'),
-          el('div', { class: 'group-feedback-text' }, el('strong', { text }), [...new Set(reasons)].map((reason) => el('span', { text: reason }))),
-          retry ? el('button', { type: 'button', class: 'link group-feedback-retry', actionIcon: 'restore', text: t('Try again'), onclick: retry }) : null,
-          dismiss);
+          el('div', { class: 'group-feedback-text' }, el('strong', { text, title: text }), [...new Set(reasons)].map((reason) => el('span', { text: reason }))),
+          again, dismiss);
+        cover(true);
+        if (focus) (again ?? dismiss).focus({ preventScroll: true });
       };
+      result.addEventListener('keydown', (event) => { if (event.key === 'Escape') { event.stopPropagation(); notify(''); } });
       const body = el('div', { class: 'group-controls' });
       const draw = () => {
         const states = people.flatMap((accessory) => groupable(accessory).flatMap((service) => {
@@ -8897,7 +8916,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             const failed = only.filter((_, n) => outcomes[n].status === 'rejected');
             notify(failed.length ? t('Could not update: {names}', { names: failed.map((i) => present[i].displayName || present[i].name).join(', ') }) : '', {
               reasons: outcomes.flatMap((outcome) => outcome.status === 'rejected' && outcome.reason?.message ? [outcome.reason.message] : []),
-              retry: () => commit(value, failed),
+              retry: () => commit(value, failed), focus: true,
             });
             busy = false; input.inert = editing; input.blur(); draw();
           };
@@ -20977,7 +20996,7 @@ dd { margin: 0; }
    moves, scales or blurs in. Reduced transparency makes the frosted surfaces solid. More contrast gives
    them a defined edge and lifts the secondary text. */
 @media (prefers-reduced-motion: reduce) {
-  .banner, .auth .card, .group-feedback { animation: fade var(--normal) ease; }
+  .banner, .auth .card { animation: fade var(--normal) ease; }
   button, nav a { transition-property: background-color, box-shadow, opacity; }
   button:hover, button:active:not(:disabled), a.button:hover, a.button:active, nav a:active { transform: none; }
   button:active:not(:disabled) { opacity: 0.7; }
@@ -22153,19 +22172,30 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 .group-feedback-text span { color: var(--muted); font-size: var(--text-xs); overflow-wrap: anywhere; }
 .group-feedback-retry { grid-column: 2; grid-row: 2; justify-self: start; margin-left: calc(-1 * var(--space-6)); font-size: var(--text-sm); white-space: nowrap; }
 .group-feedback-close { grid-column: 3; grid-row: 1; width: 26px; height: 26px; margin-top: -4px; padding: 0; display: grid; place-items: center; border-radius: 50%; background: none; border: 0; color: var(--muted); box-shadow: none; }
-.group-feedback-close:hover { background: color-mix(in srgb, var(--error) 12%, transparent); color: var(--text); }
+@media (hover: hover) and (pointer: fine) { .group-feedback-close:hover { background: color-mix(in srgb, var(--error) 12%, transparent); color: var(--text); } }
+.group-feedback-close:active { background: color-mix(in srgb, var(--error) 16%, transparent); }
+/* A thumb's reach: the same look, a 40-pixel target. */
+@media (pointer: coarse) {
+  .group-feedback-close { width: 40px; height: 40px; margin: -10px -6px -10px 0; }
+  .group-feedback-retry { min-height: 40px; }
+}
+.group-feedback.closing { animation: menu-out 140ms var(--ease-out) forwards; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) {
+  .group-feedback { animation: fade var(--normal) ease; }
+  .group-feedback.closing { animation: fade 140ms ease reverse forwards; }
+}
 .group-feedback-close svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 /* On the wall the callout takes the whole widget, over its controls, on frosted glass; it scrolls when long. Dismiss, or
    Try again once it works, gives the controls back. */
 .wall .accessory-group .group-feedback:not(:empty) {
   position: absolute; inset: 0; z-index: 4; margin: 0; padding: var(--space-14) var(--space-8) var(--space-14) var(--space-14);
-  align-content: safe center; overflow-y: auto; border-radius: inherit; border: 0;
+  align-content: safe center; overflow-y: auto; overscroll-behavior: contain; border-radius: inherit; border: 0;
   background: linear-gradient(color-mix(in srgb, var(--error) 10%, transparent), color-mix(in srgb, var(--error) 10%, transparent)), var(--material-thick);
   -webkit-backdrop-filter: blur(var(--blur)); backdrop-filter: blur(var(--blur));
 }
 .wall .accessory-group .group-feedback-text strong { font-size: var(--text-base); }
 .wall .accessory-group.size-medium .group-feedback:not(:empty) { padding: var(--space-10) var(--space-4) var(--space-10) var(--space-10); }
-.wall .accessory-group.size-medium .group-feedback-text strong { font-size: var(--text-sm); }
+.wall .accessory-group.size-medium .group-feedback-text strong { font-size: var(--text-sm); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
 .wall .accessory-group.size-medium .group-feedback-text span { display: none; }
 .wall.editing .accessory-group .group-feedback { display: none; }
 .wall .widget.group-drop-target { outline: 3px solid var(--accent); outline-offset: 3px; }
