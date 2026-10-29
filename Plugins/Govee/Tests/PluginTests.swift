@@ -23,6 +23,8 @@ final class GoveeEnvironment: @unchecked Sendable {
     var bleAvailable = true
     /// The Homebridge storage path a first start imports a login from; none by default, never the user's.
     var homebridgeStorage: URL?
+    /// How long a LAN scan waits after the last reply: short, but a test that stops during the scan holds it longer.
+    var lanScanSettleTime: Duration = .milliseconds(50)
     private let plugins = NIOLockedValueBox<[GoveePlugin]>([])
 
     var plugin: GoveePlugin? { plugins.withLockedValue { $0.last } }
@@ -79,7 +81,7 @@ final class GoveeEnvironment: @unchecked Sendable {
             dependencies.history = false
             dependencies.homebridgeStorage = self.homebridgeStorage
             dependencies.retryDelay = .milliseconds(1)
-            dependencies.lanScanSettleTime = .milliseconds(50)
+            dependencies.lanScanSettleTime = self.lanScanSettleTime
             dependencies.awsPublishTimeout = .milliseconds(200)
             dependencies.bleQueueInterval = .milliseconds(20)
             let plugin = GoveePlugin(configuration: try JSONDecoder().decode(GoveePlugin.Configuration.self, from: json), context: context, dependencies: dependencies)
@@ -459,6 +461,8 @@ extension PluginHost {
     /// next step and closes what it opened.
     @Test func stopDuringSetupLeavesNothingRunning() async throws {
         let environment = GoveeEnvironment()
+        // A scan that lasts a second: the stop lands in it however slowly the runner gets there.
+        environment.lanScanSettleTime = .seconds(1)
         let host = try environment.host(settings: ["username": "user@example.com", "password": "pw"])
         try await host.start()
         let plugin = try #require(environment.plugin)

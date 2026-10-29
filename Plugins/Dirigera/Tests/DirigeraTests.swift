@@ -269,7 +269,10 @@ struct DirigeraTests {
         event(["colorTemperature": 2202])
         #expect(await eventually { !controller.isAdaptiveLightingActive && bulb[.colorTemperature]?.value == .int(454) })
 
+        // Its white reaches the hub, then the settle time passes: a colour set in the IKEA app during it is ignored.
+        let patches = environment.hub.patches.count
         try controller.activateForTesting()
+        #expect(await eventually { environment.hub.patches.count > patches })
         try await Task.sleep(for: dirigeraSettleTime + .milliseconds(100))
         event(["colorMode": "color", "colorHue": 120])
         #expect(await eventually { !controller.isAdaptiveLightingActive })
