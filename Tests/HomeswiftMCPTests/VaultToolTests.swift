@@ -35,7 +35,7 @@ struct VaultToolTests {
         let environment = try MCPTestEnvironment(config: Self.config)
         try await environment.start()
         defer { Task { await environment.stop() } }
-        let answer = try await environment.catalog.migrateToVault(excluded: ["Devices/Devices:devices[0].password"], dryRun: false)
+        let answer = try await environment.catalog.migrateToVault(.init(excluded: ["Devices/Devices:devices[0].password"]), dryRun: false)
         #expect(answer["applied"]?["backup"]?.stringValue != nil)
 
         let file = try environment.catalog.readConfig()

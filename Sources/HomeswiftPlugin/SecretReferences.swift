@@ -9,21 +9,18 @@ public enum SecretReference: Equatable, Sendable, CustomStringConvertible {
     case environment(String)
     case file(String)
 
+    /// The reference `text` is, by `Redaction.referencePattern`, the rule sealing and masking follow too.
     public init?(_ text: String) {
         guard Redaction.isSecretReference(text), let colon = text.firstIndex(of: ":") else { return nil }
         let rest = String(text[text.index(after: colon)...])
         switch text[..<colon] {
         case "vault":
-            let parts = rest.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
-            guard CredentialVault.isValidName(parts[0]), parts.count == 1 || !parts[1].isEmpty else { return nil }
+            let parts = rest.split(separator: "#", maxSplits: 1).map(String.init)
             self = .vault(name: parts[0], field: parts.count == 2 ? parts[1] : nil)
         case "env":
             self = .environment(rest)
-        case "file":
-            guard rest.hasPrefix("/") else { return nil }
-            self = .file(rest)
         default:
-            return nil
+            self = .file(rest)
         }
     }
 
@@ -73,30 +70,22 @@ public final class SecretResolver: @unchecked Sendable {
         }
     }
 
-    /// `value` with every reference under a secret-named key (the rule `SecretBox` seals by) replaced by its secret.
-    /// Each secret it puts in goes to `resolved`; each reference it cannot resolve to `failures`.
-    func resolving(_ value: JSONValue, underSecret: Bool = false, resolved: inout [String], failures: inout [SecretReferenceError.Failure]) -> JSONValue {
-        switch value {
-        case .string(let text) where underSecret:
-            guard let reference = SecretReference(text) else { return value }
+    /// `value` with every reference under a secret-named key (`SecretWalk`) replaced by its secret. Each secret it puts
+    /// in goes to `resolved`; each reference it cannot resolve to `failures`, with `platform`.
+    func resolving(_ value: JSONValue, platform: String? = nil, resolved: inout [String], failures: inout [SecretReferenceError.Failure]) -> JSONValue {
+        SecretWalk.map(value) { _, secret in
+            guard let text = secret.stringValue, let reference = SecretReference(text) else { return nil }
             do {
-                let secret = try resolve(reference)
-                resolved.append(secret)
-                return .string(secret)
-            } catch let failure as SecretReferenceError.Failure {
+                let plain = try resolve(reference)
+                resolved.append(plain)
+                return .string(plain)
+            } catch var failure as SecretReferenceError.Failure {
+                failure.platform = platform
                 failures.append(failure)
             } catch {
-                failures.append(.init(reference: reference, reason: "\(error)"))
+                failures.append(.init(platform: platform, reference: reference, reason: "\(error)"))
             }
-            return value
-        case .array(let items):
-            return .array(items.map { resolving($0, underSecret: underSecret, resolved: &resolved, failures: &failures) })
-        case .object(let object):
-            return .object(object.reduce(into: [:]) { result, entry in
-                result[entry.key] = resolving(entry.value, underSecret: underSecret || Redaction.isSecretKey(entry.key), resolved: &resolved, failures: &failures)
-            })
-        default:
-            return value
+            return nil
         }
     }
 }
@@ -125,54 +114,36 @@ public enum ConfigurationSecrets {
     public static func opening(
         _ configuration: HomeswiftConfiguration, storage: URL, environment: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> HomeswiftConfiguration {
-        let original = configuration
-        var result = try SecretBox.revealing(configuration, storage: storage)
+        let secrets = Opened()
+        var result = try SecretBox.revealing(configuration, storage: storage) { secrets.values.append($0) }
         let resolver = SecretResolver(storage: storage, environment: environment)
-        var remembered: [String] = []
-        var failures: [SecretReferenceError.Failure] = []
         for index in result.platforms.indices {
             let block = try JSONValue(data: result.platforms[index].json)
-            var found: [SecretReferenceError.Failure] = []
-            let next = resolver.resolving(block, resolved: &remembered, failures: &found)
-            failures += found.map { failure in
-                var failure = failure
-                failure.platform = result.platforms[index].platform
-                return failure
-            }
+            let next = resolver.resolving(block, platform: result.platforms[index].platform, resolved: &secrets.values, failures: &secrets.failures)
             if next != block { result.platforms[index].json = next.encoded() }
-            // The sealed values this block had are secrets too.
-            if let before = try? JSONValue(data: original.platforms[index].json) {
-                collectOpened(before, block, into: &remembered)
-            }
         }
-        if !failures.isEmpty { throw SecretReferenceError(failures: failures) }
-        Redaction.rememberSecrets(remembered)
+        try secrets.finish()
         return result
     }
 
     /// One block as config.json holds it (a form's, or the file's) with its sealed secrets opened and its references
     /// resolved: for what reads a block outside the running configuration, the Assistant's connection test.
     public static func opening(block: JSONValue, storage: URL, environment: [String: String] = ProcessInfo.processInfo.environment) throws -> JSONValue {
-        let revealed = try SecretBox.revealed(block, storage: storage)
-        var resolved: [String] = []
-        var failures: [SecretReferenceError.Failure] = []
-        let next = SecretResolver(storage: storage, environment: environment).resolving(revealed, resolved: &resolved, failures: &failures)
-        if !failures.isEmpty { throw SecretReferenceError(failures: failures) }
-        Redaction.rememberSecrets(resolved)
+        let secrets = Opened()
+        let revealed = try SecretBox.revealed(block, storage: storage) { secrets.values.append($0) }
+        let next = SecretResolver(storage: storage, environment: environment).resolving(revealed, resolved: &secrets.values, failures: &secrets.failures)
+        try secrets.finish()
         return next
     }
 
-    /// The strings of `opened` whose counterpart in `stored` was sealed.
-    private static func collectOpened(_ stored: JSONValue, _ opened: JSONValue, into values: inout [String]) {
-        switch (stored, opened) {
-        case (.string(let before), .string(let after)) where SecretBox.isSealed(before):
-            values.append(after)
-        case (.array(let before), .array(let after)):
-            for (b, a) in zip(before, after) { collectOpened(b, a, into: &values) }
-        case (.object(let before), .object(let after)):
-            for (key, b) in before { if let a = after[key] { collectOpened(b, a, into: &values) } }
-        default:
-            break
+    /// What an opening found: the values it opened or resolved, remembered for masking once nothing failed.
+    private final class Opened {
+        var values: [String] = []
+        var failures: [SecretReferenceError.Failure] = []
+
+        func finish() throws {
+            if !failures.isEmpty { throw SecretReferenceError(failures: failures) }
+            Redaction.rememberSecrets(values)
         }
     }
 }

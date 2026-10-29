@@ -543,14 +543,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   async function vaultPage(main) {
     const [vault, plan] = await Promise.all([api("/api/vault"), api("/api/vault/migration")]);
-    const add = el("button", { actionIcon: "plus", class: "primary", text: t("Add a secret"), onclick: () => entryDialog(null, vault.kinds) });
+    const add = el("button", { actionIcon: "plus", class: "primary", text: t("Add a secret"), onclick: () => entryDialog(null, vault) });
     app().show(main,
       app().pageHead(t("Vault"), t("The bridge's passwords, keys and tokens by name, sealed on disk. config.json names them as vault:<name>; a saved value is never shown again.")),
       subnav("vault"),
       vault.missing.length ? missingCard(vault.missing) : null,
-      plan.items.length ? migrationCard(plan) : null,
+      plan.items.length ? migrationCard(plan, vault) : null,
       sectionHead(t("Entries"), vault.entries.length ? tn("{n} entry", "{n} entries", vault.entries.length) : "", add),
-      vault.entries.length ? el("div", { class: "card rows" }, vault.entries.map((entry) => entryRow(entry, vault.kinds)))
+      vault.entries.length ? el("div", { class: "card rows" }, vault.entries.map((entry) => entryRow(entry, vault)))
         : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("key")),
           el("p", { class: "muted", text: t("None yet: add one, or move config.json's secrets here.") })));
   }
@@ -564,7 +564,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return el("span", { class: days < 30 ? "warning" : "muted", text: t("Expires {date}", { date: when(entry.expires) }) });
   }
 
-  function entryRow(entry, kinds) {
+  function entryRow(entry, vault) {
     const users = entry.usedBy.length ? tn("Used by {n} setting", "Used by {n} settings", entry.usedBy.length)
       : entry.owner ? t("Kept by {plugin}", { plugin: entry.owner }) : t("Not used yet");
     const detail = el("div", { class: "row-detail hidden" },
@@ -577,18 +577,23 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         menuButton(t("Actions for {name}", { name: entry.name }), () => [
           { label: t("Copy the reference"), icon: "copy", onSelect: () => HomeswiftCommon.copyText(`vault:${entry.name}`) },
           entry.usedBy.length ? { label: t("Where it is used"), icon: "search", onSelect: () => detail.classList.toggle("hidden") } : null,
-          { label: t("Replace the value…"), icon: "edit", onSelect: () => entryDialog(entry, kinds) },
+          { label: t("Replace the value…"), icon: "edit", onSelect: () => entryDialog(entry, vault) },
           { label: t("Delete…"), icon: "trash", danger: true, onSelect: () => removeEntry(entry) },
         ].filter(Boolean))),
       detail);
   }
 
+  /// The server's rule for an entry's name (Redaction.vaultNamePattern) as an input's `pattern`, which browsers read
+  /// with the `v` flag: there a `-` in a class is escaped.
+  const namePattern = (vault) => vault.namePattern.replaceAll("-]", "\\-]");
+
   /// Adds an entry (`entry` null) or replaces an entry's values: values are typed, never shown, and an empty field keeps
   /// the one saved.
-  function entryDialog(entry, kinds) {
+  function entryDialog(entry, vault) {
+    const { kinds } = vault;
     const editing = Boolean(entry);
     const name = el("input", { type: "text", value: entry?.name ?? "", required: !editing, disabled: editing, autocomplete: "off", spellcheck: false,
-      pattern: "[A-Za-z0-9][A-Za-z0-9._\\-]{0,127}", placeholder: "unifi-home" });
+      pattern: namePattern(vault), placeholder: "unifi-home" });
     const kind = el("select", {}, kinds.map(({ kind: value }) => el("option", { value, text: kindNames[value] ?? value, selected: value === (entry?.kind ?? "secret") })));
     const username = el("input", { type: "text", autocomplete: "off", placeholder: editing && entry.fields.includes("username") ? t("Unchanged") : "" });
     const secret = el("input", { type: "password", autocomplete: "new-password", required: !editing, placeholder: editing ? t("Unchanged") : "" });
@@ -624,12 +629,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const fields = {};
       if (secret.value) fields[mainField()] = secret.value;
       if (kind.value === "login" && username.value) fields.username = username.value;
-      if (!Object.keys(fields).length && !editing) { message.textContent = t("Type the value."); return; }
+      // A save sends a value: the date alone is not a change the server takes.
+      if (!Object.keys(fields).length) { message.textContent = editing ? t("Type a new value to replace it.") : t("Type the value."); return; }
       const target = editing ? entry.name : name.value.trim();
       busy(save, async () => {
         const body = { kind: kind.value, fields, expires: expires.value ? new Date(`${expires.value}T00:00:00`).toISOString() : null };
-        // Only the date changed: the entry's values stay, sent again by none.
-        if (!Object.keys(fields).length) { message.textContent = t("Type a new value to replace it."); return; }
         await api(`/api/vault/${encodeURIComponent(target)}`, { method: "PUT", body });
         dialog.close("ok");
         app().route();
@@ -667,14 +671,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   /// config.json's secrets that are not in the vault yet, each with the entry it would become: untick to leave one,
   /// rename an entry, then move them.
-  function migrationCard(plan) {
+  function migrationCard(plan, vault) {
     const names = {};
     const excluded = new Set(plan.items.filter((item) => item.excluded).map((item) => item.id));
     const message = el("p", { class: "status-line muted", role: "status" });
     const rows = plan.items.map((item) => {
       const box = el("input", { type: "checkbox", checked: !item.excluded, "aria-label": t("Move {setting}", { setting: `${item.name} · ${item.path}` }) });
       const entryName = el("input", { type: "text", value: item.entry, class: "mono", autocomplete: "off", spellcheck: false, disabled: item.excluded,
-        pattern: "[A-Za-z0-9][A-Za-z0-9._\\-]{0,127}", "aria-label": t("Entry for {setting}", { setting: `${item.name} · ${item.path}` }) });
+        pattern: namePattern(vault), "aria-label": t("Entry for {setting}", { setting: `${item.name} · ${item.path}` }) });
       box.addEventListener("change", () => { if (box.checked) excluded.delete(item.id); else excluded.add(item.id); entryName.disabled = !box.checked; });
       entryName.addEventListener("change", () => { if (entryName.value.trim() && entryName.value.trim() !== item.entry) names[item.id] = entryName.value.trim(); else delete names[item.id]; });
       return el("div", { class: "row vault-move" },

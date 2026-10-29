@@ -20,7 +20,7 @@ struct VaultMigrationTests {
     ]
 
     func plan(existing: [String: VaultEntry] = [:], names: [String: String] = [:], excluded: Set<String> = [], separate: Set<String> = []) throws -> VaultMigration {
-        try VaultMigration.plan(stored: Self.config, opened: Self.config, existing: existing, names: names, excluded: excluded, separate: separate)
+        try VaultMigration.plan(stored: Self.config, opened: Self.config, existing: existing, choices: .init(names: names, excluded: excluded, separate: separate))
     }
 
     func entries(_ plan: VaultMigration) -> [String: String] {

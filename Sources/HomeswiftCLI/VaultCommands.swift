@@ -22,9 +22,7 @@ enum VaultCommands {
         let vault = CredentialVault(storage: storagePath)
         switch arguments.first {
         case "list" where arguments.count == 1:
-            let entries = try vault.entries()
-            for name in entries.keys.sorted() {
-                guard let entry = entries[name] else { continue }
+            for (name, entry) in try vault.listing().sorted(by: { $0.key < $1.key }) {
                 let fields = entry.fields.keys.sorted().joined(separator: ", ")
                 say("\(name)  \(entry.kind.rawValue)  \(fields)" + (entry.owner.map { "  (\($0))" } ?? ""))
             }
@@ -49,15 +47,12 @@ enum VaultCommands {
                     throw CommandError(usage)
                 }
             }
-            let existing = try vault.entry(named: name)
-            let resolvedKind = kind ?? existing?.kind ?? (username != nil ? .login : .secret)
-            var fields = existing?.kind == resolvedKind ? existing?.fields ?? [:] : [:]
-            fields[field ?? resolvedKind.mainField] = try readValue()
+            guard CredentialVault.isValidName(name) else { throw CredentialVaultError.invalidName(name) }
+            let resolvedKind = try kind ?? vault.listing()[name]?.kind ?? (username != nil ? .login : .secret)
+            var fields = [field ?? resolvedKind.mainField: try readSecret(prompt: "Value: ", what: "value")]
             if let username { fields["username"] = username }
-            var entry = VaultEntry(kind: resolvedKind, fields: fields, created: existing?.created ?? Date(), changed: Date())
-            entry.expires = existing?.expires
-            try vault.set(name, entry)
-            say("\(existing == nil ? "Added" : "Changed") \(name); config.json names it as vault:\(name).")
+            let added = try vault.update(name, kind: resolvedKind, fields: fields)
+            say("\(added ? "Added" : "Changed") \(name); config.json names it as vault:\(name).")
         case "migrate":
             try migrate(arguments: Array(arguments.dropFirst()), storagePath: storagePath)
         case "remove" where arguments.count == 2:
@@ -72,61 +67,34 @@ enum VaultCommands {
     /// checked to resolve before it is written.
     static func migrate(arguments: [String], storagePath: URL) throws {
         var dryRun = false
-        var excluded = Set<String>()
-        var separate = Set<String>()
-        var names: [String: String] = [:]
+        var choices = VaultMigration.Choices()
         var options = arguments.makeIterator()
         while let option = options.next() {
             switch option {
             case "--dry-run": dryRun = true
             case "--exclude":
                 guard let id = options.next() else { throw CommandError(usage) }
-                excluded.insert(id)
+                choices.excluded.insert(id)
             case "--separate":
                 guard let id = options.next() else { throw CommandError(usage) }
-                separate.insert(id)
+                choices.separate.insert(id)
             case "--name":
                 // The id holds `:` and `/`, an entry name neither: the last `=` splits them.
                 guard let pair = options.next(), let equals = pair.lastIndex(of: "=") else { throw CommandError(usage) }
-                names[String(pair[..<equals])] = String(pair[pair.index(after: equals)...])
+                choices.names[String(pair[..<equals])] = String(pair[pair.index(after: equals)...])
             default:
                 throw CommandError(usage)
             }
         }
         let configURL = storagePath.appendingPathComponent("config.json")
-        let plan = try HomeswiftCatalog.vaultMigrationPlan(configURL: configURL, names: names, excluded: excluded, separate: separate)
-        let moving = plan.items.filter { !$0.excluded }
+        let plan = try HomeswiftCatalog.vaultMigrationPlan(configURL: configURL, choices)
         for item in plan.items {
             let what = item.excluded ? "left in config.json" : "vault:\(item.entry)" + (item.shared ? " (shared)" : "")
             say("\(item.id)  →  \(what)")
         }
-        guard !moving.isEmpty else { return say("No secret to move.") }
-        if dryRun { return say("\(moving.count) secrets into \(plan.newEntries.count) new entries; nothing written (--dry-run).") }
-
-        let vault = CredentialVault(storage: storagePath)
-        let added = try HomeswiftCatalog.addEntries(plan.newEntries, to: vault)
-        do {
-            // A config that does not start is not written.
-            _ = try ConfigurationSecrets.opening(HomeswiftConfiguration.decode(plan.config.encoded()), storage: storagePath)
-            let backup = try HomeswiftCatalog.writeConfigFile(plan.config, to: configURL)
-            say("Moved \(moving.count) secrets into \(added.count) new entries; config.json was backed up as backups/\(backup). Restart the bridge.")
-        } catch {
-            for name in added { _ = try? vault.remove(name) }
-            throw error
-        }
-    }
-
-    /// The first line of standard input; a terminal gets a prompt without echo.
-    static func readValue() throws -> String {
-        if isatty(STDIN_FILENO) != 0 {
-            guard let typed = getpass("Value: ") else { throw CommandError("no value") }
-            let value = String(cString: typed)
-            guard !value.isEmpty else { throw CommandError("no value") }
-            return value
-        }
-        guard let line = readLine(strippingNewline: true), !line.isEmpty else {
-            throw CommandError("no value on standard input")
-        }
-        return line
+        guard !plan.moving.isEmpty else { return say("No secret to move.") }
+        if dryRun { return say("\(plan.moving.count) secrets into \(plan.newEntries.count) new entries; nothing written (--dry-run).") }
+        let backup = try HomeswiftCatalog.writeMigration(plan, configURL: configURL)
+        say("Moved \(plan.moving.count) secrets into \(plan.newEntries.count) new entries; config.json was backed up as backups/\(backup). Restart the bridge.")
     }
 }

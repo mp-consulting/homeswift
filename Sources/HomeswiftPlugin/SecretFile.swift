@@ -45,26 +45,20 @@ public struct SecretFile<Value: Codable>: Sendable {
         if let legacyFile { try? FileManager.default.removeItem(at: legacyFile) }
     }
 
+    /// The vault keeps the entry's creation date.
     private func store(_ data: Data) throws {
-        let previous = try? vault.entry(named: entryName)
-        let now = Date()
-        try vault.set(entryName, VaultEntry(kind: .token, fields: [Self.field: String(decoding: data, as: UTF8.self)], created: previous?.created ?? now, changed: now, owner: owner))
+        try vault.set(entryName, VaultEntry(kind: .token, fields: [Self.field: String(decoding: data, as: UTF8.self)], owner: owner))
     }
 
     private func decoded(_ data: Data) -> Value? {
         guard let value = try? JSONDecoder().decode(Value.self, from: data) else { return nil }
         // What it holds under secret-named keys (an access token, a private key) is masked in logs from now on.
-        if let json = try? JSONValue(data: data) { Redaction.rememberSecrets(Self.secrets(in: json)) }
-        return value
-    }
-
-    static func secrets(in value: JSONValue, underSecret: Bool = false) -> [String] {
-        switch value {
-        case .string(let text): underSecret ? [text] : []
-        case .array(let items): items.flatMap { secrets(in: $0, underSecret: underSecret) }
-        case .object(let object): object.flatMap { secrets(in: $0.value, underSecret: underSecret || Redaction.isSecretKey($0.key)) }
-        default: []
+        if let json = try? JSONValue(data: data) {
+            var secrets: [String] = []
+            SecretWalk.forEach(json) { _, _, secret in if let text = secret.stringValue { secrets.append(text) } }
+            Redaction.rememberSecrets(secrets)
         }
+        return value
     }
 
     /// `plugin.<instance key>.<name>` with what a vault name cannot hold replaced by `-` and a file's leading dots

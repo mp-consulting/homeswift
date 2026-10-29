@@ -521,7 +521,12 @@ public struct HomeswiftCatalog: Sendable {
     public var backupsDirectory: URL { storageDirectory.appendingPathComponent("backups") }
 
     public func backups() -> [String] {
-        ((try? FileManager.default.contentsOfDirectory(atPath: backupsDirectory.path)) ?? []).filter { $0.hasPrefix("config-") && $0.hasSuffix(".json") }.sorted()
+        Self.backups(in: backupsDirectory)
+    }
+
+    /// The config.json backups in `directory`, oldest first.
+    static func backups(in directory: URL) -> [String] {
+        ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []).filter { $0.hasPrefix("config-") && $0.hasSuffix(".json") }.sorted()
     }
 
     /// Backs up the current file and writes the new one owner-only (`applyConfig` validated it). Returns the backup's
@@ -562,8 +567,7 @@ public struct HomeswiftCatalog: Sendable {
         if manager.fileExists(atPath: configURL.path) {
             try manager.copyItem(at: configURL, to: backupsDirectory.appendingPathComponent(backup))
         }
-        let backups = ((try? manager.contentsOfDirectory(atPath: backupsDirectory.path)) ?? []).filter { $0.hasPrefix("config-") && $0.hasSuffix(".json") }.sorted()
-        for old in backups.dropLast(20) { try? manager.removeItem(at: backupsDirectory.appendingPathComponent(old)) }
+        for old in backups(in: backupsDirectory).dropLast(20) { try? manager.removeItem(at: backupsDirectory.appendingPathComponent(old)) }
         try OwnerOnlyFile.write(stored.encoded(pretty: true), to: configURL)
         return backup
     }
@@ -624,6 +628,18 @@ public struct HomeswiftCatalog: Sendable {
             return ["dryRun": true, "changes": .array(changed.map(JSONValue.string)), "config": Redaction.redactSecrets(restored)]
         }
         let backup = try writeConfig(restored, expecting: expecting)
+        var answer = await run(configuration).objectValue ?? [:]
+        answer["written"] = .string(configURL.path)
+        answer["backup"] = .string(backup)
+        answer["changes"] = .array(changed.map(JSONValue.string))
+        return .object(answer)
+    }
+
+    /// Runs `configuration` on the bridge (`PluginHost.apply`): plugin blocks reload in place, the system blocks'
+    /// services reload, and what needs a restart restarts the process, or raises the restart flag when it cannot.
+    /// Answers what was reloaded, started, stopped and what still needs a restart. A save runs it after writing the
+    /// file, a changed vault entry without one.
+    func run(_ configuration: HomeswiftConfiguration) async -> JSONValue {
         let report = await host.apply(configuration)
         var pending = report.needsRestart
         let services = report.systemBlocksChanged.filter { $0 != AIConfiguration.platform || reloadServices != nil }
@@ -641,7 +657,6 @@ public struct HomeswiftCatalog: Sendable {
         let names = { (list: [String]) in JSONValue.array(list.map(JSONValue.string)) }
         let note = pending.isEmpty ? "Applied." : restarting ? "Applied; homeswift restarts by itself for the rest (\(pending.joined(separator: "; ")))." : "Restart homeswift to apply the rest: \(pending.joined(separator: "; "))."
         return [
-            "written": .string(configURL.path), "backup": .string(backup), "changes": .array(changed.map(JSONValue.string)),
             "reloaded": names(report.reloaded), "started": names(report.started), "stopped": names(report.stopped),
             "restarting": .bool(restarting), "restartNeeded": names(restarting ? [] : pending), "note": .string(note),
         ]

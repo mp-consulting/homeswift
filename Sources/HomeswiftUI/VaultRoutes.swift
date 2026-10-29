@@ -20,10 +20,7 @@ extension UIServer {
             case (.GET, ["migration"]):
                 return .json(try catalog.vaultMigrationPlan().json)
             case (.POST, ["migration"]):
-                let names = (body["names"]?.objectValue ?? [:]).compactMapValues(\.stringValue)
-                let excluded = Set((body["exclude"]?.arrayValue ?? []).compactMap(\.stringValue))
-                let separate = Set((body["separate"]?.arrayValue ?? []).compactMap(\.stringValue))
-                let result = try await catalog.migrateToVault(names: names, excluded: excluded, separate: separate, dryRun: body["dryRun"]?.boolValue == true)
+                let result = try await catalog.migrateToVault(VaultMigration.Choices(json: body), dryRun: body["dryRun"]?.boolValue == true)
                 logger.info("Web UI moved config.json's secrets into the vault", metadata: ["user": "\(caller.username)"])
                 return .json(result)
             case let (.PUT, path) where path.count == 1:

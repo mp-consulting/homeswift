@@ -34,7 +34,12 @@
   let secretRule = null;
   /// The server's rule (Redaction): whether a key holds a secret.
   const isSecretKey = (key) => Boolean(secretRule) && secretRule.keys.test(key) && !secretRule.except.test(key);
-  const readSecretRule = (plugins) => plugins.secretRule ? { keys: new RegExp(plugins.secretRule.keys, "i"), except: new RegExp(plugins.secretRule.except, "i"), placeholder: plugins.secretRule.placeholder } : null;
+  const readSecretRule = (plugins) => plugins.secretRule ? {
+    keys: new RegExp(plugins.secretRule.keys, "i"), except: new RegExp(plugins.secretRule.except, "i"), placeholder: plugins.secretRule.placeholder,
+    reference: new RegExp(plugins.secretRule.reference),
+  } : null;
+  /// The server's rule (Redaction.referencePattern): whether a value names a secret kept elsewhere (`vault:<name>`).
+  const isReference = (value) => Boolean(secretRule) && secretRule.reference.test(value);
 
   async function loadAuth() {
     auth = await api("/api/auth/state");
@@ -2666,7 +2671,6 @@
     };
     /// A secret's field with the vault's menu beside it: an entry picked is written `vault:<name>` and shown as it is,
     /// a name rather than the secret; a typed value stays masked when the schema masks it.
-    const isReference = (value) => /^(vault|env|file):\S+$/.test(value);
     const secretField = (wrap, input) => {
       const masked = input.type === "password";
       const reveal = () => { input.type = masked && !isReference(input.value) ? "password" : "text"; };

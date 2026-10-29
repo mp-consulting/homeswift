@@ -9,15 +9,20 @@ public enum Redaction {
     public static let placeholder = "__REDACTED__"
     /// The prefix of a secret sealed in config.json (`SecretBox`): its text is ciphertext, never shown.
     public static let sealedPrefix = "enc:v1:"
-    /// The schemes of a reference to a secret kept elsewhere (`vault:unifi-home`, `env:UNIFI_PASSWORD`,
-    /// `file:/run/secrets/unifi`; docs/vault-design.md): a name, not the secret, so it is shown and kept as it is.
-    public static let referenceSchemes = ["vault:", "env:", "file:"]
+    /// A vault entry's name (`CredentialVault`): letters, digits, `.`, `_` and `-`, starting with a letter or a digit,
+    /// `vaultNameLength` at most, so a name fits in a reference as it is.
+    public static let vaultNameLength = 128
+    public static let vaultNamePattern = "[A-Za-z0-9][A-Za-z0-9._-]{0,\(vaultNameLength - 1)}"
+    /// A reference to a secret kept elsewhere (docs/vault-design.md): `vault:<name>` or `vault:<name>#<field>`,
+    /// `env:<VARIABLE>`, `file:<absolute path>`. A name, not the secret, so it is shown and kept as it is. The one
+    /// rule sealing, masking, resolution and the page follow (the server sends it to the page).
+    public static let referencePattern = #"^(vault:\#(vaultNamePattern)(#[^#\s]+)?|env:\S+|file:/\S*)$"#
+    private static let reference = try! NSRegularExpression(pattern: referencePattern)
 
-    /// Whether `text` is a reference to a secret: a scheme of `referenceSchemes` followed by a name without spaces.
     public static func isSecretReference(_ text: String) -> Bool {
-        guard let scheme = referenceSchemes.first(where: text.hasPrefix) else { return false }
-        let name = text.dropFirst(scheme.count)
-        return !name.isEmpty && !name.contains(where: \.isWhitespace)
+        // The prefix first: this runs on every string a redaction looks at.
+        guard text.hasPrefix("vault:") || text.hasPrefix("env:") || text.hasPrefix("file:") else { return false }
+        return matches(reference, text)
     }
 
     /// The values the bridge opened or resolved (`rememberSecrets`): masked wherever `redactText` finds them, whatever
@@ -30,11 +35,6 @@ public enum Redaction {
     /// process: an old password showing up in a log line is still a password.
     public static func rememberSecrets(_ values: some Sequence<String>) {
         remembered.add(values.filter { $0.count >= rememberedMinimumLength })
-    }
-
-    /// Forgets every remembered value: for tests.
-    static func forgetRememberedSecrets() {
-        remembered.removeAll()
     }
 
     /// Keys whose values are secrets: password, mqttPass, apiKey, clientSecret, bridge.pin.
@@ -393,29 +393,31 @@ public enum Redaction {
 }
 
 /// The exact values `Redaction.rememberSecrets` was given, longest first, so a secret that holds a shorter one is masked
-/// whole. Read on every log line: a lock and a quick check of the count keep that cheap when none is remembered.
+/// whole. Read for every string a log line's details hold: a value longer than the text is not searched for, and a value
+/// already known is not added again, so the list is sorted only when it grows.
 private final class RememberedSecrets: @unchecked Sendable {
     private let lock = NSLock()
-    private var values: [String] = []
+    private var known: Set<String> = []
+    /// Longest first, with each value's length in UTF-8.
+    private var values: [(text: String, bytes: Int)] = []
 
     func add(_ new: [String]) {
-        guard !new.isEmpty else { return }
         lock.withLock {
-            let merged = Set(values).union(new)
-            values = merged.sorted { $0.count != $1.count ? $0.count > $1.count : $0 < $1 }
+            let added = new.filter { !known.contains($0) }
+            guard !added.isEmpty else { return }
+            known.formUnion(added)
+            values = known.map { ($0, $0.utf8.count) }.sorted { $0.bytes != $1.bytes ? $0.bytes > $1.bytes : $0.text < $1.text }
         }
-    }
-
-    func removeAll() {
-        lock.withLock { values = [] }
     }
 
     func mask(_ text: String) -> String {
         let current = lock.withLock { values }
         guard !current.isEmpty else { return text }
         var out = text
-        for value in current where out.contains(value) {
-            out = out.replacingOccurrences(of: value, with: Redaction.placeholder)
+        var length = out.utf8.count
+        for value in current where value.bytes <= length && out.contains(value.text) {
+            out = out.replacingOccurrences(of: value.text, with: Redaction.placeholder)
+            length = out.utf8.count
         }
         return out
     }

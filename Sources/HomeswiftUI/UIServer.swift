@@ -621,7 +621,10 @@ public final class UIServer: Sendable {
                 var plugins = catalog.pluginsJSON().objectValue ?? [:]
                 plugins["blocks"] = .array(blocks)
                 // The key rule the server seals and redacts by; the settings page reads it from here.
-                plugins["secretRule"] = ["keys": .string(Redaction.secretKeyPattern), "except": .string(Redaction.notSecretKeyPattern), "placeholder": .string(Redaction.placeholder)]
+                plugins["secretRule"] = [
+                    "keys": .string(Redaction.secretKeyPattern), "except": .string(Redaction.notSecretKeyPattern), "placeholder": .string(Redaction.placeholder),
+                    "reference": .string(Redaction.referencePattern),
+                ]
                 return .json(.object(plugins))
             case ["config"]:
                 // Secrets show as the placeholder, as the block views show them; a save that keeps it keeps the stored value.
