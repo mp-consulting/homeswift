@@ -1,0 +1,54 @@
+name: Bug report
+description: Something in the bridge, a plugin, the web UI or the Home app does not work as it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A security problem goes through the Security tab instead (SECURITY.md), never an issue.
+        Keep setup codes, keys, tokens and passwords out of everything you paste: the bridge's log masks them, a copy of config.json does not.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`homeswift --version`, or the version on the web UI's Status page."
+      placeholder: "0.14.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How Homeswift runs
+      options:
+        - Homebrew on macOS
+        - Container image (Docker, Podman)
+        - Synology package
+        - Built from source
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: plugin
+    attributes:
+      label: Plugin
+      description: The plugin involved, and the devices' brand and models, if any.
+      placeholder: "PhilipsHue, a Hue Bridge v2 with Gradient lightstrips"
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: The bridge's log around the problem, from the web UI's Logs page or the terminal. Debug logging (`-D`) helps.
+      render: text
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration
+      description: The plugin's block of config.json, with its secrets removed.
+      render: json
