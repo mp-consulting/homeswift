@@ -321,6 +321,35 @@ section { padding-block: clamp(56px, 8vw, 104px); }
 .graph-card dd { margin: 0; }
 @media (max-width: 760px) { .graph-card { position: static; width: auto; margin-top: 10px; } }
 
+/* The vault section: a drawing of config.json naming an entry and the Vault page's entries, the named one lit with
+   the same accent as its reference, so the eye joins them; text on the right, the graph's mirror. */
+.dev.flip { grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr); }
+.dev code { font: 0.875em var(--mono); padding: 1px 5px; border-radius: var(--radius-xs); background: var(--track); color: var(--ink); }
+.vault-stage { position: relative; display: grid; gap: 14px; background: var(--bg-raised); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-small); padding: clamp(14px, 2.4vw, 24px); }
+.vault-config { overflow: hidden; }
+.vault-ref { color: var(--code-str); background: color-mix(in srgb, var(--accent) 22%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent); border-radius: var(--radius-xs); padding: 1px 4px; }
+.vault-entries { display: grid; border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; font-size: 0.8125rem; }
+.vault-entries-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.vault-entries-head span { color: var(--muted); font-size: 0.75rem; }
+.vault-entry { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 14px; }
+.vault-entry + .vault-entry { border-top: 1px solid var(--line); }
+.vault-entry.lit { background: color-mix(in srgb, var(--accent) 9%, transparent); box-shadow: inset 3px 0 0 var(--accent); }
+.vault-entry i { width: 30px; height: 30px; border-radius: var(--radius-sm); display: grid; place-items: center; color: #fff; }
+.vault-entry i svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.vault-entry i.tone-blue { background: linear-gradient(160deg, #4aa3ff, #1f6fe0); }
+.vault-entry i.tone-violet { background: linear-gradient(160deg, #a78bfa, #7c4ddb); }
+.vault-entry i.tone-teal { background: linear-gradient(160deg, #4fd1c5, #1c9c91); }
+.vault-entry b { display: block; font: 600 0.8125rem var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-entry small { display: block; color: var(--muted); font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-when { color: var(--muted); font-size: 0.75rem; white-space: nowrap; }
+.vault-when.soon { color: var(--accent-ink); }
+@media (max-width: 900px) {
+  .dev.flip { grid-template-columns: minmax(0, 1fr); }
+  /* The words first on a narrow screen, as in every other section; the drawing under them. */
+  .dev.flip > .vault-stage { order: 2; }
+}
+@media (max-width: 520px) { .vault-when { display: none; } .vault-entry .vault-when.soon { display: block; grid-column: 2; margin-top: -6px; } }
+
 footer { padding-block: 40px 56px; border-top: 1px solid var(--line); }
 footer .wrap { display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: center; justify-content: space-between; }
 footer nav { display: flex; flex-wrap: wrap; gap: 6px 20px; font-size: 0.875rem; }
