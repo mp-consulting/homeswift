@@ -65,6 +65,8 @@ let usage = """
       ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY   API keys when the HomeswiftAiKit block has none
       HOMESWIFT_MCP_URL, HOMESWIFT_MCP_TOKEN              where homeswift mcp connects, and with which token
       HOMESWIFT_ALLOW_SECRETS=true    let get_config return secrets; HOMESWIFT_ELICITATION=false turns off questions
+      HOMESWIFT_SECRET_FILES          the folders file: references may read (:-separated; /run/secrets when not set)
+      HOMESWIFT_SECRET_ENV            the variables env: references may read (,-separated, PREFIX_* allowed; any when not set)
     """
 
 var storagePath = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".homeswift")

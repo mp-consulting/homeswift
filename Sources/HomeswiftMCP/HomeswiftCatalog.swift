@@ -602,8 +602,15 @@ public struct HomeswiftCatalog: Sendable {
     /// and setup code) restarts the process on its own; only when it cannot does the restart flag go up.
     /// With `checkSchemas`, what the save changes in a plugin block must match the plugin's config.schema.json
     /// (`checkBlocks`); a plugin's own page, a restored backup and "save anyway" skip it.
-    public func applyConfig(_ next: JSONValue, dryRun: Bool, checkSchemas: Bool = true) async throws -> JSONValue {
-        try await applyConfig(next, dryRun: dryRun, current: (try? readConfig()) ?? [:], checkSchemas: checkSchemas)
+    public func applyConfig(_ next: JSONValue, dryRun: Bool, checkSchemas: Bool = true, by writer: ConfigWriter = .person) async throws -> JSONValue {
+        try await applyConfig(next, dryRun: dryRun, current: (try? readConfig()) ?? [:], checkSchemas: checkSchemas, by: writer)
+    }
+
+    /// Who writes a config: a person (the web UI's editor, a plugin's page, the command line), or a client acting
+    /// for one (an MCP client, the web UI's chat), which may not add `env:` or `file:` references (they name what the
+    /// bridge reads from its machine) and learns only that a reference does not resolve, not why.
+    public enum ConfigWriter: Sendable {
+        case person, client
     }
 
     /// Applies a config whose secrets are sealed: the file keeps the sealed text, and the running bridge gets
@@ -616,11 +623,25 @@ public struct HomeswiftCatalog: Sendable {
 
     /// `applyConfig` with the file as it was just read, so a caller that read it does not read it again. With
     /// `opened`, the bridge runs that configuration and the file keeps `next` as written.
-    func applyConfig(_ next: JSONValue, dryRun: Bool, current: JSONValue, checkSchemas: Bool = true, opened: HomeswiftConfiguration? = nil, expecting: JSONValue? = nil) async throws -> JSONValue {
+    func applyConfig(
+        _ next: JSONValue, dryRun: Bool, current: JSONValue, checkSchemas: Bool = true, opened: HomeswiftConfiguration? = nil, expecting: JSONValue? = nil,
+        by writer: ConfigWriter = .person
+    ) async throws -> JSONValue {
         let restored = Redaction.containsRedacted(next) ? try Redaction.restoreSecrets(next, from: current) : next
+        if writer == .client {
+            let added = ConfigurationSecrets.newExternalReferences(in: restored, comparedWith: current)
+            guard added.isEmpty else {
+                throw CatalogError("env: and file: references are set from the web UI's config editor or the command line, not here: \(added.joined(separator: ", "))")
+            }
+        }
         // The runtime gets the secrets opened and the references resolved, as at startup; the file keeps `restored` as
-        // it is written. A reference that does not resolve stops the save.
-        let configuration = try ConfigurationSecrets.opening(opened ?? HomeswiftConfiguration.decode(restored.encoded()), storage: storageDirectory)
+        // it is written. A reference that does not resolve stops the save; a dry run or a client is not told why.
+        let configuration: HomeswiftConfiguration
+        do {
+            configuration = try ConfigurationSecrets.opening(opened ?? HomeswiftConfiguration.decode(restored.encoded()), storage: storageDirectory)
+        } catch let error as SecretReferenceError where dryRun || writer == .client {
+            throw error.withoutReasons
+        }
         try configuration.validate()
         if checkSchemas { try checkBlocks(restored, current: current) }
         let changed = Self.changedKeys(from: current, to: restored)
@@ -713,9 +734,10 @@ public struct HomeswiftCatalog: Sendable {
     /// Changes the block with this platform (and name, when there are several), or adds it when `create`;
     /// `edit` gets the block to change. What `editPlatforms` answers.
     public func editBlock(
-        platform: String, name: String?, create: Bool = true, dryRun: Bool, checkSchemas: Bool = true, _ edit: (inout [String: JSONValue]) throws -> Void
+        platform: String, name: String?, create: Bool = true, dryRun: Bool, checkSchemas: Bool = true, by writer: ConfigWriter = .person,
+        _ edit: (inout [String: JSONValue]) throws -> Void
     ) async throws -> JSONValue {
-        try await editPlatforms(dryRun: dryRun, checkSchemas: checkSchemas) { platforms in
+        try await editPlatforms(dryRun: dryRun, checkSchemas: checkSchemas, by: writer) { platforms in
             let matching = platforms.indices.filter { platforms[$0]["platform"]?.stringValue == platform && (name == nil || (platforms[$0]["name"]?.stringValue ?? platform) == name) }
             guard matching.count <= 1 else { throw CatalogError("\(matching.count) blocks have platform \(platform); give the name") }
             guard create || !matching.isEmpty else { throw CatalogError("No block \(name ?? platform) of \(platform)") }
@@ -725,13 +747,13 @@ public struct HomeswiftCatalog: Sendable {
         }
     }
 
-    public func editPlatforms(dryRun: Bool, checkSchemas: Bool = true, _ edit: (inout [JSONValue]) throws -> Void) async throws -> JSONValue {
+    public func editPlatforms(dryRun: Bool, checkSchemas: Bool = true, by writer: ConfigWriter = .person, _ edit: (inout [JSONValue]) throws -> Void) async throws -> JSONValue {
         let current = try readConfig()
         var root = current.objectValue ?? [:]
         var platforms = root["platforms"]?.arrayValue ?? []
         try edit(&platforms)
         root["platforms"] = .array(platforms)
-        return try await applyConfig(.object(root), dryRun: dryRun, current: current, checkSchemas: checkSchemas)
+        return try await applyConfig(.object(root), dryRun: dryRun, current: current, checkSchemas: checkSchemas, by: writer)
     }
 
     static func changedKeys(from a: JSONValue, to b: JSONValue, path: String = "") -> [String] {
@@ -1022,7 +1044,7 @@ public struct HomeswiftCatalog: Sendable {
                 inputSchema: ["type": "object", "required": ["config"], "properties": ["config": ["type": "object"], "ignoreSchema": ignoreSchema]],
                 scope: .admin, destructive: true, supportsDryRun: true
             ) { call in
-                .json(try await catalog.applyConfig(call.arguments["config"] ?? [:], dryRun: call.isDryRun, checkSchemas: call.arguments["ignoreSchema"] != .bool(true)))
+                .json(try await catalog.applyConfig(call.arguments["config"] ?? [:], dryRun: call.isDryRun, checkSchemas: call.arguments["ignoreSchema"] != .bool(true), by: .client))
             },
             MCPTool(
                 name: "patch_config", title: "Change one platform block",
@@ -1036,7 +1058,7 @@ public struct HomeswiftCatalog: Sendable {
                 let platform = try call.string("platform")
                 let name = call.optionalString("name")
                 let settings = call.arguments["settings"]?.objectValue ?? [:]
-                return .json(try await catalog.editBlock(platform: platform, name: name, dryRun: call.isDryRun, checkSchemas: call.arguments["ignoreSchema"] != .bool(true)) { block in
+                return .json(try await catalog.editBlock(platform: platform, name: name, dryRun: call.isDryRun, checkSchemas: call.arguments["ignoreSchema"] != .bool(true), by: .client) { block in
                     for (key, value) in settings where key != "platform" {
                         if value.isNull { block.removeValue(forKey: key) } else { block[key] = value }
                     }
@@ -1074,7 +1096,7 @@ public struct HomeswiftCatalog: Sendable {
                 let match = call.optionalString("match") ?? "mac"
                 guard let entry = call.arguments["entry"]?.objectValue else { throw JSONRPCError.invalidParams("entry must be an object") }
                 guard let key = entry[match], !key.isNull else { throw JSONRPCError.invalidParams("the entry needs its \(match)") }
-                return .json(try await catalog.editBlock(platform: platform, name: name, dryRun: call.isDryRun, checkSchemas: call.arguments["ignoreSchema"] != .bool(true)) { block in
+                return .json(try await catalog.editBlock(platform: platform, name: name, dryRun: call.isDryRun, checkSchemas: call.arguments["ignoreSchema"] != .bool(true), by: .client) { block in
                     var entries = block[list]?.arrayValue ?? []
                     if let index = entries.firstIndex(where: { Self.sameKey($0[match], key) }) {
                         // The entry it replaces holds its secrets: a rename changes the fields restoreSecrets matches on.

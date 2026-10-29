@@ -18,6 +18,38 @@ struct VaultToolTests {
         }
         """
 
+    @Test func aClientCannotAddFileOrEnvironmentReferences() async throws {
+        let environment = try MCPTestEnvironment(config: Self.config)
+        let catalog = environment.catalog
+        for reference in ["file:/run/secrets/key", "env:HOME"] {
+            await #expect(throws: CatalogError.self) {
+                try await catalog.editBlock(platform: "Devices", name: "Devices", dryRun: true, by: .client) { $0["token"] = .string(reference) }
+            }
+        }
+        // A person may; its dry run is told only that the reference does not resolve.
+        do {
+            _ = try await catalog.editBlock(platform: "Devices", name: "Devices", dryRun: true) { $0["token"] = "file:/run/secrets/missing" }
+            Issue.record("expected a failure")
+        } catch let error as SecretReferenceError {
+            #expect(error.description.contains("(does not resolve)"))
+        }
+    }
+
+    @Test func theConnectionTestSendsASavedKeyOnlyToTheSavedService() async throws {
+        let environment = try MCPTestEnvironment(config: """
+            {
+              "bridge": { "name": "Test Bridge", "username": "0E:11:22:33:44:55", "pin": "031-45-154", "port": 0 },
+              "platforms": [ { "platform": "HomeswiftAiKit", "provider": "anthropic", "apiKey": "sk-ant-saved-key" } ]
+            }
+            """)
+        for apiKey in ["__REDACTED__", "vault:anthropic", "env:ANTHROPIC_API_KEY"] {
+            let block: JSONValue = ["platform": "HomeswiftAiKit", "provider": "anthropic", "baseUrl": "http://192.0.2.1:8080", "apiKey": .string(apiKey)]
+            let result = await environment.catalog.testAssistantConnection(block: block, user: nil)
+            #expect(result["ok"] == false)
+            #expect(result["message"]?.stringValue?.hasPrefix("Type the API key to test another provider or address") == true, "\(apiKey)")
+        }
+    }
+
     @Test func theDryRunWritesNothing() async throws {
         let environment = try MCPTestEnvironment(config: Self.config)
         let plan = try await environment.catalog.migrateToVault(dryRun: true)

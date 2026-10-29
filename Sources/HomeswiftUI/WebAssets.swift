@@ -10684,6 +10684,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         "i18n-es.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Spanish (Spain): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("es", {
+  "Type the API key to test another provider or address: a saved key goes only to the saved one.": "Escribe la clave de API para probar otro proveedor u otra dirección: una clave guardada solo va a los guardados.",
   "Search the vault": "Buscar en la bóveda",
   "Nothing matches.": "No hay coincidencias.",
   "Vault": "Bóveda",
@@ -13066,6 +13067,7 @@ HomeswiftI18n.add("es", {
         "i18n-fr.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in French: English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("fr", {
+  "Type the API key to test another provider or address: a saved key goes only to the saved one.": "Saisissez la clé d’API pour tester un autre fournisseur ou une autre adresse : une clé enregistrée ne va qu’à ceux enregistrés.",
   "Search the vault": "Rechercher dans le coffre",
   "Nothing matches.": "Aucun résultat.",
   "Vault": "Coffre",
@@ -15448,6 +15450,7 @@ HomeswiftI18n.add("fr", {
         "i18n-pt.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Portuguese (Portugal): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("pt", {
+  "Type the API key to test another provider or address: a saved key goes only to the saved one.": "Introduza a chave de API para testar outro fornecedor ou outro endereço: uma chave guardada só vai para os guardados.",
   "Search the vault": "Pesquisar no cofre",
   "Nothing matches.": "Nenhum resultado.",
   "Vault": "Cofre",

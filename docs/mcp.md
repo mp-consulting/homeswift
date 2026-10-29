@@ -366,6 +366,10 @@ plugins are compiled into the binary.
 - **On the web UI's address**, for claude.ai, the UI's protections apply first (its `allowedHosts`, body
   limits and idle timeouts), then the same token checks and origins. Exposing the UI to the internet exposes
   its sign-in too: use a strong password and turn on two-factor authentication.
+- **References stay as they are.** A secret config.json keeps in the vault, an environment variable or a file
+  (`vault:<name>`, `env:<VARIABLE>`, `file:/path`, docs/vault-design.md) is shown as its reference. A client can name
+  a vault entry a person made, but not add an `env:` or `file:` reference, and is told only that a reference does
+  not resolve, not why.
 - **Secrets stay out.** `get_config` and the plugin actions (a TV's password after pairing) give each secret
   as a handle of the session's vault, `__SECRET_…__`, which becomes the secret again when the same session
   passes it back under a secret's key (password, token, key, pin); a handle anywhere else, or from another

@@ -1,5 +1,6 @@
 // The web UI in Spanish (Spain): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("es", {
+  "Type the API key to test another provider or address: a saved key goes only to the saved one.": "Escribe la clave de API para probar otro proveedor u otra dirección: una clave guardada solo va a los guardados.",
   "Search the vault": "Buscar en la bóveda",
   "Nothing matches.": "No hay coincidencias.",
   "Vault": "Bóveda",

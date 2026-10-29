@@ -1,5 +1,6 @@
 // The web UI in Portuguese (Portugal): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("pt", {
+  "Type the API key to test another provider or address: a saved key goes only to the saved one.": "Introduza a chave de API para testar outro fornecedor ou outro endereço: uma chave guardada só vai para os guardados.",
   "Search the vault": "Pesquisar no cofre",
   "Nothing matches.": "Nenhum resultado.",
   "Vault": "Cofre",

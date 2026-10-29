@@ -15,6 +15,11 @@ All notable changes to this project are documented here. The format follows
   which a reference that does not resolve stops; they are kept as they are by the sealing and shown by `get_config`.
   Every secret the bridge opens or resolves is masked by its exact text in logs, MCP replies and the Assistant's
   prompts.
+- What a reference reaches is limited: a plugin's own vault entry only from its own block, `file:` only below the
+  folders `HOMESWIFT_SECRET_FILES` lists (`/run/secrets` by default), `env:` only the variables `HOMESWIFT_SECRET_ENV`
+  lists when it is set. MCP clients and the web UI's chat cannot add `env:` or `file:` references and, like dry runs,
+  learn only that a reference does not resolve. The Assistant's connection test sends a saved key only to the saved
+  provider and address.
 - The Vault page (Settings › Vault, administrators): the secrets still in config.json with the entry each would become,
   to move them in one step; the entries with their kind, fields, users and expiry, added and replaced with values that
   are never shown again, kept from deletion while config.json names them. A secret's field in a settings form gets

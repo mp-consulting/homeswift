@@ -70,7 +70,7 @@ struct VaultTests {
               "token": "file:\#(secretFile.path)", "host": "vault:not-a-secret-key",
               "devices": [ { "name": "Door", "password": "vault:unifi#username" } ] }
             """#)
-        let opened = try ConfigurationSecrets.opening(configuration, storage: directory, environment: ["UNIFI_KEY": "key-from-env"])
+        let opened = try ConfigurationSecrets.opening(configuration, storage: directory, environment: ["UNIFI_KEY": "key-from-env", "HOMESWIFT_SECRET_FILES": directory.path])
         let block = try JSONValue(data: opened.platforms[0].json)
         #expect(block["password"]?.stringValue == "pw-from-vault")
         #expect(block["apiKey"]?.stringValue == "key-from-env")
@@ -90,6 +90,65 @@ struct VaultTests {
             #expect(error.description.contains("UniFi: vault:missing (no such entry in the vault)"))
             #expect(error.description.contains("env:UNSET (the variable is not set)"))
         }
+    }
+
+    func failure(_ block: String, storage: URL, environment: [String: String] = [:]) -> String? {
+        do {
+            _ = try ConfigurationSecrets.opening(configuration(block), storage: storage, environment: environment)
+            return nil
+        } catch {
+            return "\(error)"
+        }
+    }
+
+    @Test func aPluginsEntryResolvesOnlyInItsOwnBlock() throws {
+        let directory = storage()
+        try CredentialVault(storage: directory).set("plugin.ewelink.tokens", VaultEntry(kind: .token, fields: ["token": "plugin-token-1"], owner: "eWeLink/Home"))
+        #expect(failure(#"{ "platform": "eWeLink", "name": "Home", "token": "vault:plugin.ewelink.tokens" }"#, storage: directory) == nil)
+        let other = failure(#"{ "platform": "UniFi", "name": "UniFi", "password": "vault:plugin.ewelink.tokens" }"#, storage: directory)
+        #expect(other?.contains("the entry belongs to eWeLink/Home") == true)
+    }
+
+    @Test func filesResolveOnlyInTheFoldersListed() throws {
+        let allowed = storage().appendingPathComponent("secrets")
+        try FileManager.default.createDirectory(at: allowed, withIntermediateDirectories: true)
+        try Data("in-folder-secret".utf8).write(to: allowed.appendingPathComponent("unifi"))
+        let outside = storage()
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        try Data("outside-secret".utf8).write(to: outside.appendingPathComponent("key"))
+        // A link inside the folder to a file outside it is followed before the check.
+        try FileManager.default.createSymbolicLink(at: allowed.appendingPathComponent("link"), withDestinationURL: outside.appendingPathComponent("key"))
+        let environment = ["HOMESWIFT_SECRET_FILES": allowed.path]
+        #expect(failure(#"{ "platform": "A", "name": "A", "password": "file:\#(allowed.path)/unifi" }"#, storage: storage(), environment: environment) == nil)
+        for path in ["\(outside.path)/key", "\(allowed.path)/../../\(outside.lastPathComponent)/key", "\(allowed.path)/link", "\(allowed.path)"] {
+            let message = failure(#"{ "platform": "A", "name": "A", "password": "file:\#(path)" }"#, storage: storage(), environment: environment)
+            #expect(message?.contains("not in a folder HOMESWIFT_SECRET_FILES lists") == true, "\(path)")
+        }
+        // Without the variable, only Docker's folder.
+        #expect(failure(#"{ "platform": "A", "name": "A", "password": "file:\#(allowed.path)/unifi" }"#, storage: storage())?.contains("(/run/secrets)") == true)
+    }
+
+    @Test func variablesResolveOnlyWhenListed() {
+        let environment = ["UNIFI_PASSWORD": "env-secret-1", "HOME_TOKEN": "env-secret-2", "HOMESWIFT_SECRET_ENV": "UNIFI_PASSWORD, HOME_*"]
+        #expect(failure(#"{ "platform": "A", "name": "A", "password": "env:UNIFI_PASSWORD", "token": "env:HOME_TOKEN" }"#, storage: storage(), environment: environment) == nil)
+        let refused = failure(#"{ "platform": "A", "name": "A", "password": "env:AWS_SECRET" }"#, storage: storage(), environment: environment.merging(["AWS_SECRET": "x"]) { $1 })
+        #expect(refused?.contains("HOMESWIFT_SECRET_ENV does not list the variable") == true)
+        // Without the list, any variable.
+        #expect(failure(#"{ "platform": "A", "name": "A", "password": "env:UNIFI_PASSWORD" }"#, storage: storage(), environment: ["UNIFI_PASSWORD": "y"]) == nil)
+    }
+
+    @Test func failuresCanBeToldWithoutTheirReasons() {
+        let error = SecretReferenceError(failures: [.init(platform: "A", reference: .file("/etc/hosts"), reason: "the file cannot be read")])
+        #expect(error.withoutReasons.description == "secrets cannot be resolved: A: file:/etc/hosts (does not resolve)")
+    }
+
+    @Test func newExternalReferencesAreThoseNotThereBefore() {
+        let current: JSONValue = ["platforms": [["platform": "A", "name": "A", "password": "env:KEPT", "token": "vault:x"]]]
+        let next: JSONValue = ["platforms": [
+            ["platform": "A", "name": "A", "password": "env:KEPT", "token": "vault:y", "apiKey": "file:/run/secrets/new"],
+            ["platform": "B", "name": "B", "password": "env:KEPT"],
+        ]]
+        #expect(ConfigurationSecrets.newExternalReferences(in: next, comparedWith: current) == ["A/A:apiKey", "B/B:password"])
     }
 
     @Test func sealingKeepsReferences() {

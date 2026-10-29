@@ -40,6 +40,16 @@ Backends talk plain HTTP through `HTTPClient`, no SDK.
   `noCache` on a reference keeps nothing on disk (and that plugin waits for its backend).
 - **Bootstrap.** The 1Password Connect and HashiCorp Vault tokens are `vault:`, `env:` or `file:` references, never
   held by another external backend.
+- **What a reference reaches.** A reference names what the bridge reads for a block, so what it can name is limited:
+  - a plugin's own entry (one with an owner, `plugin.<instance>.<file>`) resolves only in that instance's block;
+  - `file:` only below the folders `HOMESWIFT_SECRET_FILES` lists (`:`-separated; `/run/secrets`, Docker's, when it
+    is not set), after `.`, `..` and links are resolved;
+  - `env:` only the variables `HOMESWIFT_SECRET_ENV` lists, when it is set (`,`-separated, `PREFIX_*` for a prefix);
+  - an MCP client and the web UI's chat cannot add an `env:` or `file:` reference (`patch_config`, `update_config`,
+    `put_list_entry` refuse it; those already in config.json stay), and neither they nor a dry run learn why a
+    reference does not resolve, only that it does not;
+  - the Assistant's connection test sends a key the bridge supplies (`__REDACTED__`, sealed, a reference) only to the
+    saved provider and address: a form pointing elsewhere tests with a key typed into it.
 
 ## The local vault
 
