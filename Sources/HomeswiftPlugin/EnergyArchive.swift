@@ -57,6 +57,17 @@ public struct EnergyFlows: Sendable, Equatable, Codable {
         if let solar = watts[.solar], let home = watts[.home] { flows.homeFromSolar = max(0, min(solar, home)) * hours }
         return flows
     }
+
+    /// An hour's flows as the average watts of each role over it, `minute`'s inverse: the grid imported less exported,
+    /// the battery charged less discharged. A flow the hour has no figure for gives no role.
+    var averageWatts: [EnergyRole: Double] {
+        var watts: [EnergyRole: Double] = [:]
+        if let solar { watts[.solar] = solar }
+        if let home { watts[.home] = home }
+        if gridImport != nil || gridExport != nil { watts[.grid] = (gridImport ?? 0) - (gridExport ?? 0) }
+        if batteryCharge != nil || batteryDischarge != nil { watts[.battery] = (batteryCharge ?? 0) - (batteryDischarge ?? 0) }
+        return watts
+    }
 }
 
 /// An hour of a plugin's energy history (a cloud's record of the days before the bridge ran), in watt-hours; nil
@@ -257,12 +268,14 @@ public final class EnergyArchive: @unchecked Sendable {
     /// The hours from `from` to `to` that some source imported, oldest first: their flows, the sources added up.
     public func importedHours(from: Date, to: Date) -> [(start: Date, flows: EnergyFlows)] {
         let first = Self.hourStart(from), last = Int(to.timeIntervalSince1970)
+        guard first <= last else { return [] }
+        // The span's hours looked up one by one, in order: the archive holds years of them.
         return hours.withLockedValue { hours in
-            hours.compactMap { key, hour -> (start: Date, flows: EnergyFlows)? in
-                guard key >= first, key <= last, let imported = hour.imported, !imported.isEmpty else { return nil }
+            stride(from: first, through: last, by: 3600).compactMap { key -> (start: Date, flows: EnergyFlows)? in
+                guard let imported = hours[key]?.imported, !imported.isEmpty else { return nil }
                 return (Date(timeIntervalSince1970: TimeInterval(key)), imported.values.reduce(EnergyFlows()) { $0.adding($1) })
             }
-        }.sorted { $0.start < $1.start }
+        }
     }
 
     /// The first hour with anything known.

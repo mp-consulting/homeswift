@@ -104,17 +104,6 @@ public struct EnergyDay: Sendable, Equatable {
 }
 
 extension Metrics {
-    /// An hour's flows as the average watts of each role over it: the grid imported less exported, the battery charged
-    /// less discharged. A flow the hour has no figure for gives no role.
-    static func averageWatts(_ flows: EnergyFlows) -> [EnergyRole: Double] {
-        var watts: [EnergyRole: Double] = [:]
-        if let solar = flows.solar { watts[.solar] = solar }
-        if let home = flows.home { watts[.home] = home }
-        if flows.gridImport != nil || flows.gridExport != nil { watts[.grid] = (flows.gridImport ?? 0) - (flows.gridExport ?? 0) }
-        if flows.batteryCharge != nil || flows.batteryDischarge != nil { watts[.battery] = (flows.batteryCharge ?? 0) - (flows.batteryDischarge ?? 0) }
-        return watts
-    }
-
     /// Each power role's watts in each minute of `minutes`: the tagged series' averages, those of one `shared` figure
     /// averaged, then added up. Minutes with no tagged power reading are left out.
     static func energyMinutes(_ minutes: [(start: Date, values: [String: Values])], tags: [String: EnergyTag]) -> [(start: Date, watts: [EnergyRole: Double])] {
@@ -161,32 +150,33 @@ extension Metrics {
                 buckets[index, default: [:]][role] = (known.sum + watts, known.count + 1)
             }
         }
-        var power = buckets.keys.sorted().map { index in
-            EnergyReport.PowerPoint(start: base.addingTimeInterval(Double(index) * step), watts: buckets[index]!.mapValues { $0.sum / Double($0.count) })
-        }
         // The steps the bridge recorded nothing in, from the hours a plugin imported (a device cloud's history): an
         // hour's watt-hours are its average watts, drawn over each step that starts in it.
-        var filled: [Int: [EnergyRole: (sum: Double, count: Int)]] = [:]
+        let recordedSteps = Set(buckets.keys)
+        var imported: Set<Int> = []
         for hour in archive.importedHours(from: base, to: to) {
-            let watts = Self.averageWatts(hour.flows)
+            let watts = hour.flows.averageWatts
             guard !watts.isEmpty else { continue }
             let offset = hour.start.timeIntervalSince(base)
-            let first = max(0, Int((offset / step).rounded(.up)))
-            let last = max(first, Int(((offset + 3600) / step).rounded(.up)) - 1)
-            // A step longer than an hour takes the hours that start in it.
-            let indices = step >= 3600 ? [max(0, Int(offset / step))] : Array(first...last)
-            for index in indices where buckets[index] == nil && base.addingTimeInterval(Double(index) * step) <= to {
+            // A step longer than an hour takes the hours that start in it; a shorter one, each step starting in the hour.
+            let indices: [Int]
+            if step >= 3600 {
+                indices = [max(0, Int(offset / step))]
+            } else {
+                let first = max(0, Int((offset / step).rounded(.up)))
+                indices = Array(first...max(first, Int(((offset + 3600) / step).rounded(.up)) - 1))
+            }
+            for index in indices where !recordedSteps.contains(index) && base.addingTimeInterval(Double(index) * step) <= to {
+                imported.insert(index)
                 for (role, value) in watts {
-                    let known = filled[index]?[role] ?? (0, 0)
-                    filled[index, default: [:]][role] = (known.sum + value, known.count + 1)
+                    let known = buckets[index]?[role] ?? (0, 0)
+                    buckets[index, default: [:]][role] = (known.sum + value, known.count + 1)
                 }
             }
         }
-        if !filled.isEmpty {
-            power += filled.map { index, roles in
-                EnergyReport.PowerPoint(start: base.addingTimeInterval(Double(index) * step), watts: roles.mapValues { $0.sum / Double($0.count) }, imported: true)
-            }
-            power.sort { $0.start < $1.start }
+        let power = buckets.keys.sorted().map { index in
+            EnergyReport.PowerPoint(start: base.addingTimeInterval(Double(index) * step), watts: buckets[index]!.mapValues { $0.sum / Double($0.count) },
+                                    imported: imported.contains(index))
         }
 
         // The battery levels: a line per series, by device name.

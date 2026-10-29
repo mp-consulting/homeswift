@@ -3857,19 +3857,18 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const container = el("div", {});
     // Fields and layout groups shown only when their condition holds, re-checked as the form changes.
     const conditional = [];
-    const watch = (element, condition, index) => {
+    // `require`: the condition makes the field required (`x-schema-form.requiredWhen`) rather than shows it.
+    const watch = (element, condition, index, require = false) => {
       const test = schemaCondition(condition);
-      if (test && element) conditional.push({ element, test, index });
+      if (test && element) conditional.push({ element, test, index, require });
     };
 
-    // Fields required only while a condition holds (`x-schema-form.requiredWhen`, read as `condition`s are): a block
-    // whose settings depend on another (an account or keys, by the route chosen) marks the ones it needs now.
-    const requiredWhen = [];
     const field = (key, property, current, required, index) => {
       const made = makeField(key, property, current, required, index);
       watch(made.element, property.condition ?? property["x-schema-form"]?.condition, index);
-      const test = !required && schemaCondition(property["x-schema-form"]?.requiredWhen);
-      if (test && made.element) requiredWhen.push({ element: made.element, test, index });
+      // Required only while a condition holds (`x-schema-form.requiredWhen`, read as `condition`s are): a block whose
+      // settings depend on another (an account or keys, by the route chosen) marks the ones it needs now.
+      if (!required) watch(made.element, property["x-schema-form"]?.requiredWhen, index, true);
       return made;
     };
     /// A cron expression (`x-schema-form.type: "schedule"`, the scheduled restart) as a time and the days it runs on,
@@ -4079,15 +4078,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     };
     // A hidden field keeps its value, as Homebridge's form does; it only leaves the screen.
     const applyConditions = () => {
-      if (!conditional.length && !requiredWhen.length) return;
+      if (!conditional.length) return;
       const model = getValue();
-      for (const { element, test, index } of conditional) {
-        const shown = test(model, typeof index === "function" ? index() : index);
-        element.classList.toggle("hidden", !shown);
-      }
+      const holds = ({ test, index }) => test(model, typeof index === "function" ? index() : index);
+      for (const entry of conditional) if (!entry.require) entry.element.classList.toggle("hidden", !holds(entry));
       // A field is required while its condition holds and it is on screen (its own and its group's conditions).
-      for (const { element, test, index } of requiredWhen) {
-        const needed = test(model, typeof index === "function" ? index() : index) && !element.closest(".hidden");
+      for (const entry of conditional) {
+        if (!entry.require) continue;
+        const { element } = entry;
+        const needed = holds(entry) && !element.closest(".hidden");
         element.querySelector(".required-mark")?.classList.toggle("hidden", !needed);
         const control = element.querySelector("input, select, textarea");
         if (control) control.required = needed;
