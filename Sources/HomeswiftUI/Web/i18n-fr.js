@@ -1,5 +1,10 @@
 // The web UI in French: English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("fr", {
+  "Automate": "Automatiser",
+  "Hub scene": "Scène du hub",
+  "Recalled on {source}.": "Rappelée sur {source}.",
+  "This hub's scene is gone: the run skips it.": "Cette scène du hub n’existe plus : l’exécution la saute.",
+  "Add a hub scene…": "Ajouter une scène du hub…",
   "Source": "Source",
   "All sources": "Toutes les sources",
   "Scene active": "Scène active",

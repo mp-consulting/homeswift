@@ -51,6 +51,7 @@ extension HomeswiftCatalog {
             "hubRoom": found.scene.room.map(JSONValue.string) ?? .null,
             "active": found.scene.active.map(JSONValue.bool) ?? .null,
             "colours": .array(found.scene.colours.prefix(5).map(JSONValue.string)),
+            "stoppable": .bool(home.runningMoods.withLockedValue { $0.values.contains { $0.mood.id == "scene:" + found.id } }),
             "capabilities": .array(PluginScene.Capability.allCases.filter(found.scene.capabilities.contains).map { .string($0.rawValue) }),
             "source": [
                 "platform": .string(found.instance.platform), "name": .string(found.instance.name),
@@ -65,14 +66,28 @@ extension HomeswiftCatalog {
     public func allScenesJSON(now: Date = Date()) async -> JSONValue {
         guard var answer = scenesJSON(now: now).objectValue else { return scenesJSON(now: now) }
         let rooms = Array(Set(located().compactMap(\.room))).sorted()
-        answer["pluginScenes"] = .array(await foundPluginScenes().map { pluginSceneJSON($0, rooms: rooms) })
+        let found = await foundPluginScenes()
+        answer["pluginScenes"] = .array(found.map { pluginSceneJSON($0, rooms: rooms) })
+        let names = Dictionary(found.map { ($0.id, $0.scene.name) }, uniquingKeysWith: { first, _ in first })
+        answer["scenes"] = answer["scenes"]?.arrayValue.map { scenes in
+            .array(scenes.map { scene in
+                guard var object = scene.objectValue, let actions = object["actions"]?.arrayValue else { return scene }
+                object["actions"] = .array(actions.map { action in
+                    guard var entry = action.objectValue, let recall = entry["recall"]?.stringValue else { return action }
+                    if let name = names[recall] { entry["name"] = .string(name) } else { entry["missing"] = true }
+                    return .object(entry)
+                })
+                return .object(object)
+            })
+        }
         return .object(answer)
     }
 
-    /// Recalls a plugin scene; the lights it changed are held, so stopping it puts them back.
-    func runPluginScene(_ found: FoundPluginScene, by: String) async throws -> JSONValue {
+    /// Recalls a plugin scene; the lights it changed are held under `holdAs` (a scene that recalls it), else under its
+    /// own id, so `stopScene` puts them back.
+    func runPluginScene(_ found: FoundPluginScene, by: String, holdAs: String? = nil) async throws -> JSONValue {
         guard found.scene.capabilities.contains(.recall) else { throw CatalogError("\(found.scene.name) cannot be recalled from Homeswift") }
-        let held = try await holdLightChanges(found.scene.name, platform: found.instance, by: by) {
+        let held = try await holdLightChanges(found.scene.name, id: "scene:" + (holdAs ?? found.id), platform: found.instance, by: by) {
             try await host.recallScene(platform: found.instance.platform, name: found.instance.name, id: found.scene.id)
             return true
         }

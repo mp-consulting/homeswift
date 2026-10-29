@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Scenes composed on the fly and undone: `run_scene` takes a `plan` (values to set and hubs' scenes to recall) that
+  runs at once without being saved, and `save_scene` keeps one. `stop_scene` puts back what any run changed in the last
+  12 hours: a saved scene, a hub's scene or a plan. A scene can recall a hub's scene among its values (`{"recall": id}`):
+  the Scenes page's **Automate** makes one for a hub scene, to give it triggers, and the editor adds them. Hub scenes
+  get **Stop** on the page.
 - Scenes from plugins' hubs: a plugin lists its hub's scenes with `scenes()` and recalls one with `recallScene(id:)`
   (`PluginScene`). Philips Hue (rooms and zones), IKEA DIRIGERA (user scenes) and Govee (the library scenes picked for
   a light) do. The Scenes page shows them under Homeswift's own, by room, with a source filter; `list_scenes` lists them

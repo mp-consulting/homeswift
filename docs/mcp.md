@@ -199,7 +199,7 @@ sends you back.
 | Scope | Tools |
 |---|---|
 | `read` | `get_server_status`, `list_accessories`, `get_accessory`, `get_accessory_history`, `list_plugins`, `get_config`, `list_config_backups`, `get_recent_logs`, `search_logs`, `get_system_info`, `list_child_bridges`, `get_child_bridge_health`, `get_cached_accessories`, `get_pairing_info`, `list_backups`, `get_accessory_layout`, `get_wall_layout`, `list_scenes`, `list_moods`, `get_assistant_usage`, `get_daily_digest` |
-| `control` | Plus `set_accessory`, `set_accessories` (with `dryRun`), `set_security_accessory`, `identify_accessory`, `run_scene`, `start_mood` (with `dryRun`), `stop_mood` |
+| `control` | Plus `set_accessory`, `set_accessories` (with `dryRun`), `set_security_accessory`, `identify_accessory`, `run_scene` (a saved scene, a hub's, or a `plan`), `stop_scene`, `start_mood` (with `dryRun`), `stop_mood` |
 | `admin` | Plus `update_config`, `patch_config`, `restore_config`, `put_list_entry`, `restart_bridge`, `restart_child_bridge`, `stop_child_bridge`, `start_child_bridge`, `remove_cached_accessory`, `reset_cached_accessories`, `reset_pairings`, `create_backup`, `get_audit_log`, `update_bridge_settings`, `set_accessory_layout`, `set_wall_layout`, `save_scene` (with `dryRun`), `send_test_notification`, `truncate_logs`, `test_assistant_connection` |
 
 A token sees only the tools its scope allows. Locks, garage doors and alarms (Lock Target State, Target
@@ -245,11 +245,13 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
 - **Scenes.** `list_scenes` lists the web UI's scenes with their room, whether they are active now, their actions,
   triggers, conditions and last run, and `"security": true` on one that changes a lock, a garage door or an alarm;
   and `pluginScenes`, the scenes plugins' hubs keep (a Hue Bridge's, a DIRIGERA hub's, a Govee light's picks), with
-  their room, source and whether the hub says they are on. `run_scene` (an id or a name) runs either kind; a hub's
-  scene is recalled and the lights it changed are held, so `stop_mood` with the run it answers puts them back. A
-  Homeswift scene answers per action; it refuses a scene with a security action, as homebridge-mcp-server's does: those
+  their room, source and whether the hub says they are on. `run_scene` (an id or a name) runs either kind, or a
+  `plan` the client composes (values to set and hubs' scenes to recall, `{"recall": id}`), which runs at once and is
+  not saved; it answers the plan and its `run`. Whatever a run changed can be put back for 12 hours with `stop_scene`
+  (a scene, a hub scene's id, or a plan's run); a value changed since is left alone. A saved scene can recall a hub's
+  scene among its values. A Homeswift scene answers per action; it refuses a scene with a security action, as homebridge-mcp-server's does: those
   go through `set_security_accessory`, which asks, or the web UI, where the signed-in user confirms. `save_scene`
-  makes a scene from the current values of `ids` (only `characteristics`, when given), never capturing a security
+  keeps a `plan`, or makes a scene from the current values of `ids` (only `characteristics`, when given), never capturing a security
   control; `dryRun` lists the actions. The `scene-builder` prompt ends with it.
 - **Moods.** `list_moods` lists the collection (calm ambiances such as candlelight or cinema, slow animations such as
   a fireplace or a sunset, party effects such as disco or a police siren, signals such as an alert flash) and the

@@ -9244,7 +9244,23 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       scene.active ? el("span", { class: "pill scene-active", text: t("Scene active") }) : null);
     if (!picture && colours.length) button.style.background = colours.length > 1 ? `linear-gradient(135deg, ${colours.join(", ")})` : colours[0];
     button.addEventListener("click", async () => { if (await runScene(scene, button)) app.route(); });
-    return button;
+    const stop = scene.stoppable ? el("button", { type: "button", class: "link", actionIcon: "stop", text: t("Stop"), onclick: async () => {
+      stop.disabled = true;
+      try {
+        const result = await app.api(`/api/scenes/${encodeURIComponent(scene.id)}/stop`, { method: "POST", body: {} });
+        if (!result.ok) HomeswiftCommon.showAlert(result.failed.map((f) => HomeswiftI18n.message(f.error)).join("\n"));
+        app.route();
+      } catch (e) { HomeswiftCommon.showAlert(e.message); stop.disabled = false; }
+    } }) : null;
+    // A Homeswift scene that recalls it, to give it triggers and conditions.
+    const automate = el("button", { type: "button", class: "link", actionIcon: "history", text: t("Automate"), onclick: async () => {
+      automate.disabled = true;
+      try {
+        const saved = await app.api("/api/scenes", { method: "POST", body: { name: scene.name.slice(0, 64), artworkId: scene.artworkId || null, actions: [{ recall: scene.id }] } });
+        app.navigate(`/scenes/${encodeURIComponent(saved.id)}`);
+      } catch (e) { HomeswiftCommon.showAlert(e.message); automate.disabled = false; }
+    } });
+    return el("div", { class: "hub-scene-tile" }, button, el("div", { class: "hub-scene-actions" }, stop, automate));
   }
 
   /// The scenes of the plugins' hubs, by room, with a source filter when there are several. `filter(query)` hides
@@ -9545,7 +9561,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const [data, accessories] = await Promise.all([app.api("/api/scenes"), app.api("/api/accessories")]);
     const names = new Map(accessories.map((a) => [a.id, displayName(a)]));
     const card = (scene) => {
-      const actions = scene.actions.map((action) => el("div", { class: "control" },
+      const actions = scene.actions.map((action) => action.recall ? el("div", { class: "control" },
+        el("span", { text: action.missing ? t("{name} (gone)", { name: action.name || action.recall }) : action.name || action.recall }),
+        el("span", { class: "value", text: t("Hub scene") })) : el("div", { class: "control" },
         el("span", { text: action.missing ? t("{name} (gone)", { name: action.name || action.id }) : action.name || action.id }),
         el("span", { class: "value", text: `${action.characteristic} → ${typeof action.value === "boolean" && !app.enumLabels[action.characteristic] ? (action.value ? t("On") : t("Off")) : app.labelFor(action.characteristic, action.value)}` })));
       const lastVars = scene.lastRun ? { date: dateTimeFormat.format(new Date(scene.lastRun.at)), trigger: scene.lastRun.trigger } : null;
@@ -9984,7 +10002,29 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       remove.setAttribute("aria-label", label);
       return remove;
     };
+    const hubScenes = data.pluginScenes || [];
+    /// A hub's scene to recall: its name and source, not editable; removed and added again to change it.
+    const addRecall = (id) => {
+      const known = hubScenes.find((scene) => scene.id === id);
+      const action = scene.actions.find((a) => a.recall === id);
+      const name = known?.name || action?.name || id;
+      const fields = rowShell(el("p", { class: "muted", text: known ? t("Recalled on {source}.", { source: known.source.name }) : t("This hub's scene is gone: the run skips it.") }));
+      const summary = el("summary", { class: "scene-action-summary" }, HomeswiftCommon.icon("play"),
+        el("span", {}, el("strong", { text: name }), el("small", { text: t("Hub scene") })), HomeswiftCommon.icon("down"));
+      const row = el("details", { class: "scene-action" }, summary, fields);
+      row.read = () => [{ recall: id }];
+      fields.append(deleteButton(row, actions, t("Delete action")));
+      actions.add(row);
+      actionList.append(row);
+    };
+    const recallPicker = hubScenes.length ? (() => {
+      const select = el("select", { "aria-label": t("Hub scene") }, el("option", { value: "", text: t("Add a hub scene…") }),
+        hubScenes.map((hub) => el("option", { value: hub.id, text: `${hub.name} · ${hub.source.name}` })));
+      select.addEventListener("change", () => { if (select.value) addRecall(select.value); select.value = ""; });
+      return select;
+    })() : null;
     const addAction = (action = {}) => {
+      if (action.recall) return addRecall(action.recall);
       const pick = {};
       const [accessory, control, value] = characteristicPicker(choices, pick, { id: action.id, service: action.service, characteristic: action.characteristic, value: action.value, list: colorControls });
       control.setAttribute("aria-label", t("Control"));
@@ -10150,7 +10190,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     node(t("Conditions"), "shield", "condition", t("An automatic run goes ahead only when all of these hold. Running it by hand ignores them."), conditions,
       [conditionList, el("button", { actionIcon: "plus", type: "button", text: t("Add a condition"), onclick: () => addCondition() })]);
     node(t("Actions"), "bulb", "action", t("The values to set, in this order."), actions,
-      [actionList, el("button", { actionIcon: "plus", type: "button", text: t("Add an action"), onclick: () => addAction() }), capture]);
+      [actionList, el("button", { actionIcon: "plus", type: "button", text: t("Add an action"), onclick: () => addAction() }), recallPicker, capture]);
     canvas.append(el("div", { class: "scene-flow-connector", "aria-hidden": "true" }, HomeswiftCommon.icon("down")),
       el("div", { class: "scene-flow-terminal finish" }, HomeswiftCommon.icon("check"), el("span", { text: t("Finish") })));
     let zoom = 1;
@@ -10410,6 +10450,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         "i18n-es.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Spanish (Spain): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("es", {
+  "Automate": "Automatizar",
+  "Hub scene": "Escena del hub",
+  "Recalled on {source}.": "Se activa en {source}.",
+  "This hub's scene is gone: the run skips it.": "Esta escena del hub ya no existe: la ejecución la omite.",
+  "Add a hub scene…": "Añadir una escena del hub…",
   "Source": "Origen",
   "All sources": "Todos los orígenes",
   "Scene active": "Escena activa",
@@ -12732,6 +12777,11 @@ HomeswiftI18n.add("es", {
         "i18n-fr.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in French: English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("fr", {
+  "Automate": "Automatiser",
+  "Hub scene": "Scène du hub",
+  "Recalled on {source}.": "Rappelée sur {source}.",
+  "This hub's scene is gone: the run skips it.": "Cette scène du hub n’existe plus : l’exécution la saute.",
+  "Add a hub scene…": "Ajouter une scène du hub…",
   "Source": "Source",
   "All sources": "Toutes les sources",
   "Scene active": "Scène active",
@@ -15054,6 +15104,11 @@ HomeswiftI18n.add("fr", {
         "i18n-pt.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Portuguese (Portugal): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("pt", {
+  "Automate": "Automatizar",
+  "Hub scene": "Cena do hub",
+  "Recalled on {source}.": "Ativada em {source}.",
+  "This hub's scene is gone: the run skips it.": "Esta cena do hub já não existe: a execução ignora-a.",
+  "Add a hub scene…": "Adicionar uma cena do hub…",
   "Source": "Origem",
   "All sources": "Todas as origens",
   "Scene active": "Cena ativa",
@@ -21627,9 +21682,13 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 .scene-source { display: block; font-size: var(--text-xs); font-weight: var(--weight-medium); opacity: 0.8; }
 .hub-scenes { display: grid; gap: var(--space-12); }
 .hub-scene-room { display: grid; gap: var(--space-8); }
+.hub-scene-tile { display: grid; gap: var(--space-4); min-width: 0; }
+.hub-scene-tile > .scene-run { width: 100%; }
+.hub-scene-actions { display: flex; flex-wrap: wrap; gap: var(--space-10); }
+.hub-scene-actions button { font-size: var(--text-xs); }
 @media (max-width: 640px) {
   .quick-scenes { grid-template-columns: none; grid-template-rows: auto; grid-auto-flow: column; grid-auto-columns: min(240px, 85%); overflow-x: auto; scroll-snap-type: x proximity; padding: var(--space-4); }
-  .quick-scenes > .scene-run { scroll-snap-align: start; }
+  .quick-scenes > .scene-run, .quick-scenes > .hub-scene-tile { scroll-snap-align: start; }
 }
 .scene-card .server-head > button { flex: none; }
 /* Moods: the rooms as chips, what plays, the Assistant's box, the collection as pills with their colours. Pills and chips

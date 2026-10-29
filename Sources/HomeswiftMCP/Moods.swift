@@ -492,7 +492,7 @@ extension HomeswiftCatalog {
     /// hub) so that it can be undone like a mood. The plugin's lights are read before; their changes are followed until
     /// they stop for a moment (`MoodRules.pluginSettle` at most), and the lights that changed are held as a run that
     /// stop_mood undoes. `action` answers whether it went through; nil when it did not or no light changed.
-    func holdLightChanges(_ name: String, platform: PluginHost.PlatformInstance, by: String, during action: () async throws -> Bool) async rethrows -> MoodRun? {
+    func holdLightChanges(_ name: String, id: String? = nil, platform: PluginHost.PlatformInstance, by: String, during action: () async throws -> Bool) async rethrows -> MoodRun? {
         let lights = Self.lights(of: located().filter { $0.platform?.name == platform.name && $0.platform?.platform == platform.platform })
         guard !lights.isEmpty else { _ = try await action(); return nil }
         let before = Dictionary(uniqueKeysWithValues: lights.map { ($0.key, $0.snapshot()) })
@@ -512,7 +512,7 @@ extension HomeswiftCatalog {
         let changed = lights.filter { before[$0.key].map($0.snapshot().differs) ?? false }
         guard !changed.isEmpty else { return nil }
         let snapshots = await takeOver(changed, before: before)
-        let mood = Mood(name: name, steps: [MoodStep(changed.map(\.color), seconds: MoodRules.minSeconds)])
+        let mood = Mood(id: id, name: name, steps: [MoodStep(changed.map(\.color), seconds: MoodRules.minSeconds)])
         let run = hold(mood, on: changed, snapshots: snapshots, by: by, room: nil)
         logger.info("\(name) changed \(changed.count) light(s); stop_mood undoes it", metadata: ["by": "\(by)", "run": "\(run.id)"])
         return run
