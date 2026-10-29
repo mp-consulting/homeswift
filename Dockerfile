@@ -32,7 +32,7 @@ COPY LICENSES LICENSES
 COPY Scripts/collect-licenses.sh /usr/local/bin/
 RUN sh /usr/local/bin/collect-licenses.sh .build/checkouts /out/doc
 
-FROM ubuntu:24.04
+FROM ubuntu:25.10
 # avahi-daemon and dbus: Bonjour, which Homeswift reaches through Avahi's dns_sd compatibility library.
 # avahi-utils: avahi-browse, for checking what is advertised.
 RUN apt-get update \
