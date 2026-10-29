@@ -85,7 +85,9 @@ browser. The Quick Controls ([below](#quick-controls)) sit at the top of the pag
 - **History**: the energy in kWh as stacked bars, a **Week**, **Month** (a bar per day) or **Year** (a bar per month)
   at a time, with the periods before and after (`?energy-view=month&energy-date=2026-05-01`). Above the line is where
   the home's energy came from (solar as it was produced, the batteries, the grid), below it where the rest went (into
-  the batteries, out to the grid), with the period's totals under it.
+  the batteries, out to the grid). Over the bars, the period's home use with a strip of the share each source covered
+  (its percentage written beside each colour), then the flows: solar produced, battery charged and discharged, grid
+  import and export. The axis writes its unit once, on the top tick.
 
 The history is the bridge's long-term archive (`metrics/energy-hours.json`, kept for years): each hour of what it
 recorded, and what plugins import, such as a device cloud's solar, home use, battery and grid since a system was set

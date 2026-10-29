@@ -237,7 +237,8 @@
   /// `unit(max)` sizes the ticks, as for `lineChart`. A tooltip lists a bar's segments, on hover and with the arrow keys.
   /// Returns `update(bars)`.
   /// `legend` (`{ label, tone }`) names the colours when segments share one (an entity above and below the line).
-  function stackedBars(container, { title, segments, bars, format, unit = () => 1, legend: keys = segments }) {
+  /// `tick(value, size, top)` writes an axis's tick instead of `format` (the unit on the `top` one only).
+  function stackedBars(container, { title, segments, bars, format, unit = () => 1, legend: keys = segments, tick }) {
     const frame = html("div", "chart-frame");
     const tooltip = html("div", "chart-tooltip hidden");
     tooltip.setAttribute("role", "status");
@@ -275,7 +276,7 @@
         const at = y(value);
         root.append(svg("line", { x1: pad.left, x2: width - pad.right, y1: at, y2: at, class: value === 0 && bottom < 0 ? "grid zero" : "grid" }));
         const label = svg("text", { x: pad.left - 8, y: at + 4, class: "tick", "text-anchor": "end" });
-        label.textContent = format(value, size);
+        label.textContent = tick ? tick(value, size, value + step / 2 > top) : format(value, size);
         root.append(label);
       }
       const hover = svg("rect", { y: pad.top, height: plotHeight, width: slot, class: "bar-hover hidden", rx: 6 });

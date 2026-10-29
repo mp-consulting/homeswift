@@ -28,6 +28,9 @@ All notable changes to this project are documented here. The format follows
   source, and the Power chart draws their battery and grid.
 - EcoFlow: the energy history's answers are checked against the shapes the import reads, and a change, or a battery
   or grid chart the cloud stops answering, is logged once, as the live APIs' changes are.
+- Status: the energy history card leads with the period's home use and a strip of the share solar, the batteries and
+  the grid covered, then lists the battery's charge and discharge with the grid's import and export; large figures
+  drop their decimals and the axis writes its unit once.
 - Status: the Energy section's Power chart draws an imported history's hours (a device cloud's solar and home use)
   where the bridge recorded nothing, each at its average, and says so under the chart.
 

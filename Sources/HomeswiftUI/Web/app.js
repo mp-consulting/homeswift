@@ -1080,7 +1080,9 @@
       else {
         days.body.replaceChildren();
         days.key = key;
+        // The unit on the top tick only: the others are its numbers.
         days.view = HomeswiftChart.stackedBars(days.body, { title: days.titleNode.textContent, legend, bars: chartBars, format: formatKWh, unit: () => 1,
+          tick: (value, size, top) => top ? formatKWh(value, size) : kWhNumber(value, size),
           segments: segments.map((one) => ({ ...one, value: (values) => values?.[one.field] == null ? null : (one.below ? -1 : 1) * values[one.field] })) });
         days.body.append(dayTable);
       }
@@ -1094,21 +1096,35 @@
       // The period's totals, each labelled with its colour, over the bars; under them, why imported hours have their
       // home use not split.
       const sum = (field) => bars.filter(known).reduce((total, bar) => bar[field] == null ? total : (total ?? 0) + bar[field], null);
-      const solar = sum("solar"), home = sum("home"), fromSolar = sum("homeFromSolar"), imported = sum("gridImport"), exported = sum("gridExport");
+      const solar = sum("solar"), home = sum("home"), imported = sum("gridImport"), exported = sum("gridExport");
+      const charged = sum("batteryCharge"), discharged = sum("batteryDischarge");
       // A key only for a colour the bars draw; the grid's figures say they cover the recorded days only when the period
       // has imported days without them (an import of solar and home use alone).
       const partly = bars.some((bar) => bar.importedHours && bar.gridImport == null && bar.gridExport == null);
       const total = (tone, label, value, note) => el("div", { class: "energy-total" },
         el("span", {}, tone ? el("i", { class: `key bar tone-${tone}`, "aria-hidden": "true" }) : null, label), el("b", { text: value }),
         note ? el("small", { text: note }) : null);
-      const totals = [
+      // The card's question answered first: the home's use, and the share of it each source covered, as a strip of the
+      // bars' colours with each share written beside its key (identity never by colour alone).
+      const shares = home > 0 ? [[4, t("Solar"), sum("homeFromSolar")], [3, t("Batteries"), sum("homeFromBattery")],
+        [7, t("Grid"), sum("homeFromGrid")], [8, t("Not split"), sum("homeNotSplit")]]
+        .filter(([, , value]) => value > 0).map(([tone, label, value]) => ({ tone, label, share: value / home * 100 })) : [];
+      const homeNode = home == null ? null : el("div", { class: "energy-home" },
+        total(null, t("Home used"), formatKWh(home)),
+        shares.length ? el("div", { class: "energy-share", role: "img", "aria-label": `${t("Home used")}: ${shares.map((one) => `${one.label} ${formatPercent(one.share)}`).join(", ")}` },
+          el("div", { class: "energy-share-bar", "aria-hidden": "true" }, shares.map((one) => el("i", { class: `tone-${one.tone}`, style: `flex-grow: ${one.share}` }))),
+          el("div", { class: "energy-share-keys", "aria-hidden": "true" }, shares.map((one) =>
+            el("span", {}, el("i", { class: `key bar tone-${one.tone}` }), one.label, el("b", { text: formatPercent(one.share) }))))) : null);
+      // Then where the energy flowed: produced, through the batteries, across the grid.
+      const flows = [
         solar != null ? total(4, t("Solar produced"), formatKWh(solar)) : null,
-        home != null ? total(null, t("Home used"), formatKWh(home)) : null,
-        home > 0 && fromSolar != null ? total(null, t("Home from solar"), formatPercent(fromSolar / home * 100)) : null,
+        charged != null ? total(3, t("Battery charged"), formatKWh(charged)) : null,
+        discharged != null ? total(3, t("Battery discharged"), formatKWh(discharged)) : null,
         imported != null ? total(7, t("Grid import"), formatKWh(imported), partly ? t("Recorded days only") : null) : null,
         exported != null ? total(7, t("Grid export"), formatKWh(exported), partly ? t("Recorded days only") : null) : null,
       ].filter(Boolean);
-      summary.replaceChildren(...(totals.length ? totals : [el("span", { class: "muted", text: t("Nothing recorded in this period") })]));
+      summary.replaceChildren(...(homeNode || flows.length ? [homeNode, flows.length ? el("div", { class: "energy-flows" }, flows) : null].filter(Boolean)
+        : [el("span", { class: "muted", text: t("Nothing recorded in this period") })]));
       days.detail.replaceChildren(...[bars.some((bar) => bar.homeNotSplit > 0)
         ? el("div", { text: t("Imported hours have no grid or battery figures: the rest of their home use is not split by source.") }) : null].filter(Boolean));
 
@@ -1187,10 +1203,15 @@
     const digits = kilo && Math.abs(value) < 10 ? (Number.isInteger(value) ? 0 : 1) : 0;
     return `${value.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} ${kilo ? "kW" : "W"}`;
   }
-  /// Kilowatt-hours, two decimals under 10; an axis's tick (with `top`) a whole number when it is one.
+  /// Kilowatt-hours: two decimals under 10, one under 100, whole from there (3,009 kWh, not 3,009.0); an axis's tick
+  /// (with `top`) a whole number when it is one.
   function formatKWh(kWh, top) {
-    const digits = top != null && Number.isInteger(kWh) ? 0 : Math.abs(kWh) < 10 ? 2 : 1;
-    return `${kWh.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits })} kWh`;
+    return `${kWhNumber(kWh, top)} kWh`;
+  }
+  function kWhNumber(kWh, top) {
+    const size = Math.abs(kWh);
+    const digits = (top != null && Number.isInteger(kWh)) || kWh === 0 ? 0 : size < 10 ? 2 : size < 100 ? 1 : 0;
+    return kWh.toLocaleString(HomeswiftI18n.locale, { minimumFractionDigits: digits, maximumFractionDigits: digits });
   }
 
   /// Bytes as MB, or GB from 1 GB; `top`, the axis's highest, keeps a chart's ticks in one unit.
