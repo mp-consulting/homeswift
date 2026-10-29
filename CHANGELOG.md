@@ -8,6 +8,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- The vault, its first step (docs/vault-design.md): a secret in config.json can be a reference instead of a value,
+  `vault:<name>` (`#field` for another field than the main one), `env:<VARIABLE>` or `file:/path` (Docker's secrets),
+  under any secret-named key. `homeswift vault list | set | remove` keeps the local vault's entries in `vault.json`,
+  each value sealed by `secrets.key`, read from standard input. References are resolved at start and on each save,
+  which a reference that does not resolve stops; they are kept as they are by the sealing and shown by `get_config`.
+  Every secret the bridge opens or resolves is masked by its exact text in logs, MCP replies and the Assistant's
+  prompts.
 - Scenes composed on the fly and undone: `run_scene` takes a `plan` (values to set and hubs' scenes to recall) that
   runs at once without being saved, and `save_scene` keeps one. `stop_scene` puts back what any run changed in the last
   12 hours: a saved scene, a hub's scene or a plan. A scene can recall a hub's scene among its values (`{"recall": id}`):

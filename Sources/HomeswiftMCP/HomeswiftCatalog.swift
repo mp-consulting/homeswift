@@ -603,8 +603,9 @@ public struct HomeswiftCatalog: Sendable {
     /// `opened`, the bridge runs that configuration and the file keeps `next` as written.
     func applyConfig(_ next: JSONValue, dryRun: Bool, current: JSONValue, checkSchemas: Bool = true, opened: HomeswiftConfiguration? = nil, expecting: JSONValue? = nil) async throws -> JSONValue {
         let restored = Redaction.containsRedacted(next) ? try Redaction.restoreSecrets(next, from: current) : next
-        // The runtime gets the secrets opened, as at startup; the file keeps `restored` as it is written.
-        let configuration = try opened ?? SecretBox.revealing(HomeswiftConfiguration.decode(restored.encoded()), storage: storageDirectory)
+        // The runtime gets the secrets opened and the references resolved, as at startup; the file keeps `restored` as
+        // it is written. A reference that does not resolve stops the save.
+        let configuration = try ConfigurationSecrets.opening(opened ?? HomeswiftConfiguration.decode(restored.encoded()), storage: storageDirectory)
         try configuration.validate()
         if checkSchemas { try checkBlocks(restored, current: current) }
         let changed = Self.changedKeys(from: current, to: restored)

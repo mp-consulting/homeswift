@@ -32,6 +32,7 @@ let usage = """
            homeswift mcp [--url <url>] [--token <token>] | --generate-token | --snippets
            homeswift users list | add <username> | password <username> | check <username>
            homeswift logs [-n <lines>] [-f]
+           homeswift vault list | set <name> | remove <name>
 
     Runs a HomeKit bridge with the plugins listed in <path>/config.json and prints its setup code.
     The file has Homebridge's shape: a "bridge" block and "platforms" blocks (see docs/plugins.md).
@@ -57,6 +58,7 @@ let usage = """
                                       bridge's HTTP MCP server (docs/mcp.md); --generate-token, --snippets
       users                           the web UI's accounts; passwords are read from standard input
       logs                            the last lines of the bridge's log (logs/), and the new ones with -f
+      vault                           the vault's entries (docs/vault-design.md); values are read from standard input
 
     Environment:
       HAP_DEBUG                       log every request (trace level)
@@ -85,7 +87,7 @@ while let argument = arguments.next() {
         exit(0)
     case "plugins":
         command = "plugins"
-    case "ask", "explain", "diagnose", "digest", "organize", "test-ai", "usage", "mcp", "users", "logs":
+    case "ask", "explain", "diagnose", "digest", "organize", "test-ai", "usage", "mcp", "users", "logs", "vault":
         command = argument
         // Everything after the command is the question, the error or the file.
         while let rest = arguments.next() { commandArguments.append(rest) }
@@ -112,10 +114,12 @@ if command == "plugins" {
     exit(0)
 }
 
-if command == "users" || command == "logs" {
+if command == "users" || command == "logs" || command == "vault" {
     do {
         if command == "users" {
             try UsersCommands.run(arguments: commandArguments, storagePath: storagePath)
+        } else if command == "vault" {
+            try VaultCommands.run(arguments: commandArguments, storagePath: storagePath)
         } else {
             try LogsCommand.run(arguments: commandArguments, storagePath: storagePath)
         }
@@ -142,8 +146,9 @@ if !FileManager.default.fileExists(atPath: configURL.path) {
 
 let configuration: HomeswiftConfiguration
 do {
-    // Sealed secrets (`enc:v1:`) are opened here, so every command and plugin reads the plain values.
-    configuration = try SecretBox.revealing(HomeswiftConfiguration.load(from: configURL), storage: storagePath)
+    // Sealed secrets (`enc:v1:`) are opened and references (`vault:`, `env:`, `file:`) resolved here, so every
+    // command and plugin reads the plain values.
+    configuration = try ConfigurationSecrets.opening(HomeswiftConfiguration.load(from: configURL), storage: storagePath)
 } catch {
     fail("\(configURL.path): \(error)")
 }

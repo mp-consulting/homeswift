@@ -70,11 +70,13 @@ public struct SecretBox: Sendable {
     public static func isSealed(_ value: String) -> Bool { value.hasPrefix(prefix) }
 
     /// `value` with every plain string under a secret-named key sealed by `seal` (a key's whole subtree counts). A
-    /// string already sealed, or the redaction placeholder, is kept as it is. A number under a secret's name is sealed
-    /// as its text. Nothing is sealed, and `seal` is never called, when no secret is plain.
+    /// string already sealed, the redaction placeholder, or a reference (`vault:…`, `env:…`, `file:…`) is kept as it is.
+    /// A number under a secret's name is sealed as its text. Nothing is sealed, and `seal` is never called, when no
+    /// secret is plain.
     public static func sealingSecrets(_ value: JSONValue, underSecret: Bool = false, seal: (String) throws -> String) rethrows -> JSONValue {
         switch value {
-        case .string(let text) where (underSecret || Redaction.isCredentialURL(text)) && !text.isEmpty && !isSealed(text) && text != Redaction.placeholder:
+        case .string(let text) where (underSecret || Redaction.isCredentialURL(text)) && !text.isEmpty && !isSealed(text)
+            && text != Redaction.placeholder && !Redaction.isSecretReference(text):
             return .string(try seal(text))
         case .number where underSecret:
             // A secret is text (the schemas' password fields are strings): a number under a secret's name is sealed as its text.
