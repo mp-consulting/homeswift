@@ -293,8 +293,8 @@ A plugin whose lights have effects of their own plays an animated scene's effect
 gets a `LightEffect` (a style such as fire, candle or sunrise, with an optional colour, speed and brightness) and the
 scene's lights it owns, and answers those it plays the way its brand's app does; Homeswift plays the others itself.
 `stopAnimation(accessoryIDs:)` stops them before Homeswift puts their values back. Hue (`HueEffects.swift`: `effects_v2`,
-`timed_effects`), Govee (the library scene of the style's name), DIRIGERA (a sunrise as one long fade) and the Ambilight
-TV (music) do.
+`timed_effects`), Govee (the library scene of the style's name), DIRIGERA (a sunrise as one long fade), eWeLink (a
+SONOFF L2 strip's own scenes) and the Ambilight TV (music) do.
 
 A hub that keeps scenes can let Homeswift write them. `sceneTarget(accessoryIDs:)` answers where a new scene of exactly
 those lights would go (a Hue room or zone), or nil; `createScene(name:lights:)` makes it from `PluginSceneLight` values

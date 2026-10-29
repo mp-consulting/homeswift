@@ -147,6 +147,25 @@ struct PlatformTests {
         await host.stop()
     }
 
+    /// An animated scene's effect plays as one of an L2 strip's own scenes (homebridge-ewelink's modes), music in its
+    /// Classic rhythm; a style it has none for, and other lights, are left to Homeswift; stopping goes back to colour.
+    @Test func anL2StripPlaysItsOwnScenes() async throws {
+        let host = try await environment.start(
+            devices: [device("1000aaaaaa", uiid: 137, name: "Strip", params: ["switch": "off", "mode": 1]), device("1000bbbbbb", uiid: 1, name: "Lamp")],
+            settings: ["mode": "wan"])
+        #expect(await environment.socketReady())
+        let plugin = try #require(environment.plugin)
+        let strip = "eWeLink:1000aaaaaa", lamp = "eWeLink:1000bbbbbb"
+        #expect(await plugin.animate(LightEffect(style: .candle), accessoryIDs: [strip, lamp]) == [strip])
+        #expect(environment.socket.commands.last == ["switch": "on", "mode": 13])
+        #expect(await plugin.animate(LightEffect(style: .music), accessoryIDs: [strip]) == [strip])
+        #expect(environment.socket.commands.last == ["switch": "on", "mode": 4, "rhythmMode": 0, "rhythmSensitive": 0])
+        #expect(await plugin.animate(LightEffect(style: .fire), accessoryIDs: [strip]).isEmpty)
+        await plugin.stopAnimation(accessoryIDs: [strip, lamp])
+        #expect(environment.socket.commands.last == ["mode": 1])
+        await host.stop()
+    }
+
     @Test func multiChannelOutletsDriveTheirOwnOutlet() async throws {
         let switches: JSONValue = [["outlet": 0, "switch": "off"], ["outlet": 1, "switch": "on"]]
         let host = try await environment.start(

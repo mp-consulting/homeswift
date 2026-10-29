@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- eWeLink plays animated scenes natively on a SONOFF L2 strip with its own scenes (candle, sunrise, sunset, rainbow,
+  ocean, moonlight, sunshine, dream, music), as homebridge-ewelink lists them.
 - Scenes written to the hubs: a new scene of lights only can be saved to the Hue room or zone, or the IKEA hub, that
   has them all (`save_scene`'s `hub`, the editor's save bar); a hub's scene can be renamed, keep its lights as they are,
   or be deleted from its hub (`update_hub_scene`, `delete_hub_scene`, which asks first; the Scenes page's ⋯ menu).

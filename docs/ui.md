@@ -195,7 +195,8 @@ lights it changed, for 12 hours, as for any scene. **Automate** makes a Homeswif
 triggers and conditions; the editor's **Add a hub scene…** adds one to any scene. The editor's **Animation** step
 makes the chosen lights move after the actions: a style (candle, fire, sparkle, prism, underwater, a sunrise, moving
 colours, following the music…) with its speed, brightness and colour. Each brand plays it the way its own app does where
-its lights have it (Hue's effects, Govee's library scenes, an IKEA fade for a sunrise, an Ambilight TV for music);
+its lights have it (Hue's effects, Govee's library scenes, an IKEA fade for a sunrise, a SONOFF L2 strip's scenes, an
+Ambilight TV for music);
 Homeswift plays it on the others. An animated scene is active while it plays, and **Stop** puts the lights back. They are changed in their own app.
 
 **Templates**, on the same page: the rooms that have lights as chips, and the collection by kind, each drawn with

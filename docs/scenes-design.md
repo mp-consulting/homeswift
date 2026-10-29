@@ -38,7 +38,7 @@ speed and brightness, and optional overrides for a provider (an exact Hue effect
 | Govee | The model's library scene of the style's name (a curated table: fire → "Fire", candle → "Candlelight"…); speed ignored until its encoding is verified |
 | IKEA DIRIGERA | Sunrise and sunset as one long fade; no effects |
 | Philips Ambilight TV | Music through its FOLLOW_AUDIO modes |
-| eWeLink | Its own modes, later, ported from homebridge-ewelink |
+| eWeLink | A SONOFF L2 strip's own scenes (`mode`, from homebridge-ewelink): candle, sunrise, sunset, rainbow for prism and moving colours, ocean, moonlight, sunshine, dream, music |
 | Others | Homeswift's player; music stays static |
 
 Brands are not kept in step. Stopping tells each provider to stop its effect, then puts the lights back.
@@ -90,4 +90,4 @@ The AI composes a scene and runs it without saving it, as moods did:
 6. Hue and DIRIGERA write-back (DIRIGERA's from lpgera/dirigera, noted in THIRD-PARTY-NOTICES.md): `save_scene`'s
    `hub`, `update_hub_scene`, `delete_hub_scene`; the plugin API's `sceneTarget`, `createScene`, `updateScene`,
    `deleteScene`.
-7. eWeLink's own modes.
+7. eWeLink's own modes: the L2 strip's scenes (`EWeLinkEffects.swift`).
