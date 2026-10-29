@@ -88,6 +88,9 @@ node Scripts/generate-definitions.js <hap-nodejs> > Sources/Homeswift/Model/Defi
   `chore`, `style`, `revert`; the scope the plugin or area, lowercase (`ecoflow`, `ui`, `mcp`, `hap`, `site`); the
   summary in the imperative, without a final period. A breaking change gets a `!` after the scope and a
   `BREAKING CHANGE:` footer.
+- **Pull requests are assigned and labelled.** Open one with `--assignee @me` and at least one of the repository's
+  labels (`gh label list`): `bug` for a fix, `enhancement` for a feature or an improvement, `documentation` for docs;
+  a pull request opened without them gets them with `gh pr edit`.
 - Apple does not publish the HAP spec outside MFi. Follow HAP-NodeJS's behaviour and check crypto against known
   vectors; never guess byte layouts.
 - SRP stays on `CHAPMath`: a pure Swift big-integer library took minutes per pair setup in debug builds, which
