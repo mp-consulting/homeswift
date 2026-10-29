@@ -44,6 +44,8 @@ public final class MCPHTTPServer: Sendable {
     private let expiry = NIOLockedValueBox<Task<Void, Never>?>(nil)
     private let throttle = FailureThrottle(window: 600, threshold: 3, maxDelay: 5)
     private let attached = NIOLockedValueBox<Set<String>>([])
+    /// The sessions with a standing stream open.
+    var standingStreams: Int { attached.withLockedValue { $0.count } }
     var logger: Logger { options.logger }
 
     public init(server: MCPServer, configuration: MCPConfiguration, options: Options? = nil) {

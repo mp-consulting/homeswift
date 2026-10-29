@@ -122,7 +122,8 @@ actor TVDevice {
         var deviceLogger = logger
         deviceLogger[metadataKey: "tv"] = "\(settings.name)"
         self.logger = deviceLogger
-        client = JointSpaceClient(ip: settings.ip, username: settings.username, password: settings.password, certificateFingerprint: settings.certFingerprint, transports: transports, logger: deviceLogger)
+        client = JointSpaceClient(ip: settings.ip, username: settings.username, password: settings.password, certificateFingerprint: settings.certFingerprint, transports: transports, logger: deviceLogger,
+            gap: JointSpace.gapBetweenRequests * timeScale)
         catalog = InputCatalog(settings: settings)
         var store = InputStore(directory: storageDirectory, mac: settings.mac)
         switchNames = SwitchNameStore(directory: storageDirectory, mac: settings.mac)

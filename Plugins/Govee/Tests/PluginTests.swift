@@ -81,6 +81,7 @@ final class GoveeEnvironment: @unchecked Sendable {
             dependencies.retryDelay = .milliseconds(1)
             dependencies.lanScanSettleTime = .milliseconds(50)
             dependencies.awsPublishTimeout = .milliseconds(200)
+            dependencies.bleQueueInterval = .milliseconds(20)
             let plugin = GoveePlugin(configuration: try JSONDecoder().decode(GoveePlugin.Configuration.self, from: json), context: context, dependencies: dependencies)
             self.plugins.withLockedValue { $0.append(plugin) }
             return plugin

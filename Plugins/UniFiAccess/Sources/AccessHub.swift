@@ -475,6 +475,8 @@ actor AccessHub {
     }
 
     private func gatePhaseOpen(external: Bool) {
+        // Late, after the closing phase began (both timers overdue on a busy machine): the gate is past open.
+        guard gateDirection == .opening else { return }
         gateDirection = .open
         logger.debug("\(prefix)\(external ? "External gate cycle phase: Open — waiting for DPS close." : "Gate cycle phase: Open.")")
         built.garage?.characteristic(.currentDoorState).value = .int(HK.doorOpen)

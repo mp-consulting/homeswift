@@ -192,9 +192,11 @@ import Testing
             "ringSettings": [["cameraId": "doorbell-id", "ringtoneId": "tone-1", "volume": 40, "repeatTimes": 1]],
         ])
         #expect(await eventually { volume[.brightness]?.value == .int(40) })
-        let chimes = await chimes(environment)
-        #expect(chimes.count == 1)
-        #expect(chimes.first?.string("id") == "chime-id" && chimes.first?.array("ringSettings").first?.int("volume") == 40)
+        // The kept chimes follow in a pass of their own.
+        #expect(await eventually {
+            let chimes = await chimes(environment)
+            return chimes.count == 1 && chimes.first?.string("id") == "chime-id" && chimes.first?.array("ringSettings").first?.int("volume") == 40
+        })
     }
 
     // MARK: The settings page

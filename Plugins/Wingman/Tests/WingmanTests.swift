@@ -311,6 +311,9 @@ struct WingmanTests {
 
     @Test func discoveryAsksEachWingmanWhoItIs() async throws {
         let host = try await environment.start(settings: [:])
+        // Once the browser has announced it: a page asking before then waits the whole discovery window.
+        let plugin = try #require(environment.plugin)
+        #expect(await eventually { await !plugin.announced.isEmpty })
         let answer = try await web(environment.plugin, "GET", "discover")
         let found = try #require(answer.json["wingmen"]?.arrayValue?.first)
         #expect(found["id"] == "wm-1")

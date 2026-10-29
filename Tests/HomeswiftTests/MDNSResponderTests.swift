@@ -220,18 +220,20 @@ import Testing
     }
 
     @Test func multicastsARecordAtMostOnceASecond() async throws {
-        // The protocol's own second: five deliveries on a loaded runner fit in it.
-        let (responder, wire) = try makeResponder(timeScale: 1)
+        let (responder, wire) = try makeResponder()
         let id = try await responder.register(name: "Homeswift", port: 51826, txt: txt("1"), interfaces: [], logger: testLogger).get()
         try await wire.wait { $0.filter(\.message.isResponse).count >= 2 }
         _ = wire.take()
         let query = DNSMessage(questions: [DNSQuestion(name: DNSName(dotted: "Homeswift.local"), type: DNSType.a)])
-        for _ in 0..<5 { try deliver(query, to: responder) }
+        // Five at once, in one turn of the responder's loop: well within its (scaled) second however loaded the runner.
+        try await responder.loop.submit {
+            for _ in 0..<5 { responder.received(query.encode(), from: Self.peer, interface: Self.interface.index) }
+        }.get()
         try await Task.sleep(for: .milliseconds(200))
         #expect(wire.take().count == 1)
 
-        // A second later, the record may go out again.
-        try await Task.sleep(for: .milliseconds(1000))
+        // A second later (scaled), the record may go out again.
+        try await Task.sleep(for: .milliseconds(150))
         try deliver(query, to: responder)
         #expect(wire.take().count == 1)
         try await responder.unregister(id: id).get()

@@ -728,8 +728,8 @@ final class RecordingStreamingDelegate: HomebridgeStreamingDelegate {
 
 @Suite struct SubprocessTests {
     @Test func releasesThePipesWhenAGrandchildKeepsThemOpen() async throws {
-        // The shell exits at once; its background child holds standard output and standard error open for half a second.
-        let child = try Subprocess.launch("/bin/sh", arguments: ["-c", "(sleep 0.5) & echo hi; exit 0"])
+        // The shell exits at once; its background child holds standard output and standard error open for a fifth of a second.
+        let child = try Subprocess.launch("/bin/sh", arguments: ["-c", "(sleep 0.2) & echo hi; exit 0"])
         let status = NIOLockedValueBox<FfmpegExitStatus?>(nil)
         child.addExitHandler { exit in status.withLockedValue { $0 = exit } }
         child.beginReading()
@@ -738,7 +738,7 @@ final class RecordingStreamingDelegate: HomebridgeStreamingDelegate {
         #expect(status.withLockedValue { $0 } == FfmpegExitStatus(exitCode: 0, signal: nil))
         #expect(!child.isReadingOutput)
         // Their end of file, when the grandchild exits, wakes nothing (it used to spin the reader at full speed).
-        try await Task.sleep(for: .milliseconds(800))
+        try await Task.sleep(for: .milliseconds(400))
         #expect(!child.isReadingOutput)
     }
 

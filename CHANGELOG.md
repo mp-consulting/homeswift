@@ -18,8 +18,8 @@ All notable changes to this project are documented here. The format follows
 - Plugin contributors check Adaptive Lighting: `Scripts/new-plugin.swift` gives a light with Brightness and Color
   Temperature a controller, the bridge's debug log (and `check-on-bridge.sh`) names a light without one, and
   CONTRIBUTING.md and the pull request template list it.
-- `Scripts/test.sh` builds the tests and runs every test target at once: the whole suite in a few seconds on macOS,
-  where `swift test` runs the targets one after another.
+- `Scripts/test.sh` builds the tests and runs every test target at once: the whole suite in about 3 seconds on macOS,
+  where `swift test` runs the targets one after another (about 20 seconds, down from two and a half minutes).
 
 ### Changed
 
@@ -41,6 +41,8 @@ All notable changes to this project are documented here. The format follows
   thumbnail pills and scroll horizontally on phones.
 - Philips TV: a colour picked just as the configured Ambilight mode was re-applied after power-on could be replaced
   by that mode.
+- UniFi Access: a gate's open phase that ran late, after its closing phase had begun, put the gate back to open, and
+  the position sensor's close was then ignored: the gate stayed open in HomeKit.
 - eWeLink: two requests refused with an expired token at once could refresh it twice, the second time with a
   refresh token the first had just replaced.
 - A configuration save checked a platform block that moved in the file against nothing: its unchanged settings

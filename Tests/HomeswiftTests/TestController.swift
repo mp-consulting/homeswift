@@ -101,6 +101,21 @@ final class TestController: @unchecked Sendable {
 
     enum PairingFailure: Error { case step(Int, UInt8?) }
 
+    /// Pairs as pair setup would, without its SRP exchange (slow in a debug build): the pairing goes straight into the
+    /// server, and the controller learns the accessory's key. Pair verify still runs for real; tests of pair setup
+    /// call `pairSetup`.
+    func addPairing(to server: HAPServer, admin: Bool = true) throws {
+        let pairing = Pairing(identifier: identifier, publicKey: signingKey.publicKey.rawRepresentation, isAdmin: admin)
+        server.state.withLockedValue {
+            $0.persisted.pairings.removeAll { $0.identifier == pairing.identifier }
+            $0.persisted.pairings.append(pairing)
+        }
+        try server.persist()
+        server.updateAdvertisement()
+        accessoryLTPK = server.signingKey.publicKey.rawRepresentation
+        accessoryID = server.deviceID
+    }
+
     func pairSetup(code: String) async throws {
         var m1 = TLV8()
         m1.append(.state, 1)

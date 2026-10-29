@@ -49,6 +49,8 @@ public actor GoveePlugin: HomeswiftPlugin {
         var lanScanSettleTime: Duration = LANClient.scanSettleTime
         /// How long an AWS command waits for its publish before the next transport is tried.
         var awsPublishTimeout: Duration = AWSClient.publishTimeout
+        /// Replaces the interval between two BLE commands (`bleControlInterval`).
+        var bleQueueInterval: Duration?
     }
 
     /// A device on the bridge and how to reach it.
@@ -117,7 +119,7 @@ public actor GoveePlugin: HomeswiftPlugin {
         let settings = configuration.devices
         deviceSettings = settings
         ignoredDevices = Set(settings.filter { $0.value.ignoreDevice }.keys)
-        queue = CommandQueue(interval: configuration.bleQueueInterval)
+        queue = CommandQueue(interval: dependencies.bleQueueInterval ?? configuration.bleQueueInterval)
         store = context.persistedDictionary("device-state.json")
     }
 

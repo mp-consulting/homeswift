@@ -323,6 +323,7 @@ struct HostToolTests {
     }
 
     @Test func reportsLoadAndNetwork() async throws {
+        SystemLoad.sampleDuration.withLockedValue { $0 = .milliseconds(50) }
         let environment = try MCPTestEnvironment()
         let client = DirectClient(server: environment.server, scope: .read)
         try await client.initialize()

@@ -83,11 +83,12 @@ struct CameraServerTests {
             options: .init(setupCode: SetupCode("031-45-154"), port: 0, advertise: false, logger: testLogger))
     }
 
+    /// A controller paired (added directly: pair setup's SRP is slow in a debug build) and verified.
     private func pairedController() async throws -> TestController {
         try await server.start()
         let controller = TestController()
         try await controller.connect(port: server.port!)
-        try await controller.pairSetup(code: "031-45-154")
+        try controller.addPairing(to: server)
         try await controller.pairVerify()
         return controller
     }

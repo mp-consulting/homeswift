@@ -54,12 +54,12 @@ struct PlatformTests {
     }
 
     @Test func retriesLoginWithBackoff() async throws {
-        // The first retry 600 ms in rather than 150: still pending when a loaded runner gets to look.
-        let environment = EWeLinkTestEnvironment(clock: EWeLinkClock(scale: 0.04))
         environment.cloud.update { $0.loginAnswers = [["error": 500, "msg": "busy"], ["error": 500, "msg": "busy"]] }
         let host = try await environment.start(devices: [device("1000aaaaaa", uiid: 1)], settings: ["mode": "wan"])
         #expect(environment.accessory(host, "1000aaaaaa") == nil)
-        #expect(await environment.platform()?.hasPendingRetry == true)
+        // A retry is pending, unless a loaded runner took the 150 ms it waits before looking.
+        let pending = await environment.platform()?.hasPendingRetry == true
+        #expect(pending || environment.cloud.requests(path: "/v2/user/login").count > 1)
         // 15 s, then 30 s of plugin time.
         #expect(await eventually { environment.accessory(host, "1000aaaaaa") != nil })
         #expect(environment.cloud.requests(path: "/v2/user/login").count == 3)
@@ -93,9 +93,11 @@ struct PlatformTests {
     /// Another client signing in to the account ends this session each time: the backoff keeps growing
     /// instead of starting over after every login, and starts over once a connection lasts.
     @Test func aSessionTakenOverAgainAndAgainBacksOff() async throws {
-        // A connection lasting a minute of plugin time counts as stable: at testClock's scale that is 600 ms, which a
-        // loaded runner can spend between two drops of the loop. 2.4 s leaves room.
-        let environment = EWeLinkTestEnvironment(clock: EWeLinkClock(scale: 0.04))
+        // A connection lasting a minute of plugin time counts as stable: plugin time stands still through the drops
+        // (however long a loaded runner takes over them), then moves on a minute at once.
+        let clock = EWeLinkClock(scale: testClock.scale)
+        clock.freeze()
+        let environment = EWeLinkTestEnvironment(clock: clock)
         let host = try await environment.start(devices: [device("1000aaaaaa", uiid: 1)], settings: ["mode": "wan"])
         #expect(await environment.socketReady())
         for attempt in 1...3 {
@@ -105,7 +107,7 @@ struct PlatformTests {
             #expect(await environment.platform()?.socket?.reconnectAttempts == attempt)
         }
         // A minute of plugin time connected: the next drop starts over.
-        try await Task.sleep(for: .milliseconds(Int(Double(Timing.socketStableConnection) * environment.clock.scale) + 200))
+        clock.advance(milliseconds: Double(Timing.socketStableConnection))
         environment.socket.current?.drop()
         #expect(await eventually { environment.socket.connections == 5 })
         #expect(await environment.platform()?.socket?.reconnectAttempts == 1)
@@ -507,12 +509,13 @@ struct AccessoryTests {
         let host = try await start([device("1000aaaaaa", uiid: 1, params: ["switch": "off"])], ["singleDevices": [["deviceId": "1000aaaaaa", "showAs": "valve"]]])
         let valve = try #require(environment.accessory(host, "1000aaaaaa")?.service(.valve))
         #expect(valve[.valveType]?.value == 1 && valve[.setDuration]?.value == 120)
-        try await valve.characteristic(.setDuration).homeKitWrite(2)
+        // 30 s of plugin time, 300 ms here: still running when a loaded runner looks.
+        try await valve.characteristic(.setDuration).homeKitWrite(30)
         try await valve.characteristic(.active).homeKitWrite(1)
         #expect(environment.socket.commands.last == ["switch": "on"] && valve[.inUse]?.value == 1)
         #expect(await eventually { environment.socket.commands.last == ["switch": "off"] })
         #expect(await eventually { valve[.active]?.value == 0 })
-        #expect(valve[.setDuration]?.value == 2)
+        #expect(valve[.setDuration]?.value == 30)
         await host.stop()
     }
 

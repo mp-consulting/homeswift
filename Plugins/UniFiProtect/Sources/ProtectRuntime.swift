@@ -23,8 +23,10 @@ final class ProtectTimers {
         self.timeScale = timeScale
     }
 
+    /// Scaled, but not below 20 ms (or the duration itself when shorter): the delays that put a value back after a
+    /// HomeKit write (50 ms) must still come after the write's own value, which a sub-millisecond timer can beat.
     func duration(milliseconds: Int) -> Duration {
-        .milliseconds(Int((Double(milliseconds) * timeScale).rounded()))
+        .milliseconds(max(Int((Double(milliseconds) * timeScale).rounded()), min(milliseconds, 20)))
     }
 
     func has(_ key: String) -> Bool { timers[key] != nil }

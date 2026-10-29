@@ -94,7 +94,8 @@ final class ElgatoTestEnvironment: @unchecked Sendable {
             let configuration = try JSONDecoder().decode(ElgatoKeyLightsPlugin.Configuration.self, from: json)
             let plugin = ElgatoKeyLightsPlugin(
                 configuration: configuration, context: context,
-                dependencies: .init(transport: self.light, discover: { _ in discovered }, arp: { mac in self.arpTable.withLockedValue { $0[mac] } }))
+                dependencies: .init(
+                    transport: self.light, discover: { _ in discovered }, arp: { mac in self.arpTable.withLockedValue { $0[mac] } }, minimumPollingRate: 20))
             self.plugins.withLockedValue { $0.append(plugin) }
             return plugin
         }
@@ -272,7 +273,7 @@ struct ElgatoKeyLightsTests {
     }
 
     @Test func pollsForChangesAndReportsUnreachableLights() async throws {
-        let host = try await environment.start(settings: ["devices": [configuredLight], "pollingRate": 250])
+        let host = try await environment.start(settings: ["devices": [configuredLight], "pollingRate": 50])
         let lightbulb = try #require(host.mainBridge.server.accessories.first { $0.id == lightID }?.service(.lightbulb))
 
         // A change made elsewhere reaches the characteristics with the next poll.

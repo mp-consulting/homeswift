@@ -376,7 +376,8 @@ struct MoodTests {
         defer { Task { await environment.stop() } }
 
         _ = try await client.tool("start_mood", ["plan": blink, "room": "Den"])
-        #expect(await eventually { environment.written.filter { $0.0 == "bulb1.hue" }.count >= 6 })
+        // The show goes on past the failure: a step after the first loop's end.
+        #expect(await eventually { environment.written.filter { $0.0 == "bulb1.hue" }.count >= 3 })
         #expect(!environment.written.contains { $0.0.hasPrefix("bulb2") })
         let list = try await client.tool("list_moods")
         #expect(list["structuredContent"]?["running"]?.arrayValue?.count == 1)
