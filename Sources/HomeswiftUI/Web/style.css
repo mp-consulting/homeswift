@@ -1112,6 +1112,8 @@ textarea.short { min-height: 220px; }
   border: 1px solid var(--edge); box-shadow: 0 18px 44px rgba(25, 34, 56, 0.24), inset 0 1px 0 var(--edge-light);
   animation: menu-in 180ms var(--ease-out);
 }
+.menu .menu-search { width: 100%; margin-bottom: var(--space-4); }
+.menu .menu-empty { margin: 0; padding: var(--space-8) var(--space-10); font-size: var(--text-sm); }
 .menu { max-height: min(480px, calc(100dvh - 24px)); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; grid-auto-rows: max-content; touch-action: pan-y; }
 .menu:focus { outline: none; }
 .menu.closing { animation: menu-out 140ms var(--ease-out) forwards; pointer-events: none; }
@@ -2402,6 +2404,21 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .assistant-setup-example { margin-top: var(--space-24); }
 .assistant-setup-example summary { cursor: pointer; font-size: var(--text-md); }
 .assistant-setup-example p { font-size: var(--text-md); line-height: 1.6; }
+
+/* The Vault page: a secret of config.json to move, its entry's name editable; a field's vault picker beside it. */
+.rows > .row.vault-move { display: grid; grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 16rem); }
+.rows > .row.vault-move input[type="text"] { width: 100%; }
+@media (max-width: 640px) {
+  .rows > .row.vault-move { grid-template-columns: auto minmax(0, 1fr); }
+  .rows > .row.vault-move > span:empty { display: none; }
+  .rows > .row.vault-move input[type="text"] { grid-column: 1 / -1; }
+}
+span.warning { color: var(--warn); }
+.vault-when { flex-shrink: 0; white-space: nowrap; }
+/* On a phone an entry's date gives way to its name and kind; an expiry stays, it is a warning. */
+@media (max-width: 640px) { .vault-when > .muted { display: none; } }
+.secret-field { display: flex; gap: var(--space-8); align-items: center; }
+.secret-field input { flex: 1; min-width: 0; }
 
 /* Backup creation and recovery share a compact, responsive workspace. */
 .backup-actions-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: var(--space-20); margin: var(--space-24) 0 32px; }

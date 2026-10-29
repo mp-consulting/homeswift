@@ -19,7 +19,7 @@ enum WebAssets {
   const app = () => window.HomeswiftApp;
   const api = (...args) => app().api(...args);
 
-  const pages = [["bridge", t("Bridge"), "bridge"], ["child-bridges", t("Child bridges"), "child"], ["backups", t("Backups"), "archive"], ["audit", t("Audit log"), "shield"], ["assistant", t("Assistant"), "sparkle"]];
+  const pages = [["bridge", t("Bridge"), "bridge"], ["child-bridges", t("Child bridges"), "child"], ["backups", t("Backups"), "archive"], ["vault", t("Vault"), "key"], ["audit", t("Audit log"), "shield"], ["assistant", t("Assistant"), "sparkle"]];
 
   const dateTime = new Intl.DateTimeFormat(locale, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
   const fullDate = new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
@@ -62,7 +62,7 @@ enum WebAssets {
   async function view(main, [page = ""] = []) {
     // Settings opens on its first page, Bridge.
     if (!page) { history.replaceState(null, "", "/settings/bridge"); page = "bridge"; }
-    const draw = { bridge: bridgePage, "child-bridges": childBridgesPage, backups: backupsPage, audit: auditPage, assistant: (main) => app().assistantPage(main, subnav("assistant")) }[page];
+    const draw = { bridge: bridgePage, "child-bridges": childBridgesPage, backups: backupsPage, vault: vaultPage, audit: auditPage, assistant: (main) => app().assistantPage(main, subnav("assistant")) }[page];
     if (!draw) { app().show(main, app().pageHead(t("Settings"), t("No such page.")), subnav(null)); return; }
     await draw(main);
   }
@@ -542,6 +542,176 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     });
     if (folded) nodes.push(el("span", { class: "diff-fold", text: `  … ${tn("{n} unchanged line", "{n} unchanged lines", folded)}\n` }));
     return el("div", {}, el("p", { class: "muted", text: `− ${before}   + ${after}` }), el("pre", { class: "diff" }, nodes));
+  }
+
+  // ---- Vault: the bridge's credentials by name, their values never shown ---------------------------------------
+
+  const kindNames = { login: t("Login"), apiKey: t("API key"), token: t("Token"), secret: t("Secret [vault]") };
+  const fieldNames = { password: t("Password"), username: t("Username"), key: t("Key"), token: t("Token"), value: t("Value") };
+  const fieldName = (field) => fieldNames[field] ?? field;
+
+  async function vaultPage(main) {
+    const [vault, plan] = await Promise.all([api("/api/vault"), api("/api/vault/migration")]);
+    const add = el("button", { actionIcon: "plus", class: "primary", text: t("Add a secret"), onclick: () => entryDialog(null, vault.kinds) });
+    app().show(main,
+      app().pageHead(t("Vault"), t("The bridge's passwords, keys and tokens by name, sealed on disk. config.json names them as vault:<name>; a saved value is never shown again.")),
+      subnav("vault"),
+      vault.missing.length ? missingCard(vault.missing) : null,
+      plan.items.length ? migrationCard(plan) : null,
+      sectionHead(t("Entries"), vault.entries.length ? tn("{n} entry", "{n} entries", vault.entries.length) : "", add),
+      vault.entries.length ? el("div", { class: "card rows" }, vault.entries.map((entry) => entryRow(entry, vault.kinds)))
+        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("key")),
+          el("p", { class: "muted", text: t("None yet: add one, or move config.json's secrets here.") })));
+  }
+
+  /// When an entry expires, as a warning from 30 days before.
+  function expiry(entry) {
+    if (!entry.expires) return null;
+    const date = new Date(entry.expires);
+    const days = (date - Date.now()) / 86_400_000;
+    if (days < 0) return el("span", { class: "error", text: t("Expired {date}", { date: when(entry.expires) }) });
+    return el("span", { class: days < 30 ? "warning" : "muted", text: t("Expires {date}", { date: when(entry.expires) }) });
+  }
+
+  function entryRow(entry, kinds) {
+    const users = entry.usedBy.length ? tn("Used by {n} setting", "Used by {n} settings", entry.usedBy.length)
+      : entry.owner ? t("Kept by {plugin}", { plugin: entry.owner }) : t("Not used yet");
+    const detail = el("div", { class: "row-detail hidden" },
+      el("p", { class: "muted", text: t("config.json names it in:") }), el("pre", { class: "mono", text: entry.usedBy.join("\n") }));
+    return el("div", { class: "row-block" },
+      el("div", { class: "row" },
+        el("div", { class: "who" }, el("strong", { class: "mono", text: entry.name }),
+          el("div", { class: "muted", text: [kindNames[entry.kind] ?? entry.kind, entry.fields.map(fieldName).join(", "), users].join(" · ") })),
+        el("span", { class: "vault-when" }, expiry(entry) ?? el("span", { class: "muted", text: t("Changed {date}", { date: when(entry.changed) }) })),
+        menuButton(t("Actions for {name}", { name: entry.name }), () => [
+          { label: t("Copy the reference"), icon: "copy", onSelect: () => HomeswiftCommon.copyText(`vault:${entry.name}`) },
+          entry.usedBy.length ? { label: t("Where it is used"), icon: "search", onSelect: () => detail.classList.toggle("hidden") } : null,
+          { label: t("Replace the value…"), icon: "edit", onSelect: () => entryDialog(entry, kinds) },
+          { label: t("Delete…"), icon: "trash", danger: true, onSelect: () => removeEntry(entry) },
+        ].filter(Boolean))),
+      detail);
+  }
+
+  /// Adds an entry (`entry` null) or replaces an entry's values: values are typed, never shown, and an empty field keeps
+  /// the one saved.
+  function entryDialog(entry, kinds) {
+    const editing = Boolean(entry);
+    const name = el("input", { type: "text", value: entry?.name ?? "", required: !editing, disabled: editing, autocomplete: "off", spellcheck: false,
+      pattern: "[A-Za-z0-9][A-Za-z0-9._\\-]{0,127}", placeholder: "unifi-home" });
+    const kind = el("select", {}, kinds.map(({ kind: value }) => el("option", { value, text: kindNames[value] ?? value, selected: value === (entry?.kind ?? "secret") })));
+    const username = el("input", { type: "text", autocomplete: "off", placeholder: editing && entry.fields.includes("username") ? t("Unchanged") : "" });
+    const secret = el("input", { type: "password", autocomplete: "new-password", required: !editing, placeholder: editing ? t("Unchanged") : "" });
+    const expires = el("input", { type: "date", value: entry?.expires ? entry.expires.slice(0, 10) : "" });
+    const mainField = () => kinds.find((k) => k.kind === kind.value)?.mainField ?? "value";
+    const secretTitle = el("span", { class: "field-title" });
+    const userField = el("label", { class: "field" }, el("span", { class: "field-title", text: t("Username") }), username);
+    const sync = () => {
+      secretTitle.textContent = fieldName(mainField());
+      userField.classList.toggle("hidden", kind.value !== "login");
+      // Another kind starts again: its values are all typed anew.
+      secret.required = !editing || kind.value !== entry.kind;
+    };
+    kind.addEventListener("change", sync);
+    const message = el("p", { class: "status-line error", role: "status" });
+    const save = el("button", { class: "primary", actionIcon: "check", text: editing ? t("Replace") : t("Add [entry]"), value: "ok" });
+    const cancel = el("button", { actionIcon: "close", text: t("Cancel"), value: "cancel", type: "button" });
+    const form = el("form", { method: "dialog" },
+      el("h2", { id: "vault-entry-title", text: editing ? t("Replace the value of {name}", { name: entry.name }) : t("Add a secret") }),
+      el("p", { class: "muted", text: t("The value is sealed with this bridge's key and never shown again: keep the original in your password manager.") }),
+      el("label", { class: "field" }, el("span", { class: "field-title", text: t("Name") }), name),
+      el("label", { class: "field" }, el("span", { class: "field-title", text: t("Kind") }), kind),
+      userField,
+      el("label", { class: "field" }, secretTitle, secret),
+      el("label", { class: "field" }, el("span", { class: "field-title", text: t("Expires") }), expires,
+        el("div", { class: "help", text: t("Optional: the page warns a month before.") })),
+      message,
+      el("div", { class: "actions" }, cancel, save));
+    const dialog = el("dialog", { class: "admin-dialog card", "aria-labelledby": "vault-entry-title" }, form);
+    sync();
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const fields = {};
+      if (secret.value) fields[mainField()] = secret.value;
+      if (kind.value === "login" && username.value) fields.username = username.value;
+      if (!Object.keys(fields).length && !editing) { message.textContent = t("Type the value."); return; }
+      const target = editing ? entry.name : name.value.trim();
+      busy(save, async () => {
+        const body = { kind: kind.value, fields, expires: expires.value ? new Date(`${expires.value}T00:00:00`).toISOString() : null };
+        // Only the date changed: the entry's values stay, sent again by none.
+        if (!Object.keys(fields).length) { message.textContent = t("Type a new value to replace it."); return; }
+        await api(`/api/vault/${encodeURIComponent(target)}`, { method: "PUT", body });
+        dialog.close("ok");
+        app().route();
+      }, (e) => { message.textContent = e.message; });
+    });
+    cancel.addEventListener("click", () => dialog.close("cancel"));
+    dialog.addEventListener("close", () => dialog.remove());
+    document.body.append(dialog);
+    dialog.showModal();
+    (editing ? secret : name).focus();
+  }
+
+  async function removeEntry(entry) {
+    if (entry.usedBy.length) {
+      HomeswiftCommon.showAlert(t("config.json still names {name} in {settings}: give those settings another value first.", { name: entry.name, settings: entry.usedBy.join(", ") }));
+      return;
+    }
+    const ok = await confirmAction({
+      title: t("Delete {name}?", { name: entry.name }), confirmLabel: t("Delete"),
+      text: entry.owner ? t("{plugin} keeps it: it signs in again, or asks you to pair again, without it.", { plugin: entry.owner }) : t("Its value is gone for good: the vault keeps no copy."),
+    });
+    if (!ok) return;
+    await busy(null, async () => { await api(`/api/vault/${encodeURIComponent(entry.name)}`, { method: "DELETE" }); app().route(); });
+  }
+
+  /// References to entries the vault no longer has: the bridge does not start with them.
+  function missingCard(missing) {
+    return el("div", { class: "card server" },
+      el("div", { class: "server-head" }, tile("warning", "orange"),
+        el("div", { class: "who" }, el("strong", { text: t("config.json names entries the vault does not have") }),
+          el("div", { class: "muted", text: t("The bridge does not start until each one is added again, or its settings get another value.") }))),
+      el("div", { class: "rows" }, missing.map((item) => el("div", { class: "row" },
+        el("div", { class: "who" }, el("strong", { class: "mono", text: item.name }), el("div", { class: "muted mono", text: item.usedBy.join(", ") }))))));
+  }
+
+  /// config.json's secrets that are not in the vault yet, each with the entry it would become: untick to leave one,
+  /// rename an entry, then move them.
+  function migrationCard(plan) {
+    const names = {};
+    const excluded = new Set(plan.items.filter((item) => item.excluded).map((item) => item.id));
+    const message = el("p", { class: "status-line muted", role: "status" });
+    const rows = plan.items.map((item) => {
+      const box = el("input", { type: "checkbox", checked: !item.excluded, "aria-label": t("Move {setting}", { setting: `${item.name} · ${item.path}` }) });
+      const entryName = el("input", { type: "text", value: item.entry, class: "mono", autocomplete: "off", spellcheck: false, disabled: item.excluded,
+        pattern: "[A-Za-z0-9][A-Za-z0-9._\\-]{0,127}", "aria-label": t("Entry for {setting}", { setting: `${item.name} · ${item.path}` }) });
+      box.addEventListener("change", () => { if (box.checked) excluded.delete(item.id); else excluded.add(item.id); entryName.disabled = !box.checked; });
+      entryName.addEventListener("change", () => { if (entryName.value.trim() && entryName.value.trim() !== item.entry) names[item.id] = entryName.value.trim(); else delete names[item.id]; });
+      return el("div", { class: "row vault-move" },
+        box,
+        el("div", { class: "who" }, el("strong", { text: item.name }), el("div", { class: "muted mono", text: item.path })),
+        el("span", { class: "muted", text: item.shared ? t("Shares an entry") : "" }),
+        entryName);
+    });
+    const move = el("button", { actionIcon: "key", class: "primary", text: t("Move to the vault"), onclick: (event) => {
+      const button = event.currentTarget;
+      confirmAction({
+        title: t("Move config.json's secrets to the vault?"), confirmLabel: t("Move"), danger: false, confirmIcon: "key",
+        text: [t("Each one becomes an entry, and config.json names it as vault:<name>. config.json is backed up first: restoring that backup undoes it."),
+          t("A copy of config.json no longer works on Homebridge: its secrets stay in this bridge's vault.")],
+      }).then((ok) => ok && busy(button, async () => {
+        const result = await api("/api/vault/migration", { method: "POST", body: { names, exclude: [...excluded] } });
+        message.className = "status-line ok";
+        message.textContent = `${tn("{n} secret moved.", "{n} secrets moved.", result.moved)} ${result.applied ? app().savedText(result.applied) : ""}`;
+        setTimeout(() => app().route(), 1200);
+      }, (e) => { message.className = "status-line error"; message.textContent = e.message; }));
+    } });
+    return el("div", { class: "card server" },
+      el("div", { class: "server-head" }, tile("key", "violet"),
+        el("div", { class: "who" }, el("strong", { text: tn("{n} secret is still in config.json", "{n} secrets are still in config.json", plan.items.length) }),
+          el("div", { class: "muted", text: t("Move them here: identical values share one entry, and each plugin keeps working with the same value.") }))),
+      el("div", { class: "rows" }, rows),
+      el("div", { class: "actions" }, move),
+      message);
   }
 
   // ---- Audit log -----------------------------------------------------------------------------------------
@@ -4046,7 +4216,32 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
       const input = el("input", { type: property["x-schema-form"] && property["x-schema-form"].type === "password" ? "password" : "text", value: current ?? "", placeholder: tr(property.placeholder ?? property["x-schema-form"]?.placeholder) ?? property.default ?? "", required });
       if (property["x-schema-form"]?.type === "file") return { element: el("div", {}, wrap(input), dropZone(key, input, property["x-schema-form"].accept)), get: () => (input.value === "" ? undefined : input.value) };
+      // A secret's key (the rule references resolve by): a value typed, or an entry of the vault.
+      if (isSecretKey(key)) return secretField(wrap, input);
       return { element: wrap(input), get: () => (input.value === "" ? undefined : input.value) };
+    };
+    /// A secret's field with the vault's menu beside it: an entry picked is written `vault:<name>` and shown as it is,
+    /// a name rather than the secret; a typed value stays masked when the schema masks it.
+    const isReference = (value) => /^(vault|env|file):\S+$/.test(value);
+    const secretField = (wrap, input) => {
+      const masked = input.type === "password";
+      const reveal = () => { input.type = masked && !isReference(input.value) ? "password" : "text"; };
+      const pick = el("button", { type: "button", class: "icon-button", "aria-label": t("Choose from the vault"), title: t("Choose from the vault") }, HomeswiftCommon.icon("key"));
+      pick.addEventListener("click", async (event) => {
+        event.preventDefault();
+        const keyboard = event.detail === 0;
+        let entries = [];
+        try { entries = (await api("/api/vault")).entries; } catch { /* the menu still opens the vault */ }
+        const choose = (value) => { input.value = value; reveal(); input.dispatchEvent(new Event("input", { bubbles: true })); };
+        HomeswiftCommon.menu(pick, [
+          ...entries.map((entry) => ({ label: entry.name, icon: "key", onSelect: () => choose(`vault:${entry.name}`) })),
+          isReference(input.value) ? { label: t("Type a value instead"), icon: "edit", pinned: true, onSelect: () => { choose(""); input.focus(); } } : null,
+          { label: entries.length ? t("Open the vault") : t("Add one in the vault"), icon: "gear", pinned: true, href: "/settings/vault" },
+        ].filter(Boolean), { keyboard, search: entries.length ? t("Search the vault") : null });
+      });
+      input.addEventListener("input", reveal);
+      reveal();
+      return { element: wrap(el("span", { class: "secret-field" }, input, pick)), get: () => (input.value === "" ? undefined : input.value) };
     };
 
     /// Required fields and the ones that hold a value show; the rest wait under "More options", unless that would
@@ -7395,12 +7590,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// { separator: true }; `checked` makes a ticked choice. { label, choices: [{ label, badge, checked, onSelect }] }
   /// draws a labelled row of square choices, such as the widget sizes.
   /// Opened from the keyboard, its first item takes the focus; from a click, the menu does, so no item looks
-  /// chosen before the pointer or an arrow key gets to it.
-  function menu(trigger, items, { keyboard = false, onReorder } = {}) {
+  /// chosen before the pointer or an arrow key gets to it. `search` (its placeholder) puts a search field on top that
+  /// keeps the items whose label holds what is typed, and takes the focus instead; an item with `pinned` always stays.
+  function menu(trigger, items, { keyboard = false, onReorder, search } = {}) {
     if (openMenu?.trigger === trigger) { openMenu.close(); return; }
     openMenu?.close(true);
     let pending = false, cancelDrag = null;
     const refreshDisabled = [];
+    const searchable = [];
+    const fold = (text) => text.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
     const nodes = items.filter(Boolean).map((item) => {
       if (item.separator) return el("hr", { class: "menu-separator", role: "separator" });
       if (item.choices) {
@@ -7493,9 +7691,26 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           if (typeof checked === "boolean") node.setAttribute("aria-checked", String(checked));
         } finally { pending = false; node.removeAttribute("aria-busy"); }
       });
+      if (search && !item.pinned && item.label) searchable.push([node, fold(item.label)]);
       return node;
     });
-    const entries = () => [...list.querySelectorAll('[role^="menuitem"]:not([aria-disabled="true"])')];
+    const entries = () => [...list.querySelectorAll('[role^="menuitem"]:not([aria-disabled="true"]):not(.hidden)')];
+    // The search field: what is typed, without case or accents, against each item's label.
+    const field = search ? el("input", { type: "search", class: "menu-search", placeholder: search, "aria-label": search, autocomplete: "off" }) : null;
+    const nothing = search ? el("p", { class: "menu-empty muted hidden", text: t("Nothing matches.") }) : null;
+    if (field) {
+      field.addEventListener("input", () => {
+        const query = fold(field.value.trim());
+        let shown = 0;
+        for (const [node, label] of searchable) {
+          const match = !query || label.includes(query);
+          node.classList.toggle("hidden", !match);
+          if (match) shown++;
+        }
+        nothing.classList.toggle("hidden", !searchable.length || shown > 0);
+      });
+      nodes.unshift(field, nothing);
+    }
     // On a phone a card's menu is an action sheet over a dimmed page, at the bottom within the thumb's reach, as
     // iOS's; the header's (the account) still drops down from its button.
     const sheet = matchMedia("(max-width: 640px)").matches && !trigger.closest("header");
@@ -7521,7 +7736,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     trigger.setAttribute("aria-expanded", "true");
     const focusAt = (index) => entries()[(index + entries().length) % entries().length]?.focus();
     const onKey = (event) => {
+      // In the search field the keys edit the text; Down goes to the first item it keeps, Enter chooses it.
+      if (field && document.activeElement === field) {
+        if (event.key === "Escape") { event.preventDefault(); close(); }
+        else if (event.key === "ArrowDown") { event.preventDefault(); focusAt(0); }
+        else if (event.key === "Enter") { event.preventDefault(); entries()[0]?.click(); }
+        else if (event.key === "Tab") close(true);
+        return;
+      }
       const index = entries().indexOf(document.activeElement);
+      if (event.key === "ArrowUp" && field && index <= 0) { event.preventDefault(); field.focus(); return; }
       if (event.key === "Escape") { event.preventDefault(); close(); }
       else if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && document.activeElement.closest(".menu-choice-row")) {
         event.preventDefault();
@@ -7554,7 +7778,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     document.addEventListener("pointerdown", onPointer, true);
     addEventListener("resize", onResize);
     openMenu = { trigger, list, close };
-    if (keyboard) focusAt(0); else list.focus({ preventScroll: true });
+    // A search field takes the focus, but not on a phone's sheet, where the keyboard would cover the items.
+    if (field && !sheet) field.focus({ preventScroll: true });
+    else if (keyboard) focusAt(0); else list.focus({ preventScroll: true });
   }
 
   /// A touch drags a panel or a sheet out along its edge (right, or down on a phone), 1:1 from where it was grabbed,
@@ -10450,6 +10676,61 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         "i18n-es.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Spanish (Spain): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("es", {
+  "Search the vault": "Buscar en la bóveda",
+  "Nothing matches.": "No hay coincidencias.",
+  "Vault": "Bóveda",
+  "Login": "Inicio de sesión",
+  "API key": "Clave de API",
+  "Token": "Token",
+  "Secret [vault]": "Secreto",
+  "Key": "Clave",
+  "Add a secret": "Añadir un secreto",
+  "The bridge's passwords, keys and tokens by name, sealed on disk. config.json names them as vault:<name>; a saved value is never shown again.": "Las contraseñas, claves y tokens del puente, por nombre, cifrados en el disco. config.json los nombra como vault:<name>; un valor guardado no vuelve a mostrarse nunca.",
+  "Entries": "Entradas",
+  "None yet: add one, or move config.json's secrets here.": "Ninguna todavía: añade una, o mueve aquí los secretos de config.json.",
+  "Expired {date}": "Caducó el {date}",
+  "Expires {date}": "Caduca el {date}",
+  "Kept by {plugin}": "Guardado por {plugin}",
+  "Not used yet": "Aún sin usar",
+  "config.json names it in:": "config.json lo nombra en:",
+  "Changed {date}": "Cambiado el {date}",
+  "Copy the reference": "Copiar la referencia",
+  "Where it is used": "Dónde se usa",
+  "Replace the value…": "Sustituir el valor…",
+  "Unchanged": "Sin cambios",
+  "Replace": "Sustituir",
+  "Add [entry]": "Añadir",
+  "Replace the value of {name}": "Sustituir el valor de {name}",
+  "The value is sealed with this bridge's key and never shown again: keep the original in your password manager.": "El valor se cifra con la clave de este puente y no vuelve a mostrarse nunca: guarda el original en tu gestor de contraseñas.",
+  "Kind": "Tipo",
+  "Optional: the page warns a month before.": "Opcional: la página avisa un mes antes.",
+  "Type the value.": "Escribe el valor.",
+  "Type a new value to replace it.": "Escribe un valor nuevo para sustituirlo.",
+  "config.json still names {name} in {settings}: give those settings another value first.": "config.json todavía nombra {name} en {settings}: da antes otro valor a esos ajustes.",
+  "Delete {name}?": "¿Eliminar {name}?",
+  "{plugin} keeps it: it signs in again, or asks you to pair again, without it.": "{plugin} lo guarda: sin él, vuelve a iniciar sesión, o te pide que lo vincules de nuevo.",
+  "Its value is gone for good: the vault keeps no copy.": "Su valor desaparece para siempre: la bóveda no guarda ninguna copia.",
+  "config.json names entries the vault does not have": "config.json nombra entradas que la bóveda no tiene",
+  "The bridge does not start until each one is added again, or its settings get another value.": "El puente no arranca hasta que cada una se añada de nuevo, o sus ajustes tengan otro valor.",
+  "Move {setting}": "Mover {setting}",
+  "Entry for {setting}": "Entrada para {setting}",
+  "Shares an entry": "Comparte una entrada",
+  "Move to the vault": "Mover a la bóveda",
+  "Move config.json's secrets to the vault?": "¿Mover los secretos de config.json a la bóveda?",
+  "Move": "Mover",
+  "Each one becomes an entry, and config.json names it as vault:<name>. config.json is backed up first: restoring that backup undoes it.": "Cada uno se convierte en una entrada, y config.json la nombra como vault:<name>. Antes se hace una copia de seguridad de config.json: restaurarla lo deshace.",
+  "A copy of config.json no longer works on Homebridge: its secrets stay in this bridge's vault.": "Una copia de config.json ya no funciona en Homebridge: sus secretos se quedan en la bóveda de este puente.",
+  "Move them here: identical values share one entry, and each plugin keeps working with the same value.": "Muévelos aquí: los valores idénticos comparten una entrada, y cada plugin sigue funcionando con el mismo valor.",
+  "Used by {n} setting": "Usado por {n} ajuste",
+  "Used by {n} settings": "Usado por {n} ajustes",
+  "{n} secret moved.": "{n} secreto movido.",
+  "{n} secrets moved.": "{n} secretos movidos.",
+  "{n} secret is still in config.json": "{n} secreto sigue en config.json",
+  "{n} secrets are still in config.json": "{n} secretos siguen en config.json",
+  "Choose from the vault": "Elegir de la bóveda",
+  "Type a value instead": "Escribir un valor en su lugar",
+  "Open the vault": "Abrir la bóveda",
+  "Add one in the vault": "Añadir uno en la bóveda",
   "Automate": "Automatizar",
   "Hub scene": "Escena del hub",
   "Recalled on {source}.": "Se activa en {source}.",
@@ -12777,6 +13058,61 @@ HomeswiftI18n.add("es", {
         "i18n-fr.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in French: English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("fr", {
+  "Search the vault": "Rechercher dans le coffre",
+  "Nothing matches.": "Aucun résultat.",
+  "Vault": "Coffre",
+  "Login": "Identifiant",
+  "API key": "Clé d’API",
+  "Token": "Jeton",
+  "Secret [vault]": "Secret",
+  "Key": "Clé",
+  "Add a secret": "Ajouter un secret",
+  "The bridge's passwords, keys and tokens by name, sealed on disk. config.json names them as vault:<name>; a saved value is never shown again.": "Les mots de passe, clés et jetons du pont, par nom, chiffrés sur le disque. config.json les nomme vault:<name> ; une valeur enregistrée n’est plus jamais affichée.",
+  "Entries": "Entrées",
+  "None yet: add one, or move config.json's secrets here.": "Aucune pour l’instant : ajoutez-en une, ou déplacez ici les secrets de config.json.",
+  "Expired {date}": "Expiré le {date}",
+  "Expires {date}": "Expire le {date}",
+  "Kept by {plugin}": "Gardé par {plugin}",
+  "Not used yet": "Pas encore utilisé",
+  "config.json names it in:": "config.json le nomme dans :",
+  "Changed {date}": "Modifié le {date}",
+  "Copy the reference": "Copier la référence",
+  "Where it is used": "Où il sert",
+  "Replace the value…": "Remplacer la valeur…",
+  "Unchanged": "Inchangé",
+  "Replace": "Remplacer",
+  "Add [entry]": "Ajouter",
+  "Replace the value of {name}": "Remplacer la valeur de {name}",
+  "The value is sealed with this bridge's key and never shown again: keep the original in your password manager.": "La valeur est chiffrée avec la clé de ce pont et n’est plus jamais affichée : gardez l’originale dans votre gestionnaire de mots de passe.",
+  "Kind": "Type",
+  "Optional: the page warns a month before.": "Facultatif : la page prévient un mois avant.",
+  "Type the value.": "Saisissez la valeur.",
+  "Type a new value to replace it.": "Saisissez une nouvelle valeur pour la remplacer.",
+  "config.json still names {name} in {settings}: give those settings another value first.": "config.json nomme encore {name} dans {settings} : donnez d’abord une autre valeur à ces réglages.",
+  "Delete {name}?": "Supprimer {name} ?",
+  "{plugin} keeps it: it signs in again, or asks you to pair again, without it.": "{plugin} le garde : sans lui, il se reconnecte, ou vous demande de l’appairer à nouveau.",
+  "Its value is gone for good: the vault keeps no copy.": "Sa valeur disparaît pour de bon : le coffre n’en garde aucune copie.",
+  "config.json names entries the vault does not have": "config.json nomme des entrées que le coffre n’a pas",
+  "The bridge does not start until each one is added again, or its settings get another value.": "Le pont ne démarre pas tant que chacune n’est pas ajoutée à nouveau, ou que ses réglages n’ont pas une autre valeur.",
+  "Move {setting}": "Déplacer {setting}",
+  "Entry for {setting}": "Entrée pour {setting}",
+  "Shares an entry": "Partage une entrée",
+  "Move to the vault": "Déplacer dans le coffre",
+  "Move config.json's secrets to the vault?": "Déplacer les secrets de config.json dans le coffre ?",
+  "Move": "Déplacer",
+  "Each one becomes an entry, and config.json names it as vault:<name>. config.json is backed up first: restoring that backup undoes it.": "Chacun devient une entrée, et config.json la nomme vault:<name>. config.json est d’abord sauvegardé : restaurer cette sauvegarde annule l’opération.",
+  "A copy of config.json no longer works on Homebridge: its secrets stay in this bridge's vault.": "Une copie de config.json ne fonctionne plus sur Homebridge : ses secrets restent dans le coffre de ce pont.",
+  "Move them here: identical values share one entry, and each plugin keeps working with the same value.": "Déplacez-les ici : les valeurs identiques partagent une entrée, et chaque plugin continue de fonctionner avec la même valeur.",
+  "Used by {n} setting": "Utilisé par {n} réglage",
+  "Used by {n} settings": "Utilisé par {n} réglages",
+  "{n} secret moved.": "{n} secret déplacé.",
+  "{n} secrets moved.": "{n} secrets déplacés.",
+  "{n} secret is still in config.json": "{n} secret est encore dans config.json",
+  "{n} secrets are still in config.json": "{n} secrets sont encore dans config.json",
+  "Choose from the vault": "Choisir dans le coffre",
+  "Type a value instead": "Saisir plutôt une valeur",
+  "Open the vault": "Ouvrir le coffre",
+  "Add one in the vault": "En ajouter une dans le coffre",
   "Automate": "Automatiser",
   "Hub scene": "Scène du hub",
   "Recalled on {source}.": "Rappelée sur {source}.",
@@ -15104,6 +15440,61 @@ HomeswiftI18n.add("fr", {
         "i18n-pt.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Portuguese (Portugal): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("pt", {
+  "Search the vault": "Pesquisar no cofre",
+  "Nothing matches.": "Nenhum resultado.",
+  "Vault": "Cofre",
+  "Login": "Início de sessão",
+  "API key": "Chave de API",
+  "Token": "Token",
+  "Secret [vault]": "Segredo",
+  "Key": "Chave",
+  "Add a secret": "Adicionar um segredo",
+  "The bridge's passwords, keys and tokens by name, sealed on disk. config.json names them as vault:<name>; a saved value is never shown again.": "As palavras-passe, chaves e tokens da ponte, por nome, cifrados no disco. O config.json nomeia-os como vault:<name>; um valor guardado nunca volta a ser mostrado.",
+  "Entries": "Entradas",
+  "None yet: add one, or move config.json's secrets here.": "Ainda nenhuma: adicione uma, ou mova para aqui os segredos do config.json.",
+  "Expired {date}": "Expirou a {date}",
+  "Expires {date}": "Expira a {date}",
+  "Kept by {plugin}": "Guardado por {plugin}",
+  "Not used yet": "Ainda sem uso",
+  "config.json names it in:": "O config.json nomeia-o em:",
+  "Changed {date}": "Alterado a {date}",
+  "Copy the reference": "Copiar a referência",
+  "Where it is used": "Onde é usado",
+  "Replace the value…": "Substituir o valor…",
+  "Unchanged": "Sem alterações",
+  "Replace": "Substituir",
+  "Add [entry]": "Adicionar",
+  "Replace the value of {name}": "Substituir o valor de {name}",
+  "The value is sealed with this bridge's key and never shown again: keep the original in your password manager.": "O valor é cifrado com a chave desta ponte e nunca volta a ser mostrado: guarde o original no gestor de palavras-passe.",
+  "Kind": "Tipo",
+  "Optional: the page warns a month before.": "Opcional: a página avisa um mês antes.",
+  "Type the value.": "Introduza o valor.",
+  "Type a new value to replace it.": "Introduza um valor novo para o substituir.",
+  "config.json still names {name} in {settings}: give those settings another value first.": "O config.json ainda nomeia {name} em {settings}: dê primeiro outro valor a essas definições.",
+  "Delete {name}?": "Eliminar {name}?",
+  "{plugin} keeps it: it signs in again, or asks you to pair again, without it.": "O {plugin} guarda-o: sem ele, volta a iniciar sessão, ou pede para emparelhar de novo.",
+  "Its value is gone for good: the vault keeps no copy.": "O valor desaparece de vez: o cofre não guarda nenhuma cópia.",
+  "config.json names entries the vault does not have": "O config.json nomeia entradas que o cofre não tem",
+  "The bridge does not start until each one is added again, or its settings get another value.": "A ponte não arranca até cada uma ser adicionada de novo, ou as suas definições terem outro valor.",
+  "Move {setting}": "Mover {setting}",
+  "Entry for {setting}": "Entrada para {setting}",
+  "Shares an entry": "Partilha uma entrada",
+  "Move to the vault": "Mover para o cofre",
+  "Move config.json's secrets to the vault?": "Mover os segredos do config.json para o cofre?",
+  "Move": "Mover",
+  "Each one becomes an entry, and config.json names it as vault:<name>. config.json is backed up first: restoring that backup undoes it.": "Cada um passa a ser uma entrada, e o config.json nomeia-a como vault:<name>. Primeiro é feita uma cópia de segurança do config.json: restaurá-la desfaz a operação.",
+  "A copy of config.json no longer works on Homebridge: its secrets stay in this bridge's vault.": "Uma cópia do config.json deixa de funcionar no Homebridge: os segredos ficam no cofre desta ponte.",
+  "Move them here: identical values share one entry, and each plugin keeps working with the same value.": "Mova-os para aqui: valores idênticos partilham uma entrada, e cada plugin continua a funcionar com o mesmo valor.",
+  "Used by {n} setting": "Usado por {n} definição",
+  "Used by {n} settings": "Usado por {n} definições",
+  "{n} secret moved.": "{n} segredo movido.",
+  "{n} secrets moved.": "{n} segredos movidos.",
+  "{n} secret is still in config.json": "{n} segredo ainda está no config.json",
+  "{n} secrets are still in config.json": "{n} segredos ainda estão no config.json",
+  "Choose from the vault": "Escolher do cofre",
+  "Type a value instead": "Introduzir antes um valor",
+  "Open the vault": "Abrir o cofre",
+  "Add one in the vault": "Adicionar uma no cofre",
   "Automate": "Automatizar",
   "Hub scene": "Cena do hub",
   "Recalled on {source}.": "Ativada em {source}.",
@@ -20718,6 +21109,8 @@ textarea.short { min-height: 220px; }
   border: 1px solid var(--edge); box-shadow: 0 18px 44px rgba(25, 34, 56, 0.24), inset 0 1px 0 var(--edge-light);
   animation: menu-in 180ms var(--ease-out);
 }
+.menu .menu-search { width: 100%; margin-bottom: var(--space-4); }
+.menu .menu-empty { margin: 0; padding: var(--space-8) var(--space-10); font-size: var(--text-sm); }
 .menu { max-height: min(480px, calc(100dvh - 24px)); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; grid-auto-rows: max-content; touch-action: pan-y; }
 .menu:focus { outline: none; }
 .menu.closing { animation: menu-out 140ms var(--ease-out) forwards; pointer-events: none; }
@@ -22008,6 +22401,21 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .assistant-setup-example { margin-top: var(--space-24); }
 .assistant-setup-example summary { cursor: pointer; font-size: var(--text-md); }
 .assistant-setup-example p { font-size: var(--text-md); line-height: 1.6; }
+
+/* The Vault page: a secret of config.json to move, its entry's name editable; a field's vault picker beside it. */
+.rows > .row.vault-move { display: grid; grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 16rem); }
+.rows > .row.vault-move input[type="text"] { width: 100%; }
+@media (max-width: 640px) {
+  .rows > .row.vault-move { grid-template-columns: auto minmax(0, 1fr); }
+  .rows > .row.vault-move > span:empty { display: none; }
+  .rows > .row.vault-move input[type="text"] { grid-column: 1 / -1; }
+}
+span.warning { color: var(--warn); }
+.vault-when { flex-shrink: 0; white-space: nowrap; }
+/* On a phone an entry's date gives way to its name and kind; an expiry stays, it is a warning. */
+@media (max-width: 640px) { .vault-when > .muted { display: none; } }
+.secret-field { display: flex; gap: var(--space-8); align-items: center; }
+.secret-field input { flex: 1; min-width: 0; }
 
 /* Backup creation and recovery share a compact, responsive workspace. */
 .backup-actions-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: var(--space-20); margin: var(--space-24) 0 32px; }

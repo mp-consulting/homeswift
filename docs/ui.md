@@ -408,6 +408,19 @@ For administrators, after the Homebridge UI's settings, child bridges, backups a
     keeping this machine's bridge and web UI ports. Files the backup does not have stay.
   - **config.json backups**: the file before each of its last 20 saves, each compared with the file as it is (a diff)
     or restored.
+- **Vault** (docs/vault-design.md), for administrators:
+
+  ![Settings › Vault: a secret still in config.json, and the entries](images/ui/vault.png)
+
+  - The secrets still in config.json, each with the entry it would become (identical values share one): untick one to
+    leave it, rename an entry, then **Move to the vault**, which backs config.json up and writes it with `vault:`
+    references.
+  - The entries: kind, field names, who uses them (settings that name them, or the plugin that keeps a token) and when
+    they changed or expire. **Add a secret** and **Replace the value…** take values that are never shown again; an
+    entry config.json still names cannot be deleted. References to entries that are gone are listed on top: the bridge
+    does not start with them.
+  - In a settings form, a secret's field has a key button: its menu searches the vault's entries and puts the one
+    chosen as `vault:<name>`, shown as it is.
 - **Audit log**: the MCP audit log (`homeswift-mcp-audit.jsonl`): every write of MCP clients and of the Assistant's chat,
   and every change made in this UI (client `web UI`, the user, the route, a small body with its secrets masked), newest
   first, filtered by time, outcome, tool and client (`/settings/audit?since=7d&outcome=failed&tool=…&client=…`).

@@ -135,6 +135,30 @@ public struct VaultMigration: Sendable {
         }
     }
 
+    /// Who names each entry in config.json: entry name to the ids (`<platform>/<name>:<path>`) of the values that are
+    /// `vault:<entry>` references, under secret-named keys of the platform blocks.
+    public static func references(in config: JSONValue) -> [String: [String]] {
+        var users: [String: [String]] = [:]
+        for block in config["platforms"]?.arrayValue ?? [] {
+            let platform = block["platform"]?.stringValue ?? ""
+            let name = block["name"]?.stringValue ?? platform
+            func walk(_ value: JSONValue, _ path: [PathPart], underSecret: Bool) {
+                switch value {
+                case .string(let text) where underSecret:
+                    if case .vault(let entry, _) = SecretReference(text) { users[entry, default: []].append("\(platform)/\(name):\(pathText(path))") }
+                case .array(let items):
+                    for (index, item) in items.enumerated() { walk(item, path + [.index(index)], underSecret: underSecret) }
+                case .object(let object):
+                    for (key, item) in object.sorted(by: { $0.key < $1.key }) { walk(item, path + [.key(key)], underSecret: underSecret || Redaction.isSecretKey(key)) }
+                default:
+                    break
+                }
+            }
+            walk(block, [], underSecret: false)
+        }
+        return users
+    }
+
     // MARK: Walking
 
     enum PathPart: Equatable {

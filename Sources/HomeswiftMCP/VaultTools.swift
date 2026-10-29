@@ -71,6 +71,83 @@ extension HomeswiftCatalog {
         return plan.config
     }
 
+    // MARK: Entries
+
+    /// The vault as the Vault page shows it: each entry's name, kind, field names, dates, owner and the config values
+    /// that name it (`usedBy`), never a value; and how many of config.json's secrets are still outside it.
+    public func vaultJSON() throws -> JSONValue {
+        let config = try readConfig()
+        let users = VaultMigration.references(in: config)
+        let entries = try vault.entries()
+        let iso = { (date: Date?) in date.map { JSONValue.string(Timestamp.iso8601($0)) } ?? .null }
+        let left = try vaultMigrationPlan().items.count
+        return [
+            "entries": .array(entries.keys.sorted().map { name in
+                let entry = entries[name]!
+                return [
+                    "name": .string(name), "kind": .string(entry.kind.rawValue), "fields": .array(entry.fields.keys.sorted().map(JSONValue.string)),
+                    "created": iso(entry.created), "changed": iso(entry.changed), "lastUsed": iso(entry.lastUsed), "expires": iso(entry.expires),
+                    "owner": entry.owner.map(JSONValue.string) ?? .null, "usedBy": .array((users[name] ?? []).map(JSONValue.string)),
+                ]
+            }),
+            // References to entries that are gone: the bridge does not start with them.
+            "missing": .array(users.keys.filter { entries[$0] == nil }.sorted().map { name in ["name": .string(name), "usedBy": .array((users[name] ?? []).map(JSONValue.string))] }),
+            "notMoved": .number(Double(left)),
+            "migrated": .bool(VaultMigration.isMigrated(config)),
+            "kinds": .array(VaultEntry.Kind.allCases.map { ["kind": .string($0.rawValue), "mainField": .string($0.mainField)] }),
+        ]
+    }
+
+    /// Adds or changes the entry `name`: `fields` replace those of the same name (the others stay, unless the kind
+    /// changes), `expires` replaces the date (nil clears it). A plugin's own entry keeps its owner. The running bridge
+    /// applies config.json again, so the plugins that name the entry reload with its new value.
+    public func setVaultEntry(_ name: String, kind: VaultEntry.Kind, fields: [String: String], expires: Date?) async throws -> JSONValue {
+        guard CredentialVault.isValidName(name) else { throw CatalogError(CredentialVaultError.invalidName(name).description) }
+        guard !fields.isEmpty, fields.values.allSatisfy({ !$0.isEmpty }), fields.keys.allSatisfy({ !$0.isEmpty && !$0.contains("#") }) else {
+            throw CatalogError("an entry needs at least one field, each with a name and a value")
+        }
+        let existing = try vault.entry(named: name)
+        var merged = existing?.kind == kind ? existing?.fields ?? [:] : [:]
+        merged.merge(fields) { $1 }
+        guard merged[kind.mainField] != nil || merged.count == 1 else { throw CatalogError("a \(kind.rawValue) needs its \(kind.mainField) field") }
+        try vault.set(name, VaultEntry(kind: kind, fields: merged, created: existing?.created ?? Date(), changed: Date(), lastUsed: existing?.lastUsed, expires: expires, owner: existing?.owner))
+        Redaction.rememberSecrets(fields.values)
+        logger.info("Vault entry \(existing == nil ? "added" : "changed")", metadata: ["entry": "\(name)"])
+        var answer: [String: JSONValue] = ["name": .string(name), "added": .bool(existing == nil)]
+        if !(VaultMigration.references(in: try readConfig())[name] ?? []).isEmpty {
+            answer["applied"] = try await reapplyConfig()
+        }
+        return .object(answer)
+    }
+
+    /// Removes the entry `name`. One that config.json names is refused unless `force`: the bridge would not start.
+    public func removeVaultEntry(_ name: String, force: Bool = false) throws -> JSONValue {
+        let users = VaultMigration.references(in: try readConfig())[name] ?? []
+        guard force || users.isEmpty else {
+            throw CatalogError("config.json names \(name) in \(users.joined(separator: ", ")): change those values first")
+        }
+        guard try vault.remove(name) else { throw CatalogError("No vault entry \(name)") }
+        logger.info("Vault entry removed", metadata: ["entry": "\(name)"])
+        return ["removed": .string(name)]
+    }
+
+    /// config.json applied again as it is, its references resolved anew: what a changed entry needs.
+    func reapplyConfig() async throws -> JSONValue {
+        let current = try readConfig()
+        let configuration = try ConfigurationSecrets.opening(HomeswiftConfiguration.decode(current.encoded()), storage: storageDirectory)
+        let report = await host.apply(configuration)
+        // The Assistant's key: its service swaps, as after a save.
+        let services = report.systemBlocksChanged.filter { $0 == AIConfiguration.platform }
+        if let reloadServices, !services.isEmpty {
+            // After this reply, as a save does: the server answering it may be one that reloads.
+            Task {
+                try? await Task.sleep(for: .milliseconds(400))
+                await reloadServices(configuration, services)
+            }
+        }
+        return ["reloaded": .array(report.reloaded.map(JSONValue.string)), "restartNeeded": .array(report.needsRestart.map(JSONValue.string))]
+    }
+
     // MARK: Tools
 
     var vaultTools: [MCPTool] {

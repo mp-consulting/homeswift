@@ -2660,7 +2660,32 @@
       }
       const input = el("input", { type: property["x-schema-form"] && property["x-schema-form"].type === "password" ? "password" : "text", value: current ?? "", placeholder: tr(property.placeholder ?? property["x-schema-form"]?.placeholder) ?? property.default ?? "", required });
       if (property["x-schema-form"]?.type === "file") return { element: el("div", {}, wrap(input), dropZone(key, input, property["x-schema-form"].accept)), get: () => (input.value === "" ? undefined : input.value) };
+      // A secret's key (the rule references resolve by): a value typed, or an entry of the vault.
+      if (isSecretKey(key)) return secretField(wrap, input);
       return { element: wrap(input), get: () => (input.value === "" ? undefined : input.value) };
+    };
+    /// A secret's field with the vault's menu beside it: an entry picked is written `vault:<name>` and shown as it is,
+    /// a name rather than the secret; a typed value stays masked when the schema masks it.
+    const isReference = (value) => /^(vault|env|file):\S+$/.test(value);
+    const secretField = (wrap, input) => {
+      const masked = input.type === "password";
+      const reveal = () => { input.type = masked && !isReference(input.value) ? "password" : "text"; };
+      const pick = el("button", { type: "button", class: "icon-button", "aria-label": t("Choose from the vault"), title: t("Choose from the vault") }, HomeswiftCommon.icon("key"));
+      pick.addEventListener("click", async (event) => {
+        event.preventDefault();
+        const keyboard = event.detail === 0;
+        let entries = [];
+        try { entries = (await api("/api/vault")).entries; } catch { /* the menu still opens the vault */ }
+        const choose = (value) => { input.value = value; reveal(); input.dispatchEvent(new Event("input", { bubbles: true })); };
+        HomeswiftCommon.menu(pick, [
+          ...entries.map((entry) => ({ label: entry.name, icon: "key", onSelect: () => choose(`vault:${entry.name}`) })),
+          isReference(input.value) ? { label: t("Type a value instead"), icon: "edit", pinned: true, onSelect: () => { choose(""); input.focus(); } } : null,
+          { label: entries.length ? t("Open the vault") : t("Add one in the vault"), icon: "gear", pinned: true, href: "/settings/vault" },
+        ].filter(Boolean), { keyboard, search: entries.length ? t("Search the vault") : null });
+      });
+      input.addEventListener("input", reveal);
+      reveal();
+      return { element: wrap(el("span", { class: "secret-field" }, input, pick)), get: () => (input.value === "" ? undefined : input.value) };
     };
 
     /// Required fields and the ones that hold a value show; the rest wait under "More options", unless that would

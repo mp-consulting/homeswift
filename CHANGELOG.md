@@ -15,6 +15,11 @@ All notable changes to this project are documented here. The format follows
   which a reference that does not resolve stops; they are kept as they are by the sealing and shown by `get_config`.
   Every secret the bridge opens or resolves is masked by its exact text in logs, MCP replies and the Assistant's
   prompts.
+- The Vault page (Settings › Vault, administrators): the secrets still in config.json with the entry each would become,
+  to move them in one step; the entries with their kind, fields, users and expiry, added and replaced with values that
+  are never shown again, kept from deletion while config.json names them. A secret's field in a settings form gets
+  a key button whose menu searches the vault and puts `vault:<name>`. Menus can carry a search field (`search`). The
+  vault's routes keep their bodies out of the audit log.
 - Moving config.json into the vault: `homeswift vault migrate` (`--dry-run`, `--exclude`, `--separate`, `--name
   <id>=<entry>`) and the MCP tool `migrate_to_vault` (confirmed, with `dryRun`) list every secret of the plugin blocks
   and the Assistant's block with the entry it becomes, merge identical values into one entry, back up config.json and

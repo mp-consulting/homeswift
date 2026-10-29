@@ -562,6 +562,8 @@ public final class UIServer: Sendable {
         let username = caller.username
         // Settings, child bridges, backups, the audit log: Admin.swift.
         if let reply = try await adminAPI(route, request, caller: caller) { return reply }
+        // The vault's entries and the migration (VaultRoutes.swift).
+        if let reply = try await vaultAPI(route, request, caller: caller) { return reply }
         let body = request.body.isEmpty ? JSONValue.null : try JSONValue(data: request.body)
         // Approving an OAuth client, and the account's connected apps (OAuthRoutes.swift).
         if let reply = oauthAPI(route, request, body: body, caller: caller) { return reply }
