@@ -57,9 +57,10 @@ struct PlatformTests {
         environment.cloud.update { $0.loginAnswers = [["error": 500, "msg": "busy"], ["error": 500, "msg": "busy"]] }
         let host = try await environment.start(devices: [device("1000aaaaaa", uiid: 1)], settings: ["mode": "wan"])
         #expect(environment.accessory(host, "1000aaaaaa") == nil)
-        // A retry is pending, unless a loaded runner took the 150 ms it waits before looking.
-        let pending = await environment.platform()?.hasPendingRetry == true
-        #expect(pending || environment.cloud.requests(path: "/v2/user/login").count > 1)
+        // A retry is pending, unless a loaded runner took the 150 ms it waits before looking: then it already ran.
+        #expect(await eventually {
+            await environment.platform()?.hasPendingRetry == true || environment.cloud.requests(path: "/v2/user/login").count > 1
+        })
         // 15 s, then 30 s of plugin time.
         #expect(await eventually { environment.accessory(host, "1000aaaaaa") != nil })
         #expect(environment.cloud.requests(path: "/v2/user/login").count == 3)
@@ -463,9 +464,9 @@ struct AccessoryTests {
         #expect(accessory.service(.lightbulb, subtype: "light") != nil)
         environment.push("1000aaaaaa", ["rssi": -50])
         environment.push("1000aaaaaa", ["switches": [["outlet": 0, "switch": "on"]], "speed": 4])
-        #expect(await eventually { fan[.rotationSpeed]?.value == 100.0 })
+        // The light is its own service, updated after the fan.
+        #expect(await eventually { fan[.rotationSpeed]?.value == 100.0 && accessory.service(.lightbulb, subtype: "light")?[.on]?.value == true })
         #expect(fan[.active]?.value == 1)
-        #expect(accessory.service(.lightbulb, subtype: "light")?[.on]?.value == true)
         try await fan.characteristic(.rotationSpeed).homeKitWrite(25)
         #expect(environment.socket.commands.last == ["speed": 1])
         await host.stop()

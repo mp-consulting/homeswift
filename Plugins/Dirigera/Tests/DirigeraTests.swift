@@ -267,8 +267,7 @@ struct DirigeraTests {
         #expect(await eventually { bulb[.colorTemperature]?.value == .int(300) })
         #expect(controller.isAdaptiveLightingActive)
         event(["colorTemperature": 2202])
-        #expect(await eventually { !controller.isAdaptiveLightingActive })
-        #expect(bulb[.colorTemperature]?.value == .int(454))
+        #expect(await eventually { !controller.isAdaptiveLightingActive && bulb[.colorTemperature]?.value == .int(454) })
 
         try controller.activateForTesting()
         try await Task.sleep(for: dirigeraSettleTime + .milliseconds(100))

@@ -32,6 +32,13 @@ func record(_ host: PluginHost, _ id: String, _ type: ServiceType, _ subtype: St
     return values
 }
 
+/// Whether `values` took `states` in that order, other values before, between or after.
+func went(_ values: NIOLockedValueBox<[Int]>, through states: [Int]) -> Bool {
+    var rest = states[...]
+    for value in values.withLockedValue({ $0 }) where value == rest.first { rest = rest.dropFirst() }
+    return rest.isEmpty
+}
+
 func flag(_ host: PluginHost, _ id: String, _ type: ServiceType, _ subtype: String? = nil, _ characteristic: CharacteristicType = .on) -> Bool? {
     accessory(host, id)?.service(type, subtype)?[characteristic]?.value.boolValue
 }
@@ -387,13 +394,13 @@ struct AccessHubTests {
         defer { Task { await host.stop() } }
         let side = record(host, gateID, .lockMechanism, "Lock.Door.Side", .lockCurrentState)
         environment.send(AccessEventType.deviceRemoteUnlock, "door-2")
-        #expect(await eventually { side.withLockedValue { $0.starts(with: [0, 1]) } })
+        #expect(await eventually { went(side, through: [0, 1]) })
         #expect(await eventually { self.environment.mqtt.connection.published(on: "unifi/access/112233445566/sidedoor/lock") == ["false", "true"] })
         #expect(environment.log.contains("Portillon unlocked."))
 
         let main = record(host, gateID, .lockMechanism, nil, .lockCurrentState)
         environment.send(AccessEventType.deviceRemoteUnlock, "door-1")
-        #expect(await eventually { main.withLockedValue { $0.starts(with: [0, 1]) } })
+        #expect(await eventually { went(main, through: [0, 1]) })
     }
 
     @Test func gateCycle() async throws {
@@ -455,7 +462,7 @@ struct AccessHubTests {
         ])
         environment.send(AccessEventType.locationUpdate, "door-1", data: ["id": "door-1", "name": "Main Gate", "state": ["dps": "open", "lock": "locked"]])
         // Opening lasts one phase (60 ms), then open.
-        #expect(await eventually { states.withLockedValue { $0.starts(with: [2, 0]) } })
+        #expect(await eventually { went(states, through: [2, 0]) })
         try await Task.sleep(for: .milliseconds(150))
         // No timer closes it: the DPS does.
         #expect(garage[.currentDoorState]?.value.intValue == 0)
