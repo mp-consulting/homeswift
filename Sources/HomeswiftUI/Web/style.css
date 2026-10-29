@@ -3391,7 +3391,7 @@ select option:disabled { color: var(--muted); }
 .overview-graph .root:focus-visible .root-icon { filter: drop-shadow(0 0 5px var(--accent)); }
 .overview-zoom { display: flex; flex-wrap: wrap; gap: var(--space-8); justify-content: center; }
 .overview-zoom button svg { width: 16px; height: 16px; }
-.overview-tip { position: fixed; z-index: var(--layer-tip); max-width: 260px; padding: var(--space-6) var(--space-10); border-radius: var(--radius-sm); font-size: var(--text-sm); line-height: 1.3; color: var(--text); background: var(--material-solid); box-shadow: var(--shadow-control), 0 0 0 1px var(--line); transform: translate(-50%, calc(-100% - 10px)); pointer-events: none; }
+.overview-tip { position: absolute; z-index: var(--layer-tip); max-width: 260px; padding: var(--space-6) var(--space-10); border-radius: var(--radius-sm); font-size: var(--text-sm); line-height: 1.3; color: var(--text); background: var(--material-solid); box-shadow: var(--shadow-control), 0 0 0 1px var(--line); transform: translate(-50%, calc(-100% - 10px)); pointer-events: none; }
 .overview-legend { display: flex; flex-wrap: wrap; gap: var(--space-6) var(--space-16); margin: 0; padding: 0; list-style: none; font-size: var(--text-sm); color: var(--muted); }
 .overview-legend li { display: inline-flex; align-items: center; gap: var(--space-6); }
 .legend-mark { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--mark); }

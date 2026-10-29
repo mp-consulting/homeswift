@@ -2150,6 +2150,17 @@
   window.HomeswiftWidgets = {
     /// The icon a device's category stands for on its tile (common.js's icons), when it has one.
     categoryIcon: (category) => categoryIcons[category]?.[0],
+    /// The icon an accessory's tile shows: its widget's (a battery's for a power station filed as Other), else its
+    /// category's. Other pages use it so an accessory looks the same everywhere.
+    accessoryIcon(accessory) {
+      try {
+        const ctx = context(accessory);
+        const { widget, primary } = resolve(ctx);
+        const icon = typeof widget.icon === "function" ? widget.icon(ctx, primary) : widget.icon;
+        if (icon) return icon;
+      } catch { /* an accessory the widgets cannot read: its category's icon */ }
+      return categoryIcons[accessory.category]?.[0];
+    },
     /// A camera's picture (camera.js): live while on screen, else snapshots, its name and state over it.
     cameraView: (accessory) => cameraView({ accessory }).element,
     card, open, kindOf, sizes, searchText, valueSections, event, snapshot, reconcileAccessory, listen, describeModel, labelFor, enumLabels,

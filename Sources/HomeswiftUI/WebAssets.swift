@@ -730,6 +730,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const categoryName = (key = "") => categoryNames[key] ?? key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (first) => first.toUpperCase());
   /// The icon that stands for a device's category: its widget tile's, else a generic one.
   const deviceIcon = (category) => HomeswiftWidgets.categoryIcon(category) ?? "generic";
+  /// An accessory's icon: the one its tile shows (its main service's widget, else its category's), else a generic one.
+  const accessoryIcon = (accessory) => HomeswiftWidgets.accessoryIcon(accessory) ?? "generic";
   /// A device's status for its tooltip: unavailable, else whether it is on, its brightness and its temperature when it reports them.
   function deviceStatus(accessory) {
     if (accessory.unavailable) return t("Unavailable");
@@ -793,7 +795,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         }
         group.leaves.push(leaf);
       }
-      for (const group of groups) group.sub = tn("{n} accessory", "{n} accessories", group.leaves.length, {});
+      for (const group of groups) {
+        group.sub = tn("{n} accessory", "{n} accessories", group.leaves.length, {});
+        // Devices of one kind under a category with no icon of its own (power stations filed as Other): their icon.
+        const icons = new Set(group.leaves.map(accessoryIcon));
+        if (group.icon === "generic" && icons.size === 1) group.icon = [...icons][0];
+      }
       return groups;
     };
     // Angles, in slots: a group takes one slot per accessory, a half-slot separates the groups of a plugin, a bridge sits at
@@ -934,7 +941,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       factRow("bridge", accessory.bridge), factRow("category", categoryName(accessory.category))];
     // A camera shows its picture first: live while the card is open, else snapshots, as on the Accessories page.
     const camera = accessory.services?.some((service) => service.type === "CameraRTPStreamManagement");
-    return { name: accessory.name, icon: deviceIcon(accessory.category), status: deviceStatus(accessory), warn: Boolean(accessory.unavailable), facts,
+    return { name: accessory.name, icon: accessoryIcon(accessory), status: deviceStatus(accessory), warn: Boolean(accessory.unavailable), facts,
       media: camera ? () => HomeswiftWidgets.cameraView(accessory) : null, sections: HomeswiftWidgets.valueSections(accessory) };
   }
   /// A card's fact: its label, its value, and a tooltip saying what it is.
@@ -991,7 +998,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         factRow("update", model.status.update?.available ? t("Yes") : t("No"))] };
   }
   /// Accessories as a card's rows: each with its device icon, its name and status, and its own card a click away.
-  const accessoryItems = (leaves) => leaves.map((one) => ({ icon: deviceIcon(one.category), name: one.name, status: deviceStatus(one),
+  const accessoryItems = (leaves) => leaves.map((one) => ({ icon: accessoryIcon(one), name: one.name, status: deviceStatus(one),
     warn: Boolean(one.unavailable), details: () => accessoryDetails(one) }));
   /// A detail card's content: the head with the icon (a back button when `back` is given) and close, then its facts,
   /// its readings and its accessories, each of which `open` shows in the card's place.
@@ -1211,11 +1218,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if ((event.key === "Enter" || event.key === " ") && (event.target.dataset?.focus !== undefined || event.target.dataset?.detail !== undefined)) { event.preventDefault(); event.target.dispatchEvent(new MouseEvent("click", { bubbles: true })); }
     });
 
+    // Placed in the frame, from its corner: a card's glass (a backdrop filter) makes it the box a fixed tooltip is
+    // placed in, so window coordinates put it far from its node.
     const show = (target) => {
-      const box = target.getBoundingClientRect();
+      const box = target.getBoundingClientRect(), origin = frame.getBoundingClientRect();
       tip.textContent = target.dataset.tip;
-      tip.style.left = `${box.left + box.width / 2}px`;
-      tip.style.top = `${box.top}px`;
+      tip.style.left = `${box.left - origin.left + box.width / 2}px`;
+      tip.style.top = `${box.top - origin.top}px`;
       tip.hidden = false;
     };
     const hide = () => { tip.hidden = true; };
@@ -1342,7 +1351,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             card: () => groupDetails(group), zoom: { radius: (rings.group + rings.leaf) / 2, k: 2.8 } }));
           for (const accessory of group.leaves) {
             edges.push(link(group, accessory, "leaf", branch.color));
-            dots.push(node(accessory, { classes: `dot${accessory.unavailable ? " unavailable" : ""}`, radius: disc.radius, icon: deviceIcon(accessory.category),
+            dots.push(node(accessory, { classes: `dot${accessory.unavailable ? " unavailable" : ""}`, radius: disc.radius, icon: accessoryIcon(accessory),
               tip: `${accessory.name} · ${categoryName(accessory.category)} · ${deviceStatus(accessory)}`, card: () => accessoryDetails(accessory) }));
           }
         }
@@ -22807,7 +22816,7 @@ select option:disabled { color: var(--muted); }
 .overview-graph .root:focus-visible .root-icon { filter: drop-shadow(0 0 5px var(--accent)); }
 .overview-zoom { display: flex; flex-wrap: wrap; gap: var(--space-8); justify-content: center; }
 .overview-zoom button svg { width: 16px; height: 16px; }
-.overview-tip { position: fixed; z-index: var(--layer-tip); max-width: 260px; padding: var(--space-6) var(--space-10); border-radius: var(--radius-sm); font-size: var(--text-sm); line-height: 1.3; color: var(--text); background: var(--material-solid); box-shadow: var(--shadow-control), 0 0 0 1px var(--line); transform: translate(-50%, calc(-100% - 10px)); pointer-events: none; }
+.overview-tip { position: absolute; z-index: var(--layer-tip); max-width: 260px; padding: var(--space-6) var(--space-10); border-radius: var(--radius-sm); font-size: var(--text-sm); line-height: 1.3; color: var(--text); background: var(--material-solid); box-shadow: var(--shadow-control), 0 0 0 1px var(--line); transform: translate(-50%, calc(-100% - 10px)); pointer-events: none; }
 .overview-legend { display: flex; flex-wrap: wrap; gap: var(--space-6) var(--space-16); margin: 0; padding: 0; list-style: none; font-size: var(--text-sm); color: var(--muted); }
 .overview-legend li { display: inline-flex; align-items: center; gap: var(--space-6); }
 .legend-mark { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--mark); }
@@ -25299,6 +25308,17 @@ self.addEventListener("notificationclick", (event) => {
   window.HomeswiftWidgets = {
     /// The icon a device's category stands for on its tile (common.js's icons), when it has one.
     categoryIcon: (category) => categoryIcons[category]?.[0],
+    /// The icon an accessory's tile shows: its widget's (a battery's for a power station filed as Other), else its
+    /// category's. Other pages use it so an accessory looks the same everywhere.
+    accessoryIcon(accessory) {
+      try {
+        const ctx = context(accessory);
+        const { widget, primary } = resolve(ctx);
+        const icon = typeof widget.icon === "function" ? widget.icon(ctx, primary) : widget.icon;
+        if (icon) return icon;
+      } catch { /* an accessory the widgets cannot read: its category's icon */ }
+      return categoryIcons[accessory.category]?.[0];
+    },
     /// A camera's picture (camera.js): live while on screen, else snapshots, its name and state over it.
     cameraView: (accessory) => cameraView({ accessory }).element,
     card, open, kindOf, sizes, searchText, valueSections, event, snapshot, reconcileAccessory, listen, describeModel, labelFor, enumLabels,

@@ -55,6 +55,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Accessories › Graph: a node's tooltip sits over its node; inside the page's glass card it showed some 200 px off.
+- Accessories › Graph: an accessory, and a group of them, shows the icon its tile shows (a battery for a power station
+  filed as Other), not a generic square.
 - EcoFlow: without `devices`, the EcoFlow app route reads the account's devices from the app's device list instead
   of the wildcard subscription EcoFlow's broker refuses, so it no longer needs serial numbers; its failure is no longer
   logged as a failed sign-in. The energy history import finds the account's STREAM in the device list when none has
