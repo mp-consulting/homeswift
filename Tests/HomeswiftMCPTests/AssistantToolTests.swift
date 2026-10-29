@@ -37,6 +37,8 @@ struct AssistantToolTests {
         #expect(catalog.logText().isEmpty)
         // Logging goes on after it.
         logs.append(LogBuffer.Line(level: .info, label: "Devices", text: "Lamp back"))
+        // The log is read from the archive, which writes in the background.
+        archive.flush()
         #expect(catalog.logText().contains("Lamp back"))
     }
 
