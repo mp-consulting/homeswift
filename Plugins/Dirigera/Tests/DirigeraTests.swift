@@ -133,7 +133,7 @@ final class TestEnvironment: Sendable {
         registry.register(platform: DirigeraPlugin.platform, name: DirigeraPlugin.name) { json, context in
             let configuration = try JSONDecoder().decode(DirigeraPlugin.Configuration.self, from: json)
             let dependencies = DirigeraPlugin.Dependencies(
-                transport: { trust in PinnedHub(hub: hub, trust: trust) }, events: { _, _, _ in hub.events.stream }, discover: { ["192.0.2.20"] }, reconnectDelay: .milliseconds(50))
+                transport: { trust in PinnedHub(hub: hub, trust: trust) }, events: { _, _, _ in hub.events.stream }, discover: { ["192.0.2.20"] }, reconnectDelay: .milliseconds(50), pairingRetryDelay: .milliseconds(50))
             let plugin = DirigeraPlugin(configuration: configuration, context: context, dependencies: dependencies)
             self.plugins.withLockedValue { $0.append(plugin) }
             return plugin

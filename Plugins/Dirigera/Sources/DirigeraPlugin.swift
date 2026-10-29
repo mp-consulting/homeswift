@@ -48,6 +48,8 @@ public actor DirigeraPlugin: HomeswiftPlugin {
         var discover: @Sendable () async -> [String] = DirigeraDiscovery.find
         /// How long to wait before connecting the events again.
         var reconnectDelay: Duration = .seconds(5)
+        /// How long to wait before asking again whether the hub's button was pressed.
+        var pairingRetryDelay: Duration = .seconds(2)
     }
 
     public static let platform = "Dirigera"
@@ -482,7 +484,7 @@ public actor DirigeraPlugin: HomeswiftPlugin {
                 tasks.add { [weak self] in await self?.run(hub) }
                 return
             } catch DirigeraClient.Failure.buttonNotPressed {
-                try await Task.sleep(for: .seconds(2))
+                try await Task.sleep(for: dependencies.pairingRetryDelay)
             }
         }
         throw DirigeraClient.Failure.buttonNotPressed

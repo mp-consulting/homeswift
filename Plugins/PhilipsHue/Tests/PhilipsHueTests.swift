@@ -176,7 +176,7 @@ final class TestEnvironment: Sendable {
         let bridge = bridge
         registry.register(platform: PhilipsHuePlugin.platform, name: PhilipsHuePlugin.name) { json, context in
             let configuration = try JSONDecoder().decode(PhilipsHuePlugin.Configuration.self, from: json)
-            let dependencies = PhilipsHuePlugin.Dependencies(transport: { _ in bridge }, discover: { ["192.0.2.10"] })
+            let dependencies = PhilipsHuePlugin.Dependencies(transport: { _ in bridge }, discover: { ["192.0.2.10"] }, pairingRetryDelay: .milliseconds(50), settleTime: hueSettleTime)
             let plugin = PhilipsHuePlugin(configuration: configuration, context: context, dependencies: dependencies)
             self.plugins.withLockedValue { $0.append(plugin) }
             return plugin
@@ -200,6 +200,9 @@ func eventually(timeout: Duration = .seconds(5), _ condition: @Sendable () async
     return await condition()
 }
 
+
+/// How long a light's values are left alone after a command in these tests: a tenth of the plugin's.
+let hueSettleTime = PhilipsHuePlugin.settleTime / 10
 @Suite(.timeLimit(.minutes(1)))
 struct PhilipsHueTests {
     let environment = TestEnvironment()
@@ -338,7 +341,7 @@ struct PhilipsHueTests {
         // The poll that follows shows the light at the colour it was sent, which HomeKit keeps as it asked for.
         try await Task.sleep(for: .milliseconds(10))
         environment.bridge.change("light-1") { $0["color"] = ["xy": ["x": .number(x), "y": .number(y)]] }
-        try await Task.sleep(for: PhilipsHuePlugin.settleTime + .milliseconds(100))
+        try await Task.sleep(for: hueSettleTime + .milliseconds(100))
         await environment.plugin?.refresh()
         #expect(bulb[.hue]?.value == .double(240))
         #expect(bulb[.saturation]?.value == .double(100))
