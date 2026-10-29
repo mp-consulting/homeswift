@@ -90,10 +90,12 @@ import Testing
     static let interface = MDNSResponder.Interface(index: 7, name: "eth0", addresses: [[192, 168, 1, 5]])
     static let peer = try! SocketAddress(ipAddress: "192.168.1.20", port: 5353)
 
-    func makeResponder(interface: MDNSResponder.Interface = interface) throws -> (MDNSResponder, Wire) {
+    /// A responder at a tenth of the protocol's delays by default: a probe every 25 ms, announcements 100 ms apart.
+    func makeResponder(interface: MDNSResponder.Interface = interface, timeScale: Double = 0.1) throws -> (MDNSResponder, Wire) {
         let responder = MDNSResponder()
         let wire = Wire()
         try responder.loop.submit {
+            responder.timeScale = timeScale
             responder.send = { _, destination, bytes in
                 if let message = try? DNSMessage(bytes: bytes) { wire.sent.withLockedValue { $0.append((destination, message)) } }
             }
@@ -149,7 +151,7 @@ import Testing
 
         // A TXT change is announced.
         responder.update(id: id, txt: txt("0"))
-        try await Task.sleep(for: .milliseconds(100))
+        try await wire.wait { $0.contains { $0.message.answers.contains { $0.data == .txt(Array(txt("0"))) } } }
         #expect(wire.take().contains { $0.message.answers.contains { $0.data == .txt(Array(txt("0"))) } })
 
         try await responder.unregister(id: id).get()
@@ -188,7 +190,7 @@ import Testing
         try await wire.wait { $0.filter(\.message.isResponse).count >= 2 }
         let announcement = try #require(wire.take().first { $0.message.isResponse })
         try deliver(announcement.message, to: responder)
-        try await Task.sleep(for: .milliseconds(1300))
+        try await Task.sleep(for: .milliseconds(200))
         // No new probes: the name stays.
         #expect(wire.take().allSatisfy { $0.message.isResponse })
         try await responder.unregister(id: id).get()
@@ -223,12 +225,15 @@ import Testing
         try await wire.wait { $0.filter(\.message.isResponse).count >= 2 }
         _ = wire.take()
         let query = DNSMessage(questions: [DNSQuestion(name: DNSName(dotted: "Homeswift.local"), type: DNSType.a)])
-        for _ in 0..<5 { try deliver(query, to: responder) }
+        // Five at once, in one turn of the responder's loop: well within its (scaled) second however loaded the runner.
+        try await responder.loop.submit {
+            for _ in 0..<5 { responder.received(query.encode(), from: Self.peer, interface: Self.interface.index) }
+        }.get()
         try await Task.sleep(for: .milliseconds(200))
         #expect(wire.take().count == 1)
 
-        // A second later, the record may go out again.
-        try await Task.sleep(for: .milliseconds(1000))
+        // A second later (scaled), the record may go out again.
+        try await Task.sleep(for: .milliseconds(150))
         try deliver(query, to: responder)
         #expect(wire.take().count == 1)
         try await responder.unregister(id: id).get()

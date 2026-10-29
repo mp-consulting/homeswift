@@ -311,6 +311,7 @@ node Scripts/generate-definitions.js path/to/hap-nodejs > Sources/Homeswift/Mode
 ```bash
 swift build
 swift test
+Scripts/test.sh   # every test target at once: the suite in about 3 s on macOS, where swift test takes about 20
 ```
 
 On macOS, if `swift test` fails to code sign the test bundle (files under `~/Documents` can carry Finder

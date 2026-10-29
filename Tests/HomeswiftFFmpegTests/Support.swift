@@ -101,19 +101,24 @@ func stubCodecs(_ host: HostProfile, ffmpegVersion: String, ffmpegExec: String =
 /// `FfmpegOptions` for a host profile, with the log of its construction.
 func createOptions(
     _ host: HostProfile, ffmpegVersion: String, hardwareDecoding: Bool, hardwareTranscoding: Bool, crop: FfmpegOptionsConfig.Crop? = nil,
-    ffmpegExec: String = "ffmpeg", debug: Bool = false
+    ffmpegExec: String = "ffmpeg", debug: Bool = false, inputTimeout: Int = FFMPEG_INPUT_TIMEOUT, recordingTimeout: Int = HKSV_TIMEOUT
 ) -> (logs: LogRecorder, options: FfmpegOptions) {
     let logs = LogRecorder()
-    let options = FfmpegOptions(FfmpegOptionsConfig(
+    var config = FfmpegOptionsConfig(
         codecSupport: stubCodecs(host, ffmpegVersion: ffmpegVersion, ffmpegExec: ffmpegExec), crop: crop, debug: debug,
         hardwareDecoding: hardwareDecoding, hardwareTranscoding: hardwareTranscoding, log: logs.logger, name: { "Test Camera" }
-    ))
-    return (logs, options)
+    )
+    config.inputTimeout = inputTimeout
+    config.recordingTimeout = recordingTimeout
+    return (logs, FfmpegOptions(config))
 }
 
 /// Options whose "FFmpeg" is /bin/sh, for the process tests: the command lines are shell scripts.
 func shellOptions(debug: Bool = false) -> (logs: LogRecorder, options: FfmpegOptions) {
-    createOptions(HOSTS["generic"]!, ffmpegVersion: "8.0", hardwareDecoding: false, hardwareTranscoding: false, ffmpegExec: "/bin/sh", debug: debug)
+    // A tenth of FFMPEG_INPUT_TIMEOUT: the inactivity stop and the SIGKILL failsafe come sooner; a fifth of HKSV_TIMEOUT.
+    createOptions(
+        HOSTS["generic"]!, ffmpegVersion: "8.0", hardwareDecoding: false, hardwareTranscoding: false, ffmpegExec: "/bin/sh", debug: debug,
+        inputTimeout: FFMPEG_INPUT_TIMEOUT / 10, recordingTimeout: HKSV_TIMEOUT / 5)
 }
 
 /// A recording configuration as HomeKit selects one.

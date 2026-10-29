@@ -235,12 +235,13 @@ struct MQTTClientTests {
     @Test func keepAliveDetectsASilentBrokerAndReconnects() async throws {
         let server = try await TestSocketServer(mode: .mqtt)
         defer { Task { await server.stop() } }
-        let client = MQTTClient(
-            MQTTConfiguration(
-                transport: .tcp(host: "127.0.0.1", port: server.port), clientID: "c", keepAlive: .seconds(1),
-                reconnect: MQTTConfiguration.Reconnect(delay: .milliseconds(50))
-            )
+        var configuration = MQTTConfiguration(
+            transport: .tcp(host: "127.0.0.1", port: server.port), clientID: "c", keepAlive: .milliseconds(200),
+            reconnect: MQTTConfiguration.Reconnect(delay: .milliseconds(50))
         )
+        // A ping every 200 ms rather than the second a broker is told.
+        configuration.minimumKeepAlive = .milliseconds(200)
+        let client = MQTTClient(configuration)
         let states = Recorder(client.states)
         try await client.connect()
         try await eventually { server.broker.pingreqs >= 1 }

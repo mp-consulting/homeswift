@@ -9,7 +9,7 @@ import Testing
 /// The plugin on a bridge, against a fake controller: the accessories of each device type, their handlers,
 /// the events, MQTT (devices.test.ts, sensor-logic.test.ts, night-vision-dimmer.test.ts, camera-properties
 /// .test.ts, event-timers.test.ts and doorbell tests of the Homebridge plugin).
-@Suite(.timeLimit(.minutes(1)), .serialized) struct DeviceTests {
+@Suite(.timeLimit(.minutes(1))) struct DeviceTests {
     static let sensorID = ProtectPlatform.accessoryID(Fixtures.sensorMAC)
 
     /// The values `characteristic` takes from now on, for a state a timer resets before a poll may see it.
@@ -82,7 +82,8 @@ import Testing
 
     @Test func motionEventsAndTheirReset() async throws {
         let environment = ProtectTestEnvironment()
-        let host = try await environment.start(options: ["Enable.Motion.Trigger", "Enable.Motion.Switch", "Enable.Log.Motion", "Enable.Motion.OccupancySensor"])
+        // The shortest occupancy the plugin takes, 60 s, rather than 300.
+        let host = try await environment.start(options: ["Enable.Motion.Trigger", "Enable.Motion.Switch", "Enable.Log.Motion", "Enable.Motion.OccupancySensor", "Enable.Motion.OccupancySensor.Duration.60"])
         defer { Task { await host.stop() } }
         let sensor = try #require(environment.accessory(host, Self.sensorID))
         let motion = try #require(sensor.service(.motionSensor)?[.motionDetected])

@@ -218,7 +218,16 @@ extension HTTPRequest {
 }
 
 /// A host with one LG ThinQ block whose plugin talks to `lg`.
+/// One client key for every test: the plugin makes a 2048-bit key for each new storage, slow in a debug build.
+let testClientKeys: ClientIdentity.Keys = {
+    let keys = try! ClientIdentity.generateKeys()
+    ClientIdentity.reused.keys = keys
+    return keys
+}()
+
 final class LGTestEnvironment: @unchecked Sendable {
+    init() { _ = testClientKeys }
+
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("homeswift-lgthinq-tests-\(UUID().uuidString)")
     let lg = FakeLG()
     let mqtt = FakeMQTT()

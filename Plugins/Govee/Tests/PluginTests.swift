@@ -23,6 +23,8 @@ final class GoveeEnvironment: @unchecked Sendable {
     var bleAvailable = true
     /// The Homebridge storage path a first start imports a login from; none by default, never the user's.
     var homebridgeStorage: URL?
+    /// How long a LAN scan waits after the last reply: short, but a test that stops during the scan holds it longer.
+    var lanScanSettleTime: Duration = .milliseconds(50)
     private let plugins = NIOLockedValueBox<[GoveePlugin]>([])
 
     var plugin: GoveePlugin? { plugins.withLockedValue { $0.last } }
@@ -79,6 +81,9 @@ final class GoveeEnvironment: @unchecked Sendable {
             dependencies.history = false
             dependencies.homebridgeStorage = self.homebridgeStorage
             dependencies.retryDelay = .milliseconds(1)
+            dependencies.lanScanSettleTime = self.lanScanSettleTime
+            dependencies.awsPublishTimeout = .milliseconds(200)
+            dependencies.bleQueueInterval = .milliseconds(20)
             let plugin = GoveePlugin(configuration: try JSONDecoder().decode(GoveePlugin.Configuration.self, from: json), context: context, dependencies: dependencies)
             self.plugins.withLockedValue { $0.append(plugin) }
             return plugin
@@ -102,7 +107,7 @@ extension PluginHost {
     func accessory(_ id: String) -> Accessory? { mainBridge.server.accessories.first { $0.id == "Govee:\(id)" } }
 }
 
-@Suite(.serialized) struct PluginTests {
+@Suite struct PluginTests {
     @Test func decodesARealisticBlock() throws {
         let json = #"""
         {
@@ -232,8 +237,8 @@ extension PluginHost {
         let humidity = try #require(host.accessory(thermoID)?.service(.humiditySensor))
         #expect(await eventually { thermometer[.currentTemperature]?.value.doubleValue == 22.1 && humidity[.currentRelativeHumidity]?.value.doubleValue == 52 })
         #expect(host.accessory(thermoID)?.service(.battery)?[.batteryLevel]?.value.intValue == 94)
-        // 65535 is "no reading": the pool sensor keeps its humidity.
-        #expect(host.accessory(poolID)?.service(.temperatureSensor)?[.currentTemperature]?.value.doubleValue == 28.5)
+        // 65535 is "no reading": the pool sensor keeps its humidity. Its device reports on its own.
+        #expect(await eventually { host.accessory(poolID)?.service(.temperatureSensor)?[.currentTemperature]?.value.doubleValue == 28.5 })
         #expect(host.accessory(poolID)?.service(.humiditySensor)?[.currentRelativeHumidity]?.value.doubleValue == 0)
         #expect(await eventually { host.accessory(leakID)?.service(.battery)?[.batteryLevel]?.value.intValue == 80 })
         #expect(host.accessory(leakID)?.service(.leakSensor)?[.leakDetected]?.value == .int(0))
@@ -311,8 +316,7 @@ extension PluginHost {
         #expect(await eventually { lightbulb[.brightness]?.value == .int(30) })
         #expect(lightbulb[.on]?.value == .bool(true))
         environment.lan.deliver(["msg": ["cmd": "devStatus", "data": ["onOff": 0, "brightness": 75]]], from: "192.168.1.20")
-        #expect(await eventually { lightbulb[.on]?.value == .bool(false) })
-        #expect(lightbulb[.brightness]?.value == .int(75))
+        #expect(await eventually { lightbulb[.on]?.value == .bool(false) && lightbulb[.brightness]?.value == .int(75) })
     }
 
     @Test func ignoredAndMatterDevicesStayOut() async throws {
@@ -383,6 +387,8 @@ extension PluginHost {
         #expect(status.json["devices"]?.arrayValue?.contains { $0["deviceId"] == .string(lightID) && $0["lan"] == "enabled" } == true)
 
         #expect(await !plugin.store.values.isEmpty)
+        // Once the start's sync is over: a reading it brings after the clear is new state, not the old written back.
+        #expect(await eventually { await !plugin.httpSyncInProgress })
         let cleared = try await request("clear-cache", [:])
         #expect(cleared.json["success"] == true)
         let storage = environment.directory.appendingPathComponent("plugins/Govee-Govee")
@@ -455,6 +461,8 @@ extension PluginHost {
     /// next step and closes what it opened.
     @Test func stopDuringSetupLeavesNothingRunning() async throws {
         let environment = GoveeEnvironment()
+        // A scan that lasts a second: the stop lands in it however slowly the runner gets there.
+        environment.lanScanSettleTime = .seconds(1)
         let host = try environment.host(settings: ["username": "user@example.com", "password": "pw"])
         try await host.start()
         let plugin = try #require(environment.plugin)
@@ -503,7 +511,7 @@ extension PluginHost {
     #endif
 }
 
-@Suite(.serialized) struct UpstreamParityTests {
+@Suite struct UpstreamParityTests {
     /// The Homebridge plugin's TV-type plugs are bridged accessories: no pairing of their own.
     @Test func plugsShownAsTelevisionsStayOnTheBridge() async throws {
         let plugID = "AA:BB:CC:DD:EE:FF:00:99"

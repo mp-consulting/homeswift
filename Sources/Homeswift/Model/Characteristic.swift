@@ -84,6 +84,8 @@ public final class Characteristic: @unchecked Sendable {
         var nextObserver = 0
         var isSecurityControl: Bool
         var isConfidential: Bool
+        /// Counts the reverts applied: a write whose handler saw one land keeps the reverted value.
+        var reverts = 0
     }
 
     let state: NIOLockedValueBox<State>
@@ -203,7 +205,9 @@ public final class Characteristic: @unchecked Sendable {
         Task { [weak self] in
             do { try await Task.sleep(for: delay) } catch { return }
             let current = await value()
-            self?.value = current
+            guard let self else { return }
+            state.withLockedValue { $0.reverts += 1 }
+            self.value = current
         }
     }
 
@@ -237,7 +241,10 @@ public final class Characteristic: @unchecked Sendable {
             state.withLockedValue { $0.value = type.coerce(response) ?? response }
             return response
         }
+        let reverts = state.withLockedValue { $0.reverts }
         if let handler = writeHandler(for: coerced) { try await timed { try await handler(coerced) } }
+        // A revert the handler scheduled has already put the value back (a short delay, a slow write): it stands.
+        if state.withLockedValue({ $0.reverts }) != reverts { return state.withLockedValue { $0.value } }
         update(coerced, origin: origin, force: false, reason: .write, context: context, notify: notify)
         return coerced
     }

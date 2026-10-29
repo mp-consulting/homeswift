@@ -468,7 +468,7 @@ public final class FfmpegRecordingProcess: FfmpegFMp4Process, @unchecked Sendabl
                     // Wait for FFmpeg to produce more boxes, within HKSV's timing. A stop since the check above is seen here too: it
                     // is flagged before its signal, and the flag is read under the signal's lock.
                     let recordingState = self.recordingState
-                    let woken = await self.mp4box.wait(timeout: .milliseconds(HKSV_TIMEOUT)) {
+                    let woken = await self.mp4box.wait(timeout: .milliseconds(self.options.config.recordingTimeout)) {
                         recordingState.withLockedValue { !$0.recordingBuffer.isEmpty || $0.isStopped }
                     }
                     self.afterBoxWait.withLockedValue { $0 }?(woken)

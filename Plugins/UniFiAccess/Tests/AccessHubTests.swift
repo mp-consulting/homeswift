@@ -22,6 +22,23 @@ func value(_ host: PluginHost, _ id: String, _ type: ServiceType, _ subtype: Str
     accessory(host, id)?.service(type, subtype)?[characteristic]?.value.intValue
 }
 
+/// Records every integer value a characteristic takes from now on: a state that lasts a scaled moment is seen even
+/// by a runner that stalls through it.
+func record(_ host: PluginHost, _ id: String, _ type: ServiceType, _ subtype: String? = nil, _ characteristic: CharacteristicType) -> NIOLockedValueBox<[Int]> {
+    let values = NIOLockedValueBox<[Int]>([])
+    accessory(host, id)?.service(type, subtype)?.characteristic(characteristic).observe { change in
+        if let value = change.newValue.intValue { values.withLockedValue { $0.append(value) } }
+    }
+    return values
+}
+
+/// Whether `values` took `states` in that order, other values before, between or after.
+func went(_ values: NIOLockedValueBox<[Int]>, through states: [Int]) -> Bool {
+    var rest = states[...]
+    for value in values.withLockedValue({ $0 }) where value == rest.first { rest = rest.dropFirst() }
+    return rest.isEmpty
+}
+
 func flag(_ host: PluginHost, _ id: String, _ type: ServiceType, _ subtype: String? = nil, _ characteristic: CharacteristicType = .on) -> Bool? {
     accessory(host, id)?.service(type, subtype)?[characteristic]?.value.boolValue
 }
@@ -375,15 +392,15 @@ struct AccessHubTests {
     @Test func gateRemoteUnlockRelocksItself() async throws {
         let host = try await environment.start(devices: [ugt()], doors: Self.gateDoors, options: ["Enable.Hub.Door.UseLock"], extra: ["mqttUrl": "mqtt://broker"])
         defer { Task { await host.stop() } }
+        let side = record(host, gateID, .lockMechanism, "Lock.Door.Side", .lockCurrentState)
         environment.send(AccessEventType.deviceRemoteUnlock, "door-2")
-        #expect(await eventually { value(host, gateID, .lockMechanism, "Lock.Door.Side", .lockCurrentState) == 0 })
-        #expect(await eventually { value(host, gateID, .lockMechanism, "Lock.Door.Side", .lockCurrentState) == 1 })
+        #expect(await eventually { went(side, through: [0, 1]) })
         #expect(await eventually { self.environment.mqtt.connection.published(on: "unifi/access/112233445566/sidedoor/lock") == ["false", "true"] })
         #expect(environment.log.contains("Portillon unlocked."))
 
+        let main = record(host, gateID, .lockMechanism, nil, .lockCurrentState)
         environment.send(AccessEventType.deviceRemoteUnlock, "door-1")
-        #expect(await eventually { value(host, gateID, .lockMechanism, nil, .lockCurrentState) == 0 })
-        #expect(await eventually { value(host, gateID, .lockMechanism, nil, .lockCurrentState) == 1 })
+        #expect(await eventually { went(main, through: [0, 1]) })
     }
 
     @Test func gateCycle() async throws {
@@ -408,6 +425,21 @@ struct AccessHubTests {
         #expect(await eventually { garage[.currentDoorState]?.value.intValue == 1 })
     }
 
+    @Test func gateClosingEndsOnAClosedDPSThatIsNoChange() async throws {
+        // An open that comes once closing has begun is taken for a bounce, and the DPS stays closed: the closed that
+        // follows is no change, yet it ends the cycle. Long phases (1.5 s) keep the event inside closing.
+        let host = try await environment.start(devices: [ugt()], doors: Self.gateDoors, options: ["Enable.Hub.GateDirectionDuration.112233445566.150"])
+        defer { Task { await host.stop() } }
+        let garage = try #require(accessory(host, gateID)?.service(.garageDoorOpener, nil))
+        try await garage.characteristic(.targetDoorState).write(.int(0))
+        try await garage.characteristic(.targetDoorState).write(.int(1))
+        #expect(garage[.currentDoorState]?.value.intValue == 3)
+        // Past the cooldown during which events after a command are ignored (later still ends it).
+        try await Task.sleep(for: .milliseconds(200))
+        environment.send(AccessEventType.locationUpdate, "door-1", data: ["id": "door-1", "name": "Main Gate", "state": ["dps": "close", "lock": "locked"]])
+        #expect(await eventually { garage[.currentDoorState]?.value.intValue == 1 })
+    }
+
     @Test func gateCommandFailureReverts() async throws {
         let host = try await environment.start(devices: [ugt()], doors: Self.gateDoors)
         defer { Task { await host.stop() } }
@@ -423,9 +455,14 @@ struct AccessHubTests {
         let host = try await environment.start(devices: [ugt()], doors: Self.gateDoors, options: ["Enable.Hub.GateDirectionDuration.6"])
         defer { Task { await host.stop() } }
         let garage = try #require(accessory(host, gateID)?.service(.garageDoorOpener, nil))
+        let states = record(host, gateID, .garageDoorOpener, nil, .currentDoorState)
+        // The controller's refreshes agree: the gate is open.
+        environment.controller.setDevices([ugt()], doors: [
+            ["unique_id": "door-1", "name": "Main Gate", "door_position_status": "open", "door_lock_relay_status": "lock"], Self.gateDoors[1],
+        ])
         environment.send(AccessEventType.locationUpdate, "door-1", data: ["id": "door-1", "name": "Main Gate", "state": ["dps": "open", "lock": "locked"]])
-        #expect(await eventually { garage[.currentDoorState]?.value.intValue == 2 })
-        #expect(await eventually { garage[.currentDoorState]?.value.intValue == 0 })
+        // Opening lasts one phase (60 ms), then open.
+        #expect(await eventually { went(states, through: [2, 0]) })
         try await Task.sleep(for: .milliseconds(150))
         // No timer closes it: the DPS does.
         #expect(garage[.currentDoorState]?.value.intValue == 0)
@@ -644,8 +681,7 @@ struct AccessHubTests {
             ultra(["configs": configs([("input_d1_button", "off"), ("input_d1_dps", "close"), ("output_d1_lock_relay", "off"), ("nfc", "yes"), ("pin_code", "yes"), ("face", "no")])])
         ])
         _ = await environment.controllerActor()?.api.getBootstrap()
-        #expect(await eventually { flag(host, ultraID, .switch, "AccessMethod.Face") == false })
-        #expect(flag(host, ultraID, .switch, "AccessMethod.PIN") == true)
+        #expect(await eventually { flag(host, ultraID, .switch, "AccessMethod.Face") == false && flag(host, ultraID, .switch, "AccessMethod.PIN") == true })
     }
 
     /// Option values and config numbers of any size saturate instead of trapping.

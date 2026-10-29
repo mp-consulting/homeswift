@@ -29,17 +29,22 @@ struct ServerTests {
             options: .init(setupCode: SetupCode("031-45-154"), port: 0, advertise: false, logger: testLogger))
     }
 
-    private func pairedController() async throws -> TestController {
+    /// A controller paired and verified; through pair setup when the test is about it, else added directly.
+    private func pairedController(throughPairSetup: Bool = false) async throws -> TestController {
         try await server.start()
         let controller = TestController()
         try await controller.connect(port: server.port!)
-        try await controller.pairSetup(code: "031-45-154")
+        if throughPairSetup {
+            try await controller.pairSetup(code: "031-45-154")
+        } else {
+            try controller.addPairing(to: server)
+        }
         try await controller.pairVerify()
         return controller
     }
 
     @Test func pairsAndServesTheDatabase() async throws {
-        let controller = try await pairedController()
+        let controller = try await pairedController(throughPairSetup: true)
         #expect(server.isPaired)
         #expect(controller.accessoryID == server.deviceID)
 
@@ -291,7 +296,7 @@ struct ServerTests {
         try await server.start()
         let controller = TestController()
         try await controller.connect(port: server.port!)
-        try await controller.pairSetup(code: "031-45-154")
+        try controller.addPairing(to: server)
         try await controller.pairVerify()
         let response = try await controller.request("GET", "/accessories")
         let accessories = try #require((response.json as? [String: Any])?["accessories"] as? [[String: Any]])

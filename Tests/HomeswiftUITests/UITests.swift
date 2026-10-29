@@ -780,8 +780,8 @@ struct UIServerTests {
         #expect(qr.body.hasPrefix("<svg "))
         #expect(try await browser.get("/api/qr/9.svg").status == 404)
         #expect(try await browser.post("/api/restart", [:]).status == 200)
-        try await Task.sleep(for: .milliseconds(800))
-        #expect(environment.restarts.withLockedValue { $0 } == 1)
+        // After the reply (400 ms later).
+        #expect(await eventually { environment.restarts.withLockedValue { $0 } == 1 })
 
         // A kept session of a user that no longer exists is worthless.
         let ghost = Browser(base: base)
@@ -825,6 +825,7 @@ struct UIServerTests {
         environment.logs.append(.init(level: .warning, label: "Lamps", text: "Lamp not responding"))
         let logs = try await browser.get("/api/logs").json?.arrayValue ?? []
         #expect(logs.last?["text"] == "Lamp not responding")
+        let opened = NIOLockedValueBox(false)
         let streamTask = Task { () -> String in
             let http = try await URLSessionTransport(timeout: 10).stream(HTTPRequest(method: "GET", url: base.appendingPathComponent("/api/events"), headers: ["Cookie": browser.cookie ?? "", "Accept": "text/event-stream"]))
             #expect(http.status == 200)
@@ -832,12 +833,14 @@ struct UIServerTests {
             #expect(http.headers["cache-control"] == "no-store, no-transform" && http.headers["x-accel-buffering"] == "no")
             var text = ""
             for try await event in SSE.events(http.body) {
+                opened.withLockedValue { $0 = true }
                 text += "\(event.event ?? ""):\(event.data)\n"
                 if event.event == "accessory" { break }
             }
             return text
         }
-        try await Task.sleep(for: .milliseconds(300))
+        // The stream is open once its first event (hello) arrived.
+        #expect(await eventually { opened.withLockedValue { $0 } })
         environment.host.mainBridge.server.accessories[1].service(.lightbulb)?.characteristic(.on).value = .bool(true)
         let streamed = try await streamTask.value
         #expect(streamed.contains("accessory:"))

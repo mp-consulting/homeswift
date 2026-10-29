@@ -12,7 +12,20 @@ enum ClientIdentity {
         var publicKey: String
     }
 
+    /// Keys handed out in place of new ones: tests make one and reuse it, a 2048-bit key taking a while in a debug build.
+    static let reused = Reused()
+
+    final class Reused: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stored: Keys?
+        var keys: Keys? {
+            get { lock.withLock { stored } }
+            set { lock.withLock { stored = newValue } }
+        }
+    }
+
     static func generateKeys() throws -> Keys {
+        if let keys = reused.keys { return keys }
         let key = try _RSA.Signing.PrivateKey(keySize: .bits2048)
         return Keys(privateKey: key.pemRepresentation, publicKey: key.publicKey.pemRepresentation)
     }

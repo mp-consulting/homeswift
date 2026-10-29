@@ -51,6 +51,7 @@ actor FakeTV: HTTPSending {
     func set(currentApp: String) { self.currentApp = currentApp }
     func set(muted: Bool) { volume.muted = muted }
     func set(ambilight: JointSpace.AmbilightConfiguration) { self.ambilight = ambilight }
+    func set(ambilightPower: Bool) { self.ambilightPower = ambilightPower }
     func set(applications: [JointSpace.Application]) { self.applications = applications }
     func set(hueLamp: Bool) { self.hueLamp = hueLamp }
     func set(wrongPINStatus: Int?) { self.wrongPINStatus = wrongPINStatus }

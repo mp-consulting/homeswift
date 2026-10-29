@@ -475,6 +475,8 @@ actor AccessHub {
     }
 
     private func gatePhaseOpen(external: Bool) {
+        // Late, after the closing phase began (both timers overdue on a busy machine): the gate is past open.
+        guard gateDirection == .opening else { return }
         gateDirection = .open
         logger.debug("\(prefix)\(external ? "External gate cycle phase: Open — waiting for DPS close." : "Gate cycle phase: Open.")")
         built.garage?.characteristic(.currentDoorState).value = .int(HK.doorOpen)
@@ -731,7 +733,10 @@ actor AccessHub {
             }
         } else {
             if lock != lockBacking { setLockState(lock) }
-            if dps != dpsBacking { setDpsState(dps) }
+            // While closing, a closed DPS ends the cycle even when it is no change: an open that came late, once
+            // closing had begun, was suppressed as a bounce and left the DPS closed.
+            let confirmsClosing = gateDirection == .closing && Self.isClosed(dps) && built.garage?.characteristic(.currentDoorState).value.intValue != HK.doorClosed
+            if dps != dpsBacking || confirmsClosing { setDpsState(dps) }
         }
     }
 

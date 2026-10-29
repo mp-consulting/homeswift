@@ -228,14 +228,14 @@ import Darwin
 
     @Test func killsAProcessThatIgnoresTERM() async throws {
         let (logs, options) = shellOptions()
-        // The shell traps TERM and keeps running: only the SIGKILL failsafe ends it, after FFMPEG_INPUT_TIMEOUT.
+        // The shell traps TERM and keeps running: only the SIGKILL failsafe ends it, after the input timeout.
         let process = FfmpegProcess(options, commandLineArgs: ["-c", "trap '' TERM; echo up >&2; while :; do sleep 0.1; done"])
         process.start()
         try await process.waitForStart()
         let start = ContinuousClock.now
         let status = await waitForExit(process, timeout: .seconds(15)) { process.stop() }
         #expect(status?.signal == "SIGKILL")
-        #expect(ContinuousClock.now - start >= .milliseconds(FFMPEG_INPUT_TIMEOUT - 500))
+        #expect(ContinuousClock.now - start >= .milliseconds(options.config.inputTimeout))
         #expect(logs.messages(.debug).contains("FFmpeg process ended (Killed)."))
     }
 
@@ -249,7 +249,7 @@ import Darwin
         // The restart comes before the failsafe: it must still end the process it was armed for.
         process.start(["-c", "echo two >&2; exec sleep 30"])
         let second = try #require(process.processIdentifier)
-        #expect(await eventually(timeout: .milliseconds(FFMPEG_INPUT_TIMEOUT + 5000)) { kill(first, 0) != 0 })
+        #expect(await eventually(timeout: .milliseconds(options.config.inputTimeout + 5000)) { kill(first, 0) != 0 })
         #expect(kill(second, 0) == 0)
         _ = await waitForExit(process) { process.stop() }
     }
@@ -536,8 +536,8 @@ import Darwin
         for try await packet in process.recordingPackets() {
             packets.append(packet)
         }
-        // Nothing within HKSV_TIMEOUT after the init segment.
-        #expect(ContinuousClock.now - start >= .milliseconds(HKSV_TIMEOUT - 200))
+        // Nothing within the recording timeout after the init segment.
+        #expect(ContinuousClock.now - start >= .milliseconds(options.config.recordingTimeout - 200))
         #expect(process.isTimedOut)
         #expect(packets.map(\.data) == [initSegment, Data([0])])
         #expect(packets.map(\.isLast) == [false, true])
@@ -555,7 +555,7 @@ import Darwin
         try await Task.sleep(for: .milliseconds(200))
         consumer.cancel()
         await consumer.value
-        // The generator's wait ends with the cancellation, well within HKSV_TIMEOUT: that is not FFmpeg falling silent.
+        // The generator's wait ends with the cancellation, well within the recording timeout: that is not FFmpeg falling silent.
         try await Task.sleep(for: .milliseconds(300))
         #expect(!process.isTimedOut)
         _ = await waitForExit(process) { process.stop() }
@@ -652,12 +652,16 @@ final class RecordingStreamingDelegate: HomebridgeStreamingDelegate {
 
     @Test func closesTheHealthSocketWhenTheProcessExitsOnItsOwn() async throws {
         let (_, options) = shellOptions()
+        // The process exits once the test says so, after the socket is bound.
+        let exit = FileManager.default.temporaryDirectory.appendingPathComponent("homeswift-exit-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: exit) }
         let process = FfmpegStreamingProcess(
-            // Long enough that a loaded runner has bound the socket before the process exits.
-            delegate: RecordingStreamingDelegate(), sessionId: "session-2", ffmpegOptions: options, commandLineArgs: ["-c", "echo up >&2; sleep 8"],
+            delegate: RecordingStreamingDelegate(), sessionId: "session-2", ffmpegOptions: options,
+            commandLineArgs: ["-c", "echo up >&2; while [ ! -e '\(exit.path)' ]; do sleep 0.02; done"],
             returnPort: FfmpegReturnPort(addressVersion: .ipv4, port: 0)
         )
         #expect(await process.waitForHealthSocket())
+        FileManager.default.createFile(atPath: exit.path, contents: nil)
         #expect(await eventually(timeout: .seconds(15)) { process.isHealthSocketClosed })
     }
 
@@ -671,7 +675,7 @@ final class RecordingStreamingDelegate: HomebridgeStreamingDelegate {
         #expect(await process.waitForHealthSocket())
         let port = try #require(process.healthSocketPort)
         try await sendUDP(Data([0x80, 0xC8, 0, 0]), to: port)
-        // Nothing more for FFMPEG_INPUT_TIMEOUT: the session is stopped.
+        // Nothing more for the input timeout: the session is stopped.
         #expect(await eventually(timeout: .seconds(8)) { delegate.recorded == ["forceStop session-3", "stopStream session-3"] })
         #expect(logs.messages(.debug).contains("Video stream appears to be inactive for 5 seconds. Stopping stream."))
         process.stop()
@@ -724,8 +728,8 @@ final class RecordingStreamingDelegate: HomebridgeStreamingDelegate {
 
 @Suite struct SubprocessTests {
     @Test func releasesThePipesWhenAGrandchildKeepsThemOpen() async throws {
-        // The shell exits at once; its background child holds standard output and standard error open for three seconds.
-        let child = try Subprocess.launch("/bin/sh", arguments: ["-c", "(sleep 3) & echo hi; exit 0"])
+        // The shell exits at once; its background child holds standard output and standard error open for a fifth of a second.
+        let child = try Subprocess.launch("/bin/sh", arguments: ["-c", "(sleep 0.2) & echo hi; exit 0"])
         let status = NIOLockedValueBox<FfmpegExitStatus?>(nil)
         child.addExitHandler { exit in status.withLockedValue { $0 = exit } }
         child.beginReading()
@@ -734,7 +738,7 @@ final class RecordingStreamingDelegate: HomebridgeStreamingDelegate {
         #expect(status.withLockedValue { $0 } == FfmpegExitStatus(exitCode: 0, signal: nil))
         #expect(!child.isReadingOutput)
         // Their end of file, when the grandchild exits, wakes nothing (it used to spin the reader at full speed).
-        try await Task.sleep(for: .milliseconds(1500))
+        try await Task.sleep(for: .milliseconds(400))
         #expect(!child.isReadingOutput)
     }
 

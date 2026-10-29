@@ -16,11 +16,30 @@ struct EWeLinkClock: Sendable {
     let scale: Double
     private let originDate: Date
     private let originInstant: ContinuousClock.Instant
+    /// What a test did to plugin time: stopped it, moved it on.
+    private let control = Control()
+
+    private final class Control: @unchecked Sendable {
+        let lock = NSLock()
+        var frozen: Double?
+        var offset = 0.0
+    }
 
     init(scale: Double = 1) {
         self.scale = scale
         originDate = Date()
         originInstant = ContinuousClock.now
+    }
+
+    /// Tests: plugin time stops where it is (sleeps still pass), until `advance` moves it on.
+    func freeze() {
+        let now = running
+        control.lock.withLock { if control.frozen == nil { control.frozen = now - control.offset } }
+    }
+
+    /// Tests: moves plugin time on at once.
+    func advance(milliseconds: Double) {
+        control.lock.withLock { control.offset += milliseconds }
     }
 
     /// Sleeps for `milliseconds` of plugin time; throws when the task is cancelled. A delay from a device, the
@@ -32,6 +51,11 @@ struct EWeLinkClock: Sendable {
 
     /// Milliseconds since 1970, in plugin time.
     var nowMilliseconds: Double {
+        let (frozen, offset) = control.lock.withLock { (control.frozen, control.offset) }
+        return (frozen ?? running) + offset
+    }
+
+    private var running: Double {
         if scale == 1 { return Date().timeIntervalSince1970 * 1000 }
         let elapsed = ContinuousClock.now - originInstant
         let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18

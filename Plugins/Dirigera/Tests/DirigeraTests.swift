@@ -29,6 +29,9 @@ struct PinnedHub: HomeswiftNetwork.HTTPSending {
     }
 }
 
+/// A tenth of the plugin's settle time: tests wait it out after each command.
+let dirigeraSettleTime = DirigeraLightCommands.settleTime / 10
+
 final class FakeHub: HTTPSending, @unchecked Sendable {
     struct Sent: Equatable {
         var method: String
@@ -133,7 +136,8 @@ final class TestEnvironment: Sendable {
         registry.register(platform: DirigeraPlugin.platform, name: DirigeraPlugin.name) { json, context in
             let configuration = try JSONDecoder().decode(DirigeraPlugin.Configuration.self, from: json)
             let dependencies = DirigeraPlugin.Dependencies(
-                transport: { trust in PinnedHub(hub: hub, trust: trust) }, events: { _, _, _ in hub.events.stream }, discover: { ["192.0.2.20"] }, reconnectDelay: .milliseconds(50))
+                transport: { trust in PinnedHub(hub: hub, trust: trust) }, events: { _, _, _ in hub.events.stream }, discover: { ["192.0.2.20"] }, reconnectDelay: .milliseconds(50), pairingRetryDelay: .milliseconds(50),
+                settleTime: dirigeraSettleTime)
             let plugin = DirigeraPlugin(configuration: configuration, context: context, dependencies: dependencies)
             self.plugins.withLockedValue { $0.append(plugin) }
             return plugin
@@ -254,20 +258,22 @@ struct DirigeraTests {
         let controller = try #require(bulb.adaptiveLighting)
         try controller.activateForTesting()
         #expect(await eventually { environment.hub.patches.contains { $0.path == "/v1/devices/bulb-1" && $0.body.contains(#""colorTemperature":3333"#) } })
-        try await Task.sleep(for: DirigeraLightCommands.settleTime + .milliseconds(200))
+        try await Task.sleep(for: dirigeraSettleTime + .milliseconds(100))
         let event = { (attributes: JSONValue) in
-            environment.hub.events.continuation.yield(["type": "deviceStateChanged", "data": ["id": "bulb-1", "attributes": attributes]])
+            _ = environment.hub.events.continuation.yield(["type": "deviceStateChanged", "data": ["id": "bulb-1", "attributes": attributes]])
         }
         event(["colorTemperature": 3333, "lightLevel": 60])
         event(["isOn": true])
         #expect(await eventually { bulb[.colorTemperature]?.value == .int(300) })
         #expect(controller.isAdaptiveLightingActive)
         event(["colorTemperature": 2202])
-        #expect(await eventually { !controller.isAdaptiveLightingActive })
-        #expect(bulb[.colorTemperature]?.value == .int(454))
+        #expect(await eventually { !controller.isAdaptiveLightingActive && bulb[.colorTemperature]?.value == .int(454) })
 
+        // Its white reaches the hub, then the settle time passes: a colour set in the IKEA app during it is ignored.
+        let patches = environment.hub.patches.count
         try controller.activateForTesting()
-        try await Task.sleep(for: DirigeraLightCommands.settleTime + .milliseconds(200))
+        #expect(await eventually { environment.hub.patches.count > patches })
+        try await Task.sleep(for: dirigeraSettleTime + .milliseconds(100))
         event(["colorMode": "color", "colorHue": 120])
         #expect(await eventually { !controller.isAdaptiveLightingActive })
         await host.stop()

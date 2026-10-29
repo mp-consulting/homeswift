@@ -238,7 +238,7 @@ struct SecretBoxTests {
 
     @Test func sealingSealsANumberUnderASecretNameAsText() throws {
         let config = JSONValue.object(["platforms": .array([.object(["password": .number(123456), "lanRefreshTime": .number(30)])])])
-        let sealed = try SecretBox.sealingSecrets(config) { "sealed(\($0))" }
+        let sealed = SecretBox.sealingSecrets(config) { "sealed(\($0))" }
         let platform = try #require(sealed["platforms"]?.arrayValue?.first?.objectValue)
         #expect(platform["password"]?.stringValue == "sealed(123456)")
         #expect(platform["lanRefreshTime"]?.doubleValue == 30)
@@ -246,7 +246,7 @@ struct SecretBoxTests {
 
     @Test func sealingSealsACredentialURLUnderAnyKey() throws {
         let config = JSONValue.object(["rtspUrl": .string("rtsp://admin:hunter2@10.0.0.2/stream"), "homepage": .string("https://example.com/x")])
-        let sealed = try SecretBox.sealingSecrets(config) { "sealed(\($0))" }
+        let sealed = SecretBox.sealingSecrets(config) { "sealed(\($0))" }
         #expect(sealed["rtspUrl"]?.stringValue == "sealed(rtsp://admin:hunter2@10.0.0.2/stream)")
         #expect(sealed["homepage"]?.stringValue == "https://example.com/x")
     }
@@ -257,7 +257,7 @@ struct SecretBoxTests {
             "platforms": .array([.object(["platform": .string("Govee"), "password": .string("pw"), "token": .object(["access": .string("abc")]), "host": .string("10.0.0.2"), "keep": .string(SecretBox.prefix + "x")])]),
         ])
         var sealedCalls = 0
-        let sealed = try SecretBox.sealingSecrets(config) { text in sealedCalls += 1; return "sealed(\(text))" }
+        let sealed = SecretBox.sealingSecrets(config) { text in sealedCalls += 1; return "sealed(\(text))" }
         #expect(sealed["bridge"]?["pin"]?.stringValue == "sealed(031-45-154)")
         #expect(sealed["bridge"]?["name"]?.stringValue == "H")
         let platform = try #require(sealed["platforms"]?.arrayValue?.first?.objectValue)
@@ -268,7 +268,7 @@ struct SecretBoxTests {
         #expect(sealedCalls == 3)
 
         var none = 0
-        _ = try SecretBox.sealingSecrets(JSONValue.object(["platforms": .array([.object(["password": .string(Redaction.placeholder)])])])) { _ in none += 1; return "" }
+        _ = SecretBox.sealingSecrets(JSONValue.object(["platforms": .array([.object(["password": .string(Redaction.placeholder)])])])) { _ in none += 1; return "" }
         #expect(none == 0)
     }
 

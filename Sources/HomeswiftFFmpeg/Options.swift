@@ -29,6 +29,10 @@ public struct FfmpegOptionsConfig: Sendable {
     public var log: Logger
     /// The name for log messages (usually the camera's).
     public var name: @Sendable () -> String
+    /// Milliseconds a stream may go without a packet, and a stopped process may take before SIGKILL.
+    public var inputTimeout = FFMPEG_INPUT_TIMEOUT
+    /// Milliseconds an HKSV recording may go without a box before it ends.
+    public var recordingTimeout = HKSV_TIMEOUT
 
     public init(
         codecSupport: FfmpegCodecs, crop: Crop? = nil, debug: Bool = false, hardwareDecoding: Bool, hardwareTranscoding: Bool, log: Logger,

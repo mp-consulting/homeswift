@@ -147,6 +147,11 @@ final class MDNSResponder: @unchecked Sendable {
         }
     }
 
+    /// Scales the protocol's delays (probes, announcements, the once-a-second rule): tests run them faster.
+    var timeScale = 1.0
+
+    private func scaled(_ delay: TimeAmount) -> TimeAmount { .nanoseconds(Int64(Double(delay.nanoseconds) * timeScale)) }
+
     // MARK: Probing and announcing
 
     /// Three probes 250 ms apart after a random delay (RFC 6762 §8.1); the name is ours when no one objects.
@@ -154,7 +159,7 @@ final class MDNSResponder: @unchecked Sendable {
         service.generation += 1
         service.isAnnounced = false
         let generation = service.generation
-        loop.scheduleTask(in: .milliseconds(Int64.random(in: 0...250))) { [self] in
+        loop.scheduleTask(in: scaled(.milliseconds(Int64.random(in: 0...250)))) { [self] in
             sendProbe(service, generation: generation, number: 0)
         }
     }
@@ -175,7 +180,7 @@ final class MDNSResponder: @unchecked Sendable {
                 authorities: [own.srv, own.txt] + own.addresses)
             _ = multicast(message, on: interface)
         }
-        loop.scheduleTask(in: .milliseconds(250)) { [self] in
+        loop.scheduleTask(in: scaled(.milliseconds(250))) { [self] in
             sendProbe(service, generation: generation, number: number + 1)
         }
     }
@@ -193,7 +198,7 @@ final class MDNSResponder: @unchecked Sendable {
             let own = records(of: service, on: interface)
             _ = multicast(DNSMessage(isResponse: true, answers: own.all, additionals: own.nsec), on: interface)
         }
-        loop.scheduleTask(in: .seconds(1)) { [self] in
+        loop.scheduleTask(in: scaled(.seconds(1))) { [self] in
             sendAnnouncement(service, generation: generation, remaining: remaining - 1)
         }
     }
@@ -207,7 +212,7 @@ final class MDNSResponder: @unchecked Sendable {
         if service.renames % 15 == 0 {
             service.generation += 1
             let generation = service.generation
-            loop.scheduleTask(in: .seconds(5)) { [self] in
+            loop.scheduleTask(in: scaled(.seconds(5))) { [self] in
                 guard service.generation == generation else { return }
                 probe(service)
             }
@@ -312,7 +317,7 @@ final class MDNSResponder: @unchecked Sendable {
                     // We lost: wait a second and probe again; the winner's records then make it a conflict.
                     service.generation += 1
                     let generation = service.generation
-                    loop.scheduleTask(in: .seconds(1)) { [self] in
+                    loop.scheduleTask(in: scaled(.seconds(1))) { [self] in
                         guard service.generation == generation else { return }
                         probe(service)
                     }
@@ -393,7 +398,7 @@ final class MDNSResponder: @unchecked Sendable {
             // Not a record more than once a second on an interface, but at once for a probe (RFC 6762 §6).
             if query.authorities.isEmpty {
                 let now = NIODeadline.now()
-                var recent = (lastMulticast[interface.index] ?? [:]).filter { now - $0.value < .seconds(1) }
+                var recent = (lastMulticast[interface.index] ?? [:]).filter { now - $0.value < scaled(.seconds(1)) }
                 answers.removeAll { recent[$0] != nil }
                 for record in answers { recent[record] = now }
                 lastMulticast[interface.index] = recent
@@ -403,7 +408,7 @@ final class MDNSResponder: @unchecked Sendable {
             // Shared records go out after 20–120 ms, so the answers of several responders can merge (§6).
             if answers.contains(where: { $0.type == DNSType.ptr }) {
                 let index = interface.index
-                loop.scheduleTask(in: .milliseconds(Int64.random(in: 20...120))) { [self] in
+                loop.scheduleTask(in: scaled(.milliseconds(Int64.random(in: 20...120)))) { [self] in
                     guard let interface = interfaces[index] else { return }
                     _ = multicast(response, on: interface)
                 }

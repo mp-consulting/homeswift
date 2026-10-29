@@ -408,8 +408,10 @@ final class Subprocess: @unchecked Sendable {
             deliverExit()
         } else {
             // A grandchild holding the pipes open must not keep the exit from being reported, nor the pipes and
-            // their sources (which hold this process) from being let go.
-            DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
+            // their sources (which hold this process) from being let go. Weakly: when the ends of file come meanwhile,
+            // nothing is left to do and the process goes at once.
+            DispatchQueue.global().asyncAfter(deadline: .now() + 2) { [weak self] in
+                guard let self else { return }
                 let deliver = self.state.withLockedValue { state -> Bool in
                     state.stdoutEOF = true
                     state.stderrEOF = true

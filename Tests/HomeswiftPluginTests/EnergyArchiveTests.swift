@@ -140,7 +140,9 @@ struct EnergyArchiveTests {
         try await Task.sleep(for: .milliseconds(300))
         #expect(!FileManager.default.fileExists(atPath: url.path))
         archive.importHours([EnergyHourImport(start: hour.addingTimeInterval(3600), flows: EnergyFlows(solar: 5))], source: "Cloud")
-        try await Task.sleep(for: .milliseconds(300))
+        // Saved 50 ms later; a loaded runner may take longer to get to it.
+        let deadline = ContinuousClock.now + .seconds(10)
+        while !FileManager.default.fileExists(atPath: url.path), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
         #expect(FileManager.default.fileExists(atPath: url.path))
         archive.addRecorded(hour.addingTimeInterval(60), watts: [.home: 600])
         archive.flush()

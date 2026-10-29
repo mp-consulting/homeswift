@@ -42,13 +42,15 @@ actor LANClient {
     private let debug: DebugLog
     private let receive: @Sendable (_ deviceId: String, _ data: JSONValue, _ ip: String) async -> Void
     private var latestScanReply = ContinuousClock.now
+    private let settleTime: Duration
     private var tasks: [Task<Void, Never>] = []
 
     init(
-        socket: any LANSocket, customAddresses: [String: String], logger: Logger, debug: DebugLog,
+        socket: any LANSocket, customAddresses: [String: String], settleTime: Duration = LANClient.scanSettleTime, logger: Logger, debug: DebugLog,
         receive: @escaping @Sendable (_ deviceId: String, _ data: JSONValue, _ ip: String) async -> Void
     ) {
         self.socket = socket
+        self.settleTime = settleTime
         self.logger = logger
         self.debug = debug
         self.receive = receive
@@ -65,14 +67,14 @@ actor LANClient {
         })
     }
 
-    /// Scans, and returns the devices once none has answered for two seconds, or after ten seconds.
+    /// Scans, and returns the devices once none has answered for `settleTime` (two seconds), or after ten seconds.
     func discover() async -> [LANDevice] {
         await sendScan()
         latestScanReply = .now
         let end = ContinuousClock.now + Self.scanMaximumTime
         // Each reply moves the deadline on, up to the end.
         while true {
-            let deadline = min(latestScanReply + Self.scanSettleTime, end)
+            let deadline = min(latestScanReply + settleTime, end)
             guard ContinuousClock.now < deadline else { break }
             do { try await Task.sleep(until: deadline, clock: .continuous) } catch { break }
         }

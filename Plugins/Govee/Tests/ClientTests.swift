@@ -170,7 +170,7 @@ func scanReply(_ device: String, sku: String = "H6008", extra: [String: JSONValu
     func client(custom: [String: String] = [:]) -> (LANClient, FakeLANSocket, Received) {
         let socket = FakeLANSocket()
         let received = Received()
-        let client = LANClient(socket: socket, customAddresses: custom, logger: testLogger, debug: quietDebug) { id, data, ip in received.add((id, data, ip)) }
+        let client = LANClient(socket: socket, customAddresses: custom, settleTime: .milliseconds(100), logger: testLogger, debug: quietDebug) { id, data, ip in received.add((id, data, ip)) }
         return (client, socket, received)
     }
 
@@ -367,14 +367,11 @@ func scanReply(_ device: String, sku: String = "H6008", extra: [String: JSONValu
         #expect(await central.stops == 1)
     }
 
-    /// The test reads the scan's deadline rather than waiting for it, so it holds on a runner slow enough to spend
-    /// seconds on the write: the window is far longer than that, and the resume delay (2 s) far longer than a slow
-    /// runner's scheduling jitter, which tells a resumed window (the original deadline) from a new one (2 s later).
+    /// The test reads the scan's deadline rather than waiting for it: a resumed window keeps the original deadline
+    /// exactly, where a new one would end later.
     @Test func writesTheFramesAndResumesTheScanForWhatRemains() async throws {
         let central = FakeCentral()
-        var slowResume = timing
-        slowResume.resumeScan = .seconds(2)
-        let client = BLEClient(central: central, logger: testLogger, timing: slowResume, debug: quietDebug)
+        let client = BLEClient(central: central, logger: testLogger, timing: timing, debug: quietDebug)
         try await client.scan(for: { _ in }, duration: .seconds(60))
         let deadline = try #require(await client.scanDeadline)
         try await client.updateDevice(target, params: .ptReal(["MwEBAAAAAAAAAAAAAAAAAAAAADM=", "MwEAAAAAAAAAAAAAAAAAAAAAADI="]), log: testDeviceLog)
@@ -383,8 +380,7 @@ func scanReply(_ device: String, sku: String = "H6008", extra: [String: JSONValu
         #expect(await eventually(.seconds(15)) { await central.scans == 2 })
         #expect(await client.isScanning)
         // …and still ends at the original deadline: what remained of the window, not a new one.
-        let resumed = try #require(await client.scanDeadline)
-        #expect(abs((resumed - deadline) / .seconds(1)) < 1.5)
+        #expect(await client.scanDeadline == deadline)
         await client.stopDiscovery()
         #expect(await !client.isScanning)
     }

@@ -191,8 +191,14 @@ actor JointSpaceClient {
     /// Launch intents the TV reported for its apps, so launches use the right activity.
     private var intents: [String: JointSpace.Intent] = [:]
     let logger: Logger
+    /// Between the end of one request and the start of the next (`JointSpace.gapBetweenRequests`).
+    private let gap: Duration
 
-    init(ip: String, username: String, password: String, certificateFingerprint: String?, transports: any JointSpaceTransportFactory, logger: Logger) {
+    init(
+        ip: String, username: String, password: String, certificateFingerprint: String?, transports: any JointSpaceTransportFactory, logger: Logger,
+        gap: Duration = JointSpace.gapBetweenRequests
+    ) {
+        self.gap = gap
         self.ip = ip
         self.username = username
         self.password = password
@@ -422,12 +428,12 @@ actor JointSpaceClient {
         return try await request(method: "POST", path: path, body: try encoder.encode(body), timeout: timeout).body
     }
 
-    /// One request at a time, `gapBetweenRequests` after the previous one.
+    /// One request at a time, `gap` after the previous one.
     private func send(method: String, path: String, body: Data?, timeout: Duration) async throws -> HTTPResponse {
         await acquire()
         defer { release() }
         if let ended = lastRequestEnded {
-            let wait = ended + JointSpace.gapBetweenRequests - ContinuousClock.now
+            let wait = ended + gap - ContinuousClock.now
             if wait > .zero { try? await Task.sleep(for: wait) }
         }
         defer { lastRequestEnded = .now }

@@ -95,6 +95,8 @@ enum SystemLoad {
 
     /// The previous sample, so a call reads the rate since the one before it instead of waiting.
     private static let last = NIOLockedValueBox<Sample?>(nil)
+    /// How long a first call samples for: a second (tests shorten it).
+    static let sampleDuration = NIOLockedValueBox(Duration.seconds(1))
 
     /// The throughput since the previous call when it was at most ten minutes ago (and at least a second),
     /// else over the next second.
@@ -102,7 +104,7 @@ enum SystemLoad {
         var previous = last.withLockedValue { $0 }
         if previous.map({ Date().timeIntervalSince($0.date) > 600 || Date().timeIntervalSince($0.date) < 1 }) ?? true {
             previous = sample()
-            try? await Task.sleep(for: .seconds(1))
+            try? await Task.sleep(for: sampleDuration.withLockedValue { $0 })
         }
         let now = sample()
         last.withLockedValue { $0 = now }

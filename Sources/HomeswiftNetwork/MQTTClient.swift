@@ -97,6 +97,8 @@ public struct MQTTConfiguration: Sendable {
     public var reconnect: Reconnect?
     /// Larger packets from the broker close the connection.
     public var maximumPacketSize: Int
+    /// The shortest ping interval taken, whatever the configuration or the broker asks: a second (tests go lower).
+    var minimumKeepAlive: Duration = .seconds(1)
 
     public init(
         transport: Transport, clientID: String, username: String? = nil, password: String? = nil, keepAlive: Duration = .seconds(60),
@@ -463,7 +465,7 @@ public actor MQTTClient: MQTTConnection {
     private func startKeepAlive(generation: Int, interval: Duration) {
         keepAliveTask?.cancel()
         guard interval > .zero else { return }
-        let interval = max(interval, .seconds(1))
+        let interval = max(interval, configuration.minimumKeepAlive)
         keepAliveTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: interval)

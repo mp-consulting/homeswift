@@ -8,6 +8,11 @@ swift build
 swift test
 ```
 
+`Scripts/test.sh` (arguments as `swift build`'s; after `--`, the tests', such as `--filter Govee`) builds the tests
+and runs every test target at once, where `swift test` on macOS runs them one after another: about 3 seconds rather
+than 20. Tests wait for what they check rather than for a fixed time, and take timings from their plugin's
+dependencies (a `timeScale`, a shorter delay) instead of waiting out real ones.
+
 CI runs the tests on macOS and on Linux (`swift:6.2`); both must pass. On macOS, if `swift test` fails to code
 sign the test bundle, build outside the repository with `--scratch-path ~/Library/Caches/homeswift-build`.
 Changes that users notice get a line in the `[Unreleased]` section of [CHANGELOG.md](CHANGELOG.md).

@@ -42,7 +42,11 @@ struct PluginTests {
         #expect(purifier.isPrimary)
         #expect(purifier.linked.count == 6)
 
-        #expect(await eventually { purifier[.active]?.value == .int(1) })
+        // The state and the environment arrive in messages of their own: wait for a value of each.
+        #expect(await eventually {
+            purifier[.active]?.value == .int(1) && purifier[.rotationSpeed]?.value == .double(50)
+                && accessory.service(.humiditySensor)?[.currentRelativeHumidity]?.value == .double(55) && accessory.service(.filterMaintenance)?[.filterLifeLevel]?.value == .double(56)
+        })
         #expect(purifier[.currentAirPurifierState]?.value == .int(2))
         #expect(purifier[.targetAirPurifierState]?.value == .int(0))
         #expect(purifier[.rotationSpeed]?.value == .double(50))
@@ -77,7 +81,10 @@ struct PluginTests {
         #expect(await eventually { purifier[.currentAirPurifierState]?.value == .int(0) })
 
         environment.dyson.sendEnvironment(["tact": "2981", "hact": "0060", "p25r": "0040", "p10r": "0010", "va10": "0030"])
-        #expect(await eventually { accessory.service(.temperatureSensor)?[.currentTemperature]?.value == .double(25) })
+        #expect(await eventually {
+            accessory.service(.temperatureSensor)?[.currentTemperature]?.value == .double(25) && air[.airQuality]?.value == .int(3)
+                && accessory.service(.humiditySensor)?[.currentRelativeHumidity]?.value == .double(60)
+        })
         #expect(air[.airQuality]?.value == .int(3))
         #expect(accessory.service(.humiditySensor)?[.currentRelativeHumidity]?.value == .double(60))
         #expect(accessory.service(.temperatureSensor)?[.statusActive]?.value == .bool(true))
@@ -85,13 +92,16 @@ struct PluginTests {
         // Continuous monitoring off with the fan idle: the sensors report OFF. The last readings stay, marked
         // inactive, until a reading comes back.
         environment.dyson.sendEnvironment(["tact": "OFF", "hact": "OFF", "pact": "0000", "vact": "0005"])
-        #expect(await eventually { accessory.service(.temperatureSensor)?[.statusActive]?.value == .bool(false) })
-        #expect(accessory.service(.humiditySensor)?[.statusActive]?.value == .bool(false))
+        #expect(await eventually {
+            accessory.service(.temperatureSensor)?[.statusActive]?.value == .bool(false) && accessory.service(.humiditySensor)?[.statusActive]?.value == .bool(false)
+        })
         #expect(accessory.service(.temperatureSensor)?[.currentTemperature]?.value == .double(25))
         #expect(accessory.service(.humiditySensor)?[.currentRelativeHumidity]?.value == .double(60))
         environment.dyson.sendEnvironment(["tact": "2971", "hact": "0058"])
-        #expect(await eventually { accessory.service(.temperatureSensor)?[.statusActive]?.value == .bool(true) })
-        #expect(accessory.service(.humiditySensor)?[.statusActive]?.value == .bool(true))
+        #expect(await eventually {
+            accessory.service(.temperatureSensor)?[.statusActive]?.value == .bool(true) && accessory.service(.humiditySensor)?[.statusActive]?.value == .bool(true)
+                && accessory.service(.temperatureSensor)?[.currentTemperature]?.value == .double(24)
+        })
         #expect(accessory.service(.temperatureSensor)?[.currentTemperature]?.value == .double(24))
     }
 
@@ -124,7 +134,7 @@ struct PluginTests {
         #expect(thermostat[.temperatureDisplayUnits]?.value == .int(0))
         // The temperature sensor carries the offset; the thermostat shows the raw reading.
         #expect(accessory.service(.temperatureSensor)?[.currentTemperature]?.value == .double(15))
-        #expect(heater[.active]?.value == .int(1))
+        #expect(await eventually { heater[.active]?.value == .int(1) })
         #expect(heater[.currentHeaterCoolerState]?.value == .int(2))
         #expect(heater[.heatingThresholdTemperature]?.value == .double(22))
         #expect(heater[.targetHeaterCoolerState]?.value == .int(1))

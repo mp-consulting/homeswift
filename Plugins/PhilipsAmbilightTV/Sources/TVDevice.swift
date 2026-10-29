@@ -112,14 +112,18 @@ actor TVDevice {
     private var longPollRetry: Task<Void, Never>?
     private var lastNotifyRefresh: ContinuousClock.Instant?
     private(set) var started = false
+    /// Scales every timing, the polling interval included: tests run the device's real timings faster.
+    nonisolated let timeScale: Double
 
-    init(settings: TVSettings, storageDirectory: URL, transports: any JointSpaceTransportFactory, logger: Logger) {
+    init(settings: TVSettings, storageDirectory: URL, transports: any JointSpaceTransportFactory, logger: Logger, timeScale: Double = 1) {
         self.settings = settings
+        self.timeScale = timeScale
         self.transports = transports
         var deviceLogger = logger
         deviceLogger[metadataKey: "tv"] = "\(settings.name)"
         self.logger = deviceLogger
-        client = JointSpaceClient(ip: settings.ip, username: settings.username, password: settings.password, certificateFingerprint: settings.certFingerprint, transports: transports, logger: deviceLogger)
+        client = JointSpaceClient(ip: settings.ip, username: settings.username, password: settings.password, certificateFingerprint: settings.certFingerprint, transports: transports, logger: deviceLogger,
+            gap: JointSpace.gapBetweenRequests * timeScale)
         catalog = InputCatalog(settings: settings)
         var store = InputStore(directory: storageDirectory, mac: settings.mac)
         switchNames = SwitchNameStore(directory: storageDirectory, mac: settings.mac)
@@ -164,7 +168,7 @@ actor TVDevice {
 
     var isWaking: Bool {
         guard let poweredOnAt else { return false }
-        return ContinuousClock.now - poweredOnAt < Self.wakeWindow
+        return ContinuousClock.now - poweredOnAt < (Self.wakeWindow * timeScale)
     }
 
     /// The inputs in the wheel's order: the sources setting's order, the configured list's, then registration order.
@@ -217,9 +221,9 @@ actor TVDevice {
     }
 
     private var nextPollInterval: Duration {
-        if isWaking { return Self.wakePollInterval }
-        if longPollConfirmed { return max(settings.pollingInterval, Self.confirmedLongPollInterval) }
-        return settings.pollingInterval
+        if isWaking { return (Self.wakePollInterval * timeScale) }
+        if longPollConfirmed { return max(settings.pollingInterval, Self.confirmedLongPollInterval) * timeScale }
+        return settings.pollingInterval * timeScale
     }
 
     // MARK: Polling
@@ -272,7 +276,7 @@ actor TVDevice {
         if let activity = try? await client.currentActivity() {
             applyCurrentApp(activity)
         }
-        if !catalog.hasUserInputs, lastAppFetch.map({ ContinuousClock.now - $0 > Self.appRefreshInterval }) ?? true {
+        if !catalog.hasUserInputs, lastAppFetch.map({ ContinuousClock.now - $0 > (Self.appRefreshInterval * timeScale) }) ?? true {
             await fetchAppsFromTV()
         }
     }
@@ -319,8 +323,8 @@ actor TVDevice {
         guard notify == nil else { return }
         let notifyClient = JointSpaceClient(
             ip: settings.ip, username: settings.username, password: settings.password, certificateFingerprint: settings.certFingerprint,
-            transports: transports, logger: logger)
-        let notify = NotifyChangeClient(client: notifyClient, logger: logger)
+            transports: transports, logger: logger, gap: JointSpace.gapBetweenRequests * timeScale)
+        let notify = NotifyChangeClient(client: notifyClient, logger: logger, timeScale: timeScale)
         self.notify = notify
         Task { [weak self] in
             await notify.start { [weak self] event in
@@ -343,10 +347,11 @@ actor TVDevice {
         case .failed:
             await stopLongPoll()
             if isOn {
-                logger.debug("Long-poll failed while the TV is on; retrying in \(Self.longPollRetryDelay)")
+                let delay = Self.longPollRetryDelay * timeScale
+                logger.debug("Long-poll failed while the TV is on; retrying in \(delay)")
                 longPollRetry?.cancel()
                 longPollRetry = Task { [weak self] in
-                    try? await Task.sleep(for: Self.longPollRetryDelay)
+                    try? await Task.sleep(for: delay)
                     guard !Task.isCancelled, let self, await self.isOn else { return }
                     await self.startLongPoll()
                 }
@@ -370,7 +375,7 @@ actor TVDevice {
             }
             // Only activities/tv: it ticks every second with tuner data, but it is also the one resource some
             // models push on app switches from the remote. Refresh on a throttle.
-            if let last = lastNotifyRefresh, ContinuousClock.now - last < Self.activityRefreshThrottle { return }
+            if let last = lastNotifyRefresh, ContinuousClock.now - last < (Self.activityRefreshThrottle * timeScale) { return }
             lastNotifyRefresh = .now
             await poll()
         }
@@ -662,10 +667,11 @@ actor TVDevice {
     /// The TV restores its own default style a few seconds after switching on; re-apply ours twice.
     private func scheduleStyleRetry(_ style: String, algorithm: String?) {
         styleRetry?.cancel()
+        let delays = Self.styleRetryDelays.map { $0 * timeScale }
         styleRetry = Task { [weak self] in
-            for delay in Self.styleRetryDelays {
+            for delay in delays {
                 do { try await Task.sleep(for: delay) } catch { return }
-                guard let self, await self.ambilight.on else { return }
+                guard let self, await self.ambilight.on, !Task.isCancelled else { return }
                 await self.reapplyStyle(style, algorithm: algorithm)
             }
         }
@@ -673,6 +679,8 @@ actor TVDevice {
 
     private func reapplyStyle(_ style: String, algorithm: String?) async {
         guard let current = try? await client.ambilightConfiguration() else { return }
+        // A colour picked while the read was on its way cancelled the retry: it is the style now.
+        guard !Task.isCancelled else { return }
         ambilight.style = current.style
         guard current.style != style else { return }
         logger.debug("Ambilight style drifted to \(current.style); re-applying \(style)")
@@ -690,7 +698,7 @@ actor TVDevice {
     }
 
     private func applyAmbilight(_ configuration: JointSpace.AmbilightConfiguration) {
-        if let last = lastAmbilightAction, ContinuousClock.now - last < Self.userActionCooldown { return }
+        if let last = lastAmbilightAction, ContinuousClock.now - last < (Self.userActionCooldown * timeScale) { return }
         var state = ambilight
         state.style = configuration.style
         state.on = configuration.style != "OFF"
@@ -707,7 +715,7 @@ actor TVDevice {
     }
 
     private func applyAmbilightPower(_ on: Bool) {
-        if let last = lastAmbilightAction, ContinuousClock.now - last < Self.userActionCooldown { return }
+        if let last = lastAmbilightAction, ContinuousClock.now - last < (Self.userActionCooldown * timeScale) { return }
         guard on != ambilight.on else { return }
         ambilight.on = on
         logger.debug("Ambilight: \(on ? "on" : "off")")
@@ -718,7 +726,7 @@ actor TVDevice {
 
     /// The last known state at once; the TV is re-read in the background, throttled.
     func hueLampState() -> Bool {
-        if isOn, !refreshingHue, lastHueRefresh.map({ ContinuousClock.now - $0 >= Self.hueRefreshThrottle }) ?? true {
+        if isOn, !refreshingHue, lastHueRefresh.map({ ContinuousClock.now - $0 >= (Self.hueRefreshThrottle * timeScale) }) ?? true {
             refreshingHue = true
             Task { [weak self] in await self?.refreshHueLamp() }
         }
@@ -886,7 +894,7 @@ actor TVDevice {
         if origin == .sourceSwitch {
             lastSwitchRequest = (input.id, .now)
         } else {
-            if settings.sourceSwitches { try? await Task.sleep(for: Self.sceneCoalescing) }
+            if settings.sourceSwitches { try? await Task.sleep(for: (Self.sceneCoalescing * timeScale)) }
             if supersededByRecentSwitch(input) { return }
         }
         switchGeneration += 1
@@ -970,7 +978,7 @@ actor TVDevice {
     /// True when a source switch just asked for a different source: this wheel write is the leftover half
     /// of a scene. The wheel is put back on the source that won.
     private func supersededByRecentSwitch(_ input: Input) -> Bool {
-        guard let recent = lastSwitchRequest, recent.id != input.id, ContinuousClock.now - recent.at <= Self.switchPrecedence,
+        guard let recent = lastSwitchRequest, recent.id != input.id, ContinuousClock.now - recent.at <= (Self.switchPrecedence * timeScale),
               let winner = inputs.first(where: { $0.id == recent.id }) else { return false }
         logger.info("Ignoring input \(input.name): \(winner.name) was just selected from its switch. If a scene sets both, remove the one you did not intend; to pick \(input.name), choose it again.")
         currentIdentifier = winner.identifier
@@ -998,7 +1006,7 @@ actor TVDevice {
     private func replayWakeSelection() async {
         guard let parked = wakeSelection else { return }
         wakeSelection = nil
-        if ContinuousClock.now - parked.parkedAt > Self.wakeReplayWindow {
+        if ContinuousClock.now - parked.parkedAt > (Self.wakeReplayWindow * timeScale) {
             logger.debug("Discarding the stale pending switch to \(parked.input.name)")
             return
         }
@@ -1019,13 +1027,13 @@ actor TVDevice {
                 logger.info("Switched to \(parked.input.name) after the TV woke")
                 return
             }
-            if attempt < Self.wakeReplayAttempts { try? await Task.sleep(for: Self.wakeReplayRetry) }
+            if attempt < Self.wakeReplayAttempts { try? await Task.sleep(for: (Self.wakeReplayRetry * timeScale)) }
         }
         logger.warning("Could not switch to \(parked.input.name) after the TV woke")
     }
 
     private func launchTookEffect(_ input: Input) async -> Bool {
-        try? await Task.sleep(for: Self.wakeConfirmSettle)
+        try? await Task.sleep(for: (Self.wakeConfirmSettle * timeScale))
         guard let reported = try? await client.currentActivity() else { return false }
         if reported == input.id { return true }
         if Inputs.isLauncher(reported) { return input.id == JointSpace.homeURI }
@@ -1070,7 +1078,7 @@ actor TVDevice {
         if let pending = pendingIdentifier {
             if input.identifier == pending {
                 pendingIdentifier = nil
-            } else if let since = pendingSince, ContinuousClock.now - since < Self.pendingConfirmTimeout {
+            } else if let since = pendingSince, ContinuousClock.now - since < (Self.pendingConfirmTimeout * timeScale) {
                 return
             } else {
                 pendingIdentifier = nil
@@ -1104,7 +1112,7 @@ actor TVDevice {
 
     private func recordAmbiguousSighting(_ app: String) -> Bool {
         let now = ContinuousClock.now
-        if var report = ambiguousReport, report.app == app, now - report.lastSeen <= Self.ambiguousWindow {
+        if var report = ambiguousReport, report.app == app, now - report.lastSeen <= (Self.ambiguousWindow * timeScale) {
             report.sightings += 1
             report.lastSeen = now
             ambiguousReport = report

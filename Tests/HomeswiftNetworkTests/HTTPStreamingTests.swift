@@ -80,11 +80,12 @@ final class StreamingServer: Sendable {
             let piece = pieces[index]
             let loop = context.eventLoop
             let bound = NIOLoopBound(context, eventLoop: loop)
+            let handler = NIOLoopBound(self, eventLoop: loop)
             loop.scheduleTask(in: .milliseconds(30)) {
                 let context = bound.value
                 guard context.channel.isActive else { return }
-                context.writeAndFlush(self.wrapOutboundOut(.body(.byteBuffer(ByteBuffer(string: piece)))), promise: nil)
-                self.send(context: context, index: index + 1)
+                context.writeAndFlush(handler.value.wrapOutboundOut(.body(.byteBuffer(ByteBuffer(string: piece)))), promise: nil)
+                handler.value.send(context: context, index: index + 1)
             }
         }
 
