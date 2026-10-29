@@ -573,22 +573,32 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return el("span", { class: days < 30 ? "warning" : "muted", text: t("Expires {date}", { date: when(entry.expires) }) });
   }
 
+  /// Each kind's glyph and tone: a list of names reads by kind at a glance.
+  const kindLooks = { login: ["user", "blue"], apiKey: ["key", "violet"], token: ["shield", "teal"], secret: ["lock", "grey"] };
+
   function entryRow(entry, vault) {
-    const users = entry.usedBy.length ? tn("Used by {n} setting", "Used by {n} settings", entry.usedBy.length)
-      : entry.owner ? t("Kept by {plugin}", { plugin: entry.owner }) : t("Not used yet");
-    const detail = el("div", { class: "row-detail hidden" },
+    const [glyph, tone] = kindLooks[entry.kind] ?? ["key", "grey"];
+    const detail = el("div", { class: "row-detail hidden", id: `vault-users-${entry.name}` },
       el("p", { class: "muted", text: t("config.json names it in:") }), el("pre", { class: "mono", text: entry.usedBy.join("\n") }));
+    // Who uses it: the count opens the settings that name it, where the eye already is.
+    const users = entry.usedBy.length
+      ? el("button", { type: "button", class: "link vault-users", actionIcon: "search", "aria-expanded": "false", "aria-controls": detail.id,
+        text: tn("Used by {n} setting", "Used by {n} settings", entry.usedBy.length),
+        onclick: (event) => event.currentTarget.setAttribute("aria-expanded", String(!detail.classList.toggle("hidden"))) })
+      : el("span", { text: entry.owner ? t("Kept by {plugin}", { plugin: entry.owner }) : t("Not used yet") });
+    // A login names its fields; the other kinds hold one value, which the kind already says.
+    const kind = entry.kind === "login" ? `${kindNames.login} · ${entry.fields.map(fieldName).join(", ")}` : kindNames[entry.kind] ?? entry.kind;
     return el("div", { class: "row-block" },
       el("div", { class: "row" },
-        el("div", { class: "who" }, el("strong", { class: "mono", text: entry.name }),
-          el("div", { class: "muted", text: [kindNames[entry.kind] ?? entry.kind, entry.fields.map(fieldName).join(", "), users].join(" · ") })),
+        tile(glyph, tone),
+        el("div", { class: "who" }, el("strong", { class: "mono", text: entry.name, title: entry.name }),
+          el("div", { class: "muted vault-detail" }, el("span", { text: kind }), el("span", { "aria-hidden": "true", text: "·" }), users)),
         el("span", { class: "vault-when" }, expiry(entry) ?? el("span", { class: "muted", text: t("Changed {date}", { date: when(entry.changed) }) })),
         menuButton(t("Actions for {name}", { name: entry.name }), () => [
           { label: t("Copy the reference"), icon: "copy", onSelect: () => HomeswiftCommon.copyText(`vault:${entry.name}`) },
-          entry.usedBy.length ? { label: t("Where it is used"), icon: "search", onSelect: () => detail.classList.toggle("hidden") } : null,
           { label: t("Replace the value…"), icon: "edit", onSelect: () => entryDialog(entry, vault) },
           { label: t("Delete…"), icon: "trash", danger: true, onSelect: () => removeEntry(entry) },
-        ].filter(Boolean))),
+        ])),
       detail);
   }
 
@@ -605,7 +615,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       pattern: namePattern(vault), placeholder: "unifi-home" });
     const kind = el("select", {}, kinds.map(({ kind: value }) => el("option", { value, text: kindNames[value] ?? value, selected: value === (entry?.kind ?? "secret") })));
     const username = el("input", { type: "text", autocomplete: "off", placeholder: editing && entry.fields.includes("username") ? t("Unchanged") : "" });
-    const secret = el("input", { type: "password", autocomplete: "new-password", required: !editing, placeholder: editing ? t("Unchanged") : "" });
+    const secret = el("input", { type: "password", autocomplete: "new-password", required: !editing, placeholder: editing ? t("Unchanged") : "", spellcheck: false });
+    // A long key pasted in is checked by eye before it is sealed for good.
+    const reveal = el("button", { type: "button", class: "icon-button", "aria-label": t("Show the value"), title: t("Show the value"), "aria-pressed": "false" }, HomeswiftCommon.icon("eye"));
+    reveal.addEventListener("click", () => {
+      const shown = secret.type === "password";
+      secret.type = shown ? "text" : "password";
+      reveal.setAttribute("aria-pressed", String(shown));
+      reveal.setAttribute("aria-label", shown ? t("Hide the value") : t("Show the value"));
+      reveal.title = reveal.getAttribute("aria-label");
+      secret.focus();
+    });
     const expires = el("input", { type: "date", value: entry?.expires ? entry.expires.slice(0, 10) : "" });
     const mainField = () => kinds.find((k) => k.kind === kind.value)?.mainField ?? "value";
     const secretTitle = el("span", { class: "field-title" });
@@ -623,10 +643,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const form = el("form", { method: "dialog" },
       el("h2", { id: "vault-entry-title", text: editing ? t("Replace the value of {name}", { name: entry.name }) : t("Add a secret") }),
       el("p", { class: "muted", text: t("The value is sealed with this bridge's key and never shown again: keep the original in your password manager.") }),
-      el("label", { class: "field" }, el("span", { class: "field-title", text: t("Name") }), name),
+      // Replacing a value keeps the name: the title says which entry.
+      editing ? null : el("label", { class: "field" }, el("span", { class: "field-title", text: t("Name") }), name),
       el("label", { class: "field" }, el("span", { class: "field-title", text: t("Kind") }), kind),
       userField,
-      el("label", { class: "field" }, secretTitle, secret),
+      el("label", { class: "field" }, secretTitle, el("span", { class: "secret-field" }, secret, reveal)),
       el("label", { class: "field" }, el("span", { class: "field-title", text: t("Expires") }), expires,
         el("div", { class: "help", text: t("Optional: the page warns a month before.") })),
       message,
@@ -670,7 +691,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   /// References to entries the vault no longer has: the bridge does not start with them.
   function missingCard(missing) {
-    return el("div", { class: "card server" },
+    return el("div", { class: "card server vault-card" },
       el("div", { class: "server-head" }, tile("warning", "orange"),
         el("div", { class: "who" }, el("strong", { text: t("config.json names entries the vault does not have") }),
           el("div", { class: "muted", text: t("The bridge does not start until each one is added again, or its settings get another value.") }))),
@@ -684,19 +705,44 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const names = {};
     const excluded = new Set(plan.items.filter((item) => item.excluded).map((item) => item.id));
     const message = el("p", { class: "status-line muted", role: "status" });
+    // The row that names a new entry, by the entry's name: the rows that share it follow its name as it is edited.
+    const namers = {};
+    const followers = [];
     const rows = plan.items.map((item) => {
-      const box = el("input", { type: "checkbox", checked: !item.excluded, "aria-label": t("Move {setting}", { setting: `${item.name} · ${item.path}` }) });
-      const entryName = el("input", { type: "text", value: item.entry, class: "mono", autocomplete: "off", spellcheck: false, disabled: item.excluded,
-        pattern: namePattern(vault), "aria-label": t("Entry for {setting}", { setting: `${item.name} · ${item.path}` }) });
-      box.addEventListener("change", () => { if (box.checked) excluded.delete(item.id); else excluded.add(item.id); entryName.disabled = !box.checked; });
-      entryName.addEventListener("change", () => { if (entryName.value.trim() && entryName.value.trim() !== item.entry) names[item.id] = entryName.value.trim(); else delete names[item.id]; });
-      return el("div", { class: "row vault-move" },
-        box,
-        el("div", { class: "who" }, el("strong", { text: item.name }), el("div", { class: "muted mono", text: item.path })),
-        el("span", { class: "muted", text: item.shared ? t("Shares an entry") : "" }),
-        entryName);
+      const setting = `${item.name} · ${item.path}`;
+      const box = el("input", { type: "checkbox", checked: !item.excluded, "aria-label": t("Move {setting}", { setting }) });
+      let target;
+      if (item.shared) {
+        // An entry another row names (or the vault has): its name is set there, so it is shown, not asked.
+        target = el("span", { class: "muted vault-shares" });
+        followers.push({ item, target });
+      } else {
+        target = el("input", { type: "text", value: item.entry, class: "mono", autocomplete: "off", spellcheck: false, disabled: item.excluded,
+          pattern: namePattern(vault), "aria-label": t("Entry for {setting}", { setting }) });
+        namers[item.entry] = target;
+        target.addEventListener("input", () => {
+          const typed = target.value.trim();
+          if (typed && typed !== item.entry) names[item.id] = typed; else delete names[item.id];
+          showShared();
+        });
+      }
+      box.addEventListener("change", () => {
+        if (box.checked) excluded.delete(item.id); else excluded.add(item.id);
+        if (target.tagName === "INPUT") target.disabled = !box.checked;
+        row.classList.toggle("left", !box.checked);
+        count();
+      });
+      const row = el("div", { class: `row vault-move${item.excluded ? " left" : ""}` },
+        box, el("div", { class: "who" }, el("strong", { text: item.name }), el("div", { class: "muted mono", text: item.path, title: item.path })), target);
+      return row;
     });
-    const move = el("button", { actionIcon: "key", class: "primary", text: t("Move to the vault"), onclick: (event) => {
+    const showShared = () => {
+      for (const { item, target } of followers) {
+        const namer = namers[item.entry];
+        target.textContent = t("Shares {entry}", { entry: namer?.value.trim() || item.entry });
+      }
+    };
+    const move = el("button", { actionIcon: "key", class: "primary", onclick: (event) => {
       const button = event.currentTarget;
       confirmAction({
         title: t("Move config.json's secrets to the vault?"), confirmLabel: t("Move"), danger: false, confirmIcon: "key",
@@ -709,10 +755,18 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         setTimeout(() => app().route(), 1200);
       }, (e) => { message.className = "status-line error"; message.textContent = e.message; }));
     } });
-    return el("div", { class: "card server" },
+    // The button says how many it moves, and waits while none is ticked.
+    const count = () => {
+      const moving = plan.items.length - excluded.size;
+      move.textContent = tn("Move {n} secret", "Move {n} secrets", moving);
+      move.disabled = moving === 0;
+    };
+    count();
+    showShared();
+    return el("div", { class: "card server vault-card" },
       el("div", { class: "server-head" }, tile("key", "violet"),
         el("div", { class: "who" }, el("strong", { text: tn("{n} secret is still in config.json", "{n} secrets are still in config.json", plan.items.length) }),
-          el("div", { class: "muted", text: t("Move them here: identical values share one entry, and each plugin keeps working with the same value.") }))),
+          el("div", { class: "muted", text: tn("Move it here: the plugin keeps working with the same value.", "Move them here: identical values share one entry, and each plugin keeps working with the same value.", plan.items.length) }))),
       el("div", { class: "rows" }, rows),
       el("div", { class: "actions" }, move),
       message);
@@ -4242,7 +4296,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         try { entries = (await api("/api/vault")).entries; } catch { /* the menu still opens the vault */ }
         const choose = (value) => { input.value = value; reveal(); input.dispatchEvent(new Event("input", { bubbles: true })); };
         HomeswiftCommon.menu(pick, [
-          ...entries.map((entry) => ({ label: entry.name, icon: "key", onSelect: () => choose(`vault:${entry.name}`) })),
+          // The entry the field names now is ticked.
+          ...entries.map((entry) => ({ label: entry.name, icon: "key", checked: input.value === `vault:${entry.name}`, onSelect: () => choose(`vault:${entry.name}`) })),
           isReference(input.value) ? { label: t("Type a value instead"), icon: "edit", pinned: true, onSelect: () => { choose(""); input.focus(); } } : null,
           { label: entries.length ? t("Open the vault") : t("Add one in the vault"), icon: "gear", pinned: true, href: "/settings/vault" },
         ].filter(Boolean), { keyboard, search: entries.length ? t("Search the vault") : null });
@@ -10684,6 +10739,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         "i18n-es.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Spanish (Spain): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("es", {
+  "Move it here: the plugin keeps working with the same value.": "Muévelo aquí: el plugin sigue funcionando con el mismo valor.",
+  "Show the value": "Mostrar el valor",
+  "Hide the value": "Ocultar el valor",
+  "Shares {entry}": "Comparte {entry}",
+  "Move {n} secret": "Mover {n} secreto",
+  "Move {n} secrets": "Mover {n} secretos",
   "Type the API key to test another provider or address: a saved key goes only to the saved one.": "Escribe la clave de API para probar otro proveedor u otra dirección: una clave guardada solo va a los guardados.",
   "Search the vault": "Buscar en la bóveda",
   "Nothing matches.": "No hay coincidencias.",
@@ -10704,7 +10765,6 @@ HomeswiftI18n.add("es", {
   "config.json names it in:": "config.json lo nombra en:",
   "Changed {date}": "Cambiado el {date}",
   "Copy the reference": "Copiar la referencia",
-  "Where it is used": "Dónde se usa",
   "Replace the value…": "Sustituir el valor…",
   "Unchanged": "Sin cambios",
   "Replace": "Sustituir",
@@ -10723,8 +10783,6 @@ HomeswiftI18n.add("es", {
   "The bridge does not start until each one is added again, or its settings get another value.": "El puente no arranca hasta que cada una se añada de nuevo, o sus ajustes tengan otro valor.",
   "Move {setting}": "Mover {setting}",
   "Entry for {setting}": "Entrada para {setting}",
-  "Shares an entry": "Comparte una entrada",
-  "Move to the vault": "Mover a la bóveda",
   "Move config.json's secrets to the vault?": "¿Mover los secretos de config.json a la bóveda?",
   "Move": "Mover",
   "Each one becomes an entry, and config.json names it as vault:<name>. config.json is backed up first: restoring that backup undoes it.": "Cada uno se convierte en una entrada, y config.json la nombra como vault:<name>. Antes se hace una copia de seguridad de config.json: restaurarla lo deshace.",
@@ -13067,6 +13125,12 @@ HomeswiftI18n.add("es", {
         "i18n-fr.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in French: English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("fr", {
+  "Move it here: the plugin keeps working with the same value.": "Déplacez-le ici : le plugin continue de fonctionner avec la même valeur.",
+  "Show the value": "Afficher la valeur",
+  "Hide the value": "Masquer la valeur",
+  "Shares {entry}": "Partage {entry}",
+  "Move {n} secret": "Déplacer {n} secret",
+  "Move {n} secrets": "Déplacer {n} secrets",
   "Type the API key to test another provider or address: a saved key goes only to the saved one.": "Saisissez la clé d’API pour tester un autre fournisseur ou une autre adresse : une clé enregistrée ne va qu’à ceux enregistrés.",
   "Search the vault": "Rechercher dans le coffre",
   "Nothing matches.": "Aucun résultat.",
@@ -13087,7 +13151,6 @@ HomeswiftI18n.add("fr", {
   "config.json names it in:": "config.json le nomme dans :",
   "Changed {date}": "Modifié le {date}",
   "Copy the reference": "Copier la référence",
-  "Where it is used": "Où il sert",
   "Replace the value…": "Remplacer la valeur…",
   "Unchanged": "Inchangé",
   "Replace": "Remplacer",
@@ -13106,8 +13169,6 @@ HomeswiftI18n.add("fr", {
   "The bridge does not start until each one is added again, or its settings get another value.": "Le pont ne démarre pas tant que chacune n’est pas ajoutée à nouveau, ou que ses réglages n’ont pas une autre valeur.",
   "Move {setting}": "Déplacer {setting}",
   "Entry for {setting}": "Entrée pour {setting}",
-  "Shares an entry": "Partage une entrée",
-  "Move to the vault": "Déplacer dans le coffre",
   "Move config.json's secrets to the vault?": "Déplacer les secrets de config.json dans le coffre ?",
   "Move": "Déplacer",
   "Each one becomes an entry, and config.json names it as vault:<name>. config.json is backed up first: restoring that backup undoes it.": "Chacun devient une entrée, et config.json la nomme vault:<name>. config.json est d’abord sauvegardé : restaurer cette sauvegarde annule l’opération.",
@@ -15450,6 +15511,12 @@ HomeswiftI18n.add("fr", {
         "i18n-pt.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Portuguese (Portugal): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("pt", {
+  "Move it here: the plugin keeps working with the same value.": "Mova-o para aqui: o plugin continua a funcionar com o mesmo valor.",
+  "Show the value": "Mostrar o valor",
+  "Hide the value": "Ocultar o valor",
+  "Shares {entry}": "Partilha {entry}",
+  "Move {n} secret": "Mover {n} segredo",
+  "Move {n} secrets": "Mover {n} segredos",
   "Type the API key to test another provider or address: a saved key goes only to the saved one.": "Introduza a chave de API para testar outro fornecedor ou outro endereço: uma chave guardada só vai para os guardados.",
   "Search the vault": "Pesquisar no cofre",
   "Nothing matches.": "Nenhum resultado.",
@@ -15470,7 +15537,6 @@ HomeswiftI18n.add("pt", {
   "config.json names it in:": "O config.json nomeia-o em:",
   "Changed {date}": "Alterado a {date}",
   "Copy the reference": "Copiar a referência",
-  "Where it is used": "Onde é usado",
   "Replace the value…": "Substituir o valor…",
   "Unchanged": "Sem alterações",
   "Replace": "Substituir",
@@ -15489,8 +15555,6 @@ HomeswiftI18n.add("pt", {
   "The bridge does not start until each one is added again, or its settings get another value.": "A ponte não arranca até cada uma ser adicionada de novo, ou as suas definições terem outro valor.",
   "Move {setting}": "Mover {setting}",
   "Entry for {setting}": "Entrada para {setting}",
-  "Shares an entry": "Partilha uma entrada",
-  "Move to the vault": "Mover para o cofre",
   "Move config.json's secrets to the vault?": "Mover os segredos do config.json para o cofre?",
   "Move": "Mover",
   "Each one becomes an entry, and config.json names it as vault:<name>. config.json is backed up first: restoring that backup undoes it.": "Cada um passa a ser uma entrada, e o config.json nomeia-a como vault:<name>. Primeiro é feita uma cópia de segurança do config.json: restaurá-la desfaz a operação.",
@@ -22207,6 +22271,11 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .notice-list p { margin: var(--space-4) 0; font-size: var(--text-md); }
 .secret-note { margin: 0 0 var(--space-8); font-size: var(--text-sm); color: var(--warn); }
 .admin-dialog { margin: auto; width: min(520px, calc(100% - 24px)); max-height: calc(100% - 48px); overflow: auto; padding: var(--space-20) 22px; color: var(--text); background-color: var(--material-solid); }
+/* A modal grows in from a little smaller, in place (it has no trigger to grow from), with its backdrop fading in. */
+.admin-dialog:not(.sheet)[open] { animation: dialog-in 200ms var(--ease-out); }
+.admin-dialog:not(.sheet)[open]::backdrop { animation: fade 200ms ease; }
+@keyframes dialog-in { from { opacity: 0; transform: scale(0.96); } }
+@media (prefers-reduced-motion: reduce) { .admin-dialog:not(.sheet)[open] { animation: fade 160ms ease; } }
 .admin-dialog.wide { width: min(980px, calc(100% - 24px)); }
 .admin-dialog::backdrop { background: rgba(10, 14, 24, 0.35); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
 .admin-dialog h2 { margin: 0 0 var(--space-10); }
@@ -22414,13 +22483,23 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .assistant-setup-example p { font-size: var(--text-md); line-height: 1.6; }
 
 /* The Vault page: a secret of config.json to move, its entry's name editable; a field's vault picker beside it. */
-.rows > .row.vault-move { display: grid; grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 16rem); }
+.rows > .row.vault-move { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 16rem); transition: opacity 160ms ease; }
 .rows > .row.vault-move input[type="text"] { width: 100%; }
+/* A secret left in config.json stays readable but steps back, so the ones that move stand out. */
+.rows > .row.vault-move.left { opacity: 0.55; }
+.vault-shares { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); }
 @media (max-width: 640px) {
   .rows > .row.vault-move { grid-template-columns: auto minmax(0, 1fr); }
-  .rows > .row.vault-move > span:empty { display: none; }
-  .rows > .row.vault-move input[type="text"] { grid-column: 1 / -1; }
+  .rows > .row.vault-move > :last-child { grid-column: 2 / -1; }
 }
+/* The vault's cards explain themselves: their line under the title wraps instead of being cut. */
+.vault-card .server-head { align-items: flex-start; }
+.vault-card .server-head .muted { margin-top: var(--space-4); line-height: 1.5; white-space: normal; overflow: visible; }
+/* An entry's kind and who uses it, on one line; the count of users opens where config.json names it. */
+.vault-detail { display: flex; align-items: center; gap: var(--space-6); min-width: 0; }
+.vault-detail > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-detail .vault-users { padding: 0; font: inherit; color: inherit; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: 2px; }
+@media (hover: hover) and (pointer: fine) { .vault-detail .vault-users:hover { color: var(--text); } }
 span.warning { color: var(--warn); }
 .vault-when { flex-shrink: 0; white-space: nowrap; }
 /* On a phone an entry's date gives way to its name and kind; an expiry stays, it is a warning. */

@@ -2199,6 +2199,11 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .notice-list p { margin: var(--space-4) 0; font-size: var(--text-md); }
 .secret-note { margin: 0 0 var(--space-8); font-size: var(--text-sm); color: var(--warn); }
 .admin-dialog { margin: auto; width: min(520px, calc(100% - 24px)); max-height: calc(100% - 48px); overflow: auto; padding: var(--space-20) 22px; color: var(--text); background-color: var(--material-solid); }
+/* A modal grows in from a little smaller, in place (it has no trigger to grow from), with its backdrop fading in. */
+.admin-dialog:not(.sheet)[open] { animation: dialog-in 200ms var(--ease-out); }
+.admin-dialog:not(.sheet)[open]::backdrop { animation: fade 200ms ease; }
+@keyframes dialog-in { from { opacity: 0; transform: scale(0.96); } }
+@media (prefers-reduced-motion: reduce) { .admin-dialog:not(.sheet)[open] { animation: fade 160ms ease; } }
 .admin-dialog.wide { width: min(980px, calc(100% - 24px)); }
 .admin-dialog::backdrop { background: rgba(10, 14, 24, 0.35); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
 .admin-dialog h2 { margin: 0 0 var(--space-10); }
@@ -2406,13 +2411,23 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .assistant-setup-example p { font-size: var(--text-md); line-height: 1.6; }
 
 /* The Vault page: a secret of config.json to move, its entry's name editable; a field's vault picker beside it. */
-.rows > .row.vault-move { display: grid; grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 16rem); }
+.rows > .row.vault-move { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 16rem); transition: opacity 160ms ease; }
 .rows > .row.vault-move input[type="text"] { width: 100%; }
+/* A secret left in config.json stays readable but steps back, so the ones that move stand out. */
+.rows > .row.vault-move.left { opacity: 0.55; }
+.vault-shares { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); }
 @media (max-width: 640px) {
   .rows > .row.vault-move { grid-template-columns: auto minmax(0, 1fr); }
-  .rows > .row.vault-move > span:empty { display: none; }
-  .rows > .row.vault-move input[type="text"] { grid-column: 1 / -1; }
+  .rows > .row.vault-move > :last-child { grid-column: 2 / -1; }
 }
+/* The vault's cards explain themselves: their line under the title wraps instead of being cut. */
+.vault-card .server-head { align-items: flex-start; }
+.vault-card .server-head .muted { margin-top: var(--space-4); line-height: 1.5; white-space: normal; overflow: visible; }
+/* An entry's kind and who uses it, on one line; the count of users opens where config.json names it. */
+.vault-detail { display: flex; align-items: center; gap: var(--space-6); min-width: 0; }
+.vault-detail > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-detail .vault-users { padding: 0; font: inherit; color: inherit; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: 2px; }
+@media (hover: hover) and (pointer: fine) { .vault-detail .vault-users:hover { color: var(--text); } }
 span.warning { color: var(--warn); }
 .vault-when { flex-shrink: 0; white-space: nowrap; }
 /* On a phone an entry's date gives way to its name and kind; an expiry stays, it is a warning. */

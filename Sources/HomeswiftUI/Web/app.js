@@ -2682,7 +2682,8 @@
         try { entries = (await api("/api/vault")).entries; } catch { /* the menu still opens the vault */ }
         const choose = (value) => { input.value = value; reveal(); input.dispatchEvent(new Event("input", { bubbles: true })); };
         HomeswiftCommon.menu(pick, [
-          ...entries.map((entry) => ({ label: entry.name, icon: "key", onSelect: () => choose(`vault:${entry.name}`) })),
+          // The entry the field names now is ticked.
+          ...entries.map((entry) => ({ label: entry.name, icon: "key", checked: input.value === `vault:${entry.name}`, onSelect: () => choose(`vault:${entry.name}`) })),
           isReference(input.value) ? { label: t("Type a value instead"), icon: "edit", pinned: true, onSelect: () => { choose(""); input.focus(); } } : null,
           { label: entries.length ? t("Open the vault") : t("Add one in the vault"), icon: "gear", pinned: true, href: "/settings/vault" },
         ].filter(Boolean), { keyboard, search: entries.length ? t("Search the vault") : null });

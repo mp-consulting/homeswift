@@ -564,22 +564,32 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return el("span", { class: days < 30 ? "warning" : "muted", text: t("Expires {date}", { date: when(entry.expires) }) });
   }
 
+  /// Each kind's glyph and tone: a list of names reads by kind at a glance.
+  const kindLooks = { login: ["user", "blue"], apiKey: ["key", "violet"], token: ["shield", "teal"], secret: ["lock", "grey"] };
+
   function entryRow(entry, vault) {
-    const users = entry.usedBy.length ? tn("Used by {n} setting", "Used by {n} settings", entry.usedBy.length)
-      : entry.owner ? t("Kept by {plugin}", { plugin: entry.owner }) : t("Not used yet");
-    const detail = el("div", { class: "row-detail hidden" },
+    const [glyph, tone] = kindLooks[entry.kind] ?? ["key", "grey"];
+    const detail = el("div", { class: "row-detail hidden", id: `vault-users-${entry.name}` },
       el("p", { class: "muted", text: t("config.json names it in:") }), el("pre", { class: "mono", text: entry.usedBy.join("\n") }));
+    // Who uses it: the count opens the settings that name it, where the eye already is.
+    const users = entry.usedBy.length
+      ? el("button", { type: "button", class: "link vault-users", actionIcon: "search", "aria-expanded": "false", "aria-controls": detail.id,
+        text: tn("Used by {n} setting", "Used by {n} settings", entry.usedBy.length),
+        onclick: (event) => event.currentTarget.setAttribute("aria-expanded", String(!detail.classList.toggle("hidden"))) })
+      : el("span", { text: entry.owner ? t("Kept by {plugin}", { plugin: entry.owner }) : t("Not used yet") });
+    // A login names its fields; the other kinds hold one value, which the kind already says.
+    const kind = entry.kind === "login" ? `${kindNames.login} · ${entry.fields.map(fieldName).join(", ")}` : kindNames[entry.kind] ?? entry.kind;
     return el("div", { class: "row-block" },
       el("div", { class: "row" },
-        el("div", { class: "who" }, el("strong", { class: "mono", text: entry.name }),
-          el("div", { class: "muted", text: [kindNames[entry.kind] ?? entry.kind, entry.fields.map(fieldName).join(", "), users].join(" · ") })),
+        tile(glyph, tone),
+        el("div", { class: "who" }, el("strong", { class: "mono", text: entry.name, title: entry.name }),
+          el("div", { class: "muted vault-detail" }, el("span", { text: kind }), el("span", { "aria-hidden": "true", text: "·" }), users)),
         el("span", { class: "vault-when" }, expiry(entry) ?? el("span", { class: "muted", text: t("Changed {date}", { date: when(entry.changed) }) })),
         menuButton(t("Actions for {name}", { name: entry.name }), () => [
           { label: t("Copy the reference"), icon: "copy", onSelect: () => HomeswiftCommon.copyText(`vault:${entry.name}`) },
-          entry.usedBy.length ? { label: t("Where it is used"), icon: "search", onSelect: () => detail.classList.toggle("hidden") } : null,
           { label: t("Replace the value…"), icon: "edit", onSelect: () => entryDialog(entry, vault) },
           { label: t("Delete…"), icon: "trash", danger: true, onSelect: () => removeEntry(entry) },
-        ].filter(Boolean))),
+        ])),
       detail);
   }
 
@@ -596,7 +606,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       pattern: namePattern(vault), placeholder: "unifi-home" });
     const kind = el("select", {}, kinds.map(({ kind: value }) => el("option", { value, text: kindNames[value] ?? value, selected: value === (entry?.kind ?? "secret") })));
     const username = el("input", { type: "text", autocomplete: "off", placeholder: editing && entry.fields.includes("username") ? t("Unchanged") : "" });
-    const secret = el("input", { type: "password", autocomplete: "new-password", required: !editing, placeholder: editing ? t("Unchanged") : "" });
+    const secret = el("input", { type: "password", autocomplete: "new-password", required: !editing, placeholder: editing ? t("Unchanged") : "", spellcheck: false });
+    // A long key pasted in is checked by eye before it is sealed for good.
+    const reveal = el("button", { type: "button", class: "icon-button", "aria-label": t("Show the value"), title: t("Show the value"), "aria-pressed": "false" }, HomeswiftCommon.icon("eye"));
+    reveal.addEventListener("click", () => {
+      const shown = secret.type === "password";
+      secret.type = shown ? "text" : "password";
+      reveal.setAttribute("aria-pressed", String(shown));
+      reveal.setAttribute("aria-label", shown ? t("Hide the value") : t("Show the value"));
+      reveal.title = reveal.getAttribute("aria-label");
+      secret.focus();
+    });
     const expires = el("input", { type: "date", value: entry?.expires ? entry.expires.slice(0, 10) : "" });
     const mainField = () => kinds.find((k) => k.kind === kind.value)?.mainField ?? "value";
     const secretTitle = el("span", { class: "field-title" });
@@ -614,10 +634,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const form = el("form", { method: "dialog" },
       el("h2", { id: "vault-entry-title", text: editing ? t("Replace the value of {name}", { name: entry.name }) : t("Add a secret") }),
       el("p", { class: "muted", text: t("The value is sealed with this bridge's key and never shown again: keep the original in your password manager.") }),
-      el("label", { class: "field" }, el("span", { class: "field-title", text: t("Name") }), name),
+      // Replacing a value keeps the name: the title says which entry.
+      editing ? null : el("label", { class: "field" }, el("span", { class: "field-title", text: t("Name") }), name),
       el("label", { class: "field" }, el("span", { class: "field-title", text: t("Kind") }), kind),
       userField,
-      el("label", { class: "field" }, secretTitle, secret),
+      el("label", { class: "field" }, secretTitle, el("span", { class: "secret-field" }, secret, reveal)),
       el("label", { class: "field" }, el("span", { class: "field-title", text: t("Expires") }), expires,
         el("div", { class: "help", text: t("Optional: the page warns a month before.") })),
       message,
@@ -661,7 +682,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   /// References to entries the vault no longer has: the bridge does not start with them.
   function missingCard(missing) {
-    return el("div", { class: "card server" },
+    return el("div", { class: "card server vault-card" },
       el("div", { class: "server-head" }, tile("warning", "orange"),
         el("div", { class: "who" }, el("strong", { text: t("config.json names entries the vault does not have") }),
           el("div", { class: "muted", text: t("The bridge does not start until each one is added again, or its settings get another value.") }))),
@@ -675,19 +696,44 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const names = {};
     const excluded = new Set(plan.items.filter((item) => item.excluded).map((item) => item.id));
     const message = el("p", { class: "status-line muted", role: "status" });
+    // The row that names a new entry, by the entry's name: the rows that share it follow its name as it is edited.
+    const namers = {};
+    const followers = [];
     const rows = plan.items.map((item) => {
-      const box = el("input", { type: "checkbox", checked: !item.excluded, "aria-label": t("Move {setting}", { setting: `${item.name} · ${item.path}` }) });
-      const entryName = el("input", { type: "text", value: item.entry, class: "mono", autocomplete: "off", spellcheck: false, disabled: item.excluded,
-        pattern: namePattern(vault), "aria-label": t("Entry for {setting}", { setting: `${item.name} · ${item.path}` }) });
-      box.addEventListener("change", () => { if (box.checked) excluded.delete(item.id); else excluded.add(item.id); entryName.disabled = !box.checked; });
-      entryName.addEventListener("change", () => { if (entryName.value.trim() && entryName.value.trim() !== item.entry) names[item.id] = entryName.value.trim(); else delete names[item.id]; });
-      return el("div", { class: "row vault-move" },
-        box,
-        el("div", { class: "who" }, el("strong", { text: item.name }), el("div", { class: "muted mono", text: item.path })),
-        el("span", { class: "muted", text: item.shared ? t("Shares an entry") : "" }),
-        entryName);
+      const setting = `${item.name} · ${item.path}`;
+      const box = el("input", { type: "checkbox", checked: !item.excluded, "aria-label": t("Move {setting}", { setting }) });
+      let target;
+      if (item.shared) {
+        // An entry another row names (or the vault has): its name is set there, so it is shown, not asked.
+        target = el("span", { class: "muted vault-shares" });
+        followers.push({ item, target });
+      } else {
+        target = el("input", { type: "text", value: item.entry, class: "mono", autocomplete: "off", spellcheck: false, disabled: item.excluded,
+          pattern: namePattern(vault), "aria-label": t("Entry for {setting}", { setting }) });
+        namers[item.entry] = target;
+        target.addEventListener("input", () => {
+          const typed = target.value.trim();
+          if (typed && typed !== item.entry) names[item.id] = typed; else delete names[item.id];
+          showShared();
+        });
+      }
+      box.addEventListener("change", () => {
+        if (box.checked) excluded.delete(item.id); else excluded.add(item.id);
+        if (target.tagName === "INPUT") target.disabled = !box.checked;
+        row.classList.toggle("left", !box.checked);
+        count();
+      });
+      const row = el("div", { class: `row vault-move${item.excluded ? " left" : ""}` },
+        box, el("div", { class: "who" }, el("strong", { text: item.name }), el("div", { class: "muted mono", text: item.path, title: item.path })), target);
+      return row;
     });
-    const move = el("button", { actionIcon: "key", class: "primary", text: t("Move to the vault"), onclick: (event) => {
+    const showShared = () => {
+      for (const { item, target } of followers) {
+        const namer = namers[item.entry];
+        target.textContent = t("Shares {entry}", { entry: namer?.value.trim() || item.entry });
+      }
+    };
+    const move = el("button", { actionIcon: "key", class: "primary", onclick: (event) => {
       const button = event.currentTarget;
       confirmAction({
         title: t("Move config.json's secrets to the vault?"), confirmLabel: t("Move"), danger: false, confirmIcon: "key",
@@ -700,10 +746,18 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         setTimeout(() => app().route(), 1200);
       }, (e) => { message.className = "status-line error"; message.textContent = e.message; }));
     } });
-    return el("div", { class: "card server" },
+    // The button says how many it moves, and waits while none is ticked.
+    const count = () => {
+      const moving = plan.items.length - excluded.size;
+      move.textContent = tn("Move {n} secret", "Move {n} secrets", moving);
+      move.disabled = moving === 0;
+    };
+    count();
+    showShared();
+    return el("div", { class: "card server vault-card" },
       el("div", { class: "server-head" }, tile("key", "violet"),
         el("div", { class: "who" }, el("strong", { text: tn("{n} secret is still in config.json", "{n} secrets are still in config.json", plan.items.length) }),
-          el("div", { class: "muted", text: t("Move them here: identical values share one entry, and each plugin keeps working with the same value.") }))),
+          el("div", { class: "muted", text: tn("Move it here: the plugin keeps working with the same value.", "Move them here: identical values share one entry, and each plugin keeps working with the same value.", plan.items.length) }))),
       el("div", { class: "rows" }, rows),
       el("div", { class: "actions" }, move),
       message);

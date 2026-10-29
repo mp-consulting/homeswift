@@ -110,6 +110,15 @@ struct VaultMigrationTests {
         #expect(all.newEntries.values.contains { $0.fields["value"] == "opened-pass" })
     }
 
+    @Test func anInstanceNameThatBeginsWithThePlatformIsNotRepeated() throws {
+        let config: JSONValue = ["platforms": [
+            ["platform": "Govee", "name": "Govee", "apiKey": "key-one-1"],
+            ["platform": "Govee", "name": "Govee Garden", "apiKey": "key-two-2"],
+        ]]
+        let plan = try VaultMigration.plan(stored: config, opened: config, existing: [:])
+        #expect(plan.items.map(\.entry) == ["govee-apikey", "govee-garden-apikey"])
+    }
+
     @Test func sharedNames() {
         #expect(VaultMigration.sharedName(["unifiprotect-password", "unifiaccess-password"]) == "unifi-password")
         #expect(VaultMigration.sharedName(["hue-password", "govee-password"]) == "password")

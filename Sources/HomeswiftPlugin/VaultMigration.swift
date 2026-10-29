@@ -92,7 +92,10 @@ public struct VaultMigration: Sendable {
             let platform = block["platform"]?.stringValue ?? ""
             guard !skippedPlatforms.contains(platform), index < openedPlatforms.count else { continue }
             let name = block["name"]?.stringValue ?? platform
-            let prefix = (counts[platform, default: 0] > 1 ? [platform, name] : [platform]).map(Slug.make)
+            // The platform, and the instance's name when there are several: once, when the name begins with the platform's
+            // (`Govee Garden` is `govee-garden`, not `govee-govee-garden`).
+            let (platformSlug, nameSlug) = (Slug.make(platform), Slug.make(name))
+            let prefix = counts[platform, default: 0] < 2 ? [platformSlug] : nameSlug.hasPrefix(platformSlug) ? [nameSlug] : [platformSlug, nameSlug]
             SecretWalk.forEach(block, skipping: skippedKeys) { path, key, secret in
                 let value: String
                 switch (secret, SecretWalk.value(at: path, in: openedPlatforms[index])) {

@@ -1,5 +1,11 @@
 // The web UI in French: English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("fr", {
+  "Move it here: the plugin keeps working with the same value.": "Déplacez-le ici : le plugin continue de fonctionner avec la même valeur.",
+  "Show the value": "Afficher la valeur",
+  "Hide the value": "Masquer la valeur",
+  "Shares {entry}": "Partage {entry}",
+  "Move {n} secret": "Déplacer {n} secret",
+  "Move {n} secrets": "Déplacer {n} secrets",
   "Type the API key to test another provider or address: a saved key goes only to the saved one.": "Saisissez la clé d’API pour tester un autre fournisseur ou une autre adresse : une clé enregistrée ne va qu’à ceux enregistrés.",
   "Search the vault": "Rechercher dans le coffre",
   "Nothing matches.": "Aucun résultat.",
@@ -20,7 +26,6 @@ HomeswiftI18n.add("fr", {
   "config.json names it in:": "config.json le nomme dans :",
   "Changed {date}": "Modifié le {date}",
   "Copy the reference": "Copier la référence",
-  "Where it is used": "Où il sert",
   "Replace the value…": "Remplacer la valeur…",
   "Unchanged": "Inchangé",
   "Replace": "Remplacer",
@@ -39,8 +44,6 @@ HomeswiftI18n.add("fr", {
   "The bridge does not start until each one is added again, or its settings get another value.": "Le pont ne démarre pas tant que chacune n’est pas ajoutée à nouveau, ou que ses réglages n’ont pas une autre valeur.",
   "Move {setting}": "Déplacer {setting}",
   "Entry for {setting}": "Entrée pour {setting}",
-  "Shares an entry": "Partage une entrée",
-  "Move to the vault": "Déplacer dans le coffre",
   "Move config.json's secrets to the vault?": "Déplacer les secrets de config.json dans le coffre ?",
   "Move": "Déplacer",
   "Each one becomes an entry, and config.json names it as vault:<name>. config.json is backed up first: restoring that backup undoes it.": "Chacun devient une entrée, et config.json la nomme vault:<name>. config.json est d’abord sauvegardé : restaurer cette sauvegarde annule l’opération.",

@@ -1,5 +1,11 @@
 // The web UI in Spanish (Spain): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("es", {
+  "Move it here: the plugin keeps working with the same value.": "Muévelo aquí: el plugin sigue funcionando con el mismo valor.",
+  "Show the value": "Mostrar el valor",
+  "Hide the value": "Ocultar el valor",
+  "Shares {entry}": "Comparte {entry}",
+  "Move {n} secret": "Mover {n} secreto",
+  "Move {n} secrets": "Mover {n} secretos",
   "Type the API key to test another provider or address: a saved key goes only to the saved one.": "Escribe la clave de API para probar otro proveedor u otra dirección: una clave guardada solo va a los guardados.",
   "Search the vault": "Buscar en la bóveda",
   "Nothing matches.": "No hay coincidencias.",
@@ -20,7 +26,6 @@ HomeswiftI18n.add("es", {
   "config.json names it in:": "config.json lo nombra en:",
   "Changed {date}": "Cambiado el {date}",
   "Copy the reference": "Copiar la referencia",
-  "Where it is used": "Dónde se usa",
   "Replace the value…": "Sustituir el valor…",
   "Unchanged": "Sin cambios",
   "Replace": "Sustituir",
@@ -39,8 +44,6 @@ HomeswiftI18n.add("es", {
   "The bridge does not start until each one is added again, or its settings get another value.": "El puente no arranca hasta que cada una se añada de nuevo, o sus ajustes tengan otro valor.",
   "Move {setting}": "Mover {setting}",
   "Entry for {setting}": "Entrada para {setting}",
-  "Shares an entry": "Comparte una entrada",
-  "Move to the vault": "Mover a la bóveda",
   "Move config.json's secrets to the vault?": "¿Mover los secretos de config.json a la bóveda?",
   "Move": "Mover",
   "Each one becomes an entry, and config.json names it as vault:<name>. config.json is backed up first: restoring that backup undoes it.": "Cada uno se convierte en una entrada, y config.json la nombra como vault:<name>. Antes se hace una copia de seguridad de config.json: restaurarla lo deshace.",
