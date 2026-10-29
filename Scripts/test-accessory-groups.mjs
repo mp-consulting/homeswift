@@ -74,9 +74,9 @@ console.log('Passed: group room/plugin placement, reordered walls, filtered and 
 // Exercise the production room action: one metadata request, never a device write.
 let answer = ' Bedroom ', prompted, routes = 0, failure = false;
 const roomRequests = [];
-const roomContext = { window: {}, HomeswiftCommon: {},
-  HomeswiftI18n: { locale: 'en', t: key => key },
-  prompt: (message, value) => { prompted = { message, value }; return answer; } };
+const roomContext = { window: {},
+  HomeswiftCommon: { promptDialog: async (message, value) => { prompted = { message, value }; return answer; } },
+  HomeswiftI18n: { locale: 'en', t: key => key } };
 vm.runInNewContext(readFileSync('Sources/HomeswiftUI/Web/home.js', 'utf8'), roomContext);
 roomContext.window.HomeswiftHome.install({ views: {}, route: () => { routes++; },
   api: async (path, options) => {

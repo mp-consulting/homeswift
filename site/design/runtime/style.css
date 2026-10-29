@@ -3657,3 +3657,7 @@ select option:disabled { color: var(--muted); }
   .scene-flow-body .editor-row { padding: var(--space-10); gap: var(--space-12); }
   .scene-flow-body .scene-condition-remove { align-self: stretch; width: 100%; margin-top: var(--space-4); }
 }
+
+.message-dialog { max-width: min(560px, calc(100vw - 32px)); }
+.dialog-message { white-space: pre-wrap; overflow-wrap: anywhere; }
+.message-dialog input { width: 100%; min-width: 0; }

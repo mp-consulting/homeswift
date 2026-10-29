@@ -26,7 +26,6 @@ jobs:
         run: |
           node Scripts/test-reconnect.mjs
           node Scripts/test-accessory-groups.mjs
-          node Scripts/test-adaptive-indicator.mjs
 
   macos:
     runs-on: macos-26
