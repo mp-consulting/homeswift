@@ -38,6 +38,12 @@ extension HomeswiftCatalog {
             return ConnectionTestResult(ok: false, message: "There is no HomeswiftAiKit block: choose a provider first.").json
         }
         if let saved, Redaction.containsRedacted(tested) { tested = (try? Redaction.restoreSecrets(tested, from: saved)) ?? tested }
+        // A sealed key or a reference (`vault:`, `env:`) is sent as the key it stands for.
+        do {
+            tested = try ConfigurationSecrets.opening(block: tested, storage: storageDirectory)
+        } catch {
+            return ConnectionTestResult(ok: false, message: "\(error)").json
+        }
         let result = await AssistantService.testConnection(block: tested, transport: host.aiTransport, usage: host.assistant?.usage, user: user)
         logger.info("Assistant connection test", metadata: ["ok": "\(result.ok)", "provider": "\(result.provider ?? "?")", "model": "\(result.model ?? "?")"])
         return result.json

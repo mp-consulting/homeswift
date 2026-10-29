@@ -15,6 +15,11 @@ All notable changes to this project are documented here. The format follows
   which a reference that does not resolve stops; they are kept as they are by the sealing and shown by `get_config`.
   Every secret the bridge opens or resolves is masked by its exact text in logs, MCP replies and the Assistant's
   prompts.
+- Moving config.json into the vault: `homeswift vault migrate` (`--dry-run`, `--exclude`, `--separate`, `--name
+  <id>=<entry>`) and the MCP tool `migrate_to_vault` (confirmed, with `dryRun`) list every secret of the plugin blocks
+  and the Assistant's block with the entry it becomes, merge identical values into one entry, back up config.json and
+  write it with `vault:` references. From then on a new plain secret in a save goes to the vault too. The Assistant's
+  connection test opens sealed keys and references before it sends them.
 - Plugins' tokens in the vault: `context.secretFile(_:as:)` keeps a token or a key like `jsonFile`, sealed in the
   instance's namespace of the vault, and moves the plain file of that name into it the first time it reads it. eWeLink's
   session (`ewelink-tokens.json`), DaikinCloud's token sets (`.daikin-*-tokenset`, so one copied from Homebridge still

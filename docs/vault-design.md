@@ -81,16 +81,21 @@ Existing configs move to the vault on request; nothing is rewritten without it.
   the reference that replaces it. Names are suggested from the platform and instance
   (`unifi-protect-home-password`, the platform alone for a single instance; a merged entry after what its users
   share) and editable; a merge can be split; fields and whole plugins can be left out.
-- **What it moves.** Sealed `enc:v1:` values, plain-text secrets of older configs, fields a schema marks as
-  passwords. `env:` and `file:` values and the Assistant's empty key (which reads the environment) stay.
+- **What it moves.** Sealed `enc:v1:` values and plain-text secrets of older configs, under secret-named keys (the
+  rule sealing and references follow: a field only a schema marks as a password, Govee's `localKey`, is neither
+  sealed nor resolved, so it stays). References and the Assistant's empty key (which reads the environment) stay, and
+  so do the web UI's block, the MCP server's tokens (`mcp`) and child bridges' `_bridge`, which the runtime reads before
+  it resolves references. Each secret has an id, `<platform>/<name>:<path>`, which names, exclusions and separate
+  entries refer to; a value the vault already holds goes to that entry.
 - **Where to.** Always the local vault. Moving a credential to 1Password afterwards is replacing that entry with an
   `op://` reference; config.json, which names the entry, does not change.
 - **Undo.** A config backup is taken before applying (`list_config_backups`, `restore_config`).
 - **Runtime tokens.** A plugin's own token files move into its namespace the first time it starts on the new
   version, without asking.
-- **After.** Once migrated, a plain secret arriving in a config save (the form, `patch_config`, an old backup
-  restored) becomes a vault entry and config.json gets its reference. Installs that never migrate keep inline
-  sealing.
+- **After.** Once config.json names the vault, a new plain secret arriving in a config save (the form,
+  `patch_config`, an old backup restored) becomes a vault entry, or goes to the entry that holds it, and config.json
+  gets its reference. A secret the file already has (one the migration was told to leave) stays sealed. Installs that
+  never migrate keep inline sealing.
 
 ## Not doing
 

@@ -530,31 +530,42 @@ public struct HomeswiftCatalog: Sendable {
     func writeConfig(_ config: JSONValue, expecting: JSONValue? = nil) throws -> String {
         try configWrites.withLock {
             if let expecting, try readConfig() != expecting { throw ConfigChanged() }
-            // Every write seals the plain secrets it holds (the editor, the MCP tools, a restored backup), so none
-            // reaches config.json as plain text. The key is made on the first plain secret; a config without one never
-            // creates it.
-            var key: SecretBox?
-            let stored = try SecretBox.sealingSecrets(config) { text in
-                let box = try key ?? SecretBox.load(storage: storageDirectory, create: true)
-                key = box
-                return try box.seal(text)
-            }
-            let manager = FileManager.default
-            try manager.createDirectory(at: backupsDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-            let stamp = Timestamp.iso8601(Date()).replacingOccurrences(of: ":", with: "-")
-            var backup = "config-\(stamp).json"
-            var suffix = 2
-            while manager.fileExists(atPath: backupsDirectory.appendingPathComponent(backup).path) {
-                backup = "config-\(stamp)-\(suffix).json"
-                suffix += 1
-            }
-            if manager.fileExists(atPath: configURL.path) {
-                try manager.copyItem(at: configURL, to: backupsDirectory.appendingPathComponent(backup))
-            }
-            for old in backups().dropLast(20) { try? manager.removeItem(at: backupsDirectory.appendingPathComponent(old)) }
-            try OwnerOnlyFile.write(stored.encoded(pretty: true), to: configURL)
-            return backup
+            // Once config.json names the vault, a plain secret a save brings (the editor, the MCP tools, a restored backup)
+            // becomes an entry, and the file gets its reference.
+            let config = VaultMigration.isMigrated(config) ? try movingNewSecretsToVault(config) : config
+            return try Self.writeConfigFile(config, to: configURL)
         }
+    }
+
+    /// Writes `config` as config.json, owner-only, after a backup of the current file in `backups/` (the last 20 are
+    /// kept). Returns the backup's name. Every write seals the plain secrets it holds, so none reaches config.json as
+    /// plain text. The key is made on the first plain secret; a config without one never creates it. The CLI's
+    /// `homeswift vault migrate` writes through it too.
+    public static func writeConfigFile(_ config: JSONValue, to configURL: URL) throws -> String {
+        let storageDirectory = configURL.deletingLastPathComponent()
+        let backupsDirectory = storageDirectory.appendingPathComponent("backups")
+        var key: SecretBox?
+        let stored = try SecretBox.sealingSecrets(config) { text in
+            let box = try key ?? SecretBox.load(storage: storageDirectory, create: true)
+            key = box
+            return try box.seal(text)
+        }
+        let manager = FileManager.default
+        try manager.createDirectory(at: backupsDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let stamp = Timestamp.iso8601(Date()).replacingOccurrences(of: ":", with: "-")
+        var backup = "config-\(stamp).json"
+        var suffix = 2
+        while manager.fileExists(atPath: backupsDirectory.appendingPathComponent(backup).path) {
+            backup = "config-\(stamp)-\(suffix).json"
+            suffix += 1
+        }
+        if manager.fileExists(atPath: configURL.path) {
+            try manager.copyItem(at: configURL, to: backupsDirectory.appendingPathComponent(backup))
+        }
+        let backups = ((try? manager.contentsOfDirectory(atPath: backupsDirectory.path)) ?? []).filter { $0.hasPrefix("config-") && $0.hasSuffix(".json") }.sorted()
+        for old in backups.dropLast(20) { try? manager.removeItem(at: backupsDirectory.appendingPathComponent(old)) }
+        try OwnerOnlyFile.write(stored.encoded(pretty: true), to: configURL)
+        return backup
     }
 
     /// When config.json turns the MCP server on and no client has a token (none in the block, none from the
@@ -1059,7 +1070,7 @@ public struct HomeswiftCatalog: Sendable {
                     block[list] = .array(entries)
                 })
             },
-        ] + hostTools + adminTools + layoutTools + wallTools + sceneTools + moodTools + notificationTools + assistantTools + pluginActionTools
+        ] + hostTools + adminTools + layoutTools + wallTools + sceneTools + moodTools + notificationTools + assistantTools + vaultTools + pluginActionTools
     }
 
     /// `set_accessories` with `ids` or `filter`: one characteristic and value on every target.

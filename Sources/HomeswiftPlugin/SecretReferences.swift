@@ -150,6 +150,18 @@ public enum ConfigurationSecrets {
         return result
     }
 
+    /// One block as config.json holds it (a form's, or the file's) with its sealed secrets opened and its references
+    /// resolved: for what reads a block outside the running configuration, the Assistant's connection test.
+    public static func opening(block: JSONValue, storage: URL, environment: [String: String] = ProcessInfo.processInfo.environment) throws -> JSONValue {
+        let revealed = try SecretBox.revealed(block, storage: storage)
+        var resolved: [String] = []
+        var failures: [SecretReferenceError.Failure] = []
+        let next = SecretResolver(storage: storage, environment: environment).resolving(revealed, resolved: &resolved, failures: &failures)
+        if !failures.isEmpty { throw SecretReferenceError(failures: failures) }
+        Redaction.rememberSecrets(resolved)
+        return next
+    }
+
     /// The strings of `opened` whose counterpart in `stored` was sealed.
     private static func collectOpened(_ stored: JSONValue, _ opened: JSONValue, into values: inout [String]) {
         switch (stored, opened) {
