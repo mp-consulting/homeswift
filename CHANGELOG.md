@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Scenes written to the hubs: a new scene of lights only can be saved to the Hue room or zone, or the IKEA hub, that
+  has them all (`save_scene`'s `hub`, the editor's save bar); a hub's scene can be renamed, keep its lights as they are,
+  or be deleted from its hub (`update_hub_scene`, `delete_hub_scene`, which asks first; the Scenes page's ⋯ menu).
+  Plugins write scenes through `sceneTarget`, `createScene`, `updateScene` and `deleteScene` (`PluginSceneLight`);
+  DIRIGERA's from lpgera/dirigera.
 - Scene pictures of your own on the Scenes page: a scene's or a hub scene's ⋯ menu chooses a picture or removes it
   (`/api/scenes/<id>/picture`). The bridge keeps every scene's picture in `scene-pictures/`; the Hue and IKEA pages
   show and change the same ones (`PluginContext.scenePictures()`), and the pictures they kept before move there once.

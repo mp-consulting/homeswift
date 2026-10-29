@@ -200,7 +200,7 @@ sends you back.
 |---|---|
 | `read` | `get_server_status`, `list_accessories`, `get_accessory`, `get_accessory_history`, `list_plugins`, `get_config`, `list_config_backups`, `get_recent_logs`, `search_logs`, `get_system_info`, `list_child_bridges`, `get_child_bridge_health`, `get_cached_accessories`, `get_pairing_info`, `list_backups`, `get_accessory_layout`, `get_wall_layout`, `list_scenes`, `list_scene_templates`, `get_assistant_usage`, `get_daily_digest` |
 | `control` | Plus `set_accessory`, `set_accessories` (with `dryRun`), `set_security_accessory`, `identify_accessory`, `run_scene` (a saved scene, a hub's, or a `plan`), `stop_scene` |
-| `admin` | Plus `update_config`, `patch_config`, `restore_config`, `put_list_entry`, `restart_bridge`, `restart_child_bridge`, `stop_child_bridge`, `start_child_bridge`, `remove_cached_accessory`, `reset_cached_accessories`, `reset_pairings`, `create_backup`, `get_audit_log`, `update_bridge_settings`, `set_accessory_layout`, `set_wall_layout`, `save_scene` (with `dryRun`), `send_test_notification`, `truncate_logs`, `test_assistant_connection` |
+| `admin` | Plus `update_config`, `patch_config`, `restore_config`, `put_list_entry`, `restart_bridge`, `restart_child_bridge`, `stop_child_bridge`, `start_child_bridge`, `remove_cached_accessory`, `reset_cached_accessories`, `reset_pairings`, `create_backup`, `get_audit_log`, `update_bridge_settings`, `set_accessory_layout`, `set_wall_layout`, `save_scene` (with `dryRun`), `update_hub_scene` (with `dryRun`), `delete_hub_scene`, `send_test_notification`, `truncate_logs`, `test_assistant_connection` |
 
 A token sees only the tools its scope allows. Locks, garage doors and alarms (Lock Target State, Target
 Door State, Security System Target State, Lock Control Point) change only through `set_security_accessory`;
@@ -258,7 +258,10 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   scene answers per action; it refuses a scene with a security action, as homebridge-mcp-server's does: those
   go through `set_security_accessory`, which asks, or the web UI, where the signed-in user confirms. `save_scene`
   keeps a `plan`, or makes a scene from the current values of `ids` (only `characteristics`, when given), never capturing a security
-  control; `dryRun` lists the actions. The `scene-builder` prompt ends with it.
+  control; `dryRun` lists the actions and `hubs`, the hubs that could keep it instead. With `hub` (a Hue Bridge's or an
+  IKEA hub's), the scene is kept on that hub: lights' On, Brightness, colour and white only, no triggers or animation.
+  `update_hub_scene` renames a hub's scene or replaces its lights (from a `plan`, or `fromCurrent`: as they are now), and
+  `delete_hub_scene` removes it from its hub, after the user confirms. The `scene-builder` prompt ends with it.
 - **How scenes change lights.** Only lightbulbs move in an animation, never a security control. Homeswift's player
   writes every light of a step at the same time, at least a quarter of a second a step since many lights fade; a scene
   started on lights another plays on takes them over and puts them back as they were before the first; one that takes

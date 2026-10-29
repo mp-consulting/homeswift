@@ -87,5 +87,7 @@ The AI composes a scene and runs it without saving it, as moods did:
 3. Animated scenes: styles, native providers (Hue, Govee, IKEA fades, Ambilight), the player as fallback.
 4. Templates; the Assistant writes scenes (`description`).
 5. Moods removed (`feat!`), with docs, translations and screenshots; each room's scenes above the templates.
-6. Hue and DIRIGERA write-back (DIRIGERA's from lpgera/dirigera, noted in THIRD-PARTY-NOTICES.md).
+6. Hue and DIRIGERA write-back (DIRIGERA's from lpgera/dirigera, noted in THIRD-PARTY-NOTICES.md): `save_scene`'s
+   `hub`, `update_hub_scene`, `delete_hub_scene`; the plugin API's `sceneTarget`, `createScene`, `updateScene`,
+   `deleteScene`.
 7. eWeLink's own modes.

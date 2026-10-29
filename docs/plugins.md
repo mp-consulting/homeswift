@@ -296,6 +296,14 @@ scene's lights it owns, and answers those it plays the way its brand's app does;
 `timed_effects`), Govee (the library scene of the style's name), DIRIGERA (a sunrise as one long fade) and the Ambilight
 TV (music) do.
 
+A hub that keeps scenes can let Homeswift write them. `sceneTarget(accessoryIDs:)` answers where a new scene of exactly
+those lights would go (a Hue room or zone), or nil; `createScene(name:lights:)` makes it from `PluginSceneLight` values
+(On, Brightness, hue and saturation or a white in mireds, in HomeKit's units) and answers its id;
+`updateScene(id:name:lights:)` renames it or replaces its lights, and `deleteScene(id:)` removes it. List what each
+scene allows in `PluginScene.capabilities` (`rename`, `update`, `delete`) and its lights in `accessoryIDs`, so the page
+can keep them "as they are". Write, then read the hub back: it stays the only keeper. Hue (`HueScenes.swift`) and
+DIRIGERA (`DirigeraScenes.swift`, from lpgera/dirigera) do.
+
 ### What the Assistant can do
 
 `assistantActions` describes routes of `handleWebRequest` for a model, so the Assistant (the web UI's chat,

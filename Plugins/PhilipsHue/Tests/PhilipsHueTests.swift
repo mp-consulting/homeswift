@@ -102,6 +102,20 @@ final class FakeBridge: HueTransport, @unchecked Sendable {
             let parts = path.split(separator: "/")
             return json(["errors": [], "data": [["rid": .string(String(parts.last ?? "")), "rtype": .string(String(parts[parts.count - 2]))]]])
         }
+        // A new resource is kept as sent, with an id; a removed one is gone.
+        if request.method == "POST", path.hasPrefix("/clip/v2/resource/") {
+            let type = String(path.split(separator: "/").last ?? "")
+            let id = "\(type)-new-\(snapshot.sent.count)"
+            var object = body.objectValue ?? [:]
+            (object["id"], object["type"]) = (.string(id), .string(type))
+            state.withLockedValue { $0.resources.append(.object(object)) }
+            return json(["errors": [], "data": [["rid": .string(id), "rtype": .string(type)]]])
+        }
+        if request.method == "DELETE", path.hasPrefix("/clip/v2/resource/") {
+            let id = String(path.split(separator: "/").last ?? "")
+            state.withLockedValue { $0.resources.removeAll { $0["id"]?.stringValue == id } }
+            return json(["errors": [], "data": [["rid": .string(id), "rtype": "scene"]]])
+        }
         return json(["errors": [["description": "not found"]]], status: 404)
     }
 
@@ -430,10 +444,48 @@ struct PhilipsHueTests {
         let plugin = try #require(environment.plugin)
         let scenes = await plugin.scenes()
         #expect(scenes.map(\.id) == ["smart-1", "scene-1"])
-        #expect(scenes.allSatisfy { $0.room == "Living room" && $0.capabilities == [.recall] })
+        #expect(scenes.allSatisfy { $0.room == "Living room" })
+        #expect(scenes.first { $0.id == "smart-1" }?.capabilities == [.recall])
+        #expect(scenes.first { $0.id == "scene-1" }?.capabilities == [.recall, .rename, .update, .delete])
         #expect(scenes.first { $0.id == "scene-1" }?.colours.isEmpty == false)
         try await plugin.recallScene(id: "scene-1")
         #expect(environment.bridge.puts.last == .init(method: "PUT", path: "/clip/v2/resource/scene/scene-1", body: ["recall": ["action": "active", "duration": 100]]))
+        await host.stop()
+    }
+
+    /// Homeswift writes scenes to the bridge: a new one in the room or zone that holds just its lights, with each
+    /// light's colour in its gamut and white in its range; renamed, changed and removed.
+    @Test func scenesAreWrittenToTheBridge() async throws {
+        let host = try await environment.start()
+        _ = try await accessory(host, scenesID)
+        let plugin = try #require(environment.plugin)
+        let strip = PhilipsHuePlugin.accessoryID(lightID: "light-1"), desk = PhilipsHuePlugin.accessoryID(lightID: "light-2")
+        #expect(await plugin.sceneTarget(accessoryIDs: [strip]) == "Living room")
+        #expect(await plugin.sceneTarget(accessoryIDs: [desk]) == "Upstairs")
+        #expect(await plugin.sceneTarget(accessoryIDs: [strip, desk]) == nil)
+        #expect(await plugin.sceneTarget(accessoryIDs: ["Other:lamp"]) == nil)
+
+        let id = try await plugin.createScene(name: "Reading nook", lights: [PluginSceneLight(accessoryID: strip, on: true, brightness: 0.1, hue: 30, saturation: 80)])
+        let created = try #require(environment.bridge.sent.last { $0.method == "POST" })
+        #expect(created.path == "/clip/v2/resource/scene")
+        #expect(created.body["metadata"] == ["name": "Reading nook"])
+        #expect(created.body["group"] == ["rid": "room-1", "rtype": "room"])
+        let action = created.body["actions"]?[0]
+        #expect(action?["target"] == ["rid": "light-1", "rtype": "light"])
+        #expect(action?["action"]?["dimming"]?["brightness"] == 0.2)
+        #expect(action?["action"]?["color"]?["xy"]?["x"]?.doubleValue != nil)
+        #expect(await plugin.scenes().first { $0.id == id }?.accessoryIDs == [strip])
+
+        try await plugin.updateScene(id: id, name: String(repeating: "x", count: 40), lights: [PluginSceneLight(accessoryID: strip, on: true, colorTemperature: 600)])
+        let changed = try #require(environment.bridge.puts.last)
+        #expect(changed.path == "/clip/v2/resource/scene/\(id)")
+        #expect(changed.body["metadata"]?["name"]?.stringValue?.count == 32)
+        #expect(changed.body["actions"]?[0]?["action"]?["color_temperature"] == ["mirek": 500])
+        await #expect(throws: (any Error).self) { try await plugin.updateScene(id: "smart-1", name: "No", lights: nil) }
+
+        try await plugin.deleteScene(id: id)
+        #expect(environment.bridge.sent.contains(.init(method: "DELETE", path: "/clip/v2/resource/scene/\(id)", body: .null)))
+        #expect(await plugin.scenes().contains { $0.id == id } == false)
         await host.stop()
     }
 

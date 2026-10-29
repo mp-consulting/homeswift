@@ -298,8 +298,31 @@
         app.navigate(`/scenes/${encodeURIComponent(saved.id)}`);
       } catch (e) { HomeswiftCommon.showAlert(e.message); automate.disabled = false; }
     } });
-    const menu = !app.isAdmin() ? null : menuButton(t("Actions for {name}", { name: scene.name }), () => pictureMenu(scene));
+    const menu = !app.isAdmin() ? null : menuButton(t("Actions for {name}", { name: scene.name }), () => [...hubSceneMenu(scene), ...pictureMenu(scene)]);
     return el("div", { class: "hub-scene-tile" }, button, el("div", { class: "hub-scene-actions" }, stop, automate, menu));
+  }
+
+  /// What a hub's scene lets Homeswift change on its hub (its `capabilities`): its name, its lights' values as they are
+  /// now, or the scene itself, which goes from the hub's own app too.
+  function hubSceneMenu(scene) {
+    const can = new Set(scene.capabilities || []);
+    const path = `/api/scenes/${encodeURIComponent(scene.id)}`;
+    const change = async (body) => {
+      try { await app.api(`${path}/hub`, { method: "PUT", body }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
+    };
+    return [
+      can.has("rename") ? { label: t("Rename…"), icon: "edit", onSelect: async () => {
+        const name = (await HomeswiftCommon.promptDialog(t("A new name for {name} on {hub}.", { name: scene.name, hub: scene.source.name }), scene.name))?.trim();
+        if (name && name !== scene.name) await change({ name });
+      } } : null,
+      can.has("update") && scene.accessoryIds?.length ? { label: t("Keep the lights as they are"), icon: "check", onSelect: async () => {
+        if (await HomeswiftAdmin.confirmAction({ title: t("Update {name}?", { name: scene.name }), text: t("{name} on {hub} will set its lights as they are now.", { name: scene.name, hub: scene.source.name }), confirmLabel: t("Update"), danger: false })) await change({ fromCurrent: true });
+      } } : null,
+      can.has("delete") ? { label: t("Delete from {hub}", { hub: scene.source.name }), icon: "trash", danger: true, onSelect: async () => {
+        if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete the scene {name}?", { name: scene.name }), text: t("This removes it from {hub} and its own app too. This cannot be undone.", { hub: scene.source.name }), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
+        try { await app.api(path, { method: "DELETE" }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
+      } } : null,
+    ].filter(Boolean);
   }
 
   /// The scenes of the plugins' hubs, by room, with a source filter when there are several. `filter(query)` hides
@@ -1305,10 +1328,38 @@
 
     const line = statusLine();
     const save = el("button", { class: "primary", actionIcon: "check", type: "submit", text: isNew ? t("Create the scene") : t("Save") });
+    // A new scene of lights only, without triggers or an animation, can be kept on the hub that has them all instead.
+    const hubLight = new Set(["on", "brightness", "hue", "saturation", "colortemperature"]);
+    const keepOn = el("select", { "aria-label": t("Keep it on"), hidden: true });
+    let targetsAsked = "";
+    const refreshTargets = async () => {
+      if (!isNew) return;
+      const read = [...actions].flatMap((row) => row.read());
+      const fits = read.length && !read.some((a) => a.recall || !hubLight.has(String(a.characteristic).toLowerCase().replace(/\s/g, "")))
+        && ![...triggers].length && !animation.read();
+      const ids = fits ? [...new Set(read.map((a) => a.id))].sort() : [];
+      const key = ids.join("|");
+      if (key === targetsAsked) return;
+      targetsAsked = key;
+      const targets = ids.length ? (await app.api("/api/scenes/targets", { method: "POST", body: { ids } }).catch(() => ({ targets: [] }))).targets : [];
+      if (key !== targetsAsked) return;
+      const kept = keepOn.value;
+      keepOn.replaceChildren(el("option", { value: "", text: t("Keep it in Homeswift") }),
+        ...targets.map((target) => el("option", { value: target.hub, text: t("Save to {hub} ({place})", { hub: target.name, place: target.label }) })));
+      keepOn.value = targets.some((target) => target.hub === kept) ? kept : "";
+      keepOn.hidden = !targets.length;
+    };
     const form = el("form", { class: "card scene-editor", onsubmit: async (event) => {
       event.preventDefault();
       const body = { name: name.value.trim(), artworkId, actions: [...actions].flatMap((row) => row.read()), triggers: [...triggers].map((row) => row.read()), conditions: [...conditions].map((row) => row.read()), animation: animation.read() };
       save.disabled = true;
+      if (isNew && keepOn.value && !keepOn.hidden) {
+        try {
+          await app.api("/api/scenes/hub", { method: "POST", body: { hub: keepOn.value, name: body.name, actions: body.actions } });
+          app.navigate("/scenes");
+        } catch (e) { say(line, e.message, "error"); save.disabled = false; }
+        return;
+      }
       try {
         const saved = await app.api(isNew ? "/api/scenes" : `/api/scenes/${encodeURIComponent(scene.id)}`, { method: isNew ? "POST" : "PUT", body });
         const security = saved.actions.some((a) => a.security);
@@ -1323,14 +1374,17 @@
     } },
       field(t("Name"), name), artworkPreview, artworkPicker,
       flow,
-      el("div", { class: "save-bar" }, save, el("a", { class: "button", actionIcon: "close", href: "/scenes", text: t("Cancel") }),
+      el("div", { class: "save-bar" }, save, keepOn, el("a", { class: "button", actionIcon: "close", href: "/scenes", text: t("Cancel") }),
         isNew ? null : el("span", { class: "spacer" }),
         isNew ? null : el("button", { actionIcon: "trash", type: "button", class: "danger", text: t("Delete"), onclick: async () => {
           if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete the scene {name}?", { name: scene.name }), text: t("This removes the scene and its automatic triggers. This cannot be undone."), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
           try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); app.navigate("/scenes"); } catch (e) { say(line, e.message, "error"); }
         } })),
       line);
+    form.addEventListener("change", refreshTargets);
+    form.addEventListener("click", () => setTimeout(refreshTargets));
     app.show(main, app.breadcrumb([t("Scenes"), "/scenes"], [isNew ? t("New scene") : scene.name]), form);
+    refreshTargets();
   }
 
   // ---- Notifications ---------------------------------------------------------------------------------

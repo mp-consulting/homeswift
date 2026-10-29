@@ -76,6 +76,7 @@ final class FakeHub: HTTPSending, @unchecked Sendable {
         switch (request.method, path) {
         case ("GET", "/v1/devices"): return json(Self.devices)
         case ("GET", "/v1/scenes"): return json(Self.scenes)
+        case ("POST", "/v1/scenes"): return json(["id": "scene-new"], status: 201)
         default: return json([:], status: 202)
         }
     }
@@ -405,6 +406,41 @@ struct DirigeraTests {
         try await plugin.recallScene(id: movie.id)
         #expect(environment.hub.sent.last?.path == "/v1/scenes/scene-1/trigger")
         await #expect(throws: (any Error).self) { try await plugin.recallScene(id: "nope") }
+        await host.stop()
+    }
+
+    /// Homeswift writes scenes to the hub as lpgera/dirigera does: a new user scene of the hub's lights, a rename that
+    /// sends its actions back unchanged, new values, a removal; a wake-up scene is left alone.
+    @Test func scenesAreWrittenToTheHub() async throws {
+        let host = try await environment.start()
+        _ = try await accessory(host, scenesID)
+        let plugin = try #require(environment.plugin)
+        let sofa = DirigeraPlugin.accessoryID(deviceID: "bulb-1"), hallway = DirigeraPlugin.accessoryID(deviceID: "bulb-2")
+        #expect(await plugin.sceneTarget(accessoryIDs: [sofa, hallway]) == "DIRIGERA 192.0.2.20")
+        #expect(await plugin.sceneTarget(accessoryIDs: [sofa, DirigeraPlugin.accessoryID(deviceID: "plug-1")]) == nil)
+
+        let id = try await plugin.createScene(name: "Evening", lights: [
+            PluginSceneLight(accessoryID: sofa, on: true, brightness: 0, hue: 30, saturation: 50),
+            PluginSceneLight(accessoryID: hallway, on: true, brightness: 40, colorTemperature: 370),
+        ])
+        #expect(id == "scene-new")
+        let created = try #require(environment.hub.sent.last { $0.method == "POST" && $0.path == "/v1/scenes" })
+        let body = try JSONValue(data: Data(created.body.utf8))
+        #expect(body["type"] == "userScene")
+        #expect(body["info"] == ["name": "Evening", "icon": "scenes_heart"])
+        #expect(body["triggers"] == [["type": "app"]])
+        #expect(body["actions"]?[0] == ["type": "device", "deviceId": "bulb-1", "attributes": ["isOn": true, "lightLevel": 1, "colorHue": 30, "colorSaturation": 0.5]])
+        #expect(body["actions"]?[1]?["attributes"]?["colorTemperature"] == 2703)
+
+        try await plugin.updateScene(id: "scene-1", name: "Film night", lights: nil)
+        let renamed = try JSONValue(data: Data(try #require(environment.hub.sent.last { $0.method == "PUT" }).body.utf8))
+        #expect(renamed["info"] == ["name": "Film night", "icon": "scenes_tv"])
+        #expect(renamed["actions"] == [])
+        await #expect(throws: (any Error).self) { try await plugin.updateScene(id: "scene-2", name: "No", lights: nil) }
+        await #expect(throws: (any Error).self) { try await plugin.deleteScene(id: "scene-2") }
+
+        try await plugin.deleteScene(id: "scene-1")
+        #expect(environment.hub.sent.contains { $0.method == "DELETE" && $0.path == "/v1/scenes/scene-1" })
         await host.stop()
     }
 

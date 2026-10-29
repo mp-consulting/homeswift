@@ -106,6 +106,20 @@ public protocol HomeswiftPlugin: Sendable {
 
     /// Stops what `animate` started on these accessories; Homeswift then puts their values back. Defaults to nothing.
     func stopAnimation(accessoryIDs: [String]) async
+
+    /// Where a new scene of exactly these lights would be kept on the plugin's hub (a Hue room or zone, an IKEA hub),
+    /// to offer "Save to …"; nil when the hub cannot keep it (a light it does not have). Defaults to nil.
+    func sceneTarget(accessoryIDs: [String]) async -> String?
+
+    /// Makes a scene on the hub with these lights' states; answers its `PluginScene.id`. Defaults to throwing.
+    func createScene(name: String, lights: [PluginSceneLight]) async throws -> String
+
+    /// Renames a scene of the hub (`name`) and replaces its lights' states (`lights`), either or both: what its
+    /// `PluginScene.capabilities` allow (`rename`, `update`). Defaults to throwing.
+    func updateScene(id: String, name: String?, lights: [PluginSceneLight]?) async throws
+
+    /// Removes a scene from the hub (`delete` capability). Homeswift asks the person first. Defaults to throwing.
+    func deleteScene(id: String) async throws
 }
 
 extension HomeswiftPlugin {

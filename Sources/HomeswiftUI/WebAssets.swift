@@ -9311,8 +9311,31 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         app.navigate(`/scenes/${encodeURIComponent(saved.id)}`);
       } catch (e) { HomeswiftCommon.showAlert(e.message); automate.disabled = false; }
     } });
-    const menu = !app.isAdmin() ? null : menuButton(t("Actions for {name}", { name: scene.name }), () => pictureMenu(scene));
+    const menu = !app.isAdmin() ? null : menuButton(t("Actions for {name}", { name: scene.name }), () => [...hubSceneMenu(scene), ...pictureMenu(scene)]);
     return el("div", { class: "hub-scene-tile" }, button, el("div", { class: "hub-scene-actions" }, stop, automate, menu));
+  }
+
+  /// What a hub's scene lets Homeswift change on its hub (its `capabilities`): its name, its lights' values as they are
+  /// now, or the scene itself, which goes from the hub's own app too.
+  function hubSceneMenu(scene) {
+    const can = new Set(scene.capabilities || []);
+    const path = `/api/scenes/${encodeURIComponent(scene.id)}`;
+    const change = async (body) => {
+      try { await app.api(`${path}/hub`, { method: "PUT", body }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
+    };
+    return [
+      can.has("rename") ? { label: t("Rename…"), icon: "edit", onSelect: async () => {
+        const name = (await HomeswiftCommon.promptDialog(t("A new name for {name} on {hub}.", { name: scene.name, hub: scene.source.name }), scene.name))?.trim();
+        if (name && name !== scene.name) await change({ name });
+      } } : null,
+      can.has("update") && scene.accessoryIds?.length ? { label: t("Keep the lights as they are"), icon: "check", onSelect: async () => {
+        if (await HomeswiftAdmin.confirmAction({ title: t("Update {name}?", { name: scene.name }), text: t("{name} on {hub} will set its lights as they are now.", { name: scene.name, hub: scene.source.name }), confirmLabel: t("Update"), danger: false })) await change({ fromCurrent: true });
+      } } : null,
+      can.has("delete") ? { label: t("Delete from {hub}", { hub: scene.source.name }), icon: "trash", danger: true, onSelect: async () => {
+        if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete the scene {name}?", { name: scene.name }), text: t("This removes it from {hub} and its own app too. This cannot be undone.", { hub: scene.source.name }), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
+        try { await app.api(path, { method: "DELETE" }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
+      } } : null,
+    ].filter(Boolean);
   }
 
   /// The scenes of the plugins' hubs, by room, with a source filter when there are several. `filter(query)` hides
@@ -10318,10 +10341,38 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     const line = statusLine();
     const save = el("button", { class: "primary", actionIcon: "check", type: "submit", text: isNew ? t("Create the scene") : t("Save") });
+    // A new scene of lights only, without triggers or an animation, can be kept on the hub that has them all instead.
+    const hubLight = new Set(["on", "brightness", "hue", "saturation", "colortemperature"]);
+    const keepOn = el("select", { "aria-label": t("Keep it on"), hidden: true });
+    let targetsAsked = "";
+    const refreshTargets = async () => {
+      if (!isNew) return;
+      const read = [...actions].flatMap((row) => row.read());
+      const fits = read.length && !read.some((a) => a.recall || !hubLight.has(String(a.characteristic).toLowerCase().replace(/\s/g, "")))
+        && ![...triggers].length && !animation.read();
+      const ids = fits ? [...new Set(read.map((a) => a.id))].sort() : [];
+      const key = ids.join("|");
+      if (key === targetsAsked) return;
+      targetsAsked = key;
+      const targets = ids.length ? (await app.api("/api/scenes/targets", { method: "POST", body: { ids } }).catch(() => ({ targets: [] }))).targets : [];
+      if (key !== targetsAsked) return;
+      const kept = keepOn.value;
+      keepOn.replaceChildren(el("option", { value: "", text: t("Keep it in Homeswift") }),
+        ...targets.map((target) => el("option", { value: target.hub, text: t("Save to {hub} ({place})", { hub: target.name, place: target.label }) })));
+      keepOn.value = targets.some((target) => target.hub === kept) ? kept : "";
+      keepOn.hidden = !targets.length;
+    };
     const form = el("form", { class: "card scene-editor", onsubmit: async (event) => {
       event.preventDefault();
       const body = { name: name.value.trim(), artworkId, actions: [...actions].flatMap((row) => row.read()), triggers: [...triggers].map((row) => row.read()), conditions: [...conditions].map((row) => row.read()), animation: animation.read() };
       save.disabled = true;
+      if (isNew && keepOn.value && !keepOn.hidden) {
+        try {
+          await app.api("/api/scenes/hub", { method: "POST", body: { hub: keepOn.value, name: body.name, actions: body.actions } });
+          app.navigate("/scenes");
+        } catch (e) { say(line, e.message, "error"); save.disabled = false; }
+        return;
+      }
       try {
         const saved = await app.api(isNew ? "/api/scenes" : `/api/scenes/${encodeURIComponent(scene.id)}`, { method: isNew ? "POST" : "PUT", body });
         const security = saved.actions.some((a) => a.security);
@@ -10336,14 +10387,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     } },
       field(t("Name"), name), artworkPreview, artworkPicker,
       flow,
-      el("div", { class: "save-bar" }, save, el("a", { class: "button", actionIcon: "close", href: "/scenes", text: t("Cancel") }),
+      el("div", { class: "save-bar" }, save, keepOn, el("a", { class: "button", actionIcon: "close", href: "/scenes", text: t("Cancel") }),
         isNew ? null : el("span", { class: "spacer" }),
         isNew ? null : el("button", { actionIcon: "trash", type: "button", class: "danger", text: t("Delete"), onclick: async () => {
           if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete the scene {name}?", { name: scene.name }), text: t("This removes the scene and its automatic triggers. This cannot be undone."), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
           try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); app.navigate("/scenes"); } catch (e) { say(line, e.message, "error"); }
         } })),
       line);
+    form.addEventListener("change", refreshTargets);
+    form.addEventListener("click", () => setTimeout(refreshTargets));
     app.show(main, app.breadcrumb([t("Scenes"), "/scenes"], [isNew ? t("New scene") : scene.name]), form);
+    refreshTargets();
   }
 
   // ---- Notifications ---------------------------------------------------------------------------------
@@ -12899,7 +12953,18 @@ HomeswiftI18n.add("es", {
   "{done} of {total}": "{done} de {total}",
   "The {name} history could not be imported: {message}": "No se pudo importar el historial de {name}: {message}",
   "History from {name} since {date}, updated {ago}": "Historial de {name} desde el {date}, actualizado {ago}",
-  "History from {name}, updated {ago}": "Historial de {name}, actualizado {ago}"
+  "History from {name}, updated {ago}": "Historial de {name}, actualizado {ago}",
+  "Rename…": "Renombrar…",
+  "A new name for {name} on {hub}.": "Un nombre nuevo para {name} en {hub}.",
+  "Keep the lights as they are": "Guardar las luces como están",
+  "Update {name}?": "¿Actualizar {name}?",
+  "{name} on {hub} will set its lights as they are now.": "{name} en {hub} pondrá sus luces como están ahora.",
+  "Update": "Actualizar",
+  "Delete from {hub}": "Eliminar de {hub}",
+  "This removes it from {hub} and its own app too. This cannot be undone.": "Desaparece de {hub} y de su app. No se puede deshacer.",
+  "Keep it on": "Guardarla en",
+  "Keep it in Homeswift": "Guardarla en Homeswift",
+  "Save to {hub} ({place})": "Guardar en {hub} ({place})"
 });
 
 """#),
@@ -15245,7 +15310,18 @@ HomeswiftI18n.add("fr", {
   "{done} of {total}": "{done} sur {total}",
   "The {name} history could not be imported: {message}": "L’historique {name} n’a pas pu être importé : {message}",
   "History from {name} since {date}, updated {ago}": "Historique {name} depuis le {date}, mis à jour {ago}",
-  "History from {name}, updated {ago}": "Historique {name}, mis à jour {ago}"
+  "History from {name}, updated {ago}": "Historique {name}, mis à jour {ago}",
+  "Rename…": "Renommer…",
+  "A new name for {name} on {hub}.": "Un nouveau nom pour {name} sur {hub}.",
+  "Keep the lights as they are": "Garder les lumières telles qu’elles sont",
+  "Update {name}?": "Mettre à jour {name} ?",
+  "{name} on {hub} will set its lights as they are now.": "{name} sur {hub} réglera ses lumières comme elles sont maintenant.",
+  "Update": "Mettre à jour",
+  "Delete from {hub}": "Supprimer de {hub}",
+  "This removes it from {hub} and its own app too. This cannot be undone.": "Elle disparaît de {hub} et de son app. C’est irréversible.",
+  "Keep it on": "La garder sur",
+  "Keep it in Homeswift": "La garder dans Homeswift",
+  "Save to {hub} ({place})": "Enregistrer sur {hub} ({place})"
 });
 
 """#),
@@ -17591,7 +17667,18 @@ HomeswiftI18n.add("pt", {
   "{done} of {total}": "{done} de {total}",
   "The {name} history could not be imported: {message}": "Não foi possível importar o histórico de {name}: {message}",
   "History from {name} since {date}, updated {ago}": "Histórico de {name} desde {date}, atualizado {ago}",
-  "History from {name}, updated {ago}": "Histórico de {name}, atualizado {ago}"
+  "History from {name}, updated {ago}": "Histórico de {name}, atualizado {ago}",
+  "Rename…": "Renomear…",
+  "A new name for {name} on {hub}.": "Um novo nome para {name} em {hub}.",
+  "Keep the lights as they are": "Manter as luzes como estão",
+  "Update {name}?": "Atualizar {name}?",
+  "{name} on {hub} will set its lights as they are now.": "{name} em {hub} vai deixar as luzes como estão agora.",
+  "Update": "Atualizar",
+  "Delete from {hub}": "Apagar de {hub}",
+  "This removes it from {hub} and its own app too. This cannot be undone.": "Ela sai de {hub} e da sua app. Não pode ser desfeito.",
+  "Keep it on": "Guardá-la em",
+  "Keep it in Homeswift": "Guardá-la no Homeswift",
+  "Save to {hub} ({place})": "Guardar em {hub} ({place})"
 });
 
 """#),

@@ -2339,5 +2339,16 @@ HomeswiftI18n.add("pt", {
   "{done} of {total}": "{done} de {total}",
   "The {name} history could not be imported: {message}": "Não foi possível importar o histórico de {name}: {message}",
   "History from {name} since {date}, updated {ago}": "Histórico de {name} desde {date}, atualizado {ago}",
-  "History from {name}, updated {ago}": "Histórico de {name}, atualizado {ago}"
+  "History from {name}, updated {ago}": "Histórico de {name}, atualizado {ago}",
+  "Rename…": "Renomear…",
+  "A new name for {name} on {hub}.": "Um novo nome para {name} em {hub}.",
+  "Keep the lights as they are": "Manter as luzes como estão",
+  "Update {name}?": "Atualizar {name}?",
+  "{name} on {hub} will set its lights as they are now.": "{name} em {hub} vai deixar as luzes como estão agora.",
+  "Update": "Atualizar",
+  "Delete from {hub}": "Apagar de {hub}",
+  "This removes it from {hub} and its own app too. This cannot be undone.": "Ela sai de {hub} e da sua app. Não pode ser desfeito.",
+  "Keep it on": "Guardá-la em",
+  "Keep it in Homeswift": "Guardá-la no Homeswift",
+  "Save to {hub} ({place})": "Guardar em {hub} ({place})"
 });

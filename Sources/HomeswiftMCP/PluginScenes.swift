@@ -52,6 +52,7 @@ extension HomeswiftCatalog {
             "active": found.scene.active.map(JSONValue.bool) ?? .null,
             "colours": .array(found.scene.colours.prefix(5).map(JSONValue.string)),
             "picture": pictures[found.id].map(JSONValue.string) ?? .null,
+            "accessoryIds": .array(found.scene.accessoryIDs.map(JSONValue.string)),
             "stoppable": .bool(home.lightRuns.withLockedValue { $0.values.contains { $0.show.id == "scene:" + found.id } }),
             "capabilities": .array(PluginScene.Capability.allCases.filter(found.scene.capabilities.contains).map { .string($0.rawValue) }),
             "source": [

@@ -855,7 +855,9 @@ extension HomeswiftCatalog {
                 name: "save_scene", title: "Save scene",
                 description: "Creates a scene the user can run again with run_scene or from the web UI's Scenes page: from a plan (one run_scene ran, or a new one), "
                     + "or from the current values of the chosen accessories (ids), every writable characteristic unless characteristics names some (On, Brightness…). "
-                    + "Locks, garage doors and alarms are never captured. dryRun shows the actions first.",
+                    + "Locks, garage doors and alarms are never captured. dryRun shows the actions first, and hubs, the hubs that could keep it instead. "
+                    + "With hub (a Hue Bridge's or an IKEA hub's, from hubs), the scene is kept on that hub rather than in Homeswift: lights' On, Brightness, colour and white only, "
+                    + "no triggers or animation; the hub's own app then shows it too.",
                 inputSchema: [
                     "type": "object", "required": ["name"],
                     "properties": [
@@ -866,21 +868,69 @@ extension HomeswiftCatalog {
                         "room": ["type": "string", "description": "With template or description: the room whose lights it sets"],
                         "ids": ["type": "array", "minItems": 1, "maxItems": 50, "items": ["type": "string"], "description": "The accessories to capture, from list_accessories (with template or description: the lights it sets)"],
                         "characteristics": ["type": "array", "minItems": 1, "items": ["type": "string"], "description": "Only these characteristics, e.g. On, Brightness"],
+                        "hub": ["type": "string", "minLength": 1, "description": "Keep it on this hub instead (<platform>:<instance>, from a dry run's hubs)"],
                     ],
                 ],
                 scope: .admin, supportsDryRun: true
             ) { call in
                 let name = try call.string("name").trimmingCharacters(in: .whitespaces)
+                var plan = call.arguments["plan"]
                 if call.arguments["template"] != nil || call.arguments["description"] != nil {
-                    return .json(try catalog.savePlan(try await catalog.composedPlan(call.arguments, language: nil).plan, name: name, dryRun: call.isDryRun))
+                    plan = try await catalog.composedPlan(call.arguments, language: nil).plan
                 }
-                if let plan = call.arguments["plan"] {
-                    return .json(try catalog.savePlan(plan, name: name, dryRun: call.isDryRun))
+                if plan == nil {
+                    let ids = call.arguments["ids"]?.arrayValue?.compactMap(\.stringValue) ?? []
+                    guard !ids.isEmpty else { return .error("Pass a plan, or the ids of the accessories to capture") }
+                    let wanted = call.arguments["characteristics"]?.arrayValue?.compactMap(\.stringValue)
+                    // Captured straight into a scene, unless it goes to a hub or is only shown.
+                    let captured = try catalog.captureScene(name: name, ids: ids, characteristics: wanted, dryRun: call.arguments["hub"] != nil || call.isDryRun)
+                    if call.arguments["hub"] == nil {
+                        guard call.isDryRun, var shown = captured.objectValue else { return .json(captured) }
+                        let ids = (shown["actions"]?.arrayValue ?? []).compactMap { $0["id"]?.stringValue }
+                        shown["hubs"] = .array(await catalog.hubTargets(accessoryIDs: ids))
+                        return .json(.object(shown))
+                    }
+                    plan = ["actions": captured["actions"] ?? []]
                 }
-                let ids = call.arguments["ids"]?.arrayValue?.compactMap(\.stringValue) ?? []
-                guard !ids.isEmpty else { return .error("Pass a plan, or the ids of the accessories to capture") }
-                let wanted = call.arguments["characteristics"]?.arrayValue?.compactMap(\.stringValue)
-                return .json(try catalog.captureScene(name: name, ids: ids, characteristics: wanted, dryRun: call.isDryRun))
+                guard let plan else { return .error("Pass a plan") }
+                if let hub = call.optionalString("hub") {
+                    return .json(try await catalog.saveHubScene(plan, name: name, hub: hub, dryRun: call.isDryRun))
+                }
+                guard var answer = try catalog.savePlan(plan, name: name, dryRun: call.isDryRun).objectValue else { return .error("Nothing to save") }
+                if call.isDryRun {
+                    let ids = (answer["actions"]?.arrayValue ?? []).compactMap { $0["recall"] == nil ? $0["id"]?.stringValue : nil }
+                    answer["hubs"] = .array(await catalog.hubTargets(accessoryIDs: ids))
+                }
+                return .json(.object(answer))
+            },
+            MCPTool(
+                name: "update_hub_scene", title: "Change a hub's scene",
+                description: "Renames a scene a hub keeps (a Hue Bridge's, an IKEA hub's; pluginScenes in list_scenes) and/or replaces its lights' values: "
+                    + "from a plan (lights' On, Brightness, Hue, Saturation, Color Temperature), or from its lights as they are now (fromCurrent). "
+                    + "What a scene allows is in its capabilities (rename, update). The hub's own app shows the change. dryRun shows it first.",
+                inputSchema: [
+                    "type": "object", "required": ["scene"],
+                    "properties": [
+                        "scene": ["type": "string", "minLength": 1, "description": "The hub scene's id or name, from list_scenes' pluginScenes"],
+                        "name": ["type": "string", "minLength": 1, "maxLength": 64, "description": "Its new name"],
+                        "plan": HomeswiftCatalog.planSchema,
+                        "fromCurrent": ["type": "boolean", "description": "Keep its lights' values as they are now"],
+                    ],
+                ],
+                scope: .admin, supportsDryRun: true
+            ) { call in
+                .json(try await catalog.updateHubScene(
+                    try call.string("scene"), name: call.optionalString("name"), plan: call.arguments["plan"],
+                    fromCurrent: call.arguments["fromCurrent"]?.boolValue == true, dryRun: call.isDryRun))
+            },
+            MCPTool(
+                name: "delete_hub_scene", title: "Remove a hub's scene",
+                description: "Removes a scene from the hub that keeps it (a Hue Bridge, an IKEA hub): it is gone from the hub's own app too, and cannot be brought back. "
+                    + "The user confirms first. Only scenes whose capabilities include delete.",
+                inputSchema: ["type": "object", "required": ["scene"], "properties": ["scene": ["type": "string", "minLength": 1, "description": "The hub scene's id, from list_scenes' pluginScenes"]]],
+                scope: .admin, destructive: true, supportsDryRun: true
+            ) { call in
+                .json(try await catalog.deleteHubScene(try call.string("scene"), dryRun: call.isDryRun))
             },
         ]
     }

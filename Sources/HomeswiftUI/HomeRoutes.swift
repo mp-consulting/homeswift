@@ -11,9 +11,12 @@ import NIOHTTP1
 //   POST   /api/rooms/suggest                the Assistant's rooms and names, to review
 //   GET    /api/scenes                        scenes, the plugins' hubs' scenes, location, next sunrise and sunset
 //   POST   /api/scenes                        a new scene
+//   POST   /api/scenes/targets            {"ids"}: the hubs that could keep a scene of these lights
+//   POST   /api/scenes/hub                {"hub", "name", "actions"}: a new scene kept on that hub
+//   PUT    /api/scenes/<id>/hub           {"name"?, "fromCurrent"?}: a hub's scene renamed, or its lights kept as they are
 //   PUT    /api/scenes/location               where sunrise and sunset are computed for
 //   PUT    /api/scenes/<id>                   a scene changed
-//   DELETE /api/scenes/<id>
+//   DELETE /api/scenes/<id>                   a hub's scene too, from its hub
 //   POST   /api/scenes/<id>/run               {"confirmSecurity": true} once the person agreed to its locks and doors; a
 //                                             plugin scene's id (`<platform>:<instance>:<hub id>`) recalls it
 //   GET    /api/scenes/<id>/picture?v=<version> the picture a person gave a scene (Homeswift's or a hub's), as an image
@@ -35,7 +38,7 @@ extension UIServer {
         do {
             return try await homeRoute(route, method, body: body, username: username, language: language)
         } catch let error as CatalogError {
-            return .error(error.description.hasPrefix("No scene") ? 404 : 400, error.description)
+            return .error(error.description.hasPrefix("No scene") || error.description.hasPrefix("No hub scene") ? 404 : 400, error.description)
         } catch let error as JSONGenerationError {
             return .error(502, "the Assistant did not answer with a scene: \(error.message)")
         }
@@ -72,6 +75,20 @@ extension UIServer {
             let scene = try catalog.createScene(body)
             logger.info("Web UI created a scene", metadata: ["user": "\(username)", "scene": "\(scene["name"]?.stringValue ?? "")"])
             return .json(scene, status: 201)
+        case (.POST, ["scenes", "targets"]):
+            let ids = body["ids"]?.arrayValue?.compactMap(\.stringValue) ?? []
+            return .json(["targets": .array(await catalog.hubTargets(accessoryIDs: ids))])
+        case (.POST, ["scenes", "hub"]):
+            guard let hub = body["hub"]?.stringValue, let name = body["name"]?.stringValue?.trimmingCharacters(in: .whitespaces), !name.isEmpty else {
+                return .error(400, "a hub and a name are required")
+            }
+            let result = try await catalog.saveHubScene(["actions": body["actions"] ?? []], name: name, hub: hub, dryRun: false)
+            logger.info("Web UI saved a scene to a hub", metadata: ["user": "\(username)", "scene": "\(name)", "hub": "\(hub)"])
+            return .json(result, status: 201)
+        case (.PUT, let path) where path.count == 3 && path[0] == "scenes" && path[2] == "hub":
+            let result = try await catalog.updateHubScene(path[1], name: body["name"]?.stringValue, plan: nil, fromCurrent: body["fromCurrent"]?.boolValue == true, dryRun: false)
+            logger.info("Web UI changed a hub's scene", metadata: ["user": "\(username)", "scene": "\(path[1])"])
+            return .json(result)
         case (.PUT, ["scenes", "location"]):
             return .json(try catalog.setSceneLocation(body))
         case (.PUT, let path) where path.count == 2 && path[0] == "scenes":
@@ -79,6 +96,12 @@ extension UIServer {
             logger.info("Web UI changed a scene", metadata: ["user": "\(username)", "scene": "\(scene["name"]?.stringValue ?? "")"])
             return .json(scene)
         case (.DELETE, let path) where path.count == 2 && path[0] == "scenes":
+            guard catalog.scenesJSON()["scenes"]?.arrayValue?.contains(where: { $0["id"]?.stringValue == path[1] }) == true else {
+                // A hub's scene: the page asked the person first.
+                let removed = try await catalog.deleteHubScene(path[1])
+                logger.notice("Web UI removed a scene from its hub", metadata: ["user": "\(username)", "scene": "\(removed["name"]?.stringValue ?? "")"])
+                return .json(removed)
+            }
             try catalog.deleteScene(id: path[1])
             logger.info("Web UI deleted a scene", metadata: ["user": "\(username)", "scene": "\(path[1])"])
             return .json(JSONValue.object([:]))

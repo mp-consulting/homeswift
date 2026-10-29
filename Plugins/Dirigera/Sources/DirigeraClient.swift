@@ -96,6 +96,22 @@ actor DirigeraClient {
         _ = try await send("POST", "/scenes/\(Self.segment(sceneID))/trigger")
     }
 
+    /// `POST /v1/scenes` with `{info, type, actions, triggers}` (lpgera/dirigera's `scenes.create`); answers its id.
+    func createScene(_ scene: JSONValue) async throws -> String {
+        let reply = try await JSONValue(data: send("POST", "/scenes", body: scene.encoded(), contentType: "application/json").body)
+        guard let id = reply["id"]?.stringValue else { throw Failure.malformed("a new scene") }
+        return id
+    }
+
+    /// `PUT /v1/scenes/<id>`: the hub replaces the scene whole.
+    func updateScene(id: String, _ scene: JSONValue) async throws {
+        _ = try await send("PUT", "/scenes/\(Self.segment(id))", body: scene.encoded(), contentType: "application/json")
+    }
+
+    func deleteScene(id: String) async throws {
+        _ = try await send("DELETE", "/scenes/\(Self.segment(id))")
+    }
+
     func undo(sceneID: String) async throws {
         _ = try await send("POST", "/scenes/\(Self.segment(sceneID))/undo")
     }
