@@ -360,8 +360,9 @@ struct PhilipsHueTests {
         let controller = try #require(bulb.adaptiveLighting)
         try controller.activateForTesting()
         #expect(await eventually { environment.bridge.puts.contains { $0.path == "/clip/v2/resource/light/light-2" && $0.body["color_temperature"]?["mirek"] == 300 } })
-        try await Task.sleep(for: PhilipsHuePlugin.settleTime + .milliseconds(200))
+        // The bridge takes the white at once, as a real one does: a refresh that comes meanwhile reads it.
         environment.bridge.change("light-2") { $0["color_temperature"] = ["mirek": 300, "mirek_valid": true, "mirek_schema": ["mirek_minimum": 153, "mirek_maximum": 454]] }
+        try await Task.sleep(for: hueSettleTime + .milliseconds(100))
         await environment.plugin?.refresh()
         #expect(controller.isAdaptiveLightingActive)
         environment.bridge.change("light-2") { $0["color_temperature"] = ["mirek": .null, "mirek_valid": false, "mirek_schema": ["mirek_minimum": 153, "mirek_maximum": 454]] }
