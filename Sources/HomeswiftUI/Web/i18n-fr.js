@@ -204,6 +204,8 @@ HomeswiftI18n.add("fr", {
   "Reset room order": "Réinitialiser l’ordre des pièces",
   "Rooms": "Pièces",
   "Drag to reorder, choose one to rename it.": "Faites glisser pour réorganiser, choisissez-en une pour la renommer.",
+  "Name of {room}": "Nom de {room}",
+  "Rename the room": "Renommer la pièce",
   "Rename on the hubs too": "Renommer aussi sur les hubs",
   "A new name for {room}.": "Un nouveau nom pour {room}.",
   "Rooms of this name on your Philips Hue, IKEA and eWeLink hubs are renamed too.": "Les pièces de ce nom sur vos hubs Philips Hue, IKEA et eWeLink sont renommées aussi.",

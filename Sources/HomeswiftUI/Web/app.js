@@ -1680,14 +1680,47 @@
     async function renameRoom(name) {
       const answer = await HomeswiftCommon.promptDialog(t("A new name for {room}.", { room: name })
         + (syncRoomNames ? `\n\n${t("Rooms of this name on your Philips Hue, IKEA and eWeLink hubs are renamed too.")}` : ""), name);
+      await applyRoomName(name, answer);
+    }
+    /// Renames a room (to the trimmed `answer`, unless empty or unchanged); answers whether it was.
+    async function applyRoomName(name, answer) {
       const to = answer?.trim();
-      if (!to || to === name) return;
+      if (!to || to === name) return false;
       try {
         const result = await api("/api/rooms", { method: "PUT", body: { renameRoom: { from: name, to } } });
         const failed = (result.hubRooms || []).filter((room) => !room.renamed);
         if (failed.length) HomeswiftCommon.showAlert(failed.map((room) => t("Not renamed on {hub}: {error}", { hub: room.name, error: room.error })).join("\n"));
-        route();
-      } catch (e) { HomeswiftCommon.showAlert(e.message); }
+        // Drawn again here rather than reloaded, so Edit stays on for the next room.
+        rooms.splice(0, rooms.length, ...result.rooms.map((room) => room.name));
+        for (const accessory of all) if (accessory.room === name) accessory.room = to;
+        render();
+        return true;
+      } catch (e) { HomeswiftCommon.showAlert(e.message); return false; }
+    }
+    /// A room's heading in Edit: its name as a field, renamed on Enter or when it loses focus; Escape puts it back.
+    function roomNameField(name) {
+      const input = el("input", { type: "text", class: "room-name-input", value: name, maxLength: 64, spellcheck: false, autocomplete: "off",
+        "aria-label": t("Name of {room}", { room: name }), title: t("Rename the room") });
+      // As wide as its text, measured in the field's font (field-sizing leaves the padding out in Chromium).
+      const fit = () => {
+        if (!input.isConnected) return;
+        const style = getComputedStyle(input);
+        const context = (fit.canvas ??= document.createElement("canvas")).getContext("2d");
+        context.font = style.font;
+        const chrome = ["paddingLeft", "paddingRight", "borderLeftWidth", "borderRightWidth"].reduce((sum, key) => sum + parseFloat(style[key]), 0);
+        input.style.width = `${Math.ceil(context.measureText(input.value || " ").width + chrome) + 2}px`;
+      };
+      requestAnimationFrame(fit);
+      input.addEventListener("input", fit);
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") { event.preventDefault(); input.blur(); }
+        if (event.key === "Escape") { input.value = name; fit(); input.blur(); }
+      });
+      input.addEventListener("change", async () => {
+        input.disabled = true;
+        if (!await applyRoomName(name, input.value)) { input.value = name; fit(); input.disabled = false; }
+      });
+      return el("h2", {}, input);
     }
     const roomOrderButton = el("button", { type: "button", class: "hidden", "aria-label": t("Rooms"), "aria-haspopup": "menu",
       onclick: (event) => HomeswiftCommon.menu(roomOrderButton, [
@@ -1713,7 +1746,7 @@
       const groups = sections ? sections.map(([name, group]) => [name, ordered.filter((accessory) => group.includes(accessory))]) : [["", ordered]];
       const memberIDs = new Set(layout.groups.flatMap((g) => g.members));
       content.replaceChildren(...groups.map(([name, group]) => el("section", { class: "accessory-section" },
-        name ? el("div", { class: "section-head" }, el("h2", { text: name }), el("span", { class: "muted", text: tn("{n} accessory", "{n} accessories", group.length) })) : null,
+        name ? el("div", { class: "section-head" }, editing && isAdmin() && layout.grouping === "room" && rooms.includes(name) ? roomNameField(name) : el("h2", { text: name }), el("span", { class: "muted", text: tn("{n} accessory", "{n} accessories", group.length) })) : null,
         el("div", { class: `wall${editing ? " editing" : ""}` }, group.filter((a) => !memberIDs.has(a.id) || noResponse).map(widget)))));
       if (!noResponse) {
         const walls = [...content.querySelectorAll(".wall")];

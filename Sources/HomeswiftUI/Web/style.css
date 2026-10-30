@@ -526,6 +526,15 @@ label > input, label > select { margin-top: 5px; }
 .page-head > .who { flex: 1 1 280px; }
 .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-12); margin: 26px 0 var(--space-10); }
 .section-head h2 { margin: 0; }
+/* A room's name on the Accessories wall in Edit: a field that reads as the heading, outlined to say it can be typed in. */
+.room-name-input {
+  font: inherit; letter-spacing: inherit; color: inherit; min-width: 4ch; max-width: 70vw;
+  margin: -3px calc(-1 * var(--space-8)); padding: 2px var(--space-8); border: 1px dashed var(--line); border-radius: var(--radius-xs);
+  background: transparent; transition: border-color var(--fast) var(--ease-out), background-color var(--fast) var(--ease-out);
+}
+.room-name-input:hover { border-color: var(--muted); }
+.room-name-input:focus { outline: none; border-style: solid; border-color: var(--accent); background: var(--field); }
+.room-name-input:disabled { opacity: .6; }
 .section-head .muted { font-size: var(--text-sm); }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: var(--space-14); }
 .grid > .card { margin: 0; min-width: 0; }

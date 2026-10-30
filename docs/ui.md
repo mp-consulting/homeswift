@@ -139,8 +139,9 @@ screenshots, and what a plugin does to get good ones.
   of their own, the **Apple Home** switch (`?from=Apple%20Home`). The layout is the bridge's, shared by every user, in
   `accessory-layout.json` next to config.json (owner-only; `/api/rooms`). The Home app never sees it; the MCP tools do:
   `list_accessories` and `set_accessories` filter by these rooms.
-- **Rooms on the hubs**: in **Edit**, with the wall **By room**, the **Rooms** menu orders the rooms (drag them) and
-  renames one (choose it). Its **Rename on the hubs too** switch, off until turned on (`syncRoomNames` in
+- **Rooms on the hubs**: in **Edit**, with the wall **By room**, each room's heading is a field: type a new name, then
+  Enter (or click away) renames the room, Escape keeps it. The **Rooms** menu orders the rooms (drag them) and renames
+  one too (choose it). Its **Rename on the hubs too** switch, off until turned on (`syncRoomNames` in
   `accessory-layout.json`), makes a renamed room's new name reach the plugins' hubs: every room of a Philips Hue Bridge,
   an IKEA DIRIGERA hub or an eWeLink home named as the room was, case and accents aside, is renamed with it, and the
   log says so (`Room "Salon" renamed "Lounge" on Hue`). It goes one way: a room renamed in the Hue app stays as Homeswift
