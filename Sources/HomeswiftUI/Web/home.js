@@ -283,7 +283,7 @@
         el("span", {}, el("span", { text: scene.name }), el("span", { class: "scene-source", text: scene.source.pluginName }))),
       scene.active ? el("span", { class: "pill scene-active", text: t("Scene active") }) : null);
     if (!picture && colours.length) button.style.background = colours.length > 1 ? `linear-gradient(135deg, ${colours.join(", ")})` : colours[0];
-    button.addEventListener("click", async () => { if (await runScene(scene, button)) app.route(); });
+    button.addEventListener("click", async () => { if (await runScene(scene, button)) redrawScenes(); });
     // Its actions sit on the tile, round over its top corner: Stop while it can be, then the menu (Automate and the rest).
     const stop = scene.stoppable ? el("button", { type: "button", actionIcon: "stop", "aria-label": t("Stop"), title: t("Stop"), onclick: () => stopScene(scene, stop) }) : null;
     // A Homeswift scene that recalls it, to give it triggers and conditions.
@@ -301,7 +301,7 @@
       runnable ? { label: t("Automate"), icon: "workflow", onSelect: automate } : null,
       ...hubSceneMenu(scene), ...pictureMenu(scene, button),
     ].filter(Boolean));
-    return el("div", { class: "hub-scene-tile" }, button, el("div", { class: "hub-scene-actions" }, stop, menu));
+    return sceneTile(el("div", { class: "hub-scene-tile" }, button, el("div", { class: "hub-scene-actions" }, stop, menu)), scene, hubSceneButton);
   }
 
   /// What a hub's scene lets Homeswift change on its hub (its `capabilities`): its name, its lights' values as they are
@@ -365,7 +365,7 @@
 
   /// Runs a scene; one that changes a lock, a door or an alarm asks first, as the cards' own controls do.
   /// Puts back what a scene's last run changed (a saved scene's locks, doors and alarms once the person agrees), then
-  /// redraws the page.
+  /// redraws its tiles.
   async function stopScene(scene, button) {
     const confirmSecurity = Boolean(scene.security || scene.stopSecurity);
     if (confirmSecurity && !await HomeswiftCommon.confirmDialog(t("Restore the previous state of this scene’s locks, doors or alarms?"))) return;
@@ -373,8 +373,31 @@
     try {
       const result = await app.api(`/api/scenes/${encodeURIComponent(scene.id)}/stop`, { method: "POST", body: { confirmSecurity } });
       if (!result.ok) HomeswiftCommon.showAlert(result.failed.map((f) => HomeswiftI18n.message(f.error)).join("\n"));
-      app.route();
+      await redrawScenes();
     } catch (e) { HomeswiftCommon.showAlert(e.message); button.disabled = false; }
+  }
+
+  /// A scene's tile (a hub scene's, a card of the Scenes page) and how to draw it again, for `redrawScenes`.
+  const sceneTiles = new WeakMap();
+  function sceneTile(node, scene, draw) {
+    node.dataset.scene = scene.id;
+    sceneTiles.set(node, draw);
+    return node;
+  }
+  /// After a run or a stop, the scenes' tiles on the page say what is active and what can stop: they are drawn again
+  /// in place, rather than the whole view, which a phone shows as the page loading again and back at its top. The
+  /// tiles stay the same nodes, so a filter that hides them keeps working.
+  async function redrawScenes() {
+    const data = await app.api("/api/scenes").catch(() => null);
+    if (!data) return;
+    const scenes = new Map([...data.scenes, ...(data.pluginScenes || [])].map((scene) => [scene.id, scene]));
+    for (const node of document.querySelectorAll("#view [data-scene]")) {
+      const scene = scenes.get(node.dataset.scene), draw = sceneTiles.get(node);
+      if (!scene || !draw) continue;
+      const fresh = draw(scene);
+      node.className = fresh.className;
+      node.replaceChildren(...fresh.childNodes);
+    }
   }
 
   async function runScene(scene, button) {
@@ -647,9 +670,9 @@
       const lastVars = scene.lastRun ? { date: dateTimeFormat.format(new Date(scene.lastRun.at)), trigger: scene.lastRun.trigger } : null;
       const last = scene.lastRun ? (scene.lastRun.ok ? t("Last run {date} ({trigger})", lastVars) : t("Last run {date} ({trigger}), with errors", lastVars)) : t("Never run");
       const run = el("button", { actionIcon: "play", class: "primary", text: t("Run") });
-      run.addEventListener("click", async () => { if (await runScene(scene, run)) app.route(); });
+      run.addEventListener("click", async () => { if (await runScene(scene, run)) redrawScenes(); });
       const stop = scene.stoppable ? el("button", { type: "button", actionIcon: "stop", text: t("Stop"), onclick: () => stopScene(scene, stop) }) : null;
-      return el("div", { class: "card server scene-card" },
+      return sceneTile(el("div", { class: "card server scene-card" },
         sceneImage(scene),
         el("div", { class: "server-head" }, tile("play", scene.security ? "violet" : "orange"),
           el("div", { class: "who" }, el("a", { class: "card-title", href: `/scenes/${encodeURIComponent(scene.id)}` }, el("strong", { text: scene.name }),
@@ -667,7 +690,7 @@
               if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete the scene {name}?", { name: scene.name }), text: t("This removes the scene and its automatic triggers. This cannot be undone."), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
               try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
             } },
-          ])));
+          ]))), scene, card);
     };
     const sceneCount = el("span", { class: "pill", text: String(data.scenes.length) });
     const sceneCards = data.scenes.map((scene) => ({ scene, node: card(scene) }));
