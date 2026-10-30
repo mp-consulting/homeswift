@@ -368,6 +368,9 @@
 
   let openMenu = null;
 
+  /// Text as searches compare it: without accents or case, so "salon" finds "Salón".
+  const fold = (text) => String(text ?? "").normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+
   /// Opens a menu under `trigger`. Each item: { label, icon (a name or a node), href or onSelect, danger }, or
   /// { separator: true }; `checked` makes a ticked choice. { label, choices: [{ label, badge, checked, onSelect }] }
   /// draws a labelled row of square choices, such as the widget sizes.
@@ -380,7 +383,6 @@
     let pending = false, cancelDrag = null;
     const refreshDisabled = [];
     const searchable = [];
-    const fold = (text) => text.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
     const nodes = items.filter(Boolean).map((item) => {
       if (item.separator) return el("hr", { class: "menu-separator", role: "separator" });
       if (item.choices) {
@@ -1737,7 +1739,7 @@
   const promptDialog = (message, value = "") => messageDialog(message, { kind: "prompt", value });
 
   window.HomeswiftCommon = {
-    showAlert, confirmDialog, promptDialog, busyButton, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, lastChange: () => lastChange,
+    showAlert, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, lastChange: () => lastChange,
     $, el, icon, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };

@@ -2114,6 +2114,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // /config, /logs[/<accessory>]?since=…&level=…&q=…, /account. Pages below a section keep it lit in the header.
   const views = {};
   let leaveGuard = null;   // a page with unsaved changes: false keeps it
+  /// The place a #hash names on the view drawn (/status#matter-<device>): opened when it unfolds, and brought into view.
+  const reveal = (hash) => {
+    let id = "";
+    try { id = decodeURIComponent(hash.slice(1)); } catch { return null; }
+    const target = id && document.getElementById(id);
+    if (!target) return null;
+    if (target instanceof HTMLDetailsElement) target.open = true;
+    target.scrollIntoView({ block: "center" });
+    return target;
+  };
   let shownPath = null;
   function route() {
     // A dialog belongs to the view it opened on (an accessory's sheet, whose menu links to its log): a new view closes
@@ -2171,11 +2181,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     event.preventDefault();
     // Another view, with the place in it to show (/status#matter-<device>); on this view, that place opened and in sight.
     if (url.pathname + url.search !== location.pathname + location.search) return navigate(url.pathname + url.search + url.hash);
-    const target = url.hash && document.getElementById(decodeURIComponent(url.hash.slice(1)));
-    if (!target) return;
-    history.replaceState(null, "", url.pathname + url.search + url.hash);
-    if (target instanceof HTMLDetailsElement) target.open = true;
-    target.scrollIntoView({ block: "center" });
+    if (url.hash && reveal(url.hash)) history.replaceState(null, "", url.pathname + url.search + url.hash);
   });
   // Closing the tab or reloading: the browser asks, when the page has unsaved changes.
   window.addEventListener("beforeunload", (event) => { if (leaveGuard?.quiet && !leaveGuard.quiet()) event.preventDefault(); });
@@ -2237,17 +2243,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
     });
     stream.addEventListener("log", (event) => appendLogLine(JSON.parse(event.data)));
-    // A Matter node added to an ecosystem, removed from one, or opened for one: its card or row on the Status page is
-    // drawn again, once the burst of changes a pairing makes (the new fabric, the window closing) has settled.
-    const matterChanges = new Map();
-    stream.addEventListener("matter", (message) => {
-      const { device } = JSON.parse(message.data);
-      clearTimeout(matterChanges.get(device));
-      matterChanges.set(device, setTimeout(() => {
-        matterChanges.delete(device);
-        if (location.pathname !== "/status") return;
-        document.getElementById(device ? `matter-${slug(device)}` : "matter")?.refreshMatter?.();
-      }, 500));
+    // A Matter node added to an ecosystem, removed from one, or opened for one: the Status page draws its Matter
+    // bridge and devices again, once the burst of changes a pairing makes (the new fabric, the window closing) has settled.
+    let matterTimer = null;
+    stream.addEventListener("matter", () => {
+      clearTimeout(matterTimer);
+      matterTimer = setTimeout(() => { if (location.pathname === "/status") redrawMatter?.(); }, 500);
     });
     // The rooms or the wall changed elsewhere (the chat, an MCP client, another page): the Accessories page draws them
     // again, once for a burst, unless the change is the page's own. While it is being edited or a dialog is open over
@@ -2292,6 +2293,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// the list, how many it keeps and the way back under it. `entries` are { card, name, text } and more; `orders` are
   /// [value, label, compare], the first the default, ties by name; `filters` are [value, label, keep], the first keeping
   /// all. The order and the filter chosen stay in the address under `param` and `filterParam`.
+  const naturalOrder = new Intl.Collator(undefined, { numeric: true });
+  // The Status page's Matter section drawn again (set while it shows).
+  let redrawMatter = null;
   const finder = ({ grid, entries, orders, filters = [], param, filterParam, placeholder, sortLabel, filterLabel, empty, counted,
     emptyClass = "card empty" }) => {
     const params = new URLSearchParams(location.search);
@@ -2312,15 +2316,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     };
     const arrange = () => {
       const compare = orders.find(([value]) => value === sort.value)[2];
-      const collator = new Intl.Collator(undefined, { numeric: true });
-      grid.append(...[...entries].sort((a, b) => compare(a, b) || collator.compare(a.name, b.name) || a.text.localeCompare(b.text)).map(({ card }) => card));
+      grid.append(...[...entries].sort((a, b) => compare(a, b) || naturalOrder.compare(a.name, b.name) || naturalOrder.compare(a.text, b.text)).map(({ card }) => card));
     };
     const narrow = () => {
-      const query = search.value.trim().toLocaleLowerCase();
+      const query = HomeswiftCommon.fold(search.value.trim());
       const keep = filter ? filters.find(([value]) => value === filter.value)[2] : () => true;
       let visible = 0;
       for (const entry of entries) {
-        entry.card.hidden = !(keep(entry) && entry.text.toLocaleLowerCase().includes(query));
+        entry.card.hidden = !(keep(entry) && HomeswiftCommon.fold(entry.text).includes(query));
         if (!entry.card.hidden) visible++;
       }
       const narrowed = query || (filter && filter.value !== filters[0][0]);
@@ -2338,11 +2341,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // /status?since=24h&bridge=<bridge>&accessory=<accessory>: the activity charts' range and whose durations they show,
   // as on the Logs page.
   views.status = async (main) => {
-    const [status, accessories, matter] = await Promise.all([
+    const [status, accessories, firstMatter] = await Promise.all([
       api("/api/status"),
       api("/api/accessories").then((list) => withSlugs(list, "accessory")).catch(() => []),
       api("/api/matter").catch(() => null),
     ]);
+    let matter = firstMatter;
     rememberMatterOwn(matter);
     $("#banner").classList.toggle("hidden", !status.restartNeeded || !isAdmin());
     const waiting = status.bridges.filter((bridge) => !bridge.paired);
@@ -2452,56 +2456,40 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
                 }) }),
               el("p", { class: "muted", text: what }));
           })() : null],
-        // In no ecosystem yet: its code is what the person needs.
-        waiting: !fabrics.length,
         search: [node.name ?? "", ...named.map((one) => one.name)].join(" "),
       };
     };
-    // The Matter bridge's card, or a device's row: drawn again after an administrator's change, a row kept open and as
-    // the search left it.
+    // The Matter bridge's card, or a device's row; an administrator's change draws the section again.
     const matterNode = (node, own, open = false) => {
-      const id = own ? `matter-${slug(node.id)}` : "matter";
-      const refresh = async () => {
-        const next = await api("/api/matter");
-        const fresh = own ? (next.ownDevices || []).find((device) => device.id === node.id) : next;
-        if (!fresh) return element.remove();
-        const replacement = matterNode(fresh, own, own && element.open);
-        replacement.hidden = element.hidden;
-        element.replaceWith(replacement);
-      };
-      const parts = matterParts(node, own, refresh);
-      const element = own ? deviceRow(parts, id, open) : serverCard(parts, id);
-      // Drawn again when the bridge says the node changed (the event stream's "matter").
-      element.refreshMatter = refresh;
-      // Reached from an accessory's menu: brought into view (its row opened by the list).
-      if (location.hash === `#${id}`) requestAnimationFrame(() => element.scrollIntoView({ block: "center" }));
-      return element;
+      const parts = matterParts(node, own, () => redrawMatter?.());
+      return own ? deviceRow(parts, `matter-${slug(node.id)}`, open) : serverCard(parts, "matter");
     };
 
     // Accessories and Matter devices of their own, one line each, those waiting to be added first: a home may have a
-    // hundred, which cards would bury the bridges under. Built on each draw (Customise draws the section again), with a
-    // search once the list is long.
-    const devicesCard = () => {
+    // hundred, which cards would bury the bridges under. Built on each draw (Customise draws the section again, and a
+    // Matter change, with the rows that were open), with a search once the list is long.
+    const waitingFirst = (a, b) => Number(b.waiting) - Number(a.waiting);
+    const devicesCard = (opened) => {
       const external = status.bridges.flatMap((bridge, index) => {
         if (!bridge.external) return [];
         const parts = bridgeParts(bridge, index);
         const id = `accessory-${slug(bridge.deviceId)}`;
         return [{ name: bridge.name, id, kind: "homekit", ecosystems: bridge.paired ? 1 : 0, waiting: parts.waiting, make: (open) => deviceRow(parts, id, open) }];
       });
-      const own = !matter?.enabled ? [] : (matter.ownDevices || []).map((device) => ({
-        name: device.name, id: `matter-${slug(device.id)}`, kind: "matter", ecosystems: (device.fabrics || []).length,
-        waiting: !(device.fabrics || []).length, make: (open) => matterNode(device, true, open) }));
+      const own = !matter?.enabled ? [] : (matter.ownDevices || []).map((device) => {
+        const ecosystems = (device.fabrics || []).length;
+        return { name: device.name, id: `matter-${slug(device.id)}`, kind: "matter", ecosystems, waiting: !ecosystems, make: (open) => matterNode(device, true, open) };
+      });
       const entries = [...external, ...own];
       if (!entries.length) return null;
       const waiting = entries.filter((entry) => entry.waiting).length;
       const list = el("div", { class: "device-rows" });
-      // One or two to add come open, their codes in view; more stay folded, their pills saying so. One an accessory's
-      // menu links to opens. A row redrawn after a change replaces its element: the entry finds it by its id.
+      // One or two to add come open, their codes in view; more stay folded, their pills saying so. Drawn again, the
+      // rows open that were.
       for (const entry of entries) {
-        const row = entry.make((entry.waiting && waiting <= 2) || location.hash === `#${entry.id}`);
-        list.append(row);
-        entry.text = row.dataset.search;
-        Object.defineProperty(entry, "card", { get: () => list.querySelector(`#${CSS.escape(entry.id)}`) });
+        entry.card = entry.make(opened ? opened.has(entry.id) : entry.waiting && waiting <= 2);
+        entry.text = entry.card.dataset.search;
+        list.append(entry.card);
       }
       const head = el("div", { class: "devices-head" },
         el("div", { class: "who" }, el("strong", { text: t("Devices of their own") }),
@@ -2509,12 +2497,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             : tn("One device, with its own pairing", "{n} devices, each with its own pairing", entries.length) })));
       // A short list is read at a glance; a long one is searched, filtered by kind and sorted.
       if (entries.length <= 8) {
-        const collator = new Intl.Collator(undefined, { numeric: true });
-        list.append(...entries.sort((a, b) => Number(b.waiting) - Number(a.waiting) || collator.compare(a.name, b.name)).map((entry) => entry.card));
+        list.append(...entries.sort((a, b) => waitingFirst(a, b) || naturalOrder.compare(a.name, b.name)).map((entry) => entry.card));
         return el("div", { class: "card devices" }, head, list);
       }
       return el("div", { class: "card devices" }, head, ...finder({ grid: list, entries, param: "devices", filterParam: "show",
-        orders: [["waiting", t("Waiting to be added first"), (a, b) => Number(b.waiting) - Number(a.waiting)], ["name", t("Name A–Z"), () => 0],
+        orders: [["waiting", t("Waiting to be added first"), waitingFirst], ["name", t("Name A–Z"), () => 0],
           ["ecosystems", t("Most ecosystems"), (a, b) => b.ecosystems - a.ecosystems]],
         filters: [["all", t("All devices"), () => true], ["matter", t("Matter"), (entry) => entry.kind === "matter"],
           ["homekit", t("HomeKit"), (entry) => entry.kind === "homekit"], ["waiting", t("Waiting to be added"), (entry) => entry.waiting]],
@@ -2539,8 +2526,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       vault: () => isAdmin() && status.vault && (status.vault.entries || status.vault.inConfig || status.vault.problems?.length) ? vaultCard(status.vault) : null,
       activity: () => activity(accessories, withSlugs(status.bridges, "bridge")),
       energy: () => energy(),
-      bridges: () => [el("h2", { text: status.bridges.length === 1 ? t("Bridge") : t("Bridges and accessories") }),
-      el("div", { class: "servers" }, ...bridges, matter?.enabled && matter.bridge !== false ? matterNode(matter, false) : null, devicesCard())],
+      bridges: (opened) => [el("h2", { text: status.bridges.length === 1 ? t("Bridge") : t("Bridges and accessories") }),
+      el("div", { class: "servers" }, ...bridges, matter?.enabled && matter.bridge !== false ? matterNode(matter, false) : null, devicesCard(opened))],
       system: () => [el("h2", { text: t("System") }),
       el("div", { class: "card server" },
         el("div", { class: "server-head" }, tile("system", "grey"),
@@ -2626,8 +2613,25 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
       scrollTo({ ...position, behavior: "instant" });
     }
+    // The bridge said a Matter node changed, or an administrator changed one: the Bridges section is drawn again, its
+    // rows as open as they were, its search as typed and the page where it was.
+    redrawMatter = async () => {
+      matter = await api("/api/matter").catch(() => matter);
+      rememberMatterOwn(matter);
+      const section = sections.get("bridges");
+      if (!section?.isConnected) return;
+      const opened = new Set([...section.querySelectorAll("details[open]")].map((row) => row.id));
+      const query = section.querySelector(".devices .search")?.value ?? "";
+      const position = { left: scrollX, top: scrollY };
+      section.replaceChildren(...[widgets.bridges(opened)].flat().filter(Boolean));
+      const search = section.querySelector(".devices .search");
+      if (search && query) { search.value = query; search.dispatchEvent(new Event("input")); }
+      scrollTo({ ...position, behavior: "instant" });
+    };
     show(main, footer);
     renderDashboard(dashboardLayout());
+    // Reached from an accessory's menu (/status#matter-<device>): that row, opened and in view.
+    if (location.hash) requestAnimationFrame(() => reveal(location.hash));
   };
 
   // ---- The Status page's widgets: which show, in which order ----------------------------------------------
@@ -8408,6 +8412,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   let openMenu = null;
 
+  /// Text as searches compare it: without accents or case, so "salon" finds "Salón".
+  const fold = (text) => String(text ?? "").normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+
   /// Opens a menu under `trigger`. Each item: { label, icon (a name or a node), href or onSelect, danger }, or
   /// { separator: true }; `checked` makes a ticked choice. { label, choices: [{ label, badge, checked, onSelect }] }
   /// draws a labelled row of square choices, such as the widget sizes.
@@ -8420,7 +8427,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     let pending = false, cancelDrag = null;
     const refreshDisabled = [];
     const searchable = [];
-    const fold = (text) => text.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
     const nodes = items.filter(Boolean).map((item) => {
       if (item.separator) return el("hr", { class: "menu-separator", role: "separator" });
       if (item.choices) {
@@ -9777,7 +9783,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const promptDialog = (message, value = "") => messageDialog(message, { kind: "prompt", value });
 
   window.HomeswiftCommon = {
-    showAlert, confirmDialog, promptDialog, busyButton, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, lastChange: () => lastChange,
+    showAlert, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, lastChange: () => lastChange,
     $, el, icon, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };

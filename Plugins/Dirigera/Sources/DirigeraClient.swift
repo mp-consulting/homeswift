@@ -146,7 +146,7 @@ actor DirigeraClient {
         let response = try await transport.send(HTTPRequest(method: method, url: url, headers: headers, body: body, timeout: .seconds(10)))
         if accept.contains(response.status) || (200..<300).contains(response.status) { return response }
         if authenticated, response.status == 401 || response.status == 403 { throw Failure.unauthorized }
-        throw Failure.status(response.status, logExcerpt(String(decoding: response.body, as: UTF8.self)) ?? "")
+        throw Failure.status(response.status, logExcerpt(String(decoding: response.body.prefix(2048), as: UTF8.self)) ?? "")
     }
 
     static func formEncode(_ value: String) -> String {

@@ -167,7 +167,7 @@ enum ONVIF {
         let text = String(decoding: response.body.prefix(soapMaxBytes), as: UTF8.self)
         guard response.isSuccess else {
             let stripped = stripNamespaces(text)
-            let detail = text.isEmpty ? "" : ": " + (extractTag(stripped, "Reason") ?? extractTag(stripped, "Text") ?? String(text.prefix(200)))
+            let detail = text.isEmpty ? "" : ": " + (extractTag(stripped, "Reason") ?? extractTag(stripped, "Text") ?? logExcerpt(text) ?? "")
             throw Failure(description: "HTTP \(response.status)\(detail)")
         }
         return text
