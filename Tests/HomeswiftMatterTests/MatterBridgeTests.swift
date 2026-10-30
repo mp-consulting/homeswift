@@ -359,10 +359,12 @@ struct MatterMappingTests {
         air[.active]?.value = .int(0)
         #expect(heaterCooler.states(changed: CharacteristicType.active.uuid) == [.thermostatMode(UInt8(Mode.off))])
 
-        // A door moves as a covering does.
+        // A door moves as a covering does, with exposeSecurity on: it is an entrance. A window needs no such opt-in.
         let door = Service(.door, name: "Patio door")
         door[.currentPosition]?.value = .int(100)
-        #expect(try #require(ServiceMapping(door, exposeSecurity: false)).states() == [.coveringPosition(percent100ths: 0)])
+        #expect(ServiceMapping(door, exposeSecurity: false) == nil)
+        #expect(try #require(ServiceMapping(door, exposeSecurity: true)).states() == [.coveringPosition(percent100ths: 0)])
+        #expect(ServiceMapping(Service(.window, name: "Skylight"), exposeSecurity: false)?.role == .covering)
 
         // A garage door is a security control, and a Closure: opening asks for its target, and on its way it is partly open.
         let garage = Service(.garageDoorOpener, name: "Garage")

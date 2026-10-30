@@ -104,8 +104,9 @@ struct ServiceMapping: Sendable {
         case ServiceType.valve.uuid, ServiceType.faucet.uuid: role = .valve
         default: return nil
         }
-        // A lock, or a service whose write opens something (a garage door, a switch that unlocks a door), only when asked for.
-        if !exposeSecurity, role == .lock || service.characteristics.contains(where: \.isSecurityControl) { return nil }
+        // A lock, a door (an entrance that opens, though its position is not a security control in HAP), or a service whose
+        // write opens something (a garage door, a switch that unlocks a door), only when asked for.
+        if !exposeSecurity, role == .lock || type == ServiceType.door.uuid || service.characteristics.contains(where: \.isSecurityControl) { return nil }
         self.role = role
         self.service = service
         self.filter = filter

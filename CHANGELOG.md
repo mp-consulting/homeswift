@@ -9,8 +9,8 @@ All notable changes to this project are documented here. The format follows
 ### Added
 
 - More HomeKit services on Matter (docs/matter.md): a Heater Cooler is a thermostat with heat, cool and auto between
-  its thresholds; doors and windows move as coverings; a Garage Door Opener is a garage door Closure with
-  `exposeSecurity` on; a faucet is a water valve; an Air Purifier is one, with its Filter Maintenance's life and reset;
+  its thresholds; windows, and doors with `exposeSecurity` on, move as coverings; a Garage Door Opener is a
+  garage door Closure with `exposeSecurity` on; a faucet is a water valve; an Air Purifier is one, with its Filter Maintenance's life and reset;
   a Carbon Dioxide Sensor, and an Air Quality Sensor's PM2.5, PM10 and VOC densities, report their concentrations;
   fans rock and reverse their airflow both ways.
 - A Matter bridge: with a `HomeswiftMatter` block, the plugins' accessories are Matter bridged devices too, both

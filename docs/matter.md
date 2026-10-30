@@ -21,7 +21,7 @@ A system block in config.json, like the web UI's:
 | `port` | 5540 | The UDP port Matter controllers reach the bridge on (Matter's own) |
 | `include` | every accessory | Bridge only the accessories matching one of these: a plugin's platform, a plugin instance's name, an accessory id or name; `*` matches any run of characters, case is ignored |
 | `exclude` | none | Accessories never bridged, matched the same way; it wins over `include` |
-| `exposeSecurity` | false | Bridge locks, and what a plugin marks as a security control (a switch that opens a gate) |
+| `exposeSecurity` | false | Bridge locks, garage doors, doors, and what a plugin marks as a security control (a switch that opens a gate) |
 | `tcp` | false | Also accept Matter over TCP on the same port, for controllers that send large messages; UDP is always on |
 | `bridge` | true | Run the bridge; off, only the `devices` are on Matter |
 | `devices` | none | Accessory ids that are Matter devices of their own (below) rather than bridged |
@@ -85,7 +85,7 @@ To try it: `homeswift-demo --matter-device demo-lamp` prints the lamp's own pair
 | Humidity Sensor | Humidity Sensor | % ↔ hundredths of a percent |
 | Light Sensor | Light Sensor | lux ↔ 10000·log10(lux) + 1 |
 | Leak Sensor | Water Leak Detector | detected ↔ StateValue true |
-| Window Covering, Door, Window | Window Covering | percent open ↔ hundredths of a percent closed; stop holds the position |
+| Window Covering, Window, Door (only with `exposeSecurity`) | Window Covering | percent open ↔ hundredths of a percent closed; stop holds the position |
 | Fan, Fanv2 | Fan | Active or On and Rotation Speed ↔ PercentSetting and FanMode; Swing Mode ↔ RockSetting (left and right); Rotation Direction counter-clockwise ↔ AirflowDirection reverse |
 | Thermostat | Thermostat, heating (and cooling when the target state allows it) | off/heat/cool ↔ SystemMode; the target temperature ↔ the setpoint of the mode in use |
 | Heater Cooler | Thermostat with the modes its target state allows, auto when it heats and cools | Active off ↔ SystemMode off; auto/heat/cool ↔ SystemMode; the heating and cooling thresholds ↔ the two setpoints |
