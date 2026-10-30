@@ -21028,7 +21028,9 @@ textarea.short { min-height: 220px; }
 .chip { padding: 3px var(--space-10); border-radius: var(--radius-pill); font-size: var(--text-sm); background: var(--material-thin); border: 1px solid var(--line); }
 /* A chip with a remove button (the Matter card's ecosystems, for an administrator). */
 .chip.removable { display: inline-flex; align-items: center; gap: 2px; padding-right: 2px; }
-.chip.removable .icon-button:not(.menu-button) { width: 22px; height: 22px; }
+/* A chip's remove button stays a 22-point disc (no button minimum stretches it) with a 40-point tap around it. */
+.chip.removable .icon-button:not(.menu-button) { width: 22px; height: 22px; min-height: 0; min-width: 0; position: relative; }
+.chip.removable .icon-button:not(.menu-button)::after { content: ""; position: absolute; inset: -9px; }
 /* A controller's own system fabric (Apple Home's second one): muted, with a house. */
 .chip.system { display: inline-flex; align-items: center; gap: var(--space-4); color: var(--muted); border-style: dashed; }
 .chip.system > svg { width: 14px; height: 14px; }
