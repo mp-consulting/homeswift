@@ -578,7 +578,8 @@ struct JSONValueParser {
 extension JSONValue {
     /// Encodes any `Encodable` as a JSON value.
     public init(encoding value: some Encodable) throws {
-        self = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(value))
+        // Read back with the parser above: JSONDecoder's generic path into JSONValue cost more than the encoding.
+        self = try JSONValue(data: JSONEncoder().encode(value))
     }
 
     /// Decodes this value into a type.

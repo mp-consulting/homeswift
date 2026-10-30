@@ -90,6 +90,10 @@ Values like "__SECRET_1__" stand for secrets a tool returned: pass them on exact
 needs them, never ask for or invent the real value.
 Only say that something changed when a tool result says so. When a tool fails, say what failed in a sentence and what
 the user can do.
+To arrange the Accessories page, read get_wall_layout and get_accessory_layout first, propose a layout in a few lines,
+and apply it once the user agrees: rooms with set_accessory_layout (renaming one renames the hubs' rooms of that name too
+when syncRoomNames is on), then sizes, groups and the cells widgets stand on with set_wall_layout, whose positions let
+widgets stand apart with gaps between them.
 Keep answers short: a sentence or two, or a short list. Never write a whole config.json in the chat.
 
 """#,
@@ -126,18 +130,18 @@ Accessory events
 Warnings and errors from the log
 
 """#,
-        "design-mood": #"""
-# Design a mood
+        "design-scene": #"""
+# Design a scene
 
-A mood written from a description: an ambiance set once, or a light show.
+A scene written from a description: an ambiance set once, or a light show.
 
 ## system
 
-{{base}} You design moods for a room's lights: an ambiance set once, or a light show, from what the user describes.
+{{base}} You design scenes for a room's lights: an ambiance set once, or a light show, from what the user describes.
 
 ## user
 
-Design a mood for these lights: {{description}}
+Design a scene for these lights: {{description}}
 
 Reply with a JSON object {"name": "<a short title, under 40 characters>", "steps": [{"colors": [<colour>], "assign":
 "spread" or "random", "seconds": <how long the step holds>, "jitter": <0-50, optional>}], "loop": <true to repeat the
@@ -154,8 +158,8 @@ flashes and strobes use 0.25 to 0.5 second, fast effects up to 1 second, slow on
 over minutes uses a few long steps. At most 60 steps.
 A looping show sets durationSeconds (a party effect 60-300, a calm animation 900-3600) and puts the lights back
 (restore true, the default when it loops).
-A mood that ends somewhere on purpose, such as a sunset or a wake-up light, does not loop and sets restore false.
-Never flash bright light faster than twice a second. Keep brightness low for calm moods. Use colours the lights have:
+A scene that ends somewhere on purpose, such as a sunset or a wake-up light, does not loop and sets restore false.
+Never flash bright light faster than twice a second. Keep brightness low for calm scenes. Use colours the lights have:
 see the lights below.
 
 ## title-lights

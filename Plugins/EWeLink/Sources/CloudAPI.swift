@@ -263,6 +263,39 @@ actor CloudAPI {
         return ids
     }
 
+    /// The rooms of every home (`GET /v2/family`'s `roomList`), with their home's name.
+    func rooms() async throws -> [(id: String, name: String, homeID: String, home: String)] {
+        let json: JSONValue
+        do {
+            json = try await request("GET", "/v2/family")
+        } catch let error as HTTPStatusError {
+            throw EWeLinkError("Failed to get homes: \(error.description)")
+        }
+        guard json["error"]?.intValue == 0, let families = json["data"]?["familyList"]?.arrayValue else {
+            throw EWeLinkError(json["msg"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? "Failed to get family list")
+        }
+        return families.flatMap { family in
+            (family["roomList"]?.arrayValue ?? []).compactMap { room in
+                guard let id = room["id"]?.jsString, let name = room["name"]?.stringValue, let home = family["id"]?.jsString else { return nil }
+                return (id, name, home, family["name"]?.stringValue ?? "")
+            }
+        }
+    }
+
+    /// `PUT /v2/family/room` with `{id, name}`: the only change eWeLink allows a room (CoolKit's v2 API, as
+    /// ewelink-api-next's `home.setRoom` sends it).
+    func renameRoom(_ id: String, name: String) async throws {
+        let json: JSONValue
+        do {
+            json = try await request("PUT", "/v2/family/room", body: JSONValue.object(["id": .string(id), "name": .string(name)]).encoded())
+        } catch let error as HTTPStatusError {
+            throw EWeLinkError("Failed to rename the room: \(error.description)")
+        }
+        guard json["error"]?.intValue == 0 else {
+            throw EWeLinkError(json["msg"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? "Failed to rename the room", code: json["error"]?.intValue)
+        }
+    }
+
     /// The devices (things with a UIID) and groups (item type 3) of every home.
     func devices() async throws -> (devices: [EWeLinkDevice], groups: [JSONValue]) {
         let homes = try await homes()

@@ -8,8 +8,9 @@ enum WebAssets {
     static let files: [String: WebFile] = [
         "admin.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The Settings pages, after the Homebridge UI's settings, child bridges, config editor backups, restart and power
-// options: the bridge block and this machine's network, HomeKit pairings, cached accessories, child bridges,
-// whole-instance and config.json backups, the schedules, and the audit log; and an accessory's recorded history.
+// options: the bridge block and this machine's network, HomeKit pairings, cached accessories, config.json's editor, child bridges,
+// whole-instance and config.json backups, the schedules, updates, and the audit log; and an accessory's recorded
+// history.
 // app.js routes /settings[/<page>] here and lends its helpers (HomeswiftApp) when a view is drawn.
 (() => {
   "use strict";
@@ -19,7 +20,7 @@ enum WebAssets {
   const app = () => window.HomeswiftApp;
   const api = (...args) => app().api(...args);
 
-  const pages = [["bridge", t("Bridge"), "bridge"], ["child-bridges", t("Child bridges"), "child"], ["backups", t("Backups"), "archive"], ["vault", t("Vault"), "key"], ["audit", t("Audit log"), "shield"], ["assistant", t("Assistant"), "sparkle"]];
+  const pages = [["bridge", t("Bridge"), "bridge"], ["config", t("Config"), "code"], ["child-bridges", t("Child bridges"), "child"], ["backups", t("Backups"), "archive"], ["vault", t("Vault"), "vault"], ["updates", t("Updates"), "download"], ["audit", t("Audit log"), "shield"], ["assistant", t("Assistant"), "sparkle"]];
 
   const dateTime = new Intl.DateTimeFormat(locale, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
   const fullDate = new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
@@ -62,7 +63,7 @@ enum WebAssets {
   async function view(main, [page = ""] = []) {
     // Settings opens on its first page, Bridge.
     if (!page) { history.replaceState(null, "", "/settings/bridge"); page = "bridge"; }
-    const draw = { bridge: bridgePage, "child-bridges": childBridgesPage, backups: backupsPage, vault: vaultPage, audit: auditPage, assistant: (main) => app().assistantPage(main, subnav("assistant")) }[page];
+    const draw = { bridge: bridgePage, config: (main) => app().configPage(main, subnav("config")), "child-bridges": childBridgesPage, backups: backupsPage, vault: vaultPage, updates: updatesPage, audit: auditPage, assistant: (main) => app().assistantPage(main, subnav("assistant")) }[page];
     if (!draw) { app().show(main, app().pageHead(t("Settings"), t("No such page.")), subnav(null)); return; }
     await draw(main);
   }
@@ -91,7 +92,8 @@ enum WebAssets {
     const fields = {
       name: input("name", { required: true }),
       port: input("port", { type: "number", min: 1, max: 65535, placeholder: settings.listeningPort ? t("Automatic (now {port})", { port: String(settings.listeningPort) }) : t("Automatic [port]") }),
-      pin: input("pin", { class: "mono", placeholder: "031-45-154", pattern: "\\d{3}-\\d{2}-\\d{3}", autocomplete: "off", spellcheck: false }),
+      // The code the bridge runs with: config.json keeps it sealed, or names it in the vault.
+      pin: input("pin", { id: "bridge-pin", class: "mono", placeholder: "031-45-154", pattern: "\\d{3}-\\d{2}-\\d{3}", autocomplete: "off", spellcheck: false, value: settings.setupCode ?? bridge.pin ?? "" }),
       manufacturer: input("manufacturer", { placeholder: "Homeswift" }),
       model: input("model", { placeholder: "Homeswift" }),
       firmwareRevision: input("firmwareRevision", { placeholder: t("The homeswift version") }),
@@ -99,10 +101,35 @@ enum WebAssets {
     const field = (title, control, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: title }), control, help ? el("span", { class: "help", text: help }) : null);
     const message = el("p", { class: "status-line muted", role: "status" });
     const save = el("button", { actionIcon: "check", class: "primary", type: "submit", text: t("Save and restart") });
+    // The setup code is sent only when it changes, so a sealed or vault pin stays as config.json has it.
+    const shownPin = fields.pin.value;
     const read = () => Object.fromEntries(Object.entries(fields).map(([key, control]) => {
       const value = control.value.trim();
       return [key, value === "" ? null : key === "port" ? Number(value) : value];
-    }));
+    }).filter(([key, value]) => key !== "pin" || value !== shownPin));
+    const copied = el("span", { class: "visually-hidden", role: "status" });
+    const copyIcon = HomeswiftCommon.icon("copy"), doneIcon = HomeswiftCommon.icon("check");
+    copyIcon.classList.add("copy-icon");
+    doneIcon.classList.add("copied-icon");
+    let copyTimer;
+    const copyPin = el("button", { type: "button", class: "icon-button setup-code-copy", title: t("Copy the setup code"), "aria-label": t("Copy the setup code"), onclick: async () => {
+      clearTimeout(copyTimer);
+      try {
+        await HomeswiftCommon.copyText(fields.pin.value.trim());
+        copyPin.dataset.copied = "";
+        copied.textContent = t("Copied");
+      } catch {
+        // Selected, ⌘C or Ctrl+C copies it.
+        fields.pin.focus();
+        fields.pin.select();
+        copied.textContent = t("Not copied");
+      }
+      copyTimer = setTimeout(() => { delete copyPin.dataset.copied; copied.textContent = ""; }, 1600);
+    } }, copyIcon, doneIcon);
+    // The pairing QR code, for the Home app's camera: the code the bridge runs with, so a new one shows after the restart.
+    const qr = settings.setupCode ? el("img", { class: "qr", src: "/api/qr/0.svg", alt: t("Pairing QR code"), width: 120, height: 120 }) : null;
+    const qrNote = settings.setupCode ? el("p", { class: "help setup-field-note", text: main?.paired ? t("The bridge is in the Home app. To add it again, reset its pairings below, then scan this code.")
+      : t("In the Home app: Add Accessory, then scan this code, or choose More options and type it.") }) : null;
     const portStatus = el("span", { class: "help", role: "status", "aria-live": "polite" });
     const checkPort = async () => {
       if (!fields.port.value.trim()) return "";
@@ -152,7 +179,7 @@ enum WebAssets {
       catch (error) { portStatus.className = "help error"; portStatus.textContent = error.message; fields.port.focus(); return; }
       if (!(await confirmAction({ title: t("Restart homeswift with these settings?"), danger: false, confirmLabel: t("Save and restart"),
         text: [t("The bridge block is the bridge's HomeKit identity: homeswift restarts to apply it, and every connection drops for a few seconds."),
-          next.pin !== (bridge.pin ?? null) ? t("A new setup code applies to new pairings only: the Home app keeps the bridge.") : ""] }))) return;
+          "pin" in next ? t("A new setup code applies to new pairings only: the Home app keeps the bridge.") : ""] }))) return;
       await busy(save, async () => {
         await checkPort();
         const result = await api("/api/settings/bridge", { method: "PUT", body: { settings: next } });
@@ -167,7 +194,13 @@ enum WebAssets {
       el("div", { class: "fields" },
         field(t("Name"), fields.name, t("What the Home app calls the bridge when it is added.")),
         field(t("Port"), portControl, t("The HomeKit server's port; empty picks a free one and keeps it.")),
-        field(t("Setup code"), fields.pin, t("The code the Home app asks for, as XXX-XX-XXX. It is never logged.")),
+        // The code and its QR code side by side, across the form: they say the same thing.
+        el("div", { class: "field setup-field" },
+          el("div", { class: "setup-field-main" },
+            el("label", { class: "field-title", for: "bridge-pin", text: t("Setup code") }),
+            el("div", { class: "setup-code-field" }, fields.pin, copyPin, copied),
+            el("span", { class: "help", text: t("The code the Home app asks for, as XXX-XX-XXX. It is never logged.") }), qrNote),
+          qr),
         field(t("Manufacturer"), fields.manufacturer), field(t("Model"), fields.model), field(t("Firmware revision"), fields.firmwareRevision)),
       el("p", { class: "help", text: t("The device ID stays: a new one is a new bridge to the Home app. To pair again from scratch, reset the bridge's pairings below.") }),
       el("div", { class: "actions" }, save), message);
@@ -308,6 +341,78 @@ enum WebAssets {
         uiBlock ? el("a", { actionIcon: "sliders", class: "button", href: `/plugins/${uiBlock.slug}?section=proxy`, text: t("Open its settings") }) : null));
   }
 
+  // ---- Updates: this version, the latest release, installing it and relaunching --------------------------------
+
+  async function updatesPage(main) {
+    const update = await api("/api/updates");
+    const installs = { homebrew: "Homebrew", docker: t("Docker container"), synology: t("Synology package"), source: t("Built from source") };
+    const head = el("div", { class: "server-head update-head" });
+    const details = el("div", {});
+    const message = el("p", { class: "error", role: "alert" });
+    let shown = "";
+    // The headline is the state: up to date, a release out, installing, waiting for a relaunch, or a failed check.
+    const drawHead = () => {
+      const state = app().updatePhase(update);
+      const [icon, tone] = { current: ["check", "green"], available: ["download", "orange"], installed: ["power", "green"], installing: ["update", "blue"],
+        relaunching: ["power", "blue"], error: ["warning", "heat"], idle: ["update", "grey"] }[state];
+      const title = {
+        current: () => t("Homeswift is up to date"), available: () => t("Homeswift {version} is available", { version: update.latest }),
+        installed: () => t("Homeswift {version} is installed", { version: update.installed }), installing: () => t("Installing Homeswift {version}…", { version: update.installing }),
+        relaunching: () => t("Restarting into Homeswift {version}…", { version: update.installed }), error: () => t("Could not check for updates"), idle: () => t("Not checked yet"),
+      }[state]();
+      const meta = [t("This is {version}", { version: update.current }), installs[update.install] ?? update.install,
+        update.checkedAt ? t("Checked {when}", { when: HomeswiftCommon.ago(update.checkedAt) }) : null].filter(Boolean).join(" · ");
+      // Redrawn (and faded in) only when it says something new, not on each question while an update installs.
+      const key = `${state}|${title}|${meta}`;
+      if (key === shown) return;
+      const fade = shown !== "";
+      shown = key;
+      head.replaceChildren(tile(icon, tone),
+        el("div", { class: `who${fade ? " update-head-changed" : ""}` }, el("strong", { text: title }), el("div", { class: "muted", text: meta })),
+        check);
+      check.disabled = state === "installing" || state === "relaunching";
+    };
+    const draw = (next) => {
+      Object.assign(update, next);
+      automatic.checked = Boolean(update.automatic);
+      drawHead();
+      // The release's details, its install button among them; they keep the headline current while it installs.
+      const card = app().updateCard(update, { embedded: true, changed: (state) => { Object.assign(update, state); drawHead(); } });
+      details.replaceChildren(...(card ? [card] : []));
+    };
+    // `checkForUpdates` of the HomeswiftUI block, written as soon as it changes.
+    const automatic = el("input", { type: "checkbox", role: "switch", onchange: async () => {
+      const on = automatic.checked;
+      automatic.disabled = true;
+      message.textContent = "";
+      try {
+        draw(await api("/api/updates/automatic", { method: "PUT", body: { on } }));
+      } catch (error) {
+        automatic.checked = !on;
+        message.textContent = error.message;
+      } finally {
+        automatic.disabled = false;
+      }
+    } });
+    const check = el("button", { type: "button", actionIcon: "restore", text: t("Check now"), onclick: (event) => {
+      message.textContent = "";
+      busy(event.currentTarget, async () => draw(await api("/api/updates/check", { method: "POST", body: {} })), (error) => { message.textContent = error.message; });
+    } });
+    const relaunch = el("button", { type: "button", class: "link", onclick: (event) => app().restartBridge(event) }, HomeswiftCommon.icon("power"), el("span", { text: t("Restart homeswift…") }));
+    draw(update);
+    app().show(main,
+      app().pageHead(t("Settings"), t("The bridge, its pairings and cached accessories, child bridges, backups and the audit log.")),
+      subnav("updates"),
+      el("section", { class: "updates-settings" },
+        el("div", { class: "card server" },
+          head, message, details,
+          el("div", { class: "update-preferences" },
+            el("label", { class: "toggle" }, el("span", { class: "switch" }, automatic, el("span")),
+              el("span", {}, el("span", { class: "field-title", text: t("Check for updates twice a day") }),
+                el("p", { class: "help", text: t("Asks GitHub for the latest release and says so on the Status page. The request carries only this version.") })))),
+          el("div", { class: "actions dashboard-quick-actions" }, relaunch))));
+  }
+
   // ---- Child bridges -------------------------------------------------------------------------------------
 
   async function childBridgesPage(main) {
@@ -337,16 +442,23 @@ enum WebAssets {
             { label: t("Reset pairings…"), icon: "key", danger: true, onSelect: () => resetPairings({ name: bridge.name, deviceId: bridge.id }) },
           ])));
     };
+    const blocks = plugins.blocks.filter((block) => !["HomeswiftUI", "HomeswiftAiKit"].includes(block.platform));
+    const empty = (text, ...actions) => el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("child")),
+      el("p", { class: "muted", text }), actions.length ? el("div", { class: "actions" }, actions) : null);
     app().show(main,
       app().pageHead(t("Child bridges"), t("Plugins on HomeKit bridges of their own (a block with _bridge), inside this process: one can restart without the others.")),
       subnav("child-bridges"),
-      el("section", {}, sectionHead(t("Plugin bridges")),
-        el("div", { class: "card rows" }, plugins.blocks.filter((block) => !["HomeswiftUI", "HomeswiftAiKit"].includes(block.platform)).map((block) =>
-          el("div", { class: "row" }, tile("child", "blue"),
-            el("div", { class: "who" }, el("strong", { text: block.name }), el("div", { class: "muted", text: block.childBridge ? t("Child bridge") : t("Main bridge") })),
-            el("button", { actionIcon: "sliders", text: t("Configure"), onclick: () => editChildBridge(block) }))))),
-      childBridges.length ? el("div", { class: "servers" }, childBridges.map(card))
-        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("child")), el("p", { class: "muted", text: t("No child bridges yet. Configure a plugin above to give it its own bridge.") })));
+      // Without a plugin there is nothing to put on a bridge of its own: one empty state, the way to add one.
+      blocks.length ? [
+        el("section", {}, sectionHead(t("Plugin bridges")),
+          el("div", { class: "card rows" }, blocks.map((block) =>
+            el("div", { class: "row" }, tile("child", "blue"),
+              el("div", { class: "who" }, el("strong", { text: block.name }), el("div", { class: "muted", text: block.childBridge ? t("Child bridge") : t("Main bridge") })),
+              el("button", { actionIcon: "sliders", text: t("Configure"), onclick: () => editChildBridge(block) }))))),
+        childBridges.length ? el("div", { class: "servers" }, childBridges.map(card))
+          : empty(t("No child bridges yet. Configure a plugin above to give it its own bridge.")),
+      ] : empty(t("No plugins yet. Add one, then give it a HomeKit bridge of its own here."),
+        el("a", { class: "button primary", href: "/plugins", actionIcon: "plus", text: t("Add a plugin") })));
   }
 
   async function editChildBridge(entry) {
@@ -560,7 +672,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       plan.items.length ? migrationCard(plan, vault) : null,
       sectionHead(t("Entries"), vault.entries.length ? tn("{n} entry", "{n} entries", vault.entries.length) : "", add),
       vault.entries.length ? el("div", { class: "card rows" }, vault.entries.map((entry) => entryRow(entry, vault)))
-        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("key")),
+        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("vault")),
           el("p", { class: "muted", text: t("None yet: add one, or move config.json's secrets here.") })));
   }
 
@@ -760,10 +872,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         target.textContent = t("Shares {entry}", { entry: namer?.value.trim() || item.entry });
       }
     };
-    const move = el("button", { actionIcon: "key", class: "primary", onclick: (event) => {
+    const move = el("button", { actionIcon: "vault", class: "primary", onclick: (event) => {
       const button = event.currentTarget;
       confirmAction({
-        title: t("Move config.json's secrets to the vault?"), confirmLabel: t("Move"), danger: false, confirmIcon: "key",
+        title: t("Move config.json's secrets to the vault?"), confirmLabel: t("Move"), danger: false, confirmIcon: "vault",
         text: [t("Each one becomes an entry, and config.json names it as vault:<name>. config.json is backed up first: restoring that backup undoes it."),
           t("A copy of config.json no longer works on Homebridge: its secrets stay in this bridge's vault.")],
       }).then((ok) => ok && busy(button, async () => {
@@ -782,7 +894,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     count();
     showShared();
     return el("div", { class: "card server vault-card" },
-      el("div", { class: "server-head" }, tile("key", "violet"),
+      el("div", { class: "server-head" }, tile("vault", "violet"),
         el("div", { class: "who" }, el("strong", { text: tn("{n} secret is still in config.json", "{n} secrets are still in config.json", plan.items.length) }),
           el("div", { class: "muted", text: tn("Move it here: the plugin keeps working with the same value.", "Move them here: identical values share one entry, and each plugin keeps working with the same value.", plan.items.length) }))),
       el("div", { class: "rows" }, rows),
@@ -996,7 +1108,19 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// /api/accessories. A plugin block sits under the bridge its platform entry names; a plugin's accessories are the
   /// ones of its platform on that bridge, given to the first block that has them. A `filter` (see `overviewFilter`)
   /// keeps the accessories it matches, and only the plugins and bridges that still have some.
-  function overviewModel(status, plugins, accessories, filter = null) {
+  /// A plugin's branch, or one of the Matter block's: its accessories by device type, then name.
+  function branchOf(fields, leaves) {
+    leaves.sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
+    const sub = fields.paused ? t("Paused") : leaves.length ? tn("{n} accessory", "{n} accessories", leaves.length, {}) : t("No accessories");
+    return { kind: "plugin", ...fields, leaves, sub };
+  }
+
+  /// The ids of the Matter block's devices, from /api/matter (nothing else of it is kept: it carries pairing codes).
+  const matterIDs = (matter) => matter?.enabled ? {
+    own: new Set((matter.ownDevices ?? []).map((device) => device.id)), bridged: new Set((matter.devices ?? []).map((device) => device.id)),
+  } : null;
+
+  function overviewModel(status, plugins, accessories, filter = null, matter = null) {
     const bridges = status.bridges ?? [];
     const main = bridges.find((bridge) => !bridge.childBridge) ?? bridges[0];
     const tops = bridges.map((bridge) => ({
@@ -1007,7 +1131,22 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const claimed = new Set();
     let pluginCount = 0, pausedCount = 0, colorIndex = 0;
     for (const block of plugins?.blocks ?? []) {
-      if (block.system) { tops.push({ kind: "system", name: block.name, children: [], sub: t("Built in") }); continue; }
+      if (block.system) {
+        const top = { kind: "system", name: block.name, children: [], sub: t("Built in") };
+        // The Matter block: its devices of their own and its bridged ones. Each is a copy of the accessory it shows: the
+        // layout places the plugin's dot and this one apart.
+        if (block.platform === "HomeswiftMatter" && matter) {
+          top.icon = "matter";
+          for (const [name, ids] of [[t("Devices of their own"), matter.own], [t("Bridged over Matter"), matter.bridged]]) {
+            let leaves = accessories.filter((accessory) => ids.has(accessory.id));
+            if (filter) leaves = leaves.filter(filter.keeps);
+            if (leaves.length) top.children.push(branchOf({ name, icon: "matter", matter: true, color: "var(--ok)" }, leaves.map((one) => ({ ...one }))));
+          }
+          top.sub = tn("{n} accessory", "{n} accessories", top.children.reduce((sum, branch) => sum + branch.leaves.length, 0), {});
+        }
+        tops.push(top);
+        continue;
+      }
       const entry = entries.find((one) => one.name === block.name);
       const bridgeName = entry?.bridge ?? main?.name;
       const parent = topByName.get(bridgeName);
@@ -1024,9 +1163,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const paused = Boolean(entry?.paused);
       pluginCount += 1;
       pausedCount += paused ? 1 : 0;
-      leaves.sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
-      parent.children.push({ kind: "plugin", name: block.name, platform: block.platform, icon: block.icon ?? "plugin", bridgeName, paused, leaves, color,
-        sub: paused ? t("Paused") : leaves.length ? tn("{n} accessory", "{n} accessories", leaves.length, {}) : t("No accessories") });
+      parent.children.push(branchOf({ name: block.name, platform: block.platform, icon: block.icon ?? "plugin", bridgeName, paused, color }, leaves));
     }
     for (const top of tops) top.color = "var(--muted)";
     if (filter) tops.splice(0, tops.length, ...tops.filter((top) => top.children.length));
@@ -1168,9 +1305,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   /// The model of what homeswift runs, with what it was built from (the graph builds filtered ones from it).
   async function loadOverview() {
-    const [status, plugins, accessories] = await Promise.all([api("/api/status"), api("/api/plugins").catch(() => null), api("/api/accessories").catch(() => [])]);
-    const model = overviewModel(status, plugins, accessories);
-    model.source = { status, plugins, accessories };
+    const [status, plugins, accessories, matter] = await Promise.all([api("/api/status"), api("/api/plugins").catch(() => null),
+      api("/api/accessories").catch(() => []), api("/api/matter").catch(() => null)]);
+    const ids = matterIDs(matter);
+    const model = overviewModel(status, plugins, accessories, null, ids);
+    model.source = { status, plugins, accessories, matter: ids };
     return model;
   }
 
@@ -1221,7 +1360,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function bridgeDetails(top) {
     const bridge = top.raw;
     const type = top.kind === "system" ? t("Built in") : t(top.kind === "child" ? "Child bridge" : "Bridge");
-    return { name: top.name, icon: top.kind === "system" ? "system" : "bridge", warn: top.paired === false,
+    return { name: top.name, icon: top.icon ?? (top.kind === "system" ? "system" : "bridge"), warn: top.paired === false,
       status: top.kind === "system" ? t("Built in") : top.paired ? t("Paired · {count}", { count: bridge.controllers ?? 0 }) : t("Not paired"),
       facts: [factRow("bridgeType", type), factRow("bridgeAccessories", top.count), factRow("port", bridge?.port), factRow("deviceId", bridge?.deviceId),
         factRow("platforms", bridge?.platforms?.join(", "))] };
@@ -1231,7 +1370,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     for (const leaf of plugin.leaves) categories.set(leaf.category, (categories.get(leaf.category) ?? 0) + 1);
     const unavailable = plugin.leaves.filter((one) => one.unavailable).length;
     return { name: plugin.name, icon: plugin.icon, status: plugin.sub, warn: unavailable > 0,
-      facts: [factRow("platform", plugin.platform), factRow("bridge", plugin.bridgeName), factRow("state", plugin.paused ? t("Paused") : t("Running")),
+      facts: [factRow("platform", plugin.platform), factRow("bridge", plugin.bridgeName), plugin.matter ? null : factRow("state", plugin.paused ? t("Paused") : t("Running")),
         factRow("unavailable", unavailable || null), factRow("categories", [...categories].map(([key, count]) => `${categoryName(key)} ${count}`).join(", "))],
       items: accessoryItems(plugin.leaves) };
   }
@@ -1250,7 +1389,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// its readings and its accessories, each of which `open` shows in the card's place.
   function detailNodes(data, close, { back = null, open = null } = {}) {
     const glyph = data.image ? el("img", { src: data.image, alt: "", width: 24, height: 24 }) : HomeswiftCommon.icon(data.icon);
-    const shown = (facts) => facts.filter(([, value]) => value !== undefined && value !== null && value !== "");
+    const shown = (facts) => facts.filter((fact) => fact && fact[1] !== undefined && fact[1] !== null && fact[1] !== "");
     // Rows of a label and a value, and a tooltip on the row when it has one.
     const list = (rows) => (rows.length ? el("dl", { class: "detail-list" }, ...rows.map(([label, value, tip]) =>
       el("div", { title: tip ?? null }, el("dt", { text: label }), el("dd", { text: String(value) })))) : null);
@@ -1276,7 +1415,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function groupDetails(group) {
     const unavailable = group.leaves.filter((one) => one.unavailable).length;
     return { name: group.name, icon: group.icon, status: group.sub, warn: unavailable > 0,
-      facts: [factRow("plugin", group.plugin.name), factRow("bridge", group.plugin.bridgeName), factRow("unavailable", unavailable || null)],
+      facts: [group.plugin.matter ? null : factRow("plugin", group.plugin.name), factRow("bridge", group.plugin.bridgeName), factRow("unavailable", unavailable || null)],
       items: accessoryItems(group.leaves) };
   }
 
@@ -1480,7 +1619,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     svg.addEventListener("focusout", hide);
 
     // Search and filters, as on the Accessories page: the graph is drawn again from what they keep, faded across.
-    const { status, plugins, accessories: all } = model.source;
+    const { status, plugins, accessories: all, matter } = model.source;
     const chosen = { bridges: new Set(), categories: new Set(), unavailable: false };
     const search = el("input", { type: "search", class: "search", placeholder: t("Search accessories"), "aria-label": t("Search accessories") });
     const filters = el("button", { type: "button", "aria-haspopup": "menu" });
@@ -1498,7 +1637,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // Every graph is built from the filter, the first too (a filtered build moves the accessories the builds share).
     const redraw = () => {
       const filter = filterOf();
-      const next = overviewModel(status, plugins, all, filter);
+      const next = overviewModel(status, plugins, all, filter, matter);
       closeDetail();
       tip.hidden = true;
       cancelAnimationFrame(animation);
@@ -1510,7 +1649,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       Object.assign(zoom, home());
       apply();
       svg.animate([{ opacity: 0, scale: 0.97 }, { opacity: 1, scale: 1 }], { duration: matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 260, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
-      const shown = next.tops.reduce((sum, top) => sum + top.children.reduce((total, plugin) => total + plugin.leaves.length, 0), 0);
+      // Each accessory once: the Matter block's branches show again accessories a plugin has.
+      const shown = new Set(next.tops.flatMap((top) => top.children.flatMap((plugin) => plugin.leaves.map((leaf) => leaf.id)))).size;
       svg.hidden = !next.tops.length;
       empty.hidden = Boolean(next.tops.length);
       count.textContent = filter ? tn("{n} accessory", "{n} accessories", shown, {}) : "";
@@ -1584,7 +1724,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     for (const top of model.tops) {
       edges.push(link(root, top, "trunk", top.color));
       nodes.push(node(top, { classes: `node bridge-node${top.kind === "system" ? " built-in" : ""}${top.paired === false ? " unpaired" : ""}`,
-        radius: nodeRadius.top, icon: top.kind === "system" ? "system" : "bridge", size: 20, tip: `${top.name} · ${top.sub}`,
+        radius: nodeRadius.top, icon: top.icon ?? (top.kind === "system" ? "system" : "bridge"), size: 20, tip: `${top.name} · ${top.sub}`,
         card: () => bridgeDetails(top), zoom: { radius: (rings.top + rings.plugin) / 2, k: 1.8 } }));
       for (const branch of top.children) {
         edges.push(link(top, branch, `branch${branch.paused ? " paused" : ""}`, branch.color));
@@ -1820,17 +1960,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   // ---- Restart -------------------------------------------------------------
 
-  function confirmRestart() {
+  function confirmRestart({ title = t("Restart Homeswift?"), text = t("Your accessories will disconnect briefly. This page will reconnect automatically when Homeswift is ready."), confirm = t("Restart"), icon = "power" } = {}) {
     return new Promise((resolve) => {
       const dialog = el("dialog", { class: "restart-overlay restart-confirm", "aria-labelledby": "restart-confirm-title", "aria-describedby": "restart-confirm-description" });
       const finish = (accepted) => { dialog.close(); dialog.remove(); resolve(accepted); };
       const cancel = el("button", { actionIcon: "close", text: t("Cancel"), onclick: () => finish(false) });
       dialog.append(
-        el("div", { class: "restart-confirm-icon", "aria-hidden": "true" }, HomeswiftCommon.icon("power")),
-        el("h2", { id: "restart-confirm-title", text: t("Restart Homeswift?") }),
-        el("p", { id: "restart-confirm-description", text: t("Your accessories will disconnect briefly. This page will reconnect automatically when Homeswift is ready.") }),
+        el("div", { class: "restart-confirm-icon", "aria-hidden": "true" }, HomeswiftCommon.icon(icon)),
+        el("h2", { id: "restart-confirm-title", text: title }),
+        el("p", { id: "restart-confirm-description", text }),
         el("div", { class: "restart-confirm-actions" }, cancel,
-          el("button", { actionIcon: "power", class: "primary", text: t("Restart"), onclick: () => finish(true) })));
+          el("button", { actionIcon: icon, class: "primary", text: confirm, onclick: () => finish(true) })));
       dialog.addEventListener("cancel", (event) => { event.preventDefault(); finish(false); });
       document.body.append(dialog); dialog.showModal(); cancel.focus();
     });
@@ -1911,7 +2051,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           const status = await response.json();
           healthyReplies++;
           const younger = Number.isFinite(status.uptimeSeconds) && status.uptimeSeconds < (Date.now() - started) / 1000 + 5;
-          if (younger || (wasOffline && healthyReplies >= 2)) { await finishRestart(); return; }
+          if (younger || (wasOffline && healthyReplies >= 2)) {
+            if (reloadIfUpdated(status)) return;
+            await finishRestart();
+            return;
+          }
         } else if (response.status === 401) { await finishRestart(); return; }
       } catch { wasOffline = true; healthyReplies = 0; }
       if (Date.now() < deadline) setTimeout(poll, 1000);
@@ -1950,7 +2094,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // As Glass UI's: a user who is not an administrator sees Status and Accessories (and controls accessories); the
   // plugins, config.json, the log and the users are an administrator's. The server refuses the rest anyway.
 
-  const adminSections = new Set(["plugins", "config", "logs", "settings", "users", "import", "welcome"]);
+  const adminSections = new Set(["plugins", "logs", "settings", "users", "import", "welcome"]);
   const isAdmin = () => Boolean(auth && auth.admin);
 
   /// Shows the header's and the tab bar's sections the user may open.
@@ -1977,6 +2121,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     for (const dialog of document.querySelectorAll("dialog[open]")) if (dialog !== restartOverlay) dialog.close();
     const decode = (part) => { try { return decodeURIComponent(part); } catch { return part; } };
     let [name = "status", ...args] = location.pathname.split("/").filter(Boolean).map(decode);
+    // config.json's editor moved into Settings: an old link or bookmark lands there.
+    if (name === "config") {
+      history.replaceState(null, "", `/settings/config${location.search}${location.hash}`);
+      [name, args] = ["settings", ["config"]];
+    }
     if (adminSections.has(name) && !isAdmin()) {
       // An administrator's view, from a link or a bookmark: Status instead.
       history.replaceState(null, "", "/status");
@@ -2020,7 +2169,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const url = new URL(link.href, location.href);
     if (url.origin !== location.origin || url.pathname.startsWith("/api/") || /\.[a-z0-9]+$/i.test(url.pathname) || /^\/plugins\/[^/]+\/?$/.test(url.pathname)) return;
     event.preventDefault();
-    if (url.pathname + url.search !== location.pathname + location.search) navigate(url.pathname + url.search);
+    // Another view, with the place in it to show (/status#matter-<device>); on this view, that place opened and in sight.
+    if (url.pathname + url.search !== location.pathname + location.search) return navigate(url.pathname + url.search + url.hash);
+    const target = url.hash && document.getElementById(decodeURIComponent(url.hash.slice(1)));
+    if (!target) return;
+    history.replaceState(null, "", url.pathname + url.search + url.hash);
+    if (target instanceof HTMLDetailsElement) target.open = true;
+    target.scrollIntoView({ block: "center" });
   });
   // Closing the tab or reloading: the browser asks, when the page has unsaved changes.
   window.addEventListener("beforeunload", (event) => { if (leaveGuard?.quiet && !leaveGuard.quiet()) event.preventDefault(); });
@@ -2028,6 +2183,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // ---- Live events ---------------------------------------------------------
 
   let events = null;
+  // The build of the files this page runs (UIServer.build, in its <meta>); /api/status says the bridge's.
+  const pageBuild = document.querySelector('meta[name="homeswift-build"]')?.content || null;
+  /// After an update the bridge serves other files: a page still running the old ones loads again, unless it holds
+  /// unsaved changes (it does on the next check after they are saved or left). True when it reloads.
+  function reloadIfUpdated(status) {
+    if (!pageBuild || !status?.build || status.build === pageBuild) return false;
+    if (leaveGuard && !leaveGuard.quiet?.()) return false;
+    location.reload();
+    return true;
+  }
+
   function openEvents() {
     if (events) return;
     const stream = events = new EventSource("/api/events");
@@ -2040,8 +2206,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     });
     // Subscribe first, then read a snapshot: replay anything received during the read last.
     // This also reconciles an automatic SSE reconnect without replacing forms or the wall.
-    stream.addEventListener("hello", async () => {
+    stream.addEventListener("hello", async (event) => {
       const current = ++generation;
+      // The bridge's build: it may have restarted into an update while this page was away or disconnected.
+      try { if (reloadIfUpdated(JSON.parse(event.data))) return; } catch {}
       pending = [];
       try {
         const accessories = await api("/api/accessories");
@@ -2069,6 +2237,18 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
     });
     stream.addEventListener("log", (event) => appendLogLine(JSON.parse(event.data)));
+    // A Matter node added to an ecosystem, removed from one, or opened for one: its card or row on the Status page is
+    // drawn again, once the burst of changes a pairing makes (the new fabric, the window closing) has settled.
+    const matterChanges = new Map();
+    stream.addEventListener("matter", (message) => {
+      const { device } = JSON.parse(message.data);
+      clearTimeout(matterChanges.get(device));
+      matterChanges.set(device, setTimeout(() => {
+        matterChanges.delete(device);
+        if (location.pathname !== "/status") return;
+        document.getElementById(device ? `matter-${slug(device)}` : "matter")?.refreshMatter?.();
+      }, 500));
+    });
     // The rooms or the wall changed elsewhere (the chat, an MCP client, another page): the Accessories page draws them
     // again, once for a burst, unless the change is the page's own. While it is being edited or a dialog is open over
     // it, the redraw waits for them to end, so a save from Edit does not put back what changed meanwhile.
@@ -2108,13 +2288,62 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     el("div", { class: "who" }, el("h1", { text: title }), subtitle ? el("p", { class: "muted", text: subtitle }) : null),
     tools.filter(Boolean).length ? el("div", { class: "tools" }, ...tools) : null);
 
+  /// A search, an optional filter and an order over a list of cards, on one row; while the search or the filter narrows
+  /// the list, how many it keeps and the way back under it. `entries` are { card, name, text } and more; `orders` are
+  /// [value, label, compare], the first the default, ties by name; `filters` are [value, label, keep], the first keeping
+  /// all. The order and the filter chosen stay in the address under `param` and `filterParam`.
+  const finder = ({ grid, entries, orders, filters = [], param, filterParam, placeholder, sortLabel, filterLabel, empty, counted,
+    emptyClass = "card empty" }) => {
+    const params = new URLSearchParams(location.search);
+    const search = el("input", { type: "search", class: "search", placeholder, "aria-label": placeholder });
+    const choose = (options, label, saved) => {
+      const select = el("select", { class: "popup", "aria-label": label }, options.map(([value, text]) => el("option", { value, text })));
+      select.value = options.some(([value]) => value === saved) ? saved : options[0][0];
+      return select;
+    };
+    const sort = choose(orders, sortLabel, params.get(param));
+    const filter = filters.length ? choose(filters, filterLabel, params.get(filterParam)) : null;
+    const status = el("div", { class: "finder-status", "aria-live": "polite" });
+    const clear = HomeswiftCommon.clearFilters([[search, ""], ...(filter ? [[filter, filters[0][0]]] : [])]);
+    const none = el("p", { class: emptyClass, hidden: true, text: empty });
+    const remember = (name, value) => {
+      const url = new URL(location.href); url.searchParams.set(name, value);
+      history.replaceState(null, "", url.pathname + url.search);
+    };
+    const arrange = () => {
+      const compare = orders.find(([value]) => value === sort.value)[2];
+      const collator = new Intl.Collator(undefined, { numeric: true });
+      grid.append(...[...entries].sort((a, b) => compare(a, b) || collator.compare(a.name, b.name) || a.text.localeCompare(b.text)).map(({ card }) => card));
+    };
+    const narrow = () => {
+      const query = search.value.trim().toLocaleLowerCase();
+      const keep = filter ? filters.find(([value]) => value === filter.value)[2] : () => true;
+      let visible = 0;
+      for (const entry of entries) {
+        entry.card.hidden = !(keep(entry) && entry.text.toLocaleLowerCase().includes(query));
+        if (!entry.card.hidden) visible++;
+      }
+      const narrowed = query || (filter && filter.value !== filters[0][0]);
+      status.replaceChildren(...(narrowed ? [el("span", { text: counted(visible, entries.length) }), clear] : []));
+      none.hidden = visible > 0;
+    };
+    sort.addEventListener("change", () => { arrange(); remember(param, sort.value); });
+    filter?.addEventListener("change", () => { narrow(); remember(filterParam, filter.value); });
+    search.addEventListener("input", narrow);
+    arrange();
+    if (filter && filter.value !== filters[0][0]) narrow();
+    return [el("div", { class: `catalog-toolbar${filter ? " with-filter" : ""}` }, search, filter, sort), status, grid, none];
+  };
+
   // /status?since=24h&bridge=<bridge>&accessory=<accessory>: the activity charts' range and whose durations they show,
   // as on the Logs page.
   views.status = async (main) => {
-    const [status, accessories] = await Promise.all([
+    const [status, accessories, matter] = await Promise.all([
       api("/api/status"),
       api("/api/accessories").then((list) => withSlugs(list, "accessory")).catch(() => []),
+      api("/api/matter").catch(() => null),
     ]);
+    rememberMatterOwn(matter);
     $("#banner").classList.toggle("hidden", !status.restartNeeded || !isAdmin());
     const waiting = status.bridges.filter((bridge) => !bridge.paired);
     const [health, healthKind] = status.restartNeeded ? [t("Running; some changes need a restart"), "away"]
@@ -2123,43 +2352,195 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const plugins = new Set(status.bridges.filter((bridge) => !bridge.external).flatMap((bridge) => bridge.platforms));
     const main0 = status.bridges.find((bridge) => !bridge.childBridge && !bridge.external);
 
-    const bridges = status.bridges.map((bridge, index) => {
+    // A server's heading (icon, name, role, state) and the rest of its card: a bridge's card shows both; an accessory of
+    // its own is a row of the devices list, its heading the row and the rest unfolded.
+    const bridgeParts = (bridge, index) => {
       const kind = bridge.external ? "accessory" : bridge.childBridge ? "child" : "bridge";
       const tone = { accessory: "blue", child: "violet", bridge: "orange" }[kind];
       const role = bridge.external ? (bridge.platforms.length ? t("Accessory of its own, from {plugins}", { plugins: bridge.platforms.join(", ") }) : t("Accessory of its own, from a plugin")) : bridge.childBridge ? t("Child bridge") : t("Main bridge");
-      return el("div", { class: "card server" },
-        el("div", { class: "server-head" },
-          tile(kind, tone),
+      return {
+        head: [tile(kind, tone),
           el("div", { class: "who" }, el("strong", { text: bridge.name }), el("div", { class: "muted", text: role })),
-          el("span", { class: `pill status ${bridge.paired ? "on" : "away"}`, text: bridge.paired ? t("Paired · {count}", { count: bridge.controllers }) : t("Not paired"), title: bridge.paired ? tn("{n} Home app controller", "{n} Home app controllers", bridge.controllers) : "" })),
-        el("div", { class: "facts lead" },
+          el("span", { class: `pill status ${bridge.paired ? "on" : "away"}`, text: bridge.paired ? t("Paired · {count}", { count: bridge.controllers }) : t("Not paired"), title: bridge.paired ? tn("{n} Home app controller", "{n} Home app controllers", bridge.controllers) : "" })],
+        body: () => [el("div", { class: "facts lead" },
           fact(t("Device ID"), bridge.deviceId, { class: "mono" }), fact(t("Port"), bridge.port ?? "?"), fact(t("Accessories"), bridge.accessories)),
         !bridge.external && bridge.platforms.length ? el("div", { class: "chips" }, bridge.platforms.map((name) => el("span", { class: "chip", text: name }))) : null,
         bridge.setupCode ? el("div", { class: "setup" },
-          el("img", { class: "qr", src: `/api/qr/${index}.svg`, alt: t("Pairing QR code"), width: 148, height: 148 }),
+          el("img", { class: "qr", src: `/api/qr/${index}.svg`, alt: t("Pairing QR code"), width: 148, height: 148, loading: "lazy" }),
           el("div", {},
             el("p", { text: t("In the Home app: Add Accessory, then scan this code, or choose More options and type it.") }),
-            el("div", { class: "code", text: bridge.setupCode }))) : null);
-    });
+            el("div", { class: "code", text: bridge.setupCode }))) : null],
+        waiting: !bridge.paired,
+        search: [bridge.name, ...bridge.platforms, bridge.deviceId].join(" "),
+      };
+    };
+    const serverCard = ({ head, body }, id) => el("div", { class: "card server", id }, el("div", { class: "server-head" }, ...head), ...body());
+    // A device of its own as one line that unfolds; its details are built the first time it opens, so a hundred folded
+    // rows stay a hundred lines.
+    const deviceRow = ({ head, body, search }, id, open) => {
+      const row = el("details", { class: "device-row", id, "data-search": search.toLowerCase() }, el("summary", {}, ...head, HomeswiftCommon.icon("forward")));
+      const unfold = () => { if (row.open && row.childElementCount === 1) row.append(el("div", { class: "device-row-body" }, ...body())); };
+      row.addEventListener("toggle", unfold);
+      row.open = open;
+      unfold();
+      return row;
+    };
+    const bridges = status.bridges.map((bridge, index) => bridge.external ? null : serverCard(bridgeParts(bridge, index)));
+
+    // The Matter bridge, when the HomeswiftMatter block runs one, and each accessory that is a Matter device of its
+    // own: drawn again after an administrator's change.
+    // A device's icon from the role Matter has it in (its first part's): a robot vacuum, a light, a plug...
+    const matterIcons = { cleaningRobot: "vacuum", light: "bulb", plug: "outlet", contact: "door", occupancy: "sensor", temperature: "sensor",
+      humidity: "sensor", illuminance: "sensor", leak: "drop", covering: "blind", fan: "fan", thermostat: "thermo", lock: "lock",
+      button: "switch", airQuality: "wind", alarm: "bell", valve: "drop" };
+    // The ecosystems a fabric's vendor id says it is (Connectivity Standards Alliance vendor ids).
+    const matterVendors = { "0x1349": "Apple Home", "0x1384": "Apple Home", "0x6006": "Google Home", "0x1217": "Alexa" };
+    const matterIcon = (node) => matterIcons[String(node.types?.[0] ?? "").split("(")[0]] ?? "accessory";
+    const matterParts = (node, own, refresh) => {
+      const base = own ? `/api/matter/devices/${encodeURIComponent(node.id)}` : "/api/matter";
+      const fabrics = node.fabrics || [];
+      const admin = isAdmin();
+      // Whose fabric it is, by its vendor id: an unnamed one of Apple Home's is its own system fabric (it reaches the
+      // device from the other Apple devices and hubs), shown muted with a house.
+      const named = fabrics.map((fabric) => {
+        const vendor = matterVendors[fabric.vendorId];
+        const system = Boolean(!fabric.label && vendor);
+        return { fabric, vendor, system, name: fabric.label || (vendor ? t("{vendor} system", { vendor }) : t("Ecosystem {index}", { index: fabric.index })) };
+      });
+      // A device's row says where it was added (the homes people named, not the system links); the bridge's card, what
+      // it is for.
+      const where = named.filter((one) => !one.system).map((one) => one.name).join(" · ") || named.map((one) => one.name).join(" · ");
+      return {
+        // A device's own icon, tagged with Matter's glyph: the list mixes Matter devices with HomeKit accessories.
+        head: [own ? el("span", { class: "tile-tagged", title: t("Matter") }, tile(matterIcon(node), "green"), el("span", { class: "tile-tag", "aria-hidden": "true" }, HomeswiftCommon.icon("matter")))
+          : tile("matter", "green"),
+          el("div", { class: "who" }, el("strong", { text: own ? node.name : t("Matter bridge") }),
+            el("div", { class: "muted", text: !own ? t("For Google Home, Alexa, SmartThings and Home Assistant") : where ? t("Matter · {ecosystems}", { ecosystems: where }) : t("Matter device of its own") })),
+          el("span", { class: `pill status ${fabrics.length ? "on" : "away"}`, text: fabrics.length ? tn("In one ecosystem", "In {n} ecosystems", fabrics.length) : t("Not added yet") })],
+        body: () => [el("div", { class: "facts lead" }, fact(t("Port"), node.port), own ? null : fact(t("Accessories"), (node.devices || []).length)),
+        fabrics.length ? el("div", { class: "chips" }, named.map(({ fabric, vendor, system, name }) => {
+          const hint = system ? t("{vendor}'s own link to the device, from your other devices and hubs: keep it.", { vendor }) : vendor ?? "";
+          return el("span", { class: `chip${admin ? " removable" : ""}${system ? " system" : ""}`, title: hint },
+            system ? HomeswiftCommon.icon("house") : null, el("span", { text: name }),
+            admin ? el("button", { type: "button", class: "icon-button", "aria-label": t("Remove {name}", { name }), title: t("Remove {name}", { name }), onclick: async (event) => {
+              const message = system ? t("{vendor}'s hubs and other devices lose their link to this device: it stops responding there until it is added again.", { vendor })
+                : own ? t("{name} loses this device, with its room and automations.", { name })
+                : t("{name} loses the bridge and every device on it, with their rooms and automations.", { name });
+              if (!await HomeswiftCommon.confirmDialog(message)) return;
+              await HomeswiftCommon.busyButton(event.currentTarget, async () => {
+                await api(`${base}/fabrics/${fabric.index}/remove`, { method: "POST", body: {} });
+                await refresh();
+              });
+            } }, HomeswiftCommon.icon("close")) : null);
+        })) : null,
+        node.pairing ? el("div", { class: "setup" },
+          el("img", { class: "qr", src: `${base}/qr.svg`, alt: t("Pairing QR code"), width: 148, height: 148, loading: "lazy" }),
+          el("div", {},
+            el("p", { text: own ? t("In the Home app (or another ecosystem's): add an accessory, then scan this code or type it.")
+              : t("In the ecosystem's app: add a Matter device, then scan this code or type it.") }),
+            el("div", { class: "code", text: node.pairing.manualCode.replace(/^(\d{4})(\d{3})(\d{4})$/, "$1-$2-$3") })))
+          : admin ? (() => {
+            // What it does, under it (a phone shows no hover text): Matter lets several apps share a device, each
+            // adding it with its own code.
+            const what = own ? t("Shows a new pairing code for 15 minutes, so another app (Google Home, Alexa, Home Assistant or another home in Apple Home) can add this device too. The ecosystems it is in keep it.")
+              : t("Shows a new pairing code for 15 minutes, so another app (Google Home, Alexa, Home Assistant or another home in Apple Home) can add the bridge and its devices too. The ecosystems it is in keep them.");
+            return el("div", { class: "actions add-ecosystem" },
+              el("button", { class: "link", actionIcon: "plus", text: t("Add to another ecosystem"), title: what,
+                onclick: (event) => HomeswiftCommon.busyButton(event.currentTarget, async () => {
+                  await api(`${base}/window`, { method: "POST", body: { minutes: 15 } });
+                  await refresh();
+                }) }),
+              el("p", { class: "muted", text: what }));
+          })() : null],
+        // In no ecosystem yet: its code is what the person needs.
+        waiting: !fabrics.length,
+        search: [node.name ?? "", ...named.map((one) => one.name)].join(" "),
+      };
+    };
+    // The Matter bridge's card, or a device's row: drawn again after an administrator's change, a row kept open and as
+    // the search left it.
+    const matterNode = (node, own, open = false) => {
+      const id = own ? `matter-${slug(node.id)}` : "matter";
+      const refresh = async () => {
+        const next = await api("/api/matter");
+        const fresh = own ? (next.ownDevices || []).find((device) => device.id === node.id) : next;
+        if (!fresh) return element.remove();
+        const replacement = matterNode(fresh, own, own && element.open);
+        replacement.hidden = element.hidden;
+        element.replaceWith(replacement);
+      };
+      const parts = matterParts(node, own, refresh);
+      const element = own ? deviceRow(parts, id, open) : serverCard(parts, id);
+      // Drawn again when the bridge says the node changed (the event stream's "matter").
+      element.refreshMatter = refresh;
+      // Reached from an accessory's menu: brought into view (its row opened by the list).
+      if (location.hash === `#${id}`) requestAnimationFrame(() => element.scrollIntoView({ block: "center" }));
+      return element;
+    };
+
+    // Accessories and Matter devices of their own, one line each, those waiting to be added first: a home may have a
+    // hundred, which cards would bury the bridges under. Built on each draw (Customise draws the section again), with a
+    // search once the list is long.
+    const devicesCard = () => {
+      const external = status.bridges.flatMap((bridge, index) => {
+        if (!bridge.external) return [];
+        const parts = bridgeParts(bridge, index);
+        const id = `accessory-${slug(bridge.deviceId)}`;
+        return [{ name: bridge.name, id, kind: "homekit", ecosystems: bridge.paired ? 1 : 0, waiting: parts.waiting, make: (open) => deviceRow(parts, id, open) }];
+      });
+      const own = !matter?.enabled ? [] : (matter.ownDevices || []).map((device) => ({
+        name: device.name, id: `matter-${slug(device.id)}`, kind: "matter", ecosystems: (device.fabrics || []).length,
+        waiting: !(device.fabrics || []).length, make: (open) => matterNode(device, true, open) }));
+      const entries = [...external, ...own];
+      if (!entries.length) return null;
+      const waiting = entries.filter((entry) => entry.waiting).length;
+      const list = el("div", { class: "device-rows" });
+      // One or two to add come open, their codes in view; more stay folded, their pills saying so. One an accessory's
+      // menu links to opens. A row redrawn after a change replaces its element: the entry finds it by its id.
+      for (const entry of entries) {
+        const row = entry.make((entry.waiting && waiting <= 2) || location.hash === `#${entry.id}`);
+        list.append(row);
+        entry.text = row.dataset.search;
+        Object.defineProperty(entry, "card", { get: () => list.querySelector(`#${CSS.escape(entry.id)}`) });
+      }
+      const head = el("div", { class: "devices-head" },
+        el("div", { class: "who" }, el("strong", { text: t("Devices of their own") }),
+          el("div", { class: "muted", text: waiting ? tn("{count} devices · one waits to be added", "{count} devices · {n} wait to be added", waiting, { count: entries.length })
+            : tn("One device, with its own pairing", "{n} devices, each with its own pairing", entries.length) })));
+      // A short list is read at a glance; a long one is searched, filtered by kind and sorted.
+      if (entries.length <= 8) {
+        const collator = new Intl.Collator(undefined, { numeric: true });
+        list.append(...entries.sort((a, b) => Number(b.waiting) - Number(a.waiting) || collator.compare(a.name, b.name)).map((entry) => entry.card));
+        return el("div", { class: "card devices" }, head, list);
+      }
+      return el("div", { class: "card devices" }, head, ...finder({ grid: list, entries, param: "devices", filterParam: "show",
+        orders: [["waiting", t("Waiting to be added first"), (a, b) => Number(b.waiting) - Number(a.waiting)], ["name", t("Name A–Z"), () => 0],
+          ["ecosystems", t("Most ecosystems"), (a, b) => b.ecosystems - a.ecosystems]],
+        filters: [["all", t("All devices"), () => true], ["matter", t("Matter"), (entry) => entry.kind === "matter"],
+          ["homekit", t("HomeKit"), (entry) => entry.kind === "homekit"], ["waiting", t("Waiting to be added"), (entry) => entry.waiting]],
+        placeholder: t("Search devices"), sortLabel: t("Sort devices"), filterLabel: t("Show devices"), empty: t("No device matches."),
+        emptyClass: "muted", counted: (shown, total) => t("{shown} of {total} devices", { shown, total }) }));
+    };
 
     // The page is widgets the user can hide and order (Customise, at the bottom; Glass UI's dashboard layout),
     // drawn only when shown: the activity charts load nothing while hidden.
     const widgets = {
-      overview: () => [updateCard(status.update),
+      overview: () => [updateCard(status.update, { changed: (next) => updateChanged(next) }),
       // Each figure with its glyph; on a phone the four share one row, "Home app controllers" shortened.
       el("div", { class: "stats" },
-        el("a", { class: "stat", href: "/accessories" }, HomeswiftCommon.icon("bulb"), el("b", { text: status.bridges.reduce((sum, bridge) => sum + bridge.accessories, 0) }), el("span", { text: t("Accessories") })),
-        el(isAdmin() ? "a" : "div", { class: "stat", href: isAdmin() ? "/plugins" : null }, HomeswiftCommon.icon("plugin"), el("b", { text: plugins.size }), el("span", { text: plugins.size === 1 ? t("Plugin") : t("Plugins") })),
-        el("div", { class: "stat", title: t("Home app controllers") }, HomeswiftCommon.icon("users"), el("b", { text: main0 ? main0.controllers : 0 }),
+        el("a", { class: "stat", href: "/accessories" }, tile("bulb", "yellow"), el("b", { text: status.bridges.reduce((sum, bridge) => sum + bridge.accessories, 0) }), el("span", { text: t("Accessories") })),
+        el(isAdmin() ? "a" : "div", { class: "stat", href: isAdmin() ? "/plugins" : null }, tile("plugin", "blue"), el("b", { text: plugins.size }), el("span", { text: plugins.size === 1 ? t("Plugin") : t("Plugins") })),
+        el("div", { class: "stat", title: t("Home app controllers") }, tile("users", "teal"), el("b", { text: main0 ? main0.controllers : 0 }),
           el("span", { class: "long", text: t("Home app controllers") }), el("span", { class: "short", "aria-hidden": "true", text: t("Controllers") })),
-        el("div", { class: "stat" }, HomeswiftCommon.icon("history"), el("b", { text: formatDuration(status.uptimeSeconds) }), el("span", { text: t("Up [uptime]") })))],
+        el("div", { class: "stat" }, tile("history", "violet"), el("b", { text: formatDuration(status.uptimeSeconds) }), el("span", { text: t("Up [uptime]") })))],
       quick: () => window.HomeswiftHome?.quickSection(accessories),
       digest: () => status.assistant ? digestWidget() : null,
-      vault: () => isAdmin() && status.vault ? vaultCard(status.vault) : null,
+      // Nothing in the vault and nothing to move into it: no section until there is.
+      vault: () => isAdmin() && status.vault && (status.vault.entries || status.vault.inConfig || status.vault.problems?.length) ? vaultCard(status.vault) : null,
       activity: () => activity(accessories, withSlugs(status.bridges, "bridge")),
       energy: () => energy(),
       bridges: () => [el("h2", { text: status.bridges.length === 1 ? t("Bridge") : t("Bridges and accessories") }),
-      el("div", { class: "servers" }, ...bridges)],
+      el("div", { class: "servers" }, ...bridges, matter?.enabled && matter.bridge !== false ? matterNode(matter, false) : null, devicesCard())],
       system: () => [el("h2", { text: t("System") }),
       el("div", { class: "card server" },
         el("div", { class: "server-head" }, tile("system", "grey"),
@@ -2177,23 +2558,31 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     };
     const sections = new Map();
     let footerUpdate = status.update;
-    const updateState = () => footerUpdate?.error ? "error" : footerUpdate?.available ? "available" : footerUpdate?.checkedAt ? "current" : "idle";
-    const updateLabel = () => footerUpdate?.error ? t("Try again") : footerUpdate?.available ? t("Update available") : footerUpdate?.checkedAt ? t("Up to date") : t("Check for updates");
-    const updateLabels = [t("Check for updates"), t("Checking…"), t("Up to date"), t("Update available"), t("Try again")];
-    const updateContent = (state, label) => [
-      HomeswiftCommon.icon(({ current: "check", available: "download", error: "warning" })[state] || "restore"),
-      el("span", { class: "footer-update-label" },
-        el("span", { text: label }),
-        ...updateLabels.map((text) => el("span", { class: "footer-update-sizer", "aria-hidden": "true", text }))),
-    ];
+    // Installed but not running yet: Homebrew upgraded it, a relaunch starts it.
+    const relaunchPending = () => updatePhase(footerUpdate) === "installed";
+    const footerLabels = { error: () => t("Try again"), installing: () => t("Installing…"), relaunching: () => t("Relaunching…"), installed: () => t("Relaunch to update"),
+      available: () => footerUpdate.canInstall ? t("Install update") : t("Update available"), current: () => t("Up to date"), idle: () => t("Check for updates") };
+    /// The footer's button as `phase` says (a failed check first), or `label` while it checks.
+    const renderUpdate = (phase = footerUpdate?.error ? "error" : updatePhase(footerUpdate), label = footerLabels[phase]()) => {
+      const state = phase === "installing" || phase === "relaunching" ? "checking" : phase;
+      checkUpdates.dataset.updateState = state;
+      checkUpdates.replaceChildren(HomeswiftCommon.icon(({ current: "check", available: "download", installed: "power", error: "warning" })[state] || "restore"),
+        el("span", { class: "footer-update-label", text: label }));
+    };
+    // The overview's card and the sheet both tell the footer what an install is doing.
+    const updateChanged = (next) => {
+      footerUpdate = next;
+      checkUpdates.disabled = Boolean(next.installing || next.relaunching);
+      renderUpdate();
+    };
     const showUpdate = () => openSheet((done) => el("div", {},
-      el("h2", { id: "update-check-title", text: t("Updates") }), updateCard(footerUpdate),
+      el("h2", { id: "update-check-title", text: t("Updates") }), updateCard(footerUpdate, { changed: updateChanged }),
       el("button", { actionIcon: "close", type: "button", text: t("Close"), onclick: () => done() })), "update-check-title", { returnFocus: checkUpdates });
-    const checkUpdates = el("button", { type: "button", class: "link footer-update-check", "data-update-state": updateState(), "aria-live": "polite", text: updateLabel(), onclick: async () => {
+    const checkUpdates = el("button", { type: "button", class: "link footer-update-check", "aria-live": "polite", onclick: async (event) => {
+      if (relaunchPending()) { restartBridge(event); return; }
       if (footerUpdate?.available && !footerUpdate.error) { showUpdate(); return; }
       checkUpdates.disabled = true;
-      checkUpdates.dataset.updateState = "checking";
-      checkUpdates.replaceChildren(...updateContent("checking", t("Checking…")));
+      renderUpdate("checking", t("Checking…"));
       try {
         footerUpdate = await api("/api/updates/check", { method: "POST", body: {} });
         if (!footerUpdate || footerUpdate.error) throw new Error();
@@ -2204,11 +2593,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         checkUpdates.title = t("Could not check for updates. Try again.");
       } finally {
         checkUpdates.disabled = false;
-        checkUpdates.replaceChildren(...updateContent(updateState(), updateLabel()));
-        checkUpdates.dataset.updateState = updateState();
+        renderUpdate();
       }
     } });
-    checkUpdates.replaceChildren(...updateContent(updateState(), updateLabel()));
+    renderUpdate();
     const footer = el("footer", { class: "actions page-foot status-footer" },
       el("div", { class: "status-footer-summary" },
         el("p", { class: `health ${healthKind}` }, el("strong", { text: health })),
@@ -2393,14 +2781,40 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return [el("h2", { text: t("Vault") }),
       el("div", { class: "card server vault-status", "data-state": urgent ? "bad" : count ? "warn" : "ok" },
         el("div", { class: "server-head" },
-          tile(urgent ? "warning" : "key", urgent ? "heat" : count ? "yellow" : "green"),
+          tile(urgent ? "warning" : "vault", urgent ? "heat" : count ? "yellow" : "green"),
           el("div", { class: "who" }, el("strong", { text: headline }), el("div", { class: "muted", text: detail })),
-          el("a", { class: `button${urgent ? " primary" : ""}`, href: "/settings/vault", actionIcon: "key", text: t("Open the vault") })),
+          el("a", { class: `button${urgent ? " primary" : ""}`, href: "/settings/vault", actionIcon: "vault", text: t("Open the vault") })),
         rows.length ? el("div", { class: "vault-status-rows" }, rows) : null)];
   }
 
-  function updateCard(update) {
+  /// `changed` hears each new state of the update (installing, installed, failed), for what shows it elsewhere (the
+  /// Status page's footer). An install the bridge can do itself (Homebrew's) is a button; it then restarts into it.
+  /// `embedded` leaves out the card and its heading, for a page whose own heading says it (Settings › Updates).
+  function updateCard(update, { changed = () => {}, embedded = false } = {}) {
     if (!update?.available) return null;
+    const card = el("div", { class: embedded ? "update-card update-details" : "card update-card" });
+    const fill = () => card.replaceChildren(...updateCardContent(update, draw, embedded).filter(Boolean));
+    const draw = (next) => {
+      update = next;
+      changed(update);
+      fill();
+    };
+    fill();
+    return card;
+  }
+
+  /// What an update is doing, one word for each page that shows it: installing, relaunching, installed (on disk, a
+  /// relaunch starts it), available, error (the last check failed), current or idle (not checked yet).
+  function updatePhase(update) {
+    if (update?.installing) return "installing";
+    if (update?.relaunching) return "relaunching";
+    if (update?.installed && !update.canInstall) return "installed";
+    if (update?.available) return "available";
+    if (update?.error) return "error";
+    return update?.checkedAt ? "current" : "idle";
+  }
+
+  function updateCardContent(update, draw, embedded = false) {
     const released = update.publishedAt ? new Date(update.publishedAt).toLocaleDateString(HomeswiftI18n.locale) : null;
     let command = null;
     if (update.command) {
@@ -2410,18 +2824,68 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       } });
       command = el("div", { class: "update-command" }, el("code", { text: update.command }), copy);
     }
-    return el("div", { class: "card update-card" },
-      el("div", { class: "server-head" },
+    const phase = updatePhase(update);
+    // Installing, relaunching, or on disk but not running (`brew upgrade` done, here or by hand): no how-to.
+    const underway = ["installing", "relaunching", "installed"].includes(phase);
+    const spinner = () => el("span", { class: "spinner", "aria-hidden": "true" });
+    const progress = (glyph, text) => el("p", { class: "update-progress", role: "status" }, glyph, el("span", { text }));
+    const status = {
+      installing: () => progress(spinner(), t("Installing Homeswift {version}… The bridge restarts when it is done.", { version: update.installing })),
+      relaunching: () => progress(spinner(), t("Restarting into Homeswift {version}…", { version: update.installed })),
+      installed: () => progress(HomeswiftCommon.icon("check"), t("Homeswift {version} is installed. Relaunch to start it.", { version: update.installed })),
+    }[phase]?.() ?? null;
+    return [
+      embedded ? null : el("div", { class: "server-head" },
         tile("update", "green"),
         el("div", { class: "who" },
           el("strong", { text: t("Homeswift {version} is available", { version: update.latest }) }),
           el("div", { class: "muted", text: released ? t("This is {version} · released {date}", { version: update.current, date: released }) : t("This is {version}", { version: update.current }) }))),
-      el("p", { text: HomeswiftI18n.message(update.how) }),
-      command,
+      underway ? null : el("p", { text: HomeswiftI18n.message(update.how) }),
+      status,
+      update.installError ? el("p", { class: "error", role: "alert", text: t("Could not install the update: {error}", { error: update.installError }) }) : null,
+      underway ? null : command,
       el("div", { class: "actions" },
-        update.download ? el("a", { class: "button primary", href: update.download.url, rel: "noopener", title: update.download.name, text: t("Download the package") }) : null,
-        el("a", { class: "button", href: update.url, target: "_blank", rel: "noopener", text: t("On GitHub") })),
-      update.notes ? el("details", { class: "more-options" }, el("summary", { text: t("What's new") }), markdown(update.notes)) : null);
+        update.canInstall && !underway && isAdmin()
+          ? el("button", { class: "primary", type: "button", actionIcon: "download", text: t("Install and relaunch"), onclick: (event) => installUpdate(event.currentTarget, update, draw) }) : null,
+        phase === "installed" && isAdmin() ? el("button", { class: "primary", type: "button", actionIcon: "power", text: t("Relaunch now"), onclick: restartBridge }) : null,
+        update.download ? el("a", { class: "button primary", href: update.download.url, rel: "noopener", title: update.download.name, actionIcon: "download", text: t("Download the package") }) : null,
+        el("a", { class: "button", href: update.url, target: "_blank", rel: "noopener", actionIcon: "open", text: t("On GitHub") })),
+      update.notes ? el("details", { class: "more-options" }, el("summary", { text: t("What's new") }), markdown(update.notes)) : null,
+    ];
+  }
+
+  /// Asks the bridge to install the latest release and relaunch, then follows it: the card shows the install, and the
+  /// restart's overlay takes over once the bridge goes down to start the new version.
+  async function installUpdate(button, update, draw) {
+    if (!await confirmRestart({ title: t("Install Homeswift {version}?", { version: update.latest }), confirm: t("Install and relaunch"), icon: "download",
+      text: t("Homeswift installs the update, then restarts. Your accessories will disconnect briefly; this page reconnects when the new version is ready.") })) return;
+    button.disabled = true;
+    const started = Date.now();
+    let state;
+    try {
+      state = await api("/api/updates/install", { method: "POST", body: {} });
+    } catch (e) {
+      button.disabled = false;
+      HomeswiftCommon.showAlert(e.message);
+      return;
+    }
+    draw(state);
+    // Redrawn only when the state says something new: the card keeps its open "What's new".
+    let shown = JSON.stringify(state);
+    // An upgrade fetches and may build: minutes, at most the installer's half hour.
+    while (state.installing) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      try {
+        state = await api("/api/updates");
+      } catch (e) {
+        // Gone: the restart began between two questions.
+        if (!(e instanceof ApiError)) { waitForRestart(started); return; }
+        HomeswiftCommon.showAlert(e.message);
+        return;
+      }
+      if (JSON.stringify(state) !== shown) { shown = JSON.stringify(state); draw(state); }
+    }
+    if (state.relaunching) waitForRestart(started);
   }
 
   /// The Status page's charts: the process's memory and CPU, and how long the Home app's requests and the plugins'
@@ -2940,6 +3404,33 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     sensor: t("sensor"), camera: t("camera"), inspector: t("other accessory"),
   };
 
+  // The accessories that are Matter devices of their own (/api/matter), for their menus: the pages with accessory
+  // menus (Accessories, Status's quick section) keep it current.
+  let matterOwn = new Set();
+  const rememberMatterOwn = (matter) => { matterOwn = new Set((matter?.ownDevices || []).map((device) => device.id)); };
+  const loadMatterOwn = () => api("/api/matter").then(rememberMatterOwn).catch(() => {});
+
+  /// An accessory as a Matter device of its own, with its own pairing code (the Status page shows it), or back off.
+  function matterActions(accessory) {
+    const card = `/status#matter-${slug(accessory.id)}`;
+    const set = async (own) => {
+      try {
+        await api(`/api/matter/devices/${encodeURIComponent(accessory.id)}`, { method: "PUT", body: { own } });
+        // The reply comes once Matter has the change: the Status page then shows the device's code.
+        if (own) { matterOwn.add(accessory.id); navigate(card); } else { matterOwn.delete(accessory.id); route(); }
+      } catch (e) { HomeswiftCommon.showAlert(e.message); }
+    };
+    if (!matterOwn.has(accessory.id)) {
+      return [{ label: t("Make a Matter device"), icon: "link", onSelect: () => set(true) }];
+    }
+    return [
+      { label: t("Matter pairing code"), icon: "link", href: card },
+      { label: t("Take off Matter"), icon: "close", onSelect: async () => {
+        if (await HomeswiftCommon.confirmDialog(t("{name} leaves Matter: the ecosystems that added it lose it.", { name: accessory.name }))) await set(false);
+      } },
+    ];
+  }
+
   /// What the menu of an accessory's widget offers, after its sizes.
   /// An accessory's ⋯ menu after All controls, in groups as a context menu orders them: what to look at or do with
   /// it, how it sits on the wall (`arrange`, the wall's size choices, first), then the administrator's way to its
@@ -2957,6 +3448,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         try { await setPaused(accessory.platform, accessory.platformName, false); route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
       } } : null,
       isAdmin() ? { label: t("Show its log"), icon: "logs", href: `/logs/${accessory.slug ?? encodeURIComponent(accessory.id)}` } : null,
+      ...(isAdmin() && !accessory.mirroredFrom ? matterActions(accessory) : []),
       accessory.platform && isAdmin() ? { label: t("Plugin settings"), icon: "gear", href: `/plugins/${slug(accessory.platformName || accessory.platform)}` } : null,
     ];
     return [use, layout, manage].map((group) => group.filter(Boolean)).filter((group) => group.length)
@@ -2970,7 +3462,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   views.accessories = async (main, args = []) => {
     if (args[0] === "graph") return HomeswiftAdmin.graph(main, accessoryTabs("graph"));
-    const [list, saved, home] = await Promise.all([api("/api/accessories"), api("/api/layout").catch(() => null), api("/api/rooms").catch(() => ({ rooms: [] }))]);
+    const [list, saved, home] = await Promise.all([api("/api/accessories"), api("/api/layout").catch(() => null), api("/api/rooms").catch(() => ({ rooms: [] })),
+      isAdmin() ? loadMatterOwn() : null]);
     const all = withSlugs(list, "accessory");
     const params = new URLSearchParams(location.search);
     // Hidden accessories (an accessory's ⋯ menu) only with ?hidden=1.
@@ -3066,7 +3559,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if (size === sizeOf(accessory)) return;
       animateLayout(() => {
         layout.sizes[accessory.id] = size;
-        nodes.get(accessory.id)?.replaceWith(widget(accessory));
+        const node = nodes.get(accessory.id), wall = node?.parentElement;
+        node?.replaceWith(widget(accessory));
+        if (wall) { arrange(wall); arrangeObserver.observe(nodes.get(accessory.id)); }
       });
       if (persist) save();
     }
@@ -3093,6 +3588,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     function step(accessory, delta) {
       const node = nodes.get(accessory.id), wall = node?.parentElement;
       if (!wall) return;
+      // On a wall with cells, a column left or right.
+      const cell = cells.get(node);
+      if (cell) {
+        slide(wall, () => keepCells(wall, arrange(wall, { node, column: Math.max(1, cell[0] + delta), row: cell[1] })), null);
+        save();
+        nodes.get(accessory.id)?.querySelector(`.edit-bar [data-step="${delta}"]`)?.focus();
+        return;
+      }
       const siblings = [...wall.children].filter((child) => child.dataset.id && !child.classList.contains("hidden"));
       const target = siblings[siblings.indexOf(node) + delta];
       if (!target) return;
@@ -3164,6 +3667,77 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       wall.addEventListener("lostpointercapture", end);
     }
 
+    // ---- Widgets on cells of their own: `layout.positions[grouping][id]` is a widget's top-left [column, row] ----
+
+    /// The cells a widget spans, [columns, rows]: large and extra large as many rows as widgets.js fitted them to.
+    function spanOf(node) {
+      const rows = Number(node.style.getPropertyValue("--card-rows")) || 0;
+      if (node.classList.contains("size-xlarge")) return [2, rows || 5];
+      if (node.classList.contains("size-large")) return [2, rows || 3];
+      return node.classList.contains("size-medium") ? [1, 2] : [1, 1];
+    }
+    /// The wall's grid: its columns, and a cell's pitch in pixels.
+    function gridOf(wall) {
+      const style = getComputedStyle(wall);
+      const columnGap = parseFloat(style.columnGap) || 12, rowGap = parseFloat(style.rowGap) || columnGap;
+      const unit = parseFloat(style.getPropertyValue("--unit")) || 176, row = parseFloat(style.gridAutoRows) || 64;
+      return { columns: Math.max(1, Math.round((wall.clientWidth + columnGap) / (unit + columnGap))), x: unit + columnGap, y: row + rowGap };
+    }
+    const placesOf = () => layout.positions?.[layout.grouping] ?? {};
+    const cells = new WeakMap();
+    /// Lays out a wall whose widgets have cells of their own (or while one is dragged over it, `pin`: {node, column,
+    /// row}, which goes first): each keeps its cell, moved down past a widget already there and left when the screen
+    /// has fewer columns, and the others fill the first free cells in their order. Gaps stay. A wall with no cell of its
+    /// own flows as the grid packs it. Answers each widget's cell.
+    function arrange(wall, pin = null) {
+      const places = placesOf();
+      const widgets = [...wall.children].filter((child) => (child.dataset.id || child === pin?.node) && !child.classList.contains("lifted"));
+      const result = new Map();
+      if (!pin && !widgets.some((child) => places[child.dataset.id])) {
+        for (const child of widgets) { child.style.gridColumn = ""; child.style.gridRow = ""; cells.delete(child); }
+        return result;
+      }
+      const { columns } = gridOf(wall);
+      const taken = new Set();
+      const fits = (column, row, width, height) => {
+        for (let x = 0; x < width; x++) for (let y = 0; y < height; y++) if (taken.has(`${column + x},${row + y}`)) return false;
+        return true;
+      };
+      const put = (node, column, row) => {
+        const [spanColumns, height] = spanOf(node), width = Math.min(spanColumns, columns);
+        column = Math.max(1, Math.min(column, columns - width + 1));
+        while (!fits(column, row, width, height)) row++;
+        for (let x = 0; x < width; x++) for (let y = 0; y < height; y++) taken.add(`${column + x},${row + y}`);
+        node.style.gridColumn = `${column} / span ${width}`;
+        node.style.gridRow = `${row} / span ${height}`;
+        cells.set(node, [column, row]);
+        result.set(node, [column, row]);
+      };
+      if (pin) put(pin.node, pin.column, pin.row);
+      const rest = widgets.filter((child) => child !== pin?.node && !child.classList.contains("hidden"));
+      const at = (child) => places[child.dataset.id];
+      for (const child of rest.filter(at).sort((a, b) => at(a)[1] - at(b)[1] || at(a)[0] - at(b)[0])) put(child, ...at(child));
+      for (const child of rest.filter((one) => !at(one))) {
+        const [spanColumns, height] = spanOf(child), width = Math.min(spanColumns, columns);
+        let row = 1, column = 1;
+        while (!fits(column, row, width, height)) { column++; if (column > columns - width + 1) { column = 1; row++; } }
+        put(child, column, row);
+      }
+      return result;
+    }
+    /// Keeps the cells `arrange` gave the widgets of `wall` as theirs, so the wall stays as it is drawn.
+    function keepCells(wall, placed) {
+      const places = ((layout.positions ??= {})[layout.grouping] ??= {});
+      for (const [node, cell] of placed) if (node.dataset.id) places[node.dataset.id] = cell;
+    }
+    // A wall is laid out again when its width or a widget's size changes (a large card fitted to more rows).
+    let arranging = 0;
+    const arrangeSoon = () => {
+      cancelAnimationFrame(arranging);
+      arranging = requestAnimationFrame(() => { for (const wall of content.querySelectorAll(".wall")) if (!wall.querySelector(".lifted")) arrange(wall); });
+    };
+    const arrangeObserver = new ResizeObserver(arrangeSoon);
+
     const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
     /// Moves widgets of `wall` by `change` and slides them from where they were seen to where they land (FLIP): taken
     /// from their on-screen place, so a slide already under way turns smoothly.
@@ -3183,17 +3757,28 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
     }
 
-    /// Dragging in Edit: the widget lifts and follows the pointer, a dashed slot holds its place in the grid and
-    /// moves as it passes over the others, which slide aside; near the window's top or bottom the page scrolls.
-    /// Let go, it lands in the slot, and the wall's order is kept. A finger drags at once: in Edit the widgets do not
-    /// scroll the page.
+    /// Dragging in Edit: the widget lifts and follows the pointer, a dashed slot shows the cell it would land on, free
+    /// or not (the widgets there slide down out of its way); near the window's top or bottom the page scrolls. Let go,
+    /// it lands there and every widget of the wall keeps its cell, gaps included. Over the middle of a widget it can
+    /// join, it groups with it instead. By room, an accessory dragged into another room's
+    /// wall (an administrator's) moves to that room, or out of any into No room. A finger drags at once: in Edit the
+    /// widgets do not scroll the page.
     function drag(event, node) {
       if (event.button !== 0 || event.target.closest(".edit-bar, .resize-handle, .menu-button")) return;
       // A press that drags selects no text.
       event.preventDefault();
       getSelection()?.removeAllRanges();
-      const wall = node.parentElement;
+      const origin = node.parentElement;
+      let wall = origin;
+      const acrossRooms = layout.grouping === "room" && isAdmin() && origin.dataset.room !== undefined && !node.classList.contains("accessory-group");
+      const markRoom = (target) => {
+        for (const section of content.querySelectorAll(".room-drop-target")) section.classList.remove("room-drop-target");
+        if (target && target !== origin) target.closest(".accessory-section")?.classList.add("room-drop-target");
+      };
       const start = { x: event.clientX, y: event.clientY };
+      const grabbed = node.getBoundingClientRect();
+      // Where in the widget it was taken: its top-left corner is what lands on a cell.
+      const grab = { x: event.clientX - grabbed.left, y: event.clientY - grabbed.top };
       const originalStyle = node.style.cssText, originalNext = node.nextElementSibling;
       let slot = null, pointer = event, scroller = null;
       let groupTarget = null;
@@ -3223,10 +3808,21 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       // The widget under the pointer: the slot goes before it, or after it past its middle.
       const hover = () => {
         // Ignore the lifted card and its controls when locating the actual drop target.
-        const under = document.elementsFromPoint(pointer.clientX, pointer.clientY)
+        const stack = document.elementsFromPoint(pointer.clientX, pointer.clientY);
+        // Over another room's wall, the slot moves there.
+        const overWall = acrossRooms && stack.map((element) => element.closest(".wall")).find((candidate) => candidate && candidate.dataset.room !== undefined && content.contains(candidate));
+        if (overWall && overWall !== wall) {
+          clearGroupTarget();
+          const left = wall;
+          wall = overWall;
+          markRoom(wall);
+          wall.append(slot);
+          slide(left, () => arrange(left), node);
+        }
+        const under = stack
           .map((element) => element.closest(".wall > .widget"))
           .find((candidate) => candidate && candidate !== node && candidate !== slot && candidate.parentElement === wall);
-        if (!under || under === slot || under.parentElement !== wall) { clearGroupTarget(); return; }
+        if (!under || under === slot || under.parentElement !== wall) { clearGroupTarget(); placeSlot(); return; }
         const box = under.getBoundingClientRect();
         // On compact/touch layouts leave only a narrow edge for reordering. Otherwise a
         // small tile moves away before the finger can reach its old central drop zone.
@@ -3240,10 +3836,28 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           return;
         }
         clearGroupTarget();
-        const after = pointer.clientY > box.top + box.height * .75 ||
-          (pointer.clientY >= box.top + box.height * .25 && pointer.clientX > box.left + box.width / 2);
-        if ((after ? under.nextElementSibling : under.previousElementSibling) === slot) return;
-        slide(wall, () => (after ? under.after(slot) : under.before(slot)), node);
+        placeSlot();
+      };
+      /// The slot on the cell under the widget's top-left corner.
+      let slotCell = null;
+      const roomRows = new Map();
+      const placeSlot = () => {
+        const grid = gridOf(wall), box = wall.getBoundingClientRect();
+        // By room, the widget stays within the rows the room had when it reached it; its empty row in Edit counts only
+        // while the pointer is over the room as it was then. A room that grew under the pointer would push the next one
+        // away; past its old bottom it shrinks back, and the next room is under the pointer again.
+        if (acrossRooms && !roomRows.has(wall)) {
+          const padding = parseFloat(getComputedStyle(wall).paddingBottom) || 0;
+          roomRows.set(wall, { rows: Math.max(1, Math.round((box.height - padding) / grid.y)), bottom: box.bottom + scrollY });
+        }
+        const entered = roomRows.get(wall);
+        const column = Math.max(1, Math.round((pointer.clientX - grab.x - box.left) / grid.x) + 1);
+        // Over the room, a widget may start on its empty row, however tall; past it, it ends on the room's last row.
+        const lastRow = !entered ? Infinity : pointer.clientY + scrollY <= entered.bottom ? entered.rows + 1 : entered.rows - spanOf(slot)[1] + 1;
+        const row = Math.max(1, Math.min(Math.round((pointer.clientY - grab.y - box.top) / grid.y) + 1, lastRow));
+        if (slotCell?.[0] === column && slotCell?.[1] === row && slot.parentElement === wall) return;
+        slotCell = [column, row];
+        slide(wall, () => arrange(wall, { node: slot, column, row }), node);
       };
       const move = (moved) => {
         pointer = moved;
@@ -3265,14 +3879,23 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const joinTarget = ended.type === "pointerup" && groupTarget ? groupTarget.dataset.id : null;
         clearGroupTarget();
         if (!slot || !slot.isConnected) return;
-        if (ended.type !== "pointerup") {
+        markRoom(null);
+        const cancelled = ended.type !== "pointerup";
+        if (cancelled) {
+          if (wall !== origin) { slot.remove(); arrange(wall); wall = origin; }
           if (originalNext?.parentElement === wall) originalNext.before(slot); else wall.append(slot);
         }
         // Lands in the slot from where it was let go.
         const from = node.getBoundingClientRect();
+        const landed = cells.get(slot);
         slot.replaceWith(node);
         node.classList.remove("lifted");
         node.style.cssText = originalStyle;
+        if (joinTarget || cancelled) arrange(wall);
+        else {
+          keepCells(wall, arrange(wall, landed ? { node, column: landed[0], row: landed[1] } : null));
+          if (wall !== origin) arrange(origin);
+        }
         const to = node.getBoundingClientRect();
         node.style.transition = "none";
         node.style.transform = `translate(${from.left - to.left}px, ${from.top - to.top}px)`;
@@ -3285,12 +3908,24 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const byID = new Map(ordered.map((accessory) => [accessory.id, accessory]));
         ids.forEach((id, index) => { ordered[places[index]] = byID.get(id); });
         save();
-        if (joinTarget) groupingControls.join(node.dataset.id, joinTarget);
+        if (wall !== origin) moveToRoom(node.dataset.id, wall.dataset.room);
+        else if (joinTarget) groupingControls.join(node.dataset.id, joinTarget);
       };
       node.addEventListener("pointermove", move);
       node.addEventListener("pointerup", end);
       node.addEventListener("pointercancel", end);
       node.addEventListener("lostpointercapture", end);
+    }
+
+    /// Puts an accessory dropped on another room's wall in that room ("" for none), then draws the wall again; a refusal
+    /// puts it back.
+    async function moveToRoom(id, room) {
+      try {
+        await api("/api/rooms", { method: "PUT", body: { accessories: { [id]: { room: room || null } } } });
+        const accessory = all.find((candidate) => candidate.id === id);
+        if (accessory) accessory.room = room || null;
+      } catch (e) { HomeswiftCommon.showAlert(e.message); }
+      render();
     }
 
     const content = el("div", { class: "accessory-walls" });
@@ -3307,25 +3942,86 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
       return [...rooms];
     }
-    const roomOrderButton = el("button", { type: "button", class: "hidden", "aria-label": t("Reorder rooms"), "aria-haspopup": "menu",
+    // Whether a room renamed here is renamed on the plugins' hubs too (off unless turned on).
+    let syncRoomNames = home.syncRoomNames === true;
+    async function renameRoom(name) {
+      const answer = await HomeswiftCommon.promptDialog(t("A new name for {room}.", { room: name })
+        + (syncRoomNames ? `\n\n${t("Rooms of this name on your Philips Hue, IKEA and eWeLink hubs are renamed too.")}` : ""), name);
+      await applyRoomName(name, answer);
+    }
+    /// Renames a room (to the trimmed `answer`, unless empty or unchanged); answers whether it was.
+    async function applyRoomName(name, answer) {
+      const to = answer?.trim();
+      if (!to || to === name) return false;
+      try {
+        const result = await api("/api/rooms", { method: "PUT", body: { renameRoom: { from: name, to } } });
+        const failed = (result.hubRooms || []).filter((room) => !room.renamed);
+        if (failed.length) HomeswiftCommon.showAlert(failed.map((room) => t("Not renamed on {hub}: {error}", { hub: room.name, error: room.error })).join("\n"));
+        // Drawn again here rather than reloaded, so Edit stays on for the next room.
+        rooms.splice(0, rooms.length, ...result.rooms.map((room) => room.name));
+        for (const accessory of all) if (accessory.room === name) accessory.room = to;
+        render();
+        return true;
+      } catch (e) { HomeswiftCommon.showAlert(e.message); return false; }
+    }
+    /// A room's heading in Edit: its name as a field, renamed on Enter or when it loses focus; Escape puts it back.
+    function roomNameField(name) {
+      const input = el("input", { type: "text", class: "room-name-input", value: name, maxLength: 64, spellcheck: false, autocomplete: "off",
+        "aria-label": t("Name of {room}", { room: name }), title: t("Rename the room") });
+      // As wide as its text, measured in the field's font (field-sizing leaves the padding out in Chromium).
+      const fit = () => {
+        if (!input.isConnected) return;
+        const style = getComputedStyle(input);
+        const context = (fit.canvas ??= document.createElement("canvas")).getContext("2d");
+        context.font = style.font;
+        const chrome = ["paddingLeft", "paddingRight", "borderLeftWidth", "borderRightWidth"].reduce((sum, key) => sum + parseFloat(style[key]), 0);
+        input.style.width = `${Math.ceil(context.measureText(input.value || " ").width + chrome) + 2}px`;
+      };
+      requestAnimationFrame(fit);
+      input.addEventListener("input", fit);
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") { event.preventDefault(); input.blur(); }
+        if (event.key === "Escape") { input.value = name; fit(); input.blur(); }
+      });
+      input.addEventListener("change", async () => {
+        input.disabled = true;
+        if (!await applyRoomName(name, input.value)) { input.value = name; fit(); input.disabled = false; }
+      });
+      return el("h2", {}, input);
+    }
+    const roomOrderButton = el("button", { type: "button", class: "hidden", "aria-label": t("Rooms"), "aria-haspopup": "menu",
       onclick: (event) => HomeswiftCommon.menu(roomOrderButton, [
-        ...rooms.map((name) => ({ key: name, label: name, icon: "room", keepOpen: true })),
+        { heading: t("Rooms"), detail: t("Drag to reorder, choose one to rename it.") },
+        ...rooms.map((name) => ({ key: name, label: name, icon: "room", onSelect: () => renameRoom(name) })),
         { separator: true },
         { label: t("Reset room order"), icon: "restore", disabled: () => rooms.every((name, index) => index === 0 || rooms[index - 1].localeCompare(name, HomeswiftI18n.locale) <= 0), onSelect: () => saveRoomOrder([...rooms].sort((a, b) => a.localeCompare(b, HomeswiftI18n.locale))) },
-      ], { keyboard: event.detail === 0, onReorder: saveRoomOrder }) }, HomeswiftCommon.icon("room"), el("span", { text: t("Reorder rooms") }));
+        { label: t("Rename on the hubs too"), icon: "bridge", checked: syncRoomNames, checkbox: true, toggle: true, keepOpen: true, onSelect: async () => {
+          try {
+            syncRoomNames = (await api("/api/rooms", { method: "PUT", body: { syncRoomNames: !syncRoomNames } })).syncRoomNames === true;
+          } catch (e) { HomeswiftCommon.showAlert(e.message); }
+          return syncRoomNames;
+        } },
+      ], { keyboard: event.detail === 0, onReorder: saveRoomOrder }) }, HomeswiftCommon.icon("room"), el("span", { text: t("Rooms") }));
 
     function render() {
-      roomOrderButton.classList.toggle("hidden", !editing || !isAdmin() || layout.grouping !== "room" || rooms.length < 2);
+      roomOrderButton.classList.toggle("hidden", !editing || !isAdmin() || layout.grouping !== "room" || !rooms.length);
       nodes.clear();
       // By plugin or by room: a section each (by plugin in the order of their names, those of no plugin last; by room
       // in the rooms' order, those in none last); else one wall.
-      const sections = layout.grouping === "plugin" ? groupByPlugin(accessories)
+      let sections = layout.grouping === "plugin" ? groupByPlugin(accessories)
         : layout.grouping === "room" && rooms.length ? HomeswiftHome.groupByRoom(accessories, rooms) : null;
+      const byRoom = layout.grouping === "room" && rooms.length;
+      // In Edit, every room has its wall, empty ones too, and so has No room: places to drop an accessory.
+      if (byRoom && editing && isAdmin()) {
+        const found = new Map(sections);
+        const rest = sections.find(([name]) => !rooms.includes(name))?.[1] ?? [];
+        sections = [...rooms.map((room) => [room, found.get(room) ?? []]), [t("No room"), rest]];
+      }
       const groups = sections ? sections.map(([name, group]) => [name, ordered.filter((accessory) => group.includes(accessory))]) : [["", ordered]];
       const memberIDs = new Set(layout.groups.flatMap((g) => g.members));
       content.replaceChildren(...groups.map(([name, group]) => el("section", { class: "accessory-section" },
-        name ? el("div", { class: "section-head" }, el("h2", { text: name }), el("span", { class: "muted", text: tn("{n} accessory", "{n} accessories", group.length) })) : null,
-        el("div", { class: `wall${editing ? " editing" : ""}` }, group.filter((a) => !memberIDs.has(a.id) || noResponse).map(widget)))));
+        name ? el("div", { class: "section-head" }, editing && isAdmin() && layout.grouping === "room" && rooms.includes(name) ? roomNameField(name) : el("h2", { text: name }), el("span", { class: "muted", text: tn("{n} accessory", "{n} accessories", group.length) })) : null,
+        el("div", { class: `wall${editing ? " editing" : ""}`, "data-room": byRoom ? (rooms.includes(name) ? name : "") : null }, group.filter((a) => !memberIDs.has(a.id) || noResponse).map(widget)))));
       if (!noResponse) {
         const walls = [...content.querySelectorAll(".wall")];
         const cardsBySection = groups.map(() => []);
@@ -3337,10 +4033,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         walls.forEach((wall, index) => wall.prepend(...cardsBySection[index]));
       }
       const widgetRank = new Map(layout.order.map((id, index) => [id, index]));
+      arrangeObserver.disconnect();
       for (const wall of content.querySelectorAll(".wall")) {
         const children = [...wall.children];
         const rankOf = (node) => widgetRank.get(node.dataset.id) ?? (node.classList.contains("accessory-group") ? -1 : layout.order.length + children.indexOf(node));
         wall.append(...[...children].sort((a, b) => rankOf(a) - rankOf(b)));
+        arrange(wall);
+        arrangeObserver.observe(wall);
+        for (const child of wall.children) arrangeObserver.observe(child);
       }
       filter();
     }
@@ -3356,7 +4056,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           card.classList.toggle("hidden", !match);
           if (match) inSection++;
         }
-        section.classList.toggle("hidden", inSection === 0);
+        // An empty room stays in Edit, by room, to take a drop, unless a search is on.
+        section.classList.toggle("hidden", inSection === 0 && !(!text && section.querySelector(".wall.editing[data-room]")));
         shown += inSection;
       }
       none.classList.toggle("hidden", shown > 0);
@@ -3403,6 +4104,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       { label: t("Create group"), icon: "group", onSelect: () => groupingControls.edit() },
       { separator: true },
       ...groupings.map(([value, label, icon]) => ({ label, icon, checked: layout.grouping === value, onSelect: () => setGrouping(value) })),
+      // Widgets dropped on cells of their own: back to packing in the order.
+      ...(isAdmin() && Object.keys(placesOf()).length ? [{ separator: true }, { label: t("Pack the widgets together"), icon: "grid", onSelect: () => {
+        delete layout.positions[layout.grouping];
+        save();
+        render();
+      } }] : []),
       ...(canSuggest ? [{ separator: true }, { label: t("Suggest rooms"), icon: "sparkle", onSelect: () => HomeswiftHome.suggestRooms(content, all) }] : [])
     ]);
     more.replaceChildren(HomeswiftCommon.icon("sliders"));
@@ -3510,41 +4217,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
     }
 
-    /// A search and an order over a grid of cards, on one row; while a search narrows the grid, how many it keeps and
-    /// the way back under it. `entries` are { card, name, text } and more; `orders` are [value, label, compare] after
-    /// Name A–Z, ties by name; the order chosen stays in the address under `param`.
-    const finder = ({ grid, entries, orders: more, param, placeholder, sortLabel, empty }) => {
-      const orders = [["name", t("Name A–Z"), () => 0], ...more];
-      const search = el("input", { type: "search", class: "search", placeholder, "aria-label": placeholder });
-      const status = el("div", { class: "finder-status", "aria-live": "polite" });
-      const clear = HomeswiftCommon.clearFilters([[search, ""]]);
-      const none = el("p", { class: "card empty", hidden: true, text: empty });
-      const sort = el("select", { class: "popup", "aria-label": sortLabel }, orders.map(([value, text]) => el("option", { value, text })));
-      const saved = new URLSearchParams(location.search).get(param);
-      sort.value = orders.some(([value]) => value === saved) ? saved : orders[0][0];
-      const arrange = () => {
-        const compare = orders.find(([value]) => value === sort.value)[2];
-        grid.append(...[...entries].sort((a, b) => compare(a, b) || a.name.localeCompare(b.name) || a.text.localeCompare(b.text)).map(({ card }) => card));
-      };
-      sort.addEventListener("change", () => {
-        arrange();
-        const url = new URL(location.href); url.searchParams.set(param, sort.value);
-        history.replaceState(null, "", url.pathname + url.search);
-      });
-      search.addEventListener("input", () => {
-        const query = search.value.trim().toLocaleLowerCase();
-        let visible = 0;
-        for (const entry of entries) {
-          entry.card.hidden = !entry.text.toLocaleLowerCase().includes(query);
-          if (!entry.card.hidden) visible++;
-        }
-        status.replaceChildren(...(query ? [el("span", { text: t("{shown} of {total} plugins", { shown: visible, total: entries.length }) }), clear] : []));
-        none.hidden = visible > 0;
-      });
-      arrange();
-      return [el("div", { class: "catalog-toolbar" }, search, sort), status, grid, none];
-    };
-
     // Your plugins: by name, those that need a look first (no plugin, not running, paused), or by their accessories.
     const blocks = plugins.blocks.map((block) => {
       const plugin = byPlatform.get(block.platform), instance = running(block);
@@ -3553,13 +4225,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         text: [block.name, block.platform, plugin?.name, instance?.bridge].filter(Boolean).join(" ") };
     });
     const installed = finder({ grid: el("div", { class: "grid plugin-instances" }), entries: blocks, param: "order",
-      orders: [["attention", t("Needs attention first"), (a, b) => a.attention - b.attention],
+      orders: [["name", t("Name A–Z"), () => 0], ["attention", t("Needs attention first"), (a, b) => a.attention - b.attention],
         ["accessories", t("Most accessories"), (a, b) => b.accessories - a.accessories]],
-      placeholder: t("Search your plugins"), sortLabel: t("Sort your plugins"), empty: t("No plugin of yours matches the search.") });
+      placeholder: t("Search your plugins"), sortLabel: t("Sort your plugins"), empty: t("No plugin of yours matches the search."),
+      counted: (shown, total) => t("{shown} of {total} plugins", { shown, total }) });
     const available = finder({ grid: el("div", { class: "grid plugin-catalog" }), param: "sort", entries: catalogEntries,
-      orders: [["used", t("In use first"), (a, b) => Number(b.used) - Number(a.used)],
+      orders: [["name", t("Name A–Z"), () => 0], ["used", t("In use first"), (a, b) => Number(b.used) - Number(a.used)],
         ["available", t("Available first"), (a, b) => Number(a.used) - Number(b.used)]],
-      placeholder: t("Search plugins"), sortLabel: t("Sort plugins"), empty: t("No plugin matches the search.") });
+      placeholder: t("Search plugins"), sortLabel: t("Sort plugins"), empty: t("No plugin matches the search."),
+      counted: (shown, total) => t("{shown} of {total} plugins", { shown, total }) });
     show(main,
       pageHead(t("Plugins"), t("The blocks of config.json. A save applies at once: the plugin reloads with its accessories kept.")),
       // Blocks no plugin here runs, by the names the cards show (Homebridge's own blocks, from an imported config).
@@ -3636,7 +4310,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         { type: "fieldset", title: t("Connection"), icon: "system", items: ["port", "host", "allowedHosts"] },
         { type: "fieldset", title: t("Sign-in"), icon: "user", items: ["auth", "sessionDays"] },
         { type: "fieldset", title: "HTTPS", icon: "lock", expandable: true, expanded: Boolean(current.https), items: ["https", { items: ["certificate", "privateKey"] }] },
-        { type: "fieldset", title: t("Updates"), icon: "download", expandable: true, expanded: false, items: ["checkForUpdates"] },
+        { type: "fieldset", title: t("Updates"), section: "updates", icon: "download", expandable: true, expanded: false, items: ["checkForUpdates"] },
         ...advanced
       ];
     }
@@ -3838,7 +4512,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     update();
     if (platform === "HomeswiftUI") {
       const section = new URLSearchParams(location.search).get("section");
-      if (["proxy", "schedules"].includes(section)) {
+      if (["proxy", "schedules", "updates"].includes(section)) {
         const target = body.querySelector(`[data-section="${section}"]`);
         if (target) {
           target.open = true;
@@ -4351,7 +5025,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const secretField = (wrap, input) => {
       const masked = input.type === "password";
       const reveal = () => { input.type = masked && !isReference(input.value) ? "password" : "text"; };
-      const pick = el("button", { type: "button", class: "icon-button", "aria-label": t("Choose from the vault"), title: t("Choose from the vault") }, HomeswiftCommon.icon("key"));
+      const pick = el("button", { type: "button", class: "icon-button", "aria-label": t("Choose from the vault"), title: t("Choose from the vault") }, HomeswiftCommon.icon("vault"));
       pick.addEventListener("click", async (event) => {
         event.preventDefault();
         const keyboard = event.detail === 0;
@@ -5057,7 +5731,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// A save's schema problems, `{ text, line?, offset? }`, each with its line when the editor shows it.
   const problemList = (items, editor) => el("ul", { class: "schema-problems" }, items.map((item) => el("li", {}, ...lineLink(item, editor), item.text)));
 
-  views.config = async (main) => {
+  /// The whole config.json, a tab of Settings (`/settings/config`; `/config` leads there).
+  async function configPage(main, subnav) {
     let saved;
     // The plugins' list for the secret rule only; an older bridge without it leaves the keys unmarked.
     [saved, secretRule] = await Promise.all([api("/api/config", { raw: true }), api("/api/plugins").then(readSecretRule, () => null)]);
@@ -5132,11 +5807,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     format.addEventListener("click", () => { try { textarea.value = JSON.stringify(JSON.parse(textarea.value), null, 2); editor.repaint(); update(); } catch {} });
     update();
     show(main,
-      pageHead(t("Configuration"), t("The whole config.json. Saving validates it, keeps a backup of the previous file (the last 20 under backups/), and applies it at once.")),
+      pageHead(t("Settings"), t("The whole config.json. Saving validates it, keeps a backup of the previous file (the last 20 under backups/), and applies it at once.")),
+      subnav,
       el("div", { class: "card editor-card" },
         el("div", { class: "editor-bar" }, el("span", { class: "mono muted file-name", text: "config.json" }), check, el("span", { class: "spacer" }), secretsOnly, format, revert, force, save),
         secretsBanner, editor, message));
-  };
+  }
 
   // ---- Logs ----------------------------------------------------------------
 
@@ -5510,11 +6186,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   views.import = (main) => window.HomeswiftImport.view(main);
   views.welcome = (main) => window.HomeswiftImport.welcome(main);
   window.HomeswiftHome?.install({
-    views, api, show, pageHead, breadcrumb, accessoryCard, navigate, route: () => route(),
+    views, api, show, pageHead, breadcrumb, accessoryCard, navigate, route: () => route(), isAdmin,
     enumLabels: HomeswiftWidgets.enumLabels, labelFor: HomeswiftWidgets.labelFor, withSlugs,
   });
   // The Settings pages (admin.js) draw with the same helpers.
-  window.HomeswiftApp = { api, navigate, route, pageHead, breadcrumb, show, savedText, waitForRestart, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, assistantPage };
+  window.HomeswiftApp = { api, navigate, route, pageHead, breadcrumb, show, savedText, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, assistantPage, configPage };
 
   loadAuth().catch((e) => { $("#auth").classList.remove("hidden"); $("#auth-error").textContent = e.message; });
 })();
@@ -7421,6 +8097,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     bulb: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/>',
     switch: '<rect x="6" y="3" width="12" height="18" rx="3"/><circle cx="12" cy="9" r="2"/>',
     outlet: '<rect x="4" y="4" width="16" height="16" rx="4"/><path d="M10 9v2M14 9v2M10 15h4"/>',
+    // Matter, as a neutral mark (three linked nodes): its logo is for certified products only.
+    matter: '<circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="18" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="m10.8 7.3-4.6 8.4M13.2 7.3l4.6 8.4M7.5 18h9"/>',
+    vacuum: '<circle cx="12" cy="12" r="8.5"/><path d="M6.5 9.5a6.5 6.5 0 0 1 11 0"/><circle cx="12" cy="13.5" r="2"/>',
     sensor: '<circle cx="12" cy="12" r="2"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8"/>',
     fan: '<circle cx="12" cy="12" r="2"/><path d="M12 10c0-4 1-7 4-7 2 0 3 2 2 4l-4 4M14 12c4 0 7 1 7 4 0 2-2 3-4 2l-4-4M12 14c0 4-1 7-4 7-2 0-3-2-2-4l4-4M10 12c-4 0-7-1-7-4 0-2 2-3 4-2l4 4"/>',
     speaker: '<rect x="6" y="3" width="12" height="18" rx="2"/><circle cx="12" cy="14" r="3"/><path d="M12 7h.01"/>',
@@ -7458,6 +8137,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     chart: '<path d="M4 4v16h16"/><path d="m7 15 4-5 3 3 5-6"/>',
     archive: '<rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"/>',
     key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l2 2M15 8l2 2"/>',
+    // The vault: a safe, its door, the dial and its handle, the feet. In outline, as the others; few strokes so it reads at 16px.
+    vault: '<rect x="3.5" y="3" width="17" height="16" rx="3"/><rect x="6.5" y="6" width="11" height="10" rx="1.5"/><circle cx="10.5" cy="11" r="2"/><path d="M12.5 11h2.5M7 19v1.5M17 19v1.5"/>',
     link: '<path d="M9.5 14.5l5-5M8 11l-2 2a3.5 3.5 0 0 0 5 5l2-2M16 13l2-2a3.5 3.5 0 0 0-5-5l-2 2"/>',
     shield: '<path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z"/><path d="m9 12 2 2 4-4"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
@@ -7473,6 +8154,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     image: '<rect x="3" y="4.5" width="18" height="15" rx="2.5"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="m21 15.5-4.5-4.5L7 19.5"/>',
     restore: '<path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.6"/><path d="M4 4v4.6h4.6"/>',
     history: '<path d="M3.5 12a8.5 8.5 0 1 0 2.5-6M3.5 4.5V9H8"/><path d="M12 7.5V12l3 2"/>',
+    workflow: '<rect x="3" y="3.5" width="6" height="5" rx="1.5"/><rect x="15" y="9.5" width="6" height="5" rx="1.5"/><rect x="3" y="15.5" width="6" height="5" rx="1.5"/><path d="M9 6h3a1.5 1.5 0 0 1 1.5 1.5V12M9 18h3a1.5 1.5 0 0 0 1.5-1.5V12M13.5 12H15"/>',
     sliders: '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
     upload: '<path d="M12 15V4"/><path d="M7 9l5-5 5 5"/><path d="M5 20h14"/>',
     folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
@@ -7541,9 +8223,23 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// A page's views as a row of links under its title, a glyph each, the current one lit (a phone puts the glyph over
   /// the name): `pages` are [path, text, glyph] under `base`, the glyph an icon's name or an element.
   function subnav(label, base, pages, current) {
-    return el("nav", { class: "group subnav", "aria-label": label }, pages.map(([path, text, glyph]) =>
+    const nav = el("nav", { class: "group subnav", "aria-label": label }, pages.map(([path, text, glyph]) =>
       el("a", { href: `${base}${path ? `/${path}` : ""}`, class: path === current ? "on" : "", "aria-current": path === current ? "page" : null },
         typeof glyph === "string" ? icon(glyph) : glyph, el("span", { text }))));
+    // A row wider than the window scrolls: its edges fade where tabs are hidden, and the current tab starts in view.
+    const edges = () => {
+      const more = nav.scrollWidth - nav.clientWidth;
+      nav.toggleAttribute("data-more-start", nav.scrollLeft > 2);
+      nav.toggleAttribute("data-more-end", more > 2 && nav.scrollLeft < more - 2);
+    };
+    nav.addEventListener("scroll", edges, { passive: true });
+    new ResizeObserver(edges).observe(nav);
+    requestAnimationFrame(() => {
+      const on = nav.querySelector("a.on");
+      if (on && nav.scrollWidth > nav.clientWidth) nav.scrollLeft = Math.max(0, on.offsetLeft + on.offsetWidth / 2 - nav.clientWidth / 2);
+      edges();
+    });
+    return nav;
   }
 
   /// A tile: the icon on a colour (`tone-orange`, `-blue`, `-violet`, `-green`, `-teal`, `-yellow`, `-grey`);
@@ -7992,9 +8688,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const layerHost = (anchor) => anchor?.closest?.("dialog[open]") ?? document.body;
 
   /// Puts `text` on the clipboard. The Clipboard API exists only over HTTPS or on localhost; a page on the
-  /// network over plain HTTP copies through a hidden text field instead.
+  /// network over plain HTTP, or a browser that refuses the API (an embedded one without the permission), copies
+  /// through a hidden text field instead.
   async function copyText(text) {
-    if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+    if (navigator.clipboard && window.isSecureContext) {
+      try { return await navigator.clipboard.writeText(text); } catch {}
+    }
     const field = el("textarea", { value: text, readOnly: true, style: "position:fixed;top:-1000px;opacity:0" });
     // Outside an open modal dialog the field is inert: it could not be selected.
     layerHost(document.activeElement).append(field);
@@ -8520,7 +9219,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   // ---- The sections, and the tab bar a phone shows them in -----------------------------------------------
 
-  const sections = [["/status", t("Status"), "bridge"], ["/accessories", t("Accessories"), "bulb"], ["/scenes", t("Scenes"), "play"], ["/plugins", t("Plugins"), "plugin"], ["/config", t("Config"), "code"], ["/logs", t("Logs"), "logs"], ["/settings", t("Settings"), "gear"]];
+  const sections = [["/status", t("Status"), "bridge"], ["/accessories", t("Accessories"), "bulb"], ["/scenes", t("Scenes"), "play"], ["/plugins", t("Plugins"), "plugin"], ["/logs", t("Logs"), "logs"], ["/settings", t("Settings"), "gear"]];
 
   /// The sections at the bottom of a phone's screen, within the thumb's reach, as iOS puts them: an icon and
   /// a label each, the current one in the accent. `parent` is what hides it with the app (the sign-in screen has
@@ -9013,6 +9712,23 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return canvas;
   }
 
+  /// A picture file a person picked or dropped, as a JPEG `data:` URL at most 640 pixels wide: what a scene's picture
+  /// is sent as (the server takes JPEG, PNG or WebP up to 1 MB).
+  async function pictureDataURL(file) {
+    if (!/^image\//.test(file.type)) throw new Error(t("This file is not a picture."));
+    const bitmap = await createImageBitmap(file).catch(() => { throw new Error(t("This file is not a picture.")); });
+    const canvas = scaledCanvas(bitmap, 640);
+    bitmap.close?.();
+    return canvas.toDataURL("image/jpeg", 0.85);
+  }
+
+  /// Opens the file picker for one picture; calls `chosen(file)`.
+  function choosePictureFile(chosen) {
+    const input = el("input", { type: "file", accept: "image/jpeg,image/png,image/webp,image/heic" });
+    input.addEventListener("change", () => { if (input.files?.[0]) chosen(input.files[0]); });
+    input.click();
+  }
+
   /// A byte count as every page shows sizes: whole KB under a megabyte, one decimal MB or GB. `scale` picks the unit
   /// (the largest value a list shows, so its rows agree); it defaults to the count itself.
   function byteSize(bytes, scale = bytes) {
@@ -9061,7 +9777,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const promptDialog = (message, value = "") => messageDialog(message, { kind: "prompt", value });
 
   window.HomeswiftCommon = {
-    showAlert, confirmDialog, promptDialog, busyButton, scaledCanvas, byteSize, lastChange: () => lastChange,
+    showAlert, confirmDialog, promptDialog, busyButton, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, lastChange: () => lastChange,
     $, el, icon, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
@@ -9506,6 +10222,33 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       ? el("img", { class: className, src: `/artwork-${id}.webp`, alt: "", loading: "lazy", decoding: "async" }) : null;
   }
 
+  /// A scene's picture: the one a person gave it (by version, so the browser keeps it until it changes), else its
+  /// catalogue artwork.
+  function sceneImage(scene, className = "scene-artwork") {
+    if (typeof scene.picture === "string" && /^[a-z0-9]+$/.test(scene.picture)) {
+      return el("img", { class: className, src: `/api/scenes/${encodeURIComponent(scene.id)}/picture?v=${scene.picture}`, alt: "", loading: "lazy", decoding: "async" });
+    }
+    return artworkImage(scene.artworkId, className);
+  }
+
+  /// The menu entries that give a scene, Homeswift's or a hub's, a picture of the person's own or take it away.
+  /// `tileNode` shows busy while the picture is shrunk and sent.
+  function pictureMenu(scene, tileNode) {
+    const path = `/api/scenes/${encodeURIComponent(scene.id)}/picture`;
+    return [
+      { label: scene.picture ? t("Change the picture…") : t("Choose a picture…"), icon: "camera", onSelect: () => HomeswiftCommon.choosePictureFile(async (file) => {
+        tileNode?.classList.add("busy");
+        try {
+          await app.api(path, { method: "PUT", body: { data: await HomeswiftCommon.pictureDataURL(file) } });
+          app.route();
+        } catch (e) { HomeswiftCommon.showAlert(e.message); tileNode?.classList.remove("busy"); }
+      }) },
+      scene.picture ? { label: t("Remove the picture"), icon: "trash", onSelect: async () => {
+        try { await app.api(path, { method: "DELETE" }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
+      } } : null,
+    ].filter(Boolean);
+  }
+
   const artworkThemeNames = {
     "Essentials": t("Essentials"),
     "Get cozy": t("Get cozy"),
@@ -9577,8 +10320,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return el("div", { class: "artwork-themes" }, el("div", { class: "artwork-filters" }, search, select, sort), empty, groups.map(({ node }) => node));
   }
 
+  /// The animation styles, by id, in the order the editor lists them.
+  const effectStyleNames = {
+    candle: t("Candle"), fire: t("Fire"), sparkle: t("Sparkle"), prism: t("Prism"), opal: t("Opal"), glisten: t("Glisten"),
+    underwater: t("Underwater"), cosmos: t("Cosmos"), sunbeam: t("Sunbeam"), enchant: t("Enchant"), palette: t("Moving colours"),
+    sunrise: t("Sunrise"), sunset: t("Sunset"), music: t("Follow the music"),
+  };
+
   function sceneButton(scene) {
-    const picture = artworkImage(scene.artworkId, "quick-scene-image");
+    const picture = sceneImage(scene, "quick-scene-image");
     const button = el("button", { type: "button", class: `scene-run${picture ? " pictured" : ""}`, title: t("Run {name}", { name: scene.name }) }, picture, el("span", { class: "quick-scene-label" }, HomeswiftCommon.icon("play"), el("span", { text: scene.name })));
     button.addEventListener("click", () => runScene(scene, button));
     return button;
@@ -9587,32 +10337,58 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// A scene a plugin's hub keeps (Hue, IKEA, Govee): its picture or its colours, its source, whether the hub says it
   /// is on now. Running it recalls it on the hub.
   function hubSceneButton(scene) {
-    const picture = artworkImage(scene.artworkId, "quick-scene-image");
+    const picture = sceneImage(scene, "quick-scene-image");
     const colours = (scene.colours || []).filter((colour) => /^#[0-9a-f]{3,8}$/i.test(colour));
-    const button = el("button", { type: "button", class: `scene-run hub-scene${picture ? " pictured" : colours.length ? " coloured" : ""}${scene.active ? " active" : ""}`, title: t("Run {name}", { name: scene.name }) },
+    // A scene its hub runs on its own (an IKEA wake-up) is shown, not run.
+    const runnable = (scene.capabilities || []).includes("recall");
+    const button = el("button", { type: "button", disabled: !runnable, class: `scene-run hub-scene${picture ? " pictured" : colours.length ? " coloured" : ""}${scene.active ? " active" : ""}`, title: runnable ? t("Run {name}", { name: scene.name }) : scene.name },
       picture,
       el("span", { class: "quick-scene-label" }, HomeswiftCommon.icon("play"),
         el("span", {}, el("span", { text: scene.name }), el("span", { class: "scene-source", text: scene.source.pluginName }))),
       scene.active ? el("span", { class: "pill scene-active", text: t("Scene active") }) : null);
     if (!picture && colours.length) button.style.background = colours.length > 1 ? `linear-gradient(135deg, ${colours.join(", ")})` : colours[0];
     button.addEventListener("click", async () => { if (await runScene(scene, button)) app.route(); });
-    const stop = scene.stoppable ? el("button", { type: "button", class: "link", actionIcon: "stop", text: t("Stop"), onclick: async () => {
-      stop.disabled = true;
-      try {
-        const result = await app.api(`/api/scenes/${encodeURIComponent(scene.id)}/stop`, { method: "POST", body: {} });
-        if (!result.ok) HomeswiftCommon.showAlert(result.failed.map((f) => HomeswiftI18n.message(f.error)).join("\n"));
-        app.route();
-      } catch (e) { HomeswiftCommon.showAlert(e.message); stop.disabled = false; }
-    } }) : null;
+    // Its actions sit on the tile, round over its top corner: Stop while it can be, then the menu (Automate and the rest).
+    const stop = scene.stoppable ? el("button", { type: "button", actionIcon: "stop", "aria-label": t("Stop"), title: t("Stop"), onclick: () => stopScene(scene, stop) }) : null;
     // A Homeswift scene that recalls it, to give it triggers and conditions.
-    const automate = el("button", { type: "button", class: "link", actionIcon: "history", text: t("Automate"), onclick: async () => {
-      automate.disabled = true;
+    let automating = false;
+    const automate = async () => {
+      if (automating) return;
+      automating = true;
       try {
         const saved = await app.api("/api/scenes", { method: "POST", body: { name: scene.name.slice(0, 64), artworkId: scene.artworkId || null, actions: [{ recall: scene.id }] } });
         app.navigate(`/scenes/${encodeURIComponent(saved.id)}`);
-      } catch (e) { HomeswiftCommon.showAlert(e.message); automate.disabled = false; }
-    } });
-    return el("div", { class: "hub-scene-tile" }, button, el("div", { class: "hub-scene-actions" }, stop, automate));
+      } catch (e) { HomeswiftCommon.showAlert(e.message); automating = false; }
+    };
+    // Everything in it changes scenes or pictures: an administrator's.
+    const menu = !app.isAdmin() ? null : menuButton(t("Actions for {name}", { name: scene.name }), () => [
+      runnable ? { label: t("Automate"), icon: "workflow", onSelect: automate } : null,
+      ...hubSceneMenu(scene), ...pictureMenu(scene, button),
+    ].filter(Boolean));
+    return el("div", { class: "hub-scene-tile" }, button, el("div", { class: "hub-scene-actions" }, stop, menu));
+  }
+
+  /// What a hub's scene lets Homeswift change on its hub (its `capabilities`): its name, its lights' values as they are
+  /// now, or the scene itself, which goes from the hub's own app too.
+  function hubSceneMenu(scene) {
+    const can = new Set(scene.capabilities || []);
+    const path = `/api/scenes/${encodeURIComponent(scene.id)}`;
+    const change = async (body) => {
+      try { await app.api(`${path}/hub`, { method: "PUT", body }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
+    };
+    return [
+      can.has("rename") ? { label: t("Rename…"), icon: "edit", onSelect: async () => {
+        const name = (await HomeswiftCommon.promptDialog(t("A new name for {name} on {hub}.", { name: scene.name, hub: scene.source.name }), scene.name))?.trim();
+        if (name && name !== scene.name) await change({ name });
+      } } : null,
+      can.has("update") && scene.accessoryIds?.length ? { label: t("Keep the lights as they are"), icon: "check", onSelect: async () => {
+        if (await HomeswiftAdmin.confirmAction({ title: t("Update {name}?", { name: scene.name }), text: t("{name} on {hub} will set its lights as they are now.", { name: scene.name, hub: scene.source.name }), confirmLabel: t("Update"), danger: false })) await change({ fromCurrent: true });
+      } } : null,
+      can.has("delete") ? { label: t("Delete from {hub}", { hub: scene.source.name }), icon: "trash", danger: true, onSelect: async () => {
+        if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete the scene {name}?", { name: scene.name }), text: t("This removes it from {hub} and its own app too. This cannot be undone.", { hub: scene.source.name }), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
+        try { await app.api(path, { method: "DELETE" }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
+      } } : null,
+    ].filter(Boolean);
   }
 
   /// The scenes of the plugins' hubs, by room, with a source filter when there are several. `filter(query)` hides
@@ -9645,13 +10421,26 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     };
     source?.addEventListener("change", () => filter());
     const node = el("section", { class: "hub-scenes" },
-      el("div", { class: "section-head" }, el("h2", { text: t("Scenes from your hubs") }), count, source),
-      el("p", { class: "muted", text: t("Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; change them in their own app.") }),
+      el("div", { class: "section-head hub-scenes-head" }, el("h2", { text: t("Scenes from your hubs") }), count, source),
+      el("p", { class: "muted", text: t("Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; rename, update or delete a Hue or IKEA scene from its ⋯ menu.") }),
       groups.map(({ node }) => node));
     return { node, filter };
   }
 
   /// Runs a scene; one that changes a lock, a door or an alarm asks first, as the cards' own controls do.
+  /// Puts back what a scene's last run changed (a saved scene's locks, doors and alarms once the person agrees), then
+  /// redraws the page.
+  async function stopScene(scene, button) {
+    const confirmSecurity = Boolean(scene.security || scene.stopSecurity);
+    if (confirmSecurity && !await HomeswiftCommon.confirmDialog(t("Restore the previous state of this scene’s locks, doors or alarms?"))) return;
+    button.disabled = true;
+    try {
+      const result = await app.api(`/api/scenes/${encodeURIComponent(scene.id)}/stop`, { method: "POST", body: { confirmSecurity } });
+      if (!result.ok) HomeswiftCommon.showAlert(result.failed.map((f) => HomeswiftI18n.message(f.error)).join("\n"));
+      app.route();
+    } catch (e) { HomeswiftCommon.showAlert(e.message); button.disabled = false; }
+  }
+
   async function runScene(scene, button) {
     let confirmSecurity = false;
     if (scene.security) {
@@ -9674,10 +10463,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     }
   }
 
-  // ---- Moods -----------------------------------------------------------------------------------------
+  // ---- Templates -------------------------------------------------------------------------------------
 
   /// The collection's names and descriptions, by id: translated here, the server's being English for MCP clients.
-  const moodTexts = {
+  const templateTexts = {
     "candlelight": [t("Candlelight"), t("Very warm, dim light for dinner.")],
     "relax": [t("Relax"), t("Soft warm white for the evening.")],
     "golden-hour": [t("Golden hour"), t("Amber and soft orange, a little different on each light.")],
@@ -9701,131 +10490,133 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     "alert": [t("Alert flash"), t("Two red pulses, then the lights go back to how they were.")],
     "bedtime": [t("Bedtime"), t("A slow fade to a dim red over fifteen minutes.")],
   };
-  const moodCategories = [["gallery", t("Scene gallery")], ["calm", t("Calm")], ["animated", t("Slow animations")], ["party", t("Party")], ["signal", t("Signals")]];
-  const moodName = (id, name) => moodTexts[id]?.[0] ?? name;
-  const moodRoomKey = "homeswift.moods.room";
+  const templateCategories = [["gallery", t("Scene gallery")], ["calm", t("Calm")], ["animated", t("Slow animations")], ["party", t("Party")], ["signal", t("Signals")]];
+  const templateName = (id, name) => templateTexts[id]?.[0] ?? name;
+  const templateRoomKey = "homeswift.templates.room";
 
-  /// The rooms with a light in them, for the moods.
+  /// The rooms with a light in them, for the templates.
   function lightRooms(accessories) {
     const rooms = accessories.filter((a) => !a.hidden && a.room && a.services.some((s) => s.type === "Lightbulb")).map((a) => a.room);
     return [...new Set(rooms)].sort((a, b) => a.localeCompare(b, HomeswiftI18n.locale));
   }
 
-  /// Moods for a room's lights: the rooms as chips, what plays now, a box where the Assistant writes one from a
-  /// description, and the collection by kind. On a phone each kind is a row that swipes sideways, so the whole card
-  /// fits on a screen and what a tap started shows next to the finger: the pill lights up while its mood plays.
-  function moodsSection(accessories) {
-    const section = el("section", { class: "moods" });
-    const head = el("div", { class: "section-head" }, el("div", {}, el("h2", { text: t("Moods") }), el("span", { class: "muted", text: t("Ambiances and light shows for a room's lights.") })));
+  /// Templates for a room's lights: the rooms as chips, what was tried there and can still be stopped or undone, a box
+  /// where the Assistant writes a scene from a description, and the collection by kind. A tap tries one at once without
+  /// saving it (the pill lights up while it plays); Save keeps it as a scene. On a phone each kind is a row that swipes
+  /// sideways, so the whole card fits on a screen.
+  function templatesSection(accessories, scenes = { scenes: [], pluginScenes: [] }) {
+    const section = el("section", { class: "templates" });
+    const head = el("div", { class: "section-head" }, el("div", {}, el("h2", { text: t("By room") }), el("span", { class: "muted", text: t("A room's scenes, then templates to try on its lights; save one as a scene when you like it.") })));
     const rooms = lightRooms(accessories);
     if (!rooms.length) {
-      section.append(head, el("div", { class: "card empty" }, el("p", { class: "muted", text: t("Put your lights in rooms (a card's menu on the Accessories page) to play moods on them.") })));
+      section.append(head, el("div", { class: "card empty" }, el("p", { class: "muted", text: t("Put your lights in rooms (a card's menu on the Accessories page) to try templates on them.") })));
       return section;
     }
     let room = rooms[0];
-    try { const remembered = localStorage.getItem(moodRoomKey); if (rooms.includes(remembered)) room = remembered; } catch {}
-    const roomChips = el("div", { class: "mood-rooms", role: "group", "aria-label": t("Room") }, rooms.map((name) => {
-      const chip = el("button", { type: "button", class: "mood-room", text: name, "aria-pressed": String(name === room) });
+    try { const remembered = localStorage.getItem(templateRoomKey); if (rooms.includes(remembered)) room = remembered; } catch {}
+    const roomChips = el("div", { class: "template-rooms", role: "group", "aria-label": t("Room") }, rooms.map((name) => {
+      const chip = el("button", { type: "button", class: "template-room", text: name, "aria-pressed": String(name === room) });
       chip.addEventListener("click", () => {
         room = name;
-        try { localStorage.setItem(moodRoomKey, name); } catch {}
+        try { localStorage.setItem(templateRoomKey, name); } catch {}
         for (const other of roomChips.children) other.setAttribute("aria-pressed", String(other === chip));
-        drawRunning(data.running);
+        drawStrip();
+        drawTries();
         markPlaying();
       });
       return chip;
     }));
     const line = statusLine();
-    const running = el("div", { class: "mood-running" });
-    const collection = el("div", { class: "mood-collection" });
-    const describe = el("input", { type: "text", maxLength: 500, enterKeyHint: "go", placeholder: t("Describe a mood…"), title: t("Describe one: a jazz bar, a rainy afternoon…"), "aria-label": t("Describe a mood") });
-    const create = el("button", { type: "submit", class: "primary mood-create" }, sparkle(), el("span", { text: t("Create") }));
-    const designer = el("form", { class: "mood-describe hidden" }, describe, create);
-    section.append(head, el("div", { class: "card mood-card" }, roomChips, running, line, designer, collection));
+    const running = el("div", { class: "template-running" });
+    const collection = el("div", { class: "template-collection" });
+    const describe = el("input", { type: "text", maxLength: 500, enterKeyHint: "go", placeholder: t("Describe a scene…"), title: t("Describe one: a jazz bar, a rainy afternoon…"), "aria-label": t("Describe a scene") });
+    const create = el("button", { type: "submit", class: "primary template-create" }, sparkle(), el("span", { text: t("Create") }));
+    const designer = el("form", { class: "template-describe hidden" }, describe, create);
+    // The chosen room's own scenes and its hubs' scenes, to run in a tap.
+    const strip = el("div", { class: "quick-scenes room-scenes" });
+    const stripHead = el("div", { class: "service-name" });
+    const templatesHead = el("div", { class: "service-name", text: t("From a template") });
+    function drawStrip() {
+      const own = scenes.scenes.filter((scene) => scene.room === room).map((scene) => sceneButton(scene));
+      const hubs = (scenes.pluginScenes || []).filter((scene) => scene.room === room).map((scene) => hubSceneButton(scene));
+      strip.replaceChildren(...own, ...hubs);
+      stripHead.textContent = t("Scenes in {room}", { room });
+      strip.hidden = stripHead.hidden = !own.length && !hubs.length;
+    }
+    drawStrip();
+    section.append(head, el("div", { class: "card template-card" }, roomChips, stripHead, strip, running, line, designer, templatesHead, collection));
 
-    let data = { moods: [], running: [] };
+    let data = { templates: [], tries: [] };
     const buttons = [];
-    let timer = null;
+    const name = (run) => run.template ? templateName(run.template, run.name) : run.name;
 
-    /// The pills of the moods playing in the chosen room light up.
+    /// The pills of the templates playing in the chosen room light up.
     function markPlaying() {
-      const playing = new Set(data.running.filter((run) => run.room === room).map((run) => run.mood).filter(Boolean));
+      const playing = new Set(data.tries.filter((run) => run.room === room && run.template).map((run) => run.template));
       for (const [id, button] of buttons) {
         button.classList.toggle("playing", playing.has(id));
         button.setAttribute("aria-pressed", String(playing.has(id)));
-        let badge = button.querySelector(".mood-stop-badge");
-        if (playing.has(id) && !badge) { badge = el("span", { class: "mood-stop-badge", "aria-hidden": "true" }); button.append(badge); }
+        let badge = button.querySelector(".template-stop-badge");
+        if (playing.has(id) && !badge) { badge = el("span", { class: "template-stop-badge", "aria-hidden": "true" }); button.append(badge); }
         if (!playing.has(id)) badge?.remove();
-        const label = button.querySelector(".name")?.textContent || moodName(id, id);
+        const label = button.querySelector(".name")?.textContent || templateName(id, id);
         button.setAttribute("aria-label", playing.has(id) ? `${t("Stop")} ${label}` : label);
       }
     }
 
     async function refresh() {
-      data = await app.api("/api/moods");
-      drawRunning(data.running);
+      data = await app.api("/api/scenes/templates");
+      drawTries();
       markPlaying();
-      // Look again just after the next one ends by itself.
-      clearTimeout(timer);
-      const next = Math.min(...data.running.map((run) => run.endsAt ? new Date(run.endsAt) - Date.now() : Infinity));
-      if (Number.isFinite(next)) timer = setTimeout(() => { if (section.isConnected) refresh().catch(() => {}); }, Math.max(1000, next + 1500));
     }
 
-    function drawRunning(runs) {
-      running.replaceChildren(...runs.map((run) => {
-        const name = moodName(run.mood, run.name);
-        // A mood that set the lights once is undone; one that plays is stopped. Either way the lights go back.
-        const stop = el("button", { type: "button", class: "mood-stop", actionIcon: "stop", text: run.held ? t("Undo") : t("Stop") });
+    async function stopTry(run) {
+      await app.api(`/api/scenes/${encodeURIComponent(run.run)}/stop`, { method: "POST", body: {} });
+      say(line, run.playing ? t("{scene} stopped: the lights are back as they were.", { scene: name(run) }) : t("{scene} undone: the lights are back as they were.", { scene: name(run) }));
+    }
+
+    function drawTries() {
+      running.replaceChildren(...data.tries.map((run) => {
+        // One that plays is stopped; one that set the lights once is undone. Either way the lights go back.
+        const stop = el("button", { type: "button", class: "template-stop", actionIcon: "stop", text: run.playing ? t("Stop") : t("Undo") });
         stop.addEventListener("click", async () => {
           stop.classList.add("busy");
           stop.disabled = true;
-          try {
-            await app.api("/api/moods/stop", { method: "POST", body: { run: run.id } });
-            say(line, run.held ? t("{mood} undone: the lights are back as they were.", { mood: name }) : t("{mood} stopped: the lights are back as they were.", { mood: name }));
-            await refresh();
-          } catch (e) { say(line, e.message, "error"); stop.disabled = false; stop.classList.remove("busy"); }
+          try { await stopTry(run); await refresh(); } catch (e) { say(line, e.message, "error"); stop.disabled = false; stop.classList.remove("busy"); }
         });
-        const lights = tn("{n} light", "{n} lights", run.lights.length);
+        const save = el("button", { type: "button", class: "link", actionIcon: "check", text: t("Save as a scene"), onclick: () => saveAsScene(run) });
         // The room shows only when it is not the one chosen above.
-        const where = run.room && run.room !== room ? t("{room}, {lights}", { room: run.room, lights }) : lights;
-        return el("div", { class: "mood-run" }, swatch(run.mood),
-          el("div", { class: "mood-run-text" }, el("strong", { text: name }),
-            el("span", { class: "muted", text: run.held ? t("{lights}, set at {time}", { lights: where, time: timeFormat.format(new Date(run.startedAt)) })
-              : run.endsAt ? t("{lights}, until {time}", { lights: where, time: timeFormat.format(new Date(run.endsAt)) }) : where })),
-          stop);
+        const time = timeFormat.format(new Date(run.startedAt));
+        const where = run.room && run.room !== room ? t("{room}, {time}", { room: run.room, time }) : time;
+        return el("div", { class: "template-run" }, swatch(run.template, run.plan?.artworkId),
+          el("div", { class: "template-run-text" }, el("strong", { text: name(run) }), el("span", { class: "muted", text: where })),
+          save, stop);
       }));
     }
 
-    function swatch(id) {
-      const artworkId = data.moods.find((mood) => mood.id === id)?.artworkId;
-      return artworkImage(artworkId || "tyrell", "mood-swatch");
+    function swatch(id, artworkId) {
+      return artworkImage(artworkId || data.templates.find((template) => template.id === id)?.artworkId || "tyrell", "template-swatch");
     }
 
-    async function start(body, name, button) {
+    async function start(body, label, button) {
       if (button?.classList.contains("busy")) return;
       button?.classList.add("busy");
-      say(line, body.description ? t("The Assistant is writing a mood…") : t("Starting {mood}…", { mood: name }));
+      say(line, body.description ? t("The Assistant is writing a scene…") : t("Trying {template}…", { template: label }));
       try {
-        const result = await app.api("/api/moods/start", { method: "POST", body: { ...body, room } });
-        const shown = body.mood ? name : result.mood.name;
-        const count = result.lights.length;
-        if (result.run && !result.run.held) {
-          say(line, "");
-        } else if (result.ok) {
-          say(line, tn("{mood} is set on {n} light.", "{mood} is set on {n} lights.", count, { mood: shown }));
-          line.append(" ", el("button", { actionIcon: "check", type: "button", class: "link", text: t("Save as a scene"), onclick: () => saveAsScene(body.mood ? { mood: body.mood } : { plan: result.mood }, shown) }));
-        } else {
-          const failures = result.failed.map((f) => `${f.name}: ${HomeswiftI18n.message(f.error)}`).join("; ");
-          say(line, t("{mood} is set, but not on every light: {failures}", { mood: shown, failures }), "error");
+        const result = await app.api("/api/scenes/try", { method: "POST", body: { ...body, room } });
+        if (result.ok) say(line, "");
+        else {
+          const failures = (result.results || []).filter((r) => !r.ok).map((r) => `${r.name || r.id || r.recall}: ${HomeswiftI18n.message(r.error || r.skipped)}`).join("; ");
+          say(line, t("{scene} is set, but not on every light: {failures}", { scene: body.template ? label : result.name, failures }), "error");
         }
         if (body.description) describe.value = "";
         await refresh();
       } catch (e) { say(line, e.message, "error"); } finally { button?.classList.remove("busy"); }
     }
 
-    async function saveAsScene(source, name) {
+    async function saveAsScene(run) {
       try {
-        const scene = await app.api("/api/moods/save", { method: "POST", body: { ...source, room, name: t("{mood} in {room}", { mood: name, room }) } });
+        const scene = await app.api("/api/scenes", { method: "POST", body: { ...run.plan, name: t("{scene} in {room}", { scene: name(run), room: run.room || room }).slice(0, 64) } });
         say(line, t("Saved as the scene {name}.", { name: scene.name }));
         setTimeout(() => { if (section.isConnected) app.route(); }, 1200);
       } catch (e) { say(line, e.message, "error"); }
@@ -9841,30 +10632,29 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       await refresh();
       const themes = await loadArtworkThemes();
       designer.classList.toggle("hidden", !data.assistant);
-      collection.replaceChildren(...moodCategories.map(([category, label]) => {
-        const moods = data.moods.filter((mood) => mood.category === category);
-        if (!moods.length) return null;
-        const makeButton = (mood) => {
-          const name = moodName(mood.id, mood.name);
-          const button = el("button", { type: "button", class: "mood-button scene pictured artwork-choice", title: category === "gallery" ? name : moodTexts[mood.id]?.[1] ?? mood.description ?? "", "aria-pressed": "false" },
-            swatch(mood.id), el("span", { class: "name", text: name }));
+      collection.replaceChildren(...templateCategories.map(([category, label]) => {
+        const templates = data.templates.filter((template) => template.category === category);
+        if (!templates.length) return null;
+        const makeButton = (template) => {
+          const label = templateName(template.id, template.name);
+          const button = el("button", { type: "button", class: "template-button scene pictured artwork-choice", title: category === "gallery" ? label : templateTexts[template.id]?.[1] ?? template.description ?? "", "aria-pressed": "false" },
+            swatch(template.id), el("span", { class: "name", text: label }));
           button.addEventListener("click", async () => {
             if (button.classList.contains("busy")) return;
-            const active = data.running.filter((run) => run.room === room && run.mood === mood.id);
-            if (!active.length) return start({ mood: mood.id }, name, button);
+            const active = data.tries.filter((run) => run.room === room && run.template === template.id);
+            if (!active.length) return start({ template: template.id }, label, button);
             button.classList.add("busy");
             try {
-              for (const run of active) await app.api("/api/moods/stop", { method: "POST", body: { run: run.id } });
-              say(line, t("{mood} stopped: the lights are back as they were.", { mood: name }));
+              for (const run of active) await stopTry(run);
               await refresh();
             } catch (e) { say(line, e.message, "error"); }
             finally { button.classList.remove("busy"); }
           });
-          buttons.push([mood.id, button]);
+          buttons.push([template.id, button]);
           return button;
         };
-        return el("div", { class: "mood-group" }, el("div", { class: "service-name", text: label }),
-          category === "gallery" ? themedArtwork(moods, themes, makeButton) : el("div", { class: "mood-buttons" }, moods.map(makeButton)));
+        return el("div", { class: "template-group" }, el("div", { class: "service-name", text: label }),
+          category === "gallery" ? themedArtwork(templates, themes, makeButton) : el("div", { class: "template-buttons" }, templates.map(makeButton)));
       }).filter(Boolean));
       markPlaying();
     })().catch((e) => say(line, e.message, "error"));
@@ -9922,22 +10712,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const last = scene.lastRun ? (scene.lastRun.ok ? t("Last run {date} ({trigger})", lastVars) : t("Last run {date} ({trigger}), with errors", lastVars)) : t("Never run");
       const run = el("button", { actionIcon: "play", class: "primary", text: t("Run") });
       run.addEventListener("click", async () => { if (await runScene(scene, run)) app.route(); });
-      const stop = scene.stoppable ? el("button", { type: "button", actionIcon: "stop", text: t("Stop"), onclick: async () => {
-        const confirmSecurity = scene.security || scene.stopSecurity;
-        if (confirmSecurity && !await HomeswiftCommon.confirmDialog(t("Restore the previous state of this scene’s locks, doors or alarms?"))) return;
-        stop.disabled = true;
-        try {
-          const result = await app.api(`/api/scenes/${encodeURIComponent(scene.id)}/stop`, { method: "POST", body: { confirmSecurity } });
-          if (!result.ok) HomeswiftCommon.showAlert(result.failed.map((f) => HomeswiftI18n.message(f.error)).join("\n"));
-          app.route();
-        } catch (e) { HomeswiftCommon.showAlert(e.message); stop.disabled = false; }
-      } }) : null;
+      const stop = scene.stoppable ? el("button", { type: "button", actionIcon: "stop", text: t("Stop"), onclick: () => stopScene(scene, stop) }) : null;
       return el("div", { class: "card server scene-card" },
-        artworkImage(scene.artworkId),
+        sceneImage(scene),
         el("div", { class: "server-head" }, tile("play", scene.security ? "violet" : "orange"),
           el("div", { class: "who" }, el("a", { class: "card-title", href: `/scenes/${encodeURIComponent(scene.id)}` }, el("strong", { text: scene.name }),
               scene.active ? el("span", { class: "pill scene-active", text: t("Scene active") }) : null),
-            el("div", { class: "muted", text: [scene.room, scene.triggers.length ? scene.triggers.map((trigger) => describeTrigger(trigger, names)).join(" · ") : t("Run by hand")].filter(Boolean).join(" · ") })),
+            el("div", { class: "muted", text: [scene.room, scene.homeKit ? t("In the Home app") : null, scene.animation ? t("Animated: {style}", { style: scene.animation.effect ? effectStyleNames[scene.animation.effect.style] || scene.animation.effect.style : t("Timed sequence") }) : null, scene.triggers.length ? scene.triggers.map((trigger) => describeTrigger(trigger, names)).join(" · ") : t("Run by hand")].filter(Boolean).join(" · ") })),
           el("div", { class: "scene-run-actions" }, run, stop)),
         el("details", { class: "scene-card-details" }, el("summary", { text: t("Details") }), el("div", { class: "controls" }, actions)),
         scene.security ? el("p", { class: "muted note", text: t("It changes a lock, a door or an alarm: the page asks before running it, and automations leave those actions out.") }) : null,
@@ -9945,6 +10726,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           menuButton(t("Actions for {name}", { name: scene.name }), () => [
             { label: t("Run"), icon: "play", onSelect: () => runScene(scene) },
             { label: t("Edit"), icon: "edit", href: `/scenes/${encodeURIComponent(scene.id)}` },
+            ...pictureMenu(scene),
             { label: t("Delete"), icon: "trash", danger: true, onSelect: async () => {
               if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete the scene {name}?", { name: scene.name }), text: t("This removes the scene and its automatic triggers. This cannot be undone."), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
               try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
@@ -9964,12 +10746,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       noMatches.hidden = sceneCards.some(({ node }) => !node.hidden) || hubShown > 0;
     });
     app.show(main,
-      app.pageHead(t("Scenes"), t("Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; the Home app does not see them."),
+      app.pageHead(t("Scenes"), t("Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; one you choose is also a switch in the Home app."),
         data.scenes.length ? el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") }) : null),
       el("div", { class: "section-head" }, el("h2", { text: t("Your scenes") }), sceneCount, data.scenes.length || hubScenes.node ? [search, HomeswiftCommon.clearFilters([[search, ""]])] : null),
       data.scenes.length ? el("div", { class: "grid scene-grid" }, sceneCards.map(({ node }) => node))
-        : el("div", { class: "card empty scenes-empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("play")), el("p", { class: "muted", text: t("No scene yet. A scene sets several accessories at once, such as every light of a room for the evening.") }), el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") })),
-      noMatches, hubScenes.node, moodsSection(accessories), locationCard(data));
+        // Short when the hubs' scenes follow: they are what there is to run.
+        : el("div", { class: `card empty scenes-empty${hubScenes.node ? " compact" : ""}` }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("play")), el("p", { class: "muted", text: t("No scene yet. A scene sets several accessories at once, such as every light of a room for the evening.") }), el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") })),
+      noMatches, hubScenes.node, templatesSection(accessories, data), locationCard(data));
   }
 
   /// Where sunrise and sunset are computed for: Glass UI took its weather widget's city; here it is typed, or
@@ -10325,6 +11108,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const choices = accessories.filter((a) => !a.hidden || scene.actions.some((x) => x.id === a.id));
 
     const name = el("input", { type: "text", value: scene.name, maxLength: 64, required: true, placeholder: t("Evening") });
+    const homeKit = el("input", { type: "checkbox", checked: Boolean(scene.homeKit) });
+    // The settings pages' toggle: a switch, then its title over its help.
+    const homeKitRow = el("label", { class: "toggle" }, el("span", { class: "switch" }, homeKit, el("span")), el("span", {},
+      el("span", { class: "field-title", text: t("A switch in the Home app") }),
+      el("p", { class: "help", text: t("On the Homeswift Scenes accessory: turning it on runs the scene (without its locks, doors and alarms), turning it off puts the lights back.") })));
     let artworkId = scene.artworkId || null;
     const themes = await loadArtworkThemes();
     const artworkPreview = el("div", { class: "artwork-preview" }, artworkImage(artworkId));
@@ -10516,6 +11304,60 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       step.panel.querySelector("button").focus({ preventScroll: true });
     };
     canvas.append(el("div", { class: "scene-flow-terminal" }, HomeswiftCommon.icon("play"), el("span", { text: t("Start") })));
+    // The animation: an effect (each brand's own where its lights have it, Homeswift's elsewhere) on chosen lights,
+    // after the actions. A timed sequence (from a template) is kept as it is.
+    const animationRows = new Set();
+    const animation = (() => {
+      const current = scene.animation, effect = current?.effect || {};
+      const style = el("select", { "aria-label": t("Animation") }, el("option", { value: "", text: t("No animation") }),
+        current?.steps ? el("option", { value: "sequence", text: t("Timed sequence") }) : null,
+        Object.entries(effectStyleNames).map(([value, label]) => el("option", { value, text: label })));
+      style.value = current?.steps ? "sequence" : effect.style || "";
+      const speed = el("input", { type: "range", min: 0, max: 100, value: Math.round((effect.speed ?? 0.5) * 100) });
+      const brightness = el("input", { type: "range", min: 1, max: 100, value: effect.brightness ?? 80 });
+      const minutes = el("input", { type: "number", min: 1, max: 60, value: Math.round((effect.durationSeconds ?? 900) / 60) });
+      const tint = el("input", { type: "checkbox", checked: !!effect.colors?.length });
+      const first = colorInput(effect.colors?.[0] || { hue: 30, saturation: 100 }), second = colorInput(effect.colors?.[1] || { hue: 280, saturation: 80 });
+      const lights = choices.filter((a) => a.services.some((s) => s.type === "Lightbulb")).map((a) => {
+        const input = el("input", { type: "checkbox", value: a.id, checked: !!current?.lights?.includes(a.id) });
+        return { input, node: el("label", { class: "toggle compact" }, input, el("span", { text: displayName(a) })) };
+      });
+      const speedField = field(t("Speed"), speed), brightnessField = field(t("Brightness"), brightness), minutesField = field(t("Minutes"), minutes);
+      const tintField = el("label", { class: "toggle compact" }, tint, el("span", { text: t("Its own colour") }));
+      const colours = el("div", { class: "animation-colours" }, first, second);
+      const settings = el("div", { class: "animation-settings" }, speedField, brightnessField, minutesField, tintField, colours,
+        el("div", { class: "field-title", text: t("Lights") }), lights.length ? el("div", { class: "animation-lights" }, lights.map(({ node }) => node)) : el("p", { class: "muted", text: t("No light to animate.") }));
+      const sync = () => {
+        const value = style.value, timed = value === "sunrise" || value === "sunset", palette = value === "palette";
+        const effect = value && value !== "sequence" && value !== "music";
+        settings.hidden = !value;
+        speedField.hidden = !effect || timed;
+        brightnessField.hidden = !effect;
+        minutesField.hidden = !timed;
+        tintField.hidden = !effect || timed || palette;
+        colours.hidden = !(palette || (tint.checked && !tintField.hidden));
+        second.hidden = !palette;
+        animationRows.clear();
+        if (value) animationRows.add(style);
+      };
+      style.addEventListener("change", sync); tint.addEventListener("change", sync);
+      sync();
+      const read = () => {
+        const value = style.value;
+        // Lights the page cannot list now (a paused plugin's) stay in the animation.
+        const unlisted = (current?.lights || []).filter((id) => !lights.some(({ input }) => input.value === id));
+        const chosen = [...lights.filter(({ input }) => input.checked).map(({ input }) => input.value), ...unlisted];
+        if (!value) return null;
+        if (value === "sequence") return { ...current, lights: chosen };
+        const result = { style: value };
+        if (!speedField.hidden) result.speed = Number(speed.value) / 100;
+        if (!brightnessField.hidden) result.brightness = Number(brightness.value);
+        if (!minutesField.hidden) result.durationSeconds = Number(minutes.value) * 60;
+        if (!colours.hidden) result.colors = value === "palette" ? [first.read(), second.read()] : [first.read()];
+        return { lights: chosen, effect: result };
+      };
+      return { content: el("div", {}, field(t("Animation"), style), settings), read };
+    })();
     const node = (title, glyph, tone, description, rows, content) => {
       const count = el("span", { class: "scene-flow-count", text: String(rows.size) });
       const summary = el("span", { class: "scene-flow-summary" });
@@ -10543,6 +11385,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       [conditionList, el("button", { actionIcon: "plus", type: "button", text: t("Add a condition"), onclick: () => addCondition() })]);
     node(t("Actions"), "bulb", "action", t("The values to set, in this order."), actions,
       [actionList, el("button", { actionIcon: "plus", type: "button", text: t("Add an action"), onclick: () => addAction() }), recallPicker, capture]);
+    node(t("Animation"), "sparkle", "action", t("Plays on the chosen lights after the actions: each brand's own effect where its lights have it (Hue, Govee, IKEA, Ambilight), Homeswift's elsewhere. Stopping the scene puts the lights back."), animationRows,
+      animation.content);
     canvas.append(el("div", { class: "scene-flow-connector", "aria-hidden": "true" }, HomeswiftCommon.icon("down")),
       el("div", { class: "scene-flow-terminal finish" }, HomeswiftCommon.icon("check"), el("span", { text: t("Finish") })));
     let zoom = 1;
@@ -10560,10 +11404,40 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     const line = statusLine();
     const save = el("button", { class: "primary", actionIcon: "check", type: "submit", text: isNew ? t("Create the scene") : t("Save") });
+    // A new scene of lights only, without triggers or an animation, can be kept on the hub that has them all instead.
+    const hubLight = new Set(["on", "brightness", "hue", "saturation", "colortemperature"]);
+    const keepOn = el("select", { "aria-label": t("Keep it on"), hidden: true });
+    let targetsAsked = "";
+    const refreshTargets = async () => {
+      if (!isNew) return;
+      let read;
+      // A row still being filled in has nothing to read yet.
+      try { read = [...actions].flatMap((row) => row.read()); } catch { return; }
+      const fits = read.length && !read.some((a) => a.recall || !hubLight.has(String(a.characteristic).toLowerCase().replace(/\s/g, "")))
+        && ![...triggers].length && !animation.read() && !homeKit.checked;
+      const ids = fits ? [...new Set(read.map((a) => a.id))].sort() : [];
+      const key = ids.join("|");
+      if (key === targetsAsked) return;
+      targetsAsked = key;
+      const targets = ids.length ? (await app.api("/api/scenes/targets", { method: "POST", body: { ids } }).catch(() => ({ targets: [] }))).targets : [];
+      if (key !== targetsAsked) return;
+      const kept = keepOn.value;
+      keepOn.replaceChildren(el("option", { value: "", text: t("Keep it in Homeswift") }),
+        ...targets.map((target) => el("option", { value: target.hub, text: t("Save to {hub} ({place})", { hub: target.name, place: target.label }) })));
+      keepOn.value = targets.some((target) => target.hub === kept) ? kept : "";
+      keepOn.hidden = !targets.length;
+    };
     const form = el("form", { class: "card scene-editor", onsubmit: async (event) => {
       event.preventDefault();
-      const body = { name: name.value.trim(), artworkId, actions: [...actions].flatMap((row) => row.read()), triggers: [...triggers].map((row) => row.read()), conditions: [...conditions].map((row) => row.read()) };
+      const body = { name: name.value.trim(), artworkId, homeKit: homeKit.checked, actions: [...actions].flatMap((row) => row.read()), triggers: [...triggers].map((row) => row.read()), conditions: [...conditions].map((row) => row.read()), animation: animation.read() };
       save.disabled = true;
+      if (isNew && keepOn.value && !keepOn.hidden) {
+        try {
+          await app.api("/api/scenes/hub", { method: "POST", body: { hub: keepOn.value, name: body.name, actions: body.actions } });
+          app.navigate("/scenes");
+        } catch (e) { say(line, e.message, "error"); save.disabled = false; }
+        return;
+      }
       try {
         const saved = await app.api(isNew ? "/api/scenes" : `/api/scenes/${encodeURIComponent(scene.id)}`, { method: isNew ? "POST" : "PUT", body });
         const security = saved.actions.some((a) => a.security);
@@ -10576,16 +11450,19 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       } catch (e) { say(line, e.message, "error"); }
       save.disabled = false;
     } },
-      field(t("Name"), name), artworkPreview, artworkPicker,
+      field(t("Name"), name), homeKitRow, artworkPreview, artworkPicker,
       flow,
-      el("div", { class: "save-bar" }, save, el("a", { class: "button", actionIcon: "close", href: "/scenes", text: t("Cancel") }),
+      el("div", { class: "save-bar" }, save, keepOn, el("a", { class: "button", actionIcon: "close", href: "/scenes", text: t("Cancel") }),
         isNew ? null : el("span", { class: "spacer" }),
         isNew ? null : el("button", { actionIcon: "trash", type: "button", class: "danger", text: t("Delete"), onclick: async () => {
           if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete the scene {name}?", { name: scene.name }), text: t("This removes the scene and its automatic triggers. This cannot be undone."), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
           try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); app.navigate("/scenes"); } catch (e) { say(line, e.message, "error"); }
         } })),
       line);
+    form.addEventListener("change", refreshTargets);
+    form.addEventListener("click", () => setTimeout(refreshTargets));
     app.show(main, app.breadcrumb([t("Scenes"), "/scenes"], [isNew ? t("New scene") : scene.name]), form);
+    refreshTargets();
   }
 
   // ---- Notifications ---------------------------------------------------------------------------------
@@ -10802,6 +11679,75 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         "i18n-es.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Spanish (Spain): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("es", {
+  "Matter bridge": "Puente Matter",
+  "For Google Home, Alexa, SmartThings and Home Assistant": "Para Google Home, Alexa, SmartThings y Home Assistant",
+  "In one ecosystem": "En un ecosistema",
+  "In {n} ecosystems": "En {n} ecosistemas",
+  "Not added yet": "Aún no añadido",
+  "Ecosystem {index}": "Ecosistema {index}",
+  "Remove {name}": "Quitar {name}",
+  "{name} loses the bridge and every device on it, with their rooms and automations.": "{name} pierde el puente y todos sus dispositivos, con sus habitaciones y automatizaciones.",
+  "In the ecosystem's app: add a Matter device, then scan this code or type it.": "En la app del ecosistema: añade un dispositivo Matter y escanea este código o introdúcelo.",
+  "Add to another ecosystem": "Añadir a otro ecosistema",
+  "Devices of their own": "Dispositivos propios",
+  "Bridged over Matter": "Puenteados por Matter",
+  "{vendor}'s hubs and other devices lose their link to this device: it stops responding there until it is added again.": "Los concentradores y otros dispositivos de {vendor} pierden su enlace con este dispositivo: deja de responder allí hasta que se vuelva a añadir.",
+  "{vendor} system": "Sistema de {vendor}",
+  "{vendor}'s own link to the device, from your other devices and hubs: keep it.": "El enlace propio de {vendor} con el dispositivo, desde tus otros dispositivos y concentradores: consérvalo.",
+  "Matter device of its own": "Dispositivo Matter propio",
+  "Matter · {ecosystems}": "Matter · {ecosystems}",
+  "Matter": "Matter",
+  "Shows a new pairing code for 15 minutes, so another app (Google Home, Alexa, Home Assistant or another home in Apple Home) can add this device too. The ecosystems it is in keep it.": "Muestra un nuevo código de emparejamiento durante 15 minutos, para que otra app (Google Home, Alexa, Home Assistant u otra casa en Apple Home) también pueda añadir este dispositivo. Los ecosistemas en los que está lo conservan.",
+  "Shows a new pairing code for 15 minutes, so another app (Google Home, Alexa, Home Assistant or another home in Apple Home) can add the bridge and its devices too. The ecosystems it is in keep them.": "Muestra un nuevo código de emparejamiento durante 15 minutos, para que otra app (Google Home, Alexa, Home Assistant u otra casa en Apple Home) también pueda añadir el puente y sus dispositivos. Los ecosistemas en los que está los conservan.",
+  "Waiting to be added first": "Pendientes de añadir primero",
+  "Most ecosystems": "Más ecosistemas",
+  "All devices": "Todos los dispositivos",
+  "HomeKit": "HomeKit",
+  "Waiting to be added": "Pendientes de añadir",
+  "Sort devices": "Ordenar dispositivos",
+  "Show devices": "Mostrar dispositivos",
+  "{shown} of {total} devices": "{shown} de {total} dispositivos",
+  "{count} devices · one waits to be added": "{count} dispositivos · uno espera a ser añadido",
+  "{count} devices · {n} wait to be added": "{count} dispositivos · {n} esperan a ser añadidos",
+  "One device, with its own pairing": "Un dispositivo, con su propio emparejamiento",
+  "{n} devices, each with its own pairing": "{n} dispositivos, cada uno con su propio emparejamiento",
+  "Search devices": "Buscar dispositivos",
+  "No device matches.": "Ningún dispositivo coincide.",
+  "{name} loses this device, with its room and automations.": "{name} pierde este dispositivo, con su habitación y sus automatizaciones.",
+  "In the Home app (or another ecosystem's): add an accessory, then scan this code or type it.": "En la app Casa (o la de otro ecosistema): añade un accesorio y escanea este código o escríbelo.",
+  "Make a Matter device": "Convertir en dispositivo Matter",
+  "Matter pairing code": "Código de vinculación Matter",
+  "Take off Matter": "Quitar de Matter",
+  "{name} leaves Matter: the ecosystems that added it lose it.": "{name} sale de Matter: los ecosistemas que lo añadieron lo pierden.",
+  "A room's scenes, then templates to try on its lights; save one as a scene when you like it.": "Las escenas de una habitación y, después, plantillas para probar en sus luces; guarda una como escena si te gusta.",
+  "From a template": "A partir de una plantilla",
+  "Scenes in {room}": "Escenas de {room}",
+  "Templates": "Plantillas",
+  "Put your lights in rooms (a card's menu on the Accessories page) to try templates on them.": "Pon tus luces en habitaciones (el menú de una tarjeta en la página Accesorios) para probar plantillas en ellas.",
+  "Describe a scene…": "Describe una escena…",
+  "Describe a scene": "Describir una escena",
+  "The Assistant is writing a scene…": "El Asistente está escribiendo una escena…",
+  "Trying {template}…": "Probando {template}…",
+  "{room}, {time}": "{room}, {time}",
+  "Animation": "Animación",
+  "No animation": "Sin animación",
+  "Timed sequence": "Secuencia temporizada",
+  "Minutes": "Minutos",
+  "Its own colour": "Su propio color",
+  "No light to animate.": "No hay luces que animar.",
+  "Plays on the chosen lights after the actions: each brand's own effect where its lights have it (Hue, Govee, IKEA, Ambilight), Homeswift's elsewhere. Stopping the scene puts the lights back.": "Se reproduce en las luces elegidas después de las acciones: el efecto propio de cada marca donde sus luces lo tienen (Hue, Govee, IKEA, Ambilight), el de Homeswift en las demás. Detener la escena devuelve las luces a como estaban.",
+  "Candle": "Vela",
+  "Fire": "Fuego",
+  "Sparkle": "Destello",
+  "Opal": "Ópalo",
+  "Glisten": "Brillo",
+  "Underwater": "Bajo el agua",
+  "Cosmos": "Cosmos",
+  "Sunbeam": "Rayo de sol",
+  "Enchant": "Encanto",
+  "Moving colours": "Colores en movimiento",
+  "Follow the music": "Seguir la música",
+  "Animated: {style}": "Animada: {style}",
   "Not in the vault: the bridge does not start without it": "No está en la bóveda: el puente no se inicia sin ella",
   "Expired {when}": "Caducó {when}",
   "Expires {when}": "Caduca {when}",
@@ -10878,7 +11824,6 @@ HomeswiftI18n.add("es", {
   "{n} secrets are still in config.json": "{n} secretos siguen en config.json",
   "Choose from the vault": "Elegir de la bóveda",
   "Type a value instead": "Escribir un valor en su lugar",
-  "Open the vault": "Abrir la bóveda",
   "Add one in the vault": "Añadir uno en la bóveda",
   "Automate": "Automatizar",
   "Hub scene": "Escena del hub",
@@ -10889,7 +11834,7 @@ HomeswiftI18n.add("es", {
   "All sources": "Todos los orígenes",
   "Scene active": "Escena activa",
   "Scenes from your hubs": "Escenas de tus hubs",
-  "Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; change them in their own app.": "Las guardan los hubs de tus plugins, como un puente Hue, un hub IKEA o luces Govee. Ejecútalas aquí; cámbialas en su propia app.",
+  "Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; rename, update or delete a Hue or IKEA scene from its ⋯ menu.": "Las guardan los hubs de tus plugins, como un puente Hue, un hub IKEA o luces Govee. Ejecútalas aquí; renombra, actualiza o elimina una escena de Hue o IKEA desde su menú ⋯.",
 
   "Start time": "Hora de inicio",
   "End time": "Hora de fin",
@@ -10976,7 +11921,15 @@ HomeswiftI18n.add("es", {
   "Moves the selected accessories in Homeswift only. HomeKit rooms stay unchanged.": "Mueve los accesorios seleccionados solo en Homeswift. Las habitaciones de HomeKit no cambian.",
   "Release to group": "Suelta para agrupar",
   "Reset room order": "Restablecer el orden de las habitaciones",
-  "Reorder rooms": "Reordenar habitaciones",
+  "Rooms": "Habitaciones",
+  "Drag to reorder, choose one to rename it.": "Arrastra para reordenar, elige una para cambiarle el nombre.",
+  "Name of {room}": "Nombre de {room}",
+  "Rename the room": "Cambiar el nombre de la habitación",
+  "Pack the widgets together": "Agrupar los widgets",
+  "Rename on the hubs too": "Cambiar el nombre también en los hubs",
+  "A new name for {room}.": "Un nombre nuevo para {room}.",
+  "Rooms of this name on your Philips Hue, IKEA and eWeLink hubs are renamed too.": "Las habitaciones con este nombre en tus hubs de Philips Hue, IKEA y eWeLink también cambian de nombre.",
+  "Not renamed on {hub}: {error}": "Sin cambiar el nombre en {hub}: {error}",
   "Show hidden": "Mostrar ocultos",
   "Clear filters": "Borrar filtros",
   "{count} of {total} match": "{count} de {total} coinciden",
@@ -11145,14 +12098,10 @@ HomeswiftI18n.add("es", {
   "{minutes} min before sunset {days}": "{minutes} min antes del atardecer {days}",
   "{model} read {n} line. Secrets and addresses were masked first; check its advice before acting on it.": "{model} ha leído {n} línea. Antes se han ocultado los secretos y las direcciones; comprueba sus consejos antes de seguirlos.",
   "{model} read {n} lines. Secrets and addresses were masked first; check its advice before acting on it.": "{model} ha leído {n} líneas. Antes se han ocultado los secretos y las direcciones; comprueba sus consejos antes de seguirlos.",
-  "{mood} in {room}": "{mood} – {room}",
-  "{mood} is playing on {n} light.": "{mood}: en marcha en {n} luz.",
-  "{mood} is playing on {n} lights.": "{mood}: en marcha en {n} luces.",
-  "{mood} is set on {n} light.": "{mood}: {n} luz ajustada.",
-  "{mood} is set on {n} lights.": "{mood}: {n} luces ajustadas.",
-  "{mood} is set, but not on every light: {failures}": "{mood}: no todas las luces han respondido: {failures}",
-  "{mood} undone: the lights are back as they were.": "{mood}: deshecho, las luces han vuelto a como estaban.",
-  "{mood} stopped: the lights are back as they were.": "{mood}: detenido, las luces han vuelto a como estaban.",
+  "{scene} in {room}": "{scene} – {room}",
+  "{scene} is set, but not on every light: {failures}": "{scene}: no todas las luces han respondido: {failures}",
+  "{scene} undone: the lights are back as they were.": "{scene}: deshecho, las luces han vuelto a como estaban.",
+  "{scene} stopped: the lights are back as they were.": "{scene}: detenido, las luces han vuelto a como estaban.",
   "{n} accessories": "{n} accesorios",
   "{n} accessories on {bridge}": "{n} accesorios en {bridge}",
   "{n} accessory": "{n} accesorio",
@@ -11265,7 +12214,7 @@ HomeswiftI18n.add("es", {
   "Accessory of its own, from {plugins}": "Accesorio independiente, de {plugins}",
   "Accessory of its own, from a plugin": "Accesorio independiente, de un plugin",
   "Accessory Runtime Information": "Información de ejecución",
-  "Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; the Home app does not see them.": "Valores de accesorios que se aplican juntos, a mano o según un horario, al amanecer o al atardecer, o cuando cambia un accesorio. Homeswift los guarda; la app Casa no los ve.",
+  "Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; one you choose is also a switch in the Home app.": "Valores de accesorios que se aplican juntos, a mano o según un horario, al amanecer o al atardecer, o cuando cambia un accesorio. Homeswift los guarda; una escena que elijas también es un interruptor en la app Casa.",
   "Account": "Cuenta",
   "Account menu": "Menú de la cuenta",
   "Action {0} must be an object": "La acción {0} debe ser un objeto",
@@ -11620,8 +12569,6 @@ HomeswiftI18n.add("es", {
   "Delete this backup?": "¿Eliminar esta copia de seguridad?",
   "Delete…": "Eliminar…",
   "Deny": "Denegar",
-  "Describe a mood": "Describir un ambiente",
-  "Describe a mood…": "Describe un ambiente…",
   "Describe one: a jazz bar, a rainy afternoon…": "Describe uno: un bar de jazz, una tarde lluviosa…",
   "Describe your setup": "Describe tu instalación",
   "Details": "Detalles",
@@ -12006,7 +12953,6 @@ HomeswiftI18n.add("es", {
   "Mode": "Modo",
   "Model": "Modelo",
   "Mon": "Lun",
-  "Moods": "Ambientes",
   "More": "Más",
   "More options ({count})": "Más opciones ({count})",
   "Motion": "Movimiento",
@@ -12251,7 +13197,6 @@ HomeswiftI18n.add("es", {
   "Purple and orange with an eerie flicker.": "Morado y naranja con un parpadeo inquietante.",
   "Push payload too large ({0} bytes)": "Contenido push demasiado grande ({0} bytes)",
   "Put in a room…": "Asignar a una habitación…",
-  "Put your lights in rooms (a card's menu on the Accessories page) to play moods on them.": "Pon tus luces en habitaciones (el menú de una tarjeta en la página Accesorios) para ponerles ambientes.",
   "QR code for an authenticator app": "Código QR para una app de autenticación",
   "Quick controls": "Controles rápidos",
   "Rainbow wave": "Ola arcoíris",
@@ -12499,7 +13444,6 @@ HomeswiftI18n.add("es", {
   "Staged Firmware Version": "Firmware preparado",
   "Stale": "Obsoleto",
   "Start": "Iniciar",
-  "Starting {mood}…": "Iniciando {mood}…",
   "Starting…": "Iniciando…",
   "Stateful Programmable Switch": "Interruptor programable",
   "Stateless Programmable Switch": "Botón programable",
@@ -12655,7 +13599,6 @@ HomeswiftI18n.add("es", {
   "The Assistant is off: config.json has no HomeswiftAiKit block. Add one on the Config page, {example}, or choose apple on a Mac with Apple Intelligence.": "El Asistente está desactivado: config.json no tiene bloque HomeswiftAiKit. Añade uno en la página Configuración, {example}, o elige apple en un Mac con Apple Intelligence.",
   "The Assistant is sorting your accessories into rooms…": "El Asistente está ordenando tus accesorios por habitaciones…",
   "the Assistant is still answering; stop it first": "el Asistente aún está respondiendo; detenlo primero",
-  "The Assistant is writing a mood…": "El Asistente está creando un ambiente…",
   "The Assistant is writing the block…": "El Asistente está escribiendo el bloque…",
   "The Assistant reads the lines shown and groups the issues, with causes and fixes": "El Asistente lee las líneas mostradas y agrupa los problemas, con causas y soluciones",
   "The Assistant stopped after many steps without an answer. Ask again, or more precisely.": "El Asistente se ha detenido tras muchos pasos sin respuesta. Vuelve a preguntar, o con más precisión.",
@@ -13121,8 +14064,6 @@ HomeswiftI18n.add("es", {
   "Version {version}": "Versión {version}",
   "Graph of the bridges, plugins and accessories": "Gráfico de puentes, plugins y accesorios",
   "Nothing runs here yet.": "Aún no hay nada en marcha.",
-  "{n} accessory": "{n} accesorio",
-  "{n} accessories": "{n} accesorios",
   "Paired": "Emparejado",
   "No accessories": "Sin accesorios",
   "Type": "Tipo",
@@ -13200,13 +14141,126 @@ HomeswiftI18n.add("es", {
   "{done} of {total}": "{done} de {total}",
   "The {name} history could not be imported: {message}": "No se pudo importar el historial de {name}: {message}",
   "History from {name} since {date}, updated {ago}": "Historial de {name} desde el {date}, actualizado {ago}",
-  "History from {name}, updated {ago}": "Historial de {name}, actualizado {ago}"
+  "History from {name}, updated {ago}": "Historial de {name}, actualizado {ago}",
+  "Rename…": "Renombrar…",
+  "A new name for {name} on {hub}.": "Un nombre nuevo para {name} en {hub}.",
+  "Keep the lights as they are": "Guardar las luces como están",
+  "Update {name}?": "¿Actualizar {name}?",
+  "{name} on {hub} will set its lights as they are now.": "{name} en {hub} pondrá sus luces como están ahora.",
+  "Update": "Actualizar",
+  "Delete from {hub}": "Eliminar de {hub}",
+  "This removes it from {hub} and its own app too. This cannot be undone.": "Desaparece de {hub} y de su app. No se puede deshacer.",
+  "Keep it on": "Guardarla en",
+  "Keep it in Homeswift": "Guardarla en Homeswift",
+  "Save to {hub} ({place})": "Guardar en {hub} ({place})",
+  "A switch in the Home app": "Un interruptor en la app Casa",
+  "On the Homeswift Scenes accessory: turning it on runs the scene (without its locks, doors and alarms), turning it off puts the lights back.": "En el accesorio Escenas de Homeswift: al encenderlo se ejecuta la escena (sin sus cerraduras, puertas ni alarmas) y al apagarlo las luces vuelven a como estaban.",
+  "Installing Homeswift {version}… The bridge restarts when it is done.": "Instalando Homeswift {version}… El puente se reinicia al terminar.",
+  "Restarting into Homeswift {version}…": "Reiniciando con Homeswift {version}…",
+  "Homeswift {version} is installed. Relaunch to start it.": "Homeswift {version} está instalado. Vuelve a iniciar para arrancarlo.",
+  "Could not install the update: {error}": "No se pudo instalar la actualización: {error}",
+  "Install and relaunch": "Instalar y reiniciar",
+  "Relaunch now": "Reiniciar ahora",
+  "Install Homeswift {version}?": "¿Instalar Homeswift {version}?",
+  "Homeswift installs the update, then restarts. Your accessories will disconnect briefly; this page reconnects when the new version is ready.": "Homeswift instala la actualización y luego se reinicia. Tus accesorios se desconectarán un momento; esta página se reconecta cuando la nueva versión esté lista.",
+  "Installing…": "Instalando…",
+  "Relaunching…": "Reiniciando…",
+  "Relaunch to update": "Reiniciar para actualizar",
+  "Install update": "Instalar la actualización",
+  "Docker container": "Contenedor Docker",
+  "Synology package": "Paquete Synology",
+  "Built from source": "Compilado desde el código fuente",
+  "Check now": "Comprobar ahora",
+  "Homeswift updates": "Actualizaciones de Homeswift",
+  "New releases install here, then the bridge relaunches into them.": "Las nuevas versiones se instalan aquí y luego el puente se reinicia con ellas.",
+  "Releases from GitHub, with how to install them on this machine.": "Las versiones de GitHub y cómo instalarlas en esta máquina.",
+  "there is no update this bridge can install": "no hay ninguna actualización que este puente pueda instalar",
+  "Check for updates twice a day": "Buscar actualizaciones dos veces al día",
+  "Asks GitHub for the latest release and says so on the Status page. The request carries only this version.": "Pregunta a GitHub por la última versión y lo indica en la página Estado. La solicitud solo lleva esta versión.",
+  "Copy the setup code": "Copiar el código de configuración",
+  "The bridge is in the Home app. To add it again, reset its pairings below, then scan this code.": "El puente está en la app Casa. Para añadirlo de nuevo, restablece sus emparejamientos abajo y escanea este código.",
+  "Homeswift is up to date": "Homeswift está actualizado",
+  "Homeswift {version} is installed": "Homeswift {version} está instalado",
+  "Installing Homeswift {version}…": "Instalando Homeswift {version}…",
+  "Could not check for updates": "No se pudieron buscar actualizaciones",
+  "Not checked yet": "Aún no se ha comprobado",
+  "Checked {when}": "Comprobado {when}",
+  "No plugins yet. Add one, then give it a HomeKit bridge of its own here.": "Aún no hay plugins. Añade uno y luego dale aquí su propio puente HomeKit.",
 });
 
 """#),
         "i18n-fr.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in French: English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("fr", {
+  "Matter bridge": "Pont Matter",
+  "For Google Home, Alexa, SmartThings and Home Assistant": "Pour Google Home, Alexa, SmartThings et Home Assistant",
+  "In one ecosystem": "Dans un écosystème",
+  "In {n} ecosystems": "Dans {n} écosystèmes",
+  "Not added yet": "Pas encore ajouté",
+  "Ecosystem {index}": "Écosystème {index}",
+  "Remove {name}": "Retirer {name}",
+  "{name} loses the bridge and every device on it, with their rooms and automations.": "{name} perd le pont et tous ses appareils, avec leurs pièces et automatisations.",
+  "In the ecosystem's app: add a Matter device, then scan this code or type it.": "Dans l'app de l'écosystème : ajoutez un appareil Matter, puis scannez ce code ou saisissez-le.",
+  "Add to another ecosystem": "Ajouter à un autre écosystème",
+  "Devices of their own": "Appareils à part entière",
+  "Bridged over Matter": "Reliés par Matter",
+  "{vendor}'s hubs and other devices lose their link to this device: it stops responding there until it is added again.": "Les concentrateurs et autres appareils de {vendor} perdent leur lien avec cet appareil : il ne répond plus de ce côté jusqu'à ce qu'il soit ajouté de nouveau.",
+  "{vendor} system": "Système {vendor}",
+  "{vendor}'s own link to the device, from your other devices and hubs: keep it.": "Le lien de {vendor} avec l'appareil, depuis vos autres appareils et concentrateurs : gardez-le.",
+  "Matter device of its own": "Appareil Matter à part entière",
+  "Matter · {ecosystems}": "Matter · {ecosystems}",
+  "Matter": "Matter",
+  "Shows a new pairing code for 15 minutes, so another app (Google Home, Alexa, Home Assistant or another home in Apple Home) can add this device too. The ecosystems it is in keep it.": "Affiche un nouveau code d'appairage pendant 15 minutes, pour qu'une autre app (Google Home, Alexa, Home Assistant ou une autre maison dans Apple Home) puisse aussi ajouter cet appareil. Les écosystèmes où il se trouve le gardent.",
+  "Shows a new pairing code for 15 minutes, so another app (Google Home, Alexa, Home Assistant or another home in Apple Home) can add the bridge and its devices too. The ecosystems it is in keep them.": "Affiche un nouveau code d'appairage pendant 15 minutes, pour qu'une autre app (Google Home, Alexa, Home Assistant ou une autre maison dans Apple Home) puisse aussi ajouter le pont et ses appareils. Les écosystèmes où il se trouve les gardent.",
+  "Waiting to be added first": "En attente d'ajout d'abord",
+  "Most ecosystems": "Le plus d'écosystèmes",
+  "All devices": "Tous les appareils",
+  "HomeKit": "HomeKit",
+  "Waiting to be added": "En attente d'ajout",
+  "Sort devices": "Trier les appareils",
+  "Show devices": "Afficher les appareils",
+  "{shown} of {total} devices": "{shown} sur {total} appareils",
+  "{count} devices · one waits to be added": "{count} appareils · un attend d'être ajouté",
+  "{count} devices · {n} wait to be added": "{count} appareils · {n} attendent d'être ajoutés",
+  "One device, with its own pairing": "Un appareil, avec son propre appairage",
+  "{n} devices, each with its own pairing": "{n} appareils, chacun avec son propre appairage",
+  "Search devices": "Rechercher des appareils",
+  "No device matches.": "Aucun appareil ne correspond.",
+  "{name} loses this device, with its room and automations.": "{name} perd cet appareil, avec sa pièce et ses automatisations.",
+  "In the Home app (or another ecosystem's): add an accessory, then scan this code or type it.": "Dans l'app Maison (ou celle d'un autre écosystème) : ajoutez un accessoire, puis scannez ce code ou saisissez-le.",
+  "Make a Matter device": "En faire un appareil Matter",
+  "Matter pairing code": "Code d'appairage Matter",
+  "Take off Matter": "Retirer de Matter",
+  "{name} leaves Matter: the ecosystems that added it lose it.": "{name} quitte Matter : les écosystèmes qui l'avaient ajouté le perdent.",
+  "A room's scenes, then templates to try on its lights; save one as a scene when you like it.": "Les scènes d’une pièce, puis des modèles à essayer sur ses lumières ; enregistrez-en un comme scène s’il vous plaît.",
+  "From a template": "À partir d’un modèle",
+  "Scenes in {room}": "Scènes de {room}",
+  "Templates": "Modèles",
+  "Put your lights in rooms (a card's menu on the Accessories page) to try templates on them.": "Placez vos lumières dans des pièces (le menu d’une carte sur la page Accessoires) pour y essayer des modèles.",
+  "Describe a scene…": "Décrivez une scène…",
+  "Describe a scene": "Décrire une scène",
+  "The Assistant is writing a scene…": "L’Assistant écrit une scène…",
+  "Trying {template}…": "Essai de {template}…",
+  "{room}, {time}": "{room}, {time}",
+  "Animation": "Animation",
+  "No animation": "Aucune animation",
+  "Timed sequence": "Séquence minutée",
+  "Minutes": "Minutes",
+  "Its own colour": "Sa propre couleur",
+  "No light to animate.": "Aucune lumière à animer.",
+  "Plays on the chosen lights after the actions: each brand's own effect where its lights have it (Hue, Govee, IKEA, Ambilight), Homeswift's elsewhere. Stopping the scene puts the lights back.": "Joue sur les lumières choisies après les actions : l’effet propre à chaque marque là où ses lumières l’ont (Hue, Govee, IKEA, Ambilight), celui de Homeswift ailleurs. Arrêter la scène remet les lumières comme avant.",
+  "Candle": "Bougie",
+  "Fire": "Feu",
+  "Sparkle": "Scintillement",
+  "Opal": "Opale",
+  "Glisten": "Miroitement",
+  "Underwater": "Sous l’eau",
+  "Cosmos": "Cosmos",
+  "Sunbeam": "Rayon de soleil",
+  "Enchant": "Enchantement",
+  "Moving colours": "Couleurs en mouvement",
+  "Follow the music": "Suivre la musique",
+  "Animated: {style}": "Animée : {style}",
   "Not in the vault: the bridge does not start without it": "Absente du coffre : le pont ne démarre pas sans elle",
   "Expired {when}": "A expiré {when}",
   "Expires {when}": "Expire {when}",
@@ -13283,7 +14337,6 @@ HomeswiftI18n.add("fr", {
   "{n} secrets are still in config.json": "{n} secrets sont encore dans config.json",
   "Choose from the vault": "Choisir dans le coffre",
   "Type a value instead": "Saisir plutôt une valeur",
-  "Open the vault": "Ouvrir le coffre",
   "Add one in the vault": "En ajouter une dans le coffre",
   "Automate": "Automatiser",
   "Hub scene": "Scène du hub",
@@ -13294,7 +14347,7 @@ HomeswiftI18n.add("fr", {
   "All sources": "Toutes les sources",
   "Scene active": "Scène active",
   "Scenes from your hubs": "Scènes de vos hubs",
-  "Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; change them in their own app.": "Gardées par les hubs de vos plugins, comme un pont Hue, un hub IKEA ou des lumières Govee. Lancez-les ici ; modifiez-les dans leur propre app.",
+  "Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; rename, update or delete a Hue or IKEA scene from its ⋯ menu.": "Gardées par les hubs de vos plugins, comme un pont Hue, un hub IKEA ou des lumières Govee. Lancez-les ici ; renommez, mettez à jour ou supprimez une scène Hue ou IKEA depuis son menu ⋯.",
 
   "Start time": "Début",
   "End time": "Fin",
@@ -13381,7 +14434,15 @@ HomeswiftI18n.add("fr", {
   "Moves the selected accessories in Homeswift only. HomeKit rooms stay unchanged.": "Déplace les accessoires sélectionnés dans Homeswift uniquement. Les pièces HomeKit restent inchangées.",
   "Release to group": "Relâchez pour grouper",
   "Reset room order": "Réinitialiser l’ordre des pièces",
-  "Reorder rooms": "Réorganiser les pièces",
+  "Rooms": "Pièces",
+  "Drag to reorder, choose one to rename it.": "Faites glisser pour réorganiser, choisissez-en une pour la renommer.",
+  "Name of {room}": "Nom de {room}",
+  "Rename the room": "Renommer la pièce",
+  "Pack the widgets together": "Regrouper les widgets",
+  "Rename on the hubs too": "Renommer aussi sur les hubs",
+  "A new name for {room}.": "Un nouveau nom pour {room}.",
+  "Rooms of this name on your Philips Hue, IKEA and eWeLink hubs are renamed too.": "Les pièces de ce nom sur vos hubs Philips Hue, IKEA et eWeLink sont renommées aussi.",
+  "Not renamed on {hub}: {error}": "Non renommée sur {hub} : {error}",
   "Show hidden": "Afficher les accessoires masqués",
   "Clear filters": "Effacer les filtres",
   "{count} of {total} match": "{count} sur {total} correspondent",
@@ -13550,14 +14611,10 @@ HomeswiftI18n.add("fr", {
   "{minutes} min before sunset {days}": "{minutes} min avant le coucher du soleil {days}",
   "{model} read {n} line. Secrets and addresses were masked first; check its advice before acting on it.": "{model} a lu {n} ligne. Les secrets et les adresses ont d'abord été masqués ; vérifiez ses conseils avant de les suivre.",
   "{model} read {n} lines. Secrets and addresses were masked first; check its advice before acting on it.": "{model} a lu {n} lignes. Les secrets et les adresses ont d'abord été masqués ; vérifiez ses conseils avant de les suivre.",
-  "{mood} in {room}": "{mood} – {room}",
-  "{mood} is playing on {n} light.": "{mood} : en cours sur {n} lampe.",
-  "{mood} is playing on {n} lights.": "{mood} : en cours sur {n} lampes.",
-  "{mood} is set on {n} light.": "{mood} : {n} lampe réglée.",
-  "{mood} is set on {n} lights.": "{mood} : {n} lampes réglées.",
-  "{mood} is set, but not on every light: {failures}": "{mood} : certaines lampes n'ont pas suivi : {failures}",
-  "{mood} undone: the lights are back as they were.": "{mood} : annulée, les lampes sont revenues à leur état précédent.",
-  "{mood} stopped: the lights are back as they were.": "{mood} : arrêtée, les lampes sont revenues à leur état précédent.",
+  "{scene} in {room}": "{scene} – {room}",
+  "{scene} is set, but not on every light: {failures}": "{scene} : certaines lampes n'ont pas suivi : {failures}",
+  "{scene} undone: the lights are back as they were.": "{scene} : annulée, les lampes sont revenues à leur état précédent.",
+  "{scene} stopped: the lights are back as they were.": "{scene} : arrêtée, les lampes sont revenues à leur état précédent.",
   "{n} accessories": "{n} accessoires",
   "{n} accessories on {bridge}": "{n} accessoires sur {bridge}",
   "{n} accessory": "{n} accessoire",
@@ -13670,7 +14727,7 @@ HomeswiftI18n.add("fr", {
   "Accessory of its own, from {plugins}": "Accessoire autonome, de {plugins}",
   "Accessory of its own, from a plugin": "Accessoire autonome, d'un plugin",
   "Accessory Runtime Information": "Informations d'exécution",
-  "Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; the Home app does not see them.": "Des valeurs d'accessoires réglées ensemble, à la main ou selon un horaire, au lever ou au coucher du soleil, ou quand un accessoire change. Homeswift les conserve ; l'app Maison ne les voit pas.",
+  "Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; one you choose is also a switch in the Home app.": "Des valeurs d'accessoires réglées ensemble, à la main ou selon un horaire, au lever ou au coucher du soleil, ou quand un accessoire change. Homeswift les conserve ; une scène que vous choisissez est aussi un interrupteur dans l’app Maison.",
   "Account": "Compte",
   "Account menu": "Menu du compte",
   "Action {0} must be an object": "L'action {0} doit être un objet",
@@ -14025,8 +15082,6 @@ HomeswiftI18n.add("fr", {
   "Delete this backup?": "Supprimer cette sauvegarde ?",
   "Delete…": "Supprimer…",
   "Deny": "Refuser",
-  "Describe a mood": "Décrire une ambiance",
-  "Describe a mood…": "Décrivez une ambiance…",
   "Describe one: a jazz bar, a rainy afternoon…": "Décrivez-en une : un bar de jazz, un après-midi pluvieux…",
   "Describe your setup": "Décrivez votre installation",
   "Details": "Détails",
@@ -14411,7 +15466,6 @@ HomeswiftI18n.add("fr", {
   "Mode": "Mode",
   "Model": "Modèle",
   "Mon": "Lun",
-  "Moods": "Ambiances",
   "More": "Plus",
   "More options ({count})": "Plus d'options ({count})",
   "Motion": "Mouvement",
@@ -14656,7 +15710,6 @@ HomeswiftI18n.add("fr", {
   "Purple and orange with an eerie flicker.": "Violet et orange, avec un scintillement inquiétant.",
   "Push payload too large ({0} bytes)": "Contenu push trop volumineux ({0} octets)",
   "Put in a room…": "Mettre dans une pièce…",
-  "Put your lights in rooms (a card's menu on the Accessories page) to play moods on them.": "Placez vos lampes dans des pièces (le menu d'une carte sur la page Accessoires) pour y lancer des ambiances.",
   "QR code for an authenticator app": "Code QR pour une app d'authentification",
   "Quick controls": "Commandes rapides",
   "Rainbow wave": "Vague arc-en-ciel",
@@ -14904,7 +15957,6 @@ HomeswiftI18n.add("fr", {
   "Staged Firmware Version": "Firmware en attente",
   "Stale": "Obsolète",
   "Start": "Démarrer",
-  "Starting {mood}…": "Lancement de {mood}…",
   "Starting…": "Démarrage…",
   "Stateful Programmable Switch": "Interrupteur programmable",
   "Stateless Programmable Switch": "Bouton programmable",
@@ -15060,7 +16112,6 @@ HomeswiftI18n.add("fr", {
   "The Assistant is off: config.json has no HomeswiftAiKit block. Add one on the Config page, {example}, or choose apple on a Mac with Apple Intelligence.": "L'Assistant est désactivé : config.json n'a pas de bloc HomeswiftAiKit. Ajoutez-en un sur la page Config, {example}, ou choisissez apple sur un Mac avec Apple Intelligence.",
   "The Assistant is sorting your accessories into rooms…": "L'Assistant range vos accessoires par pièce…",
   "the Assistant is still answering; stop it first": "l'Assistant répond encore ; arrêtez-le d'abord",
-  "The Assistant is writing a mood…": "L'Assistant compose une ambiance…",
   "The Assistant is writing the block…": "L'Assistant rédige le bloc…",
   "The Assistant reads the lines shown and groups the issues, with causes and fixes": "L'Assistant lit les lignes affichées et regroupe les problèmes, avec leurs causes et leurs solutions",
   "The Assistant stopped after many steps without an answer. Ask again, or more precisely.": "L'Assistant s'est arrêté après de nombreuses étapes sans réponse. Reposez la question, ou soyez plus précis.",
@@ -15526,8 +16577,6 @@ HomeswiftI18n.add("fr", {
   "Version {version}": "Version {version}",
   "Graph of the bridges, plugins and accessories": "Graphe des ponts, plugins et accessoires",
   "Nothing runs here yet.": "Rien ne tourne encore.",
-  "{n} accessory": "{n} accessoire",
-  "{n} accessories": "{n} accessoires",
   "Paired": "Jumelé",
   "No accessories": "Aucun accessoire",
   "Type": "Type",
@@ -15605,13 +16654,126 @@ HomeswiftI18n.add("fr", {
   "{done} of {total}": "{done} sur {total}",
   "The {name} history could not be imported: {message}": "L’historique {name} n’a pas pu être importé : {message}",
   "History from {name} since {date}, updated {ago}": "Historique {name} depuis le {date}, mis à jour {ago}",
-  "History from {name}, updated {ago}": "Historique {name}, mis à jour {ago}"
+  "History from {name}, updated {ago}": "Historique {name}, mis à jour {ago}",
+  "Rename…": "Renommer…",
+  "A new name for {name} on {hub}.": "Un nouveau nom pour {name} sur {hub}.",
+  "Keep the lights as they are": "Garder les lumières telles qu’elles sont",
+  "Update {name}?": "Mettre à jour {name} ?",
+  "{name} on {hub} will set its lights as they are now.": "{name} sur {hub} réglera ses lumières comme elles sont maintenant.",
+  "Update": "Mettre à jour",
+  "Delete from {hub}": "Supprimer de {hub}",
+  "This removes it from {hub} and its own app too. This cannot be undone.": "Elle disparaît de {hub} et de son app. C’est irréversible.",
+  "Keep it on": "La garder sur",
+  "Keep it in Homeswift": "La garder dans Homeswift",
+  "Save to {hub} ({place})": "Enregistrer sur {hub} ({place})",
+  "A switch in the Home app": "Un interrupteur dans l’app Maison",
+  "On the Homeswift Scenes accessory: turning it on runs the scene (without its locks, doors and alarms), turning it off puts the lights back.": "Sur l’accessoire Scènes Homeswift : l’allumer lance la scène (sans ses serrures, portes et alarmes), l’éteindre remet les lumières comme avant.",
+  "Installing Homeswift {version}… The bridge restarts when it is done.": "Installation de Homeswift {version}… Le pont redémarre une fois terminé.",
+  "Restarting into Homeswift {version}…": "Redémarrage sur Homeswift {version}…",
+  "Homeswift {version} is installed. Relaunch to start it.": "Homeswift {version} est installé. Relancez pour le démarrer.",
+  "Could not install the update: {error}": "Impossible d’installer la mise à jour : {error}",
+  "Install and relaunch": "Installer et relancer",
+  "Relaunch now": "Relancer maintenant",
+  "Install Homeswift {version}?": "Installer Homeswift {version} ?",
+  "Homeswift installs the update, then restarts. Your accessories will disconnect briefly; this page reconnects when the new version is ready.": "Homeswift installe la mise à jour, puis redémarre. Vos accessoires se déconnecteront brièvement ; cette page se reconnecte quand la nouvelle version est prête.",
+  "Installing…": "Installation…",
+  "Relaunching…": "Relance…",
+  "Relaunch to update": "Relancer pour mettre à jour",
+  "Install update": "Installer la mise à jour",
+  "Docker container": "Conteneur Docker",
+  "Synology package": "Paquet Synology",
+  "Built from source": "Compilé depuis les sources",
+  "Check now": "Vérifier maintenant",
+  "Homeswift updates": "Mises à jour de Homeswift",
+  "New releases install here, then the bridge relaunches into them.": "Les nouvelles versions s’installent ici, puis le pont redémarre dessus.",
+  "Releases from GitHub, with how to install them on this machine.": "Les versions publiées sur GitHub, et comment les installer sur cette machine.",
+  "there is no update this bridge can install": "il n’y a aucune mise à jour que ce pont peut installer",
+  "Check for updates twice a day": "Rechercher des mises à jour deux fois par jour",
+  "Asks GitHub for the latest release and says so on the Status page. The request carries only this version.": "Demande à GitHub la dernière version publiée et l’indique sur la page État. La requête ne transmet que cette version.",
+  "Copy the setup code": "Copier le code de configuration",
+  "The bridge is in the Home app. To add it again, reset its pairings below, then scan this code.": "Le pont est dans l’app Maison. Pour l’ajouter à nouveau, réinitialisez ses jumelages ci-dessous, puis scannez ce code.",
+  "Homeswift is up to date": "Homeswift est à jour",
+  "Homeswift {version} is installed": "Homeswift {version} est installé",
+  "Installing Homeswift {version}…": "Installation de Homeswift {version}…",
+  "Could not check for updates": "Impossible de rechercher des mises à jour",
+  "Not checked yet": "Pas encore vérifié",
+  "Checked {when}": "Vérifié {when}",
+  "No plugins yet. Add one, then give it a HomeKit bridge of its own here.": "Aucun plugin pour l’instant. Ajoutez-en un, puis donnez-lui ici son propre pont HomeKit.",
 });
 
 """#),
         "i18n-pt.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Portuguese (Portugal): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("pt", {
+  "Matter bridge": "Ponte Matter",
+  "For Google Home, Alexa, SmartThings and Home Assistant": "Para Google Home, Alexa, SmartThings e Home Assistant",
+  "In one ecosystem": "Num ecossistema",
+  "In {n} ecosystems": "Em {n} ecossistemas",
+  "Not added yet": "Ainda não adicionada",
+  "Ecosystem {index}": "Ecossistema {index}",
+  "Remove {name}": "Remover {name}",
+  "{name} loses the bridge and every device on it, with their rooms and automations.": "{name} perde a ponte e todos os seus dispositivos, com as suas divisões e automatizações.",
+  "In the ecosystem's app: add a Matter device, then scan this code or type it.": "Na app do ecossistema: adicione um dispositivo Matter e leia este código ou introduza-o.",
+  "Add to another ecosystem": "Adicionar a outro ecossistema",
+  "Devices of their own": "Dispositivos próprios",
+  "Bridged over Matter": "Ligados por Matter",
+  "{vendor}'s hubs and other devices lose their link to this device: it stops responding there until it is added again.": "Os concentradores e outros dispositivos do {vendor} perdem a ligação a este dispositivo: deixa de responder aí até ser adicionado de novo.",
+  "{vendor} system": "Sistema do {vendor}",
+  "{vendor}'s own link to the device, from your other devices and hubs: keep it.": "A ligação própria do {vendor} ao dispositivo, a partir dos seus outros dispositivos e concentradores: mantenha-a.",
+  "Matter device of its own": "Dispositivo Matter próprio",
+  "Matter · {ecosystems}": "Matter · {ecosystems}",
+  "Matter": "Matter",
+  "Shows a new pairing code for 15 minutes, so another app (Google Home, Alexa, Home Assistant or another home in Apple Home) can add this device too. The ecosystems it is in keep it.": "Mostra um novo código de emparelhamento durante 15 minutos, para que outra app (Google Home, Alexa, Home Assistant ou outra casa na Apple Home) também possa adicionar este dispositivo. Os ecossistemas em que está mantêm-no.",
+  "Shows a new pairing code for 15 minutes, so another app (Google Home, Alexa, Home Assistant or another home in Apple Home) can add the bridge and its devices too. The ecosystems it is in keep them.": "Mostra um novo código de emparelhamento durante 15 minutos, para que outra app (Google Home, Alexa, Home Assistant ou outra casa na Apple Home) também possa adicionar a ponte e os seus dispositivos. Os ecossistemas em que está mantêm-nos.",
+  "Waiting to be added first": "A aguardar adição primeiro",
+  "Most ecosystems": "Mais ecossistemas",
+  "All devices": "Todos os dispositivos",
+  "HomeKit": "HomeKit",
+  "Waiting to be added": "A aguardar adição",
+  "Sort devices": "Ordenar dispositivos",
+  "Show devices": "Mostrar dispositivos",
+  "{shown} of {total} devices": "{shown} de {total} dispositivos",
+  "{count} devices · one waits to be added": "{count} dispositivos · um aguarda ser adicionado",
+  "{count} devices · {n} wait to be added": "{count} dispositivos · {n} aguardam ser adicionados",
+  "One device, with its own pairing": "Um dispositivo, com o seu próprio emparelhamento",
+  "{n} devices, each with its own pairing": "{n} dispositivos, cada um com o seu próprio emparelhamento",
+  "Search devices": "Pesquisar dispositivos",
+  "No device matches.": "Nenhum dispositivo corresponde.",
+  "{name} loses this device, with its room and automations.": "{name} perde este dispositivo, com a sua divisão e automatizações.",
+  "In the Home app (or another ecosystem's): add an accessory, then scan this code or type it.": "Na app Casa (ou na de outro ecossistema): adicione um acessório e depois digitalize este código ou escreva-o.",
+  "Make a Matter device": "Tornar um dispositivo Matter",
+  "Matter pairing code": "Código de emparelhamento Matter",
+  "Take off Matter": "Retirar do Matter",
+  "{name} leaves Matter: the ecosystems that added it lose it.": "{name} sai do Matter: os ecossistemas que o adicionaram perdem-no.",
+  "A room's scenes, then templates to try on its lights; save one as a scene when you like it.": "As cenas de uma divisão e, depois, modelos para experimentar nas suas luzes; guarde um como cena se gostar.",
+  "From a template": "A partir de um modelo",
+  "Scenes in {room}": "Cenas de {room}",
+  "Templates": "Modelos",
+  "Put your lights in rooms (a card's menu on the Accessories page) to try templates on them.": "Coloque as suas luzes em divisões (o menu de um cartão na página Acessórios) para experimentar modelos nelas.",
+  "Describe a scene…": "Descreva uma cena…",
+  "Describe a scene": "Descrever uma cena",
+  "The Assistant is writing a scene…": "O Assistente está a escrever uma cena…",
+  "Trying {template}…": "A experimentar {template}…",
+  "{room}, {time}": "{room}, {time}",
+  "Animation": "Animação",
+  "No animation": "Sem animação",
+  "Timed sequence": "Sequência temporizada",
+  "Minutes": "Minutos",
+  "Its own colour": "A sua própria cor",
+  "No light to animate.": "Nenhuma luz para animar.",
+  "Plays on the chosen lights after the actions: each brand's own effect where its lights have it (Hue, Govee, IKEA, Ambilight), Homeswift's elsewhere. Stopping the scene puts the lights back.": "Reproduz-se nas luzes escolhidas depois das ações: o efeito próprio de cada marca onde as suas luzes o têm (Hue, Govee, IKEA, Ambilight), o do Homeswift nas restantes. Parar a cena devolve as luzes ao que eram.",
+  "Candle": "Vela",
+  "Fire": "Fogo",
+  "Sparkle": "Cintilar",
+  "Opal": "Opala",
+  "Glisten": "Reluzir",
+  "Underwater": "Debaixo de água",
+  "Cosmos": "Cosmos",
+  "Sunbeam": "Raio de sol",
+  "Enchant": "Encanto",
+  "Moving colours": "Cores em movimento",
+  "Follow the music": "Seguir a música",
+  "Animated: {style}": "Animada: {style}",
   "Not in the vault: the bridge does not start without it": "Não está no cofre: a ponte não arranca sem ela",
   "Expired {when}": "Expirou {when}",
   "Expires {when}": "Expira {when}",
@@ -15688,7 +16850,6 @@ HomeswiftI18n.add("pt", {
   "{n} secrets are still in config.json": "{n} segredos ainda estão no config.json",
   "Choose from the vault": "Escolher do cofre",
   "Type a value instead": "Introduzir antes um valor",
-  "Open the vault": "Abrir o cofre",
   "Add one in the vault": "Adicionar uma no cofre",
   "Automate": "Automatizar",
   "Hub scene": "Cena do hub",
@@ -15699,7 +16860,7 @@ HomeswiftI18n.add("pt", {
   "All sources": "Todas as origens",
   "Scene active": "Cena ativa",
   "Scenes from your hubs": "Cenas dos seus hubs",
-  "Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; change them in their own app.": "Guardadas pelos hubs dos seus plugins, como uma ponte Hue, um hub IKEA ou luzes Govee. Execute-as aqui; altere-as na app delas.",
+  "Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; rename, update or delete a Hue or IKEA scene from its ⋯ menu.": "Guardadas pelos hubs dos seus plugins, como uma ponte Hue, um hub IKEA ou luzes Govee. Execute-as aqui; renomeie, atualize ou apague uma cena Hue ou IKEA no seu menu ⋯.",
 
   "Start time": "Hora de início",
   "End time": "Hora de fim",
@@ -15786,7 +16947,15 @@ HomeswiftI18n.add("pt", {
   "Moves the selected accessories in Homeswift only. HomeKit rooms stay unchanged.": "Move os acessórios selecionados apenas no Homeswift. As divisões do HomeKit não são alteradas.",
   "Release to group": "Solte para agrupar",
   "Reset room order": "Repor a ordem das divisões",
-  "Reorder rooms": "Reordenar divisões",
+  "Rooms": "Divisões",
+  "Drag to reorder, choose one to rename it.": "Arraste para reordenar, escolha uma para lhe mudar o nome.",
+  "Name of {room}": "Nome de {room}",
+  "Rename the room": "Mudar o nome da divisão",
+  "Pack the widgets together": "Juntar os widgets",
+  "Rename on the hubs too": "Mudar o nome também nos hubs",
+  "A new name for {room}.": "Um novo nome para {room}.",
+  "Rooms of this name on your Philips Hue, IKEA and eWeLink hubs are renamed too.": "As divisões com este nome nos seus hubs Philips Hue, IKEA e eWeLink também mudam de nome.",
+  "Not renamed on {hub}: {error}": "Nome não mudado em {hub}: {error}",
   "Show hidden": "Mostrar ocultos",
   "Clear filters": "Limpar filtros",
   "{count} of {total} match": "{count} de {total} correspondem",
@@ -15955,14 +17124,10 @@ HomeswiftI18n.add("pt", {
   "{minutes} min before sunset {days}": "{minutes} min antes do pôr do sol {days}",
   "{model} read {n} line. Secrets and addresses were masked first; check its advice before acting on it.": "{model} leu {n} linha. Os segredos e os endereços foram ocultados primeiro; verifique os conselhos antes de os seguir.",
   "{model} read {n} lines. Secrets and addresses were masked first; check its advice before acting on it.": "{model} leu {n} linhas. Os segredos e os endereços foram ocultados primeiro; verifique os conselhos antes de os seguir.",
-  "{mood} in {room}": "{mood} – {room}",
-  "{mood} is playing on {n} light.": "{mood}: a decorrer em {n} luz.",
-  "{mood} is playing on {n} lights.": "{mood}: a decorrer em {n} luzes.",
-  "{mood} is set on {n} light.": "{mood}: {n} luz ajustada.",
-  "{mood} is set on {n} lights.": "{mood}: {n} luzes ajustadas.",
-  "{mood} is set, but not on every light: {failures}": "{mood}: nem todas as luzes responderam: {failures}",
-  "{mood} undone: the lights are back as they were.": "{mood}: anulado, as luzes voltaram ao que eram.",
-  "{mood} stopped: the lights are back as they were.": "{mood}: parado, as luzes voltaram ao que eram.",
+  "{scene} in {room}": "{scene} – {room}",
+  "{scene} is set, but not on every light: {failures}": "{scene}: nem todas as luzes responderam: {failures}",
+  "{scene} undone: the lights are back as they were.": "{scene}: anulado, as luzes voltaram ao que eram.",
+  "{scene} stopped: the lights are back as they were.": "{scene}: parado, as luzes voltaram ao que eram.",
   "{n} accessories": "{n} acessórios",
   "{n} accessories on {bridge}": "{n} acessórios em {bridge}",
   "{n} accessory": "{n} acessório",
@@ -16075,7 +17240,7 @@ HomeswiftI18n.add("pt", {
   "Accessory of its own, from {plugins}": "Acessório independente, de {plugins}",
   "Accessory of its own, from a plugin": "Acessório independente, de um plugin",
   "Accessory Runtime Information": "Informações de execução",
-  "Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; the Home app does not see them.": "Valores de acessórios definidos em conjunto, manualmente ou num horário, ao nascer ou ao pôr do sol, ou quando um acessório muda. O Homeswift guarda-os; a app Casa não os vê.",
+  "Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; one you choose is also a switch in the Home app.": "Valores de acessórios definidos em conjunto, manualmente ou num horário, ao nascer ou ao pôr do sol, ou quando um acessório muda. O Homeswift guarda-os; uma cena que escolher também é um interruptor na app Casa.",
   "Account": "Conta",
   "Account menu": "Menu da conta",
   "Action {0} must be an object": "A ação {0} tem de ser um objeto",
@@ -16430,8 +17595,6 @@ HomeswiftI18n.add("pt", {
   "Delete this backup?": "Eliminar esta cópia de segurança?",
   "Delete…": "Eliminar…",
   "Deny": "Recusar",
-  "Describe a mood": "Descrever um ambiente",
-  "Describe a mood…": "Descreva um ambiente…",
   "Describe one: a jazz bar, a rainy afternoon…": "Descreva um: um bar de jazz, uma tarde de chuva…",
   "Describe your setup": "Descreva a sua instalação",
   "Details": "Detalhes",
@@ -16816,7 +17979,6 @@ HomeswiftI18n.add("pt", {
   "Mode": "Modo",
   "Model": "Modelo",
   "Mon": "Seg",
-  "Moods": "Ambientes",
   "More": "Mais",
   "More options ({count})": "Mais opções ({count})",
   "Motion": "Movimento",
@@ -17061,7 +18223,6 @@ HomeswiftI18n.add("pt", {
   "Purple and orange with an eerie flicker.": "Roxo e laranja com um tremeluzir inquietante.",
   "Push payload too large ({0} bytes)": "Conteúdo push demasiado grande ({0} bytes)",
   "Put in a room…": "Colocar numa divisão…",
-  "Put your lights in rooms (a card's menu on the Accessories page) to play moods on them.": "Coloque as luzes em divisões (o menu de um cartão na página Acessórios) para lhes aplicar ambientes.",
   "QR code for an authenticator app": "Código QR para uma app de autenticação",
   "Quick controls": "Controlos rápidos",
   "Rainbow wave": "Onda arco-íris",
@@ -17309,7 +18470,6 @@ HomeswiftI18n.add("pt", {
   "Staged Firmware Version": "Firmware preparado",
   "Stale": "Obsoleto",
   "Start": "Iniciar",
-  "Starting {mood}…": "A iniciar {mood}…",
   "Starting…": "A iniciar…",
   "Stateful Programmable Switch": "Interruptor programável",
   "Stateless Programmable Switch": "Botão programável",
@@ -17465,7 +18625,6 @@ HomeswiftI18n.add("pt", {
   "The Assistant is off: config.json has no HomeswiftAiKit block. Add one on the Config page, {example}, or choose apple on a Mac with Apple Intelligence.": "O Assistente está desativado: o config.json não tem um bloco HomeswiftAiKit. Adicione um na página Configuração, {example}, ou escolha apple num Mac com Apple Intelligence.",
   "The Assistant is sorting your accessories into rooms…": "O Assistente está a organizar os acessórios por divisões…",
   "the Assistant is still answering; stop it first": "o Assistente ainda está a responder; pare-o primeiro",
-  "The Assistant is writing a mood…": "O Assistente está a criar um ambiente…",
   "The Assistant is writing the block…": "O Assistente está a escrever o bloco…",
   "The Assistant reads the lines shown and groups the issues, with causes and fixes": "O Assistente lê as linhas mostradas e agrupa os problemas, com causas e soluções",
   "The Assistant stopped after many steps without an answer. Ask again, or more precisely.": "O Assistente parou após muitos passos sem resposta. Pergunte novamente, ou de forma mais precisa.",
@@ -17931,8 +19090,6 @@ HomeswiftI18n.add("pt", {
   "Version {version}": "Versão {version}",
   "Graph of the bridges, plugins and accessories": "Gráfico das pontes, plugins e acessórios",
   "Nothing runs here yet.": "Ainda não há nada em execução.",
-  "{n} accessory": "{n} acessório",
-  "{n} accessories": "{n} acessórios",
   "Paired": "Emparelhada",
   "No accessories": "Nenhum acessório",
   "Type": "Tipo",
@@ -18010,7 +19167,51 @@ HomeswiftI18n.add("pt", {
   "{done} of {total}": "{done} de {total}",
   "The {name} history could not be imported: {message}": "Não foi possível importar o histórico de {name}: {message}",
   "History from {name} since {date}, updated {ago}": "Histórico de {name} desde {date}, atualizado {ago}",
-  "History from {name}, updated {ago}": "Histórico de {name}, atualizado {ago}"
+  "History from {name}, updated {ago}": "Histórico de {name}, atualizado {ago}",
+  "Rename…": "Renomear…",
+  "A new name for {name} on {hub}.": "Um novo nome para {name} em {hub}.",
+  "Keep the lights as they are": "Manter as luzes como estão",
+  "Update {name}?": "Atualizar {name}?",
+  "{name} on {hub} will set its lights as they are now.": "{name} em {hub} vai deixar as luzes como estão agora.",
+  "Update": "Atualizar",
+  "Delete from {hub}": "Apagar de {hub}",
+  "This removes it from {hub} and its own app too. This cannot be undone.": "Ela sai de {hub} e da sua app. Não pode ser desfeito.",
+  "Keep it on": "Guardá-la em",
+  "Keep it in Homeswift": "Guardá-la no Homeswift",
+  "Save to {hub} ({place})": "Guardar em {hub} ({place})",
+  "A switch in the Home app": "Um interruptor na app Casa",
+  "On the Homeswift Scenes accessory: turning it on runs the scene (without its locks, doors and alarms), turning it off puts the lights back.": "No acessório Cenas do Homeswift: ligá-lo executa a cena (sem as fechaduras, portas e alarmes), desligá-lo repõe as luzes como estavam.",
+  "Installing Homeswift {version}… The bridge restarts when it is done.": "A instalar o Homeswift {version}… A ponte reinicia quando terminar.",
+  "Restarting into Homeswift {version}…": "A reiniciar com o Homeswift {version}…",
+  "Homeswift {version} is installed. Relaunch to start it.": "O Homeswift {version} está instalado. Reinicie para o iniciar.",
+  "Could not install the update: {error}": "Não foi possível instalar a atualização: {error}",
+  "Install and relaunch": "Instalar e reiniciar",
+  "Relaunch now": "Reiniciar agora",
+  "Install Homeswift {version}?": "Instalar o Homeswift {version}?",
+  "Homeswift installs the update, then restarts. Your accessories will disconnect briefly; this page reconnects when the new version is ready.": "O Homeswift instala a atualização e depois reinicia. Os seus acessórios vão desligar-se por momentos; esta página volta a ligar-se quando a nova versão estiver pronta.",
+  "Installing…": "A instalar…",
+  "Relaunching…": "A reiniciar…",
+  "Relaunch to update": "Reiniciar para atualizar",
+  "Install update": "Instalar a atualização",
+  "Docker container": "Contentor Docker",
+  "Synology package": "Pacote Synology",
+  "Built from source": "Compilado a partir do código-fonte",
+  "Check now": "Verificar agora",
+  "Homeswift updates": "Atualizações do Homeswift",
+  "New releases install here, then the bridge relaunches into them.": "As novas versões instalam-se aqui e depois a ponte reinicia com elas.",
+  "Releases from GitHub, with how to install them on this machine.": "As versões do GitHub e como as instalar nesta máquina.",
+  "there is no update this bridge can install": "não há nenhuma atualização que esta ponte possa instalar",
+  "Check for updates twice a day": "Procurar atualizações duas vezes por dia",
+  "Asks GitHub for the latest release and says so on the Status page. The request carries only this version.": "Pergunta ao GitHub pela versão mais recente e indica-o na página Estado. O pedido leva apenas esta versão.",
+  "Copy the setup code": "Copiar o código de configuração",
+  "The bridge is in the Home app. To add it again, reset its pairings below, then scan this code.": "A ponte está na app Casa. Para a adicionar de novo, reponha os emparelhamentos abaixo e leia este código.",
+  "Homeswift is up to date": "O Homeswift está atualizado",
+  "Homeswift {version} is installed": "O Homeswift {version} está instalado",
+  "Installing Homeswift {version}…": "A instalar o Homeswift {version}…",
+  "Could not check for updates": "Não foi possível procurar atualizações",
+  "Not checked yet": "Ainda não verificado",
+  "Checked {when}": "Verificado {when}",
+  "No plugins yet. Add one, then give it a HomeKit bridge of its own here.": "Ainda não há plugins. Adicione um e depois dê-lhe aqui uma ponte HomeKit própria.",
 });
 
 """#),
@@ -18734,7 +19935,6 @@ HomeswiftI18n.add("pt", {
       <a href="/accessories" data-i18n>Accessories</a>
       <a href="/scenes" data-i18n>Scenes</a>
       <a href="/plugins" data-i18n>Plugins</a>
-      <a href="/config" data-i18n>Config</a>
       <a href="/logs" data-i18n>Logs</a>
       <a href="/settings" data-i18n>Settings</a>
     </nav>
@@ -19318,8 +20518,9 @@ HomeswiftI18n.add("pt", {
       const search = el("input", { type: "search", placeholder: t("Search images…"), "aria-label": t("Search images…"), oninput: () => {
         for (const item of grid.children) item.hidden = !normalize(item.textContent).includes(normalize(search.value));
       } });
-      const dialog = el("dialog", { class: "artwork-dialog" }, el("h2", { text: t("Scene image") }), search, grid,
-        el("button", { actionIcon: "close", text: t("Close"), onclick: () => dialog.close() }));
+      // The design system's dialog (common.js's messageDialog, admin.js's): a card over a dimmed page, wide for the grid.
+      const dialog = el("dialog", { class: "admin-dialog card wide artwork-dialog", "aria-label": t("Scene image") }, el("h2", { text: t("Scene image") }), search, grid,
+        el("div", { class: "actions" }, el("button", { type: "button", actionIcon: "close", text: t("Close"), onclick: () => dialog.close() })));
       for (const artwork of artworks) grid.append(el("button", { class: "scene pictured artwork-choice", actionIcon: "image", onclick: async () => {
         try {
           const response = await fetch(`/artwork-${artwork.id}.webp`);
@@ -19351,18 +20552,10 @@ HomeswiftI18n.add("pt", {
       return data;
     }
 
-    async function shrink(file) {
-      if (!/^image\//.test(file.type)) throw new Error(t("This file is not a picture."));
-      const bitmap = await createImageBitmap(file).catch(() => { throw new Error(t("This file is not a picture.")); });
-      const canvas = HomeswiftCommon.scaledCanvas(bitmap, 640);
-      bitmap.close?.();
-      return canvas.toDataURL("image/jpeg", 0.85);
-    }
-
     async function setPicture(scene, file, tileNode) {
       tileNode.classList.add("busy");
       try {
-        const data = await shrink(file);
+        const data = await HomeswiftCommon.pictureDataURL(file);
         const { version } = await request("scene-picture", { method: "POST", body: { id: scene.id, data } });
         cache.set(scene.id, { version: String(version), data: Promise.resolve(data) });
         await refresh();
@@ -19374,9 +20567,7 @@ HomeswiftI18n.add("pt", {
     }
 
     function choosePicture(scene, tileNode) {
-      const input = el("input", { type: "file", accept: "image/jpeg,image/png,image/webp,image/heic" });
-      input.addEventListener("change", () => { if (input.files?.[0]) setPicture(scene, input.files[0], tileNode); });
-      input.click();
+      HomeswiftCommon.choosePictureFile((file) => setPicture(scene, file, tileNode));
     }
 
     async function removePicture(scene) {
@@ -20718,16 +21909,31 @@ label > input, label > select { margin-top: 5px; }
 .page-head > .who { flex: 1 1 280px; }
 .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-12); margin: 26px 0 var(--space-10); }
 .section-head h2 { margin: 0; }
+/* A room's name on the Accessories wall in Edit: a field that reads as the heading, outlined to say it can be typed in. */
+.room-name-input {
+  font: inherit; letter-spacing: inherit; color: inherit; min-width: 4ch; max-width: 70vw;
+  margin: -3px calc(-1 * var(--space-8)); padding: 2px var(--space-8); border: 1px dashed var(--line); border-radius: var(--radius-xs);
+  background: transparent; transition: border-color var(--fast) var(--ease-out), background-color var(--fast) var(--ease-out);
+}
+.room-name-input:hover { border-color: var(--muted); }
+.room-name-input:focus { outline: none; border-style: solid; border-color: var(--accent); background: var(--field); }
+.room-name-input:disabled { opacity: .6; }
 .section-head .muted { font-size: var(--text-sm); }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: var(--space-14); }
 .grid > .card { margin: 0; min-width: 0; }
 .card.empty { text-align: center; padding: 28px var(--space-20); grid-column: 1 / -1; }
 .card.empty p { margin: 0; }
 .scenes-empty > .button { margin-top: var(--space-12); }
+.scenes-empty.compact { display: flex; align-items: center; gap: var(--space-14); padding: var(--space-14) var(--space-18); text-align: left; }
+.scenes-empty.compact > .button { margin: 0 0 0 auto; flex: none; }
+.card.empty.scenes-empty.compact > p { flex: 1; max-width: none; margin: 0; }
+.scenes-empty.compact > .empty-glyph { flex: none; width: 40px; height: 40px; margin: 0; }
+@media (max-width: 640px) { .scenes-empty.compact { flex-wrap: wrap; } .scenes-empty.compact > .button { margin-left: 0; } }
 /* An empty state's glyph: what would be here, in a soft disc above the words. */
 .empty-glyph { display: grid; place-items: center; width: 52px; height: 52px; margin: 0 auto var(--space-12); border-radius: 50%; color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .empty-glyph svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .card.empty:has(> .empty-glyph) p { max-width: 34em; margin-inline: auto; }
+.card.empty > .actions { justify-content: center; margin-top: var(--space-14); }
 .card.notice { color: var(--warn); font-weight: var(--weight-medium); }
 .card.notice p { margin: 0; }
 .search { width: 240px; max-width: 100%; }
@@ -21131,6 +22337,10 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget.lifted::after { display: none; }
 .wall > .drag-slot::after { display: none; }
 .wall > .drag-slot { border: 2px dashed color-mix(in srgb, var(--accent) 55%, transparent); border-radius: var(--radius); background: color-mix(in srgb, var(--accent) 6%, transparent); box-shadow: none; }
+/* By room, in Edit: an empty room's wall still takes a drop, and the room a widget is dragged into is outlined. */
+.wall.editing[data-room]:empty { min-height: 96px; border: 2px dashed var(--line); border-radius: var(--radius); }
+.accessory-section.room-drop-target > .wall { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 6px; border-radius: var(--radius); }
+.accessory-section.room-drop-target > .section-head h2 { color: var(--accent); }
 
 /* Segmented: equal columns, a thumb sliding to the one chosen. */
 .seg { position: relative; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; padding: 3px; border-radius: var(--radius-md); background: var(--track); }
@@ -21373,6 +22583,15 @@ textarea.short { min-height: 220px; }
 .mono { font-family: var(--mono); font-size: var(--text-sm); letter-spacing: 0; }
 .chips { display: flex; flex-wrap: wrap; gap: var(--space-6); }
 .chip { padding: 3px var(--space-10); border-radius: var(--radius-pill); font-size: var(--text-sm); background: var(--material-thin); border: 1px solid var(--line); }
+/* A chip with a remove button (the Matter card's ecosystems, for an administrator). */
+.chip.removable { display: inline-flex; align-items: center; gap: 2px; padding-right: 2px; }
+/* A chip's remove button stays a 22-point disc (no button minimum stretches it) with a 40-point tap around it. */
+.chip.removable .icon-button:not(.menu-button) { width: 22px; height: 22px; min-height: 0; min-width: 0; position: relative; }
+.chip.removable .icon-button:not(.menu-button)::after { content: ""; position: absolute; inset: -9px; }
+/* A controller's own system fabric (Apple Home's second one): muted, with a house. */
+.chip.system { display: inline-flex; align-items: center; gap: var(--space-4); color: var(--muted); border-style: dashed; }
+.chip.system > svg { width: 14px; height: 14px; }
+.chip.removable .icon-button:not(.menu-button) svg { width: 12px; height: 12px; }
 
 /* Status: a summary that says whether all is well, the numbers that matter, then a card per server. */
 /* A newer release, under the summary: how to upgrade this install, its command with Copy, the notes folded. */
@@ -21383,6 +22602,18 @@ textarea.short { min-height: 220px; }
 .update-command code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; font: 0.8125rem/1.5 var(--mono); scrollbar-width: none; }
 .update-command button { flex: none; padding: 5px var(--space-12); font-size: var(--text-sm); }
 .update-card details.more-options { margin: 0; }
+.update-progress { display: flex; align-items: center; gap: var(--space-8); margin: 0; }
+.update-progress svg { width: 16px; height: 16px; flex: none; color: var(--ok); }
+.update-progress .spinner { flex: none; }
+.updates-settings .actions { flex-wrap: wrap; }
+/* Settings › Updates: the headline is the state; it fades when it changes. */
+.update-head .who { min-width: 0; }
+.update-head > button { flex: none; margin-left: auto; }
+.update-head-changed { animation: fade var(--normal) var(--ease-out); }
+.updates-settings .card > p.error:empty, .updates-settings .card > div:empty { display: none; }
+.update-details { display: grid; gap: var(--space-12); margin-top: var(--space-14); }
+.update-preferences { margin-top: var(--space-14); padding-top: var(--space-4); border-top: 1px solid var(--line); }
+@media (max-width: 560px) { .update-head { flex-wrap: wrap; } .update-head > button { margin-left: 0; } }
 .who { flex: 1; min-width: 0; }
 .health { font-weight: var(--weight-medium); display: flex; align-items: flex-start; gap: var(--space-8); }
 /* The dot on the first line's middle, when the text wraps. */
@@ -21395,11 +22626,16 @@ textarea.short { min-height: 220px; }
   box-shadow: var(--shadow-control), inset 0 1px 0 var(--edge-light);
 }
 .stat { position: relative; display: block; color: inherit; text-decoration: none; }
-a.stat { touch-action: manipulation; transition: transform var(--fast) var(--ease-out); }
+a.stat { touch-action: manipulation; transition: transform var(--fast) var(--ease-out), background-color var(--fast) ease; }
 a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
-.stat > svg { position: absolute; top: 14px; right: 14px; width: 20px; height: 20px; fill: none; stroke: var(--muted); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; opacity: 0.7; }
+@media (hover: hover) and (pointer: fine) { a.stat:hover { background-color: color-mix(in srgb, var(--text) 4%, var(--material)); } }
+/* The Status page's figures: the icon on a tile at the left, the figure and its name beside it. */
+.stat:has(> .tile) { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--space-12); align-items: center; }
+.stat > .tile { grid-column: 1; grid-row: 1 / span 2; }
+.stat:has(> .tile) > b { grid-column: 2; }
+.stat:has(> .tile) > span:not(.tile) { grid-column: 2; min-width: 0; line-height: 1.3; }
 .stat b { display: block; font-size: 1.5rem; line-height: 1.1; letter-spacing: -0.02em; font-weight: var(--weight-figure); font-variant-numeric: tabular-nums; }
-.stat span { color: var(--muted); font-size: var(--text-sm); letter-spacing: 0.01em; }
+.stat span:not(.tile) { color: var(--muted); font-size: var(--text-sm); letter-spacing: 0.01em; }
 .stat .short { display: none; }
 /* The Status page's activity charts: the filters in one row above them, two charts a row, one on a phone. */
 .activity { transition: opacity var(--normal) var(--ease-out); }
@@ -21626,7 +22862,51 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .setup { display: flex; gap: var(--space-16); align-items: center; padding-top: var(--space-14); border-top: 1px solid var(--line); }
 .setup p { margin: 0 0 var(--space-6); }
 .setup .code { margin: 0; }
+/* Settings › Bridge: the QR code, then the setup code, one row across the form (the code first in the page for screen readers). */
+.setup-field { grid-column: 1 / -1; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-8) var(--space-18); align-items: start; }
+.setup-field-main { display: grid; gap: var(--space-6); min-width: 0; max-width: 420px; }
+.setup-field .qr { width: 120px; height: 120px; order: -1; }
+.setup-field-note { margin: var(--space-4) 0 0; }
+@media (max-width: 560px) { .setup-field { grid-template-columns: minmax(0, 1fr); } }
+.setup-code-field { display: flex; align-items: center; gap: var(--space-8); }
+.setup-code-field input { flex: 1; min-width: 0; }
+/* Copy, then a check for a moment: the two icons cross-fade in place. */
+.setup-code-copy svg { grid-area: 1 / 1; transition: opacity 160ms var(--ease-out), transform 160ms var(--ease-out), filter 160ms var(--ease-out); }
+.setup-code-copy .copied-icon, .setup-code-copy[data-copied] .copy-icon { opacity: 0; transform: scale(0.6); filter: blur(2px); }
+.setup-code-copy[data-copied] .copied-icon { opacity: 1; transform: none; filter: none; color: var(--ok); }
+@media (prefers-reduced-motion: reduce) { .setup-code-copy svg { transform: none !important; filter: none !important; } }
 .server .actions { margin-top: 0; }
+/* A Matter node's Add to another ecosystem, with what it does under it (no hover text on a phone). */
+.actions.add-ecosystem { flex-direction: column; align-items: flex-start; gap: var(--space-4); }
+.actions.add-ecosystem p { margin: 0; padding-left: var(--space-6); font-size: var(--text-sm); max-width: 56ch; }
+/* Accessories and Matter devices of their own: one line each across the section, unfolding to what a card shows. A
+   home of a hundred stays one screen to scan; only the chevron moves, as the row opens. */
+.devices { grid-column: 1 / -1; margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-6); align-content: start; animation: materialize var(--normal) var(--ease-out); }
+.devices-head { display: flex; align-items: center; gap: var(--space-12); flex-wrap: wrap; padding-bottom: var(--space-6); }
+.devices-head .who { flex: 1 1 200px; min-width: 0; }
+.devices-head strong { display: block; font-size: var(--text-xl); letter-spacing: -0.01em; }
+.devices-head .muted { font-size: var(--text-sm); }
+.device-rows { display: grid; grid-template-columns: minmax(0, 1fr); }
+.device-row { border-top: 1px solid var(--line); }
+.device-row > summary { list-style: none; display: flex; align-items: center; gap: var(--space-12); min-height: 44px; padding: var(--space-8) var(--space-8); margin: 0 calc(-1 * var(--space-8)); cursor: pointer; border-radius: var(--radius-sm); }
+.device-row > summary::-webkit-details-marker { display: none; }
+.device-row > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.device-row > summary .tile { width: 32px; height: 32px; }
+.device-row > summary .tile svg { width: 18px; height: 18px; }
+.device-row > summary .who { flex: 1; min-width: 0; }
+.device-row > summary strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.device-row > summary .muted { font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.device-row > summary .pill { flex: none; }
+.device-row > summary > svg:last-child { flex: none; width: 16px; height: 16px; color: var(--muted); transition: transform var(--normal) var(--ease-out); }
+.device-row[open] > summary > svg:last-child { transform: rotate(90deg); }
+/* A tile with a small tag in its corner: a Matter device's own icon with Matter's glyph. */
+.tile-tagged { position: relative; flex: none; display: inline-flex; }
+.tile-tag { position: absolute; right: -5px; bottom: -5px; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: var(--material-thick); color: var(--ok); box-shadow: 0 1px 3px rgba(25, 34, 56, 0.25); }
+.tile-tag svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.device-row-body { display: grid; gap: var(--space-14); padding: var(--space-4) 0 var(--space-16) 44px; }
+.device-row-body .setup { border-top: 0; padding-top: 0; }
+@media (hover: hover) and (pointer: fine) { .device-row > summary { transition: background-color var(--fast) ease; } .device-row > summary:hover { background: var(--material-thin); } }
 .banner { margin: var(--space-14) auto 0; max-width: 1100px; width: calc(100% - 24px); padding: var(--space-10) var(--space-20); text-align: center; color: var(--warn); font-weight: var(--weight-semibold); animation: materialize var(--normal) var(--ease-out); }
 .auth { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; padding: var(--space-20); }
 .auth .card { width: min(400px, 100%); padding: 26px 26px 22px; animation: materialize 320ms var(--ease-out); }
@@ -21756,6 +23036,7 @@ dd { margin: 0; }
   .log-line .text { grid-column: 1 / -1; }
   .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .setup { flex-direction: column; align-items: flex-start; }
+  .device-row-body { padding-left: 0; }
 }
 @media (prefers-reduced-motion: reduce) { .servers .server, .card.server { animation: fade var(--normal) ease; } }
 @media (max-width: 640px) { header { gap: var(--space-6); padding: var(--space-6) var(--space-8); } nav a { padding: var(--space-6) var(--space-10); white-space: nowrap; } main { padding: var(--space-14) var(--space-10) 30px; } input[type=range] { width: 110px; } }
@@ -22133,11 +23414,14 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
   .filter-bar > .count:empty { display: none; }
   .dash-widget .stats { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-8); }
   .dash-widget .stat { padding: var(--space-10) var(--space-6) 9px; border-radius: var(--radius-lg); text-align: center; }
-  .dash-widget .stat > svg { position: static; display: block; margin: 0 auto var(--space-4); width: 18px; height: 18px; }
+  /* Four across a phone: the tile smaller, above the figure. */
+  .dash-widget .stat:has(> .tile) { display: block; }
+  .dash-widget .stat > .tile { width: 30px; height: 30px; margin: 0 auto var(--space-6); border-radius: var(--radius-sm); }
+  .dash-widget .stat > .tile svg { width: 17px; height: 17px; }
   .dash-widget .stat b { font-size: var(--text-2xl); }
-  .dash-widget .stat span { display: block; font-size: var(--text-2xs); letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .dash-widget .stat .long { display: none; }
-  .dash-widget .stat .short { display: block; }
+  .dash-widget .stat span:not(.tile) { display: block; font-size: var(--text-2xs); letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dash-widget .stat span.long { display: none; }
+  .dash-widget .stat span.short { display: block; }
 }
 /* The narrowest phones (320 points): the figures two by two, so their names read whole. */
 @media (max-width: 360px) {
@@ -22262,73 +23546,102 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 .quick-scene-label { display: flex; align-items: center; gap: var(--space-8); }
 .quick-scene-label > svg { flex: none; width: 18px; height: 18px; }
 .quick-scene-label > span { overflow-wrap: anywhere; }
-.scene-run.busy { opacity: 0.6; }
+.scene-run { transition: transform 160ms var(--ease-out), opacity 200ms ease, box-shadow 200ms ease-out; }
+.scene-run.busy { opacity: 0.6; cursor: progress; }
+.quick-scene-image { transition: transform 240ms var(--ease-out); }
+@media (hover: hover) and (pointer: fine) {
+  .scene-run.pictured:hover .quick-scene-image { transform: scale(1.03); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .scene-run, .quick-scene-image { transition: opacity 200ms ease, box-shadow 200ms ease-out; }
+  .scene-run:active:not(:disabled), .scene-run.pictured:hover .quick-scene-image { transform: none; }
+}
 .scene-run.coloured { color: #fff; }
 .scene-run.coloured::after { content: ""; position: absolute; inset: 0; background: linear-gradient(transparent 30%, rgba(0, 0, 0, .55)); z-index: -1; }
 .scene-run.active { box-shadow: 0 0 0 2px var(--accent); }
+/* A hub scene with neither a picture nor colours (DIRIGERA tells none): a warm wash, not a blank card. */
+.hub-scene:not(.pictured):not(.coloured) { background: linear-gradient(135deg, color-mix(in srgb, var(--accent-2) 22%, transparent), color-mix(in srgb, var(--accent) 10%, transparent)); }
 .scene-run .scene-active { position: absolute; top: var(--space-10); right: var(--space-10); }
 .scene-source { display: block; font-size: var(--text-xs); font-weight: var(--weight-medium); opacity: 0.8; }
 .hub-scenes { display: grid; gap: var(--space-12); }
+.hub-scenes-head > select { width: auto; max-width: 260px; }
+.scene-run:disabled { opacity: 0.7; cursor: default; }
 .hub-scene-room { display: grid; gap: var(--space-8); }
-.hub-scene-tile { display: grid; gap: var(--space-4); min-width: 0; }
+/* A hub scene's tile carries its actions: round glass buttons over its top-right corner, its "Scene active" on the left. */
+.hub-scene-tile { position: relative; display: grid; min-width: 0; }
 .hub-scene-tile > .scene-run { width: 100%; }
-.hub-scene-actions { display: flex; flex-wrap: wrap; gap: var(--space-10); }
-.hub-scene-actions button { font-size: var(--text-xs); }
+.hub-scene-tile > .scene-run .scene-active { right: auto; left: var(--space-10); }
+/* The same buttons as a plugin page's scene tiles (`.scene .eye`): a dark disc on a picture, a light one on a pale tile. */
+.hub-scene-actions { position: absolute; top: 6px; right: 6px; z-index: 2; display: flex; gap: var(--space-4); }
+.hub-scene-actions > button { display: grid; place-items: center; width: 30px; height: 30px; min-height: 0; margin: 0; padding: 0; border-radius: 50%;
+  color: #fff; background: rgba(0, 0, 0, 0.28); border: 0; box-shadow: none; }
+.hub-scene-actions > button svg { width: 16px; height: 16px; }
+.hub-scene-actions > button.action-with-icon::before { width: 14px; height: 14px; }
+.hub-scene-tile:has(> .hub-scene:not(.pictured):not(.coloured)) .hub-scene-actions > button { background: rgba(255, 255, 255, 0.55); color: #1d1d1f; }
+/* On a touch screen each takes a 44-point-tall tap around its 30-point disc, so a near miss opens it rather than the
+   scene; only 2 points wider, so Stop and the menu, 4 apart, do not take each other's taps. */
+@media (pointer: coarse) {
+  .hub-scene-actions > button { position: relative; }
+  .hub-scene-actions > button::after { content: ""; position: absolute; inset: -7px -2px; }
+}
+.animation-settings { display: grid; gap: var(--space-10); margin-top: var(--space-10); }
+.animation-colours { display: flex; gap: var(--space-10); }
+.animation-lights { display: grid; gap: var(--space-6); }
 @media (max-width: 640px) {
   .quick-scenes { grid-template-columns: none; grid-template-rows: auto; grid-auto-flow: column; grid-auto-columns: min(240px, 85%); overflow-x: auto; scroll-snap-type: x proximity; padding: var(--space-4); }
   .quick-scenes > .scene-run, .quick-scenes > .hub-scene-tile { scroll-snap-align: start; }
 }
 .scene-card .server-head > button { flex: none; }
-/* Moods: the rooms as chips, what plays, the Assistant's box, the collection as pills with their colours. Pills and chips
+/* Templates: the rooms as chips, what plays, the Assistant's box, the collection as pills with their colours. Pills and chips
    are controls: no text selection or callout on a long press, press feedback at once, the lift on hover only with a
    mouse (a tap would leave it stuck). On a phone each kind is a row that swipes sideways and snaps, so the card fits a
    screen and what a tap starts shows beside the finger. */
-.mood-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-14); }
-.mood-rooms, .mood-buttons { display: flex; gap: var(--space-8); }
-.mood-rooms { flex-wrap: wrap; }
-.mood-buttons { flex-wrap: wrap; }
-.mood-room, .mood-button { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
-.mood-room { padding: 7px var(--space-14); font-size: var(--text-md); }
-.mood-room[aria-pressed="true"] { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); border-color: transparent; }
-.mood-button {
+.template-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-14); }
+.template-rooms, .template-buttons { display: flex; gap: var(--space-8); }
+.template-rooms { flex-wrap: wrap; }
+.template-buttons { flex-wrap: wrap; }
+.template-room, .template-button { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.template-room { padding: 7px var(--space-14); font-size: var(--text-md); }
+.template-room[aria-pressed="true"] { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); border-color: transparent; }
+.template-button {
   display: inline-flex; align-items: center; gap: var(--space-10); flex: none; min-height: 44px; padding: var(--space-6) var(--space-16) var(--space-6) var(--space-6);
   transition: transform var(--fast) var(--ease-out), box-shadow var(--normal) var(--ease-out);
 }
-.mood-button:active:not(:disabled), .mood-room:active { transform: scale(0.96); transition-duration: 80ms; }
-.mood-button.playing { box-shadow: 0 0 0 2px var(--accent), var(--shadow-control); }
-.mood-button.busy::after { margin-left: 0; }
-.mood-swatch { width: 32px; height: 32px; border-radius: var(--radius-sm); flex: none; }
-.mood-group .service-name { margin: 0 0 var(--space-8); }
-.mood-collection { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-16); }
-.mood-describe { display: flex; gap: var(--space-8); }
-.mood-describe input { flex: 1; min-width: 0; }
-.mood-create { display: inline-flex; align-items: center; gap: var(--space-6); flex: none; white-space: nowrap; }
-.mood-running { display: grid; gap: var(--space-8); }
-.mood-running:empty { display: none; }
-.mood-run {
+.template-button:active:not(:disabled), .template-room:active { transform: scale(0.96); transition-duration: 80ms; }
+.template-button.playing { box-shadow: 0 0 0 2px var(--accent), var(--shadow-control); }
+.template-button.busy::after { margin-left: 0; }
+.template-swatch { width: 32px; height: 32px; border-radius: var(--radius-sm); flex: none; }
+.template-group .service-name { margin: 0 0 var(--space-8); }
+.template-collection { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-16); }
+.template-describe { display: flex; gap: var(--space-8); }
+.template-describe input { flex: 1; min-width: 0; }
+.template-create { display: inline-flex; align-items: center; gap: var(--space-6); flex: none; white-space: nowrap; }
+.template-running { display: grid; gap: var(--space-8); }
+.template-running:empty { display: none; }
+.template-run {
   display: flex; align-items: center; gap: var(--space-12); padding: var(--space-8) var(--space-8) var(--space-8) var(--space-10); border-radius: var(--radius-lg); background: var(--material-thin); border: 1px solid var(--line);
   transition: opacity var(--normal) var(--ease-out), transform var(--normal) var(--ease-out);
 }
-@starting-style { .mood-run { opacity: 0; transform: translateY(-4px); } }
-.mood-run-text { flex: 1; min-width: 0; display: grid; }
-.mood-run-text .muted { font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mood-stop { flex: none; }
-.mood-card .status-line { margin: 0; }
-.mood-card .status-line:empty { display: none; }
-/* A phone: rooms and each kind of mood scroll sideways from edge to edge of the card, snapping to a pill; the input stays
+@starting-style { .template-run { opacity: 0; transform: translateY(-4px); } }
+.template-run-text { flex: 1; min-width: 0; display: grid; }
+.template-run-text .muted { font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.template-stop { flex: none; }
+.template-card .status-line { margin: 0; }
+.template-card .status-line:empty { display: none; }
+/* A phone: rooms and each kind of template scroll sideways from edge to edge of the card, snapping to a pill; the input stays
    at 16px so iOS does not zoom into it. */
 @media (max-width: 640px) {
-  .mood-rooms, .mood-buttons {
+  .template-rooms, .template-buttons {
     flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scrollbar-width: none;
     margin: 0 -20px; padding: 2px var(--space-20) var(--space-6); scroll-padding: 0 20px;
     -webkit-mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 22px), transparent);
     mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 22px), transparent);
   }
-  .mood-rooms::-webkit-scrollbar, .mood-buttons::-webkit-scrollbar { display: none; }
-  .mood-room, .mood-button { flex: none; scroll-snap-align: start; }
+  .template-rooms::-webkit-scrollbar, .template-buttons::-webkit-scrollbar { display: none; }
+  .template-room, .template-button { flex: none; scroll-snap-align: start; }
 }
-@media (pointer: coarse) { .mood-describe input { font-size: 16px; } }
-@media (prefers-reduced-motion: reduce) { .mood-run { transition: none; } }
+@media (pointer: coarse) { .template-describe input { font-size: 16px; } }
+@media (prefers-reduced-motion: reduce) { .template-run { transition: none; } }
 .location summary { cursor: pointer; }
 .location { margin-top: var(--space-14); }
 .scene-editor h2 { margin: 22px 0 2px; font-size: var(--text-xl); }
@@ -22366,6 +23679,10 @@ a.button.primary { background: linear-gradient(180deg, var(--accent-fill-top), v
 a.link:hover { text-decoration: underline; }
 .subnav { margin: -6px 0 var(--space-18); max-width: 100%; overflow-x: auto; scrollbar-width: none; }
 .subnav::-webkit-scrollbar { display: none; }
+/* Where tabs are scrolled out of sight, the row fades: the way it scrolls, without a bar. */
+.subnav[data-more-end] { mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); }
+.subnav[data-more-start] { mask-image: linear-gradient(to left, #000 calc(100% - 40px), transparent); }
+.subnav[data-more-start][data-more-end] { mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent); }
 .group a { color: var(--text); text-decoration: none; padding: 5px 13px; border-radius: var(--radius-pill); white-space: nowrap; transition: background-color var(--fast) var(--ease-out); }
 .group a:hover:not(.on) { background: var(--material-thin); }
 .group a.on { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); }
@@ -22812,6 +24129,10 @@ select:disabled { opacity: .5; cursor: not-allowed; }
 .catalog-toolbar .popup { margin: 0; }
 /* A phone: the search takes the row, the order sits under it at its own width. */
 @media (max-width: 600px) { .catalog-toolbar { grid-template-columns: minmax(0, 1fr); } .catalog-toolbar .popup { justify-self: start; } }
+/* With a filter: the search, the filter and the order on one row; on a phone, the search over the two menus. */
+.catalog-toolbar.with-filter { grid-template-columns: minmax(0, 1fr) auto auto; }
+@media (max-width: 600px) { .catalog-toolbar.with-filter { grid-template-columns: auto auto; justify-content: start; } .catalog-toolbar.with-filter .search { grid-column: 1 / -1; } }
+.devices .catalog-toolbar { margin-bottom: var(--space-4); }
 /* A running plugin's state: a green dot where the other states have a pill. */
 .status-dot { flex: none; align-self: center; width: 9px; height: 9px; margin: 0 var(--space-6); border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 18%, transparent); }
 /* The lighting pages' finder (plugin.js `finder`): one row (the search takes the room left), held under the header
@@ -22887,9 +24208,9 @@ select:disabled { opacity: .5; cursor: not-allowed; }
 .scene-card .card-foot { font-size: var(--text-xs); line-height: 1.5; padding-top: var(--space-10); }
 .section-head:has(+ .scene-grid) { gap: var(--space-12); flex-wrap: wrap; }
 .section-head:has(+ .scene-grid) .search { margin-left: auto; max-width: 280px; }
-.moods .mood-card { padding: var(--space-18); }
-.moods .mood-rooms { padding-bottom: var(--space-14); border-bottom: 1px solid var(--line); }
-.moods .status-line:empty, .moods .mood-running:empty { display: none; }
+.templates .template-card { padding: var(--space-18); }
+.templates .template-rooms { padding-bottom: var(--space-14); border-bottom: 1px solid var(--line); }
+.templates .status-line:empty, .templates .template-running:empty { display: none; }
 @media (max-width: 560px) { .section-head:has(+ .scene-grid) .search { max-width: none; width: 100%; } }
 
 .scene-flow { border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; margin: var(--space-20) 0; background: var(--material-solid); }
@@ -23222,7 +24543,8 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
   .status-footer-meta { grid-column: 1 / -1; grid-row: 2; min-width: 0; }
 }
 
-.status-footer-meta { flex-wrap: nowrap; }
+/* The update pill keeps to its label, and goes under the version when the row is narrow. */
+.status-footer-meta { flex-wrap: wrap; }
 .status-footer-meta > .muted { max-width: none; }
 .status-footer .footer-update-check {
   padding: 3px var(--space-8); min-height: 28px; border: 1px solid rgba(255,255,255,.2); border-radius: 5px;
@@ -23233,6 +24555,7 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
 
 .status-footer .footer-update-check[data-update-state="current"] { --update-tone: var(--ok); }
 .status-footer .footer-update-check[data-update-state="available"] { --update-tone: var(--warn); }
+.status-footer .footer-update-check[data-update-state="installed"] { --update-tone: var(--ok); }
 .status-footer .footer-update-check[data-update-state="error"] { --update-tone: var(--error); }
 .status-footer .footer-update-check {
   color: var(--update-tone, var(--text));
@@ -23252,11 +24575,6 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
 @media (prefers-reduced-motion: reduce) {
   .status-footer .footer-update-check[data-update-state="checking"] svg { animation: none; }
 }
-
-/* Reserve the widest translated status without exposing sizing text to assistive technology. */
-.footer-update-label { display: inline-grid; text-align: center; }
-.footer-update-label > span { grid-area: 1 / 1; }
-.footer-update-sizer { visibility: hidden; pointer-events: none; }
 
 .group-box > summary > svg { width: 18px; height: 18px; margin-right: var(--space-8); vertical-align: -3px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
@@ -23813,22 +25131,22 @@ select option:disabled { color: var(--muted); }
 .widget-battery.size-medium .w-top { position: static; }
 .widget-battery.size-medium .w-top > .w-hero:has(> .battery-gauge) { position: absolute; left: 50%; top: 36%; transform: translate(-50%, -50%); display: flex; align-items: center; justify-content: center; }
 
-/* Shared photographic artwork for saved scenes and room moods. */
+/* Shared photographic artwork for saved scenes and templates. */
 .scene-artwork { width: 100%; aspect-ratio: 16/9; object-fit: cover; border-radius: var(--radius-sm); }
 .artwork-preview { max-width: 320px; }
 .artwork-picker { margin-block: var(--space-16); }
 .artwork-picker > button { margin-bottom: var(--space-16); }
 .artwork-picker summary { cursor: pointer; padding-block: var(--space-12); }
-.artwork-grid, .mood-buttons.artwork-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: var(--space-12); max-height: 520px; overflow: auto; padding: var(--space-8) 3px; }
+.artwork-grid, .template-buttons.artwork-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: var(--space-12); max-height: 520px; overflow: auto; padding: var(--space-8) 3px; }
 /* The Hue scene widget: a full-bleed picture and its name over a bottom scrim. */
-.scene.artwork-choice, .mood-button.scene.artwork-choice { width: 100%; aspect-ratio: 16 / 9; min-height: 110px; display: grid; align-content: end; justify-content: stretch; padding: var(--space-12) var(--space-14); border-radius: var(--radius-lg); gap: 0; color: #fff; white-space: normal; }
-.scene.artwork-choice img, .scene.artwork-choice .mood-swatch { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 0; }
+.scene.artwork-choice, .template-button.scene.artwork-choice { width: 100%; aspect-ratio: 16 / 9; min-height: 110px; display: grid; align-content: end; justify-content: stretch; padding: var(--space-12) var(--space-14); border-radius: var(--radius-lg); gap: 0; color: #fff; white-space: normal; }
+.scene.artwork-choice img, .scene.artwork-choice .template-swatch { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 0; }
 .scene.artwork-choice .name { text-align: left; padding-left: var(--space-20); line-height: 1.3; }
 .scene.artwork-choice:not(.action-with-icon) .name { padding-left: 0; }
 .scene.artwork-choice.action-with-icon::before { position: absolute; bottom: 14px; left: 12px; z-index: 1; }
 .scene.artwork-choice[aria-pressed="true"] { box-shadow: 0 0 0 3px var(--accent), var(--shadow-control); }
 .scene.artwork-choice[hidden] { display: none; }
-.mood-group .mood-buttons { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 168px), 1fr)); gap: var(--space-10); overflow: visible; margin-inline: 0; padding-inline: 3px; }
+.template-group .template-buttons { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 168px), 1fr)); gap: var(--space-10); overflow: visible; margin-inline: 0; padding-inline: 3px; }
 
 /* Theme shelves: two rows, with horizontal scrolling like a photographic gallery. */
 .artwork-filters { display: flex; gap: var(--space-12); margin-block: var(--space-12); }
@@ -23856,7 +25174,8 @@ select option:disabled { color: var(--muted); }
 .location-map-controls { position: absolute; top: 10px; left: 10px; display: flex; gap: var(--space-8); }
 .location-map-credit { position: absolute; right: 0; bottom: 0; padding: var(--space-4) var(--space-8); background: #fff; color: #222; font-size: var(--text-xs); }
 
-.artwork-dialog { width: min(850px, calc(100vw - 32px)); max-height: 85vh; overflow: auto; }
+.artwork-dialog { max-height: 85vh; }
+.artwork-dialog input[type="search"] { width: 100%; }
 .artwork-dialog .artwork-grid { margin-block: var(--space-12); }
 
 .appearance-card-title { display: flex; align-items: center; gap: var(--space-10); }
@@ -23866,8 +25185,8 @@ select option:disabled { color: var(--muted); }
 .scene-color-input { width: 100%; height: 64px; padding: var(--space-4); border-radius: var(--radius-md); cursor: pointer; }
 .value-slot input[role="switch"] { width: 44px; height: 28px; accent-color: var(--accent); }
 
-.mood-stop-badge { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 44px; height: 44px; background: #fff; color: #222; border-radius: var(--radius-pill); display: grid; place-items: center; box-shadow: var(--shadow-control); pointer-events: none; }
-.mood-stop-badge::before { content: ""; width: 14px; height: 14px; background: currentColor; border-radius: 0; }
+.template-stop-badge { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 44px; height: 44px; background: #fff; color: #222; border-radius: var(--radius-pill); display: grid; place-items: center; box-shadow: var(--shadow-control); pointer-events: none; }
+.template-stop-badge::before { content: ""; width: 14px; height: 14px; background: currentColor; border-radius: 0; }
 
 
 .scene-run-actions { display: flex; flex-wrap: wrap; gap: var(--space-8); align-items: center; }
@@ -23958,9 +25277,9 @@ select option:disabled { color: var(--muted); }
 .scene-card-details > summary { min-height: 44px; align-content: center; cursor: pointer; color: var(--text); }
 .scene-card-details[open] > summary { margin-bottom: var(--space-8); }
 
-/* Match gallery shelves across built-in moods and plugin scene collections on phones. */
+/* Match gallery shelves across templates and plugin scene collections on phones. */
 @media (max-width: 640px) {
-  .mood-group .mood-buttons, .scene-tiles:has(> .scene) {
+  .template-group .template-buttons, .scene-tiles:has(> .scene) {
     display: grid; grid-template-columns: none; grid-template-rows: auto; grid-auto-flow: column; grid-auto-columns: 160px;
     gap: var(--space-12); overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity;
     margin-inline: 0; padding: 3px; scroll-padding-inline: 3px; mask-image: none; -webkit-mask-image: none;
@@ -25857,11 +27176,14 @@ self.addEventListener("notificationclick", (event) => {
     return dialog;
   }
 
+  /// The icon of what a service stands for when HomeKit has no type for it (`Service.standsFor`): a robot vacuum.
+  const standsForIcon = (accessory) => accessory.services?.some((service) => service.standsFor === "cleaningRobot") ? "vacuum" : null;
+
   /// The tile's glyph, and a painter for its colour and state.
   function glyphFor(ctx, widget, built, primary) {
     const [fallbackIcon, fallbackTone] = categoryIcons[ctx.accessory.category] || ["generic", "grey"];
     const pick = (value, fallback) => typeof value === "function" ? value(ctx, primary) : value ?? fallback;
-    const glyph = el("span", { class: "tile", "aria-hidden": "true" }, icon(pick(widget.icon, fallbackIcon)));
+    const glyph = el("span", { class: "tile", "aria-hidden": "true" }, icon(standsForIcon(ctx.accessory) ?? pick(widget.icon, fallbackIcon)));
     return [glyph, () => {
       const on = built.on ? built.on() : true;
       const color = on && built.color ? built.color() : null;
@@ -26197,6 +27519,8 @@ self.addEventListener("notificationclick", (event) => {
     /// The icon an accessory's tile shows: its widget's (a battery's for a power station filed as Other), else its
     /// category's. Other pages use it so an accessory looks the same everywhere.
     accessoryIcon(accessory) {
+      const standsFor = standsForIcon(accessory);
+      if (standsFor) return standsFor;
       try {
         const ctx = context(accessory);
         const { widget, primary } = resolve(ctx);

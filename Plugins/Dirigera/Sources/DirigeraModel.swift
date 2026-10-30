@@ -159,8 +159,13 @@ struct DirigeraScene: Sendable, Equatable {
     var icon: String?
     /// The hub's `type`: `userScene`, `customScene`, `wakeUpScene`…
     var type: String
+    /// Its actions and triggers as the hub sent them: a rename sends them back unchanged, as the hub replaces a scene whole.
+    var actions: JSONValue = []
+    var triggers: JSONValue = []
 
     var isRunnable: Bool { type == "userScene" || type == "customScene" }
+    /// The devices its actions set.
+    var deviceIDs: [String] { (actions.arrayValue ?? []).compactMap { $0["deviceId"]?.stringValue } }
 
     init?(_ json: JSONValue) {
         guard let id = json["id"]?.stringValue, let name = json["info"]?["name"]?.stringValue else { return nil }
@@ -168,6 +173,8 @@ struct DirigeraScene: Sendable, Equatable {
         self.name = name
         icon = json["info"]?["icon"]?.stringValue
         type = json["type"]?.stringValue ?? "userScene"
+        actions = json["actions"] ?? []
+        triggers = json["triggers"] ?? []
     }
 
     init(id: String, name: String, icon: String? = nil, type: String = "userScene") {

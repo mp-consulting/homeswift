@@ -44,7 +44,7 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
     let context: PluginContext
     let dependencies: Dependencies
     private var logger: Logger { context.logger }
-    private var devices: [String: TVDevice] = [:]
+    private(set) var devices: [String: TVDevice] = [:]
     private var pairings: [String: JointSpacePairing.Session] = [:]
 
     public init(configuration: Configuration, context: PluginContext) {

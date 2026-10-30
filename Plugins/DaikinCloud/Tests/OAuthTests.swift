@@ -34,7 +34,7 @@ struct OAuthTests {
 
     @Test func tokenResponses() throws {
         let html = HTTPResponse.text("<html><body>Request blocked</body></html>", status: 403)
-        #expect(throws: DaikinError("Token refresh failed: idp.onecta.daikineurope.com returned a non-JSON response (HTTP 403): <html><body>Request blocked</body></html>")) {
+        #expect(throws: DaikinError("Token refresh failed: idp.onecta.daikineurope.com returned a non-JSON response (HTTP 403): an HTML page, Request blocked")) {
             try TokenResponse.parse(html, url: tokenURL, context: "Token refresh failed")
         }
         #expect(throws: DaikinError("Token refresh failed: idp.onecta.daikineurope.com returned a non-JSON response (HTTP 502) with an empty body")) {
@@ -335,7 +335,7 @@ struct OAuthTests {
             return index == 1 ? .text("<html>WAF</html>", status: 403) : .json(["access_token": "a", "token_type": "Bearer", "expires_in": 3600])
         }
         let oauth = MobileOAuth(email: "", password: "", http: DaikinHTTP(transport: http))
-        await #expect(throws: DaikinError("Token refresh failed: idp.onecta.daikineurope.com returned a non-JSON response (HTTP 403): <html>WAF</html>")) { try await oauth.refresh("rt") }
+        await #expect(throws: DaikinError("Token refresh failed: idp.onecta.daikineurope.com returned a non-JSON response (HTTP 403): an HTML page, WAF")) { try await oauth.refresh("rt") }
         #expect(try await oauth.refresh("rt").access_token == "a")
     }
 }

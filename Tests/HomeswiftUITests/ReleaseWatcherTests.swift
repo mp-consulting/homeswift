@@ -21,7 +21,112 @@ final class CannedGitHub: HTTPSending, Sendable {
     }
 }
 
+/// An installer that puts `installs` on disk, or nothing (as Homebrew does when its tap is behind).
+final class FakeInstaller: UpdateInstalling, Sendable {
+    let onDisk: NIOLockedValueBox<String>
+    let installs: String?
+    init(onDisk: String, installs: String?) {
+        self.onDisk = NIOLockedValueBox(onDisk)
+        self.installs = installs
+    }
+    func install(version: String) async throws {
+        if let installs { onDisk.withLockedValue { $0 = installs } }
+    }
+    func installedVersion() async -> String? { onDisk.withLockedValue { $0 } }
+    var executable: String? { "/opt/homebrew/opt/homeswift/bin/homeswift" }
+}
+
 @Suite struct ReleaseWatcherTests {
+    @Test func installsAndSaysARelaunchStartsIt() async throws {
+        let releases = watcher(CannedGitHub(json: Self.release), install: .homebrew, installer: FakeInstaller(onDisk: "0.3.0", installs: "0.4.0"))
+        let environment = try UITestEnvironment(auth: .none, options: { $0.releases = releases })
+        let base = try await environment.start()
+        defer { Task { await environment.stop() } }
+        let browser = Browser(base: base)
+        browser.origin = base.absoluteString
+        // Nothing to install before a check has found the release.
+        #expect(try await browser.send("POST", "/api/updates/install", body: "{}").status == 409)
+        let checked = try await browser.send("POST", "/api/updates/check", body: "{}")
+        #expect(checked.json?["canInstall"] == true)
+        let started = try await browser.send("POST", "/api/updates/install", body: #"{"relaunch": false}"#)
+        #expect(started.status == 200)
+        #expect(await eventually { (try? await browser.send("GET", "/api/updates").json?["installed"]?.stringValue) == "0.4.0" })
+        let after = try await browser.send("GET", "/api/updates")
+        #expect(after.json?["canInstall"] == false)
+        #expect(after.json?["installing"] == nil)
+        #expect(after.json?["relaunching"] == nil)
+        #expect(releases.options.installer?.executable == "/opt/homebrew/opt/homeswift/bin/homeswift")
+    }
+
+    @Test func theSwitchWritesCheckForUpdates() async throws {
+        let releases = watcher(CannedGitHub(json: Self.release), install: .source)
+        let environment = try UITestEnvironment(auth: .none, options: { $0.releases = releases })
+        let base = try await environment.start()
+        defer { Task { await environment.stop() } }
+        let browser = Browser(base: base)
+        browser.origin = base.absoluteString
+        let block = { try JSONValue(data: Data(contentsOf: environment.configURL))["platforms"]?[1] }
+        let off = try await browser.put("/api/updates/automatic", ["on": false])
+        #expect(off.status == 200)
+        #expect(off.json?["automatic"] == false)
+        #expect(try block()?["checkForUpdates"] == false)
+        let on = try await browser.put("/api/updates/automatic", ["on": true])
+        #expect(on.json?["automatic"] == true)
+        // On is the default: the key goes.
+        #expect(try block()?["checkForUpdates"] == nil)
+        #expect(try block()?["platform"] == "HomeswiftUI")
+        releases.stop()
+        #expect(try await browser.put("/api/updates/automatic", [:]).status == 400)
+    }
+
+    @Test func anInstallThatChangesNothingIsAFailure() async throws {
+        let releases = watcher(CannedGitHub(json: Self.release), install: .homebrew, installer: FakeInstaller(onDisk: "0.3.0", installs: nil))
+        await releases.check()
+        #expect(releases.install())
+        #expect(await eventually { releases.json()?["installError"] != nil })
+        #expect(releases.json()?["installed"] == nil)
+        #expect(releases.json()?["canInstall"] == true)
+    }
+
+    @Test func notesAnUpgradeMadeByHand() async throws {
+        let releases = watcher(CannedGitHub(json: Self.release), install: .homebrew, installer: FakeInstaller(onDisk: "0.4.0", installs: nil))
+        await releases.check()
+        #expect(releases.json()?["installed"] == "0.4.0")
+        #expect(releases.json()?["canInstall"] == false)
+        // Where the bridge cannot upgrade itself, no install is offered.
+        let docker = watcher(CannedGitHub(json: Self.release), install: .docker)
+        await docker.check()
+        #expect(docker.json()?["canInstall"] == false)
+        #expect(!docker.install())
+    }
+
+    @Test func anOlderVersionOnDiskIsNoRelaunch() async throws {
+        let releases = watcher(CannedGitHub(json: Self.release), install: .homebrew, installer: FakeInstaller(onDisk: "0.2.0", installs: nil))
+        await releases.check()
+        #expect(releases.json()?["installed"] == nil)
+        #expect(releases.json()?["canInstall"] == true)
+    }
+
+    @Test func readsTheInstalledVersionFromTheCellar() async throws {
+        let prefix = FileManager.default.temporaryDirectory.appendingPathComponent("brew-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: prefix) }
+        let bin = prefix.appendingPathComponent("Cellar/homeswift/0.4.0_1/bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        // A link resolves only to a file that exists.
+        FileManager.default.createFile(atPath: bin.appendingPathComponent("homeswift").path, contents: Data())
+        let opt = prefix.appendingPathComponent("opt")
+        try FileManager.default.createDirectory(at: opt, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(atPath: opt.appendingPathComponent("homeswift").path, withDestinationPath: "../Cellar/homeswift/0.4.0_1")
+        let installer = try #require(HomebrewInstaller(executable: bin.appendingPathComponent("homeswift").path))
+        #expect(await installer.installedVersion() == "0.4.0")
+    }
+
+    @Test func findsHomebrewFromTheCellar() {
+        #expect(HomebrewInstaller(executable: "/opt/homebrew/Cellar/homeswift/0.3.0/bin/homeswift")?.prefix == "/opt/homebrew")
+        #expect(HomebrewInstaller(executable: "/home/linuxbrew/.linuxbrew/Cellar/homeswift/0.3.0/bin/homeswift")?.executable == "/home/linuxbrew/.linuxbrew/opt/homeswift/bin/homeswift")
+        #expect(HomebrewInstaller(executable: "/usr/local/bin/homeswift-nowhere") == nil)
+    }
+
     @Test func manualCheckFetchesFreshReleaseWithoutStartingWatcher() async throws {
         let github = CannedGitHub(json: Self.release)
         let releases = watcher(github, install: .source)
@@ -52,11 +157,12 @@ final class CannedGitHub: HTTPSending, Sendable {
         }
         """
 
-    func watcher(_ github: CannedGitHub, current: String = "0.3.0", install: ReleaseWatcher.Install, architecture: String = "x86_64") -> ReleaseWatcher {
+    func watcher(_ github: CannedGitHub, current: String = "0.3.0", install: ReleaseWatcher.Install, architecture: String = "x86_64", installer: (any UpdateInstalling)? = nil) -> ReleaseWatcher {
         var options = ReleaseWatcher.Options()
         options.current = current
         options.install = install
         options.architecture = architecture
+        options.installer = installer
         return ReleaseWatcher(transport: github, options: options)
     }
 

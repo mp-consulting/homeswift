@@ -21,8 +21,14 @@ extension HomeswiftCatalog {
         await host.pluginScenes().flatMap { entry in entry.scenes.map { FoundPluginScene(instance: entry.instance, scene: $0) } }
     }
 
-    /// The plugin scene with this id, or the only one with this name (case aside).
+    /// The plugin scene with this id, or the only one with this name (case aside). An id asks only the instance it
+    /// names.
     func pluginScene(_ reference: String) async -> FoundPluginScene? {
+        for instance in host.runningInstanceNames() where reference.hasPrefix(Self.pluginSceneID(platform: instance.platform, name: instance.name, scene: "")) {
+            guard let entry = await host.pluginScenes(platform: instance.platform, name: instance.name),
+                  let scene = entry.scenes.first(where: { Self.pluginSceneID(platform: instance.platform, name: instance.name, scene: $0.id) == reference }) else { continue }
+            return FoundPluginScene(instance: entry.instance, scene: scene)
+        }
         let all = await foundPluginScenes()
         if let exact = all.first(where: { $0.id == reference }) { return exact }
         let named = all.filter { $0.scene.name.caseInsensitiveCompare(reference) == .orderedSame }
@@ -43,7 +49,7 @@ extension HomeswiftCatalog {
         return rooms.first { $0.compare(hubRoom, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame }
     }
 
-    func pluginSceneJSON(_ found: FoundPluginScene, rooms: [String]) -> JSONValue {
+    func pluginSceneJSON(_ found: FoundPluginScene, rooms: [String], pictures: [String: String]) -> JSONValue {
         let entry = host.registry.entry(for: found.instance.platform)
         var object: [String: JSONValue] = [
             "id": .string(found.id), "name": .string(found.scene.name),
@@ -51,7 +57,9 @@ extension HomeswiftCatalog {
             "hubRoom": found.scene.room.map(JSONValue.string) ?? .null,
             "active": found.scene.active.map(JSONValue.bool) ?? .null,
             "colours": .array(found.scene.colours.prefix(5).map(JSONValue.string)),
-            "stoppable": .bool(home.runningMoods.withLockedValue { $0.values.contains { $0.mood.id == "scene:" + found.id } }),
+            "picture": pictures[found.id].map(JSONValue.string) ?? .null,
+            "accessoryIds": .array(found.scene.accessoryIDs.map(JSONValue.string)),
+            "stoppable": .bool(!lightRuns(of: found.id).isEmpty),
             "capabilities": .array(PluginScene.Capability.allCases.filter(found.scene.capabilities.contains).map { .string($0.rawValue) }),
             "source": [
                 "platform": .string(found.instance.platform), "name": .string(found.instance.name),
@@ -64,10 +72,17 @@ extension HomeswiftCatalog {
 
     /// What the Scenes page and list_scenes show: Homeswift's scenes, then those of the plugins' hubs.
     public func allScenesJSON(now: Date = Date()) async -> JSONValue {
-        guard var answer = scenesJSON(now: now).objectValue else { return scenesJSON(now: now) }
-        let rooms = Array(Set(located().compactMap(\.room))).sorted()
-        let found = await foundPluginScenes()
-        answer["pluginScenes"] = .array(found.map { pluginSceneJSON($0, rooms: rooms) })
+        await withLookup { await allScenesJSONIndexed(now: now) }
+    }
+
+    private func allScenesJSONIndexed(now: Date) async -> JSONValue {
+        // The hubs are asked while the saved scenes are described.
+        async let asked = foundPluginScenes()
+        var answer = scenesObject(now: now)
+        let found = await asked
+        let rooms = found.contains { $0.scene.room != nil } ? Array(Set((Self.lookup.map { Array($0.values) } ?? located()).compactMap(\.room))).sorted() : []
+        let pictures = scenePictures.versions()
+        answer["pluginScenes"] = .array(found.map { pluginSceneJSON($0, rooms: rooms, pictures: pictures) })
         let names = Dictionary(found.map { ($0.id, $0.scene.name) }, uniquingKeysWith: { first, _ in first })
         answer["scenes"] = answer["scenes"]?.arrayValue.map { scenes in
             .array(scenes.map { scene in
@@ -87,7 +102,7 @@ extension HomeswiftCatalog {
     /// own id, so `stopScene` puts them back.
     func runPluginScene(_ found: FoundPluginScene, by: String, holdAs: String? = nil) async throws -> JSONValue {
         guard found.scene.capabilities.contains(.recall) else { throw CatalogError("\(found.scene.name) cannot be recalled from Homeswift") }
-        let held = try await holdLightChanges(found.scene.name, id: "scene:" + (holdAs ?? found.id), platform: found.instance, by: by) {
+        let held = try await holdLightChanges(found.scene.name, id: Self.showID(of: holdAs ?? found.id), platform: found.instance, by: by) {
             try await host.recallScene(platform: found.instance.platform, name: found.instance.name, id: found.scene.id)
             return true
         }

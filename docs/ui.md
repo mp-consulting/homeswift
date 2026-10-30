@@ -36,7 +36,7 @@ added on the **Users** page ([Users, roles and API tokens](#users-roles-and-api-
 
 ## The pages
 
-The header has the sections (Status, Accessories, Scenes, Plugins, Config, Logs, Settings), the Assistant's sparkle
+The header has the sections (Status, Accessories, Scenes, Plugins, Logs, Settings), the Assistant's sparkle
 when it is on, and the account menu behind your initial: **Account**, **Appearance**, **Users** (administrators) and
 **Sign out**. Every view is an address ([Addresses](#addresses)), so Back and Forward work and a view can be kept or
 shared.
@@ -46,7 +46,13 @@ shared.
 The start page: a summary (accessories, plugins, Home app controllers, uptime), then sections you arrange.
 
 - **Bridges**: each bridge with its device ID, port, plugins and pairing state. A bridge the Home app has not paired
-  yet shows its setup code and a QR code for the Home app's camera.
+  yet shows its setup code and a QR code for the Home app's camera. Accessories and Matter devices of their own (a
+  television, a camera, an accessory made a Matter device) are one line each in **Devices of their own**: its name,
+  where it was added and its state, unfolding to its port, its ecosystems, its pairing code and its actions. A Matter
+  device's icon carries Matter's tag. Those waiting to be added come first (open when there are one or two); past
+  eight devices a search (by name or ecosystem), a filter (Matter, HomeKit, waiting to be added) and an order (waiting
+  first, name, most ecosystems) narrow the list, kept in the address (`/status?show=matter&devices=name`), so a home of
+  a hundred stays one screen to scan.
 
   ![A bridge waiting to be paired: its QR code and setup code](images/ui/status-bridge.png)
 
@@ -60,7 +66,7 @@ The start page: a summary (accessories, plugins, Home app controllers, uptime), 
 - **Daily digest**, with the Assistant on: what needs attention today, from the day's warnings and errors and the
   accessories. **Write today's digest** streams it; the bridge keeps it for the day (`ai-digest.json`, owner-only) and
   the card's **⋯** writes it again. Any user reads today's digest; an administrator writes it.
-- **Vault**, for administrators: how many entries the vault keeps, how many config.json uses and how many secrets
+- **Vault**, for administrators, once the vault has an entry or config.json a secret to move: how many entries the vault keeps, how many config.json uses and how many secrets
   config.json still holds, then what needs attention, most pressing first (a reference to an entry that is gone, one
   that cannot read its entry, an entry expired or expiring within 30 days), and **Open the vault**.
 - **Energy**, once a plugin records readings with an energy role (`EnergyTag`, docs/plugins.md). See [Energy](#energy) below.
@@ -70,7 +76,11 @@ The start page: a summary (accessories, plugins, Home app controllers, uptime), 
 When GitHub has a newer release, a card under the summary says so, with its notes and how to upgrade this install: the
 `.spk` to download on a Synology NAS, the image tag to pull in Docker, `brew upgrade` or the tag to check out. The
 bridge asks GitHub's API a minute after it starts and then twice a day, sending only its version (`ReleaseWatcher`);
-`"checkForUpdates": false` turns it off. It never upgrades itself.
+`"checkForUpdates": false` turns it off. On a Homebrew install an administrator's **Install and relaunch** runs
+`brew upgrade homeswift` and restarts into the new binary (Homebrew's `opt/homeswift` link); the footer's button
+follows it (**Install update**, **Installing…**, then **Relaunch to update** when the new version is on disk, from here
+or a `brew upgrade` run by hand). A Synology package, a container and a checkout cannot upgrade themselves: their card
+says how. Settings › Updates has the same card.
 
 **Customise this page**, at the bottom, opens a menu with a switch per section (overview, digest, activity, energy,
 bridges, system) and drag handles to reorder them. Changes apply at once; the layout is each user's own, on every
@@ -120,7 +130,9 @@ screenshots, and what a plugin does to get good ones.
   the rest under More), Identify, its log, ask the Assistant about it, its plugin's settings (administrators), resume a
   paused plugin, a room, a name for these pages, add to the Quick Controls or hide it, and **History** for an accessory
   whose plugin records an Eve history (temperature, humidity, power…): a day, a week or four weeks.
-- **Edit** shows grid guides, size controls and corner handles, and lets tiles be dragged into place. The wall is
+- **Edit** shows grid guides, size controls and corner handles, and lets tiles be dragged onto any cell of the grid,
+  gaps included: the others make way, and the wall keeps every widget's cell until **Pack the widgets together** (the
+  wall's menu) lets them flow again ([widgets.md](widgets.md)). The wall is
   **One wall** (the default), **By room** (once there are rooms) or **By plugin**. The bridge keeps the layout in
   `ui-layout.json` next to config.json (`/api/layout`), the same for every user.
 - **States**: a paused plugin's accessories are drawn striped, their controls out of reach; an accessory whose device
@@ -139,6 +151,15 @@ screenshots, and what a plugin does to get good ones.
   of their own, the **Apple Home** switch (`?from=Apple%20Home`). The layout is the bridge's, shared by every user, in
   `accessory-layout.json` next to config.json (owner-only; `/api/rooms`). The Home app never sees it; the MCP tools do:
   `list_accessories` and `set_accessories` filter by these rooms.
+- **Rooms on the hubs**: in **Edit**, with the wall **By room**, each room's heading is a field: type a new name, then
+  Enter (or click away) renames the room, Escape keeps it. A tile dragged into another room's wall moves the accessory to
+  that room, or out of any into **No room**; every room shows there, empty ones too, to take a drop. The **Rooms** menu orders the rooms (drag them) and renames
+  one too (choose it). Its **Rename on the hubs too** switch, off until turned on (`syncRoomNames` in
+  `accessory-layout.json`), makes a renamed room's new name reach the plugins' hubs: every room of a Philips Hue Bridge,
+  an IKEA DIRIGERA hub or an eWeLink home named as the room was, case and accents aside, is renamed with it, and the
+  log says so (`Room "Salon" renamed "Lounge" on Hue`). It goes one way: a room renamed in the Hue app stays as Homeswift
+  has it. Govee keeps no rooms its API can reach. A hub that refuses says why under the page; the room is renamed in
+  Homeswift all the same.
 - **Suggest rooms**, with the Assistant on, asks it for rooms and clearer names for every accessory
   (`AssistantService.suggestOrganization`; the ids reach the model as aliases) and shows them to review: untick what you
   do not want, then **Apply** saves the rooms and the names as display names. Accessories it finds odd are listed as
@@ -166,7 +187,7 @@ graph with what matches, and a table shows the same rows.
 The favourite accessories, by room, and a button per scene: at the top of the Status page, and on their own at `/quick`,
 a page to keep on a phone's home screen.
 
-### Scenes and moods
+### Scenes and templates
 
 **Scenes** (`/scenes`, Glass UI's scenes): accessory values set together, by hand or by a trigger.
 
@@ -182,26 +203,46 @@ a page to keep on a phone's home screen.
   automations, with nobody to ask, leave those actions out and say so in the scene's last run. Glass UI sets them like
   any value.
 
-Scenes are kept in `scenes.json` next to config.json (owner-only), with each one's last run. A scene's card says its
+Scenes are kept in `scenes.json` next to config.json (owner-only), with each one's last run. The editor's **A switch
+in the Home app** makes the scene a switch of one **Homeswift Scenes** accessory on the bridge: turning it on runs the
+scene, leaving out its locks, doors and alarms; turning it off puts the lights back, and it shows whether the scene is
+on.
+
+![A scene as a switch in the Home app](images/ui/scene-homekit.png) A scene's card says its
 room when its accessories share one, and **Scene active** while every value it sets is what its accessories show.
+Its ⋯ menu gives it a picture of your own (**Choose a picture…**, shrunk to 640 pixels; JPEG, PNG or WebP up to 1 MB)
+or takes it away; a hub's scene has the same menu, and its picture is the one the Hue or IKEA page shows. The bridge
+keeps them in `scene-pictures/` next to config.json. A hub's scene's menu also renames it on its hub, keeps its lights
+as they are now, or deletes it from the hub (after asking: it goes from the hub's own app too). A new scene of lights
+only, without triggers or an animation, can be saved to the Hue room or zone, or the IKEA hub, that has all its lights:
+the editor's save bar offers it beside **Create the scene**.
+
+![Scenes from your hubs, by room, with their pictures and menus](images/plugins/scenes-from-hubs.png)
 
 **Scenes from your hubs**, under them: the scenes plugins' hubs keep (a Hue Bridge's rooms and zones, a DIRIGERA hub,
 the scenes picked for Govee lights), by room, with their pictures or colours and a source filter when there are
 several. A tap recalls one on its hub; Hue's say **Scene active** while the bridge says so. **Stop** puts back the
 lights it changed, for 12 hours, as for any scene. **Automate** makes a Homeswift scene that recalls it, to give it
-triggers and conditions; the editor's **Add a hub scene…** adds one to any scene. They are changed in their own app.
+triggers and conditions; the editor's **Add a hub scene…** adds one to any scene. The editor's **Animation** step
+makes the chosen lights move after the actions: a style (candle, fire, sparkle, prism, underwater, a sunrise, moving
+colours, following the music…) with its speed, brightness and colour. Each brand plays it the way its own app does where
+its lights have it (Hue's effects, Govee's library scenes, an IKEA fade for a sunrise, a SONOFF L2 strip's scenes, an
+Ambilight TV for music);
+Homeswift plays it on the others. An animated scene is active while it plays, and **Stop** puts the lights back. They are changed in their own app.
 
-**Moods**, on the same page: the rooms that have lights as chips, and the collection of moods by kind, each drawn with
-photographic thumbnails. A tap plays one on the room's lights; the pill stays lit while it plays, with the mood and **Stop** under
-the rooms. A calm mood shows there with **Undo** for 12 hours, which puts the lights back as they were. With the
-Assistant on, a box writes a mood from a description ("a jazz bar"). A mood that sets the lights once can be saved as a
-scene (an administrator's). The **Scene gallery** adds 143 named photographic tiles in 28 theme categories, including Get cozy, Movie night, Reading, Wanderlust, Vibrant and Party vibes. Each theme has two horizontally scrolling rows on desktop and one row on mobile. Search by scene or theme name, or select a theme to show just that shelf. Sort each shelf by gallery order, name A–Z or name Z–A. These
+**Templates**, on the same page: the rooms that have lights as chips, and the collection by kind, each drawn with
+photographic thumbnails. A tap tries one on the room's lights at once, without saving it: calm ones set the lights,
+effects (a fireplace, a candle flicker, an ocean, a sunrise) play each brand's own way where its lights have it, and
+signals and party ones are timed sequences. The pill stays lit while it plays, and what was tried shows under the rooms
+with **Stop** (or **Undo**, for 12 hours, for one that set the lights once) and **Save as a scene**, which keeps it as a
+scene for that room, animated or not. With the Assistant on, **Describe a scene…** writes one from a description ("a
+jazz bar") and tries it the same way. The **Scene gallery** adds 143 named photographic tiles in 28 theme categories, including Get cozy, Movie night, Reading, Wanderlust, Vibrant and Party vibes. Each theme has two horizontally scrolling rows on desktop and one row on mobile. Search by scene or theme name, or select a theme to show just that shelf. Sort each shelf by gallery order, name A–Z or name Z–A. These
 set a palette once across the room's lights; they do not reproduce Hue animations or brightness. Saving one as a
 scene preserves its artwork. In the scene editor, expand **Scene image** to choose another picture or **No image**.
 Existing scenes without artwork keep their usual icon. The original gallery titles stay the same in all languages.
-On a phone each photographic theme is a single row that swipes sideways; Calm, Slow animations, Party and Signals also use single horizontal rows. Hue and IKEA scene collections share this mobile layout. Playing and stopping moods is
-controlling accessories, as running a scene is. `MoodLibrary` is the collection; MCP clients use `list_moods`,
-`start_mood` and `stop_mood`.
+On a phone each photographic theme is a single row that swipes sideways; Calm, Slow animations, Party and Signals also use single horizontal rows. Hue and IKEA scene collections share this mobile layout. Trying a template is
+controlling accessories, as running a scene is. `SceneTemplateLibrary` is the collection; MCP clients use `list_scene_templates`,
+and `run_scene` or `save_scene` with `template` (or `description`) and `room`.
 
 Scene cards keep accessory actions collapsed under **Details**. Expand it to see every action.
 
@@ -211,15 +252,15 @@ Scene cards keep accessory actions collapsed under **Details**. Expand it to see
 
 ![Single-row gallery on mobile](images/ui/scene-gallery-phone.png)
 
-![Horizontal mood category](images/ui/mood-row-phone.png)
+![Horizontal template category](images/ui/template-row-phone.png)
 
-Active mood tiles show a centred square Stop icon; idle tiles show their image and name. Winter holidays and Christmas have separate scene selections.
+Template tiles that play show a centred square Stop icon; idle tiles show their image and name. Winter holidays and Christmas have separate scene selections.
 
-![Active mood tile](images/ui/mood-stop-tile.png)
+![Template tile playing](images/ui/template-playing.png)
 
-The theme menu is alphabetised in the selected language. Mood photographs depict their subjects directly, including candles, a fireplace, a home cinema, a disco ball and a police lightbar.
+The theme menu is alphabetised in the selected language. Template photographs depict their subjects directly, including candles, a fireplace, a home cinema, a disco ball and a police lightbar.
 
-Running mood tiles show **Stop**. Saved scenes also offer **Stop** after running. This restores captured light power, brightness, colour and Adaptive Lighting; other scene controls restore their captured values unless they have changed since. Locks, doors and alarms require confirmation before restoration. Undo state lasts 12 hours and is kept across bridge restarts for held scenes and moods. Failed or skipped actions on a repeated run retain valid earlier restoration state. A light action that fails does not take ownership away from an existing mood.
+Template tiles that play show **Stop**. Saved scenes also offer **Stop** after running. This restores captured light power, brightness, colour and Adaptive Lighting; other scene controls restore their captured values unless they have changed since. Locks, doors and alarms require confirmation before restoration. Undo state lasts 12 hours and is kept across bridge restarts for every run that set lights. Failed or skipped actions on a repeated run retain valid earlier restoration state. A light action that fails does not take ownership away from an earlier run.
 
 The workflow action editor offers a combined **Light color** picker for colour-capable lights, brightness and colour-temperature sliders, power switches, device mode menus, and sliders for fan speed, position, volume and target temperatures. The colour picker saves ordinary hue and saturation actions, so the runtime and existing scenes remain compatible. Editing does not send device commands.
 
@@ -241,9 +282,9 @@ Deleting a scene opens a confirmation in the UI’s design system. Cancel is foc
 
 ![Scene deletion confirmation](images/ui/scene-delete.png)
 
-![Stop a running mood](images/ui/scene-stop.png)
+![Stop a running scene](images/ui/scene-stop.png)
 
-![Mood photographs](images/ui/mood-photographs.png)
+![Template photographs](images/ui/template-photographs.png)
 
 The sunrise/sunset location includes a map: click a point or finish dragging to place the pin and save coordinates immediately. Arrow keys can also position the pin for review.
 **Use this device's location** asks the browser for permission and centres the map; **Save** keeps the reviewed
@@ -315,7 +356,7 @@ chosen). A boolean with
 under a title that turns it on (the web UI's daily backup). A certificate or key field takes a dropped PEM file, which
 the bridge checks and keeps owner-only under `files/` next to config.json.
 
-The JSON view is coloured as you type, like the Config page, and Save takes the view on screen. With the Assistant on,
+The JSON view is coloured as you type, like Settings › Config, and Save takes the view on screen. With the Assistant on,
 **Describe your setup** above the form writes the block from a sentence and the plugin's schema; the change shows as a
 diff, and **Use it** puts it in the form to review and save. Passwords and tokens never reach the provider.
 
@@ -325,23 +366,6 @@ changes against the plugin's schema (a type, a bound, a choice outside the list,
 show under the editor with their lines marked, **Line 12** puts the caret there, and **Save anyway** keeps a value the
 plugin accepts that its schema does not list. Settings left as they were are not checked, so an old mistake never stops
 another change; a plugin's own page and **Pause** write without the check.
-
-### Config
-
-![The Config page: the whole config.json, secrets marked in gold](images/ui/config.png)
-
-The whole file in an editor. Saving validates it, checks each plugin block's changes against its schema as the Expert
-view does, keeps a backup under `backups/` (the last 20), sorts the keys and applies it. A syntax error's line is
-marked as you type.
-
-- **Folding**: a block that spans lines folds from the chevron beside its first line (Option-click folds or opens every
-  block at that indentation; ⌘⌥[ and ⌘⌥] at the caret), and a click on its ⋯ opens it. What is saved, copied or
-  formatted is always the whole text. A plugin's JSON view folds the same way.
-- **Secrets**: a key that holds one (the bridge's redaction rule: passwords, tokens, keys, the setup code, `auth`) is
-  gold with a lock before it, in both editors, and its value shows as `__REDACTED__`. A save that keeps the placeholder
-  keeps the stored value, so the page never needs to show a secret to edit the rest. **Secrets only** (the lock in the
-  bar) folds everything else, leaving the secrets and the way down to each; while it holds, the button is gold and a
-  strip above the text says how many show, with **Show all**. Opening a fold, Format or Revert end it.
 
 ### Logs
 
@@ -384,13 +408,16 @@ as an icon (shown when there is something to clear), and the time range and the 
 For administrators, after the Homebridge UI's settings, child bridges, backups and restart pages. Its tabs:
 
 - **Bridge** (`/settings/bridge`, where `/settings` opens): config.json's `bridge` block as a form (name, port, setup
-  code, manufacturer, model, firmware; saving restarts homeswift; the device ID stays), the network (the addresses, the
+  code, manufacturer, model, firmware; saving restarts homeswift; the device ID stays). The setup code shows as the
+  bridge runs with it, whether config.json keeps it sealed or in the vault, with a copy button and the pairing QR code;
+  it is written back only when it changes. Then the network (the addresses, the
   advertiser), each server's HomeKit pairing with **Reset pairings…** in its ⋯ menu, the cached accessories (stale ones
   first) with **Remove from the cache…** and **Reset every cache…**, and a link to the schedules and proxy settings of
   the HomeswiftUI block. A HomeKit port is checked before it is saved; an empty one picks a free port. Homeswift listens
   and advertises on every interface with the system's mDNS (Bonjour, or Avahi on Linux): there is no interface to bind
   or advertiser to choose, as Homebridge's `bind` and `advertiser` settings do, and no Node-specific setting
   (environment, debug mode, keep orphans).
+- **Config** (`/settings/config`): the whole config.json in an editor; see [Config](#config) below.
 - **Child bridges**: each with its status, uptime, restarts, the plugins that did not start and why, and, until the Home
   app has it, its setup code and QR code. Its ⋯ menu restarts, stops or starts it, shows its log, and resets its
   pairings.
@@ -428,6 +455,12 @@ For administrators, after the Homebridge UI's settings, child bridges, backups a
     page's Vault widget and the daily digest say so too.
   - In a settings form, a secret's field has a key button: its menu searches the vault's entries and puts the one
     chosen as `vault:<name>`, shown as it is.
+- **Updates** (`/settings/updates`): this version, how it was installed, when GitHub was last asked, a switch for the
+  checks twice a day (the HomeswiftUI block's `checkForUpdates`, written at once: `PUT /api/updates/automatic`),
+  **Check now** and **Restart homeswift…**. When a newer
+  release is out, its card: **Install and relaunch** on a Homebrew install (`POST /api/updates/install`, then
+  `GET /api/updates` while it installs; an upgrade that leaves the old version in place, as when the tap has not caught
+  up yet, is an error), **Relaunch now** once it is on disk, how to upgrade elsewhere.
 - **Audit log**: the MCP audit log (`homeswift-mcp-audit.jsonl`): every write of MCP clients and of the Assistant's chat,
   and every change made in this UI (client `web UI`, the user, the route, a small body with its secrets masked), newest
   first, filtered by time, outcome, tool and client (`/settings/audit?since=7d&outcome=failed&tool=…&client=…`).
@@ -438,6 +471,23 @@ For administrators, after the Homebridge UI's settings, child bridges, backups a
   saved or not, and the budgets are saved with the form.
 
 The pages' changes that cannot be undone (pairings, caches, a restore) ask first, some with a word to type.
+
+#### Config
+
+![Settings › Config: the whole config.json, secrets marked in gold](images/ui/config.png)
+
+A tab of Settings (`/settings/config`; `/config`, its address before, leads there). The whole file in an editor. Saving validates it, checks each plugin block's changes against its schema as the Expert
+view does, keeps a backup under `backups/` (the last 20), sorts the keys and applies it. A syntax error's line is
+marked as you type.
+
+- **Folding**: a block that spans lines folds from the chevron beside its first line (Option-click folds or opens every
+  block at that indentation; ⌘⌥[ and ⌘⌥] at the caret), and a click on its ⋯ opens it. What is saved, copied or
+  formatted is always the whole text. A plugin's JSON view folds the same way.
+- **Secrets**: a key that holds one (the bridge's redaction rule: passwords, tokens, keys, the setup code, `auth`) is
+  gold with a lock before it, in both editors, and its value shows as `__REDACTED__`. A save that keeps the placeholder
+  keeps the stored value, so the page never needs to show a secret to edit the rest. **Secrets only** (the lock in the
+  bar) folds everything else, leaving the secrets and the way down to each; while it holds, the button is gold and a
+  strip above the text says how many show, with **Show all**. Opening a fold, Format or Revert end it.
 
 ### Appearance
 
@@ -459,8 +509,8 @@ browser they sign in to; a browser remembers the last ones it saw, so a page ope
 
 Every view is a path: `/status`, `/accessories` (and `/accessories/graph`), `/quick`, `/scenes` (and `/scenes/<id>`,
 `/scenes/new`), `/notifications`, `/plugins`, `/plugins/<slug>` and its `/expert`, `/plugins/add/<platform>`,
-`/config`, `/account`, `/appearance`, `/users`, and `/settings` with `/bridge`, `/child-bridges`, `/backups`,
-`/assistant` and `/audit`. A view's choices go into its address: the web UI block's page with `?section=proxy` or
+`/account`, `/appearance`, `/users`, and `/settings` with `/bridge`, `/config` (`/config` alone leads there),
+`/child-bridges`, `/backups`, `/vault`, `/updates`, `/audit` and `/assistant`. A view's choices go into its address: the web UI block's page with `?section=proxy` or
 `?section=schedules` (`/plugins/web-ui?section=proxy`) opens and scrolls to that part of its settings, and the Logs view is
 `/logs/<accessory>?bridge=<bridge or all>&plugin=<plugin>&since=24h&level=warning&q=text`: the accessory by its name's
 slug or its id, the plugin by its slug (and `/logs/<platform>` from a plugin's page), `bridge` and `plugin` not both
@@ -568,6 +618,11 @@ On a wide window the chat is a panel beside the page; on a phone, a sheet you dr
   `nosniff`, no referrer, and a permissions policy that leaves the UI the microphone (dictation) and full screen (a
   camera) and nothing else. Search engines are asked to keep away (`X-Robots-Tag: noindex, nofollow` on every reply and
   a `/robots.txt` that disallows everything), for a UI published through a tunnel or a proxy.
+- **Caching.** Pages are never stored. The files a page uses are asked for at an address of their bytes
+  (`/app.js?v=<its ETag>`), which a browser keeps for a year (`immutable`); any other address of a file is revalidated
+  (`no-cache` and its ETag). The page knows its build (`<meta name="homeswift-build">`, `build` in `/api/status`) and
+  loads again when the bridge's differs: after a restart, when it comes back in view (a web app on a phone stays open
+  for days) and when its event stream reconnects, but not while it holds unsaved changes.
 - **The first account** needs the set-up code, so nobody else on the network can claim the bridge before its owner
   does. The code is printed at startup and never logged: the MCP log tools cannot see it.
 - **Passwords** are hashed with PBKDF2-HMAC-SHA256 (210,000 iterations, a random salt) and verified in constant time.
@@ -709,7 +764,9 @@ It runs the bridge built at `~/Library/Caches/homeswift-build/debug/homeswift` (
 folder with a new identity: the web UI on `127.0.0.1` without sign-in, plugin blocks with demonstration names, all
 paused, so nothing reaches a device or a cloud, and two generated images as wallpapers. It renders in headless Chrome in
 light mode at 2x, replaces this machine's name and the folder's paths in what the API answers, and removes the folder
-when it ends. The Accessories page's images are [widgets.md](widgets.md#screenshots)'s.
+when it ends. The Accessories page's images are [widgets.md](widgets.md#screenshots)'s. The Scenes page's shots that need lights (hubs' scenes,
+the templates, a scene card and its Stop) come from `node Scripts/plugin-screenshots.mjs`, against its fake Hue Bridge
+and DIRIGERA hub.
 
 ### Quick controls on phones
 

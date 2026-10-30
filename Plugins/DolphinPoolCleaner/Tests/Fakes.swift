@@ -64,12 +64,21 @@ func eventually(timeout: Duration = .seconds(30), _ condition: @Sendable () asyn
 }
 
 extension DolphinTiming {
-    /// Every delay in milliseconds, keeping the proportions that matter.
+    /// Every delay in milliseconds, keeping the proportions that matter. The timeouts stay long: a loaded machine
+    /// running every suite at once can take longer than a short one to answer, and only `timesOut` waits them out.
     static let fast = DolphinTiming(
-        shadowTimeout: .milliseconds(400), minimumRequestInterval: .milliseconds(5),
+        shadowTimeout: .seconds(5), minimumRequestInterval: .milliseconds(5),
         pollRetry: RetryPolicy(attempts: 3, baseDelay: .milliseconds(10)), commandRetry: RetryPolicy(attempts: 2, baseDelay: .milliseconds(10)),
-        maximumRetryDelay: .milliseconds(50), retryJitter: .milliseconds(2), throttleLogInterval: .seconds(600), mqttConnectTimeout: .milliseconds(400),
+        maximumRetryDelay: .milliseconds(50), retryJitter: .milliseconds(2), throttleLogInterval: .seconds(600), mqttConnectTimeout: .seconds(5),
         stateRefreshDelay: .milliseconds(60), commandGracePeriod: .seconds(15), discoveryRetryBase: .milliseconds(150), discoveryRetryMaximum: .seconds(2))
+
+    /// `fast` with short timeouts, for the tests that wait for one.
+    static var timesOut: DolphinTiming {
+        var timing = fast
+        timing.shadowTimeout = .milliseconds(400)
+        timing.mqttConnectTimeout = .milliseconds(400)
+        return timing
+    }
 }
 
 // MARK: The REST and Cognito endpoints

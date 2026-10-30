@@ -156,6 +156,16 @@ func categories(_ overrides: [String: JSONValue] = [:]) -> JSONValue {
 }
 
 @Suite struct OfflineCatalogueTests {
+    /// An animated scene's style plays as the library scene of its name on the light's model; a palette has none.
+    @Test func effectsPlayAsLibraryScenes() throws {
+        let fire = try #require(GoveePlugin.effectSceneCode(.fire, sku: "H6173"))
+        #expect(fire.name == "Fire" && !fire.code.isEmpty)
+        #expect(GoveePlugin.effectSceneCode(.candle, sku: "H6001")?.name == "Candlelight")
+        #expect(GoveePlugin.effectSceneCode(.underwater, sku: "H6173")?.name == "Deep sea")
+        #expect(GoveePlugin.effectSceneCode(.palette, sku: "H6173") == nil)
+        #expect(GoveePlugin.effectSceneCode(.music, sku: "H6173") == nil)
+    }
+
     @Test func rgbicModelsGetTheRicherSet() throws {
         #expect(SceneCatalogue.isRGBIC("H6173"))
         #expect(SceneCatalogue.isRGBIC("h6173"))

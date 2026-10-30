@@ -1813,11 +1813,14 @@
     return dialog;
   }
 
+  /// The icon of what a service stands for when HomeKit has no type for it (`Service.standsFor`): a robot vacuum.
+  const standsForIcon = (accessory) => accessory.services?.some((service) => service.standsFor === "cleaningRobot") ? "vacuum" : null;
+
   /// The tile's glyph, and a painter for its colour and state.
   function glyphFor(ctx, widget, built, primary) {
     const [fallbackIcon, fallbackTone] = categoryIcons[ctx.accessory.category] || ["generic", "grey"];
     const pick = (value, fallback) => typeof value === "function" ? value(ctx, primary) : value ?? fallback;
-    const glyph = el("span", { class: "tile", "aria-hidden": "true" }, icon(pick(widget.icon, fallbackIcon)));
+    const glyph = el("span", { class: "tile", "aria-hidden": "true" }, icon(standsForIcon(ctx.accessory) ?? pick(widget.icon, fallbackIcon)));
     return [glyph, () => {
       const on = built.on ? built.on() : true;
       const color = on && built.color ? built.color() : null;
@@ -2153,6 +2156,8 @@
     /// The icon an accessory's tile shows: its widget's (a battery's for a power station filed as Other), else its
     /// category's. Other pages use it so an accessory looks the same everywhere.
     accessoryIcon(accessory) {
+      const standsFor = standsForIcon(accessory);
+      if (standsFor) return standsFor;
       try {
         const ctx = context(accessory);
         const { widget, primary } = resolve(ctx);

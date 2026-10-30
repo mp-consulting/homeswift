@@ -19,8 +19,9 @@ is the design agreed before the work started; each slice below lands on its own 
   "Other".
 - **Active.** A plugin scene is active when its hub says so (Hue does, DIRIGERA does not); a static Homeswift
   scene while every value matches; an animated one while it plays.
-- **Artwork.** The core keeps every scene's artwork, plugin scenes' included (by plugin scene id); the plugins'
-  `scene-pictures` are migrated once.
+- **Artwork.** The core keeps every scene's artwork, plugin scenes' included (by plugin scene id), in
+  `scene-pictures/`; a plugin's page reads and writes the same pictures through `context.scenePictures()`, and the
+  plugins' own `scene-pictures` are moved there once.
 
 ## Animation
 
@@ -37,7 +38,7 @@ speed and brightness, and optional overrides for a provider (an exact Hue effect
 | Govee | The model's library scene of the style's name (a curated table: fire → "Fire", candle → "Candlelight"…); speed ignored until its encoding is verified |
 | IKEA DIRIGERA | Sunrise and sunset as one long fade; no effects |
 | Philips Ambilight TV | Music through its FOLLOW_AUDIO modes |
-| eWeLink | Its own modes, later, ported from homebridge-ewelink |
+| eWeLink | A SONOFF L2 strip's own scenes (`mode`, from homebridge-ewelink): candle, sunrise, sunset, rainbow for prism and moving colours, ocean, moonlight, sunshine, dream, music |
 | Others | Homeswift's player; music stays static |
 
 Brands are not kept in step. Stopping tells each provider to stop its effect, then puts the lights back.
@@ -73,8 +74,9 @@ The AI composes a scene and runs it without saving it, as moods did:
 - **Templates:** the mood collection and the gallery become templates applied to a room, artwork included.
 - **The Assistant:** writes a draft scene from a description, previewed (with undo), saved when confirmed;
   `save_scene` takes a `description`.
-- **HomeKit:** a Homeswift scene can be a switch, chosen per scene, on one "Homeswift Scenes" accessory; the
-  plugins' scene switches stay as they are.
+- **HomeKit:** a Homeswift scene can be a switch, chosen per scene (`homeKit`), on one "Homeswift Scenes" accessory
+  (`Homeswift:scenes`, a switch per scene with subtype `scene:<id>`; `SceneSwitches.swift`); the plugins' scene
+  switches stay as they are.
 - **Govee** provides the scenes picked on its page; the library stays a place to pick from.
 - **Removed:** `list_moods`, `start_mood`, `stop_mood`, `/api/moods/*`, `held-moods.json`, `design-mood.md`;
   `stop_scene` and `undo_scene` are added.
@@ -85,6 +87,8 @@ The AI composes a scene and runs it without saving it, as moods did:
 2. Undo and stop for every run; `plan` on `run_scene` and `save_scene`.
 3. Animated scenes: styles, native providers (Hue, Govee, IKEA fades, Ambilight), the player as fallback.
 4. Templates; the Assistant writes scenes (`description`).
-5. Moods removed (`feat!`), with docs, translations and screenshots.
-6. Hue and DIRIGERA write-back (DIRIGERA's from lpgera/dirigera, noted in THIRD-PARTY-NOTICES.md).
-7. eWeLink's own modes.
+5. Moods removed (`feat!`), with docs, translations and screenshots; each room's scenes above the templates.
+6. Hue and DIRIGERA write-back (DIRIGERA's from lpgera/dirigera, noted in THIRD-PARTY-NOTICES.md): `save_scene`'s
+   `hub`, `update_hub_scene`, `delete_hub_scene`; the plugin API's `sceneTarget`, `createScene`, `updateScene`,
+   `deleteScene`.
+7. eWeLink's own modes: the L2 strip's scenes (`EWeLinkEffects.swift`).

@@ -32,7 +32,7 @@ lights, switches, fans or blinds into dashboard groups, and filter devices that 
 
 The **Scenes** page includes 143 original photographic palettes in 28 themes, searchable and sortable,
 with horizontal browsing on phones. Build automations with triggers, conditions and device-specific
-controls, including light colour pickers. Running scenes and moods can restore the previous accessory
+controls, including light colour pickers. Running scenes, templates and animated scenes can restore the previous accessory
 state with **Stop**; restoration of locks, doors and alarms still requires confirmation. Pick sunrise and
 sunset coordinates on a map or search an address. Appearance settings include photographic and abstract
 wallpapers. See [scene artwork](docs/scene-artwork.md) for the image catalogue and provenance.
@@ -178,7 +178,7 @@ over Bluetooth; macOS asks once for Bluetooth access for the app that runs it (t
 | [Philips Hue](Plugins/PhilipsHue) | `PhilipsHue` | Hue lights, scenes, effects and gradients, through a Hue Bridge's local API v2 (paired from the web UI) |
 | [UniFi Access](Plugins/UniFiAccess) | `UniFi Access` | UniFi Access hubs and readers: door locks, doorbells, sensors, followed through the controller's events |
 | [UniFi Protect](Plugins/UniFiProtect) | `UniFi Protect` | UniFi Protect cameras and doorbells (live video, HomeKit Secure Video), sensors, lights, chimes |
-| [Wingman](Plugins/Wingman) | `Wingman` | The Home app's accessories (Matter ones too) through [Homeswift Wingman](https://github.com/mp-consulting/homeswift-wingman) on a Mac: in the web UI, moods, scenes and MCP, never published to HomeKit again |
+| [Wingman](Plugins/Wingman) | `Wingman` | The Home app's accessories (Matter ones too) through [Homeswift Wingman](https://github.com/mp-consulting/homeswift-wingman) on a Mac: in the web UI, scenes and MCP, never published to HomeKit again |
 
 ### In a container, on a NAS
 

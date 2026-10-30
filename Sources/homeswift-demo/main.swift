@@ -1,8 +1,11 @@
 import Foundation
 import Homeswift
+import HomeswiftMatter
 import Logging
+import NIOConcurrencyHelpers
 
 // A bridge with a lamp (with Adaptive Lighting), a switch and a temperature sensor that drifts, for pairing with the Home app.
+// With --matter, the same accessories are a Matter bridge too, for Google Home, Alexa, SmartThings or Home Assistant.
 
 /// Writes straight to the file descriptor: unbuffered, so lines reach log files (brew services) at once.
 func say(_ text: String) {
@@ -11,10 +14,16 @@ func say(_ text: String) {
 
 if CommandLine.arguments.dropFirst().contains(where: { $0 == "--help" || $0 == "-h" }) {
     say("""
-        usage: homeswift-demo
+        usage: homeswift-demo [--matter] [--matter-device <id>]...
 
         Runs a demo HomeKit bridge (a lamp, a switch, a temperature sensor) and prints its setup code.
         State is kept in ~/.homeswift/homeswift-demo.json.
+
+          --matter        also bridge the accessories over Matter (UDP port 5540) and print its pairing codes;
+                          the Matter node's state is kept in ~/.homeswift/homeswift-demo-matter/
+          --matter-device <id>
+                          make an accessory (demo-lamp, demo-switch, demo-temperature) a Matter device of its own,
+                          with its own pairing code; implies --matter
 
         Environment:
           HAP_SETUP_CODE  setup code to use, e.g. 031-45-154 (default: random on first launch)
@@ -73,8 +82,34 @@ say("""
 
     """)
 
+let arguments = Array(CommandLine.arguments.dropFirst())
+let matterDevices = arguments.indices.filter { arguments[$0] == "--matter-device" }.map { index in
+    let ids = ["demo-lamp", "demo-switch", "demo-temperature"]
+    guard index + 1 < arguments.count, ids.contains(arguments[index + 1]) else {
+        say("--matter-device takes one of \(ids.joined(separator: ", "))")
+        exit(1)
+    }
+    return arguments[index + 1]
+}
+let bridgesMatter = arguments.contains("--matter") || !matterDevices.isEmpty
+// Set once it is made, for the signal handler to stop it.
+let matterBridge = NIOLockedValueBox<HomeswiftMatterBridge?>(nil)
+
+let matterDirectory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".homeswift/homeswift-demo-matter")
+
 let main = Task {
     try await server.start()
+    if bridgesMatter {
+        var configuration = MatterConfiguration()
+        configuration.devices = matterDevices
+        let matter = try await HomeswiftMatterBridge(
+            configuration: configuration, source: ServerAccessories(server),
+            storage: MatterFileStorage(directory: matterDirectory), deviceStorage: { MatterFileStorage(device: $0, in: matterDirectory) })
+        matterBridge.withLockedValue { $0 = matter }
+        try await matter.start()
+        // The demo shows the pairing codes on purpose: they are how a person commissions it.
+        say(await matter.pairingLines())
+    }
     var reading = 21.0
     while !Task.isCancelled {
         try await Task.sleep(for: .seconds(10))
@@ -88,9 +123,10 @@ let signals = [SIGINT, SIGTERM].map { number in
     let source = DispatchSource.makeSignalSource(signal: number, queue: .main)
     signal(number, SIG_IGN)
     // Not main-actor code: Dispatch runs the handler on its own terms, so it only uses what it captures.
-    source.setEventHandler { @Sendable [main, server] in
+    source.setEventHandler { @Sendable [main, server, matterBridge] in
         main.cancel()
         Task {
+            await matterBridge.withLockedValue { $0 }?.stop()
             await server.stop()
             exit(0)
         }

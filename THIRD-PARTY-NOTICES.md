@@ -40,6 +40,7 @@ THIS SOFTWARE.
 | [homebridge-govee](https://github.com/mp-consulting/homebridge-govee) | Copyright (c) 2021-2024 Ben Potter (bwp91) | `Plugins/Govee` |
 | [homebridge-ewelink](https://github.com/mp-consulting/homebridge-ewelink) | Copyright (c) 2020-2024 bwp91 | `Plugins/EWeLink` |
 | [homebridge-dyson-pure-cool](https://github.com/mp-consulting/homebridge-dyson-pure-cool) | Copyright (c) 2019 Lukas Rogner | `Plugins/DysonPureCool` |
+| [dirigera](https://github.com/lpgera/dirigera) | Copyright (c) 2022 lpgera | The scene and room writes of `Plugins/Dirigera` (`DirigeraScenes.swift`, `DirigeraRooms.swift`, the scene and room calls of `DirigeraClient.swift`) |
 | [noble](https://github.com/stoprocent/noble) (`@stoprocent/noble`, its hci-socket bindings) | Copyright (c) 2013 Sandeep Mistry | `Plugins/Govee/Sources/HCI.swift`, `Plugins/Govee/Sources/LinuxBluetoothCentral.swift` |
 
 Each copyright above comes with this permission notice:

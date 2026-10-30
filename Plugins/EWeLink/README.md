@@ -19,6 +19,9 @@ platform name (`eWeLink`) and every option are the same, so a Homebridge block w
   never left is retried, one that timed out is retried once, one lost when the socket closed is never resent.
 - **Login** with an email or a phone number, signed as the eWeLink app signs it; the region follows the country
   code and eWeLink's redirects; a password stored in base64 is tried decoded; expired tokens are refreshed.
+- **Animated scenes.** A Homeswift scene's effect plays as one of a SONOFF L2 strip's own scenes (Candle, Sunrise,
+  Sunset, Rainbow, Ocean, Moonlight, Sunshine, Dream, or following the music), as homebridge-ewelink's L2 modes
+  list them; other lights, and styles the strip has no scene for, are played by Homeswift.
 - **Offline first.** The devices of the last discovery are kept, so at launch the accessories work (over the
   LAN) before the cloud answers, and keep working while it is down. Login and discovery retry with backoff
   (15 s doubling to 5 min).

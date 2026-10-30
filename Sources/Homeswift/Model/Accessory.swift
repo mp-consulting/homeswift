@@ -104,7 +104,7 @@ public final class Accessory: @unchecked Sendable {
     /// The controller this accessory mirrors, for an accessory HomeKit already has another way ("Apple Home": the
     /// Wingman plugin shows the Home app's accessories). The bridge keeps a mirrored accessory out of HomeKit (it
     /// is not in `GET /accessories`, and controllers cannot read, write or subscribe to it) while the web UI, the MCP
-    /// server, scenes and moods use it as any other; the UI says where it comes from. Set before `context.add`.
+    /// server, scenes and shows use it as any other; the UI says where it comes from. Set before `context.add`.
     public var mirroredFrom: String? {
         get { mirrorBox.withLockedValue { $0.source } }
         set { mirrorBox.withLockedValue { $0.source = newValue } }

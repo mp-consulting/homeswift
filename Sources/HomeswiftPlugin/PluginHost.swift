@@ -16,7 +16,7 @@ import NIOConcurrencyHelpers
 /// | `plugins/<platform>-<name>/` | Each plugin's own files |
 /// | `ai-usage.json` | The Assistant's usage per day, month, model and user, for its budgets |
 public final class PluginHost: @unchecked Sendable {
-    public static let version = "0.14.0"
+    public static let version = "0.15.0"
 
     public struct Options: Sendable {
         /// Advertise the bridges over Bonjour. Turn off in tests.
@@ -73,6 +73,9 @@ public final class PluginHost: @unchecked Sendable {
         /// The bridge's name, or the external accessory's.
         public var name: String { isExternal ? server.primary.name : storedName }
 
+        /// The key of the platform instance that claimed this accessory id here.
+        func claimant(of id: String) -> String? { owners.withLockedValue { $0[id]?.key } }
+
         func claim(_ id: String, for key: String, name: String) throws {
             try owners.withLockedValue { owners in
                 if let owner = owners[id], owner.key != key {
@@ -119,6 +122,13 @@ public final class PluginHost: @unchecked Sendable {
         /// Why its plugin did not start, the last time it was launched.
         let failure = NIOLockedValueBox<String?>(nil)
 
+        /// What callers outside the runtime see of it.
+        var described: PlatformInstance {
+            PlatformInstance(
+                name: context.name, platform: context.platform, pluginName: entry.name, bridge: context.bridge,
+                accessoryIDs: context.accessories.map(\.id), paused: block.paused)
+        }
+
         init(entry: PluginRegistry.Entry, block: HomeswiftConfiguration.Platform, context: PluginContext) {
             self.entry = entry
             self.block = block
@@ -137,11 +147,20 @@ public final class PluginHost: @unchecked Sendable {
     private let bridgeList: NIOLockedValueBox<[Bridge]>
     let externals: ExternalAccessories
     public var mainBridge: Bridge { bridges[0] }
-    public var platforms: [PlatformInstance] {
-        instances.map {
-            PlatformInstance(
-                name: $0.context.name, platform: $0.context.platform, pluginName: $0.entry.name, bridge: $0.context.bridge,
-                accessoryIDs: $0.context.accessories.map(\.id), paused: $0.block.paused)
+    /// The platform instance that published the accessory `id` on `bridge` (its claim, or the external accessory's
+    /// owner), without describing every instance as `platforms` does.
+    public func platform(owning id: String, on bridge: Bridge) -> PlatformInstance? {
+        guard let key = bridge.isExternal ? bridge.ownerKey : bridge.claimant(of: id) else { return nil }
+        return instances.first { $0.context.key == key }?.described
+    }
+
+    public var platforms: [PlatformInstance] { instances.map(\.described) }
+
+    /// The instances whose plugin runs (not paused, started), with it.
+    func runningPlugins() -> [(instance: Instance, plugin: any HomeswiftPlugin)] {
+        instances.compactMap { instance in
+            guard !instance.block.paused, let plugin = instance.plugin.withLockedValue({ $0 }) else { return nil }
+            return (instance, plugin)
         }
     }
 
@@ -161,6 +180,8 @@ public final class PluginHost: @unchecked Sendable {
     private let assistantBox = NIOLockedValueBox<AssistantService?>(nil)
     // Characteristic changes of every server the host runs, for the web UI and the MCP server.
     private let changes: ChangeFeed
+    // Accessories coming and going on every server the host runs, for the Matter bridge.
+    private let structure: StructureFeed
     // How long requests and handlers take on every server, for the Status page's charts.
     private let timings: TimingFeed
     private let values = ValueFeed()
@@ -193,11 +214,15 @@ public final class PluginHost: @unchecked Sendable {
         let changes = ChangeFeed()
         self.changes = changes
         changes.follow(mainServer)
+        let structure = StructureFeed()
+        self.structure = structure
+        structure.follow(mainServer)
         let timings = TimingFeed()
         self.timings = timings
         timings.follow(main)
         externals = ExternalAccessories(bridges: bridgeList, storageDirectory: storageDirectory, options: options, setupCode: { mainServer.setupCode }) { bridge in
             changes.follow(bridge.server)
+            structure.follow(bridge.server)
             timings.follow(bridge)
         }
 
@@ -329,6 +354,12 @@ public final class PluginHost: @unchecked Sendable {
     /// included (a child bridge, a television published after start), until the observation is cancelled.
     public func observeChanges(_ observer: @escaping HAPServer.ChangeObserver) -> Observation {
         changes.add(observer)
+    }
+
+    /// Calls `observer` after an accessory is added, replaced or removed on any server the host runs, and when the
+    /// host adds a server, until the observation is cancelled. It says nothing of what changed: look again.
+    public func observeStructure(_ observer: @escaping @Sendable () -> Void) -> Observation {
+        structure.add(observer)
     }
 
     /// Calls `observer` with how long each request and handler took on any server the host runs, with that
@@ -541,6 +572,7 @@ public final class PluginHost: @unchecked Sendable {
     private func appendBridge(_ bridge: Bridge) {
         bridgeList.withLockedValue { $0.append(bridge) }
         changes.follow(bridge.server)
+        structure.follow(bridge.server)
         timings.follow(bridge)
     }
 

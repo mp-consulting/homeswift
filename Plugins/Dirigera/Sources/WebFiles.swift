@@ -258,7 +258,7 @@ h2 { margin: 0 0 10px; }
   const markDirty = () => { dirty = true; $("#save-state").textContent = t("Unsaved changes."); };
 
   const speed = homeswift.speedScale({
-    help: t("How fast a light reaches a new level or colour. Fast is the default; Extreme changes at once, snappiest for moods."),
+    help: t("How fast a light reaches a new level or colour. Fast is the default; Extreme changes at once, snappiest for animated scenes."),
     onInput: markDirty,
   });
   const scenesToggle = el("input", { type: "checkbox", id: "scenes-toggle" });
@@ -358,7 +358,7 @@ HomeswiftI18n.add({
     "Pair a hub to see its scenes.": "Jumelez un hub pour voir ses scènes.",
     "Unsaved changes.": "Modifications non enregistrées.",
     "Medium": "Moyenne",
-    "How fast a light reaches a new level or colour. Fast is the default; Extreme changes at once, snappiest for moods.": "La vitesse à laquelle une lampe atteint une nouvelle intensité ou couleur. Rapide par défaut ; Extrême change aussitôt, le plus vif pour les ambiances.",
+    "How fast a light reaches a new level or colour. Fast is the default; Extreme changes at once, snappiest for animated scenes.": "La vitesse à laquelle une lampe atteint une nouvelle intensité ou couleur. Rapide par défaut ; Extrême change aussitôt, le plus vif pour les scènes animées.",
     "A switch for each scene of the hub. On runs it; off within 30 seconds undoes it.": "Un interrupteur par scène du hub. L'allumer la lance ; l'éteindre dans les 30 secondes l'annule.",
     "Changes are kept once you save.": "Les modifications sont conservées une fois enregistrées.",
     "Saved. The plugin restarted with these settings.": "Enregistré. Le plugin a redémarré avec ces réglages.",
@@ -407,7 +407,7 @@ HomeswiftI18n.add({
     "Pair a hub to see its scenes.": "Empareja un hub para ver sus escenas.",
     "Unsaved changes.": "Cambios sin guardar.",
     "Medium": "Media",
-    "How fast a light reaches a new level or colour. Fast is the default; Extreme changes at once, snappiest for moods.": "La rapidez con la que una luz llega a un nuevo nivel o color. Rápida es la predeterminada; Extrema cambia al instante, lo más ágil para los ambientes.",
+    "How fast a light reaches a new level or colour. Fast is the default; Extreme changes at once, snappiest for animated scenes.": "La rapidez con la que una luz llega a un nuevo nivel o color. Rápida es la predeterminada; Extrema cambia al instante, lo más ágil para las escenas animadas.",
     "A switch for each scene of the hub. On runs it; off within 30 seconds undoes it.": "Un interruptor por escena del hub. Encenderlo la activa; apagarlo antes de 30 segundos la deshace.",
     "Changes are kept once you save.": "Los cambios se conservan al guardar.",
     "Saved. The plugin restarted with these settings.": "Guardado. El plugin se ha reiniciado con estos ajustes.",
@@ -456,7 +456,7 @@ HomeswiftI18n.add({
     "Pair a hub to see its scenes.": "Emparelhe um hub para ver as cenas.",
     "Unsaved changes.": "Alterações por guardar.",
     "Medium": "Média",
-    "How fast a light reaches a new level or colour. Fast is the default; Extreme changes at once, snappiest for moods.": "A rapidez com que uma luz chega a um novo nível ou cor. Rápida é a predefinida; Extrema muda de imediato, o mais vivo para os ambientes.",
+    "How fast a light reaches a new level or colour. Fast is the default; Extreme changes at once, snappiest for animated scenes.": "A rapidez com que uma luz chega a um novo nível ou cor. Rápida é a predefinida; Extrema muda de imediato, o mais vivo para as cenas animadas.",
     "A switch for each scene of the hub. On runs it; off within 30 seconds undoes it.": "Um interruptor por cena do hub. Ligá-lo ativa-a; desligá-lo nos 30 segundos seguintes anula-a.",
     "Changes are kept once you save.": "As alterações ficam guardadas quando guardar.",
     "Saved. The plugin restarted with these settings.": "Guardado. O plugin reiniciou com estas definições.",

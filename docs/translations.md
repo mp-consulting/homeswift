@@ -128,7 +128,7 @@ HomeswiftUI, JSON, MCP, OAuth, plugins' and brands' names, units.
 | plugin | plugin | plugin | plugin |
 | platform (config block) | plateforme | plataforma | plataforma |
 | scene | scène | escena | cena |
-| mood (lights) | ambiance | ambiente | ambiente |
+| template (scene) | modèle | plantilla | modelo |
 | room | pièce | habitación | divisão |
 | the Home app | l'app Maison | la app Casa | a app Casa |
 | Status | État | Estado | Estado |

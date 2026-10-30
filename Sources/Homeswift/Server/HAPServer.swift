@@ -76,6 +76,7 @@ public final class HAPServer: @unchecked Sendable {
         var accessories: [Int: Accessory] = [:]
         var connections: [ObjectIdentifier: HAPConnection] = [:]
         var changeObservers: [ChangeObserver] = []
+        var structureObservers: [@Sendable () -> Void] = []
         var timingObservers: [TimingObserver] = []
         var pairSetupOwner: ObjectIdentifier?
         var failedPairSetupAttempts = 0
@@ -169,9 +170,15 @@ public final class HAPServer: @unchecked Sendable {
         state.withLockedValue { $0.accessories.sorted { $0.key < $1.key }.map(\.value) }
     }
 
+    /// The accessory with this id, or nil: a lookup by its aid, not a scan of `accessories` (which sorts them).
+    public func accessory(id: String) -> Accessory? {
+        state.withLockedValue { state in state.persisted.aids[id].flatMap { state.accessories[$0] } }
+    }
+
     /// Adds a bridged accessory, before or while running. Once running, HomeKit picks it up from the new
     /// configuration number; before, `start()` hashes the whole database once.
     public func add(_ accessory: Accessory) throws {
+        defer { structureChanged() }
         // A mirrored accessory gets its aid and iids for the web UI and the MCP server, but HomeKit's database, its
         // configuration number and the advertisement stay as they are: no bump, no write, no new TXT record.
         // Only when it replaces one HomeKit could see under the same id does the database change.
@@ -219,6 +226,7 @@ public final class HAPServer: @unchecked Sendable {
     /// Replaces the primary accessory (a standalone accessory that changed shape) under the same identity:
     /// the iids of the services it keeps stay, HomeKit sees the rest through the configuration number.
     public func replace(primary accessory: Accessory) throws {
+        defer { structureChanged() }
         Self.addProtocolInformation(to: accessory)
         let running = state.withLockedValue { state in
             state.accessories[1] = nil
@@ -239,6 +247,7 @@ public final class HAPServer: @unchecked Sendable {
 
     /// Removes a bridged accessory, before or while running.
     public func remove(_ accessory: Accessory) throws {
+        defer { structureChanged() }
         let running = state.withLockedValue { state in
             state.accessories[accessory.aid] = nil
             return refreshIfRunning(&state)
@@ -254,6 +263,15 @@ public final class HAPServer: @unchecked Sendable {
         guard state.serverChannel != nil else { return false }
         refreshConfigurationNumber(in: &state)
         return true
+    }
+
+    /// Registers an observer called after an accessory is added, replaced or removed, whether or not it runs.
+    public func observeStructure(_ observer: @escaping @Sendable () -> Void) {
+        state.withLockedValue { $0.structureObservers.append(observer) }
+    }
+
+    private func structureChanged() {
+        for observer in state.withLockedValue({ $0.structureObservers }) { observer() }
     }
 
     /// Registers an observer of characteristic changes on every accessory of this server.

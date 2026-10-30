@@ -20,6 +20,28 @@ struct PlatformTests {
         await host.stop()
     }
 
+    /// The account's rooms, listed through the platform's session and renamed with `PUT /v2/family/room`; a second
+    /// home names the room's home.
+    @Test func roomsAreRenamedInTheCloud() async throws {
+        let host = try await environment.start(devices: [device("1000aaaaaa", uiid: 1, name: "Lamp")], settings: ["mode": "wan"])
+        let plugin = try #require(environment.plugin)
+        #expect(await plugin.rooms() == [PluginRoom(id: "room-1", name: "Salon"), PluginRoom(id: "room-2", name: "Kitchen")])
+
+        try await plugin.renameRoom(id: "room-1", name: "Lounge")
+        let sent = try #require(environment.cloud.requests(path: "/v2/family/room").last)
+        #expect(sent.method == "PUT")
+        #expect(try JSONValue(data: sent.body ?? Data()) == ["id": "room-1", "name": "Lounge"])
+        #expect(await plugin.rooms().first?.name == "Lounge")
+        await #expect(throws: EWeLinkError.self) { try await plugin.renameRoom(id: "room-9", name: "Attic") }
+
+        environment.cloud.update {
+            $0.homes = ["home-1", "home-2"]
+            $0.rooms["home-2"] = [("room-3", "Garage")]
+        }
+        #expect(await plugin.rooms().last == PluginRoom(id: "room-3", name: "Garage", place: "Home"))
+        await host.stop()
+    }
+
     @Test func discoversDevicesAndConnectsTheWebSocket() async throws {
         let host = try await environment.start(devices: [device("1000aaaaaa", uiid: 1, name: "Lamp", params: ["switch": "on", "fwVersion": "3.5.0"])], settings: ["mode": "wan"])
         let accessory = try #require(environment.accessory(host, "1000aaaaaa"))
@@ -144,6 +166,25 @@ struct PlatformTests {
         #expect(await eventually { on(4) == nil && on(0) == true && channel.value == false && on(3) == false })
         environment.push("1000bbbbbb", ["switches": [["outlet": 0, "switch": "on"], ["outlet": 1, "switch": "off"], ["outlet": 2, "switch": "off"], ["outlet": 3, "switch": "off"]]])
         #expect(await eventually { channel.value == true && on(0) == true && on(2) == false && on(3) == false })
+        await host.stop()
+    }
+
+    /// An animated scene's effect plays as one of an L2 strip's own scenes (homebridge-ewelink's modes), music in its
+    /// Classic rhythm; a style it has none for, and other lights, are left to Homeswift; stopping goes back to colour.
+    @Test func anL2StripPlaysItsOwnScenes() async throws {
+        let host = try await environment.start(
+            devices: [device("1000aaaaaa", uiid: 137, name: "Strip", params: ["switch": "off", "mode": 1]), device("1000bbbbbb", uiid: 1, name: "Lamp")],
+            settings: ["mode": "wan"])
+        #expect(await environment.socketReady())
+        let plugin = try #require(environment.plugin)
+        let strip = "eWeLink:1000aaaaaa", lamp = "eWeLink:1000bbbbbb"
+        #expect(await plugin.animate(LightEffect(style: .candle), accessoryIDs: [strip, lamp]) == [strip])
+        #expect(environment.socket.commands.last == ["switch": "on", "mode": 13])
+        #expect(await plugin.animate(LightEffect(style: .music), accessoryIDs: [strip]) == [strip])
+        #expect(environment.socket.commands.last == ["switch": "on", "mode": 4, "rhythmMode": 0, "rhythmSensitive": 0])
+        #expect(await plugin.animate(LightEffect(style: .fire), accessoryIDs: [strip]).isEmpty)
+        await plugin.stopAnimation(accessoryIDs: [strip, lamp])
+        #expect(environment.socket.commands.last == ["mode": 1])
         await host.stop()
     }
 

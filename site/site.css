@@ -406,6 +406,7 @@ footer .small { max-width: 34rem; }
 .glyph.tone-green { background: linear-gradient(160deg, #5fd68a, #24a35a); }
 .glyph.tone-grey { background: linear-gradient(160deg, #8a909c, #4d5462); }
 .glyph.tone-pink { background: linear-gradient(160deg, #ff9fb8, #e5487a); }
+.glyph.tone-teal { background: linear-gradient(160deg, #4fd1c5, #1c9c91); }
 .dev-title { margin-top: 14px; }
 
 /* The privacy page: one column of reading text. */

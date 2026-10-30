@@ -159,12 +159,13 @@ async function shot(name, path, { width = 1280, height = 900, mobile = false, re
 
 try {
   await shot("scene-location", "/scenes", { ready: "details.location", prepare: 'document.querySelector("details.location").open = true;', element: "details.location" });
+  await shot("scene-homekit", "/scenes/new", { ready: ".scene-editor .toggle", element: ".scene-editor .toggle" });
   await shot("scene-artwork", "/scenes/new", { ready: ".artwork-picker", prepare: 'document.querySelector(".artwork-picker").open = true;', tall: 1000 });
   // The bridge as the Home app pairs it: its setup code and QR code.
   await shot("status-bridge", "/status", { ready: ".card.server", element: "main .card.server" });
   await shot("plugins", "/plugins", { ready: ".card", tall: 1000 });
   await shot("plugin-form", "/plugins/desk-lights/expert", { ready: "form, .group-box, .field", tall: 1000 });
-  await shot("config", "/config", { ready: ".code-editor", tall: 900 });
+  await shot("config", "/settings/config", { ready: ".code-editor", tall: 900 });
   await shot("logs", "/logs?level=trace", { ready: ".log-filter-panel", tall: 900 });
   await shot("logs-phone", "/logs?level=trace", { width: 390, height: 844, mobile: true, ready: ".log-filter-panel" });
   await shot("appearance", "/appearance", { ready: ".wallpapers", tall: 1300 });
