@@ -15,7 +15,7 @@ enum Restart {
     static func perform(
         timeout: TimeInterval = 30,
         shutdown: @escaping @Sendable () async -> Void,
-        replace: @escaping @Sendable () -> Void,
+        replace: @escaping @Sendable () -> Void = { exec() },
         timedOut: (@Sendable () -> Void)? = nil
     ) async {
         let gate = RestartGate()
@@ -32,8 +32,18 @@ enum Restart {
         replace()
     }
 
-    /// Execs `path` (`UICommands.relaunchExecutable`, kept out of this file so Scripts/test-restart.swift builds it alone).
-    static func exec(_ path: String) -> Never {
+    /// The binary a restart runs: on a Homebrew install, its `opt` link, which an update moves to the new version (this
+    /// one's Cellar may be gone); else this one. As `HomebrewInstaller` finds it, here without HomeswiftUI: CI compiles
+    /// this file on its own.
+    static func relaunchPath(running: String) -> String {
+        let resolved = URL(fileURLWithPath: running).resolvingSymlinksInPath().path
+        guard let range = resolved.range(of: "/Cellar/") else { return running }
+        let opt = "\(resolved[..<range.lowerBound])/opt/homeswift/bin/homeswift"
+        return FileManager.default.isExecutableFile(atPath: opt) ? opt : running
+    }
+
+    static func exec() -> Never {
+        let path = relaunchPath(running: Bundle.main.executablePath ?? CommandLine.arguments[0])
         var arguments: [UnsafeMutablePointer<CChar>?] = CommandLine.arguments.map { strdup($0) }
         arguments.append(nil)
         closeOnExec()

@@ -7,14 +7,6 @@ import Logging
 
 /// Starts the web UI when config.json has a `HomeswiftUI` block.
 enum UICommands {
-    /// The binary a restart execs: on a Homebrew install its `opt` link, which an update moves to the new version (this
-    /// one's Cellar may be gone), else this one.
-    static var relaunchExecutable: String {
-        let running = ReleaseWatcher.runningExecutable
-        let installed = HomebrewInstaller(executable: running)?.executable.flatMap { FileManager.default.isExecutableFile(atPath: $0) ? $0 : nil }
-        return installed ?? running
-    }
-
     /// One for the process: the web UI restarts with its settings, the checks go on.
     static let releases = ReleaseWatcher()
 
