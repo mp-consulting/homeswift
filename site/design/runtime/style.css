@@ -1179,6 +1179,10 @@ textarea.short { min-height: 220px; }
 .mono { font-family: var(--mono); font-size: var(--text-sm); letter-spacing: 0; }
 .chips { display: flex; flex-wrap: wrap; gap: var(--space-6); }
 .chip { padding: 3px var(--space-10); border-radius: var(--radius-pill); font-size: var(--text-sm); background: var(--material-thin); border: 1px solid var(--line); }
+/* A chip with a remove button (the Matter card's ecosystems, for an administrator). */
+.chip.removable { display: inline-flex; align-items: center; gap: 2px; padding-right: 2px; }
+.chip.removable .icon-button:not(.menu-button) { width: 22px; height: 22px; }
+.chip.removable .icon-button:not(.menu-button) svg { width: 12px; height: 12px; }
 
 /* Status: a summary that says whether all is well, the numbers that matter, then a card per server. */
 /* A newer release, under the summary: how to upgrade this install, its command with Copy, the notes folded. */
@@ -2916,6 +2920,7 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
 }
 .status-footer > .link:hover, .status-footer > .link[aria-expanded="true"] { background: rgba(255,255,255,.1); border-color: rgba(255,255,255,.28); }
 .status-footer > .link:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 3px; }
+.status-footer > a.link:hover { text-decoration: none; }
 @media (max-width: 640px) {
   .status-footer { gap: var(--space-12); padding: var(--space-12) 88px var(--space-12) var(--space-16); }
   .status-footer-summary { display: block; }
@@ -2938,7 +2943,8 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
   .status-footer { display: grid; grid-template-columns: minmax(0, 1fr) 40px; gap: var(--space-4) var(--space-12); }
   .status-footer-summary { display: contents; }
   .status-footer-summary .health { grid-column: 1; grid-row: 1; }
-  .status-footer > .link { grid-column: 2; grid-row: 1; }
+  .status-footer { grid-template-columns: minmax(0, 1fr) 40px 40px; }
+  .status-footer > .link { grid-row: 1; }
   .status-footer-meta { grid-column: 1 / -1; grid-row: 2; min-width: 0; }
 }
 

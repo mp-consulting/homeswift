@@ -1,6 +1,6 @@
 # Homeswift
 
-> The HomeKit Accessory Protocol in Swift, and a Homebridge written in Swift on top of it: one small binary that runs a Homebridge-style config.json and the plugins compiled into it, with a web UI, an optional AI Assistant and an MCP server. macOS 14+ and Linux; Docker images for amd64 and arm64, and a Synology package. MIT licence.
+> The HomeKit Accessory Protocol in Swift, and a Homebridge written in Swift on top of it: one small binary that runs a Homebridge-style config.json and the plugins compiled into it, with a web UI, an optional AI Assistant, an MCP server and an optional Matter bridge for Google Home, Alexa and Home Assistant. macOS 14+ and Linux; Docker images for amd64 and arm64, and a Synology package. MIT licence.
 
 Its MCP server lets Claude (as a connector in claude.ai and the Claude apps, over OAuth) or any MCP client see and run every accessory. Anything destructive asks the user first; locks, garage doors and alarms change only through one guarded tool; every change is written to an audit log; text from devices and logs is treated as data, never as instructions.
 
