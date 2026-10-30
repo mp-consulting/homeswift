@@ -68,16 +68,16 @@ struct PluginTests {
         // HomeKit writes reach the device; its STATE-CHANGE comes back as values.
         environment.dyson.clearPublished()
         try await purifier.characteristic(.targetAirPurifierState).write(.int(1))
-        #expect(environment.dyson.commands.last == ["fmod": "AUTO"])
+        #expect(environment.dyson.commands.last == ["fpwr": "ON", "auto": "ON", "fnsp": "AUTO"])
         try await purifier.characteristic(.rotationSpeed).write(.double(70))
-        #expect(environment.dyson.commands.last == ["fmod": "FAN", "fnsp": "0007"])
+        #expect(environment.dyson.commands.last == ["fpwr": "ON", "auto": "OFF", "fnsp": "0007"])
         #expect(await eventually { purifier[.rotationSpeed]?.value == .double(70) })
         try await accessory.service(.switch, subtype: "night-mode")!.characteristic(.on).write(.bool(true))
         #expect(environment.dyson.commands.last == ["nmod": "ON"])
         try await purifier.characteristic(.swingMode).write(.int(0))
         #expect(environment.dyson.commands.last == ["oson": "OFF"])
         try await purifier.characteristic(.active).write(.int(0))
-        #expect(environment.dyson.commands.last == ["fmod": "OFF"])
+        #expect(environment.dyson.commands.last == ["fpwr": "OFF"])
         #expect(await eventually { purifier[.currentAirPurifierState]?.value == .int(0) })
 
         environment.dyson.sendEnvironment(["tact": "2981", "hact": "0060", "p25r": "0040", "p10r": "0010", "va10": "0030"])
@@ -149,7 +149,7 @@ struct PluginTests {
         // Heater on from off: heating and the fan in one command.
         try await Task.sleep(for: DysonDevice.offGuard)
         try await heater.characteristic(.active).write(.int(1))
-        #expect(environment.dyson.commands.last == ["hmod": "HEAT", "fmod": "FAN"])
+        #expect(environment.dyson.commands.last == ["hmod": "HEAT", "fpwr": "ON", "auto": "OFF", "fnsp": "0004"])
     }
 
     @Test func heatingServiceChoices() async throws {
