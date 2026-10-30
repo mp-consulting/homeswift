@@ -547,7 +547,9 @@
       // it is for.
       const where = named.filter((one) => !one.system).map((one) => one.name).join(" · ") || named.map((one) => one.name).join(" · ");
       return {
-        head: [tile(own ? matterIcon(node) : "matter", "green"),
+        // A device's own icon, tagged with Matter's glyph: the list mixes Matter devices with HomeKit accessories.
+        head: [own ? el("span", { class: "tile-tagged", title: t("Matter") }, tile(matterIcon(node), "green"), el("span", { class: "tile-tag", "aria-hidden": "true" }, HomeswiftCommon.icon("matter")))
+          : tile("matter", "green"),
           el("div", { class: "who" }, el("strong", { text: own ? node.name : t("Matter bridge") }),
             el("div", { class: "muted", text: !own ? t("For Google Home, Alexa, SmartThings and Home Assistant") : where ? t("Matter · {ecosystems}", { ecosystems: where }) : t("Matter device of its own") })),
           el("span", { class: `pill status ${fabrics.length ? "on" : "away"}`, text: fabrics.length ? tn("In one ecosystem", "In {n} ecosystems", fabrics.length) : t("Not added yet") })],

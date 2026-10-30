@@ -17,6 +17,7 @@ HomeswiftI18n.add("pt", {
   "{vendor}'s own link to the device, from your other devices and hubs: keep it.": "A ligação própria do {vendor} ao dispositivo, a partir dos seus outros dispositivos e concentradores: mantenha-a.",
   "Matter device of its own": "Dispositivo Matter próprio",
   "Matter · {ecosystems}": "Matter · {ecosystems}",
+  "Matter": "Matter",
   "{count} devices · one waits to be added": "{count} dispositivos · um aguarda ser adicionado",
   "{count} devices · {n} wait to be added": "{count} dispositivos · {n} aguardam ser adicionados",
   "One device, with its own pairing": "Um dispositivo, com o seu próprio emparelhamento",

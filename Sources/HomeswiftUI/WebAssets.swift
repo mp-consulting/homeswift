@@ -1961,7 +1961,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       // it is for.
       const where = named.filter((one) => !one.system).map((one) => one.name).join(" · ") || named.map((one) => one.name).join(" · ");
       return {
-        head: [tile(own ? matterIcon(node) : "matter", "green"),
+        // A device's own icon, tagged with Matter's glyph: the list mixes Matter devices with HomeKit accessories.
+        head: [own ? el("span", { class: "tile-tagged", title: t("Matter") }, tile(matterIcon(node), "green"), el("span", { class: "tile-tag", "aria-hidden": "true" }, HomeswiftCommon.icon("matter")))
+          : tile("matter", "green"),
           el("div", { class: "who" }, el("strong", { text: own ? node.name : t("Matter bridge") }),
             el("div", { class: "muted", text: !own ? t("For Google Home, Alexa, SmartThings and Home Assistant") : where ? t("Matter · {ecosystems}", { ecosystems: where }) : t("Matter device of its own") })),
           el("span", { class: `pill status ${fabrics.length ? "on" : "away"}`, text: fabrics.length ? tn("In one ecosystem", "In {n} ecosystems", fabrics.length) : t("Not added yet") })],
@@ -10569,6 +10571,7 @@ HomeswiftI18n.add("es", {
   "{vendor}'s own link to the device, from your other devices and hubs: keep it.": "El enlace propio de {vendor} con el dispositivo, desde tus otros dispositivos y concentradores: consérvalo.",
   "Matter device of its own": "Dispositivo Matter propio",
   "Matter · {ecosystems}": "Matter · {ecosystems}",
+  "Matter": "Matter",
   "{count} devices · one waits to be added": "{count} dispositivos · uno espera a ser añadido",
   "{count} devices · {n} wait to be added": "{count} dispositivos · {n} esperan a ser añadidos",
   "One device, with its own pairing": "Un dispositivo, con su propio emparejamiento",
@@ -12915,6 +12918,7 @@ HomeswiftI18n.add("fr", {
   "{vendor}'s own link to the device, from your other devices and hubs: keep it.": "Le lien de {vendor} avec l'appareil, depuis vos autres appareils et concentrateurs : gardez-le.",
   "Matter device of its own": "Appareil Matter à part entière",
   "Matter · {ecosystems}": "Matter · {ecosystems}",
+  "Matter": "Matter",
   "{count} devices · one waits to be added": "{count} appareils · un attend d'être ajouté",
   "{count} devices · {n} wait to be added": "{count} appareils · {n} attendent d'être ajoutés",
   "One device, with its own pairing": "Un appareil, avec son propre appairage",
@@ -15261,6 +15265,7 @@ HomeswiftI18n.add("pt", {
   "{vendor}'s own link to the device, from your other devices and hubs: keep it.": "A ligação própria do {vendor} ao dispositivo, a partir dos seus outros dispositivos e concentradores: mantenha-a.",
   "Matter device of its own": "Dispositivo Matter próprio",
   "Matter · {ecosystems}": "Matter · {ecosystems}",
+  "Matter": "Matter",
   "{count} devices · one waits to be added": "{count} dispositivos · um aguarda ser adicionado",
   "{count} devices · {n} wait to be added": "{count} dispositivos · {n} aguardam ser adicionados",
   "One device, with its own pairing": "Um dispositivo, com o seu próprio emparelhamento",
@@ -21225,6 +21230,11 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .device-row > summary .pill { flex: none; }
 .device-row > summary > svg:last-child { flex: none; width: 16px; height: 16px; color: var(--muted); transition: transform var(--normal) var(--ease-out); }
 .device-row[open] > summary > svg:last-child { transform: rotate(90deg); }
+/* A tile with a small tag in its corner: a Matter device's own icon with Matter's glyph. */
+.tile-tagged { position: relative; flex: none; display: inline-flex; }
+.tile-tag { position: absolute; right: -5px; bottom: -5px; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: var(--material-thick); color: var(--ok); box-shadow: 0 1px 3px rgba(25, 34, 56, 0.25); }
+.tile-tag svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
 .device-row-body { display: grid; gap: var(--space-14); padding: var(--space-4) 0 var(--space-16) 44px; }
 .device-row-body .setup { border-top: 0; padding-top: 0; }
 @media (hover: hover) and (pointer: fine) { .device-row > summary { transition: background-color var(--fast) ease; } .device-row > summary:hover { background: var(--material-thin); } }
