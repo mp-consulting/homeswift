@@ -38,6 +38,27 @@ final class ChangeFeed: Sendable {
     }
 }
 
+/// Accessories added, replaced or removed on every HAP server the host runs, and servers it adds (a child bridge, a
+/// television published after start), followed the way `ChangeFeed` follows changes.
+final class StructureFeed: Sendable {
+    private let observers = NIOLockedValueBox<[UUID: @Sendable () -> Void]>([:])
+
+    func follow(_ server: HAPServer) {
+        server.observeStructure { [self] in notify() }
+        notify()
+    }
+
+    private func notify() {
+        for observer in observers.withLockedValue({ Array($0.values) }) { observer() }
+    }
+
+    func add(_ observer: @escaping @Sendable () -> Void) -> Observation {
+        let id = UUID()
+        observers.withLockedValue { $0[id] = observer }
+        return Observation { [self] in _ = observers.withLockedValue { $0.removeValue(forKey: id) } }
+    }
+}
+
 /// How long requests and handlers take on every HAP server the host runs (`HAPServer.Timing`), with the server's
 /// bridge, followed the way `ChangeFeed` follows changes.
 final class TimingFeed: Sendable {

@@ -8,6 +8,23 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- A Matter bridge: with a `HomeswiftMatter` block, the plugins' accessories are Matter bridged devices too, both
+  ways, for Google Home, Alexa, SmartThings and Home Assistant (docs/matter.md). Lights, plugs, sensors, blinds,
+  fans, thermostats, buttons, and locks when `exposeSecurity` is on. The Status page's Matter card shows the
+  pairing code and QR code to administrators, adds the bridge to another ecosystem and removes one; the MCP tools
+  `get_matter_status`, `open_matter_commissioning_window` and `remove_matter_fabric` do the same.
+  `homeswift-demo --matter` bridges the demo's accessories over Matter too.
+- An accessory can be a Matter device of its own, with its own pairing code, which Apple Home, Google Home or Alexa
+  add as that device rather than through the bridge: **Make a Matter device** in its ⋯ menu, `set_matter_device`
+  over MCP, or the `HomeswiftMatter` block's `devices` (docs/matter.md). Changes to which accessories are on Matter
+  apply without restarting it.
+- A plugin can say what a service stands for when HomeKit has no type for it (`Service.standsFor`): the Dolphin pool
+  robot's switch is a cleaning robot, a Robotic Vacuum Cleaner over Matter. Apple Home pairs a device of its own
+  (it sends AddNOC's intermediate certificate empty, which swift-matter now takes as none).
+- A Matter device's card on the Status page shows its device type's icon, and each ecosystem by its vendor: Apple
+  Home's unnamed system fabric is a muted chip with a house, to keep. The Accessories graph shows the Matter block's
+  devices (its devices of their own and its bridged ones) under it, with a neutral Matter mark: the Matter logo is for
+  certified products only.
 - Widgets placed freely on the Accessories wall: in Edit, a widget dropped on any cell stays there, gaps included, and
   the others make way; the wall's menu's **Pack the widgets together** lets them flow again. The cells are kept by
   grouping (`positions` in `ui-layout.json`), and `get_wall_layout`/`set_wall_layout` read and write them
@@ -18,6 +35,32 @@ All notable changes to this project are documented here. The format follows
   rooms of the same name, case and accents aside, on Philips Hue Bridges, IKEA DIRIGERA hubs and eWeLink homes. Govee's
   API has no rooms. Plugins list and rename rooms through `rooms()` and `renameRoom(id:name:)` (`PluginRoom`);
   DIRIGERA's from lpgera/dirigera.
+
+- Updates from the web UI: Settings › Updates (this version, the last check, a switch for the automatic checks,
+  **Check now**, **Restart homeswift…**)
+  and, on a Homebrew install, **Install and relaunch** in the update card, on that page and in the Status page
+  footer's sheet: `brew upgrade homeswift`, then a restart into the new binary. The footer says **Relaunch to update**
+  once a newer version is on disk.
+
+### Changed
+
+- config.json's editor is a tab of Settings (`/settings/config`), out of the header; `/config` leads there.
+- The Status page's figures have their icon on a coloured tile at the left; the vault has an icon of its own, a safe.
+- The Status page shows its Vault section once there is something in the vault or to move into it; a page's row of tabs
+  (Settings) fades at the edges where tabs are scrolled out of sight, and opens with the current tab in view.
+
+### Fixed
+
+- Settings › Bridge showed a sealed setup code (`enc:v1:…`) instead of the code: it now shows the code the bridge runs
+  with, a copy button and the pairing QR code, and saving the form leaves a sealed or vault code as it is.
+- Copy buttons copy in a browser that refuses the Clipboard API, through a hidden field as on plain HTTP.
+- Settings › Child bridges without a plugin drew an empty list and pointed "above" at nothing: it now says so once, with
+  **Add a plugin**.
+
+- After an update the web UI kept the scripts and styles of the version before until refreshed, a web app on a phone
+  for longer: the page asks for each file at an address of its bytes (`/app.js?v=…`, kept for good), and reloads by
+  itself when the bridge's files change (after a restart, back in view, or when its event stream reconnects), unless it
+  holds unsaved changes.
 
 ## [0.15.0] - 2026-10-29
 
