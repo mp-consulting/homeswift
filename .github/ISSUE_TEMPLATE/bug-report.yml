@@ -19,7 +19,7 @@ body:
     attributes:
       label: Version
       description: "`homeswift --version`, or the version on the web UI's Status page."
-      placeholder: "0.15.0"
+      placeholder: "0.16.0"
     validations:
       required: true
   - type: dropdown
