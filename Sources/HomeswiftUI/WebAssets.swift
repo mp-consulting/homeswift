@@ -2122,6 +2122,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     if (!target) return null;
     if (target instanceof HTMLDetailsElement) target.open = true;
     target.scrollIntoView({ block: "center" });
+    // The sections above it may still be loading (Status's quick controls, its charts): on a phone they push it out of
+    // sight, so it is brought back as the view grows, until the reader scrolls or a few seconds have passed.
+    const view = target.closest("main");
+    if (view) {
+      const follow = new ResizeObserver(() => { if (target.isConnected) target.scrollIntoView({ block: "center" }); });
+      const inputs = ["wheel", "touchstart", "keydown"];
+      const stop = () => { follow.disconnect(); for (const type of inputs) removeEventListener(type, stop); };
+      follow.observe(view);
+      for (const type of inputs) addEventListener(type, stop, { passive: true });
+      setTimeout(stop, 4000);
+    }
     return target;
   };
   let shownPath = null;
