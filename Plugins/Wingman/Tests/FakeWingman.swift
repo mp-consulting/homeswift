@@ -65,6 +65,14 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
         }
     }
 
+    /// A room or a name changed in the Home app: a "homes" event, `/homes` as it was.
+    func changeHomes() {
+        state.withLockedValue { state in
+            state.seq += 1
+            state.events.append(["seq": state.seq, "kind": "homes", "home": "Maison", "accessory": ""])
+        }
+    }
+
     /// Wingman's menu removed this bridge.
     func forgetBridge() { state.withLockedValue { $0.tokenValid = false } }
 
