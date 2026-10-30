@@ -7,7 +7,7 @@
 # fdk-aac, whose licence FFmpeg cannot combine with the GPL. Live streams send Opus; recordings use FFmpeg's AAC.
 
 # Bump REVISION when the build changes without a new FFmpeg; the image's tag is <FFMPEG_VERSION>-<REVISION>.
-ARG REVISION=1
+ARG REVISION=2
 ARG FFMPEG_VERSION=8.1.3
 ARG FFMPEG_SHA256=7138d28c96d9d3e3af4ee3d8cad72741f8ffb40da90c1112235dea3ecd3178a3
 # The head of x264's stable branch.
@@ -18,7 +18,7 @@ ARG OPUS_SHA256=65c1d2f78b9f2fb20082c38cbe47c951ad5839345876e46941612ee87f9a7ce1
 ARG OPENSSL_VERSION=3.5.9
 ARG OPENSSL_SHA256=603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a
 
-FROM alpine:3.22 AS build
+FROM alpine:3.24 AS build
 # bash: x264's configure.
 RUN apk add --no-cache bash build-base curl git linux-headers nasm perl pkgconf xz
 ARG FFMPEG_VERSION FFMPEG_SHA256 X264_COMMIT OPUS_VERSION OPUS_SHA256 OPENSSL_VERSION OPENSSL_SHA256
