@@ -54,7 +54,7 @@ public actor HomeswiftMatterBridge: MatterControl {
             name = accessory.name
             var parts: [ObjectIdentifier: Int] = [:]
             for (index, mapping) in mappings.enumerated() {
-                for characteristic in mapping.service.characteristics { parts[ObjectIdentifier(characteristic)] = index }
+                for characteristic in mapping.characteristics { parts[ObjectIdentifier(characteristic)] = index }
             }
             self.parts = parts
         }
@@ -389,7 +389,7 @@ public actor HomeswiftMatterBridge: MatterControl {
         var bridged: [JSONValue] = [], own: [JSONValue] = []
         for device in devices.values.sorted(by: { $0.name < $1.name }) {
             var entry: [String: JSONValue] = ["name": .string(device.name), "id": .string(device.accessory.id),
-                                              "types": .array(device.mappings.map { .string("\($0.role)") })]
+                                              "types": .array(device.mappings.map { .string($0.role.name) })]
             if let node = device.own {
                 entry.merge(await Self.nodeStatus(node, includePairing: includePairing)) { $1 }
                 entry["port"] = ports[device.accessory.id].map { .number(Double($0)) }

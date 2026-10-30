@@ -85,21 +85,25 @@ To try it: `homeswift-demo --matter-device demo-lamp` prints the lamp's own pair
 | Humidity Sensor | Humidity Sensor | % ↔ hundredths of a percent |
 | Light Sensor | Light Sensor | lux ↔ 10000·log10(lux) + 1 |
 | Leak Sensor | Water Leak Detector | detected ↔ StateValue true |
-| Window Covering | Window Covering | percent open ↔ hundredths of a percent closed; stop holds the position |
-| Fan, Fanv2 | Fan | Active or On and Rotation Speed ↔ PercentSetting and FanMode |
+| Window Covering, Door, Window | Window Covering | percent open ↔ hundredths of a percent closed; stop holds the position |
+| Fan, Fanv2 | Fan | Active or On and Rotation Speed ↔ PercentSetting and FanMode; Swing Mode ↔ RockSetting (left and right); Rotation Direction counter-clockwise ↔ AirflowDirection reverse |
 | Thermostat | Thermostat, heating (and cooling when the target state allows it) | off/heat/cool ↔ SystemMode; the target temperature ↔ the setpoint of the mode in use |
+| Heater Cooler | Thermostat with the modes its target state allows, auto when it heats and cools | Active off ↔ SystemMode off; auto/heat/cool ↔ SystemMode; the heating and cooling thresholds ↔ the two setpoints |
 | Lock Mechanism | Door Lock (only with `exposeSecurity`) | secured ↔ locked; locking and unlocking need a timed interaction |
+| Garage Door Opener | Closure, a garage door (only with `exposeSecurity`) | open/closed ↔ fully opened/closed, opening and closing partly open and moving; MoveTo ↔ Target Door State |
 | Stateless Programmable Switch | Generic Switch | single, double and long presses ↔ the Switch cluster's events |
-| Air Quality Sensor | Air Quality Sensor | HAP excellent to poor ↔ Matter good to very poor |
+| Air Quality Sensor | Air Quality Sensor | HAP excellent to poor ↔ Matter good to very poor; PM2.5, PM10 and VOC densities ↔ their concentration clusters in µg/m³ |
+| Carbon Dioxide Sensor | Air Quality Sensor | an abnormal level ↔ poor, else good; Carbon Dioxide Level ↔ the carbon dioxide concentration in ppm |
+| Air Purifier (with the accessory's Filter Maintenance) | Air Purifier | Active and Rotation Speed ↔ Fan Control; Swing Mode ↔ RockSetting; Filter Life Level ↔ HEPA Condition, Filter Change Indication ↔ ChangeIndication critical; ResetCondition ↔ Reset Filter Indication |
 | Smoke Sensor, Carbon Monoxide Sensor | Smoke CO Alarm | detected ↔ SmokeState or COState critical, with the alarm events |
-| Valve | Water Valve | Open/Close ↔ Active; In Use ↔ CurrentState |
+| Valve, Faucet | Water Valve | Open/Close ↔ Active; In Use (a faucet's Active) ↔ CurrentState |
 | Eve power and energy readings (on an outlet, a switch, a light) | + Electrical Sensor on the same endpoint | watts ↔ ActivePower in mW; kWh ↔ CumulativeEnergyImported in mWh |
 | Battery (beside the others) | Power Source on the device | percent ↔ BatPercentRemaining |
 
 An accessory with several of these services (a fan with a light, a strip of outlets) becomes one compound device,
 a part per service. Its name, manufacturer, model and serial number fill Bridged Device Basic Information, and a
-paused plugin's accessories show as unreachable. Televisions, cameras, heater-coolers, air purifiers and robot
-vacuums are not bridged yet.
+paused plugin's accessories show as unreachable. Televisions, speakers, cameras, doorbells, security systems and
+humidifiers are not bridged: the ecosystems have no Matter device for them, or few show one.
 
 Controllers that group devices (a room's lights at once, as Home Assistant and Google Home can) send one group command:
 the bridge takes group key sets, joins the groups' multicast addresses and runs the command on each member. Both counter

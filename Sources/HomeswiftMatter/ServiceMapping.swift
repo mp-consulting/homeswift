@@ -17,28 +17,56 @@ struct ServiceMapping: Sendable {
         case illuminance
         case leak
         case covering
-        case fan
+        /// A fan, with Swing Mode (rocking) and Rotation Direction (airflow) when it has them.
+        case fan(rocking: Bool, direction: Bool)
         case thermostat(cooling: Bool)
+        /// A Heater Cooler: a thermostat with the modes its target state allows, auto keeping it between its thresholds.
+        case heaterCooler(heating: Bool, cooling: Bool, auto: Bool)
         case lock
+        /// A Garage Door Opener: a Closure of the garage door kind.
+        case garageDoor
         case button
-        case airQuality
+        /// An Air Quality Sensor, or a Carbon Dioxide Sensor, with the concentrations it reports.
+        case airQuality(measuring: [Concentration])
+        /// An Air Purifier, with the accessory's Filter Maintenance when it has one.
+        case airPurifier(filter: Bool, rocking: Bool)
         /// A smoke alarm, or a carbon monoxide one.
         case alarm(smoke: Bool)
         case valve
         /// A Switch that runs a cleaning robot (`Service.standsFor`): a Robotic Vacuum Cleaner.
         case cleaningRobot
+
+        /// The role without its details (`light`, `airQuality`): the Status page picks an icon by it.
+        var name: String { String(String(describing: self).prefix { $0 != "(" }) }
     }
 
     let role: Role
     let service: Service
+    /// An air purifier's Filter Maintenance, the service it links: reported with it.
+    let filter: Service?
     /// Whether the service reports Eve's power or energy readings: its device is metered too.
     let isMetered: Bool
 
-    /// The mapping of a service, or nil for one Matter does not get (information, battery, a camera's, a lock while
-    /// `exposeSecurity` is off).
+    /// The Filter Maintenance an air purifier links, as HomeKit groups them.
+    private static func linkedFilter(_ service: Service) -> Service? {
+        guard service.type.uuid == ServiceType.airPurifier.uuid else { return nil }
+        return service.linked.first { $0.type.uuid == ServiceType.filterMaintenance.uuid && !$0.isHidden }
+    }
+
+    /// The characteristics the mapping reports, its filter's included.
+    var characteristics: [Characteristic] { service.characteristics + (filter?.characteristics ?? []) }
+
+    /// The concentrations Matter measures and the HAP characteristic that reports each.
+    static let concentrations: [(Concentration, CharacteristicType)] = [
+        (.carbonDioxide, .carbonDioxideLevel), (.pm25, .pm2_5Density), (.pm10, .pm10Density), (.totalVolatileOrganicCompounds, .vocDensity),
+    ]
+
+    /// The mapping of a service, or nil for one Matter does not get (information, battery, a camera's, a lock or a garage
+    /// door while `exposeSecurity` is off).
     init?(_ service: Service, exposeSecurity: Bool) {
         guard !service.isHidden else { return nil }
         let type = service.type.uuid
+        let filter = Self.linkedFilter(service)
         func has(_ characteristic: CharacteristicType) -> Bool { service[characteristic] != nil }
         let role: Role
         switch type {
@@ -52,24 +80,35 @@ struct ServiceMapping: Sendable {
         case ServiceType.humiditySensor.uuid: role = .humidity
         case ServiceType.lightSensor.uuid: role = .illuminance
         case ServiceType.leakSensor.uuid: role = .leak
-        case ServiceType.windowCovering.uuid: role = .covering
-        case ServiceType.fan.uuid, ServiceType.fanv2.uuid: role = .fan
+        // A door or a window moves to a percentage as a covering does, and every ecosystem shows coverings.
+        case ServiceType.windowCovering.uuid, ServiceType.door.uuid, ServiceType.window.uuid: role = .covering
+        case ServiceType.fan.uuid, ServiceType.fanv2.uuid: role = .fan(rocking: has(.swingMode), direction: has(.rotationDirection))
         case ServiceType.thermostat.uuid:
             // Cooling when the target state allows it (2): HAP's default range does, a heater narrows it.
             let modes = service[.targetHeatingCoolingState]?.type.validValues ?? [0, 1, 2, 3]
             role = .thermostat(cooling: modes.contains(2))
+        case ServiceType.heaterCooler.uuid:
+            // Target Heater Cooler State: auto 0, heat 1, cool 2, as its valid values allow.
+            let modes = service[.targetHeaterCoolerState]?.type.validValues ?? [0, 1, 2]
+            let heating = modes.contains(1) || !modes.contains(2), cooling = modes.contains(2)
+            // Auto needs both: swift-matter offers it only to a thermostat that heats and cools.
+            role = .heaterCooler(heating: heating, cooling: cooling, auto: modes.contains(0))
         case ServiceType.lockMechanism.uuid: role = .lock
+        case ServiceType.garageDoorOpener.uuid: role = .garageDoor
         case ServiceType.statelessProgrammableSwitch.uuid: role = .button
-        case ServiceType.airQualitySensor.uuid: role = .airQuality
+        case ServiceType.airQualitySensor.uuid, ServiceType.carbonDioxideSensor.uuid:
+            role = .airQuality(measuring: Self.concentrations.filter { has($0.1) }.map(\.0))
+        case ServiceType.airPurifier.uuid: role = .airPurifier(filter: filter != nil, rocking: has(.swingMode))
         case ServiceType.smokeSensor.uuid: role = .alarm(smoke: true)
         case ServiceType.carbonMonoxideSensor.uuid: role = .alarm(smoke: false)
-        case ServiceType.valve.uuid: role = .valve
+        case ServiceType.valve.uuid, ServiceType.faucet.uuid: role = .valve
         default: return nil
         }
-        // A lock, or a service whose write opens something (a switch that unlocks a door), only when asked for.
+        // A lock, or a service whose write opens something (a garage door, a switch that unlocks a door), only when asked for.
         if !exposeSecurity, role == .lock || service.characteristics.contains(where: \.isSecurityControl) { return nil }
         self.role = role
         self.service = service
+        self.filter = filter
         isMetered = service[EveCharacteristic.currentConsumption] != nil || service[EveCharacteristic.totalConsumption] != nil
     }
 
@@ -91,11 +130,14 @@ struct ServiceMapping: Sendable {
         case .illuminance: return .lightSensor
         case .leak: return .waterLeakDetector
         case .covering: return .windowCovering
-        case .fan: return .fan
+        case .fan(let rocking, let direction): return .fan(rocking: rocking, airflowDirection: direction)
         case .thermostat(let cooling): return .thermostat(heating: true, cooling: cooling)
+        case .heaterCooler(let heating, let cooling, let auto): return .thermostat(heating: heating, cooling: cooling, auto: auto)
         case .lock: return .doorLock
+        case .garageDoor: return .closure(.garageDoor)
         case .button: return .genericSwitch
-        case .airQuality: return .airQualitySensor
+        case .airQuality(let measuring): return .airQualitySensor(measuring: measuring)
+        case .airPurifier(let filter, let rocking): return .airPurifier(filter: filter, rocking: rocking)
         case .alarm(let smoke): return .smokeCOAlarm(smoke: smoke, carbonMonoxide: !smoke)
         case .valve: return .waterValve
         case .cleaningRobot: return .roboticVacuum
@@ -151,9 +193,16 @@ struct ServiceMapping: Sendable {
             if let open = value(.currentPosition)?.doubleValue {
                 states.append(.coveringPosition(percent100ths: UInt16((100 - min(max(open, 0), 100)) * 100)))
             }
-        case .fan:
+        case .fan, .airPurifier:
             if changedType == nil || [CharacteristicType.on.uuid, CharacteristicType.active.uuid, CharacteristicType.rotationSpeed.uuid].contains(changedType) {
                 states.append(.fanSpeed(percent: fanPercent))
+            }
+            if let swing = value(.swingMode).flatMap(Self.flag) { states.append(.fanRocking(swing)) }
+            // Clockwise 0 is the usual airflow, forward; counter-clockwise (1) reverses it. Only a fan's has the feature.
+            if case .fan(_, true) = role, let reversed = value(.rotationDirection).flatMap(Self.flag) { states.append(.fanAirflowReversed(reversed)) }
+            if let filter, changedType == nil || changedType == CharacteristicType.filterLifeLevel.uuid || changedType == CharacteristicType.filterChangeIndication.uuid {
+                let left = filter[.filterLifeLevel]?.value.doubleValue.map { UInt8(min(max($0, 0), 100).rounded()) }
+                states.append(.filter(percentLeft: left, needsChange: filter[.filterChangeIndication].flatMap { Self.flag($0.value) } ?? false))
             }
         case .thermostat:
             if let celsius = value(.currentTemperature) { states.append(.localTemperature(celsius.doubleValue)) }
@@ -164,6 +213,20 @@ struct ServiceMapping: Sendable {
             if let target = (modeChanged ? service[.targetTemperature]?.value : value(.targetTemperature))?.doubleValue {
                 states.append(mode == 2 ? .coolingSetpoint(target) : .heatingSetpoint(target))
             }
+        case .heaterCooler(let heating, let cooling, _):
+            if let celsius = value(.currentTemperature) { states.append(.localTemperature(celsius.doubleValue)) }
+            if changedType == nil || changedType == CharacteristicType.active.uuid || changedType == CharacteristicType.targetHeaterCoolerState.uuid {
+                states.append(.thermostatMode(Self.systemMode(active: service[.active]?.value.intValue ?? 1, heaterCooler: service[.targetHeaterCoolerState]?.value.intValue ?? 1)))
+            }
+            // Only the setpoints its thermostat has: a cooler may carry a heating threshold it never uses.
+            if heating, let celsius = value(.heatingThresholdTemperature)?.doubleValue { states.append(.heatingSetpoint(celsius)) }
+            if cooling, let celsius = value(.coolingThresholdTemperature)?.doubleValue { states.append(.coolingSetpoint(celsius)) }
+        case .garageDoor:
+            // Open 0, closed 1, opening 2, closing 3, stopped 4: on its way it is partly open.
+            if let state = value(.currentDoorState)?.intValue {
+                let position: ClosurePosition? = state == 0 ? .fullyOpened : state == 1 ? .fullyClosed : (2...4).contains(state) ? .partiallyOpened : nil
+                states.append(.closure(position, moving: state == 2 || state == 3))
+            }
         case .lock:
             if let state = value(.lockCurrentState)?.intValue {
                 // Unsecured 0, secured 1, jammed 2, unknown 3.
@@ -171,16 +234,21 @@ struct ServiceMapping: Sendable {
             }
         case .button:
             break
-        case .airQuality:
-            // HAP excellent 1 to poor 5 are Matter's good 1 to very poor 5; unknown stays 0.
+        case .airQuality(let measuring):
+            // HAP excellent 1 to poor 5 are Matter's good 1 to very poor 5; unknown stays 0. A carbon dioxide sensor says only
+            // whether the level is abnormal: poor, else good.
             if let quality = value(.airQuality)?.intValue { states.append(.airQuality(UInt8(clamping: min(max(quality, 0), 5)))) }
+            if let abnormal = value(.carbonDioxideDetected).flatMap(Self.flag) { states.append(.airQuality(abnormal ? 4 : 1)) }
+            for (concentration, type) in Self.concentrations where measuring.contains(concentration) {
+                if let reading = value(type) { states.append(.concentration(concentration, reading.doubleValue)) }
+            }
         case .alarm(let smoke):
             if let detected = value(smoke ? .smokeDetected : .carbonMonoxideDetected).flatMap(Self.flag) {
                 states.append(smoke ? .smoke(detected) : .carbonMonoxide(detected))
             }
         case .valve:
-            // In Use says whether water flows: the valve is open.
-            if let inUse = value(.inUse).flatMap(Self.flag) { states.append(.valveOpen(inUse)) }
+            // In Use says whether water flows: the valve is open. A faucet has only Active.
+            if let open = value(service[.inUse] != nil ? .inUse : .active).flatMap(Self.flag) { states.append(.valveOpen(open)) }
         case .cleaningRobot:
             // The switch says only whether it cleans: running, else stopped (where it is is not known).
             if let on = value(.on)?.boolValue { states.append(.robot(on ? .running : .stopped)) }
@@ -250,10 +318,25 @@ struct ServiceMapping: Sendable {
             let running = percent > 0
             if service[.active] != nil { write(.active, .int(running ? 1 : 0)) } else { write(.on, .bool(running)) }
             if running { write(.rotationSpeed, .double(Double(percent))) }
-        case .setHeatingSetpoint(let celsius), .setCoolingSetpoint(let celsius):
-            write(.targetTemperature, .double(celsius))
+        case .setFanRocking(let rocking):
+            write(.swingMode, .int(rocking ? 1 : 0))
+        case .setFanAirflowReversed(let reversed):
+            write(.rotationDirection, .int(reversed ? 1 : 0))
+        case .resetFilter:
+            if let reset = filter?[.resetFilterIndication] { writes.append((reset, .int(1))) }
+        case .setHeatingSetpoint(let celsius):
+            write(setpoints.heating, .double(celsius))
+        case .setCoolingSetpoint(let celsius):
+            write(setpoints.cooling, .double(celsius))
         case .setThermostatMode(let mode):
-            if let hap = Self.hapMode(systemMode: mode) { write(.targetHeatingCoolingState, .int(hap)) }
+            if case .heaterCooler = role {
+                // Off is Active off; a mode is Active on with the Target Heater Cooler State.
+                guard let target = Self.heaterCoolerMode(systemMode: mode) else { write(.active, .int(0)); break }
+                write(.active, .int(1))
+                write(.targetHeaterCoolerState, .int(target))
+            } else if let hap = Self.hapMode(systemMode: mode) {
+                write(.targetHeatingCoolingState, .int(hap))
+            }
         case .setLocked(let locked):
             write(.lockTargetState, .int(locked ? 1 : 0))
         case .setValveOpen(let open):
@@ -263,11 +346,20 @@ struct ServiceMapping: Sendable {
         case .stopCleaning, .pauseCleaning, .returnToDock:
             // The switch only starts and stops: pausing and going home stop it, and the robot goes back by itself.
             if role == .cleaningRobot { write(.on, .bool(false)) }
-        case .identify, .setClosureOpen, .stopClosure:
-            // Identify goes to the accessory; HAP has no closure service to map.
+        case .setClosureOpen(let open):
+            // Target Door State: open 0, closed 1.
+            write(.targetDoorState, .int(open ? 0 : 1))
+        case .identify, .stopClosure:
+            // Identify goes to the accessory; a garage door cannot be stopped from HAP.
             break
         }
         return writes
+    }
+
+    /// The characteristics Matter's two setpoints write: a Heater Cooler's thresholds, else the one target temperature.
+    private var setpoints: (heating: CharacteristicType, cooling: CharacteristicType) {
+        if case .heaterCooler = role { return (.heatingThresholdTemperature, .coolingThresholdTemperature) }
+        return (.targetTemperature, .targetTemperature)
     }
 
     // MARK: - Conversions
@@ -306,6 +398,19 @@ struct ServiceMapping: Sendable {
         case ThermostatCluster.SystemModeEnum.cool: 2
         default: nil
         }
+    }
+
+    /// A Heater Cooler's Active and Target Heater Cooler State (auto 0, heat 1, cool 2) to Matter's SystemMode (off 0,
+    /// auto 1, cool 3, heat 4).
+    /// Heat 1 and cool 2 are the Thermostat's own: `systemMode(hap:)` has them.
+    static func systemMode(active: Int, heaterCooler target: Int) -> UInt8 {
+        active == 0 ? UInt8(ThermostatCluster.SystemModeEnum.off) : target == 0 ? UInt8(ThermostatCluster.SystemModeEnum.auto) : systemMode(hap: target)
+    }
+
+    /// Matter's SystemMode to a Target Heater Cooler State, nil for off (and the modes a Heater Cooler does not have).
+    static func heaterCoolerMode(systemMode: UInt8) -> Int? {
+        if UInt64(systemMode) == ThermostatCluster.SystemModeEnum.auto { return 0 }
+        return hapMode(systemMode: systemMode).flatMap { $0 == 0 ? nil : $0 }
     }
 
     private static func flag(_ value: HAPValue) -> Bool? { value.boolValue ?? value.intValue.map { $0 != 0 } }
