@@ -2,6 +2,7 @@ import Foundation
 import Homeswift
 import HomeswiftAI
 import HomeswiftMCP
+import HomeswiftMatter
 import HomeswiftPlugin
 import HomeswiftUI
 import Logging
@@ -173,6 +174,7 @@ let host: PluginHost
 do {
     var hostOptions = PluginHost.Options(logger: logger)
     hostOptions.systemPlatforms.insert(UIConfiguration.platform)
+    hostOptions.systemPlatforms.insert(MatterConfiguration.platform)
     host = try PluginHost(configuration: configuration, registry: registry, storageDirectory: storagePath, options: hostOptions)
 } catch {
     fail("\(error)")
@@ -182,6 +184,7 @@ do {
 let metrics = Metrics(directory: storagePath.appendingPathComponent("metrics"))
 let mcpServer = NIOLockedValueBox<MCPHTTPServer?>(nil)
 let uiServer = NIOLockedValueBox<UIServer?>(nil)
+let matterBridge = NIOLockedValueBox<HomeswiftMatterBridge?>(nil)
 /// The catalog once made: its automations and notifications stop with the rest.
 let homeCatalog = NIOLockedValueBox<HomeswiftCatalog?>(nil)
 /// Set by a restart homeswift makes itself, and inherited by the process it execs: no stopped and started notifications.
@@ -189,13 +192,15 @@ let restartMarker = "HOMESWIFT_RESTARTED"
 let restarted = ProcessInfo.processInfo.environment[restartMarker] == "1"
 unsetenv(restartMarker)
 /// Stops the servers, then the plugins and bridges: the signal handler exits afterwards, a restart execs.
-let shutdown: @Sendable () async -> Void = { [host, mcpServer, uiServer] in
+let shutdown: @Sendable () async -> Void = { [host, mcpServer, uiServer, matterBridge] in
     logger.info("Shutdown: stopping home tasks")
     await homeCatalog.withLockedValue { $0 }?.stopHome(restarting: getenv(restartMarker) != nil)
     logger.info("Shutdown: stopping web server")
     await uiServer.withLockedValue { $0 }?.stop()
     logger.info("Shutdown: stopping MCP server")
     await mcpServer.withLockedValue { $0 }?.stop()
+    logger.info("Shutdown: stopping Matter bridge")
+    await matterBridge.withLockedValue { $0 }?.stop()
     logger.info("Shutdown: stopping plugins and bridges")
     await host.stop()
     logger.info("Shutdown: flushing metrics and logs")
@@ -218,7 +223,7 @@ let main = Task {
     let catalog = HomeswiftCatalog(
         host: host, logs: logBuffer, metrics: metrics, configURL: configURL, allowSecrets: (ProcessInfo.processInfo.environment["HOMESWIFT_ALLOW_SECRETS"] ?? ProcessInfo.processInfo.environment["HOMEBRIDGE_ALLOW_SECRETS"]) == "true",
         restart: { Task.detached { setenv(restartMarker, "1", 1); await Restart.perform(shutdown: shutdown) } },
-        reloadServices: { [mcpServer, uiServer] next, platforms in
+        reloadServices: { [mcpServer, uiServer, matterBridge] next, platforms in
             guard let catalog = catalogBox.withLockedValue({ $0 }) else { return }
             let settings = MCPCommands.mcpBlock(next)?["mcp"]
             if platforms.contains(AIConfiguration.platform), mcpSettings.withLockedValue({ $0 }) != settings {
@@ -228,6 +233,15 @@ let main = Task {
                 mcpSettings.withLockedValue { $0 = MCPCommands.mcpBlock(effective)?["mcp"] }
                 mcpServer.withLockedValue { $0 = started }
                 logger.info(started == nil ? "MCP server stopped" : "MCP server restarted with the new settings")
+            }
+            if platforms.contains(MatterConfiguration.platform) {
+                // The old bridge goes first: the new one wants the same port. Its fabrics stay in storage.
+                catalog.matter.current = nil
+                await matterBridge.withLockedValue { $0 }?.stop()
+                let started = await MatterCommands.start(catalog: catalog, configuration: next, logger: logger)
+                matterBridge.withLockedValue { $0 = started }
+                logger.info(started == nil ? "Matter bridge stopped" : "Matter bridge restarted with the new settings")
+                if let started { say(await MatterCommands.bannerLines(started)) }
             }
             if platforms.contains(UIConfiguration.platform) {
                 // The old server goes first: the new one usually wants the same port.
@@ -248,7 +262,8 @@ let main = Task {
                 }
             }
         },
-        blockSchemas: [UIConfiguration.platform: UIConfiguration.schemaJSON, AIConfiguration.platform: AIConfiguration.schemaJSON],
+        blockSchemas: [UIConfiguration.platform: UIConfiguration.schemaJSON, AIConfiguration.platform: AIConfiguration.schemaJSON,
+                       MatterConfiguration.platform: MatterConfiguration.schemaJSON],
         logger: logger)
     catalogBox.withLockedValue { $0 = catalog }
     homeCatalog.withLockedValue { $0 = catalog }
@@ -262,6 +277,8 @@ let main = Task {
     if let started = await UICommands.startServer(catalog: catalog, configuration: configuration, mcp: { mcpServer.withLockedValue { $0 } }, logger: logger) {
         uiServer.withLockedValue { $0 = started }
     }
+    let startedMatter = await MatterCommands.start(catalog: catalog, configuration: configuration, logger: logger)
+    matterBridge.withLockedValue { $0 = startedMatter }
     for bridge in host.bridges {
         let server = bridge.server
         let platforms = host.platforms.filter { $0.bridge === bridge }.map(\.name)
@@ -287,11 +304,13 @@ let main = Task {
         }
         return line
     } ?? ""
+    var matterLine = ""
+    if let startedMatter { matterLine = await MatterCommands.bannerLines(startedMatter) }
     say("""
 
         In the Home app: Add Accessory > More options > \(host.mainBridge.name), then enter the code.\(host.bridges.contains(where: \.isExternal) ? " Accessories listed on their own are added the same way, one by one." : "")
         Config: \(configURL.path)
-        \(uiLine)\(mcpLine)
+        \(uiLine)\(mcpLine)\(matterLine)
         """)
     while !Task.isCancelled {
         try? await Task.sleep(for: .seconds(3600))

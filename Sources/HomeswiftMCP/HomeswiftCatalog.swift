@@ -42,9 +42,13 @@ public struct HomeswiftCatalog: Sendable {
     public let startedAt = Date()
     /// Rooms and hidden accessories, scenes and their automations, notifications: files next to config.json.
     public let home: HomeState
+    /// The Matter bridge, set by the CLI once it runs (the `HomeswiftMatter` block); empty otherwise.
+    public let matter = MatterControlSlot()
     /// The config.schema.json of blocks no plugin provides, by platform: the runtime's own (the web UI's, the
     /// Assistant's), which a save checks as it checks a plugin's.
     let blockSchemas: [String: String]
+    /// The config.schema.json of a block the runtime runs itself, when the catalog was given one.
+    public func blockSchema(for platform: String) -> String? { blockSchemas[platform] }
     let logger: Logger
 
     public init(
@@ -87,7 +91,7 @@ public struct HomeswiftCatalog: Sendable {
     /// log, the cached accessories, the pairings, the child bridges' health, and writing the digest. Hidden from the
     /// principals of users who are not administrators (the web UI's chat, the apps they connect).
     public static let administratorOnly: Set<String> = [
-        "get_config", "list_config_backups", "get_recent_logs", "search_logs", "get_cached_accessories", "get_pairing_info", "get_child_bridge_health",
+        "get_config", "list_config_backups", "get_recent_logs", "search_logs", "get_cached_accessories", "get_pairing_info", "get_matter_status", "get_child_bridge_health",
         "homeswift://logs/recent", "homeswift://child-bridge/{id}", "diagnose-logs", "audit-config", digestRefresh,
     ]
 
@@ -1058,7 +1062,7 @@ public struct HomeswiftCatalog: Sendable {
                     block[list] = .array(entries)
                 })
             },
-        ] + hostTools + adminTools + layoutTools + wallTools + sceneTools + moodTools + notificationTools + assistantTools + pluginActionTools
+        ] + hostTools + adminTools + layoutTools + wallTools + sceneTools + moodTools + notificationTools + assistantTools + matterTools + pluginActionTools
     }
 
     /// `set_accessories` with `ids` or `filter`: one characteristic and value on every target.
