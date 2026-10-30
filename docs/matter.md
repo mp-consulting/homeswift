@@ -6,7 +6,7 @@ ways. A value a plugin sets reaches the Matter controllers; a command from a Mat
 characteristic as the Home app would, so plugins see no difference and need no change.
 
 The protocol is [swift-matter](https://github.com/mp-consulting/swift-matter) (target `HomeswiftMatter`, the
-`Matter` library), a package dependency from 0.1.0.
+`Matter` library), a package dependency from 0.2.0.
 
 ## Configuration
 
@@ -77,8 +77,8 @@ paused plugin's accessories show as unreachable. Televisions, cameras, heater-co
 vacuums are not bridged yet.
 
 Controllers that group devices (a room's lights at once, as Home Assistant and Google Home can) send one group command:
-the bridge takes group key sets, joins the groups' multicast addresses and runs the command on each member, with the
-trust-first counter policy.
+the bridge takes group key sets, joins the groups' multicast addresses and runs the command on each member. Both counter
+policies work: trust-first, and cache-and-sync, where the bridge first asks the sender for its counter (MCSP).
 
 Each device keeps its endpoint numbers across restarts (they are stored by accessory id), and a removed
 accessory's numbers are never given to another, so the ecosystems keep their rooms and automations.

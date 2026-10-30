@@ -251,7 +251,8 @@ struct ServiceMapping: Sendable {
             write(.lockTargetState, .int(locked ? 1 : 0))
         case .setValveOpen(let open):
             write(.active, .int(open ? 1 : 0))
-        case .identify:
+        case .identify, .startCleaning, .stopCleaning, .pauseCleaning, .resumeCleaning, .returnToDock:
+            // Identify goes to the accessory; HAP has no robot vacuum service to map.
             break
         }
         return writes
