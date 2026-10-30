@@ -228,7 +228,7 @@ let main = Task {
     let uiConfiguration = NIOLockedValueBox(configuration)
     let catalog = HomeswiftCatalog(
         host: host, logs: logBuffer, metrics: metrics, configURL: configURL, allowSecrets: (ProcessInfo.processInfo.environment["HOMESWIFT_ALLOW_SECRETS"] ?? ProcessInfo.processInfo.environment["HOMEBRIDGE_ALLOW_SECRETS"]) == "true",
-        restart: { Task.detached { setenv(restartMarker, "1", 1); await Restart.perform(shutdown: shutdown) } },
+        restart: { Task.detached { setenv(restartMarker, "1", 1); await Restart.perform(shutdown: shutdown, replace: { Restart.exec(UICommands.relaunchExecutable) }) } },
         reloadServices: { [mcpServer, uiServer] next, platforms in
             guard let catalog = catalogBox.withLockedValue({ $0 }) else { return }
             let settings = MCPCommands.mcpBlock(next)?["mcp"]

@@ -6,7 +6,6 @@ import Musl
 #elseif canImport(Darwin)
 import Darwin
 #endif
-import HomeswiftUI
 
 /// Replaces this process with a fresh copy of itself: same binary, same arguments, same PID, so launchd,
 /// systemd and `brew services` see a bridge that never went away. Everything must be stopped first.
@@ -16,7 +15,7 @@ enum Restart {
     static func perform(
         timeout: TimeInterval = 30,
         shutdown: @escaping @Sendable () async -> Void,
-        replace: @escaping @Sendable () -> Void = { exec() },
+        replace: @escaping @Sendable () -> Void,
         timedOut: (@Sendable () -> Void)? = nil
     ) async {
         let gate = RestartGate()
@@ -33,11 +32,8 @@ enum Restart {
         replace()
     }
 
-    static func exec() -> Never {
-        let running = ReleaseWatcher.runningExecutable
-        // On a Homebrew install, its `opt` link, which an update moves to the new version: this one's Cellar may be gone.
-        let installed = HomebrewInstaller(executable: running)?.executable.flatMap { FileManager.default.isExecutableFile(atPath: $0) ? $0 : nil }
-        let path = installed ?? running
+    /// Execs `path` (`UICommands.relaunchExecutable`, kept out of this file so Scripts/test-restart.swift builds it alone).
+    static func exec(_ path: String) -> Never {
         var arguments: [UnsafeMutablePointer<CChar>?] = CommandLine.arguments.map { strdup($0) }
         arguments.append(nil)
         closeOnExec()
