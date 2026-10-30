@@ -46,11 +46,51 @@ public struct PluginScene: Sendable, Equatable {
     }
 }
 
+/// A light's state as a hub scene keeps it, in HomeKit's units, for `HomeswiftPlugin.createScene` and `updateScene`.
+/// A light switched off keeps only `on`.
+public struct PluginSceneLight: Sendable, Equatable {
+    public var accessoryID: String
+    public var on: Bool
+    /// 0 to 100.
+    public var brightness: Double?
+    /// A colour: hue 0 to 360 and saturation 0 to 100.
+    public var hue: Double?
+    public var saturation: Double?
+    /// A white, in mireds (HomeKit's Color Temperature).
+    public var colorTemperature: Int?
+
+    public init(accessoryID: String, on: Bool, brightness: Double? = nil, hue: Double? = nil, saturation: Double? = nil, colorTemperature: Int? = nil) {
+        self.accessoryID = accessoryID
+        self.on = on
+        self.brightness = brightness
+        self.hue = hue
+        self.saturation = saturation
+        self.colorTemperature = colorTemperature
+    }
+
+    /// Whether it sets a colour (both hue and saturation), which wins over a white.
+    public var hasColour: Bool { hue != nil && saturation != nil }
+}
+
 extension HomeswiftPlugin {
     public func scenes() async -> [PluginScene] { [] }
 
     public func recallScene(id: String) async throws {
         throw PluginSceneError("\(Self.name) has no scenes")
+    }
+
+    public func sceneTarget(accessoryIDs: [String]) async -> String? { nil }
+
+    public func createScene(name: String, lights: [PluginSceneLight]) async throws -> String {
+        throw PluginSceneError("\(Self.name) cannot keep new scenes")
+    }
+
+    public func updateScene(id: String, name: String?, lights: [PluginSceneLight]?) async throws {
+        throw PluginSceneError("\(Self.name) cannot change its scenes")
+    }
+
+    public func deleteScene(id: String) async throws {
+        throw PluginSceneError("\(Self.name) cannot remove its scenes")
     }
 }
 
@@ -69,18 +109,26 @@ extension PluginHost {
     /// Every running instance's scenes (`HomeswiftPlugin.scenes()`), asked at the same time; paused instances and
     /// those with none are left out.
     public func pluginScenes() async -> [InstanceScenes] {
-        let running = instances.compactMap { instance -> (PlatformInstance, any HomeswiftPlugin)? in
-            guard !instance.block.paused, let plugin = instance.plugin.withLockedValue({ $0 }) else { return nil }
-            let described = PlatformInstance(
-                name: instance.context.name, platform: instance.context.platform, pluginName: instance.entry.name, bridge: instance.context.bridge,
-                accessoryIDs: instance.context.accessories.map(\.id))
-            return (described, plugin)
-        }
-        return await withTaskGroup(of: (Int, InstanceScenes?).self) { group in
-            for (index, (described, plugin)) in running.enumerated() {
+        await scenes(of: runningPlugins())
+    }
+
+    /// The running instances' platforms and names, without describing their accessories.
+    public func runningInstanceNames() -> [(platform: String, name: String)] {
+        runningPlugins().map { ($0.instance.context.platform, $0.instance.context.name) }
+    }
+
+    /// The scenes of the instance `name` of `platform` only, when it runs: a hub scene's id names its instance.
+    public func pluginScenes(platform: String, name: String) async -> InstanceScenes? {
+        await scenes(of: runningPlugins().filter { $0.instance.context.platform == platform && $0.instance.context.name == name }).first
+    }
+
+    private func scenes(of running: [(instance: Instance, plugin: any HomeswiftPlugin)]) async -> [InstanceScenes] {
+        await withTaskGroup(of: (Int, InstanceScenes?).self) { group in
+            for (index, (instance, plugin)) in running.enumerated() {
                 group.addTask {
                     let scenes = await plugin.scenes()
-                    return (index, scenes.isEmpty ? nil : InstanceScenes(instance: described, scenes: scenes))
+                    // Described only when it has some: most plugins have none.
+                    return (index, scenes.isEmpty ? nil : InstanceScenes(instance: instance.described, scenes: scenes))
                 }
             }
             var found: [(Int, InstanceScenes)] = []
@@ -91,8 +139,50 @@ extension PluginHost {
 
     /// Recalls a scene of the instance `name` of `platform` (`HomeswiftPlugin.recallScene(id:)`).
     public func recallScene(platform: String, name: String, id: String) async throws {
-        guard let instance = instances.first(where: { $0.context.platform == platform && $0.context.name == name }), !instance.block.paused,
-              let plugin = instance.plugin.withLockedValue({ $0 }) else { throw PluginSceneError("\(name) is not running") }
-        try await plugin.recallScene(id: id)
+        try await runningPlugin(platform: platform, name: name).recallScene(id: id)
+    }
+
+    /// A hub that can keep a new scene of exactly these lights.
+    public struct SceneTarget: Sendable {
+        public let instance: PlatformInstance
+        /// Where the hub would keep it ("Living room on Hue Bridge").
+        public let label: String
+    }
+
+    /// The running instances that can keep a scene of these lights (`HomeswiftPlugin.sceneTarget`), asked at once.
+    public func sceneTargets(accessoryIDs: [String]) async -> [SceneTarget] {
+        guard !accessoryIDs.isEmpty else { return [] }
+        // Only an instance that has every one of the lights is asked.
+        let candidates = runningPlugins().filter { candidate in
+            let ids = Set(candidate.instance.context.accessories.map(\.id))
+            return accessoryIDs.allSatisfy(ids.contains)
+        }
+        return await withTaskGroup(of: (Int, SceneTarget?).self) { group in
+            for (index, (instance, plugin)) in candidates.enumerated() {
+                group.addTask { (index, await plugin.sceneTarget(accessoryIDs: accessoryIDs).map { SceneTarget(instance: instance.described, label: $0) }) }
+            }
+            var found: [(Int, SceneTarget)] = []
+            for await (index, target) in group { if let target { found.append((index, target)) } }
+            return found.sorted { $0.0 < $1.0 }.map(\.1)
+        }
+    }
+
+    public func createScene(platform: String, name: String, sceneName: String, lights: [PluginSceneLight]) async throws -> String {
+        try await runningPlugin(platform: platform, name: name).createScene(name: sceneName, lights: lights)
+    }
+
+    public func updateScene(platform: String, name: String, id: String, sceneName: String?, lights: [PluginSceneLight]?) async throws {
+        try await runningPlugin(platform: platform, name: name).updateScene(id: id, name: sceneName, lights: lights)
+    }
+
+    public func deleteScene(platform: String, name: String, id: String) async throws {
+        try await runningPlugin(platform: platform, name: name).deleteScene(id: id)
+    }
+
+    private func runningPlugin(platform: String, name: String) throws -> any HomeswiftPlugin {
+        guard let running = runningPlugins().first(where: { $0.instance.context.platform == platform && $0.instance.context.name == name }) else {
+            throw PluginSceneError("\(name) is not running")
+        }
+        return running.plugin
     }
 }

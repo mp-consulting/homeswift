@@ -220,9 +220,32 @@ struct PluginPicturesTests {
             try pictures.save(key: "a", dataURL: Self.url(Self.jpeg + Data(count: PluginPictures.maximumSize)))
         }
         // A key never leaves the directory.
-        for key in ["../escape", "a/b", "", "a.b", String(repeating: "x", count: 200)] {
+        for key in ["../escape", "a/b", "", "a.b", String(repeating: "x", count: 241)] {
             #expect(throws: PluginPictures.Failure.badKey) { try pictures.save(key: key, dataURL: Self.url(Self.jpeg)) }
         }
         #expect(pictures.versions().isEmpty)
+    }
+
+    /// A plugin's scene pictures are the core's, under its scenes' id prefix; the ones it kept before move there once.
+    @Test func pluginScenePicturesAreTheCores() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("homeswift-scene-pictures-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let old = PluginPictures(directory: root.appendingPathComponent("plugins/hue/scene-pictures"))
+        try old.save(key: "kept-before", dataURL: Self.url(Self.jpeg))
+        let hue = PluginPictures.scenePictures(root: root, platform: "PhilipsHue", name: "Hue Bridge")
+        hue.adopt(old)
+        #expect(!FileManager.default.fileExists(atPath: old.directory.path))
+        try hue.save(key: "abc", dataURL: Self.url(Self.png, as: "image/png"))
+        #expect(Set(hue.versions().keys) == ["kept-before", "abc"])
+        let core = PluginPictures.scenePictures(root: root)
+        #expect(Set(core.versions().keys) == ["PhilipsHue:Hue Bridge:kept-before", "PhilipsHue:Hue Bridge:abc"])
+        #expect(core.dataURL(key: "PhilipsHue:Hue Bridge:abc") == Self.url(Self.png, as: "image/png"))
+        // Another instance sees none of them; a removal through the core shows on the plugin's view at once.
+        #expect(PluginPictures.scenePictures(root: root, platform: "PhilipsHue", name: "Other").versions().isEmpty)
+        core.remove(key: "PhilipsHue:Hue Bridge:abc")
+        #expect(hue.versions()["abc"] == nil)
+        // Any key is a safe file name once encoded.
+        try core.save(key: "../escape", dataURL: Self.url(Self.jpeg))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: core.directory.path).allSatisfy { !$0.contains("/") && !$0.hasPrefix(".") })
     }
 }

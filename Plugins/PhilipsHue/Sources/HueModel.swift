@@ -26,6 +26,8 @@ struct HueLight: Sendable, Equatable {
     var effect: String?
     /// Whether it takes `effects_v2` (an effect with a speed) rather than `effects`.
     var effectsV2 = false
+    /// The timed effects it takes (`sunrise`, `sunset`), without `no_effect`.
+    var timedEffects: [String] = []
     /// The room its device is in (a room holds devices; a zone, which crosses rooms, does not count).
     var roomID: String?
     var room: String?
@@ -66,6 +68,8 @@ struct HueGroup: Sendable, Equatable {
     var on: Bool = false
     /// Its lights' brightness as the bridge sums it up (0 to 100), when it says.
     var brightness: Double?
+    /// Its lights' ids: a room's devices' lights, a zone's own.
+    var lightIDs: [String] = []
 }
 
 /// A scene of a room or zone; a smart scene (one that follows the time of day) is one too, recalled with `activate`.
@@ -88,6 +92,8 @@ struct HueScene: Sendable, Equatable {
     /// Its colour temperatures in mirek, when it sets whites.
     var whites: [Int] = []
     var speed: Double?
+    /// The lights its actions set (none for a smart scene).
+    var lightIDs: [String] = []
 }
 
 /// A device with sensors or buttons (a motion sensor, a dimmer switch, a Tap dial, a Secure contact sensor): what its
@@ -227,6 +233,8 @@ struct HueSnapshot: Sendable, Equatable {
         var groupedLights: [String: (on: Bool, brightness: Double?)] = [:]
         var unreachable: Set<String> = []
         var roomOfDevice: [String: (id: String, name: String)] = [:]
+        // What each room (devices) or zone (lights) holds, resolved to lights once every light is read.
+        var members: [String: (devices: [String], lights: [String])] = [:]
         var byID: [String: JSONValue] = [:]
         for resource in resources {
             if let id = resource["id"]?.stringValue { byID[id] = resource }
@@ -258,6 +266,9 @@ struct HueSnapshot: Sendable, Equatable {
                         if let device = child["rid"]?.stringValue { roomOfDevice[device] = (id, name) }
                     }
                 }
+                let children = resource["children"]?.arrayValue ?? []
+                members[id] = (children.filter { $0["rtype"]?.stringValue == "device" }.compactMap { $0["rid"]?.stringValue },
+                               children.filter { $0["rtype"]?.stringValue == "light" }.compactMap { $0["rid"]?.stringValue })
                 let grouped = resource["services"]?.arrayValue?.first { $0["rtype"]?.stringValue == "grouped_light" }?["rid"]?.stringValue
                 groups.append(HueGroup(
                     id: id, kind: resource["type"]?.stringValue ?? "room", name: resource["metadata"]?["name"]?.stringValue ?? "Room",
@@ -276,6 +287,11 @@ struct HueSnapshot: Sendable, Equatable {
         }
         for index in lights.indices {
             (lights[index].roomID, lights[index].room) = (roomOfDevice[lights[index].deviceID]?.id, roomOfDevice[lights[index].deviceID]?.name)
+        }
+        for index in groups.indices {
+            guard let held = members[groups[index].id] else { continue }
+            let devices = Set(held.devices)
+            groups[index].lightIDs = held.lights + lights.filter { devices.contains($0.deviceID) }.map(\.id)
         }
         let lightDevices = Set(lights.map(\.deviceID))
         for (id, device) in devices where !lightDevices.contains(id) {
@@ -337,6 +353,9 @@ struct HueSnapshot: Sendable, Equatable {
             light.effect = effects["status"]?.stringValue ?? effects["effect"]?.stringValue
         }
         light.effects.removeAll { $0 == "no_effect" }
+        if let timed = resource["timed_effects"] {
+            light.timedEffects = (timed["effect_values"]?.arrayValue ?? timed["status_values"]?.arrayValue ?? []).compactMap(\.stringValue).filter { $0 != "no_effect" }
+        }
         if light.effect == "no_effect" { light.effect = nil }
         light.signals = (resource["signaling"]?["signal_values"]?.arrayValue ?? []).compactMap(\.stringValue)
         if let gradient = resource["gradient"] {
@@ -363,6 +382,9 @@ struct HueSnapshot: Sendable, Equatable {
             }
         }
         scene.colourful = scene.colours.contains { !HueColor.isWhite($0) }
+        scene.lightIDs = (resource["actions"]?.arrayValue ?? []).compactMap { action in
+            action["target"]?["rtype"]?.stringValue == "light" ? action["target"]?["rid"]?.stringValue : nil
+        }
         return scene
     }
 }

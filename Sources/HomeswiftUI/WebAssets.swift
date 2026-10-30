@@ -3066,7 +3066,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if (size === sizeOf(accessory)) return;
       animateLayout(() => {
         layout.sizes[accessory.id] = size;
-        nodes.get(accessory.id)?.replaceWith(widget(accessory));
+        const node = nodes.get(accessory.id), wall = node?.parentElement;
+        node?.replaceWith(widget(accessory));
+        if (wall) { arrange(wall); arrangeObserver.observe(nodes.get(accessory.id)); }
       });
       if (persist) save();
     }
@@ -3093,6 +3095,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     function step(accessory, delta) {
       const node = nodes.get(accessory.id), wall = node?.parentElement;
       if (!wall) return;
+      // On a wall with cells, a column left or right.
+      const cell = cells.get(node);
+      if (cell) {
+        slide(wall, () => keepCells(wall, arrange(wall, { node, column: Math.max(1, cell[0] + delta), row: cell[1] })), null);
+        save();
+        nodes.get(accessory.id)?.querySelector(`.edit-bar [data-step="${delta}"]`)?.focus();
+        return;
+      }
       const siblings = [...wall.children].filter((child) => child.dataset.id && !child.classList.contains("hidden"));
       const target = siblings[siblings.indexOf(node) + delta];
       if (!target) return;
@@ -3164,6 +3174,77 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       wall.addEventListener("lostpointercapture", end);
     }
 
+    // ---- Widgets on cells of their own: `layout.positions[grouping][id]` is a widget's top-left [column, row] ----
+
+    /// The cells a widget spans, [columns, rows]: large and extra large as many rows as widgets.js fitted them to.
+    function spanOf(node) {
+      const rows = Number(node.style.getPropertyValue("--card-rows")) || 0;
+      if (node.classList.contains("size-xlarge")) return [2, rows || 5];
+      if (node.classList.contains("size-large")) return [2, rows || 3];
+      return node.classList.contains("size-medium") ? [1, 2] : [1, 1];
+    }
+    /// The wall's grid: its columns, and a cell's pitch in pixels.
+    function gridOf(wall) {
+      const style = getComputedStyle(wall);
+      const columnGap = parseFloat(style.columnGap) || 12, rowGap = parseFloat(style.rowGap) || columnGap;
+      const unit = parseFloat(style.getPropertyValue("--unit")) || 176, row = parseFloat(style.gridAutoRows) || 64;
+      return { columns: Math.max(1, Math.round((wall.clientWidth + columnGap) / (unit + columnGap))), x: unit + columnGap, y: row + rowGap };
+    }
+    const placesOf = () => layout.positions?.[layout.grouping] ?? {};
+    const cells = new WeakMap();
+    /// Lays out a wall whose widgets have cells of their own (or while one is dragged over it, `pin`: {node, column,
+    /// row}, which goes first): each keeps its cell, moved down past a widget already there and left when the screen
+    /// has fewer columns, and the others fill the first free cells in their order. Gaps stay. A wall with no cell of its
+    /// own flows as the grid packs it. Answers each widget's cell.
+    function arrange(wall, pin = null) {
+      const places = placesOf();
+      const widgets = [...wall.children].filter((child) => (child.dataset.id || child === pin?.node) && !child.classList.contains("lifted"));
+      const result = new Map();
+      if (!pin && !widgets.some((child) => places[child.dataset.id])) {
+        for (const child of widgets) { child.style.gridColumn = ""; child.style.gridRow = ""; cells.delete(child); }
+        return result;
+      }
+      const { columns } = gridOf(wall);
+      const taken = new Set();
+      const fits = (column, row, width, height) => {
+        for (let x = 0; x < width; x++) for (let y = 0; y < height; y++) if (taken.has(`${column + x},${row + y}`)) return false;
+        return true;
+      };
+      const put = (node, column, row) => {
+        const [spanColumns, height] = spanOf(node), width = Math.min(spanColumns, columns);
+        column = Math.max(1, Math.min(column, columns - width + 1));
+        while (!fits(column, row, width, height)) row++;
+        for (let x = 0; x < width; x++) for (let y = 0; y < height; y++) taken.add(`${column + x},${row + y}`);
+        node.style.gridColumn = `${column} / span ${width}`;
+        node.style.gridRow = `${row} / span ${height}`;
+        cells.set(node, [column, row]);
+        result.set(node, [column, row]);
+      };
+      if (pin) put(pin.node, pin.column, pin.row);
+      const rest = widgets.filter((child) => child !== pin?.node && !child.classList.contains("hidden"));
+      const at = (child) => places[child.dataset.id];
+      for (const child of rest.filter(at).sort((a, b) => at(a)[1] - at(b)[1] || at(a)[0] - at(b)[0])) put(child, ...at(child));
+      for (const child of rest.filter((one) => !at(one))) {
+        const [spanColumns, height] = spanOf(child), width = Math.min(spanColumns, columns);
+        let row = 1, column = 1;
+        while (!fits(column, row, width, height)) { column++; if (column > columns - width + 1) { column = 1; row++; } }
+        put(child, column, row);
+      }
+      return result;
+    }
+    /// Keeps the cells `arrange` gave the widgets of `wall` as theirs, so the wall stays as it is drawn.
+    function keepCells(wall, placed) {
+      const places = ((layout.positions ??= {})[layout.grouping] ??= {});
+      for (const [node, cell] of placed) if (node.dataset.id) places[node.dataset.id] = cell;
+    }
+    // A wall is laid out again when its width or a widget's size changes (a large card fitted to more rows).
+    let arranging = 0;
+    const arrangeSoon = () => {
+      cancelAnimationFrame(arranging);
+      arranging = requestAnimationFrame(() => { for (const wall of content.querySelectorAll(".wall")) if (!wall.querySelector(".lifted")) arrange(wall); });
+    };
+    const arrangeObserver = new ResizeObserver(arrangeSoon);
+
     const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
     /// Moves widgets of `wall` by `change` and slides them from where they were seen to where they land (FLIP): taken
     /// from their on-screen place, so a slide already under way turns smoothly.
@@ -3183,17 +3264,28 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
     }
 
-    /// Dragging in Edit: the widget lifts and follows the pointer, a dashed slot holds its place in the grid and
-    /// moves as it passes over the others, which slide aside; near the window's top or bottom the page scrolls.
-    /// Let go, it lands in the slot, and the wall's order is kept. A finger drags at once: in Edit the widgets do not
-    /// scroll the page.
+    /// Dragging in Edit: the widget lifts and follows the pointer, a dashed slot shows the cell it would land on, free
+    /// or not (the widgets there slide down out of its way); near the window's top or bottom the page scrolls. Let go,
+    /// it lands there and every widget of the wall keeps its cell, gaps included. Over the middle of a widget it can
+    /// join, it groups with it instead. By room, an accessory dragged into another room's
+    /// wall (an administrator's) moves to that room, or out of any into No room. A finger drags at once: in Edit the
+    /// widgets do not scroll the page.
     function drag(event, node) {
       if (event.button !== 0 || event.target.closest(".edit-bar, .resize-handle, .menu-button")) return;
       // A press that drags selects no text.
       event.preventDefault();
       getSelection()?.removeAllRanges();
-      const wall = node.parentElement;
+      const origin = node.parentElement;
+      let wall = origin;
+      const acrossRooms = layout.grouping === "room" && isAdmin() && origin.dataset.room !== undefined && !node.classList.contains("accessory-group");
+      const markRoom = (target) => {
+        for (const section of content.querySelectorAll(".room-drop-target")) section.classList.remove("room-drop-target");
+        if (target && target !== origin) target.closest(".accessory-section")?.classList.add("room-drop-target");
+      };
       const start = { x: event.clientX, y: event.clientY };
+      const grabbed = node.getBoundingClientRect();
+      // Where in the widget it was taken: its top-left corner is what lands on a cell.
+      const grab = { x: event.clientX - grabbed.left, y: event.clientY - grabbed.top };
       const originalStyle = node.style.cssText, originalNext = node.nextElementSibling;
       let slot = null, pointer = event, scroller = null;
       let groupTarget = null;
@@ -3223,10 +3315,21 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       // The widget under the pointer: the slot goes before it, or after it past its middle.
       const hover = () => {
         // Ignore the lifted card and its controls when locating the actual drop target.
-        const under = document.elementsFromPoint(pointer.clientX, pointer.clientY)
+        const stack = document.elementsFromPoint(pointer.clientX, pointer.clientY);
+        // Over another room's wall, the slot moves there.
+        const overWall = acrossRooms && stack.map((element) => element.closest(".wall")).find((candidate) => candidate && candidate.dataset.room !== undefined && content.contains(candidate));
+        if (overWall && overWall !== wall) {
+          clearGroupTarget();
+          const left = wall;
+          wall = overWall;
+          markRoom(wall);
+          wall.append(slot);
+          slide(left, () => arrange(left), node);
+        }
+        const under = stack
           .map((element) => element.closest(".wall > .widget"))
           .find((candidate) => candidate && candidate !== node && candidate !== slot && candidate.parentElement === wall);
-        if (!under || under === slot || under.parentElement !== wall) { clearGroupTarget(); return; }
+        if (!under || under === slot || under.parentElement !== wall) { clearGroupTarget(); placeSlot(); return; }
         const box = under.getBoundingClientRect();
         // On compact/touch layouts leave only a narrow edge for reordering. Otherwise a
         // small tile moves away before the finger can reach its old central drop zone.
@@ -3240,10 +3343,28 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           return;
         }
         clearGroupTarget();
-        const after = pointer.clientY > box.top + box.height * .75 ||
-          (pointer.clientY >= box.top + box.height * .25 && pointer.clientX > box.left + box.width / 2);
-        if ((after ? under.nextElementSibling : under.previousElementSibling) === slot) return;
-        slide(wall, () => (after ? under.after(slot) : under.before(slot)), node);
+        placeSlot();
+      };
+      /// The slot on the cell under the widget's top-left corner.
+      let slotCell = null;
+      const roomRows = new Map();
+      const placeSlot = () => {
+        const grid = gridOf(wall), box = wall.getBoundingClientRect();
+        // By room, the widget stays within the rows the room had when it reached it; its empty row in Edit counts only
+        // while the pointer is over the room as it was then. A room that grew under the pointer would push the next one
+        // away; past its old bottom it shrinks back, and the next room is under the pointer again.
+        if (acrossRooms && !roomRows.has(wall)) {
+          const padding = parseFloat(getComputedStyle(wall).paddingBottom) || 0;
+          roomRows.set(wall, { rows: Math.max(1, Math.round((box.height - padding) / grid.y)), bottom: box.bottom + scrollY });
+        }
+        const entered = roomRows.get(wall);
+        const column = Math.max(1, Math.round((pointer.clientX - grab.x - box.left) / grid.x) + 1);
+        // Over the room, a widget may start on its empty row, however tall; past it, it ends on the room's last row.
+        const lastRow = !entered ? Infinity : pointer.clientY + scrollY <= entered.bottom ? entered.rows + 1 : entered.rows - spanOf(slot)[1] + 1;
+        const row = Math.max(1, Math.min(Math.round((pointer.clientY - grab.y - box.top) / grid.y) + 1, lastRow));
+        if (slotCell?.[0] === column && slotCell?.[1] === row && slot.parentElement === wall) return;
+        slotCell = [column, row];
+        slide(wall, () => arrange(wall, { node: slot, column, row }), node);
       };
       const move = (moved) => {
         pointer = moved;
@@ -3265,14 +3386,23 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const joinTarget = ended.type === "pointerup" && groupTarget ? groupTarget.dataset.id : null;
         clearGroupTarget();
         if (!slot || !slot.isConnected) return;
-        if (ended.type !== "pointerup") {
+        markRoom(null);
+        const cancelled = ended.type !== "pointerup";
+        if (cancelled) {
+          if (wall !== origin) { slot.remove(); arrange(wall); wall = origin; }
           if (originalNext?.parentElement === wall) originalNext.before(slot); else wall.append(slot);
         }
         // Lands in the slot from where it was let go.
         const from = node.getBoundingClientRect();
+        const landed = cells.get(slot);
         slot.replaceWith(node);
         node.classList.remove("lifted");
         node.style.cssText = originalStyle;
+        if (joinTarget || cancelled) arrange(wall);
+        else {
+          keepCells(wall, arrange(wall, landed ? { node, column: landed[0], row: landed[1] } : null));
+          if (wall !== origin) arrange(origin);
+        }
         const to = node.getBoundingClientRect();
         node.style.transition = "none";
         node.style.transform = `translate(${from.left - to.left}px, ${from.top - to.top}px)`;
@@ -3285,12 +3415,24 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const byID = new Map(ordered.map((accessory) => [accessory.id, accessory]));
         ids.forEach((id, index) => { ordered[places[index]] = byID.get(id); });
         save();
-        if (joinTarget) groupingControls.join(node.dataset.id, joinTarget);
+        if (wall !== origin) moveToRoom(node.dataset.id, wall.dataset.room);
+        else if (joinTarget) groupingControls.join(node.dataset.id, joinTarget);
       };
       node.addEventListener("pointermove", move);
       node.addEventListener("pointerup", end);
       node.addEventListener("pointercancel", end);
       node.addEventListener("lostpointercapture", end);
+    }
+
+    /// Puts an accessory dropped on another room's wall in that room ("" for none), then draws the wall again; a refusal
+    /// puts it back.
+    async function moveToRoom(id, room) {
+      try {
+        await api("/api/rooms", { method: "PUT", body: { accessories: { [id]: { room: room || null } } } });
+        const accessory = all.find((candidate) => candidate.id === id);
+        if (accessory) accessory.room = room || null;
+      } catch (e) { HomeswiftCommon.showAlert(e.message); }
+      render();
     }
 
     const content = el("div", { class: "accessory-walls" });
@@ -3307,25 +3449,86 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
       return [...rooms];
     }
-    const roomOrderButton = el("button", { type: "button", class: "hidden", "aria-label": t("Reorder rooms"), "aria-haspopup": "menu",
+    // Whether a room renamed here is renamed on the plugins' hubs too (off unless turned on).
+    let syncRoomNames = home.syncRoomNames === true;
+    async function renameRoom(name) {
+      const answer = await HomeswiftCommon.promptDialog(t("A new name for {room}.", { room: name })
+        + (syncRoomNames ? `\n\n${t("Rooms of this name on your Philips Hue, IKEA and eWeLink hubs are renamed too.")}` : ""), name);
+      await applyRoomName(name, answer);
+    }
+    /// Renames a room (to the trimmed `answer`, unless empty or unchanged); answers whether it was.
+    async function applyRoomName(name, answer) {
+      const to = answer?.trim();
+      if (!to || to === name) return false;
+      try {
+        const result = await api("/api/rooms", { method: "PUT", body: { renameRoom: { from: name, to } } });
+        const failed = (result.hubRooms || []).filter((room) => !room.renamed);
+        if (failed.length) HomeswiftCommon.showAlert(failed.map((room) => t("Not renamed on {hub}: {error}", { hub: room.name, error: room.error })).join("\n"));
+        // Drawn again here rather than reloaded, so Edit stays on for the next room.
+        rooms.splice(0, rooms.length, ...result.rooms.map((room) => room.name));
+        for (const accessory of all) if (accessory.room === name) accessory.room = to;
+        render();
+        return true;
+      } catch (e) { HomeswiftCommon.showAlert(e.message); return false; }
+    }
+    /// A room's heading in Edit: its name as a field, renamed on Enter or when it loses focus; Escape puts it back.
+    function roomNameField(name) {
+      const input = el("input", { type: "text", class: "room-name-input", value: name, maxLength: 64, spellcheck: false, autocomplete: "off",
+        "aria-label": t("Name of {room}", { room: name }), title: t("Rename the room") });
+      // As wide as its text, measured in the field's font (field-sizing leaves the padding out in Chromium).
+      const fit = () => {
+        if (!input.isConnected) return;
+        const style = getComputedStyle(input);
+        const context = (fit.canvas ??= document.createElement("canvas")).getContext("2d");
+        context.font = style.font;
+        const chrome = ["paddingLeft", "paddingRight", "borderLeftWidth", "borderRightWidth"].reduce((sum, key) => sum + parseFloat(style[key]), 0);
+        input.style.width = `${Math.ceil(context.measureText(input.value || " ").width + chrome) + 2}px`;
+      };
+      requestAnimationFrame(fit);
+      input.addEventListener("input", fit);
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") { event.preventDefault(); input.blur(); }
+        if (event.key === "Escape") { input.value = name; fit(); input.blur(); }
+      });
+      input.addEventListener("change", async () => {
+        input.disabled = true;
+        if (!await applyRoomName(name, input.value)) { input.value = name; fit(); input.disabled = false; }
+      });
+      return el("h2", {}, input);
+    }
+    const roomOrderButton = el("button", { type: "button", class: "hidden", "aria-label": t("Rooms"), "aria-haspopup": "menu",
       onclick: (event) => HomeswiftCommon.menu(roomOrderButton, [
-        ...rooms.map((name) => ({ key: name, label: name, icon: "room", keepOpen: true })),
+        { heading: t("Rooms"), detail: t("Drag to reorder, choose one to rename it.") },
+        ...rooms.map((name) => ({ key: name, label: name, icon: "room", onSelect: () => renameRoom(name) })),
         { separator: true },
         { label: t("Reset room order"), icon: "restore", disabled: () => rooms.every((name, index) => index === 0 || rooms[index - 1].localeCompare(name, HomeswiftI18n.locale) <= 0), onSelect: () => saveRoomOrder([...rooms].sort((a, b) => a.localeCompare(b, HomeswiftI18n.locale))) },
-      ], { keyboard: event.detail === 0, onReorder: saveRoomOrder }) }, HomeswiftCommon.icon("room"), el("span", { text: t("Reorder rooms") }));
+        { label: t("Rename on the hubs too"), icon: "bridge", checked: syncRoomNames, checkbox: true, toggle: true, keepOpen: true, onSelect: async () => {
+          try {
+            syncRoomNames = (await api("/api/rooms", { method: "PUT", body: { syncRoomNames: !syncRoomNames } })).syncRoomNames === true;
+          } catch (e) { HomeswiftCommon.showAlert(e.message); }
+          return syncRoomNames;
+        } },
+      ], { keyboard: event.detail === 0, onReorder: saveRoomOrder }) }, HomeswiftCommon.icon("room"), el("span", { text: t("Rooms") }));
 
     function render() {
-      roomOrderButton.classList.toggle("hidden", !editing || !isAdmin() || layout.grouping !== "room" || rooms.length < 2);
+      roomOrderButton.classList.toggle("hidden", !editing || !isAdmin() || layout.grouping !== "room" || !rooms.length);
       nodes.clear();
       // By plugin or by room: a section each (by plugin in the order of their names, those of no plugin last; by room
       // in the rooms' order, those in none last); else one wall.
-      const sections = layout.grouping === "plugin" ? groupByPlugin(accessories)
+      let sections = layout.grouping === "plugin" ? groupByPlugin(accessories)
         : layout.grouping === "room" && rooms.length ? HomeswiftHome.groupByRoom(accessories, rooms) : null;
+      const byRoom = layout.grouping === "room" && rooms.length;
+      // In Edit, every room has its wall, empty ones too, and so has No room: places to drop an accessory.
+      if (byRoom && editing && isAdmin()) {
+        const found = new Map(sections);
+        const rest = sections.find(([name]) => !rooms.includes(name))?.[1] ?? [];
+        sections = [...rooms.map((room) => [room, found.get(room) ?? []]), [t("No room"), rest]];
+      }
       const groups = sections ? sections.map(([name, group]) => [name, ordered.filter((accessory) => group.includes(accessory))]) : [["", ordered]];
       const memberIDs = new Set(layout.groups.flatMap((g) => g.members));
       content.replaceChildren(...groups.map(([name, group]) => el("section", { class: "accessory-section" },
-        name ? el("div", { class: "section-head" }, el("h2", { text: name }), el("span", { class: "muted", text: tn("{n} accessory", "{n} accessories", group.length) })) : null,
-        el("div", { class: `wall${editing ? " editing" : ""}` }, group.filter((a) => !memberIDs.has(a.id) || noResponse).map(widget)))));
+        name ? el("div", { class: "section-head" }, editing && isAdmin() && layout.grouping === "room" && rooms.includes(name) ? roomNameField(name) : el("h2", { text: name }), el("span", { class: "muted", text: tn("{n} accessory", "{n} accessories", group.length) })) : null,
+        el("div", { class: `wall${editing ? " editing" : ""}`, "data-room": byRoom ? (rooms.includes(name) ? name : "") : null }, group.filter((a) => !memberIDs.has(a.id) || noResponse).map(widget)))));
       if (!noResponse) {
         const walls = [...content.querySelectorAll(".wall")];
         const cardsBySection = groups.map(() => []);
@@ -3337,10 +3540,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         walls.forEach((wall, index) => wall.prepend(...cardsBySection[index]));
       }
       const widgetRank = new Map(layout.order.map((id, index) => [id, index]));
+      arrangeObserver.disconnect();
       for (const wall of content.querySelectorAll(".wall")) {
         const children = [...wall.children];
         const rankOf = (node) => widgetRank.get(node.dataset.id) ?? (node.classList.contains("accessory-group") ? -1 : layout.order.length + children.indexOf(node));
         wall.append(...[...children].sort((a, b) => rankOf(a) - rankOf(b)));
+        arrange(wall);
+        arrangeObserver.observe(wall);
+        for (const child of wall.children) arrangeObserver.observe(child);
       }
       filter();
     }
@@ -3356,7 +3563,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           card.classList.toggle("hidden", !match);
           if (match) inSection++;
         }
-        section.classList.toggle("hidden", inSection === 0);
+        // An empty room stays in Edit, by room, to take a drop, unless a search is on.
+        section.classList.toggle("hidden", inSection === 0 && !(!text && section.querySelector(".wall.editing[data-room]")));
         shown += inSection;
       }
       none.classList.toggle("hidden", shown > 0);
@@ -3403,6 +3611,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       { label: t("Create group"), icon: "group", onSelect: () => groupingControls.edit() },
       { separator: true },
       ...groupings.map(([value, label, icon]) => ({ label, icon, checked: layout.grouping === value, onSelect: () => setGrouping(value) })),
+      // Widgets dropped on cells of their own: back to packing in the order.
+      ...(isAdmin() && Object.keys(placesOf()).length ? [{ separator: true }, { label: t("Pack the widgets together"), icon: "grid", onSelect: () => {
+        delete layout.positions[layout.grouping];
+        save();
+        render();
+      } }] : []),
       ...(canSuggest ? [{ separator: true }, { label: t("Suggest rooms"), icon: "sparkle", onSelect: () => HomeswiftHome.suggestRooms(content, all) }] : [])
     ]);
     more.replaceChildren(HomeswiftCommon.icon("sliders"));
@@ -5510,7 +5724,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   views.import = (main) => window.HomeswiftImport.view(main);
   views.welcome = (main) => window.HomeswiftImport.welcome(main);
   window.HomeswiftHome?.install({
-    views, api, show, pageHead, breadcrumb, accessoryCard, navigate, route: () => route(),
+    views, api, show, pageHead, breadcrumb, accessoryCard, navigate, route: () => route(), isAdmin,
     enumLabels: HomeswiftWidgets.enumLabels, labelFor: HomeswiftWidgets.labelFor, withSlugs,
   });
   // The Settings pages (admin.js) draw with the same helpers.
@@ -7473,6 +7687,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     image: '<rect x="3" y="4.5" width="18" height="15" rx="2.5"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="m21 15.5-4.5-4.5L7 19.5"/>',
     restore: '<path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.6"/><path d="M4 4v4.6h4.6"/>',
     history: '<path d="M3.5 12a8.5 8.5 0 1 0 2.5-6M3.5 4.5V9H8"/><path d="M12 7.5V12l3 2"/>',
+    workflow: '<rect x="3" y="3.5" width="6" height="5" rx="1.5"/><rect x="15" y="9.5" width="6" height="5" rx="1.5"/><rect x="3" y="15.5" width="6" height="5" rx="1.5"/><path d="M9 6h3a1.5 1.5 0 0 1 1.5 1.5V12M9 18h3a1.5 1.5 0 0 0 1.5-1.5V12M13.5 12H15"/>',
     sliders: '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
     upload: '<path d="M12 15V4"/><path d="M7 9l5-5 5 5"/><path d="M5 20h14"/>',
     folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
@@ -9013,6 +9228,23 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return canvas;
   }
 
+  /// A picture file a person picked or dropped, as a JPEG `data:` URL at most 640 pixels wide: what a scene's picture
+  /// is sent as (the server takes JPEG, PNG or WebP up to 1 MB).
+  async function pictureDataURL(file) {
+    if (!/^image\//.test(file.type)) throw new Error(t("This file is not a picture."));
+    const bitmap = await createImageBitmap(file).catch(() => { throw new Error(t("This file is not a picture.")); });
+    const canvas = scaledCanvas(bitmap, 640);
+    bitmap.close?.();
+    return canvas.toDataURL("image/jpeg", 0.85);
+  }
+
+  /// Opens the file picker for one picture; calls `chosen(file)`.
+  function choosePictureFile(chosen) {
+    const input = el("input", { type: "file", accept: "image/jpeg,image/png,image/webp,image/heic" });
+    input.addEventListener("change", () => { if (input.files?.[0]) chosen(input.files[0]); });
+    input.click();
+  }
+
   /// A byte count as every page shows sizes: whole KB under a megabyte, one decimal MB or GB. `scale` picks the unit
   /// (the largest value a list shows, so its rows agree); it defaults to the count itself.
   function byteSize(bytes, scale = bytes) {
@@ -9061,7 +9293,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const promptDialog = (message, value = "") => messageDialog(message, { kind: "prompt", value });
 
   window.HomeswiftCommon = {
-    showAlert, confirmDialog, promptDialog, busyButton, scaledCanvas, byteSize, lastChange: () => lastChange,
+    showAlert, confirmDialog, promptDialog, busyButton, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, lastChange: () => lastChange,
     $, el, icon, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
@@ -9506,6 +9738,33 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       ? el("img", { class: className, src: `/artwork-${id}.webp`, alt: "", loading: "lazy", decoding: "async" }) : null;
   }
 
+  /// A scene's picture: the one a person gave it (by version, so the browser keeps it until it changes), else its
+  /// catalogue artwork.
+  function sceneImage(scene, className = "scene-artwork") {
+    if (typeof scene.picture === "string" && /^[a-z0-9]+$/.test(scene.picture)) {
+      return el("img", { class: className, src: `/api/scenes/${encodeURIComponent(scene.id)}/picture?v=${scene.picture}`, alt: "", loading: "lazy", decoding: "async" });
+    }
+    return artworkImage(scene.artworkId, className);
+  }
+
+  /// The menu entries that give a scene, Homeswift's or a hub's, a picture of the person's own or take it away.
+  /// `tileNode` shows busy while the picture is shrunk and sent.
+  function pictureMenu(scene, tileNode) {
+    const path = `/api/scenes/${encodeURIComponent(scene.id)}/picture`;
+    return [
+      { label: scene.picture ? t("Change the picture…") : t("Choose a picture…"), icon: "camera", onSelect: () => HomeswiftCommon.choosePictureFile(async (file) => {
+        tileNode?.classList.add("busy");
+        try {
+          await app.api(path, { method: "PUT", body: { data: await HomeswiftCommon.pictureDataURL(file) } });
+          app.route();
+        } catch (e) { HomeswiftCommon.showAlert(e.message); tileNode?.classList.remove("busy"); }
+      }) },
+      scene.picture ? { label: t("Remove the picture"), icon: "trash", onSelect: async () => {
+        try { await app.api(path, { method: "DELETE" }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
+      } } : null,
+    ].filter(Boolean);
+  }
+
   const artworkThemeNames = {
     "Essentials": t("Essentials"),
     "Get cozy": t("Get cozy"),
@@ -9577,8 +9836,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return el("div", { class: "artwork-themes" }, el("div", { class: "artwork-filters" }, search, select, sort), empty, groups.map(({ node }) => node));
   }
 
+  /// The animation styles, by id, in the order the editor lists them.
+  const effectStyleNames = {
+    candle: t("Candle"), fire: t("Fire"), sparkle: t("Sparkle"), prism: t("Prism"), opal: t("Opal"), glisten: t("Glisten"),
+    underwater: t("Underwater"), cosmos: t("Cosmos"), sunbeam: t("Sunbeam"), enchant: t("Enchant"), palette: t("Moving colours"),
+    sunrise: t("Sunrise"), sunset: t("Sunset"), music: t("Follow the music"),
+  };
+
   function sceneButton(scene) {
-    const picture = artworkImage(scene.artworkId, "quick-scene-image");
+    const picture = sceneImage(scene, "quick-scene-image");
     const button = el("button", { type: "button", class: `scene-run${picture ? " pictured" : ""}`, title: t("Run {name}", { name: scene.name }) }, picture, el("span", { class: "quick-scene-label" }, HomeswiftCommon.icon("play"), el("span", { text: scene.name })));
     button.addEventListener("click", () => runScene(scene, button));
     return button;
@@ -9587,32 +9853,58 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// A scene a plugin's hub keeps (Hue, IKEA, Govee): its picture or its colours, its source, whether the hub says it
   /// is on now. Running it recalls it on the hub.
   function hubSceneButton(scene) {
-    const picture = artworkImage(scene.artworkId, "quick-scene-image");
+    const picture = sceneImage(scene, "quick-scene-image");
     const colours = (scene.colours || []).filter((colour) => /^#[0-9a-f]{3,8}$/i.test(colour));
-    const button = el("button", { type: "button", class: `scene-run hub-scene${picture ? " pictured" : colours.length ? " coloured" : ""}${scene.active ? " active" : ""}`, title: t("Run {name}", { name: scene.name }) },
+    // A scene its hub runs on its own (an IKEA wake-up) is shown, not run.
+    const runnable = (scene.capabilities || []).includes("recall");
+    const button = el("button", { type: "button", disabled: !runnable, class: `scene-run hub-scene${picture ? " pictured" : colours.length ? " coloured" : ""}${scene.active ? " active" : ""}`, title: runnable ? t("Run {name}", { name: scene.name }) : scene.name },
       picture,
       el("span", { class: "quick-scene-label" }, HomeswiftCommon.icon("play"),
         el("span", {}, el("span", { text: scene.name }), el("span", { class: "scene-source", text: scene.source.pluginName }))),
       scene.active ? el("span", { class: "pill scene-active", text: t("Scene active") }) : null);
     if (!picture && colours.length) button.style.background = colours.length > 1 ? `linear-gradient(135deg, ${colours.join(", ")})` : colours[0];
     button.addEventListener("click", async () => { if (await runScene(scene, button)) app.route(); });
-    const stop = scene.stoppable ? el("button", { type: "button", class: "link", actionIcon: "stop", text: t("Stop"), onclick: async () => {
-      stop.disabled = true;
-      try {
-        const result = await app.api(`/api/scenes/${encodeURIComponent(scene.id)}/stop`, { method: "POST", body: {} });
-        if (!result.ok) HomeswiftCommon.showAlert(result.failed.map((f) => HomeswiftI18n.message(f.error)).join("\n"));
-        app.route();
-      } catch (e) { HomeswiftCommon.showAlert(e.message); stop.disabled = false; }
-    } }) : null;
+    // Its actions sit on the tile, round over its top corner: Stop while it can be, then the menu (Automate and the rest).
+    const stop = scene.stoppable ? el("button", { type: "button", actionIcon: "stop", "aria-label": t("Stop"), title: t("Stop"), onclick: () => stopScene(scene, stop) }) : null;
     // A Homeswift scene that recalls it, to give it triggers and conditions.
-    const automate = el("button", { type: "button", class: "link", actionIcon: "history", text: t("Automate"), onclick: async () => {
-      automate.disabled = true;
+    let automating = false;
+    const automate = async () => {
+      if (automating) return;
+      automating = true;
       try {
         const saved = await app.api("/api/scenes", { method: "POST", body: { name: scene.name.slice(0, 64), artworkId: scene.artworkId || null, actions: [{ recall: scene.id }] } });
         app.navigate(`/scenes/${encodeURIComponent(saved.id)}`);
-      } catch (e) { HomeswiftCommon.showAlert(e.message); automate.disabled = false; }
-    } });
-    return el("div", { class: "hub-scene-tile" }, button, el("div", { class: "hub-scene-actions" }, stop, automate));
+      } catch (e) { HomeswiftCommon.showAlert(e.message); automating = false; }
+    };
+    // Everything in it changes scenes or pictures: an administrator's.
+    const menu = !app.isAdmin() ? null : menuButton(t("Actions for {name}", { name: scene.name }), () => [
+      runnable ? { label: t("Automate"), icon: "workflow", onSelect: automate } : null,
+      ...hubSceneMenu(scene), ...pictureMenu(scene, button),
+    ].filter(Boolean));
+    return el("div", { class: "hub-scene-tile" }, button, el("div", { class: "hub-scene-actions" }, stop, menu));
+  }
+
+  /// What a hub's scene lets Homeswift change on its hub (its `capabilities`): its name, its lights' values as they are
+  /// now, or the scene itself, which goes from the hub's own app too.
+  function hubSceneMenu(scene) {
+    const can = new Set(scene.capabilities || []);
+    const path = `/api/scenes/${encodeURIComponent(scene.id)}`;
+    const change = async (body) => {
+      try { await app.api(`${path}/hub`, { method: "PUT", body }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
+    };
+    return [
+      can.has("rename") ? { label: t("Rename…"), icon: "edit", onSelect: async () => {
+        const name = (await HomeswiftCommon.promptDialog(t("A new name for {name} on {hub}.", { name: scene.name, hub: scene.source.name }), scene.name))?.trim();
+        if (name && name !== scene.name) await change({ name });
+      } } : null,
+      can.has("update") && scene.accessoryIds?.length ? { label: t("Keep the lights as they are"), icon: "check", onSelect: async () => {
+        if (await HomeswiftAdmin.confirmAction({ title: t("Update {name}?", { name: scene.name }), text: t("{name} on {hub} will set its lights as they are now.", { name: scene.name, hub: scene.source.name }), confirmLabel: t("Update"), danger: false })) await change({ fromCurrent: true });
+      } } : null,
+      can.has("delete") ? { label: t("Delete from {hub}", { hub: scene.source.name }), icon: "trash", danger: true, onSelect: async () => {
+        if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete the scene {name}?", { name: scene.name }), text: t("This removes it from {hub} and its own app too. This cannot be undone.", { hub: scene.source.name }), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
+        try { await app.api(path, { method: "DELETE" }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
+      } } : null,
+    ].filter(Boolean);
   }
 
   /// The scenes of the plugins' hubs, by room, with a source filter when there are several. `filter(query)` hides
@@ -9645,13 +9937,26 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     };
     source?.addEventListener("change", () => filter());
     const node = el("section", { class: "hub-scenes" },
-      el("div", { class: "section-head" }, el("h2", { text: t("Scenes from your hubs") }), count, source),
-      el("p", { class: "muted", text: t("Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; change them in their own app.") }),
+      el("div", { class: "section-head hub-scenes-head" }, el("h2", { text: t("Scenes from your hubs") }), count, source),
+      el("p", { class: "muted", text: t("Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; rename, update or delete a Hue or IKEA scene from its ⋯ menu.") }),
       groups.map(({ node }) => node));
     return { node, filter };
   }
 
   /// Runs a scene; one that changes a lock, a door or an alarm asks first, as the cards' own controls do.
+  /// Puts back what a scene's last run changed (a saved scene's locks, doors and alarms once the person agrees), then
+  /// redraws the page.
+  async function stopScene(scene, button) {
+    const confirmSecurity = Boolean(scene.security || scene.stopSecurity);
+    if (confirmSecurity && !await HomeswiftCommon.confirmDialog(t("Restore the previous state of this scene’s locks, doors or alarms?"))) return;
+    button.disabled = true;
+    try {
+      const result = await app.api(`/api/scenes/${encodeURIComponent(scene.id)}/stop`, { method: "POST", body: { confirmSecurity } });
+      if (!result.ok) HomeswiftCommon.showAlert(result.failed.map((f) => HomeswiftI18n.message(f.error)).join("\n"));
+      app.route();
+    } catch (e) { HomeswiftCommon.showAlert(e.message); button.disabled = false; }
+  }
+
   async function runScene(scene, button) {
     let confirmSecurity = false;
     if (scene.security) {
@@ -9674,10 +9979,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     }
   }
 
-  // ---- Moods -----------------------------------------------------------------------------------------
+  // ---- Templates -------------------------------------------------------------------------------------
 
   /// The collection's names and descriptions, by id: translated here, the server's being English for MCP clients.
-  const moodTexts = {
+  const templateTexts = {
     "candlelight": [t("Candlelight"), t("Very warm, dim light for dinner.")],
     "relax": [t("Relax"), t("Soft warm white for the evening.")],
     "golden-hour": [t("Golden hour"), t("Amber and soft orange, a little different on each light.")],
@@ -9701,131 +10006,133 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     "alert": [t("Alert flash"), t("Two red pulses, then the lights go back to how they were.")],
     "bedtime": [t("Bedtime"), t("A slow fade to a dim red over fifteen minutes.")],
   };
-  const moodCategories = [["gallery", t("Scene gallery")], ["calm", t("Calm")], ["animated", t("Slow animations")], ["party", t("Party")], ["signal", t("Signals")]];
-  const moodName = (id, name) => moodTexts[id]?.[0] ?? name;
-  const moodRoomKey = "homeswift.moods.room";
+  const templateCategories = [["gallery", t("Scene gallery")], ["calm", t("Calm")], ["animated", t("Slow animations")], ["party", t("Party")], ["signal", t("Signals")]];
+  const templateName = (id, name) => templateTexts[id]?.[0] ?? name;
+  const templateRoomKey = "homeswift.templates.room";
 
-  /// The rooms with a light in them, for the moods.
+  /// The rooms with a light in them, for the templates.
   function lightRooms(accessories) {
     const rooms = accessories.filter((a) => !a.hidden && a.room && a.services.some((s) => s.type === "Lightbulb")).map((a) => a.room);
     return [...new Set(rooms)].sort((a, b) => a.localeCompare(b, HomeswiftI18n.locale));
   }
 
-  /// Moods for a room's lights: the rooms as chips, what plays now, a box where the Assistant writes one from a
-  /// description, and the collection by kind. On a phone each kind is a row that swipes sideways, so the whole card
-  /// fits on a screen and what a tap started shows next to the finger: the pill lights up while its mood plays.
-  function moodsSection(accessories) {
-    const section = el("section", { class: "moods" });
-    const head = el("div", { class: "section-head" }, el("div", {}, el("h2", { text: t("Moods") }), el("span", { class: "muted", text: t("Ambiances and light shows for a room's lights.") })));
+  /// Templates for a room's lights: the rooms as chips, what was tried there and can still be stopped or undone, a box
+  /// where the Assistant writes a scene from a description, and the collection by kind. A tap tries one at once without
+  /// saving it (the pill lights up while it plays); Save keeps it as a scene. On a phone each kind is a row that swipes
+  /// sideways, so the whole card fits on a screen.
+  function templatesSection(accessories, scenes = { scenes: [], pluginScenes: [] }) {
+    const section = el("section", { class: "templates" });
+    const head = el("div", { class: "section-head" }, el("div", {}, el("h2", { text: t("By room") }), el("span", { class: "muted", text: t("A room's scenes, then templates to try on its lights; save one as a scene when you like it.") })));
     const rooms = lightRooms(accessories);
     if (!rooms.length) {
-      section.append(head, el("div", { class: "card empty" }, el("p", { class: "muted", text: t("Put your lights in rooms (a card's menu on the Accessories page) to play moods on them.") })));
+      section.append(head, el("div", { class: "card empty" }, el("p", { class: "muted", text: t("Put your lights in rooms (a card's menu on the Accessories page) to try templates on them.") })));
       return section;
     }
     let room = rooms[0];
-    try { const remembered = localStorage.getItem(moodRoomKey); if (rooms.includes(remembered)) room = remembered; } catch {}
-    const roomChips = el("div", { class: "mood-rooms", role: "group", "aria-label": t("Room") }, rooms.map((name) => {
-      const chip = el("button", { type: "button", class: "mood-room", text: name, "aria-pressed": String(name === room) });
+    try { const remembered = localStorage.getItem(templateRoomKey); if (rooms.includes(remembered)) room = remembered; } catch {}
+    const roomChips = el("div", { class: "template-rooms", role: "group", "aria-label": t("Room") }, rooms.map((name) => {
+      const chip = el("button", { type: "button", class: "template-room", text: name, "aria-pressed": String(name === room) });
       chip.addEventListener("click", () => {
         room = name;
-        try { localStorage.setItem(moodRoomKey, name); } catch {}
+        try { localStorage.setItem(templateRoomKey, name); } catch {}
         for (const other of roomChips.children) other.setAttribute("aria-pressed", String(other === chip));
-        drawRunning(data.running);
+        drawStrip();
+        drawTries();
         markPlaying();
       });
       return chip;
     }));
     const line = statusLine();
-    const running = el("div", { class: "mood-running" });
-    const collection = el("div", { class: "mood-collection" });
-    const describe = el("input", { type: "text", maxLength: 500, enterKeyHint: "go", placeholder: t("Describe a mood…"), title: t("Describe one: a jazz bar, a rainy afternoon…"), "aria-label": t("Describe a mood") });
-    const create = el("button", { type: "submit", class: "primary mood-create" }, sparkle(), el("span", { text: t("Create") }));
-    const designer = el("form", { class: "mood-describe hidden" }, describe, create);
-    section.append(head, el("div", { class: "card mood-card" }, roomChips, running, line, designer, collection));
+    const running = el("div", { class: "template-running" });
+    const collection = el("div", { class: "template-collection" });
+    const describe = el("input", { type: "text", maxLength: 500, enterKeyHint: "go", placeholder: t("Describe a scene…"), title: t("Describe one: a jazz bar, a rainy afternoon…"), "aria-label": t("Describe a scene") });
+    const create = el("button", { type: "submit", class: "primary template-create" }, sparkle(), el("span", { text: t("Create") }));
+    const designer = el("form", { class: "template-describe hidden" }, describe, create);
+    // The chosen room's own scenes and its hubs' scenes, to run in a tap.
+    const strip = el("div", { class: "quick-scenes room-scenes" });
+    const stripHead = el("div", { class: "service-name" });
+    const templatesHead = el("div", { class: "service-name", text: t("From a template") });
+    function drawStrip() {
+      const own = scenes.scenes.filter((scene) => scene.room === room).map((scene) => sceneButton(scene));
+      const hubs = (scenes.pluginScenes || []).filter((scene) => scene.room === room).map((scene) => hubSceneButton(scene));
+      strip.replaceChildren(...own, ...hubs);
+      stripHead.textContent = t("Scenes in {room}", { room });
+      strip.hidden = stripHead.hidden = !own.length && !hubs.length;
+    }
+    drawStrip();
+    section.append(head, el("div", { class: "card template-card" }, roomChips, stripHead, strip, running, line, designer, templatesHead, collection));
 
-    let data = { moods: [], running: [] };
+    let data = { templates: [], tries: [] };
     const buttons = [];
-    let timer = null;
+    const name = (run) => run.template ? templateName(run.template, run.name) : run.name;
 
-    /// The pills of the moods playing in the chosen room light up.
+    /// The pills of the templates playing in the chosen room light up.
     function markPlaying() {
-      const playing = new Set(data.running.filter((run) => run.room === room).map((run) => run.mood).filter(Boolean));
+      const playing = new Set(data.tries.filter((run) => run.room === room && run.template).map((run) => run.template));
       for (const [id, button] of buttons) {
         button.classList.toggle("playing", playing.has(id));
         button.setAttribute("aria-pressed", String(playing.has(id)));
-        let badge = button.querySelector(".mood-stop-badge");
-        if (playing.has(id) && !badge) { badge = el("span", { class: "mood-stop-badge", "aria-hidden": "true" }); button.append(badge); }
+        let badge = button.querySelector(".template-stop-badge");
+        if (playing.has(id) && !badge) { badge = el("span", { class: "template-stop-badge", "aria-hidden": "true" }); button.append(badge); }
         if (!playing.has(id)) badge?.remove();
-        const label = button.querySelector(".name")?.textContent || moodName(id, id);
+        const label = button.querySelector(".name")?.textContent || templateName(id, id);
         button.setAttribute("aria-label", playing.has(id) ? `${t("Stop")} ${label}` : label);
       }
     }
 
     async function refresh() {
-      data = await app.api("/api/moods");
-      drawRunning(data.running);
+      data = await app.api("/api/scenes/templates");
+      drawTries();
       markPlaying();
-      // Look again just after the next one ends by itself.
-      clearTimeout(timer);
-      const next = Math.min(...data.running.map((run) => run.endsAt ? new Date(run.endsAt) - Date.now() : Infinity));
-      if (Number.isFinite(next)) timer = setTimeout(() => { if (section.isConnected) refresh().catch(() => {}); }, Math.max(1000, next + 1500));
     }
 
-    function drawRunning(runs) {
-      running.replaceChildren(...runs.map((run) => {
-        const name = moodName(run.mood, run.name);
-        // A mood that set the lights once is undone; one that plays is stopped. Either way the lights go back.
-        const stop = el("button", { type: "button", class: "mood-stop", actionIcon: "stop", text: run.held ? t("Undo") : t("Stop") });
+    async function stopTry(run) {
+      await app.api(`/api/scenes/${encodeURIComponent(run.run)}/stop`, { method: "POST", body: {} });
+      say(line, run.playing ? t("{scene} stopped: the lights are back as they were.", { scene: name(run) }) : t("{scene} undone: the lights are back as they were.", { scene: name(run) }));
+    }
+
+    function drawTries() {
+      running.replaceChildren(...data.tries.map((run) => {
+        // One that plays is stopped; one that set the lights once is undone. Either way the lights go back.
+        const stop = el("button", { type: "button", class: "template-stop", actionIcon: "stop", text: run.playing ? t("Stop") : t("Undo") });
         stop.addEventListener("click", async () => {
           stop.classList.add("busy");
           stop.disabled = true;
-          try {
-            await app.api("/api/moods/stop", { method: "POST", body: { run: run.id } });
-            say(line, run.held ? t("{mood} undone: the lights are back as they were.", { mood: name }) : t("{mood} stopped: the lights are back as they were.", { mood: name }));
-            await refresh();
-          } catch (e) { say(line, e.message, "error"); stop.disabled = false; stop.classList.remove("busy"); }
+          try { await stopTry(run); await refresh(); } catch (e) { say(line, e.message, "error"); stop.disabled = false; stop.classList.remove("busy"); }
         });
-        const lights = tn("{n} light", "{n} lights", run.lights.length);
+        const save = el("button", { type: "button", class: "link", actionIcon: "check", text: t("Save as a scene"), onclick: () => saveAsScene(run) });
         // The room shows only when it is not the one chosen above.
-        const where = run.room && run.room !== room ? t("{room}, {lights}", { room: run.room, lights }) : lights;
-        return el("div", { class: "mood-run" }, swatch(run.mood),
-          el("div", { class: "mood-run-text" }, el("strong", { text: name }),
-            el("span", { class: "muted", text: run.held ? t("{lights}, set at {time}", { lights: where, time: timeFormat.format(new Date(run.startedAt)) })
-              : run.endsAt ? t("{lights}, until {time}", { lights: where, time: timeFormat.format(new Date(run.endsAt)) }) : where })),
-          stop);
+        const time = timeFormat.format(new Date(run.startedAt));
+        const where = run.room && run.room !== room ? t("{room}, {time}", { room: run.room, time }) : time;
+        return el("div", { class: "template-run" }, swatch(run.template, run.plan?.artworkId),
+          el("div", { class: "template-run-text" }, el("strong", { text: name(run) }), el("span", { class: "muted", text: where })),
+          save, stop);
       }));
     }
 
-    function swatch(id) {
-      const artworkId = data.moods.find((mood) => mood.id === id)?.artworkId;
-      return artworkImage(artworkId || "tyrell", "mood-swatch");
+    function swatch(id, artworkId) {
+      return artworkImage(artworkId || data.templates.find((template) => template.id === id)?.artworkId || "tyrell", "template-swatch");
     }
 
-    async function start(body, name, button) {
+    async function start(body, label, button) {
       if (button?.classList.contains("busy")) return;
       button?.classList.add("busy");
-      say(line, body.description ? t("The Assistant is writing a mood…") : t("Starting {mood}…", { mood: name }));
+      say(line, body.description ? t("The Assistant is writing a scene…") : t("Trying {template}…", { template: label }));
       try {
-        const result = await app.api("/api/moods/start", { method: "POST", body: { ...body, room } });
-        const shown = body.mood ? name : result.mood.name;
-        const count = result.lights.length;
-        if (result.run && !result.run.held) {
-          say(line, "");
-        } else if (result.ok) {
-          say(line, tn("{mood} is set on {n} light.", "{mood} is set on {n} lights.", count, { mood: shown }));
-          line.append(" ", el("button", { actionIcon: "check", type: "button", class: "link", text: t("Save as a scene"), onclick: () => saveAsScene(body.mood ? { mood: body.mood } : { plan: result.mood }, shown) }));
-        } else {
-          const failures = result.failed.map((f) => `${f.name}: ${HomeswiftI18n.message(f.error)}`).join("; ");
-          say(line, t("{mood} is set, but not on every light: {failures}", { mood: shown, failures }), "error");
+        const result = await app.api("/api/scenes/try", { method: "POST", body: { ...body, room } });
+        if (result.ok) say(line, "");
+        else {
+          const failures = (result.results || []).filter((r) => !r.ok).map((r) => `${r.name || r.id || r.recall}: ${HomeswiftI18n.message(r.error || r.skipped)}`).join("; ");
+          say(line, t("{scene} is set, but not on every light: {failures}", { scene: body.template ? label : result.name, failures }), "error");
         }
         if (body.description) describe.value = "";
         await refresh();
       } catch (e) { say(line, e.message, "error"); } finally { button?.classList.remove("busy"); }
     }
 
-    async function saveAsScene(source, name) {
+    async function saveAsScene(run) {
       try {
-        const scene = await app.api("/api/moods/save", { method: "POST", body: { ...source, room, name: t("{mood} in {room}", { mood: name, room }) } });
+        const scene = await app.api("/api/scenes", { method: "POST", body: { ...run.plan, name: t("{scene} in {room}", { scene: name(run), room: run.room || room }).slice(0, 64) } });
         say(line, t("Saved as the scene {name}.", { name: scene.name }));
         setTimeout(() => { if (section.isConnected) app.route(); }, 1200);
       } catch (e) { say(line, e.message, "error"); }
@@ -9841,30 +10148,29 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       await refresh();
       const themes = await loadArtworkThemes();
       designer.classList.toggle("hidden", !data.assistant);
-      collection.replaceChildren(...moodCategories.map(([category, label]) => {
-        const moods = data.moods.filter((mood) => mood.category === category);
-        if (!moods.length) return null;
-        const makeButton = (mood) => {
-          const name = moodName(mood.id, mood.name);
-          const button = el("button", { type: "button", class: "mood-button scene pictured artwork-choice", title: category === "gallery" ? name : moodTexts[mood.id]?.[1] ?? mood.description ?? "", "aria-pressed": "false" },
-            swatch(mood.id), el("span", { class: "name", text: name }));
+      collection.replaceChildren(...templateCategories.map(([category, label]) => {
+        const templates = data.templates.filter((template) => template.category === category);
+        if (!templates.length) return null;
+        const makeButton = (template) => {
+          const label = templateName(template.id, template.name);
+          const button = el("button", { type: "button", class: "template-button scene pictured artwork-choice", title: category === "gallery" ? label : templateTexts[template.id]?.[1] ?? template.description ?? "", "aria-pressed": "false" },
+            swatch(template.id), el("span", { class: "name", text: label }));
           button.addEventListener("click", async () => {
             if (button.classList.contains("busy")) return;
-            const active = data.running.filter((run) => run.room === room && run.mood === mood.id);
-            if (!active.length) return start({ mood: mood.id }, name, button);
+            const active = data.tries.filter((run) => run.room === room && run.template === template.id);
+            if (!active.length) return start({ template: template.id }, label, button);
             button.classList.add("busy");
             try {
-              for (const run of active) await app.api("/api/moods/stop", { method: "POST", body: { run: run.id } });
-              say(line, t("{mood} stopped: the lights are back as they were.", { mood: name }));
+              for (const run of active) await stopTry(run);
               await refresh();
             } catch (e) { say(line, e.message, "error"); }
             finally { button.classList.remove("busy"); }
           });
-          buttons.push([mood.id, button]);
+          buttons.push([template.id, button]);
           return button;
         };
-        return el("div", { class: "mood-group" }, el("div", { class: "service-name", text: label }),
-          category === "gallery" ? themedArtwork(moods, themes, makeButton) : el("div", { class: "mood-buttons" }, moods.map(makeButton)));
+        return el("div", { class: "template-group" }, el("div", { class: "service-name", text: label }),
+          category === "gallery" ? themedArtwork(templates, themes, makeButton) : el("div", { class: "template-buttons" }, templates.map(makeButton)));
       }).filter(Boolean));
       markPlaying();
     })().catch((e) => say(line, e.message, "error"));
@@ -9922,22 +10228,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const last = scene.lastRun ? (scene.lastRun.ok ? t("Last run {date} ({trigger})", lastVars) : t("Last run {date} ({trigger}), with errors", lastVars)) : t("Never run");
       const run = el("button", { actionIcon: "play", class: "primary", text: t("Run") });
       run.addEventListener("click", async () => { if (await runScene(scene, run)) app.route(); });
-      const stop = scene.stoppable ? el("button", { type: "button", actionIcon: "stop", text: t("Stop"), onclick: async () => {
-        const confirmSecurity = scene.security || scene.stopSecurity;
-        if (confirmSecurity && !await HomeswiftCommon.confirmDialog(t("Restore the previous state of this scene’s locks, doors or alarms?"))) return;
-        stop.disabled = true;
-        try {
-          const result = await app.api(`/api/scenes/${encodeURIComponent(scene.id)}/stop`, { method: "POST", body: { confirmSecurity } });
-          if (!result.ok) HomeswiftCommon.showAlert(result.failed.map((f) => HomeswiftI18n.message(f.error)).join("\n"));
-          app.route();
-        } catch (e) { HomeswiftCommon.showAlert(e.message); stop.disabled = false; }
-      } }) : null;
+      const stop = scene.stoppable ? el("button", { type: "button", actionIcon: "stop", text: t("Stop"), onclick: () => stopScene(scene, stop) }) : null;
       return el("div", { class: "card server scene-card" },
-        artworkImage(scene.artworkId),
+        sceneImage(scene),
         el("div", { class: "server-head" }, tile("play", scene.security ? "violet" : "orange"),
           el("div", { class: "who" }, el("a", { class: "card-title", href: `/scenes/${encodeURIComponent(scene.id)}` }, el("strong", { text: scene.name }),
               scene.active ? el("span", { class: "pill scene-active", text: t("Scene active") }) : null),
-            el("div", { class: "muted", text: [scene.room, scene.triggers.length ? scene.triggers.map((trigger) => describeTrigger(trigger, names)).join(" · ") : t("Run by hand")].filter(Boolean).join(" · ") })),
+            el("div", { class: "muted", text: [scene.room, scene.homeKit ? t("In the Home app") : null, scene.animation ? t("Animated: {style}", { style: scene.animation.effect ? effectStyleNames[scene.animation.effect.style] || scene.animation.effect.style : t("Timed sequence") }) : null, scene.triggers.length ? scene.triggers.map((trigger) => describeTrigger(trigger, names)).join(" · ") : t("Run by hand")].filter(Boolean).join(" · ") })),
           el("div", { class: "scene-run-actions" }, run, stop)),
         el("details", { class: "scene-card-details" }, el("summary", { text: t("Details") }), el("div", { class: "controls" }, actions)),
         scene.security ? el("p", { class: "muted note", text: t("It changes a lock, a door or an alarm: the page asks before running it, and automations leave those actions out.") }) : null,
@@ -9945,6 +10242,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           menuButton(t("Actions for {name}", { name: scene.name }), () => [
             { label: t("Run"), icon: "play", onSelect: () => runScene(scene) },
             { label: t("Edit"), icon: "edit", href: `/scenes/${encodeURIComponent(scene.id)}` },
+            ...pictureMenu(scene),
             { label: t("Delete"), icon: "trash", danger: true, onSelect: async () => {
               if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete the scene {name}?", { name: scene.name }), text: t("This removes the scene and its automatic triggers. This cannot be undone."), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
               try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
@@ -9964,12 +10262,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       noMatches.hidden = sceneCards.some(({ node }) => !node.hidden) || hubShown > 0;
     });
     app.show(main,
-      app.pageHead(t("Scenes"), t("Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; the Home app does not see them."),
+      app.pageHead(t("Scenes"), t("Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; one you choose is also a switch in the Home app."),
         data.scenes.length ? el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") }) : null),
       el("div", { class: "section-head" }, el("h2", { text: t("Your scenes") }), sceneCount, data.scenes.length || hubScenes.node ? [search, HomeswiftCommon.clearFilters([[search, ""]])] : null),
       data.scenes.length ? el("div", { class: "grid scene-grid" }, sceneCards.map(({ node }) => node))
-        : el("div", { class: "card empty scenes-empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("play")), el("p", { class: "muted", text: t("No scene yet. A scene sets several accessories at once, such as every light of a room for the evening.") }), el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") })),
-      noMatches, hubScenes.node, moodsSection(accessories), locationCard(data));
+        // Short when the hubs' scenes follow: they are what there is to run.
+        : el("div", { class: `card empty scenes-empty${hubScenes.node ? " compact" : ""}` }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("play")), el("p", { class: "muted", text: t("No scene yet. A scene sets several accessories at once, such as every light of a room for the evening.") }), el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") })),
+      noMatches, hubScenes.node, templatesSection(accessories, data), locationCard(data));
   }
 
   /// Where sunrise and sunset are computed for: Glass UI took its weather widget's city; here it is typed, or
@@ -10325,6 +10624,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const choices = accessories.filter((a) => !a.hidden || scene.actions.some((x) => x.id === a.id));
 
     const name = el("input", { type: "text", value: scene.name, maxLength: 64, required: true, placeholder: t("Evening") });
+    const homeKit = el("input", { type: "checkbox", checked: Boolean(scene.homeKit) });
+    // The settings pages' toggle: a switch, then its title over its help.
+    const homeKitRow = el("label", { class: "toggle" }, el("span", { class: "switch" }, homeKit, el("span")), el("span", {},
+      el("span", { class: "field-title", text: t("A switch in the Home app") }),
+      el("p", { class: "help", text: t("On the Homeswift Scenes accessory: turning it on runs the scene (without its locks, doors and alarms), turning it off puts the lights back.") })));
     let artworkId = scene.artworkId || null;
     const themes = await loadArtworkThemes();
     const artworkPreview = el("div", { class: "artwork-preview" }, artworkImage(artworkId));
@@ -10516,6 +10820,60 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       step.panel.querySelector("button").focus({ preventScroll: true });
     };
     canvas.append(el("div", { class: "scene-flow-terminal" }, HomeswiftCommon.icon("play"), el("span", { text: t("Start") })));
+    // The animation: an effect (each brand's own where its lights have it, Homeswift's elsewhere) on chosen lights,
+    // after the actions. A timed sequence (from a template) is kept as it is.
+    const animationRows = new Set();
+    const animation = (() => {
+      const current = scene.animation, effect = current?.effect || {};
+      const style = el("select", { "aria-label": t("Animation") }, el("option", { value: "", text: t("No animation") }),
+        current?.steps ? el("option", { value: "sequence", text: t("Timed sequence") }) : null,
+        Object.entries(effectStyleNames).map(([value, label]) => el("option", { value, text: label })));
+      style.value = current?.steps ? "sequence" : effect.style || "";
+      const speed = el("input", { type: "range", min: 0, max: 100, value: Math.round((effect.speed ?? 0.5) * 100) });
+      const brightness = el("input", { type: "range", min: 1, max: 100, value: effect.brightness ?? 80 });
+      const minutes = el("input", { type: "number", min: 1, max: 60, value: Math.round((effect.durationSeconds ?? 900) / 60) });
+      const tint = el("input", { type: "checkbox", checked: !!effect.colors?.length });
+      const first = colorInput(effect.colors?.[0] || { hue: 30, saturation: 100 }), second = colorInput(effect.colors?.[1] || { hue: 280, saturation: 80 });
+      const lights = choices.filter((a) => a.services.some((s) => s.type === "Lightbulb")).map((a) => {
+        const input = el("input", { type: "checkbox", value: a.id, checked: !!current?.lights?.includes(a.id) });
+        return { input, node: el("label", { class: "toggle compact" }, input, el("span", { text: displayName(a) })) };
+      });
+      const speedField = field(t("Speed"), speed), brightnessField = field(t("Brightness"), brightness), minutesField = field(t("Minutes"), minutes);
+      const tintField = el("label", { class: "toggle compact" }, tint, el("span", { text: t("Its own colour") }));
+      const colours = el("div", { class: "animation-colours" }, first, second);
+      const settings = el("div", { class: "animation-settings" }, speedField, brightnessField, minutesField, tintField, colours,
+        el("div", { class: "field-title", text: t("Lights") }), lights.length ? el("div", { class: "animation-lights" }, lights.map(({ node }) => node)) : el("p", { class: "muted", text: t("No light to animate.") }));
+      const sync = () => {
+        const value = style.value, timed = value === "sunrise" || value === "sunset", palette = value === "palette";
+        const effect = value && value !== "sequence" && value !== "music";
+        settings.hidden = !value;
+        speedField.hidden = !effect || timed;
+        brightnessField.hidden = !effect;
+        minutesField.hidden = !timed;
+        tintField.hidden = !effect || timed || palette;
+        colours.hidden = !(palette || (tint.checked && !tintField.hidden));
+        second.hidden = !palette;
+        animationRows.clear();
+        if (value) animationRows.add(style);
+      };
+      style.addEventListener("change", sync); tint.addEventListener("change", sync);
+      sync();
+      const read = () => {
+        const value = style.value;
+        // Lights the page cannot list now (a paused plugin's) stay in the animation.
+        const unlisted = (current?.lights || []).filter((id) => !lights.some(({ input }) => input.value === id));
+        const chosen = [...lights.filter(({ input }) => input.checked).map(({ input }) => input.value), ...unlisted];
+        if (!value) return null;
+        if (value === "sequence") return { ...current, lights: chosen };
+        const result = { style: value };
+        if (!speedField.hidden) result.speed = Number(speed.value) / 100;
+        if (!brightnessField.hidden) result.brightness = Number(brightness.value);
+        if (!minutesField.hidden) result.durationSeconds = Number(minutes.value) * 60;
+        if (!colours.hidden) result.colors = value === "palette" ? [first.read(), second.read()] : [first.read()];
+        return { lights: chosen, effect: result };
+      };
+      return { content: el("div", {}, field(t("Animation"), style), settings), read };
+    })();
     const node = (title, glyph, tone, description, rows, content) => {
       const count = el("span", { class: "scene-flow-count", text: String(rows.size) });
       const summary = el("span", { class: "scene-flow-summary" });
@@ -10543,6 +10901,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       [conditionList, el("button", { actionIcon: "plus", type: "button", text: t("Add a condition"), onclick: () => addCondition() })]);
     node(t("Actions"), "bulb", "action", t("The values to set, in this order."), actions,
       [actionList, el("button", { actionIcon: "plus", type: "button", text: t("Add an action"), onclick: () => addAction() }), recallPicker, capture]);
+    node(t("Animation"), "sparkle", "action", t("Plays on the chosen lights after the actions: each brand's own effect where its lights have it (Hue, Govee, IKEA, Ambilight), Homeswift's elsewhere. Stopping the scene puts the lights back."), animationRows,
+      animation.content);
     canvas.append(el("div", { class: "scene-flow-connector", "aria-hidden": "true" }, HomeswiftCommon.icon("down")),
       el("div", { class: "scene-flow-terminal finish" }, HomeswiftCommon.icon("check"), el("span", { text: t("Finish") })));
     let zoom = 1;
@@ -10560,10 +10920,40 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     const line = statusLine();
     const save = el("button", { class: "primary", actionIcon: "check", type: "submit", text: isNew ? t("Create the scene") : t("Save") });
+    // A new scene of lights only, without triggers or an animation, can be kept on the hub that has them all instead.
+    const hubLight = new Set(["on", "brightness", "hue", "saturation", "colortemperature"]);
+    const keepOn = el("select", { "aria-label": t("Keep it on"), hidden: true });
+    let targetsAsked = "";
+    const refreshTargets = async () => {
+      if (!isNew) return;
+      let read;
+      // A row still being filled in has nothing to read yet.
+      try { read = [...actions].flatMap((row) => row.read()); } catch { return; }
+      const fits = read.length && !read.some((a) => a.recall || !hubLight.has(String(a.characteristic).toLowerCase().replace(/\s/g, "")))
+        && ![...triggers].length && !animation.read() && !homeKit.checked;
+      const ids = fits ? [...new Set(read.map((a) => a.id))].sort() : [];
+      const key = ids.join("|");
+      if (key === targetsAsked) return;
+      targetsAsked = key;
+      const targets = ids.length ? (await app.api("/api/scenes/targets", { method: "POST", body: { ids } }).catch(() => ({ targets: [] }))).targets : [];
+      if (key !== targetsAsked) return;
+      const kept = keepOn.value;
+      keepOn.replaceChildren(el("option", { value: "", text: t("Keep it in Homeswift") }),
+        ...targets.map((target) => el("option", { value: target.hub, text: t("Save to {hub} ({place})", { hub: target.name, place: target.label }) })));
+      keepOn.value = targets.some((target) => target.hub === kept) ? kept : "";
+      keepOn.hidden = !targets.length;
+    };
     const form = el("form", { class: "card scene-editor", onsubmit: async (event) => {
       event.preventDefault();
-      const body = { name: name.value.trim(), artworkId, actions: [...actions].flatMap((row) => row.read()), triggers: [...triggers].map((row) => row.read()), conditions: [...conditions].map((row) => row.read()) };
+      const body = { name: name.value.trim(), artworkId, homeKit: homeKit.checked, actions: [...actions].flatMap((row) => row.read()), triggers: [...triggers].map((row) => row.read()), conditions: [...conditions].map((row) => row.read()), animation: animation.read() };
       save.disabled = true;
+      if (isNew && keepOn.value && !keepOn.hidden) {
+        try {
+          await app.api("/api/scenes/hub", { method: "POST", body: { hub: keepOn.value, name: body.name, actions: body.actions } });
+          app.navigate("/scenes");
+        } catch (e) { say(line, e.message, "error"); save.disabled = false; }
+        return;
+      }
       try {
         const saved = await app.api(isNew ? "/api/scenes" : `/api/scenes/${encodeURIComponent(scene.id)}`, { method: isNew ? "POST" : "PUT", body });
         const security = saved.actions.some((a) => a.security);
@@ -10576,16 +10966,19 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       } catch (e) { say(line, e.message, "error"); }
       save.disabled = false;
     } },
-      field(t("Name"), name), artworkPreview, artworkPicker,
+      field(t("Name"), name), homeKitRow, artworkPreview, artworkPicker,
       flow,
-      el("div", { class: "save-bar" }, save, el("a", { class: "button", actionIcon: "close", href: "/scenes", text: t("Cancel") }),
+      el("div", { class: "save-bar" }, save, keepOn, el("a", { class: "button", actionIcon: "close", href: "/scenes", text: t("Cancel") }),
         isNew ? null : el("span", { class: "spacer" }),
         isNew ? null : el("button", { actionIcon: "trash", type: "button", class: "danger", text: t("Delete"), onclick: async () => {
           if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete the scene {name}?", { name: scene.name }), text: t("This removes the scene and its automatic triggers. This cannot be undone."), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
           try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); app.navigate("/scenes"); } catch (e) { say(line, e.message, "error"); }
         } })),
       line);
+    form.addEventListener("change", refreshTargets);
+    form.addEventListener("click", () => setTimeout(refreshTargets));
     app.show(main, app.breadcrumb([t("Scenes"), "/scenes"], [isNew ? t("New scene") : scene.name]), form);
+    refreshTargets();
   }
 
   // ---- Notifications ---------------------------------------------------------------------------------
@@ -10802,6 +11195,35 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         "i18n-es.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Spanish (Spain): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("es", {
+  "A room's scenes, then templates to try on its lights; save one as a scene when you like it.": "Las escenas de una habitación y, después, plantillas para probar en sus luces; guarda una como escena si te gusta.",
+  "From a template": "A partir de una plantilla",
+  "Scenes in {room}": "Escenas de {room}",
+  "Templates": "Plantillas",
+  "Put your lights in rooms (a card's menu on the Accessories page) to try templates on them.": "Pon tus luces en habitaciones (el menú de una tarjeta en la página Accesorios) para probar plantillas en ellas.",
+  "Describe a scene…": "Describe una escena…",
+  "Describe a scene": "Describir una escena",
+  "The Assistant is writing a scene…": "El Asistente está escribiendo una escena…",
+  "Trying {template}…": "Probando {template}…",
+  "{room}, {time}": "{room}, {time}",
+  "Animation": "Animación",
+  "No animation": "Sin animación",
+  "Timed sequence": "Secuencia temporizada",
+  "Minutes": "Minutos",
+  "Its own colour": "Su propio color",
+  "No light to animate.": "No hay luces que animar.",
+  "Plays on the chosen lights after the actions: each brand's own effect where its lights have it (Hue, Govee, IKEA, Ambilight), Homeswift's elsewhere. Stopping the scene puts the lights back.": "Se reproduce en las luces elegidas después de las acciones: el efecto propio de cada marca donde sus luces lo tienen (Hue, Govee, IKEA, Ambilight), el de Homeswift en las demás. Detener la escena devuelve las luces a como estaban.",
+  "Candle": "Vela",
+  "Fire": "Fuego",
+  "Sparkle": "Destello",
+  "Opal": "Ópalo",
+  "Glisten": "Brillo",
+  "Underwater": "Bajo el agua",
+  "Cosmos": "Cosmos",
+  "Sunbeam": "Rayo de sol",
+  "Enchant": "Encanto",
+  "Moving colours": "Colores en movimiento",
+  "Follow the music": "Seguir la música",
+  "Animated: {style}": "Animada: {style}",
   "Not in the vault: the bridge does not start without it": "No está en la bóveda: el puente no se inicia sin ella",
   "Expired {when}": "Caducó {when}",
   "Expires {when}": "Caduca {when}",
@@ -10878,7 +11300,6 @@ HomeswiftI18n.add("es", {
   "{n} secrets are still in config.json": "{n} secretos siguen en config.json",
   "Choose from the vault": "Elegir de la bóveda",
   "Type a value instead": "Escribir un valor en su lugar",
-  "Open the vault": "Abrir la bóveda",
   "Add one in the vault": "Añadir uno en la bóveda",
   "Automate": "Automatizar",
   "Hub scene": "Escena del hub",
@@ -10889,7 +11310,7 @@ HomeswiftI18n.add("es", {
   "All sources": "Todos los orígenes",
   "Scene active": "Escena activa",
   "Scenes from your hubs": "Escenas de tus hubs",
-  "Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; change them in their own app.": "Las guardan los hubs de tus plugins, como un puente Hue, un hub IKEA o luces Govee. Ejecútalas aquí; cámbialas en su propia app.",
+  "Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; rename, update or delete a Hue or IKEA scene from its ⋯ menu.": "Las guardan los hubs de tus plugins, como un puente Hue, un hub IKEA o luces Govee. Ejecútalas aquí; renombra, actualiza o elimina una escena de Hue o IKEA desde su menú ⋯.",
 
   "Start time": "Hora de inicio",
   "End time": "Hora de fin",
@@ -10976,7 +11397,15 @@ HomeswiftI18n.add("es", {
   "Moves the selected accessories in Homeswift only. HomeKit rooms stay unchanged.": "Mueve los accesorios seleccionados solo en Homeswift. Las habitaciones de HomeKit no cambian.",
   "Release to group": "Suelta para agrupar",
   "Reset room order": "Restablecer el orden de las habitaciones",
-  "Reorder rooms": "Reordenar habitaciones",
+  "Rooms": "Habitaciones",
+  "Drag to reorder, choose one to rename it.": "Arrastra para reordenar, elige una para cambiarle el nombre.",
+  "Name of {room}": "Nombre de {room}",
+  "Rename the room": "Cambiar el nombre de la habitación",
+  "Pack the widgets together": "Agrupar los widgets",
+  "Rename on the hubs too": "Cambiar el nombre también en los hubs",
+  "A new name for {room}.": "Un nombre nuevo para {room}.",
+  "Rooms of this name on your Philips Hue, IKEA and eWeLink hubs are renamed too.": "Las habitaciones con este nombre en tus hubs de Philips Hue, IKEA y eWeLink también cambian de nombre.",
+  "Not renamed on {hub}: {error}": "Sin cambiar el nombre en {hub}: {error}",
   "Show hidden": "Mostrar ocultos",
   "Clear filters": "Borrar filtros",
   "{count} of {total} match": "{count} de {total} coinciden",
@@ -11145,14 +11574,10 @@ HomeswiftI18n.add("es", {
   "{minutes} min before sunset {days}": "{minutes} min antes del atardecer {days}",
   "{model} read {n} line. Secrets and addresses were masked first; check its advice before acting on it.": "{model} ha leído {n} línea. Antes se han ocultado los secretos y las direcciones; comprueba sus consejos antes de seguirlos.",
   "{model} read {n} lines. Secrets and addresses were masked first; check its advice before acting on it.": "{model} ha leído {n} líneas. Antes se han ocultado los secretos y las direcciones; comprueba sus consejos antes de seguirlos.",
-  "{mood} in {room}": "{mood} – {room}",
-  "{mood} is playing on {n} light.": "{mood}: en marcha en {n} luz.",
-  "{mood} is playing on {n} lights.": "{mood}: en marcha en {n} luces.",
-  "{mood} is set on {n} light.": "{mood}: {n} luz ajustada.",
-  "{mood} is set on {n} lights.": "{mood}: {n} luces ajustadas.",
-  "{mood} is set, but not on every light: {failures}": "{mood}: no todas las luces han respondido: {failures}",
-  "{mood} undone: the lights are back as they were.": "{mood}: deshecho, las luces han vuelto a como estaban.",
-  "{mood} stopped: the lights are back as they were.": "{mood}: detenido, las luces han vuelto a como estaban.",
+  "{scene} in {room}": "{scene} – {room}",
+  "{scene} is set, but not on every light: {failures}": "{scene}: no todas las luces han respondido: {failures}",
+  "{scene} undone: the lights are back as they were.": "{scene}: deshecho, las luces han vuelto a como estaban.",
+  "{scene} stopped: the lights are back as they were.": "{scene}: detenido, las luces han vuelto a como estaban.",
   "{n} accessories": "{n} accesorios",
   "{n} accessories on {bridge}": "{n} accesorios en {bridge}",
   "{n} accessory": "{n} accesorio",
@@ -11265,7 +11690,7 @@ HomeswiftI18n.add("es", {
   "Accessory of its own, from {plugins}": "Accesorio independiente, de {plugins}",
   "Accessory of its own, from a plugin": "Accesorio independiente, de un plugin",
   "Accessory Runtime Information": "Información de ejecución",
-  "Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; the Home app does not see them.": "Valores de accesorios que se aplican juntos, a mano o según un horario, al amanecer o al atardecer, o cuando cambia un accesorio. Homeswift los guarda; la app Casa no los ve.",
+  "Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; one you choose is also a switch in the Home app.": "Valores de accesorios que se aplican juntos, a mano o según un horario, al amanecer o al atardecer, o cuando cambia un accesorio. Homeswift los guarda; una escena que elijas también es un interruptor en la app Casa.",
   "Account": "Cuenta",
   "Account menu": "Menú de la cuenta",
   "Action {0} must be an object": "La acción {0} debe ser un objeto",
@@ -11620,8 +12045,6 @@ HomeswiftI18n.add("es", {
   "Delete this backup?": "¿Eliminar esta copia de seguridad?",
   "Delete…": "Eliminar…",
   "Deny": "Denegar",
-  "Describe a mood": "Describir un ambiente",
-  "Describe a mood…": "Describe un ambiente…",
   "Describe one: a jazz bar, a rainy afternoon…": "Describe uno: un bar de jazz, una tarde lluviosa…",
   "Describe your setup": "Describe tu instalación",
   "Details": "Detalles",
@@ -12006,7 +12429,6 @@ HomeswiftI18n.add("es", {
   "Mode": "Modo",
   "Model": "Modelo",
   "Mon": "Lun",
-  "Moods": "Ambientes",
   "More": "Más",
   "More options ({count})": "Más opciones ({count})",
   "Motion": "Movimiento",
@@ -12251,7 +12673,6 @@ HomeswiftI18n.add("es", {
   "Purple and orange with an eerie flicker.": "Morado y naranja con un parpadeo inquietante.",
   "Push payload too large ({0} bytes)": "Contenido push demasiado grande ({0} bytes)",
   "Put in a room…": "Asignar a una habitación…",
-  "Put your lights in rooms (a card's menu on the Accessories page) to play moods on them.": "Pon tus luces en habitaciones (el menú de una tarjeta en la página Accesorios) para ponerles ambientes.",
   "QR code for an authenticator app": "Código QR para una app de autenticación",
   "Quick controls": "Controles rápidos",
   "Rainbow wave": "Ola arcoíris",
@@ -12499,7 +12920,6 @@ HomeswiftI18n.add("es", {
   "Staged Firmware Version": "Firmware preparado",
   "Stale": "Obsoleto",
   "Start": "Iniciar",
-  "Starting {mood}…": "Iniciando {mood}…",
   "Starting…": "Iniciando…",
   "Stateful Programmable Switch": "Interruptor programable",
   "Stateless Programmable Switch": "Botón programable",
@@ -12655,7 +13075,6 @@ HomeswiftI18n.add("es", {
   "The Assistant is off: config.json has no HomeswiftAiKit block. Add one on the Config page, {example}, or choose apple on a Mac with Apple Intelligence.": "El Asistente está desactivado: config.json no tiene bloque HomeswiftAiKit. Añade uno en la página Configuración, {example}, o elige apple en un Mac con Apple Intelligence.",
   "The Assistant is sorting your accessories into rooms…": "El Asistente está ordenando tus accesorios por habitaciones…",
   "the Assistant is still answering; stop it first": "el Asistente aún está respondiendo; detenlo primero",
-  "The Assistant is writing a mood…": "El Asistente está creando un ambiente…",
   "The Assistant is writing the block…": "El Asistente está escribiendo el bloque…",
   "The Assistant reads the lines shown and groups the issues, with causes and fixes": "El Asistente lee las líneas mostradas y agrupa los problemas, con causas y soluciones",
   "The Assistant stopped after many steps without an answer. Ask again, or more precisely.": "El Asistente se ha detenido tras muchos pasos sin respuesta. Vuelve a preguntar, o con más precisión.",
@@ -13121,8 +13540,6 @@ HomeswiftI18n.add("es", {
   "Version {version}": "Versión {version}",
   "Graph of the bridges, plugins and accessories": "Gráfico de puentes, plugins y accesorios",
   "Nothing runs here yet.": "Aún no hay nada en marcha.",
-  "{n} accessory": "{n} accesorio",
-  "{n} accessories": "{n} accesorios",
   "Paired": "Emparejado",
   "No accessories": "Sin accesorios",
   "Type": "Tipo",
@@ -13200,13 +13617,55 @@ HomeswiftI18n.add("es", {
   "{done} of {total}": "{done} de {total}",
   "The {name} history could not be imported: {message}": "No se pudo importar el historial de {name}: {message}",
   "History from {name} since {date}, updated {ago}": "Historial de {name} desde el {date}, actualizado {ago}",
-  "History from {name}, updated {ago}": "Historial de {name}, actualizado {ago}"
+  "History from {name}, updated {ago}": "Historial de {name}, actualizado {ago}",
+  "Rename…": "Renombrar…",
+  "A new name for {name} on {hub}.": "Un nombre nuevo para {name} en {hub}.",
+  "Keep the lights as they are": "Guardar las luces como están",
+  "Update {name}?": "¿Actualizar {name}?",
+  "{name} on {hub} will set its lights as they are now.": "{name} en {hub} pondrá sus luces como están ahora.",
+  "Update": "Actualizar",
+  "Delete from {hub}": "Eliminar de {hub}",
+  "This removes it from {hub} and its own app too. This cannot be undone.": "Desaparece de {hub} y de su app. No se puede deshacer.",
+  "Keep it on": "Guardarla en",
+  "Keep it in Homeswift": "Guardarla en Homeswift",
+  "Save to {hub} ({place})": "Guardar en {hub} ({place})",
+  "A switch in the Home app": "Un interruptor en la app Casa",
+  "On the Homeswift Scenes accessory: turning it on runs the scene (without its locks, doors and alarms), turning it off puts the lights back.": "En el accesorio Escenas de Homeswift: al encenderlo se ejecuta la escena (sin sus cerraduras, puertas ni alarmas) y al apagarlo las luces vuelven a como estaban.",
 });
 
 """#),
         "i18n-fr.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in French: English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("fr", {
+  "A room's scenes, then templates to try on its lights; save one as a scene when you like it.": "Les scènes d’une pièce, puis des modèles à essayer sur ses lumières ; enregistrez-en un comme scène s’il vous plaît.",
+  "From a template": "À partir d’un modèle",
+  "Scenes in {room}": "Scènes de {room}",
+  "Templates": "Modèles",
+  "Put your lights in rooms (a card's menu on the Accessories page) to try templates on them.": "Placez vos lumières dans des pièces (le menu d’une carte sur la page Accessoires) pour y essayer des modèles.",
+  "Describe a scene…": "Décrivez une scène…",
+  "Describe a scene": "Décrire une scène",
+  "The Assistant is writing a scene…": "L’Assistant écrit une scène…",
+  "Trying {template}…": "Essai de {template}…",
+  "{room}, {time}": "{room}, {time}",
+  "Animation": "Animation",
+  "No animation": "Aucune animation",
+  "Timed sequence": "Séquence minutée",
+  "Minutes": "Minutes",
+  "Its own colour": "Sa propre couleur",
+  "No light to animate.": "Aucune lumière à animer.",
+  "Plays on the chosen lights after the actions: each brand's own effect where its lights have it (Hue, Govee, IKEA, Ambilight), Homeswift's elsewhere. Stopping the scene puts the lights back.": "Joue sur les lumières choisies après les actions : l’effet propre à chaque marque là où ses lumières l’ont (Hue, Govee, IKEA, Ambilight), celui de Homeswift ailleurs. Arrêter la scène remet les lumières comme avant.",
+  "Candle": "Bougie",
+  "Fire": "Feu",
+  "Sparkle": "Scintillement",
+  "Opal": "Opale",
+  "Glisten": "Miroitement",
+  "Underwater": "Sous l’eau",
+  "Cosmos": "Cosmos",
+  "Sunbeam": "Rayon de soleil",
+  "Enchant": "Enchantement",
+  "Moving colours": "Couleurs en mouvement",
+  "Follow the music": "Suivre la musique",
+  "Animated: {style}": "Animée : {style}",
   "Not in the vault: the bridge does not start without it": "Absente du coffre : le pont ne démarre pas sans elle",
   "Expired {when}": "A expiré {when}",
   "Expires {when}": "Expire {when}",
@@ -13283,7 +13742,6 @@ HomeswiftI18n.add("fr", {
   "{n} secrets are still in config.json": "{n} secrets sont encore dans config.json",
   "Choose from the vault": "Choisir dans le coffre",
   "Type a value instead": "Saisir plutôt une valeur",
-  "Open the vault": "Ouvrir le coffre",
   "Add one in the vault": "En ajouter une dans le coffre",
   "Automate": "Automatiser",
   "Hub scene": "Scène du hub",
@@ -13294,7 +13752,7 @@ HomeswiftI18n.add("fr", {
   "All sources": "Toutes les sources",
   "Scene active": "Scène active",
   "Scenes from your hubs": "Scènes de vos hubs",
-  "Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; change them in their own app.": "Gardées par les hubs de vos plugins, comme un pont Hue, un hub IKEA ou des lumières Govee. Lancez-les ici ; modifiez-les dans leur propre app.",
+  "Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; rename, update or delete a Hue or IKEA scene from its ⋯ menu.": "Gardées par les hubs de vos plugins, comme un pont Hue, un hub IKEA ou des lumières Govee. Lancez-les ici ; renommez, mettez à jour ou supprimez une scène Hue ou IKEA depuis son menu ⋯.",
 
   "Start time": "Début",
   "End time": "Fin",
@@ -13381,7 +13839,15 @@ HomeswiftI18n.add("fr", {
   "Moves the selected accessories in Homeswift only. HomeKit rooms stay unchanged.": "Déplace les accessoires sélectionnés dans Homeswift uniquement. Les pièces HomeKit restent inchangées.",
   "Release to group": "Relâchez pour grouper",
   "Reset room order": "Réinitialiser l’ordre des pièces",
-  "Reorder rooms": "Réorganiser les pièces",
+  "Rooms": "Pièces",
+  "Drag to reorder, choose one to rename it.": "Faites glisser pour réorganiser, choisissez-en une pour la renommer.",
+  "Name of {room}": "Nom de {room}",
+  "Rename the room": "Renommer la pièce",
+  "Pack the widgets together": "Regrouper les widgets",
+  "Rename on the hubs too": "Renommer aussi sur les hubs",
+  "A new name for {room}.": "Un nouveau nom pour {room}.",
+  "Rooms of this name on your Philips Hue, IKEA and eWeLink hubs are renamed too.": "Les pièces de ce nom sur vos hubs Philips Hue, IKEA et eWeLink sont renommées aussi.",
+  "Not renamed on {hub}: {error}": "Non renommée sur {hub} : {error}",
   "Show hidden": "Afficher les accessoires masqués",
   "Clear filters": "Effacer les filtres",
   "{count} of {total} match": "{count} sur {total} correspondent",
@@ -13550,14 +14016,10 @@ HomeswiftI18n.add("fr", {
   "{minutes} min before sunset {days}": "{minutes} min avant le coucher du soleil {days}",
   "{model} read {n} line. Secrets and addresses were masked first; check its advice before acting on it.": "{model} a lu {n} ligne. Les secrets et les adresses ont d'abord été masqués ; vérifiez ses conseils avant de les suivre.",
   "{model} read {n} lines. Secrets and addresses were masked first; check its advice before acting on it.": "{model} a lu {n} lignes. Les secrets et les adresses ont d'abord été masqués ; vérifiez ses conseils avant de les suivre.",
-  "{mood} in {room}": "{mood} – {room}",
-  "{mood} is playing on {n} light.": "{mood} : en cours sur {n} lampe.",
-  "{mood} is playing on {n} lights.": "{mood} : en cours sur {n} lampes.",
-  "{mood} is set on {n} light.": "{mood} : {n} lampe réglée.",
-  "{mood} is set on {n} lights.": "{mood} : {n} lampes réglées.",
-  "{mood} is set, but not on every light: {failures}": "{mood} : certaines lampes n'ont pas suivi : {failures}",
-  "{mood} undone: the lights are back as they were.": "{mood} : annulée, les lampes sont revenues à leur état précédent.",
-  "{mood} stopped: the lights are back as they were.": "{mood} : arrêtée, les lampes sont revenues à leur état précédent.",
+  "{scene} in {room}": "{scene} – {room}",
+  "{scene} is set, but not on every light: {failures}": "{scene} : certaines lampes n'ont pas suivi : {failures}",
+  "{scene} undone: the lights are back as they were.": "{scene} : annulée, les lampes sont revenues à leur état précédent.",
+  "{scene} stopped: the lights are back as they were.": "{scene} : arrêtée, les lampes sont revenues à leur état précédent.",
   "{n} accessories": "{n} accessoires",
   "{n} accessories on {bridge}": "{n} accessoires sur {bridge}",
   "{n} accessory": "{n} accessoire",
@@ -13670,7 +14132,7 @@ HomeswiftI18n.add("fr", {
   "Accessory of its own, from {plugins}": "Accessoire autonome, de {plugins}",
   "Accessory of its own, from a plugin": "Accessoire autonome, d'un plugin",
   "Accessory Runtime Information": "Informations d'exécution",
-  "Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; the Home app does not see them.": "Des valeurs d'accessoires réglées ensemble, à la main ou selon un horaire, au lever ou au coucher du soleil, ou quand un accessoire change. Homeswift les conserve ; l'app Maison ne les voit pas.",
+  "Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; one you choose is also a switch in the Home app.": "Des valeurs d'accessoires réglées ensemble, à la main ou selon un horaire, au lever ou au coucher du soleil, ou quand un accessoire change. Homeswift les conserve ; une scène que vous choisissez est aussi un interrupteur dans l’app Maison.",
   "Account": "Compte",
   "Account menu": "Menu du compte",
   "Action {0} must be an object": "L'action {0} doit être un objet",
@@ -14025,8 +14487,6 @@ HomeswiftI18n.add("fr", {
   "Delete this backup?": "Supprimer cette sauvegarde ?",
   "Delete…": "Supprimer…",
   "Deny": "Refuser",
-  "Describe a mood": "Décrire une ambiance",
-  "Describe a mood…": "Décrivez une ambiance…",
   "Describe one: a jazz bar, a rainy afternoon…": "Décrivez-en une : un bar de jazz, un après-midi pluvieux…",
   "Describe your setup": "Décrivez votre installation",
   "Details": "Détails",
@@ -14411,7 +14871,6 @@ HomeswiftI18n.add("fr", {
   "Mode": "Mode",
   "Model": "Modèle",
   "Mon": "Lun",
-  "Moods": "Ambiances",
   "More": "Plus",
   "More options ({count})": "Plus d'options ({count})",
   "Motion": "Mouvement",
@@ -14656,7 +15115,6 @@ HomeswiftI18n.add("fr", {
   "Purple and orange with an eerie flicker.": "Violet et orange, avec un scintillement inquiétant.",
   "Push payload too large ({0} bytes)": "Contenu push trop volumineux ({0} octets)",
   "Put in a room…": "Mettre dans une pièce…",
-  "Put your lights in rooms (a card's menu on the Accessories page) to play moods on them.": "Placez vos lampes dans des pièces (le menu d'une carte sur la page Accessoires) pour y lancer des ambiances.",
   "QR code for an authenticator app": "Code QR pour une app d'authentification",
   "Quick controls": "Commandes rapides",
   "Rainbow wave": "Vague arc-en-ciel",
@@ -14904,7 +15362,6 @@ HomeswiftI18n.add("fr", {
   "Staged Firmware Version": "Firmware en attente",
   "Stale": "Obsolète",
   "Start": "Démarrer",
-  "Starting {mood}…": "Lancement de {mood}…",
   "Starting…": "Démarrage…",
   "Stateful Programmable Switch": "Interrupteur programmable",
   "Stateless Programmable Switch": "Bouton programmable",
@@ -15060,7 +15517,6 @@ HomeswiftI18n.add("fr", {
   "The Assistant is off: config.json has no HomeswiftAiKit block. Add one on the Config page, {example}, or choose apple on a Mac with Apple Intelligence.": "L'Assistant est désactivé : config.json n'a pas de bloc HomeswiftAiKit. Ajoutez-en un sur la page Config, {example}, ou choisissez apple sur un Mac avec Apple Intelligence.",
   "The Assistant is sorting your accessories into rooms…": "L'Assistant range vos accessoires par pièce…",
   "the Assistant is still answering; stop it first": "l'Assistant répond encore ; arrêtez-le d'abord",
-  "The Assistant is writing a mood…": "L'Assistant compose une ambiance…",
   "The Assistant is writing the block…": "L'Assistant rédige le bloc…",
   "The Assistant reads the lines shown and groups the issues, with causes and fixes": "L'Assistant lit les lignes affichées et regroupe les problèmes, avec leurs causes et leurs solutions",
   "The Assistant stopped after many steps without an answer. Ask again, or more precisely.": "L'Assistant s'est arrêté après de nombreuses étapes sans réponse. Reposez la question, ou soyez plus précis.",
@@ -15526,8 +15982,6 @@ HomeswiftI18n.add("fr", {
   "Version {version}": "Version {version}",
   "Graph of the bridges, plugins and accessories": "Graphe des ponts, plugins et accessoires",
   "Nothing runs here yet.": "Rien ne tourne encore.",
-  "{n} accessory": "{n} accessoire",
-  "{n} accessories": "{n} accessoires",
   "Paired": "Jumelé",
   "No accessories": "Aucun accessoire",
   "Type": "Type",
@@ -15605,13 +16059,55 @@ HomeswiftI18n.add("fr", {
   "{done} of {total}": "{done} sur {total}",
   "The {name} history could not be imported: {message}": "L’historique {name} n’a pas pu être importé : {message}",
   "History from {name} since {date}, updated {ago}": "Historique {name} depuis le {date}, mis à jour {ago}",
-  "History from {name}, updated {ago}": "Historique {name}, mis à jour {ago}"
+  "History from {name}, updated {ago}": "Historique {name}, mis à jour {ago}",
+  "Rename…": "Renommer…",
+  "A new name for {name} on {hub}.": "Un nouveau nom pour {name} sur {hub}.",
+  "Keep the lights as they are": "Garder les lumières telles qu’elles sont",
+  "Update {name}?": "Mettre à jour {name} ?",
+  "{name} on {hub} will set its lights as they are now.": "{name} sur {hub} réglera ses lumières comme elles sont maintenant.",
+  "Update": "Mettre à jour",
+  "Delete from {hub}": "Supprimer de {hub}",
+  "This removes it from {hub} and its own app too. This cannot be undone.": "Elle disparaît de {hub} et de son app. C’est irréversible.",
+  "Keep it on": "La garder sur",
+  "Keep it in Homeswift": "La garder dans Homeswift",
+  "Save to {hub} ({place})": "Enregistrer sur {hub} ({place})",
+  "A switch in the Home app": "Un interrupteur dans l’app Maison",
+  "On the Homeswift Scenes accessory: turning it on runs the scene (without its locks, doors and alarms), turning it off puts the lights back.": "Sur l’accessoire Scènes Homeswift : l’allumer lance la scène (sans ses serrures, portes et alarmes), l’éteindre remet les lumières comme avant.",
 });
 
 """#),
         "i18n-pt.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Portuguese (Portugal): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("pt", {
+  "A room's scenes, then templates to try on its lights; save one as a scene when you like it.": "As cenas de uma divisão e, depois, modelos para experimentar nas suas luzes; guarde um como cena se gostar.",
+  "From a template": "A partir de um modelo",
+  "Scenes in {room}": "Cenas de {room}",
+  "Templates": "Modelos",
+  "Put your lights in rooms (a card's menu on the Accessories page) to try templates on them.": "Coloque as suas luzes em divisões (o menu de um cartão na página Acessórios) para experimentar modelos nelas.",
+  "Describe a scene…": "Descreva uma cena…",
+  "Describe a scene": "Descrever uma cena",
+  "The Assistant is writing a scene…": "O Assistente está a escrever uma cena…",
+  "Trying {template}…": "A experimentar {template}…",
+  "{room}, {time}": "{room}, {time}",
+  "Animation": "Animação",
+  "No animation": "Sem animação",
+  "Timed sequence": "Sequência temporizada",
+  "Minutes": "Minutos",
+  "Its own colour": "A sua própria cor",
+  "No light to animate.": "Nenhuma luz para animar.",
+  "Plays on the chosen lights after the actions: each brand's own effect where its lights have it (Hue, Govee, IKEA, Ambilight), Homeswift's elsewhere. Stopping the scene puts the lights back.": "Reproduz-se nas luzes escolhidas depois das ações: o efeito próprio de cada marca onde as suas luzes o têm (Hue, Govee, IKEA, Ambilight), o do Homeswift nas restantes. Parar a cena devolve as luzes ao que eram.",
+  "Candle": "Vela",
+  "Fire": "Fogo",
+  "Sparkle": "Cintilar",
+  "Opal": "Opala",
+  "Glisten": "Reluzir",
+  "Underwater": "Debaixo de água",
+  "Cosmos": "Cosmos",
+  "Sunbeam": "Raio de sol",
+  "Enchant": "Encanto",
+  "Moving colours": "Cores em movimento",
+  "Follow the music": "Seguir a música",
+  "Animated: {style}": "Animada: {style}",
   "Not in the vault: the bridge does not start without it": "Não está no cofre: a ponte não arranca sem ela",
   "Expired {when}": "Expirou {when}",
   "Expires {when}": "Expira {when}",
@@ -15688,7 +16184,6 @@ HomeswiftI18n.add("pt", {
   "{n} secrets are still in config.json": "{n} segredos ainda estão no config.json",
   "Choose from the vault": "Escolher do cofre",
   "Type a value instead": "Introduzir antes um valor",
-  "Open the vault": "Abrir o cofre",
   "Add one in the vault": "Adicionar uma no cofre",
   "Automate": "Automatizar",
   "Hub scene": "Cena do hub",
@@ -15699,7 +16194,7 @@ HomeswiftI18n.add("pt", {
   "All sources": "Todas as origens",
   "Scene active": "Cena ativa",
   "Scenes from your hubs": "Cenas dos seus hubs",
-  "Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; change them in their own app.": "Guardadas pelos hubs dos seus plugins, como uma ponte Hue, um hub IKEA ou luzes Govee. Execute-as aqui; altere-as na app delas.",
+  "Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; rename, update or delete a Hue or IKEA scene from its ⋯ menu.": "Guardadas pelos hubs dos seus plugins, como uma ponte Hue, um hub IKEA ou luzes Govee. Execute-as aqui; renomeie, atualize ou apague uma cena Hue ou IKEA no seu menu ⋯.",
 
   "Start time": "Hora de início",
   "End time": "Hora de fim",
@@ -15786,7 +16281,15 @@ HomeswiftI18n.add("pt", {
   "Moves the selected accessories in Homeswift only. HomeKit rooms stay unchanged.": "Move os acessórios selecionados apenas no Homeswift. As divisões do HomeKit não são alteradas.",
   "Release to group": "Solte para agrupar",
   "Reset room order": "Repor a ordem das divisões",
-  "Reorder rooms": "Reordenar divisões",
+  "Rooms": "Divisões",
+  "Drag to reorder, choose one to rename it.": "Arraste para reordenar, escolha uma para lhe mudar o nome.",
+  "Name of {room}": "Nome de {room}",
+  "Rename the room": "Mudar o nome da divisão",
+  "Pack the widgets together": "Juntar os widgets",
+  "Rename on the hubs too": "Mudar o nome também nos hubs",
+  "A new name for {room}.": "Um novo nome para {room}.",
+  "Rooms of this name on your Philips Hue, IKEA and eWeLink hubs are renamed too.": "As divisões com este nome nos seus hubs Philips Hue, IKEA e eWeLink também mudam de nome.",
+  "Not renamed on {hub}: {error}": "Nome não mudado em {hub}: {error}",
   "Show hidden": "Mostrar ocultos",
   "Clear filters": "Limpar filtros",
   "{count} of {total} match": "{count} de {total} correspondem",
@@ -15955,14 +16458,10 @@ HomeswiftI18n.add("pt", {
   "{minutes} min before sunset {days}": "{minutes} min antes do pôr do sol {days}",
   "{model} read {n} line. Secrets and addresses were masked first; check its advice before acting on it.": "{model} leu {n} linha. Os segredos e os endereços foram ocultados primeiro; verifique os conselhos antes de os seguir.",
   "{model} read {n} lines. Secrets and addresses were masked first; check its advice before acting on it.": "{model} leu {n} linhas. Os segredos e os endereços foram ocultados primeiro; verifique os conselhos antes de os seguir.",
-  "{mood} in {room}": "{mood} – {room}",
-  "{mood} is playing on {n} light.": "{mood}: a decorrer em {n} luz.",
-  "{mood} is playing on {n} lights.": "{mood}: a decorrer em {n} luzes.",
-  "{mood} is set on {n} light.": "{mood}: {n} luz ajustada.",
-  "{mood} is set on {n} lights.": "{mood}: {n} luzes ajustadas.",
-  "{mood} is set, but not on every light: {failures}": "{mood}: nem todas as luzes responderam: {failures}",
-  "{mood} undone: the lights are back as they were.": "{mood}: anulado, as luzes voltaram ao que eram.",
-  "{mood} stopped: the lights are back as they were.": "{mood}: parado, as luzes voltaram ao que eram.",
+  "{scene} in {room}": "{scene} – {room}",
+  "{scene} is set, but not on every light: {failures}": "{scene}: nem todas as luzes responderam: {failures}",
+  "{scene} undone: the lights are back as they were.": "{scene}: anulado, as luzes voltaram ao que eram.",
+  "{scene} stopped: the lights are back as they were.": "{scene}: parado, as luzes voltaram ao que eram.",
   "{n} accessories": "{n} acessórios",
   "{n} accessories on {bridge}": "{n} acessórios em {bridge}",
   "{n} accessory": "{n} acessório",
@@ -16075,7 +16574,7 @@ HomeswiftI18n.add("pt", {
   "Accessory of its own, from {plugins}": "Acessório independente, de {plugins}",
   "Accessory of its own, from a plugin": "Acessório independente, de um plugin",
   "Accessory Runtime Information": "Informações de execução",
-  "Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; the Home app does not see them.": "Valores de acessórios definidos em conjunto, manualmente ou num horário, ao nascer ou ao pôr do sol, ou quando um acessório muda. O Homeswift guarda-os; a app Casa não os vê.",
+  "Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; one you choose is also a switch in the Home app.": "Valores de acessórios definidos em conjunto, manualmente ou num horário, ao nascer ou ao pôr do sol, ou quando um acessório muda. O Homeswift guarda-os; uma cena que escolher também é um interruptor na app Casa.",
   "Account": "Conta",
   "Account menu": "Menu da conta",
   "Action {0} must be an object": "A ação {0} tem de ser um objeto",
@@ -16430,8 +16929,6 @@ HomeswiftI18n.add("pt", {
   "Delete this backup?": "Eliminar esta cópia de segurança?",
   "Delete…": "Eliminar…",
   "Deny": "Recusar",
-  "Describe a mood": "Descrever um ambiente",
-  "Describe a mood…": "Descreva um ambiente…",
   "Describe one: a jazz bar, a rainy afternoon…": "Descreva um: um bar de jazz, uma tarde de chuva…",
   "Describe your setup": "Descreva a sua instalação",
   "Details": "Detalhes",
@@ -16816,7 +17313,6 @@ HomeswiftI18n.add("pt", {
   "Mode": "Modo",
   "Model": "Modelo",
   "Mon": "Seg",
-  "Moods": "Ambientes",
   "More": "Mais",
   "More options ({count})": "Mais opções ({count})",
   "Motion": "Movimento",
@@ -17061,7 +17557,6 @@ HomeswiftI18n.add("pt", {
   "Purple and orange with an eerie flicker.": "Roxo e laranja com um tremeluzir inquietante.",
   "Push payload too large ({0} bytes)": "Conteúdo push demasiado grande ({0} bytes)",
   "Put in a room…": "Colocar numa divisão…",
-  "Put your lights in rooms (a card's menu on the Accessories page) to play moods on them.": "Coloque as luzes em divisões (o menu de um cartão na página Acessórios) para lhes aplicar ambientes.",
   "QR code for an authenticator app": "Código QR para uma app de autenticação",
   "Quick controls": "Controlos rápidos",
   "Rainbow wave": "Onda arco-íris",
@@ -17309,7 +17804,6 @@ HomeswiftI18n.add("pt", {
   "Staged Firmware Version": "Firmware preparado",
   "Stale": "Obsoleto",
   "Start": "Iniciar",
-  "Starting {mood}…": "A iniciar {mood}…",
   "Starting…": "A iniciar…",
   "Stateful Programmable Switch": "Interruptor programável",
   "Stateless Programmable Switch": "Botão programável",
@@ -17465,7 +17959,6 @@ HomeswiftI18n.add("pt", {
   "The Assistant is off: config.json has no HomeswiftAiKit block. Add one on the Config page, {example}, or choose apple on a Mac with Apple Intelligence.": "O Assistente está desativado: o config.json não tem um bloco HomeswiftAiKit. Adicione um na página Configuração, {example}, ou escolha apple num Mac com Apple Intelligence.",
   "The Assistant is sorting your accessories into rooms…": "O Assistente está a organizar os acessórios por divisões…",
   "the Assistant is still answering; stop it first": "o Assistente ainda está a responder; pare-o primeiro",
-  "The Assistant is writing a mood…": "O Assistente está a criar um ambiente…",
   "The Assistant is writing the block…": "O Assistente está a escrever o bloco…",
   "The Assistant reads the lines shown and groups the issues, with causes and fixes": "O Assistente lê as linhas mostradas e agrupa os problemas, com causas e soluções",
   "The Assistant stopped after many steps without an answer. Ask again, or more precisely.": "O Assistente parou após muitos passos sem resposta. Pergunte novamente, ou de forma mais precisa.",
@@ -17931,8 +18424,6 @@ HomeswiftI18n.add("pt", {
   "Version {version}": "Versão {version}",
   "Graph of the bridges, plugins and accessories": "Gráfico das pontes, plugins e acessórios",
   "Nothing runs here yet.": "Ainda não há nada em execução.",
-  "{n} accessory": "{n} acessório",
-  "{n} accessories": "{n} acessórios",
   "Paired": "Emparelhada",
   "No accessories": "Nenhum acessório",
   "Type": "Tipo",
@@ -18010,7 +18501,20 @@ HomeswiftI18n.add("pt", {
   "{done} of {total}": "{done} de {total}",
   "The {name} history could not be imported: {message}": "Não foi possível importar o histórico de {name}: {message}",
   "History from {name} since {date}, updated {ago}": "Histórico de {name} desde {date}, atualizado {ago}",
-  "History from {name}, updated {ago}": "Histórico de {name}, atualizado {ago}"
+  "History from {name}, updated {ago}": "Histórico de {name}, atualizado {ago}",
+  "Rename…": "Renomear…",
+  "A new name for {name} on {hub}.": "Um novo nome para {name} em {hub}.",
+  "Keep the lights as they are": "Manter as luzes como estão",
+  "Update {name}?": "Atualizar {name}?",
+  "{name} on {hub} will set its lights as they are now.": "{name} em {hub} vai deixar as luzes como estão agora.",
+  "Update": "Atualizar",
+  "Delete from {hub}": "Apagar de {hub}",
+  "This removes it from {hub} and its own app too. This cannot be undone.": "Ela sai de {hub} e da sua app. Não pode ser desfeito.",
+  "Keep it on": "Guardá-la em",
+  "Keep it in Homeswift": "Guardá-la no Homeswift",
+  "Save to {hub} ({place})": "Guardar em {hub} ({place})",
+  "A switch in the Home app": "Um interruptor na app Casa",
+  "On the Homeswift Scenes accessory: turning it on runs the scene (without its locks, doors and alarms), turning it off puts the lights back.": "No acessório Cenas do Homeswift: ligá-lo executa a cena (sem as fechaduras, portas e alarmes), desligá-lo repõe as luzes como estavam.",
 });
 
 """#),
@@ -19318,8 +19822,9 @@ HomeswiftI18n.add("pt", {
       const search = el("input", { type: "search", placeholder: t("Search images…"), "aria-label": t("Search images…"), oninput: () => {
         for (const item of grid.children) item.hidden = !normalize(item.textContent).includes(normalize(search.value));
       } });
-      const dialog = el("dialog", { class: "artwork-dialog" }, el("h2", { text: t("Scene image") }), search, grid,
-        el("button", { actionIcon: "close", text: t("Close"), onclick: () => dialog.close() }));
+      // The design system's dialog (common.js's messageDialog, admin.js's): a card over a dimmed page, wide for the grid.
+      const dialog = el("dialog", { class: "admin-dialog card wide artwork-dialog", "aria-label": t("Scene image") }, el("h2", { text: t("Scene image") }), search, grid,
+        el("div", { class: "actions" }, el("button", { type: "button", actionIcon: "close", text: t("Close"), onclick: () => dialog.close() })));
       for (const artwork of artworks) grid.append(el("button", { class: "scene pictured artwork-choice", actionIcon: "image", onclick: async () => {
         try {
           const response = await fetch(`/artwork-${artwork.id}.webp`);
@@ -19351,18 +19856,10 @@ HomeswiftI18n.add("pt", {
       return data;
     }
 
-    async function shrink(file) {
-      if (!/^image\//.test(file.type)) throw new Error(t("This file is not a picture."));
-      const bitmap = await createImageBitmap(file).catch(() => { throw new Error(t("This file is not a picture.")); });
-      const canvas = HomeswiftCommon.scaledCanvas(bitmap, 640);
-      bitmap.close?.();
-      return canvas.toDataURL("image/jpeg", 0.85);
-    }
-
     async function setPicture(scene, file, tileNode) {
       tileNode.classList.add("busy");
       try {
-        const data = await shrink(file);
+        const data = await HomeswiftCommon.pictureDataURL(file);
         const { version } = await request("scene-picture", { method: "POST", body: { id: scene.id, data } });
         cache.set(scene.id, { version: String(version), data: Promise.resolve(data) });
         await refresh();
@@ -19374,9 +19871,7 @@ HomeswiftI18n.add("pt", {
     }
 
     function choosePicture(scene, tileNode) {
-      const input = el("input", { type: "file", accept: "image/jpeg,image/png,image/webp,image/heic" });
-      input.addEventListener("change", () => { if (input.files?.[0]) setPicture(scene, input.files[0], tileNode); });
-      input.click();
+      HomeswiftCommon.choosePictureFile((file) => setPicture(scene, file, tileNode));
     }
 
     async function removePicture(scene) {
@@ -20718,12 +21213,26 @@ label > input, label > select { margin-top: 5px; }
 .page-head > .who { flex: 1 1 280px; }
 .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-12); margin: 26px 0 var(--space-10); }
 .section-head h2 { margin: 0; }
+/* A room's name on the Accessories wall in Edit: a field that reads as the heading, outlined to say it can be typed in. */
+.room-name-input {
+  font: inherit; letter-spacing: inherit; color: inherit; min-width: 4ch; max-width: 70vw;
+  margin: -3px calc(-1 * var(--space-8)); padding: 2px var(--space-8); border: 1px dashed var(--line); border-radius: var(--radius-xs);
+  background: transparent; transition: border-color var(--fast) var(--ease-out), background-color var(--fast) var(--ease-out);
+}
+.room-name-input:hover { border-color: var(--muted); }
+.room-name-input:focus { outline: none; border-style: solid; border-color: var(--accent); background: var(--field); }
+.room-name-input:disabled { opacity: .6; }
 .section-head .muted { font-size: var(--text-sm); }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: var(--space-14); }
 .grid > .card { margin: 0; min-width: 0; }
 .card.empty { text-align: center; padding: 28px var(--space-20); grid-column: 1 / -1; }
 .card.empty p { margin: 0; }
 .scenes-empty > .button { margin-top: var(--space-12); }
+.scenes-empty.compact { display: flex; align-items: center; gap: var(--space-14); padding: var(--space-14) var(--space-18); text-align: left; }
+.scenes-empty.compact > .button { margin: 0 0 0 auto; flex: none; }
+.card.empty.scenes-empty.compact > p { flex: 1; max-width: none; margin: 0; }
+.scenes-empty.compact > .empty-glyph { flex: none; width: 40px; height: 40px; margin: 0; }
+@media (max-width: 640px) { .scenes-empty.compact { flex-wrap: wrap; } .scenes-empty.compact > .button { margin-left: 0; } }
 /* An empty state's glyph: what would be here, in a soft disc above the words. */
 .empty-glyph { display: grid; place-items: center; width: 52px; height: 52px; margin: 0 auto var(--space-12); border-radius: 50%; color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .empty-glyph svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
@@ -21131,6 +21640,10 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget.lifted::after { display: none; }
 .wall > .drag-slot::after { display: none; }
 .wall > .drag-slot { border: 2px dashed color-mix(in srgb, var(--accent) 55%, transparent); border-radius: var(--radius); background: color-mix(in srgb, var(--accent) 6%, transparent); box-shadow: none; }
+/* By room, in Edit: an empty room's wall still takes a drop, and the room a widget is dragged into is outlined. */
+.wall.editing[data-room]:empty { min-height: 96px; border: 2px dashed var(--line); border-radius: var(--radius); }
+.accessory-section.room-drop-target > .wall { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 6px; border-radius: var(--radius); }
+.accessory-section.room-drop-target > .section-head h2 { color: var(--accent); }
 
 /* Segmented: equal columns, a thumb sliding to the one chosen. */
 .seg { position: relative; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; padding: 3px; border-radius: var(--radius-md); background: var(--track); }
@@ -21383,6 +21896,10 @@ textarea.short { min-height: 220px; }
 .update-command code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; font: 0.8125rem/1.5 var(--mono); scrollbar-width: none; }
 .update-command button { flex: none; padding: 5px var(--space-12); font-size: var(--text-sm); }
 .update-card details.more-options { margin: 0; }
+.update-progress { display: flex; align-items: center; gap: var(--space-8); margin: 0; }
+.update-progress svg { width: 16px; height: 16px; flex: none; color: var(--ok); }
+.update-progress .spinner { flex: none; }
+.updates-settings .actions { flex-wrap: wrap; }
 .who { flex: 1; min-width: 0; }
 .health { font-weight: var(--weight-medium); display: flex; align-items: flex-start; gap: var(--space-8); }
 /* The dot on the first line's middle, when the text wraps. */
@@ -21626,6 +22143,11 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .setup { display: flex; gap: var(--space-16); align-items: center; padding-top: var(--space-14); border-top: 1px solid var(--line); }
 .setup p { margin: 0 0 var(--space-6); }
 .setup .code { margin: 0; }
+.setup-code-field { display: flex; align-items: center; gap: var(--space-8); }
+.setup-code-field input { flex: 1; min-width: 0; }
+.setup-in-form { margin-top: var(--space-8); padding-top: var(--space-12); }
+.setup-in-form .qr { width: 120px; height: 120px; flex: none; }
+.setup-in-form p.help { margin: 0; }
 .server .actions { margin-top: 0; }
 .banner { margin: var(--space-14) auto 0; max-width: 1100px; width: calc(100% - 24px); padding: var(--space-10) var(--space-20); text-align: center; color: var(--warn); font-weight: var(--weight-semibold); animation: materialize var(--normal) var(--ease-out); }
 .auth { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; padding: var(--space-20); }
@@ -22262,73 +22784,102 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 .quick-scene-label { display: flex; align-items: center; gap: var(--space-8); }
 .quick-scene-label > svg { flex: none; width: 18px; height: 18px; }
 .quick-scene-label > span { overflow-wrap: anywhere; }
-.scene-run.busy { opacity: 0.6; }
+.scene-run { transition: transform 160ms var(--ease-out), opacity 200ms ease, box-shadow 200ms ease-out; }
+.scene-run.busy { opacity: 0.6; cursor: progress; }
+.quick-scene-image { transition: transform 240ms var(--ease-out); }
+@media (hover: hover) and (pointer: fine) {
+  .scene-run.pictured:hover .quick-scene-image { transform: scale(1.03); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .scene-run, .quick-scene-image { transition: opacity 200ms ease, box-shadow 200ms ease-out; }
+  .scene-run:active:not(:disabled), .scene-run.pictured:hover .quick-scene-image { transform: none; }
+}
 .scene-run.coloured { color: #fff; }
 .scene-run.coloured::after { content: ""; position: absolute; inset: 0; background: linear-gradient(transparent 30%, rgba(0, 0, 0, .55)); z-index: -1; }
 .scene-run.active { box-shadow: 0 0 0 2px var(--accent); }
+/* A hub scene with neither a picture nor colours (DIRIGERA tells none): a warm wash, not a blank card. */
+.hub-scene:not(.pictured):not(.coloured) { background: linear-gradient(135deg, color-mix(in srgb, var(--accent-2) 22%, transparent), color-mix(in srgb, var(--accent) 10%, transparent)); }
 .scene-run .scene-active { position: absolute; top: var(--space-10); right: var(--space-10); }
 .scene-source { display: block; font-size: var(--text-xs); font-weight: var(--weight-medium); opacity: 0.8; }
 .hub-scenes { display: grid; gap: var(--space-12); }
+.hub-scenes-head > select { width: auto; max-width: 260px; }
+.scene-run:disabled { opacity: 0.7; cursor: default; }
 .hub-scene-room { display: grid; gap: var(--space-8); }
-.hub-scene-tile { display: grid; gap: var(--space-4); min-width: 0; }
+/* A hub scene's tile carries its actions: round glass buttons over its top-right corner, its "Scene active" on the left. */
+.hub-scene-tile { position: relative; display: grid; min-width: 0; }
 .hub-scene-tile > .scene-run { width: 100%; }
-.hub-scene-actions { display: flex; flex-wrap: wrap; gap: var(--space-10); }
-.hub-scene-actions button { font-size: var(--text-xs); }
+.hub-scene-tile > .scene-run .scene-active { right: auto; left: var(--space-10); }
+/* The same buttons as a plugin page's scene tiles (`.scene .eye`): a dark disc on a picture, a light one on a pale tile. */
+.hub-scene-actions { position: absolute; top: 6px; right: 6px; z-index: 2; display: flex; gap: var(--space-4); }
+.hub-scene-actions > button { display: grid; place-items: center; width: 30px; height: 30px; min-height: 0; margin: 0; padding: 0; border-radius: 50%;
+  color: #fff; background: rgba(0, 0, 0, 0.28); border: 0; box-shadow: none; }
+.hub-scene-actions > button svg { width: 16px; height: 16px; }
+.hub-scene-actions > button.action-with-icon::before { width: 14px; height: 14px; }
+.hub-scene-tile:has(> .hub-scene:not(.pictured):not(.coloured)) .hub-scene-actions > button { background: rgba(255, 255, 255, 0.55); color: #1d1d1f; }
+/* On a touch screen each takes a 44-point-tall tap around its 30-point disc, so a near miss opens it rather than the
+   scene; only 2 points wider, so Stop and the menu, 4 apart, do not take each other's taps. */
+@media (pointer: coarse) {
+  .hub-scene-actions > button { position: relative; }
+  .hub-scene-actions > button::after { content: ""; position: absolute; inset: -7px -2px; }
+}
+.animation-settings { display: grid; gap: var(--space-10); margin-top: var(--space-10); }
+.animation-colours { display: flex; gap: var(--space-10); }
+.animation-lights { display: grid; gap: var(--space-6); }
 @media (max-width: 640px) {
   .quick-scenes { grid-template-columns: none; grid-template-rows: auto; grid-auto-flow: column; grid-auto-columns: min(240px, 85%); overflow-x: auto; scroll-snap-type: x proximity; padding: var(--space-4); }
   .quick-scenes > .scene-run, .quick-scenes > .hub-scene-tile { scroll-snap-align: start; }
 }
 .scene-card .server-head > button { flex: none; }
-/* Moods: the rooms as chips, what plays, the Assistant's box, the collection as pills with their colours. Pills and chips
+/* Templates: the rooms as chips, what plays, the Assistant's box, the collection as pills with their colours. Pills and chips
    are controls: no text selection or callout on a long press, press feedback at once, the lift on hover only with a
    mouse (a tap would leave it stuck). On a phone each kind is a row that swipes sideways and snaps, so the card fits a
    screen and what a tap starts shows beside the finger. */
-.mood-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-14); }
-.mood-rooms, .mood-buttons { display: flex; gap: var(--space-8); }
-.mood-rooms { flex-wrap: wrap; }
-.mood-buttons { flex-wrap: wrap; }
-.mood-room, .mood-button { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
-.mood-room { padding: 7px var(--space-14); font-size: var(--text-md); }
-.mood-room[aria-pressed="true"] { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); border-color: transparent; }
-.mood-button {
+.template-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-14); }
+.template-rooms, .template-buttons { display: flex; gap: var(--space-8); }
+.template-rooms { flex-wrap: wrap; }
+.template-buttons { flex-wrap: wrap; }
+.template-room, .template-button { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.template-room { padding: 7px var(--space-14); font-size: var(--text-md); }
+.template-room[aria-pressed="true"] { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); border-color: transparent; }
+.template-button {
   display: inline-flex; align-items: center; gap: var(--space-10); flex: none; min-height: 44px; padding: var(--space-6) var(--space-16) var(--space-6) var(--space-6);
   transition: transform var(--fast) var(--ease-out), box-shadow var(--normal) var(--ease-out);
 }
-.mood-button:active:not(:disabled), .mood-room:active { transform: scale(0.96); transition-duration: 80ms; }
-.mood-button.playing { box-shadow: 0 0 0 2px var(--accent), var(--shadow-control); }
-.mood-button.busy::after { margin-left: 0; }
-.mood-swatch { width: 32px; height: 32px; border-radius: var(--radius-sm); flex: none; }
-.mood-group .service-name { margin: 0 0 var(--space-8); }
-.mood-collection { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-16); }
-.mood-describe { display: flex; gap: var(--space-8); }
-.mood-describe input { flex: 1; min-width: 0; }
-.mood-create { display: inline-flex; align-items: center; gap: var(--space-6); flex: none; white-space: nowrap; }
-.mood-running { display: grid; gap: var(--space-8); }
-.mood-running:empty { display: none; }
-.mood-run {
+.template-button:active:not(:disabled), .template-room:active { transform: scale(0.96); transition-duration: 80ms; }
+.template-button.playing { box-shadow: 0 0 0 2px var(--accent), var(--shadow-control); }
+.template-button.busy::after { margin-left: 0; }
+.template-swatch { width: 32px; height: 32px; border-radius: var(--radius-sm); flex: none; }
+.template-group .service-name { margin: 0 0 var(--space-8); }
+.template-collection { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-16); }
+.template-describe { display: flex; gap: var(--space-8); }
+.template-describe input { flex: 1; min-width: 0; }
+.template-create { display: inline-flex; align-items: center; gap: var(--space-6); flex: none; white-space: nowrap; }
+.template-running { display: grid; gap: var(--space-8); }
+.template-running:empty { display: none; }
+.template-run {
   display: flex; align-items: center; gap: var(--space-12); padding: var(--space-8) var(--space-8) var(--space-8) var(--space-10); border-radius: var(--radius-lg); background: var(--material-thin); border: 1px solid var(--line);
   transition: opacity var(--normal) var(--ease-out), transform var(--normal) var(--ease-out);
 }
-@starting-style { .mood-run { opacity: 0; transform: translateY(-4px); } }
-.mood-run-text { flex: 1; min-width: 0; display: grid; }
-.mood-run-text .muted { font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mood-stop { flex: none; }
-.mood-card .status-line { margin: 0; }
-.mood-card .status-line:empty { display: none; }
-/* A phone: rooms and each kind of mood scroll sideways from edge to edge of the card, snapping to a pill; the input stays
+@starting-style { .template-run { opacity: 0; transform: translateY(-4px); } }
+.template-run-text { flex: 1; min-width: 0; display: grid; }
+.template-run-text .muted { font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.template-stop { flex: none; }
+.template-card .status-line { margin: 0; }
+.template-card .status-line:empty { display: none; }
+/* A phone: rooms and each kind of template scroll sideways from edge to edge of the card, snapping to a pill; the input stays
    at 16px so iOS does not zoom into it. */
 @media (max-width: 640px) {
-  .mood-rooms, .mood-buttons {
+  .template-rooms, .template-buttons {
     flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scrollbar-width: none;
     margin: 0 -20px; padding: 2px var(--space-20) var(--space-6); scroll-padding: 0 20px;
     -webkit-mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 22px), transparent);
     mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 22px), transparent);
   }
-  .mood-rooms::-webkit-scrollbar, .mood-buttons::-webkit-scrollbar { display: none; }
-  .mood-room, .mood-button { flex: none; scroll-snap-align: start; }
+  .template-rooms::-webkit-scrollbar, .template-buttons::-webkit-scrollbar { display: none; }
+  .template-room, .template-button { flex: none; scroll-snap-align: start; }
 }
-@media (pointer: coarse) { .mood-describe input { font-size: 16px; } }
-@media (prefers-reduced-motion: reduce) { .mood-run { transition: none; } }
+@media (pointer: coarse) { .template-describe input { font-size: 16px; } }
+@media (prefers-reduced-motion: reduce) { .template-run { transition: none; } }
 .location summary { cursor: pointer; }
 .location { margin-top: var(--space-14); }
 .scene-editor h2 { margin: 22px 0 2px; font-size: var(--text-xl); }
@@ -22887,9 +23438,9 @@ select:disabled { opacity: .5; cursor: not-allowed; }
 .scene-card .card-foot { font-size: var(--text-xs); line-height: 1.5; padding-top: var(--space-10); }
 .section-head:has(+ .scene-grid) { gap: var(--space-12); flex-wrap: wrap; }
 .section-head:has(+ .scene-grid) .search { margin-left: auto; max-width: 280px; }
-.moods .mood-card { padding: var(--space-18); }
-.moods .mood-rooms { padding-bottom: var(--space-14); border-bottom: 1px solid var(--line); }
-.moods .status-line:empty, .moods .mood-running:empty { display: none; }
+.templates .template-card { padding: var(--space-18); }
+.templates .template-rooms { padding-bottom: var(--space-14); border-bottom: 1px solid var(--line); }
+.templates .status-line:empty, .templates .template-running:empty { display: none; }
 @media (max-width: 560px) { .section-head:has(+ .scene-grid) .search { max-width: none; width: 100%; } }
 
 .scene-flow { border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; margin: var(--space-20) 0; background: var(--material-solid); }
@@ -23233,6 +23784,7 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
 
 .status-footer .footer-update-check[data-update-state="current"] { --update-tone: var(--ok); }
 .status-footer .footer-update-check[data-update-state="available"] { --update-tone: var(--warn); }
+.status-footer .footer-update-check[data-update-state="installed"] { --update-tone: var(--ok); }
 .status-footer .footer-update-check[data-update-state="error"] { --update-tone: var(--error); }
 .status-footer .footer-update-check {
   color: var(--update-tone, var(--text));
@@ -23813,22 +24365,22 @@ select option:disabled { color: var(--muted); }
 .widget-battery.size-medium .w-top { position: static; }
 .widget-battery.size-medium .w-top > .w-hero:has(> .battery-gauge) { position: absolute; left: 50%; top: 36%; transform: translate(-50%, -50%); display: flex; align-items: center; justify-content: center; }
 
-/* Shared photographic artwork for saved scenes and room moods. */
+/* Shared photographic artwork for saved scenes and templates. */
 .scene-artwork { width: 100%; aspect-ratio: 16/9; object-fit: cover; border-radius: var(--radius-sm); }
 .artwork-preview { max-width: 320px; }
 .artwork-picker { margin-block: var(--space-16); }
 .artwork-picker > button { margin-bottom: var(--space-16); }
 .artwork-picker summary { cursor: pointer; padding-block: var(--space-12); }
-.artwork-grid, .mood-buttons.artwork-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: var(--space-12); max-height: 520px; overflow: auto; padding: var(--space-8) 3px; }
+.artwork-grid, .template-buttons.artwork-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: var(--space-12); max-height: 520px; overflow: auto; padding: var(--space-8) 3px; }
 /* The Hue scene widget: a full-bleed picture and its name over a bottom scrim. */
-.scene.artwork-choice, .mood-button.scene.artwork-choice { width: 100%; aspect-ratio: 16 / 9; min-height: 110px; display: grid; align-content: end; justify-content: stretch; padding: var(--space-12) var(--space-14); border-radius: var(--radius-lg); gap: 0; color: #fff; white-space: normal; }
-.scene.artwork-choice img, .scene.artwork-choice .mood-swatch { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 0; }
+.scene.artwork-choice, .template-button.scene.artwork-choice { width: 100%; aspect-ratio: 16 / 9; min-height: 110px; display: grid; align-content: end; justify-content: stretch; padding: var(--space-12) var(--space-14); border-radius: var(--radius-lg); gap: 0; color: #fff; white-space: normal; }
+.scene.artwork-choice img, .scene.artwork-choice .template-swatch { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 0; }
 .scene.artwork-choice .name { text-align: left; padding-left: var(--space-20); line-height: 1.3; }
 .scene.artwork-choice:not(.action-with-icon) .name { padding-left: 0; }
 .scene.artwork-choice.action-with-icon::before { position: absolute; bottom: 14px; left: 12px; z-index: 1; }
 .scene.artwork-choice[aria-pressed="true"] { box-shadow: 0 0 0 3px var(--accent), var(--shadow-control); }
 .scene.artwork-choice[hidden] { display: none; }
-.mood-group .mood-buttons { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 168px), 1fr)); gap: var(--space-10); overflow: visible; margin-inline: 0; padding-inline: 3px; }
+.template-group .template-buttons { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 168px), 1fr)); gap: var(--space-10); overflow: visible; margin-inline: 0; padding-inline: 3px; }
 
 /* Theme shelves: two rows, with horizontal scrolling like a photographic gallery. */
 .artwork-filters { display: flex; gap: var(--space-12); margin-block: var(--space-12); }
@@ -23856,7 +24408,8 @@ select option:disabled { color: var(--muted); }
 .location-map-controls { position: absolute; top: 10px; left: 10px; display: flex; gap: var(--space-8); }
 .location-map-credit { position: absolute; right: 0; bottom: 0; padding: var(--space-4) var(--space-8); background: #fff; color: #222; font-size: var(--text-xs); }
 
-.artwork-dialog { width: min(850px, calc(100vw - 32px)); max-height: 85vh; overflow: auto; }
+.artwork-dialog { max-height: 85vh; }
+.artwork-dialog input[type="search"] { width: 100%; }
 .artwork-dialog .artwork-grid { margin-block: var(--space-12); }
 
 .appearance-card-title { display: flex; align-items: center; gap: var(--space-10); }
@@ -23866,8 +24419,8 @@ select option:disabled { color: var(--muted); }
 .scene-color-input { width: 100%; height: 64px; padding: var(--space-4); border-radius: var(--radius-md); cursor: pointer; }
 .value-slot input[role="switch"] { width: 44px; height: 28px; accent-color: var(--accent); }
 
-.mood-stop-badge { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 44px; height: 44px; background: #fff; color: #222; border-radius: var(--radius-pill); display: grid; place-items: center; box-shadow: var(--shadow-control); pointer-events: none; }
-.mood-stop-badge::before { content: ""; width: 14px; height: 14px; background: currentColor; border-radius: 0; }
+.template-stop-badge { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 44px; height: 44px; background: #fff; color: #222; border-radius: var(--radius-pill); display: grid; place-items: center; box-shadow: var(--shadow-control); pointer-events: none; }
+.template-stop-badge::before { content: ""; width: 14px; height: 14px; background: currentColor; border-radius: 0; }
 
 
 .scene-run-actions { display: flex; flex-wrap: wrap; gap: var(--space-8); align-items: center; }
@@ -23958,9 +24511,9 @@ select option:disabled { color: var(--muted); }
 .scene-card-details > summary { min-height: 44px; align-content: center; cursor: pointer; color: var(--text); }
 .scene-card-details[open] > summary { margin-bottom: var(--space-8); }
 
-/* Match gallery shelves across built-in moods and plugin scene collections on phones. */
+/* Match gallery shelves across templates and plugin scene collections on phones. */
 @media (max-width: 640px) {
-  .mood-group .mood-buttons, .scene-tiles:has(> .scene) {
+  .template-group .template-buttons, .scene-tiles:has(> .scene) {
     display: grid; grid-template-columns: none; grid-template-rows: auto; grid-auto-flow: column; grid-auto-columns: 160px;
     gap: var(--space-12); overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity;
     margin-inline: 0; padding: 3px; scroll-padding-inline: 3px; mask-image: none; -webkit-mask-image: none;

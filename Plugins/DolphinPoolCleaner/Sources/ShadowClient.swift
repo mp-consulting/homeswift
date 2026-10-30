@@ -62,6 +62,7 @@ actor ShadowClient {
     private var connectWaiters: [CheckedContinuation<Void, any Error>] = []
     private(set) var lastShadowReceivedAt: ContinuousClock.Instant?
     private var onShadow: (@Sendable (JSONValue) async -> Void)?
+    private let credentials: @Sendable () -> IoTCredentials?
 
     private var pending: [String: Pending] = [:]
     /// The pending tokens in the order they were sent.
@@ -89,6 +90,7 @@ actor ShadowClient {
             transport: .webSocket(url: presign), clientID: "\(thingName)_App_Token", keepAlive: .seconds(30), cleanSession: true,
             connectTimeout: timing.mqttConnectTimeout, reconnect: .init(delay: .seconds(5), maximumDelay: .seconds(5)))
         makeConnection = mqtt
+        self.credentials = credentials
         self.timing = timing
         self.logger = logger
     }
@@ -115,6 +117,9 @@ actor ShadowClient {
             logger.debug("MQTT client already connected")
             return
         }
+        // Without credentials there is nothing to sign: say so at once rather than when the transport gets to it,
+        // which a slow machine may not reach before the connect timeout.
+        guard credentials() != nil else { throw DolphinError.mqttConnectionFailed("AWS credentials not available") }
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
             connectWaiters.append(continuation)
             if connectTask == nil { startConnecting() }

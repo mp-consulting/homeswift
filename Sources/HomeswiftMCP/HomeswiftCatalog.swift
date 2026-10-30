@@ -134,11 +134,33 @@ public struct HomeswiftCatalog: Sendable {
 
     public func find(id: String) -> Located? {
         guard id != "bridge" else { return nil }
+        if let lookup = Self.lookup { return lookup[id] }
         for bridge in host.bridges {
-            guard let accessory = bridge.server.accessories.first(where: { $0.id == id }) else { continue }
-            return Located(accessory: accessory, bridge: bridge, platform: Owners(host.platforms).instance(of: id, on: bridge), layout: home.layout.value.accessories[id])
+            guard let accessory = bridge.server.accessory(id: id) else { continue }
+            // Its instance by its claim; an accessory no instance claimed is looked for in every instance's list.
+            let platform = host.platform(owning: id, on: bridge) ?? Owners(host.platforms).instance(of: id, on: bridge)
+            return Located(accessory: accessory, bridge: bridge, platform: platform, layout: home.layout.value.accessories[id])
         }
         return nil
+    }
+
+    /// Every accessory by id while a request that looks many up runs (`withLookup`): a scene list looks up each of
+    /// its actions' accessories several times.
+    @TaskLocal static var lookup: [String: Located]?
+
+    /// Runs `body` with every accessory indexed once (`find(id:)` reads the index).
+    func withLookup<T>(_ body: () throws -> T) rethrows -> T {
+        guard Self.lookup == nil else { return try body() }
+        return try Self.$lookup.withValue(lookupIndex()) { try body() }
+    }
+
+    func withLookup<T>(_ body: () async throws -> T) async rethrows -> T {
+        guard Self.lookup == nil else { return try await body() }
+        return try await Self.$lookup.withValue(lookupIndex()) { try await body() }
+    }
+
+    private func lookupIndex() -> [String: Located] {
+        Dictionary(located().map { ($0.accessory.id, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
     /// The instance an accessory belongs to: the first that lists it, on the accessory's bridge (any bridge for
@@ -206,7 +228,42 @@ public struct HomeswiftCatalog: Sendable {
 
     /// `"Target Lock State"`, `"targetLockState"` and `"target-lock-state"` name the same characteristic.
     static func normalized(_ name: String) -> String {
-        name.lowercased().filter { $0.isLetter || $0.isNumber }
+        // ASCII names (every HAP type's) by their bytes: the Unicode properties isLetter reads cost most of a scene list.
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(name.utf8.count)
+        for byte in name.utf8 {
+            switch folded(byte) {
+            case .letter(let kept): bytes.append(kept)
+            case .skipped: continue
+            case .unicode: return name.lowercased().filter { $0.isLetter || $0.isNumber }
+            }
+        }
+        return String(decoding: bytes, as: UTF8.self)
+    }
+
+    private enum Folded { case letter(UInt8), skipped, unicode }
+
+    /// One byte of a name as `normalized` keeps it: an ASCII letter lowercased, a digit, skipped, or not ASCII.
+    @inline(__always) private static func folded(_ byte: UInt8) -> Folded {
+        switch byte {
+        case UInt8(ascii: "A")...UInt8(ascii: "Z"): .letter(byte + 32)
+        case UInt8(ascii: "a")...UInt8(ascii: "z"), UInt8(ascii: "0")...UInt8(ascii: "9"): .letter(byte)
+        case 0x80...: .unicode
+        default: .skipped
+        }
+    }
+
+    /// Whether `name` normalizes to `wanted` (already normalized), without making the normalized copy.
+    static func name(_ name: String, normalizesTo wanted: String) -> Bool {
+        var expected = wanted.utf8.makeIterator()
+        for byte in name.utf8 {
+            switch folded(byte) {
+            case .letter(let kept): guard expected.next() == kept else { return false }
+            case .skipped: continue
+            case .unicode: return normalized(name) == wanted
+            }
+        }
+        return expected.next() == nil
     }
 
     public static func accessoryJSON(_ located: Located, detailed: Bool, lastRing: String? = nil) -> JSONValue {
@@ -351,10 +408,11 @@ public struct HomeswiftCatalog: Sendable {
         let services = located.accessory.services.filter { service in
             guard let serviceName else { return service.type.uuid != ServiceType.accessoryInformation.uuid }
             let wanted = Self.normalized(serviceName)
-            return Self.normalized(service.type.name) == wanted || service.subtype.map(Self.normalized) == wanted || service[.name]?.value.stringValue.map(Self.normalized) == wanted
+            return Self.name(service.type.name, normalizesTo: wanted) || service.subtype.map { Self.name($0, normalizesTo: wanted) } == true
+                || service[.name]?.value.stringValue.map { Self.name($0, normalizesTo: wanted) } == true
         }
         let wanted = Self.normalized(characteristicName)
-        let matches = services.flatMap { $0.characteristics.filter { Self.normalized($0.type.name) == wanted } }
+        let matches = services.flatMap { $0.characteristics.filter { Self.name($0.type.name, normalizesTo: wanted) } }
         guard let first = matches.first else {
             throw CatalogError("\(located.accessory.name) has no characteristic \(characteristicName)\(serviceName.map { " on service \($0)" } ?? "")")
         }
@@ -1107,7 +1165,7 @@ public struct HomeswiftCatalog: Sendable {
                     block[list] = .array(entries)
                 })
             },
-        ] + hostTools + adminTools + layoutTools + wallTools + sceneTools + moodTools + notificationTools + assistantTools + vaultTools + pluginActionTools
+        ] + hostTools + adminTools + layoutTools + wallTools + sceneTools + notificationTools + assistantTools + vaultTools + pluginActionTools
     }
 
     /// `set_accessories` with `ids` or `filter`: one characteristic and value on every target.
@@ -1218,11 +1276,12 @@ public struct HomeswiftCatalog: Sendable {
                         sent = try await catalog.host.handleWebRequest(platform: entry.platform, name: instance.name, request)
                         return (sent?.status ?? 500) < 400
                     }
-                    // A scene recalled on the plugin's own hub: what its lights were before is kept, as for a mood, so
-                    // stop_mood can put them back.
-                    var held: MoodRun?
+                    // A scene recalled on the plugin's own hub: what its lights were before is kept under a run of its
+                    // own, as after any scene, so stop_scene can put them back.
+                    var held: LightRun?
+                    let heldRun = "action-" + SceneRules.newID()
                     if action.changesLights {
-                        held = try await catalog.holdLightChanges("\(entry.name): \(action.title)", platform: instance, by: "MCP \(call.session.principal.name)", during: send)
+                        held = try await catalog.holdLightChanges("\(entry.name): \(action.title)", id: Self.showID(of: heldRun), platform: instance, by: "MCP \(call.session.principal.name)", during: send)
                     } else {
                         _ = try await send()
                     }
@@ -1232,7 +1291,7 @@ public struct HomeswiftCatalog: Sendable {
                     let answer = call.session.vault.conceal(response.json)
                     var text = "<untrusted-data source=\"\(entry.platform)\">\n\(answer.text(pretty: true))\n</untrusted-data>"
                     if let held {
-                        text += "\nThe bridge kept how \(held.lights.count) light(s) were before this: stop_mood with run \(held.id) puts them back, for \(Int(MoodRules.undoSeconds / 3600)) hours."
+                        text += "\nThe bridge kept how \(held.lights.count) light(s) were before this: stop_scene with scene \(heldRun) puts them back, for \(Int(LightShowRules.undoSeconds / 3600)) hours."
                     }
                     return ToolResult(text: text)
                 }
@@ -1300,7 +1359,7 @@ public struct HomeswiftCatalog: Sendable {
                     + "Say what is wrong, the likely cause and the steps to fix it. Do not change anything unless the user asks."
             },
             MCPPrompt(name: "scene-builder", title: "Build a scene", description: "Turn a description (\"cosy movie night in the living room\") into accessory values, set them, and save them as a Homeswift scene.",
-                      arguments: [.init(name: "description", description: "The mood or purpose, e.g. movie night", required: true), .init(name: "area", description: "A room, or a word the accessories' names share, e.g. Living Room")]) { arguments in
+                      arguments: [.init(name: "description", description: "The show or purpose, e.g. movie night", required: true), .init(name: "area", description: "A room, or a word the accessories' names share, e.g. Living Room")]) { arguments in
                 let area = arguments["area"]?.nonEmpty
                 return "Build a scene for: \"\(arguments["description"] ?? "")\"\(area.map { " in \"\($0)\"" } ?? ""). "
                     + "1) list_accessories\(area.map { " with room \"\($0)\" (get_accessory_layout lists the rooms; when it is not one, use name \"\($0)\")" } ?? "") to find the relevant lights, switches, blinds, thermostats and so on. "
@@ -1396,8 +1455,11 @@ public struct CatalogError: Error, CustomStringConvertible {
     /// A device's or a service's own words (Wingman relaying Apple Home): masked, one line, and for MCP clients
     /// wrapped as untrusted data, since a device chooses them.
     public let detail: String?
-    public init(_ message: String, detail: String? = nil) {
+    /// What was asked for does not exist (a scene, a hub's scene): the web UI answers 404.
+    public let notFound: Bool
+    public init(_ message: String, detail: String? = nil, notFound: Bool = false) {
         self.message = message
+        self.notFound = notFound
         self.detail = detail.map { String(HomeswiftCatalog.safe($0.split(whereSeparator: \.isNewline).joined(separator: " ")).prefix(300)) }
     }
     public var description: String { detail.map { "\(message): \($0)" } ?? message }

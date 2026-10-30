@@ -109,6 +109,7 @@
     image: '<rect x="3" y="4.5" width="18" height="15" rx="2.5"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="m21 15.5-4.5-4.5L7 19.5"/>',
     restore: '<path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.6"/><path d="M4 4v4.6h4.6"/>',
     history: '<path d="M3.5 12a8.5 8.5 0 1 0 2.5-6M3.5 4.5V9H8"/><path d="M12 7.5V12l3 2"/>',
+    workflow: '<rect x="3" y="3.5" width="6" height="5" rx="1.5"/><rect x="15" y="9.5" width="6" height="5" rx="1.5"/><rect x="3" y="15.5" width="6" height="5" rx="1.5"/><path d="M9 6h3a1.5 1.5 0 0 1 1.5 1.5V12M9 18h3a1.5 1.5 0 0 0 1.5-1.5V12M13.5 12H15"/>',
     sliders: '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
     upload: '<path d="M12 15V4"/><path d="M7 9l5-5 5 5"/><path d="M5 20h14"/>',
     folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
@@ -1649,6 +1650,23 @@
     return canvas;
   }
 
+  /// A picture file a person picked or dropped, as a JPEG `data:` URL at most 640 pixels wide: what a scene's picture
+  /// is sent as (the server takes JPEG, PNG or WebP up to 1 MB).
+  async function pictureDataURL(file) {
+    if (!/^image\//.test(file.type)) throw new Error(t("This file is not a picture."));
+    const bitmap = await createImageBitmap(file).catch(() => { throw new Error(t("This file is not a picture.")); });
+    const canvas = scaledCanvas(bitmap, 640);
+    bitmap.close?.();
+    return canvas.toDataURL("image/jpeg", 0.85);
+  }
+
+  /// Opens the file picker for one picture; calls `chosen(file)`.
+  function choosePictureFile(chosen) {
+    const input = el("input", { type: "file", accept: "image/jpeg,image/png,image/webp,image/heic" });
+    input.addEventListener("change", () => { if (input.files?.[0]) chosen(input.files[0]); });
+    input.click();
+  }
+
   /// A byte count as every page shows sizes: whole KB under a megabyte, one decimal MB or GB. `scale` picks the unit
   /// (the largest value a list shows, so its rows agree); it defaults to the count itself.
   function byteSize(bytes, scale = bytes) {
@@ -1697,7 +1715,7 @@
   const promptDialog = (message, value = "") => messageDialog(message, { kind: "prompt", value });
 
   window.HomeswiftCommon = {
-    showAlert, confirmDialog, promptDialog, busyButton, scaledCanvas, byteSize, lastChange: () => lastChange,
+    showAlert, confirmDialog, promptDialog, busyButton, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, lastChange: () => lastChange,
     $, el, icon, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };

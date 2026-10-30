@@ -6,10 +6,45 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Widgets placed freely on the Accessories wall: in Edit, a widget dropped on any cell stays there, gaps included, and
+  the others make way; the wall's menu's **Pack the widgets together** lets them flow again. The cells are kept by
+  grouping (`positions` in `ui-layout.json`), and `get_wall_layout`/`set_wall_layout` read and write them
+  (`positions`, `clearPositions`) with the grid described for the Assistant, which can now compose a layout with them.
+
+- Room names synced to the hubs, opt-in: with **Rename on the hubs too** on (the Accessories page's **Rooms** menu in
+  Edit, which now renames rooms too, as do the room headings, editable in place in Edit, where a tile dragged to another room's wall moves the accessory there; `set_accessory_layout`'s `syncRoomNames`), a room renamed in Homeswift renames the
+  rooms of the same name, case and accents aside, on Philips Hue Bridges, IKEA DIRIGERA hubs and eWeLink homes. Govee's
+  API has no rooms. Plugins list and rename rooms through `rooms()` and `renameRoom(id:name:)` (`PluginRoom`);
+  DIRIGERA's from lpgera/dirigera.
+
 ## [0.15.0] - 2026-10-29
 
 ### Added
 
+- Homeswift's scenes in the Home app: a scene can be a switch (the editor's **A switch in the Home app**, `homeKit`) of
+  one Homeswift Scenes accessory; on runs it without its security actions, off puts the lights back.
+- eWeLink plays animated scenes natively on a SONOFF L2 strip with its own scenes (candle, sunrise, sunset, rainbow,
+  ocean, moonlight, sunshine, dream, music), as homebridge-ewelink lists them.
+- Scenes written to the hubs: a new scene of lights only can be saved to the Hue room or zone, or the IKEA hub, that
+  has them all (`save_scene`'s `hub`, the editor's save bar); a hub's scene can be renamed, keep its lights as they are,
+  or be deleted from its hub (`update_hub_scene`, `delete_hub_scene`, which asks first; the Scenes page's ⋯ menu).
+  Plugins write scenes through `sceneTarget`, `createScene`, `updateScene` and `deleteScene` (`PluginSceneLight`);
+  DIRIGERA's from lpgera/dirigera.
+- Scene pictures of your own on the Scenes page: a scene's or a hub scene's ⋯ menu chooses a picture or removes it
+  (`/api/scenes/<id>/picture`). The bridge keeps every scene's picture in `scene-pictures/`; the Hue and IKEA pages
+  show and change the same ones (`PluginContext.scenePictures()`), and the pictures they kept before move there once.
+- Scene templates and scenes the Assistant writes: the mood collection and the scene gallery are templates
+  (`list_scene_templates`), which `run_scene` tries and `save_scene` keeps for a room's lights, as values set once, an
+  effect each brand plays its own way, or a timed sequence; a `description` does the same through the bridge's
+  Assistant. On the Scenes page, Templates replaces Moods: a tap tries one with Stop or Undo, Save as a scene keeps it,
+  and Describe a scene asks the Assistant.
+- Animated scenes: a scene or a plan can make lights move after its actions (`animation`: a style such as candle,
+  fire, sparkle, prism, underwater, sunrise, moving colours or music, with a colour, speed and brightness, or timed
+  steps). Plugins play their own lights natively (`HomeswiftPlugin.animate`): Hue with `effects_v2` and `timed_effects`,
+  Govee with the library scene of the style's name, DIRIGERA a sunrise or sunset as one long fade, the Ambilight TV
+  following the music; Homeswift's player plays the rest. The scene editor has an Animation step.
 - The vault, its first step (docs/vault-design.md): a secret in config.json can be a reference instead of a value,
   `vault:<name>` (`#field` for another field than the main one), `env:<VARIABLE>` or `file:/path` (Docker's secrets),
   under any secret-named key. `homeswift vault list | set | remove` keeps the local vault's entries in `vault.json`,
@@ -50,7 +85,7 @@ All notable changes to this project are documented here. The format follows
 - Scenes from plugins' hubs: a plugin lists its hub's scenes with `scenes()` and recalls one with `recallScene(id:)`
   (`PluginScene`). Philips Hue (rooms and zones), IKEA DIRIGERA (user scenes) and Govee (the library scenes picked for
   a light) do. The Scenes page shows them under Homeswift's own, by room, with a source filter; `list_scenes` lists them
-  as `pluginScenes` and `run_scene` recalls them, holding the lights they change so `stop_mood` puts them back.
+  as `pluginScenes` and `run_scene` recalls them, holding the lights they change so `stop_scene` puts them back.
   Homeswift's scenes now say their room and whether they are active. The first step of unifying moods and scenes
   (docs/scenes-design.md).
 - The Assistant arranges the Accessories wall: `get_wall_layout` and `set_wall_layout` (MCP, and the web UI's chat)
@@ -99,6 +134,13 @@ All notable changes to this project are documented here. The format follows
   Lighting, and `SIGUSR1` resumes it.
 
 ### Removed
+
+- **Breaking:** moods. Scenes do what they did: the collection and the gallery are scene templates, the Assistant
+  writes scenes from a description, and animated scenes play light shows. The MCP tools `list_moods`, `start_mood` and
+  `stop_mood` are gone (use `list_scene_templates`, `run_scene` with a `template`, `description` or `plan`, and
+  `stop_scene`), as are `/api/moods/*` and the Scenes page's Moods section (now By room: each room's scenes, then the
+  templates). `held-moods.json` gives way to `held-lights.json`; runs a restart interrupted are not undone after the
+  upgrade. A plugin action that changes lights now answers a run for `stop_scene`.
 
 - Homeswift Natural Lighting, the bridge's own daily white schedule for lights without Adaptive Lighting: its sun
   toggle, `PUT /api/accessories/<id>/natural-lighting` and `naturalLighting` in `/api/accessories` and the event

@@ -70,7 +70,8 @@ hubs found on the network to pair, an address to add), then three tabs: **Device
 Accessories page's widgets (a remote's buttons light as they are pressed), room by room or by name under the Hue page's
 toolbar: a search, a room, and filters for lights, outlets, sensors, blinds and air, remotes, low battery and No
 Response; **Scenes**, a tile per scene (a tap runs it; drop a picture on it, or choose
-one from its ⋯ menu, to give the scene its own, kept in the plugin's folder; the same menu leaves it out of the Home
+one from its ⋯ menu, to give the scene its own, kept with every scene's picture so Homeswift's Scenes page shows it
+too; the same menu leaves it out of the Home
 app); **Settings**, the transition on a 12-step speed scale (Very slow to Extreme; Fast, 100 ms, by default) and the scenes switch.
 
 ![Scenes](../../docs/images/plugins/dirigera-scenes.png)

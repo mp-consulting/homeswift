@@ -159,7 +159,7 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         self.context = context
         self.dependencies = dependencies
         store = context.jsonFile("bridge.json")
-        pictures = context.pictures("scene-pictures")
+        pictures = context.scenePictures()
         let stored = store.load() ?? StoredBridge()
         self.stored = stored
         let store = store

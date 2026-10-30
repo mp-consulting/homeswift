@@ -11,15 +11,19 @@ import NIOHTTP1
 //   POST   /api/rooms/suggest                the Assistant's rooms and names, to review
 //   GET    /api/scenes                        scenes, the plugins' hubs' scenes, location, next sunrise and sunset
 //   POST   /api/scenes                        a new scene
+//   POST   /api/scenes/targets            {"ids"}: the hubs that could keep a scene of these lights
+//   POST   /api/scenes/hub                {"hub", "name", "actions"}: a new scene kept on that hub
+//   PUT    /api/scenes/<id>/hub           {"name"?, "fromCurrent"?}: a hub's scene renamed, or its lights kept as they are
 //   PUT    /api/scenes/location               where sunrise and sunset are computed for
 //   PUT    /api/scenes/<id>                   a scene changed
-//   DELETE /api/scenes/<id>
+//   DELETE /api/scenes/<id>                   a hub's scene too, from its hub
 //   POST   /api/scenes/<id>/run               {"confirmSecurity": true} once the person agreed to its locks and doors; a
 //                                             plugin scene's id (`<platform>:<instance>:<hub id>`) recalls it
-//   GET    /api/moods                         the collection of moods and those playing
-//   POST   /api/moods/start                   {"mood" | "description" | "plan", "room" | "ids", "durationSeconds"?}
-//   POST   /api/moods/stop                    {"run"?}: one, or every mood playing
-//   POST   /api/moods/save                    a mood that does not move as a scene: {"mood" | "plan", "room" | "ids", "name"}
+//   GET    /api/scenes/<id>/picture?v=<version> the picture a person gave a scene (Homeswift's or a hub's), as an image
+//   PUT    /api/scenes/<id>/picture           {"data": a JPEG, PNG or WebP data: URL}; answers its version
+//   DELETE /api/scenes/<id>/picture
+//   GET    /api/scenes/templates              the templates, the plans tried that can be stopped, whether the Assistant writes
+//   POST   /api/scenes/try                    {"template" | "description" | "plan", "room" | "ids"}: runs it now, unsaved
 //   GET    /api/notifications                 settings, secrets as ********
 //   PUT    /api/notifications
 //   POST   /api/notifications/test            {"channel"?}
@@ -30,13 +34,13 @@ import NIOHTTP1
 //   DELETE /api/notifications/push/subscriptions/<id>
 extension UIServer {
     func homeAPI(_ route: [String], _ method: HTTPMethod, body: JSONValue, username: String, language: String? = nil) async throws -> Reply? {
-        guard let first = route.first, ["rooms", "scenes", "moods", "notifications"].contains(first) else { return nil }
+        guard let first = route.first, ["rooms", "scenes", "notifications"].contains(first) else { return nil }
         do {
             return try await homeRoute(route, method, body: body, username: username, language: language)
         } catch let error as CatalogError {
-            return .error(error.description.hasPrefix("No scene") ? 404 : 400, error.description)
+            return .error(error.notFound ? 404 : 400, error.description)
         } catch let error as JSONGenerationError {
-            return .error(502, "the Assistant did not answer with a mood: \(error.message)")
+            return .error(502, "the Assistant did not answer with a scene: \(error.message)")
         }
     }
 
@@ -45,7 +49,7 @@ extension UIServer {
         case (.GET, ["rooms"]):
             return .json(catalog.layoutJSON())
         case (.PUT, ["rooms"]):
-            let result = try catalog.updateLayout(body)
+            let result = try await catalog.updateLayout(body, by: "web UI \(username)")
             logger.info("Web UI changed the accessory layout", metadata: ["user": "\(username)"])
             return .json(result)
         case (.POST, ["rooms", "suggest"]):
@@ -60,10 +64,31 @@ extension UIServer {
 
         case (.GET, ["scenes"]):
             return .json(await catalog.allScenesJSON())
+        case (.GET, ["scenes", "templates"]):
+            return .json(catalog.sceneTemplatesJSON())
+        case (.POST, ["scenes", "try"]):
+            guard body["description"] == nil || catalog.host.assistant != nil else { return .error(404, "the Assistant is off: add a HomeswiftAiKit block, or pick a template") }
+            let result = try await catalog.tryScene(body, language: language)
+            logger.info("Web UI tried a scene", metadata: ["user": "\(username)", "scene": "\(result["name"]?.stringValue ?? "")"])
+            return .json(result)
         case (.POST, ["scenes"]):
             let scene = try catalog.createScene(body)
             logger.info("Web UI created a scene", metadata: ["user": "\(username)", "scene": "\(scene["name"]?.stringValue ?? "")"])
             return .json(scene, status: 201)
+        case (.POST, ["scenes", "targets"]):
+            let ids = body["ids"]?.arrayValue?.compactMap(\.stringValue) ?? []
+            return .json(["targets": .array(await catalog.hubTargets(accessoryIDs: ids))])
+        case (.POST, ["scenes", "hub"]):
+            guard let hub = body["hub"]?.stringValue, let name = body["name"]?.stringValue?.trimmingCharacters(in: .whitespaces), !name.isEmpty else {
+                return .error(400, "a hub and a name are required")
+            }
+            let result = try await catalog.saveHubScene(["actions": body["actions"] ?? []], name: name, hub: hub, dryRun: false)
+            logger.info("Web UI saved a scene to a hub", metadata: ["user": "\(username)", "scene": "\(name)", "hub": "\(hub)"])
+            return .json(result, status: 201)
+        case (.PUT, let path) where path.count == 3 && path[0] == "scenes" && path[2] == "hub":
+            let result = try await catalog.updateHubScene(path[1], name: body["name"]?.stringValue, plan: nil, fromCurrent: body["fromCurrent"]?.boolValue == true, dryRun: false)
+            logger.info("Web UI changed a hub's scene", metadata: ["user": "\(username)", "scene": "\(path[1])"])
+            return .json(result)
         case (.PUT, ["scenes", "location"]):
             return .json(try catalog.setSceneLocation(body))
         case (.PUT, let path) where path.count == 2 && path[0] == "scenes":
@@ -71,6 +96,12 @@ extension UIServer {
             logger.info("Web UI changed a scene", metadata: ["user": "\(username)", "scene": "\(scene["name"]?.stringValue ?? "")"])
             return .json(scene)
         case (.DELETE, let path) where path.count == 2 && path[0] == "scenes":
+            guard catalog.isSavedScene(path[1]) else {
+                // A hub's scene: the page asked the person first.
+                let removed = try await catalog.deleteHubScene(path[1])
+                logger.notice("Web UI removed a scene from its hub", metadata: ["user": "\(username)", "scene": "\(removed["name"]?.stringValue ?? "")"])
+                return .json(removed)
+            }
             try catalog.deleteScene(id: path[1])
             logger.info("Web UI deleted a scene", metadata: ["user": "\(username)", "scene": "\(path[1])"])
             return .json(JSONValue.object([:]))
@@ -78,38 +109,36 @@ extension UIServer {
             // A scene with a lock, a door or an alarm runs them only once the person confirmed on the page, as
             // a card's own control asks before it changes one.
             let confirmed = body["confirmSecurity"]?.boolValue == true
-            let scene = catalog.scenesJSON()["scenes"]?.arrayValue?.first { $0["id"]?.stringValue == path[1] }
-            guard let scene else {
+            guard let scene = catalog.savedScene(path[1]) else {
                 // A scene of a plugin's hub: no lock, door or alarm in it.
                 let result = try await catalog.runScene(path[1], trigger: .manual)
                 logger.info("Web UI recalled a scene", metadata: ["user": "\(username)", "scene": "\(result["name"]?.stringValue ?? "")"])
                 return .json(result)
             }
-            if scene["security"]?.boolValue == true, !confirmed {
+            if scene.security, !confirmed {
                 return .error(409, "This scene changes a lock, a door or an alarm: confirm to run it")
             }
             let result = try await catalog.runScene(path[1], trigger: .manual, allowSecurity: confirmed)
-            logger.info("Web UI ran a scene", metadata: ["user": "\(username)", "scene": "\(scene["name"]?.stringValue ?? "")", "ok": "\(result["ok"]?.boolValue ?? false)"])
+            logger.info("Web UI ran a scene", metadata: ["user": "\(username)", "scene": "\(scene.name)", "ok": "\(result["ok"]?.boolValue ?? false)"])
             return .json(result)
 
+        case (.GET, let path) where path.count == 3 && path[0] == "scenes" && path[2] == "picture":
+            guard let picture = catalog.scenePicture(path[1]) else { return .error(404, "no picture for that scene") }
+            // The page asks for it by version (`?v=`), so a browser keeps it until it changes.
+            return .data(status: 200, contentType: picture.type, body: picture.data, headers: ["Cache-Control": "private, max-age=31536000, immutable"])
+        case (.PUT, let path) where path.count == 3 && path[0] == "scenes" && path[2] == "picture":
+            guard let data = body["data"]?.stringValue else { return .error(400, "a picture is required") }
+            let result = try await catalog.setScenePicture(path[1], dataURL: data)
+            logger.info("Web UI gave a scene a picture", metadata: ["user": "\(username)", "scene": "\(path[1])"])
+            return .json(result)
+        case (.DELETE, let path) where path.count == 3 && path[0] == "scenes" && path[2] == "picture":
+            try await catalog.removeScenePicture(path[1])
+            logger.info("Web UI removed a scene's picture", metadata: ["user": "\(username)", "scene": "\(path[1])"])
+            return .json(JSONValue.object([:]))
         case (.POST, let path) where path.count == 3 && path[0] == "scenes" && path[2] == "stop":
             let result = try await catalog.stopScene(path[1], allowSecurity: body["confirmSecurity"]?.boolValue == true)
             logger.info("Web UI stopped a scene", metadata: ["user": "\(username)", "scene": "\(path[1])"])
             return .json(result)
-
-        case (.GET, ["moods"]):
-            return .json(catalog.moodsJSON())
-        case (.POST, ["moods", "start"]):
-            guard body["description"] == nil || catalog.host.assistant != nil else { return .error(404, "the Assistant is off: add a HomeswiftAiKit block, or pick a mood") }
-            let result = try await catalog.startMood(body, by: "web UI \(username)", language: language)
-            logger.info("Web UI started a mood", metadata: ["user": "\(username)", "mood": "\(result["mood"]?["name"]?.stringValue ?? "")"])
-            return .json(result)
-        case (.POST, ["moods", "stop"]):
-            return .json(try await catalog.stopMoods(id: body["run"]?.stringValue))
-        case (.POST, ["moods", "save"]):
-            let scene = try catalog.saveMoodAsScene(body)
-            logger.info("Web UI saved a mood as a scene", metadata: ["user": "\(username)", "scene": "\(scene["name"]?.stringValue ?? "")"])
-            return .json(scene, status: 201)
 
         case (.GET, ["notifications"]):
             return .json(catalog.notificationSettingsJSON())

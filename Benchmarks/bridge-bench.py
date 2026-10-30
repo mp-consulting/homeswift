@@ -188,8 +188,24 @@ def event_latency(port, ui, accessory_id, rounds):
     return {"p50": percentile(samples, 50), "p99": percentile(samples, 99), "received": len(samples)}
 
 
+def seed_scenes(storage, accessories, count):
+    """scenes.json with `count` scenes, each setting four lamps' On, Brightness, Hue and Saturation, one in two on a
+    schedule: what the Scenes page and list_scenes read."""
+    lamps = [f"BenchHome:{index:04d}" for index in range(0, accessories, 8)]
+    scenes = []
+    for number in range(count):
+        chosen = [lamps[(number + offset) % len(lamps)] for offset in range(min(4, len(lamps)))]
+        actions = [{"id": lamp, "characteristic": name, "value": value}
+                   for lamp in chosen for name, value in (("On", True), ("Brightness", 20 + number % 80), ("Hue", number * 7 % 360), ("Saturation", 60))]
+        triggers = [{"type": "schedule", "time": "07:30", "days": [1, 2, 3, 4, 5], "enabled": True}] if number % 2 else []
+        scenes.append({"id": f"scene{number:04d}", "name": f"Scene {number}", "actions": actions, "triggers": triggers, "conditions": []})
+    with open(os.path.join(storage, "scenes.json"), "w") as file:
+        json.dump({"version": 1, "scenes": scenes}, file)
+
+
 def run(arguments):
     storage = tempfile.mkdtemp(prefix="bridge-bench-")
+    seed_scenes(storage, arguments.accessories, arguments.scenes)
     env = dict(os.environ, STORAGE=storage, ACCESSORIES=str(arguments.accessories), UI_PORT=str(arguments.ui_port),
                MCP_PORT=str(arguments.mcp_port), MCP_TOKEN=TOKEN, TICK_MS=str(arguments.tick_ms), LOG_LINES=str(arguments.log_lines))
     started = time.perf_counter()
@@ -243,6 +259,15 @@ def run(arguments):
     time_endpoint(endpoints, "POST /api/auth/password-strength",
                   lambda _: ui.request("POST", "/api/auth/password-strength", {"password": "correct horse battery staple"}, origin), requests, warmup)
 
+    print("scenes")
+    for name, path in [("GET /api/scenes", "/api/scenes"), ("GET /api/scenes/templates", "/api/scenes/templates")]:
+        time_endpoint(endpoints, name, lambda _, path=path: ui.request("GET", path), requests, warmup)
+    scene_count = max(1, arguments.scenes)
+    time_endpoint(endpoints, "POST /api/scenes/<id>/run",
+                  lambda index: ui.request("POST", f"/api/scenes/scene{index % scene_count:04d}/run", {}, origin), requests, warmup)
+    time_endpoint(endpoints, "POST /api/scenes/<id>/stop",
+                  lambda index: ui.request("POST", f"/api/scenes/scene{index % scene_count:04d}/stop", {}, origin), requests, warmup)
+
     print("MCP")
     mcp = MCP(mcp_port)
     calls = [
@@ -258,6 +283,8 @@ def run(arguments):
         ("tools/call search_logs", "tools/call", {"name": "search_logs", "arguments": {"pattern": "Lamp 7"}}),
         ("tools/call get_system_info", "tools/call", {"name": "get_system_info", "arguments": {}}),
         ("tools/call set_accessory", "tools/call", {"name": "set_accessory", "arguments": {"id": lamp, "characteristic": "On", "value": True}}),
+        ("tools/call list_scenes", "tools/call", {"name": "list_scenes", "arguments": {}}),
+        ("tools/call run_scene", "tools/call", {"name": "run_scene", "arguments": {"scene": "scene0000"}}),
     ]
     for name, method, params in calls:
         time_endpoint(endpoints, "MCP " + name, lambda _, method=method, params=params: mcp.call(method, params), requests, warmup)
@@ -289,6 +316,7 @@ def run(arguments):
         ("GET /api/accessories", ui_get("/api/accessories"), 1), ("GET /api/accessories", ui_get("/api/accessories"), 8),
         ("GET /app.js", ui_get("/app.js"), 8), ("GET /api/logs", ui_get("/api/logs"), 4),
         ("MCP list_accessories", mcp_tool("list_accessories"), 4),
+        ("GET /api/scenes", ui_get("/api/scenes"), 4), ("MCP list_scenes", mcp_tool("list_scenes"), 4),
     ]:
         key = f"{label} ×{connections}"
         results["throughput"][key] = throughput(pid, make, connections, arguments.duration)
@@ -352,6 +380,7 @@ def main():
     parser.add_argument("--idle-seconds", type=float, default=10)
     parser.add_argument("--tick-ms", type=int, default=1000)
     parser.add_argument("--log-lines", type=int, default=5000)
+    parser.add_argument("--scenes", type=int, default=40, help="scenes in scenes.json, four lamps each")
     parser.add_argument("--ui-port", type=int, default=0, help="0: any free port")
     parser.add_argument("--mcp-port", type=int, default=0, help="0: any free port")
     parser.add_argument("--output", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "results"))

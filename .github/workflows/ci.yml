@@ -63,6 +63,14 @@ jobs:
           key: ${{ steps.build-key.outputs.key }}-${{ github.event_name == 'pull_request' && format('pr{0}', github.event.number) || github.sha }}
           restore-keys: ${{ steps.build-key.outputs.key }}-
 
+      - name: Rebuild the targets the pull request changes
+        # Not over the pull request's own cache, which is already built from its branch; the script compares the
+        # checkout with the commit the restored cache was built from.
+        if: steps.restore-build.outputs.cache-hit != 'true'
+        run: Scripts/forget-changed-targets.sh
+        env:
+          CACHE_KEY: ${{ steps.restore-build.outputs.cache-matched-key }}
+
       - name: Test
         # A watchdog prints the test process's stacks and fails when the tests stall, rather than waiting for the job.
         timeout-minutes: 25
@@ -115,6 +123,14 @@ jobs:
           path: .build
           key: ${{ steps.build-key.outputs.key }}-${{ github.event_name == 'pull_request' && format('pr{0}', github.event.number) || github.sha }}
           restore-keys: ${{ steps.build-key.outputs.key }}-
+
+      - name: Rebuild the targets the pull request changes
+        # Not over the pull request's own cache, which is already built from its branch; the script compares the
+        # checkout with the commit the restored cache was built from.
+        if: steps.restore-build.outputs.cache-hit != 'true'
+        run: Scripts/forget-changed-targets.sh
+        env:
+          CACHE_KEY: ${{ steps.restore-build.outputs.cache-matched-key }}
 
       - name: Test
         timeout-minutes: 25

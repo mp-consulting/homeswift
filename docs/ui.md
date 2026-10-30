@@ -120,7 +120,9 @@ screenshots, and what a plugin does to get good ones.
   the rest under More), Identify, its log, ask the Assistant about it, its plugin's settings (administrators), resume a
   paused plugin, a room, a name for these pages, add to the Quick Controls or hide it, and **History** for an accessory
   whose plugin records an Eve history (temperature, humidity, power…): a day, a week or four weeks.
-- **Edit** shows grid guides, size controls and corner handles, and lets tiles be dragged into place. The wall is
+- **Edit** shows grid guides, size controls and corner handles, and lets tiles be dragged onto any cell of the grid,
+  gaps included: the others make way, and the wall keeps every widget's cell until **Pack the widgets together** (the
+  wall's menu) lets them flow again ([widgets.md](widgets.md)). The wall is
   **One wall** (the default), **By room** (once there are rooms) or **By plugin**. The bridge keeps the layout in
   `ui-layout.json` next to config.json (`/api/layout`), the same for every user.
 - **States**: a paused plugin's accessories are drawn striped, their controls out of reach; an accessory whose device
@@ -139,6 +141,15 @@ screenshots, and what a plugin does to get good ones.
   of their own, the **Apple Home** switch (`?from=Apple%20Home`). The layout is the bridge's, shared by every user, in
   `accessory-layout.json` next to config.json (owner-only; `/api/rooms`). The Home app never sees it; the MCP tools do:
   `list_accessories` and `set_accessories` filter by these rooms.
+- **Rooms on the hubs**: in **Edit**, with the wall **By room**, each room's heading is a field: type a new name, then
+  Enter (or click away) renames the room, Escape keeps it. A tile dragged into another room's wall moves the accessory to
+  that room, or out of any into **No room**; every room shows there, empty ones too, to take a drop. The **Rooms** menu orders the rooms (drag them) and renames
+  one too (choose it). Its **Rename on the hubs too** switch, off until turned on (`syncRoomNames` in
+  `accessory-layout.json`), makes a renamed room's new name reach the plugins' hubs: every room of a Philips Hue Bridge,
+  an IKEA DIRIGERA hub or an eWeLink home named as the room was, case and accents aside, is renamed with it, and the
+  log says so (`Room "Salon" renamed "Lounge" on Hue`). It goes one way: a room renamed in the Hue app stays as Homeswift
+  has it. Govee keeps no rooms its API can reach. A hub that refuses says why under the page; the room is renamed in
+  Homeswift all the same.
 - **Suggest rooms**, with the Assistant on, asks it for rooms and clearer names for every accessory
   (`AssistantService.suggestOrganization`; the ids reach the model as aliases) and shows them to review: untick what you
   do not want, then **Apply** saves the rooms and the names as display names. Accessories it finds odd are listed as
@@ -166,7 +177,7 @@ graph with what matches, and a table shows the same rows.
 The favourite accessories, by room, and a button per scene: at the top of the Status page, and on their own at `/quick`,
 a page to keep on a phone's home screen.
 
-### Scenes and moods
+### Scenes and templates
 
 **Scenes** (`/scenes`, Glass UI's scenes): accessory values set together, by hand or by a trigger.
 
@@ -182,26 +193,46 @@ a page to keep on a phone's home screen.
   automations, with nobody to ask, leave those actions out and say so in the scene's last run. Glass UI sets them like
   any value.
 
-Scenes are kept in `scenes.json` next to config.json (owner-only), with each one's last run. A scene's card says its
+Scenes are kept in `scenes.json` next to config.json (owner-only), with each one's last run. The editor's **A switch
+in the Home app** makes the scene a switch of one **Homeswift Scenes** accessory on the bridge: turning it on runs the
+scene, leaving out its locks, doors and alarms; turning it off puts the lights back, and it shows whether the scene is
+on.
+
+![A scene as a switch in the Home app](images/ui/scene-homekit.png) A scene's card says its
 room when its accessories share one, and **Scene active** while every value it sets is what its accessories show.
+Its ⋯ menu gives it a picture of your own (**Choose a picture…**, shrunk to 640 pixels; JPEG, PNG or WebP up to 1 MB)
+or takes it away; a hub's scene has the same menu, and its picture is the one the Hue or IKEA page shows. The bridge
+keeps them in `scene-pictures/` next to config.json. A hub's scene's menu also renames it on its hub, keeps its lights
+as they are now, or deletes it from the hub (after asking: it goes from the hub's own app too). A new scene of lights
+only, without triggers or an animation, can be saved to the Hue room or zone, or the IKEA hub, that has all its lights:
+the editor's save bar offers it beside **Create the scene**.
+
+![Scenes from your hubs, by room, with their pictures and menus](images/plugins/scenes-from-hubs.png)
 
 **Scenes from your hubs**, under them: the scenes plugins' hubs keep (a Hue Bridge's rooms and zones, a DIRIGERA hub,
 the scenes picked for Govee lights), by room, with their pictures or colours and a source filter when there are
 several. A tap recalls one on its hub; Hue's say **Scene active** while the bridge says so. **Stop** puts back the
 lights it changed, for 12 hours, as for any scene. **Automate** makes a Homeswift scene that recalls it, to give it
-triggers and conditions; the editor's **Add a hub scene…** adds one to any scene. They are changed in their own app.
+triggers and conditions; the editor's **Add a hub scene…** adds one to any scene. The editor's **Animation** step
+makes the chosen lights move after the actions: a style (candle, fire, sparkle, prism, underwater, a sunrise, moving
+colours, following the music…) with its speed, brightness and colour. Each brand plays it the way its own app does where
+its lights have it (Hue's effects, Govee's library scenes, an IKEA fade for a sunrise, a SONOFF L2 strip's scenes, an
+Ambilight TV for music);
+Homeswift plays it on the others. An animated scene is active while it plays, and **Stop** puts the lights back. They are changed in their own app.
 
-**Moods**, on the same page: the rooms that have lights as chips, and the collection of moods by kind, each drawn with
-photographic thumbnails. A tap plays one on the room's lights; the pill stays lit while it plays, with the mood and **Stop** under
-the rooms. A calm mood shows there with **Undo** for 12 hours, which puts the lights back as they were. With the
-Assistant on, a box writes a mood from a description ("a jazz bar"). A mood that sets the lights once can be saved as a
-scene (an administrator's). The **Scene gallery** adds 143 named photographic tiles in 28 theme categories, including Get cozy, Movie night, Reading, Wanderlust, Vibrant and Party vibes. Each theme has two horizontally scrolling rows on desktop and one row on mobile. Search by scene or theme name, or select a theme to show just that shelf. Sort each shelf by gallery order, name A–Z or name Z–A. These
+**Templates**, on the same page: the rooms that have lights as chips, and the collection by kind, each drawn with
+photographic thumbnails. A tap tries one on the room's lights at once, without saving it: calm ones set the lights,
+effects (a fireplace, a candle flicker, an ocean, a sunrise) play each brand's own way where its lights have it, and
+signals and party ones are timed sequences. The pill stays lit while it plays, and what was tried shows under the rooms
+with **Stop** (or **Undo**, for 12 hours, for one that set the lights once) and **Save as a scene**, which keeps it as a
+scene for that room, animated or not. With the Assistant on, **Describe a scene…** writes one from a description ("a
+jazz bar") and tries it the same way. The **Scene gallery** adds 143 named photographic tiles in 28 theme categories, including Get cozy, Movie night, Reading, Wanderlust, Vibrant and Party vibes. Each theme has two horizontally scrolling rows on desktop and one row on mobile. Search by scene or theme name, or select a theme to show just that shelf. Sort each shelf by gallery order, name A–Z or name Z–A. These
 set a palette once across the room's lights; they do not reproduce Hue animations or brightness. Saving one as a
 scene preserves its artwork. In the scene editor, expand **Scene image** to choose another picture or **No image**.
 Existing scenes without artwork keep their usual icon. The original gallery titles stay the same in all languages.
-On a phone each photographic theme is a single row that swipes sideways; Calm, Slow animations, Party and Signals also use single horizontal rows. Hue and IKEA scene collections share this mobile layout. Playing and stopping moods is
-controlling accessories, as running a scene is. `MoodLibrary` is the collection; MCP clients use `list_moods`,
-`start_mood` and `stop_mood`.
+On a phone each photographic theme is a single row that swipes sideways; Calm, Slow animations, Party and Signals also use single horizontal rows. Hue and IKEA scene collections share this mobile layout. Trying a template is
+controlling accessories, as running a scene is. `SceneTemplateLibrary` is the collection; MCP clients use `list_scene_templates`,
+and `run_scene` or `save_scene` with `template` (or `description`) and `room`.
 
 Scene cards keep accessory actions collapsed under **Details**. Expand it to see every action.
 
@@ -211,15 +242,15 @@ Scene cards keep accessory actions collapsed under **Details**. Expand it to see
 
 ![Single-row gallery on mobile](images/ui/scene-gallery-phone.png)
 
-![Horizontal mood category](images/ui/mood-row-phone.png)
+![Horizontal template category](images/ui/template-row-phone.png)
 
-Active mood tiles show a centred square Stop icon; idle tiles show their image and name. Winter holidays and Christmas have separate scene selections.
+Template tiles that play show a centred square Stop icon; idle tiles show their image and name. Winter holidays and Christmas have separate scene selections.
 
-![Active mood tile](images/ui/mood-stop-tile.png)
+![Template tile playing](images/ui/template-playing.png)
 
-The theme menu is alphabetised in the selected language. Mood photographs depict their subjects directly, including candles, a fireplace, a home cinema, a disco ball and a police lightbar.
+The theme menu is alphabetised in the selected language. Template photographs depict their subjects directly, including candles, a fireplace, a home cinema, a disco ball and a police lightbar.
 
-Running mood tiles show **Stop**. Saved scenes also offer **Stop** after running. This restores captured light power, brightness, colour and Adaptive Lighting; other scene controls restore their captured values unless they have changed since. Locks, doors and alarms require confirmation before restoration. Undo state lasts 12 hours and is kept across bridge restarts for held scenes and moods. Failed or skipped actions on a repeated run retain valid earlier restoration state. A light action that fails does not take ownership away from an existing mood.
+Template tiles that play show **Stop**. Saved scenes also offer **Stop** after running. This restores captured light power, brightness, colour and Adaptive Lighting; other scene controls restore their captured values unless they have changed since. Locks, doors and alarms require confirmation before restoration. Undo state lasts 12 hours and is kept across bridge restarts for every run that set lights. Failed or skipped actions on a repeated run retain valid earlier restoration state. A light action that fails does not take ownership away from an earlier run.
 
 The workflow action editor offers a combined **Light color** picker for colour-capable lights, brightness and colour-temperature sliders, power switches, device mode menus, and sliders for fan speed, position, volume and target temperatures. The colour picker saves ordinary hue and saturation actions, so the runtime and existing scenes remain compatible. Editing does not send device commands.
 
@@ -241,9 +272,9 @@ Deleting a scene opens a confirmation in the UI’s design system. Cancel is foc
 
 ![Scene deletion confirmation](images/ui/scene-delete.png)
 
-![Stop a running mood](images/ui/scene-stop.png)
+![Stop a running scene](images/ui/scene-stop.png)
 
-![Mood photographs](images/ui/mood-photographs.png)
+![Template photographs](images/ui/template-photographs.png)
 
 The sunrise/sunset location includes a map: click a point or finish dragging to place the pin and save coordinates immediately. Arrow keys can also position the pin for review.
 **Use this device's location** asks the browser for permission and centres the map; **Save** keeps the reviewed
@@ -709,7 +740,9 @@ It runs the bridge built at `~/Library/Caches/homeswift-build/debug/homeswift` (
 folder with a new identity: the web UI on `127.0.0.1` without sign-in, plugin blocks with demonstration names, all
 paused, so nothing reaches a device or a cloud, and two generated images as wallpapers. It renders in headless Chrome in
 light mode at 2x, replaces this machine's name and the folder's paths in what the API answers, and removes the folder
-when it ends. The Accessories page's images are [widgets.md](widgets.md#screenshots)'s.
+when it ends. The Accessories page's images are [widgets.md](widgets.md#screenshots)'s. The Scenes page's shots that need lights (hubs' scenes,
+the templates, a scene card and its Stop) come from `node Scripts/plugin-screenshots.mjs`, against its fake Hue Bridge
+and DIRIGERA hub.
 
 ### Quick controls on phones
 

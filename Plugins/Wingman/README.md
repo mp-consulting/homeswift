@@ -6,7 +6,7 @@ serves it over TLS to the bridges paired with it. Homeswift can run anywhere, a 
 included: it reaches Wingman over the network.
 
 The accessories join the web UI's Accessories page (in Apple Home's rooms, with a house badge, and the **Apple Home icon switch**
-to see them alone), moods, scenes, automations and the MCP tools. Matter accessories that Homeswift cannot
+to see them alone), scenes, automations and the MCP tools. Matter accessories that Homeswift cannot
 reach itself (Hue, IKEA) come too. They are **never published to HomeKit again**: the Home app has them already
 (`Accessory.mirroredFrom`, docs/plugins.md). Homeswift's own accessories, which Apple Home lists as well, are left out.
 
@@ -52,7 +52,7 @@ the network for those ten minutes, as a first connection does: the fingerprint c
 
 `GET /homes` gives the homes, rooms, accessories, services and characteristics with their ids and HomeKit's ranges;
 each accessory becomes `Wingman:<HomeKit id>` with Homeswift's own types (`ServiceType.known(uuid:)`), so the widgets
-and moods recognise it. `GET /events?since=&wait=25` is a long-poll: a value change reaches Homeswift as HomeKit
+and scenes recognise it. `GET /events?since=&wait=25` is a long-poll: a value change reaches Homeswift as HomeKit
 pushes it; events Wingman no longer keeps (it keeps 500) make the plugin read the homes again. Homeswift's own
 accessories are recognised by their serial numbers, so a TV or a camera Homeswift publishes on its own is left out too,
 and an entry without a pinned certificate is never sent its token. A write goes to `POST /write` by characteristic id; locks, garage doors and alarms are security controls

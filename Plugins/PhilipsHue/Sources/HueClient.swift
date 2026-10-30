@@ -81,6 +81,17 @@ actor HueClient {
         _ = try await data(of: send("PUT", "/clip/v2/resource/\(type)/\(id)", body: body))
     }
 
+    /// Makes a resource: `POST /clip/v2/resource/<type>`; answers its id.
+    func post(_ type: String, _ body: JSONValue) async throws -> String {
+        guard let id = try await data(of: send("POST", "/clip/v2/resource/\(type)", body: body)).first?["rid"]?.stringValue else { throw Failure.malformed("an answer") }
+        return id
+    }
+
+    /// Removes a resource: `DELETE /clip/v2/resource/<type>/<id>`.
+    func delete(_ type: String, id: String) async throws {
+        _ = try await data(of: send("DELETE", "/clip/v2/resource/\(type)/\(id)"))
+    }
+
     /// The bridge's event stream (`GET /eventstream/clip/v2`): each event's data is a JSON array of changes, each with
     /// a `type` (`update`, `add`, `delete`) and its resources' changed parts in `data`. It goes on until the connection
     /// drops; it does not count among the three requests in flight, which it would hold forever.

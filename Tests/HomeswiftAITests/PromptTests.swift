@@ -50,8 +50,8 @@ struct PromptTests {
             Prompts.GeneratePluginConfig.system, Prompts.GeneratePluginConfig.user(request: "r", schema: ["type": "object"], current: ["a": 1], pluginName: "Govee"),
             Prompts.ExplainDeviceError.system, Prompts.ExplainDeviceError.user(error: "e", context: "c", device: ["m": 1], pluginName: "P"),
             Prompts.Ask.system, Prompts.Ask.user(prompt: "q", context: "c"), Prompts.SuggestOrganization.system,
-            Prompts.SuggestOrganization.user(accessories: ["a": 1], rooms: ["Den"]), Prompts.DesignMood.system,
-            Prompts.DesignMood.user(description: "d", lights: ["n": 1]), Prompts.DailyDigest.system,
+            Prompts.SuggestOrganization.user(accessories: ["a": 1], rooms: ["Den"]), Prompts.DesignScene.system,
+            Prompts.DesignScene.user(description: "d", lights: ["n": 1]), Prompts.DailyDigest.system,
             Prompts.DailyDigest.user(date: "d", status: ["s": 1], logs: "l", accessories: ["a": 1], events: ["e": 1]),
             Prompts.connectionTest, Prompts.Chat.system, Prompts.repairJSON("x"),
         ] + ["fr", "es-ES", "pt"].compactMap(Prompts.answerLanguage)
@@ -67,7 +67,7 @@ struct PromptTests {
 
     /// A person's text with placeholders in it goes in as written: it is not filled, and it does not stop the bridge.
     @Test func valuesAreNotReadForPlaceholders() {
-        let prompt = Prompts.DesignMood.user(description: "a {{jazz}} bar, {{description}} and {{", lights: ["n": 1])
+        let prompt = Prompts.DesignScene.user(description: "a {{jazz}} bar, {{description}} and {{", lights: ["n": 1])
         #expect(prompt.contains("a {{jazz}} bar, {{description}} and {{"))
         #expect(Prompts.DiagnoseLogs.user(logs: "{{focus}}", focus: "Govee").contains("{{focus}}"))
     }

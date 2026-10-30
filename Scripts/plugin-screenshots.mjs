@@ -1,4 +1,4 @@
-// Retakes the Philips Hue and IKEA DIRIGERA pages' screenshots (docs/images/plugins) with headless Chrome: light mode,
+// Retakes the Philips Hue and IKEA DIRIGERA pages' screenshots, and the Scenes page with their scenes, (docs/images/plugins) with headless Chrome: light mode,
 // 2x. A throwaway bridge talks to a fake Hue Bridge and a fake DIRIGERA hub on this machine (HTTPS with a certificate
 // made for the run), which hold demonstration lights, sensors, remotes and scenes; no device is reached.
 //
@@ -9,7 +9,7 @@
 // ones. Everything the run made goes when it ends.
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:https";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, hostname, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -141,6 +141,17 @@ writeFileSync(join(storage, "config.json"), JSON.stringify({
     { platform: "Dirigera", name: "IKEA DIRIGERA", hubs: [{ host: "127.0.0.1", token: "demo-token", name: "Home" }] },
   ],
 }, null, 2));
+// Two saved scenes on the living room's lights, for the Scenes page's cards.
+// Each light's own lightbulb by name: its effects' switches and a strip's points have On too.
+const lightNames = { l2: "Ceiling", l3: "Floor Lamp", l6: "TV Lightstrip" };
+const action = (light, characteristic, value) => ({ id: `PhilipsHue:${light}`, service: lightNames[light], characteristic, value });
+writeFileSync(join(storage, "scenes.json"), JSON.stringify({ version: 1, scenes: [
+  { id: "5ce0e0000000a001", name: "Movie night", artworkId: "mood-cinema", homeKit: true, triggers: [], conditions: [],
+    actions: [action("l2", "On", false), action("l3", "On", true), action("l3", "Brightness", 20), action("l6", "On", true), action("l6", "Hue", 230), action("l6", "Saturation", 80)] },
+  { id: "5ce0e0000000a002", name: "Evening", artworkId: "rolling-hills", conditions: [],
+    triggers: [{ type: "schedule", time: "19:30", days: [1, 2, 3, 4, 5], enabled: true }],
+    actions: [action("l2", "On", true), action("l2", "Brightness", 60), action("l3", "On", true), action("l3", "Brightness", 45)] },
+] }));
 const bridge = spawn(binary, ["-U", storage], { stdio: "ignore" });
 /// Stops the bridge and the fake devices and removes the scratch folder, whatever stops the script.
 async function stop() {
@@ -205,7 +216,7 @@ await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-sch
 await send("Page.addScriptToEvaluateOnNewDocument", { source: pageScript });
 
 /// Opens a plugin page at the size given, chooses its tab, waits for `ready`, and saves the page down to `tall` at most.
-async function shot(name, path, { tab, ready, width = 1280, height = 900, mobile = false, tall = 2800 }) {
+async function shot(name, path, { tab, ready, width = 1280, height = 900, mobile = false, tall = 2800, prepare = "", element }) {
   if (process.env.PLUGIN_SHOTS_ONLY && !process.env.PLUGIN_SHOTS_ONLY.split(",").includes(name)) return;
   await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 2, mobile });
   await send("Page.navigate", { url: base + path });
@@ -216,19 +227,32 @@ async function shot(name, path, { tab, ready, width = 1280, height = 900, mobile
     }
     throw new Error(`${name}: ${selector} did not appear`);
   };
-  // A click before the page's script has wired its tabs does nothing: click until the tab says it is chosen.
-  const chosen = `button[data-tab="${tab}"][aria-selected="true"]`;
-  for (let i = 0; i < 40 && !(await evaluate(`!!document.querySelector('${chosen}')`)); i++) {
-    await evaluate(`document.querySelector('button[data-tab="${tab}"]')?.click()`);
-    await sleep(250);
+  // A click before the page's script has wired its tabs does nothing: click until the tab says it is chosen. A page
+  // without tabs (the Scenes page) has none to choose.
+  if (tab) {
+    const chosen = `button[data-tab="${tab}"][aria-selected="true"]`;
+    for (let i = 0; i < 40 && !(await evaluate(`!!document.querySelector(${JSON.stringify(chosen)})`)); i++) {
+      await evaluate(`document.querySelector(${JSON.stringify(`button[data-tab="${tab}"]`)})?.click()`);
+      await sleep(250);
+    }
+    await wait(chosen);
   }
-  await wait(chosen);
   await wait(ready);
   await sleep(1200);
-  const full = await evaluate("Math.ceil(document.documentElement.scrollHeight)");
-  const { data } = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true, clip: { x: 0, y: 0, width, height: Math.min(full, tall), scale: 1 } });
+  // `prepare` acts on the page first (a template tried); `element` saves only that part of the page, with a margin.
+  if (prepare) { await evaluate(`(async () => { ${prepare} })()`); await sleep(1500); }
+  let clip;
+  if (element) {
+    const box = await evaluate(`(() => { const r = document.querySelector(${JSON.stringify(element)}).getBoundingClientRect();
+      return { x: r.left + scrollX, y: r.top + scrollY, width: r.width, height: r.height }; })()`);
+    clip = { x: Math.max(0, box.x - 12), y: Math.max(0, box.y - 12), width: box.width + 24, height: Math.min(box.height + 24, tall), scale: 1 };
+  } else {
+    const full = await evaluate("Math.ceil(document.documentElement.scrollHeight)");
+    clip = { x: 0, y: 0, width, height: Math.min(full, tall), scale: 1 };
+  }
+  const { data } = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true, clip });
   writeFileSync(join(out, `${name}.png`), Buffer.from(data, "base64"));
-  console.log(`${name}.png ${width}×${Math.min(full, tall)}`);
+  console.log(`${name}.png ${Math.round(clip.width)}×${Math.round(clip.height)}`);
 }
 
 try {
@@ -239,6 +263,23 @@ try {
   await shot("hue-scenes-phone", "/plugins/philips-hue", { tab: "scenes", ready: "#scenes .scene", width: 390, height: 844, mobile: true, tall: 1530 });
   await shot("dirigera-devices", "/plugins/ikea-dirigera", { tab: "devices", ready: "#devices .widget" });
   await shot("dirigera-scenes", "/plugins/ikea-dirigera", { tab: "scenes", ready: "#scenes .scene" });
+  // Homeswift's Scenes page: the bridge's and the hub's scenes, by room, with their pictures, colours and menus.
+  await shot("scenes-from-hubs", "/scenes", { ready: ".hub-scene", tall: 1400 });
+  // The templates for a room's lights (docs/ui.md, docs/images/ui): the first kinds, one tried and playing, on a phone.
+  const templates = join(root, "docs/images/ui");
+  const shotUI = (name, options) => shot(name, "/scenes", { ready: ".templates .template-button", ...options }).then(() => {
+    if (!process.env.PLUGIN_SHOTS_ONLY || process.env.PLUGIN_SHOTS_ONLY.split(",").includes(name)) renameSync(join(out, `${name}.png`), join(templates, `${name}.png`));
+  });
+  // The first kind of templates after the gallery (Calm), and the gallery's shelves.
+  const kind = ".templates .template-group:has(> .template-buttons)";
+  await shotUI("template-photographs", { element: kind, tall: 900 });
+  await shotUI("template-row-phone", { width: 390, height: 844, mobile: true, element: kind, tall: 700 });
+  await shotUI("template-playing", { element: kind, prepare: `document.querySelector(${JSON.stringify(`${kind} .template-button`)})?.click();`, tall: 900 });
+  await shotUI("scene-gallery-phone", { width: 390, height: 844, mobile: true, element: ".templates .template-group:has(.artwork-themes)", tall: 900 });
+  // A saved scene's card, its actions open; and once it ran, with Stop.
+  await shotUI("scene-card-details", { ready: ".scene-card", element: ".scene-card", prepare: 'document.querySelector(".scene-card details").open = true;' });
+  await shotUI("scene-stop", { ready: ".scene-card", element: ".scene-card",
+    prepare: 'document.querySelector(".scene-card .scene-run-actions button.primary").click(); await new Promise((done) => setTimeout(done, 1500)); history.go(0);' });
 } finally {
   socket.close();
   const exited = new Promise((done) => chrome.once("exit", done));

@@ -85,8 +85,8 @@
   async function call(name, args, effect, ms = 700) {
     const el = tool(name, args);
     await wait(ms);
-    // Any other change to the lights ends a mood first, as a new value does on the bridge.
-    if (effect && !name.endsWith('_mood')) stopMood();
+    // Any other change to the lights ends an animated scene first, as a new value does on the bridge.
+    if (effect && !args.template && !args.description && name !== 'stop_scene') stopAnimation();
     if (effect) { const ids = effect(); touch(ids); render(); record(name, ids); }
     finish(el);
     await wait(250);
@@ -113,18 +113,19 @@
     await say(locking ? t('Locked. The {door} reports Secured.', { door: b('door') }) : t('Unlocked. Say “lock up” when you want it locked again.'));
   }
 
-  // Moods (start_mood, stop_mood): the three lights take colours on a beat for a while, then go back as they were.
+  // Animated scenes (run_scene with a template or a description, stop_scene): the three lights take colours on a beat
+  // for a while, then go back as they were.
   const lightIds = ['living', 'kitchen', 'porch'];
-  let mood = null;
-  function stopMood() {
-    if (!mood) return false;
-    clearInterval(mood.timer); clearTimeout(mood.end);
+  let animation = null;
+  function stopAnimation() {
+    if (!animation) return false;
+    clearInterval(animation.timer); clearTimeout(animation.end);
     lightIds.forEach((id) => { tiles[id].classList.remove('mood-on'); tiles[id].style.removeProperty('--tint'); });
-    Object.assign(state, mood.before); render(); mood = null;
+    Object.assign(state, animation.before); render(); animation = null;
     return true;
   }
-  function playMood(palette, { beat = 1200, seconds = 16, random = true } = {}) {
-    stopMood();
+  function playAnimation(palette, { beat = 1200, seconds = 16, random = true } = {}) {
+    stopAnimation();
     const before = { living: state.living, kitchen: state.kitchen, porch: state.porch };
     state.living = Math.max(state.living, 60); state.kitchen = true; state.porch = true; render();
     let step = 0;
@@ -136,7 +137,7 @@
       step++;
     };
     paint();
-    mood = { before, timer: setInterval(paint, reduce ? beat * 3 : beat), end: setTimeout(stopMood, seconds * 1000) };
+    animation = { before, timer: setInterval(paint, reduce ? beat * 3 : beat), end: setTimeout(stopAnimation, seconds * 1000) };
     return lightIds;
   }
 
@@ -154,16 +155,16 @@
       await say(`${escape(tn('{n} entry from this chat, refusals included, each with who asked and from where:', '{n} entries from this chat, refusals included, each with who asked and from where:', audit.length))}<span class="audit">${rows}</span>`);
     } },
     stop: { words: '\\bstop\\b|enough|back to normal', run: async () => {
-      await call('stop_mood', {}, () => (stopMood() ? lightIds : []), 500);
+      await call('stop_scene', {}, () => (stopAnimation() ? lightIds : []), 500);
       await say(t('Stopped. The lights are back as they were.'));
     } },
     halloween: { words: 'halloween|spooky|creepy', run: async () => {
-      await call('start_mood', { mood: 'halloween', room: t('Downstairs') }, () => playMood(['#8e2de2', '#ff7a00', '#5b1a9a', '#2f8f3a'], { beat: 1500 }));
+      await call('run_scene', { template: 'halloween', room: t('Downstairs') }, () => playAnimation(['#8e2de2', '#ff7a00', '#5b1a9a', '#2f8f3a'], { beat: 1500 }));
       await say(t('Halloween is playing on {living}, {kitchen} and {porch}: purple and orange with an eerie flicker. They go back as they were when it ends, or say “stop”.',
         { living: b('living'), kitchen: b('kitchen'), porch: b('porch') }));
     } },
     jazz: { words: 'jazz|lounge|mood|ambiance|vibe|feel like', run: async () => {
-      await call('start_mood', { description: t('a jazz bar'), room: t('Downstairs') }, () => playMood(['#ffb347', '#c46a1c', '#24306e', '#4a2366'], { beat: 2600, random: false }), 1100);
+      await call('run_scene', { description: t('a jazz bar'), room: t('Downstairs') }, () => playAnimation(['#ffb347', '#c46a1c', '#24306e', '#4a2366'], { beat: 2600, random: false }), 1100);
       await say(t('I wrote one, “Late-night jazz”: warm amber over deep blue and plum, shifting every few seconds. The model only learned that three lights take colours, not their names. Want it saved as a scene?'));
     } },
     kitchen: { words: 'kitchen', run: async () => {

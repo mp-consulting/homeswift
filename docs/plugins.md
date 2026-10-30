@@ -234,11 +234,11 @@ trigger.characteristic(.on).securityControl().onWrite { value in try await door.
 **Mirrored accessories.** An accessory HomeKit already has another way (the Home app's own, which
 `Plugins/Wingman` reads through Homeswift Wingman on a Mac) is added with `accessory.mirroredFrom = "Apple Home"`
 before `context.add`. The bridge keeps it out of HomeKit: it is not in `GET /accessories`, and controllers cannot
-read, write or subscribe to it, so the Home app does not show it twice. The web UI, the MCP tools, scenes, moods and
+read, write or subscribe to it, so the Home app does not show it twice. The web UI, the MCP tools, scenes and
 automations use it as any other; the UI marks it with a house badge and filters on it (**Only from Apple Home**,
 `?from=`). `accessory.suggestedRoom` is the room the other controller gives it, the web UI's until the user picks one;
 both survive the accessory cache. `CharacteristicType.known(uuid:)` and `ServiceType.known(uuid:)` find Homeswift's
-own types from a UUID another controller reports, so the widgets and moods, which know types by name, recognise them.
+own types from a UUID another controller reports, so the widgets and scenes, which know types by name, recognise them.
 `context.publishedSerialNumbers` lists the serial numbers of every accessory Homeswift itself publishes (bridges, child
 bridges, external accessories), so a plugin reading the Home app's view leaves Homeswift's own out. Renaming or removing a
 room the other controller suggests makes it the layout's own; a removed one leaves its accessories with no room.
@@ -317,6 +317,28 @@ public func recallScene(id: String) async throws {
 }
 ```
 
+A plugin whose lights have effects of their own plays an animated scene's effect natively: `animate(_:accessoryIDs:)`
+gets a `LightEffect` (a style such as fire, candle or sunrise, with an optional colour, speed and brightness) and the
+scene's lights it owns, and answers those it plays the way its brand's app does; Homeswift plays the others itself.
+`stopAnimation(accessoryIDs:)` stops them before Homeswift puts their values back. Hue (`HueEffects.swift`: `effects_v2`,
+`timed_effects`), Govee (the library scene of the style's name), DIRIGERA (a sunrise as one long fade), eWeLink (a
+SONOFF L2 strip's own scenes) and the Ambilight TV (music) do.
+
+A hub that keeps scenes can let Homeswift write them. `sceneTarget(accessoryIDs:)` answers where a new scene of exactly
+those lights would go (a Hue room or zone), or nil; `createScene(name:lights:)` makes it from `PluginSceneLight` values
+(On, Brightness, hue and saturation or a white in mireds, in HomeKit's units) and answers its id;
+`updateScene(id:name:lights:)` renames it or replaces its lights, and `deleteScene(id:)` removes it. List what each
+scene allows in `PluginScene.capabilities` (`rename`, `update`, `delete`) and its lights in `accessoryIDs`, so the page
+can keep them "as they are". Write, then read the hub back: it stays the only keeper. Hue (`HueScenes.swift`) and
+DIRIGERA (`DirigeraScenes.swift`, from lpgera/dirigera) do.
+
+A hub that keeps rooms can follow Homeswift's: with the layout's `syncRoomNames` on (the Accessories page's **Rename
+on the hubs too**), a room renamed in Homeswift is renamed on the hubs. `rooms()` lists the hub's rooms as `PluginRoom`
+(its id, name, and `place` when the instance has several hubs or homes); Homeswift calls it only on a rename, so it may
+ask the hub. `renameRoom(id:name:)` renames one; Homeswift picks those named as the room was, case and accents aside,
+and logs what each did. Hue (`HueRooms.swift`, rooms but not zones), DIRIGERA (`DirigeraRooms.swift`, from
+lpgera/dirigera, the room's icon and colour kept) and eWeLink (`EWeLinkRooms.swift`, `PUT /v2/family/room`) do.
+
 ### What the Assistant can do
 
 `assistantActions` describes routes of `handleWebRequest` for a model, so the Assistant (the web UI's chat,
@@ -325,7 +347,7 @@ an MCP client) can find, check or pair a device the way the plugin's page does. 
 query of a `GET` and in the JSON body otherwise (`queryKeys` puts some in the query of a `POST`). `access`
 sets the MCP scope it needs (`configure` is admin), and `confirm: true` asks the user before it runs. An action that
 changes lights on the device's own hub (a scene) sets `changesLights: true`: the bridge keeps how the lights it changed were,
-and `stop_mood` puts them back, as for a mood.
+and `stop_scene` puts them back, as after any scene.
 
 ```swift
 public static let assistantActions = [

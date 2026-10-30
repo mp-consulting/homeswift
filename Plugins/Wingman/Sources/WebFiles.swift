@@ -246,7 +246,7 @@ extension WingmanPlugin {
 // The Wingman page in French, Spanish and Portuguese (docs/translations.md).
 HomeswiftI18n.add({
   "fr": {
-    "The Home app's accessories in Homeswift, through Homeswift Wingman on a Mac. They join the Accessories page, moods, scenes and the Assistant, and stay out of HomeKit, which has them already.": "Les accessoires de l'app Maison dans Homeswift, grâce à Homeswift Wingman sur un Mac. Ils rejoignent la page Accessoires, les ambiances, les scènes et l'Assistant, et restent hors de HomeKit, qui les a déjà.",
+    "The Home app's accessories in Homeswift, through Homeswift Wingman on a Mac. They join the Accessories page, scenes and the Assistant, and stay out of HomeKit, which has them already.": "Les accessoires de l'app Maison dans Homeswift, grâce à Homeswift Wingman sur un Mac. Ils rejoignent la page Accessoires, les scènes et l'Assistant, et restent hors de HomeKit, qui les a déjà.",
     "Your Wingmen": "Vos Wingman",
     "On the network": "Sur le réseau",
     "Add by address": "Ajouter par adresse",
@@ -298,7 +298,7 @@ HomeswiftI18n.add({
     "Tip: add a {block} block to config.json to get the Assistant, which explains connection problems here.": "Astuce : ajoutez un bloc {block} à config.json pour avoir l'Assistant, qui explique ici les problèmes de connexion.",
   },
   "es": {
-    "The Home app's accessories in Homeswift, through Homeswift Wingman on a Mac. They join the Accessories page, moods, scenes and the Assistant, and stay out of HomeKit, which has them already.": "Los accesorios de la app Casa en Homeswift, a través de Homeswift Wingman en un Mac. Se suman a la página Accesorios, los ambientes, las escenas y el Asistente, y quedan fuera de HomeKit, que ya los tiene.",
+    "The Home app's accessories in Homeswift, through Homeswift Wingman on a Mac. They join the Accessories page, scenes and the Assistant, and stay out of HomeKit, which has them already.": "Los accesorios de la app Casa en Homeswift, a través de Homeswift Wingman en un Mac. Se suman a la página Accesorios, las escenas y el Asistente, y quedan fuera de HomeKit, que ya los tiene.",
     "Your Wingmen": "Tus Wingman",
     "On the network": "En la red",
     "Add by address": "Añadir por dirección",
@@ -350,7 +350,7 @@ HomeswiftI18n.add({
     "Tip: add a {block} block to config.json to get the Assistant, which explains connection problems here.": "Consejo: añade un bloque {block} a config.json para tener el Asistente, que explica aquí los problemas de conexión.",
   },
   "pt": {
-    "The Home app's accessories in Homeswift, through Homeswift Wingman on a Mac. They join the Accessories page, moods, scenes and the Assistant, and stay out of HomeKit, which has them already.": "Os acessórios da app Casa no Homeswift, através do Homeswift Wingman num Mac. Juntam-se à página Acessórios, aos ambientes, às cenas e ao Assistente, e ficam fora do HomeKit, que já os tem.",
+    "The Home app's accessories in Homeswift, through Homeswift Wingman on a Mac. They join the Accessories page, scenes and the Assistant, and stay out of HomeKit, which has them already.": "Os acessórios da app Casa no Homeswift, através do Homeswift Wingman num Mac. Juntam-se à página Acessórios, às cenas e ao Assistente, e ficam fora do HomeKit, que já os tem.",
     "Your Wingmen": "Os seus Wingman",
     "On the network": "Na rede",
     "Add by address": "Adicionar por endereço",
@@ -457,7 +457,7 @@ HomeswiftI18n.add({
     <span class="tile large tone-orange" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 320"><g fill="currentColor" stroke="none"><path d="M8 12C65 48 155 88 180 110C198 121 204 136 195 148L165 177C180 144 170 131 149 121C47 95 6 88 8 12Z M36 112L150 152L132 177C64 163 42 161 36 112Z M58 177L121 193L109 221C77 220 63 203 58 177Z"/><g transform="translate(500 0) scale(-1 1)"><path d="M8 12C65 48 155 88 180 110C198 121 204 136 195 148L165 177C180 144 170 131 149 121C47 95 6 88 8 12Z M36 112L150 152L132 177C64 163 42 161 36 112Z M58 177L121 193L109 221C77 220 63 203 58 177Z"/></g></g><path d="M136 220L250 104L364 220M153 205V305H347V205" fill="none" stroke="currentColor" stroke-width="29" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
     <div class="who">
       <h1>Wingman</h1>
-      <p class="muted" data-i18n>The Home app's accessories in Homeswift, through Homeswift Wingman on a Mac. They join the Accessories page, moods, scenes and the Assistant, and stay out of HomeKit, which has them already.</p>
+      <p class="muted" data-i18n>The Home app's accessories in Homeswift, through Homeswift Wingman on a Mac. They join the Accessories page, scenes and the Assistant, and stay out of HomeKit, which has them already.</p>
     </div>
   </div>
   <div class="section-head"><h2 data-i18n>Your Wingmen</h2><div class="actions"><button id="discover-toggle" aria-expanded="false" aria-controls="discovered" data-i18n>On the network</button><button id="add-toggle" aria-expanded="false" aria-controls="add-wingman" data-i18n data-action-icon="plus">Add by address</button></div></div>

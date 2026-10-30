@@ -1,0 +1,44 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:homeswift}",
+            "name": "Debug homeswift",
+            "target": "homeswift",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug homeswift"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:homeswift}",
+            "name": "Release homeswift",
+            "target": "homeswift",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release homeswift"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:homeswift}",
+            "name": "Debug homeswift-demo",
+            "target": "homeswift-demo",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug homeswift-demo"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:homeswift}",
+            "name": "Release homeswift-demo",
+            "target": "homeswift-demo",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release homeswift-demo"
+        }
+    ]
+}

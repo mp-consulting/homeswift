@@ -4,11 +4,14 @@ import HomeswiftAI
 import NIOConcurrencyHelpers
 
 /// The Accessories page's wall, for every user of the bridge: the accessories' order, the size each one was given,
-/// the size of each kind of widget by default, and whether the page groups them by plugin (one wall by default).
+/// the size of each kind of widget by default, whether the page groups them by plugin (one wall by default), and the
+/// cells widgets were dropped on, by grouping (`positions`: a widget's top-left `[column, row]`, from 1; a wall none of
+/// whose widgets has one flows in the order).
 /// In `ui-layout.json` next to config.json; what the page or `set_wall_layout` sends is checked and trimmed to that
 /// before it is kept.
 ///
-///     { "order": ["Govee:…", …], "sizes": { "Govee:…": "small" }, "defaults": { "climate": "large" }, "grouping": "none" }
+///     { "order": ["Govee:…", …], "sizes": { "Govee:…": "small" }, "defaults": { "climate": "large" }, "grouping": "none",
+///       "positions": { "room": { "Govee:…": [3, 1] } } }
 public final class WallLayout: Sendable {
     static let sizes: Set<String> = ["small", "medium", "large", "xlarge"]
     static let groupings: Set<String> = ["plugin", "room", "none"]
@@ -22,6 +25,8 @@ public final class WallLayout: Sendable {
     static let kindNames = Set(kinds.map(\.key))
     /// Far more than a bridge has: what keeps a page from filling the disk.
     static let maximumAccessories = 5000
+    /// The furthest cell a widget may be put on: far wider than a screen has columns, far longer than a wall.
+    static let maximumColumn = 24, maximumRow = 500
 
     public let url: URL
     /// The layout as kept, once read: every change goes through `update`.
@@ -107,7 +112,37 @@ public final class WallLayout: Sendable {
         guard groups.count <= 100 else { throw Invalid(description: "too many groups") }
         var result: [String: JSONValue] = ["order": .array(order), "sizes": .object(sizes), "defaults": .object(defaults), "grouping": .string(grouping)]
         if object["groups"] != nil { result["groups"] = .array(groups) }
+        if let value = object["positions"], !value.isNull {
+            guard let byGrouping = value.objectValue else { throw Invalid(description: "positions are by grouping") }
+            var positions: [String: JSONValue] = [:]
+            for (name, cells) in byGrouping {
+                guard groupings.contains(name), let cells = cells.objectValue else { throw Invalid(description: "positions are by grouping (none, room, plugin), then by widget id") }
+                guard cells.count <= maximumAccessories, cells.keys.allSatisfy(isID) else { throw Invalid(description: "positions are by widget id") }
+                let checked = try cells.mapValues { cell -> JSONValue in
+                    guard let cell = position(cell) else { throw Invalid(description: "a position is [column, row], from 1 to \(maximumColumn) and \(maximumRow)") }
+                    return [.number(Double(cell.column)), .number(Double(cell.row))]
+                }
+                if !checked.isEmpty { positions[name] = .object(checked) }
+            }
+            if !positions.isEmpty { result["positions"] = .object(positions) }
+        }
         return .object(result)
+    }
+
+    /// A widget's cell as `[column, row]` or `{column, row}`, within the grid's bounds.
+    static func position(_ value: JSONValue) -> (column: Int, row: Int)? {
+        let pair: (JSONValue, JSONValue)?
+        if let array = value.arrayValue {
+            pair = array.count == 2 ? (array[0], array[1]) : nil
+        } else if let object = value.objectValue {
+            pair = (object["column"] ?? .null, object["row"] ?? .null)
+        } else {
+            pair = nil
+        }
+        guard let (columnValue, rowValue) = pair, let column = columnValue.doubleValue, let row = rowValue.doubleValue,
+              column == column.rounded(), row == row.rounded(),
+              (1...Double(maximumColumn)).contains(column), (1...Double(maximumRow)).contains(row) else { return nil }
+        return (Int(column), Int(row))
     }
 }
 
@@ -222,6 +257,7 @@ extension HomeswiftCatalog {
         let order = layout["order"]?.arrayValue?.compactMap(\.stringValue) ?? []
         let sizes = layout["sizes"]?.objectValue ?? [:]
         let grouping = layout["grouping"]?.stringValue ?? "none"
+        let positions = layout["positions"]?[grouping]?.objectValue ?? [:]
         let shown = (all ?? located()).filter { $0.layout?.hidden != true }
         let rank = Self.wallRanks(shown, saved: order)
         let groups = (layout["groups"]?.arrayValue ?? []).compactMap(WallGroup.init)
@@ -236,6 +272,7 @@ extension HomeswiftCatalog {
             if let room = located.room { object["room"] = .string(room) }
             if let platform = located.platform?.name { object["plugin"] = .string(platform) }
             if let size = sizes[accessory.id] { object["size"] = size }
+            if let position = positions[accessory.id] { object["position"] = position }
             if Self.canGroup([accessory]) { object["groupable"] = true }
             return .object(object)
         }
@@ -260,7 +297,12 @@ extension HomeswiftCatalog {
         let position = Dictionary(order.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         for group in groups {
             guard let first = group.members.lazy.compactMap({ byID[$0] }).first else { continue }
-            widgets.append((section(first), position[group.id] ?? -1, group.json))
+            var json = group.json
+            if let cell = positions[group.id], var object = json.objectValue {
+                object["position"] = cell
+                json = .object(object)
+            }
+            widgets.append((section(first), position[group.id] ?? -1, json))
         }
         let bySection = Dictionary(grouping: widgets, by: \.section)
         return [
@@ -302,7 +344,9 @@ extension HomeswiftCatalog {
     /// the accessories it controls together, which leave any other group; `ungroup`, group ids to dissolve; `order`,
     /// accessory and group ids in the order to show them, placed in the places they hold together now (so one room's
     /// accessories can be sorted without moving the others); `sizes`, a size by accessory id, null for its kind's;
-    /// `defaults`, a size by kind of widget, null for the kind's own; `grouping`. Answers `wallJSON()`.
+    /// `defaults`, a size by kind of widget, null for the kind's own; `grouping`; `positions`, a cell by accessory or group
+    /// id (`[column, row]` or `{column, row}`, null to let it flow) for the grouping the wall has after this change;
+    /// `clearPositions`, every widget of that grouping back to flowing in the order. Answers `wallJSON()`.
     public func updateWall(_ body: JSONValue) throws -> JSONValue {
         let all = located()
         let byID = Dictionary(all.map { ($0.accessory.id, $0.accessory) }, uniquingKeysWith: { first, _ in first })
@@ -348,6 +392,20 @@ extension HomeswiftCatalog {
                     }
                 }
                 if let grouping = body["grouping"], !grouping.isNull { object["grouping"] = grouping }
+                let grouping = object["grouping"]?.stringValue ?? "none"
+                var positions = object["positions"]?.objectValue ?? [:]
+                if body["clearPositions"]?.boolValue == true { positions.removeValue(forKey: grouping) }
+                if let changes = body["positions"]?.objectValue {
+                    let cells = try Self.merged(positions[grouping], try changes.mapValues { value -> JSONValue in
+                        guard !value.isNull else { return value }
+                        guard let cell = WallLayout.position(value) else {
+                            throw CatalogError("A position is [column, row], from 1 to \(WallLayout.maximumColumn) and \(WallLayout.maximumRow)")
+                        }
+                        return [.number(Double(cell.column)), .number(Double(cell.row))]
+                    }, check: check)
+                    if cells.objectValue?.isEmpty == false { positions[grouping] = cells } else { positions.removeValue(forKey: grouping) }
+                }
+                object["positions"] = .object(positions)
                 return .object(object)
             }
         } catch let error as WallLayout.Invalid {
@@ -366,7 +424,8 @@ extension HomeswiftCatalog {
                 name: "get_wall_layout", title: "Get the accessories wall",
                 description: "The web UI's Accessories wall as it is drawn: its grouping (none, room or plugin), the sections in order, "
                     + "each with its widgets in order: accessories (id, name, room, plugin, services, size when one was chosen for it, "
-                    + "groupable when it can join a group) and accessory groups (id, name, members), which stand in for their members. "
+                    + "position [column, row] when it was put on a cell of its own, groupable when it can join a group) and accessory "
+                    + "groups (id, name, members, position), which stand in for their members. "
                     + "Also the default size of each kind of widget the user chose (defaults). Hidden accessories are left out.",
                 outputSchema: output, scope: .read, idempotent: true
             ) { _ in .json(catalog.wallJSON()) },
@@ -386,7 +445,16 @@ extension HomeswiftCatalog {
                     + "columns with the full controls. To compose a good wall: group by room, group a room's lights or blinds when it has "
                     + "two or more (keep each one's own widget only when it is used alone), put what is used most first in each "
                     + "room (lights, then climate, shutters, switches; sensors and batteries last), give climate, televisions and "
-                    + "purifiers xlarge, colour lights medium or large, and switches, shutters and sensors small, keeping smalls in pairs so the rows pack.",
+                    + "purifiers xlarge, colour lights medium or large, and switches, shutters and sensors small, keeping smalls in pairs so the rows pack. "
+                    + "positions: a cell by accessory or group id, [column, row] from 1 for its top-left corner (null lets it flow), for the "
+                    + "wall's grouping; clearPositions: true lets the whole wall flow again. Each section is a grid of as many columns as fit "
+                    + "the screen (176 px each: about 6 on a laptop, 8 to 10 on a desktop, 2 on a phone) and rows of about 64 px; a widget "
+                    + "spans small 1×1, medium 1×2, large 2×3 and xlarge 2×5 cells (columns × rows; large and xlarge grow a few rows to fit "
+                    + "their controls). A section with positions keeps its gaps, so widgets can stand apart (a climate tile top left, the "
+                    + "sensors bottom right, a column per kind); one that overlaps another is moved down, its others flow into the free "
+                    + "cells, and on a narrower screen a widget past the last column is moved left. Without positions a section packs "
+                    + "its widgets in the order. Use positions to compose a layout: line a room's lights up on its first rows, keep "
+                    + "columns 1 to 4 for what matters on a laptop, and leave a free column or row between kinds of widget.",
                 inputSchema: [
                     "type": "object", "additionalProperties": false,
                     "properties": [
@@ -406,6 +474,11 @@ extension HomeswiftCatalog {
                         "sizes": ["type": "object", "additionalProperties": size, "description": "A size by accessory id"],
                         "defaults": ["type": "object", "additionalProperties": size, "description": "A size by kind of widget"],
                         "grouping": ["type": "string", "enum": ["none", "room", "plugin"]],
+                        "positions": [
+                            "type": "object", "description": "A cell by accessory or group id: its top-left [column, row], from 1; null lets it flow",
+                            "additionalProperties": ["type": ["array", "null"], "items": ["type": "integer", "minimum": 1], "minItems": 2, "maxItems": 2],
+                        ],
+                        "clearPositions": ["type": "boolean", "description": "Let every widget of the wall's grouping flow in the order again"],
                     ],
                 ],
                 outputSchema: output, scope: .admin
