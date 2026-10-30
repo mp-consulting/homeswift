@@ -1,8 +1,11 @@
 import Foundation
 import Homeswift
+import HomeswiftMatter
 import Logging
+import NIOConcurrencyHelpers
 
 // A bridge with a lamp (with Adaptive Lighting), a switch and a temperature sensor that drifts, for pairing with the Home app.
+// With --matter, the same accessories are a Matter bridge too, for Google Home, Alexa, SmartThings or Home Assistant.
 
 /// Writes straight to the file descriptor: unbuffered, so lines reach log files (brew services) at once.
 func say(_ text: String) {
@@ -11,10 +14,13 @@ func say(_ text: String) {
 
 if CommandLine.arguments.dropFirst().contains(where: { $0 == "--help" || $0 == "-h" }) {
     say("""
-        usage: homeswift-demo
+        usage: homeswift-demo [--matter]
 
         Runs a demo HomeKit bridge (a lamp, a switch, a temperature sensor) and prints its setup code.
         State is kept in ~/.homeswift/homeswift-demo.json.
+
+          --matter        also bridge the accessories over Matter (UDP port 5540) and print its pairing codes;
+                          the Matter node's state is kept in ~/.homeswift/homeswift-demo-matter/
 
         Environment:
           HAP_SETUP_CODE  setup code to use, e.g. 031-45-154 (default: random on first launch)
@@ -73,8 +79,30 @@ say("""
 
     """)
 
+let bridgesMatter = CommandLine.arguments.dropFirst().contains("--matter")
+// Set once it is made, for the signal handler to stop it.
+let matterBridge = NIOLockedValueBox<HomeswiftMatterBridge?>(nil)
+
 let main = Task {
     try await server.start()
+    if bridgesMatter {
+        let matter = try await HomeswiftMatterBridge(
+            configuration: MatterConfiguration(), source: ServerAccessories(server),
+            storage: MatterFileStorage(directory: FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".homeswift/homeswift-demo-matter")))
+        matterBridge.withLockedValue { $0 = matter }
+        try await matter.start()
+        // The demo shows the pairing codes on purpose: they are how a person commissions it.
+        let payload = matter.setupPayload
+        say(await matter.isCommissioned
+            ? "Matter: commissioned. Open a commissioning window from your controller to add another one.\n"
+            : """
+            Matter
+              Manual pairing code: \(payload.manualCode)
+              QR code payload:     \(payload.qrCode)
+
+            """)
+    }
     var reading = 21.0
     while !Task.isCancelled {
         try await Task.sleep(for: .seconds(10))
@@ -88,9 +116,10 @@ let signals = [SIGINT, SIGTERM].map { number in
     let source = DispatchSource.makeSignalSource(signal: number, queue: .main)
     signal(number, SIG_IGN)
     // Not main-actor code: Dispatch runs the handler on its own terms, so it only uses what it captures.
-    source.setEventHandler { @Sendable [main, server] in
+    source.setEventHandler { @Sendable [main, server, matterBridge] in
         main.cancel()
         Task {
+            await matterBridge.withLockedValue { $0 }?.stop()
             await server.stop()
             exit(0)
         }

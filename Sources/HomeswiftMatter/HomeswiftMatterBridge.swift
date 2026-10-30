@@ -7,13 +7,13 @@ import Logging
 import Matter
 
 /// The Matter bridge: every accessory the plugins publish (that the `HomeswiftMatter` block bridges) as a Matter
-/// bridged device, both ways. A value a plugin sets is reported to the Matter controllers; a Matter command writes the
+/// bridged device, both ways (or a single HAP server's, `ServerAccessories`). A value a plugin sets is reported to the Matter controllers; a Matter command writes the
 /// characteristic as Apple Home would, so plugins see no difference. Started by the CLI, like the web UI.
 public actor HomeswiftMatterBridge: MatterControl {
     public nonisolated let configuration: MatterConfiguration
     public nonisolated let node: MatterNode
     private let bridge: MatterBridge
-    private let host: PluginHost
+    private let source: any MatterAccessorySource
     private let logger: Logger
     /// The bridged accessories, by accessory id.
     private var devices: [String: Bridged] = [:]
@@ -48,11 +48,11 @@ public actor HomeswiftMatterBridge: MatterControl {
     /// The node's state (its fabrics and keys) lives in `storage`: `MatterFileStorage` under `matter/`, or memory in
     /// tests. `transport` and the advertiser default to UDP on the configured port and the built-in mDNS responder;
     /// tests pass memory ones, and MRP timings scaled down (`reliability`).
-    public init(configuration: MatterConfiguration, host: PluginHost, storage: any MatterStorage, transport: (any MatterTransport)? = nil,
-                advertise: Bool = true, reliability: ReliabilityParameters = .init(),
+    public init(configuration: MatterConfiguration, source: any MatterAccessorySource, storage: any MatterStorage,
+                transport: (any MatterTransport)? = nil, advertise: Bool = true, reliability: ReliabilityParameters = .init(),
                 logger: Logger = Logger(label: "homeswift.matter")) async throws {
         self.configuration = configuration
-        self.host = host
+        self.source = source
         self.logger = logger
         var nodeConfiguration = NodeConfiguration(
             information: NodeInformation(vendorName: "Homeswift", productName: "Homeswift Bridge", nodeLabel: "Homeswift",
@@ -72,13 +72,13 @@ public actor HomeswiftMatterBridge: MatterControl {
     public func start() async throws {
         let (changes, continuation) = AsyncStream<(Accessory, Characteristic, HAPValue)>.makeStream()
         // One stream keeps the changes in order (a press after the state it follows).
-        observations.append(host.observeChanges { accessory, characteristic, value in continuation.yield((accessory, characteristic, value)) })
+        observations.append(source.observeChanges { accessory, characteristic, value in continuation.yield((accessory, characteristic, value)) })
         tasks.append(Task { [weak self] in
             for await (accessory, characteristic, value) in changes { await self?.changed(accessory, characteristic, value) }
         })
         // Accessories coming and going: a burst (a plugin adding its devices at launch) makes one look, not one each.
         let (structure, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        observations.append(host.observeStructure { signal.yield() })
+        observations.append(source.observeStructure { signal.yield() })
         tasks.append(Task { [weak self] in
             for await _ in structure { await self?.sync() }
         })
@@ -105,35 +105,27 @@ public actor HomeswiftMatterBridge: MatterControl {
     /// Adds the accessories that appeared, removes those that left, makes again those whose services changed.
     func sync() async {
         var seen = Set<String>()
-        var owners: [ObjectIdentifier: [String: PluginHost.PlatformInstance]] = [:]
-        for platform in host.platforms {
-            for id in platform.accessoryIDs { owners[ObjectIdentifier(platform.bridge), default: [:]][id] = platform }
-        }
-        for bridgeEntry in host.bridges {
-            for accessory in bridgeEntry.server.accessories where accessory.id != "bridge" && accessory.mirroredFrom == nil {
-                let platform = owners[ObjectIdentifier(bridgeEntry)]?[accessory.id]
-                let names = [platform?.platform, platform?.name, accessory.id, accessory.name].compactMap { $0 }
-                guard configuration.bridges(names) else { continue }
-                let mappings = accessory.services.compactMap { ServiceMapping($0, exposeSecurity: configuration.exposeSecurity) }
-                guard !mappings.isEmpty else { continue }
-                seen.insert(accessory.id)
-                if let known = devices[accessory.id] {
-                    if known.shape == Bridged.shape(mappings) {
-                        if known.name != accessory.name { await known.device.setName(accessory.name) }
-                        if known.accessory !== accessory {
-                            // A plugin replaced the accessory with one of the same shape (its cached one, once it
-                            // reached the device): the device stays, on the new object's values.
-                            devices[accessory.id] = Bridged(device: known.device, accessory: accessory, mappings: mappings)
-                            await report(accessory, mappings: mappings, on: known.device)
-                        } else {
-                            devices[accessory.id]?.name = accessory.name
-                        }
-                        continue
+        for (accessory, names) in source.matterAccessories where accessory.id != "bridge" && accessory.mirroredFrom == nil {
+            guard configuration.bridges(names) else { continue }
+            let mappings = accessory.services.compactMap { ServiceMapping($0, exposeSecurity: configuration.exposeSecurity) }
+            guard !mappings.isEmpty else { continue }
+            seen.insert(accessory.id)
+            if let known = devices[accessory.id] {
+                if known.shape == Bridged.shape(mappings) {
+                    if known.name != accessory.name { await known.device.setName(accessory.name) }
+                    if known.accessory !== accessory {
+                        // A plugin replaced the accessory with one of the same shape (its cached one, once it
+                        // reached the device): the device stays, on the new object's values.
+                        devices[accessory.id] = Bridged(device: known.device, accessory: accessory, mappings: mappings)
+                        await report(accessory, mappings: mappings, on: known.device)
+                    } else {
+                        devices[accessory.id]?.name = accessory.name
                     }
-                    await remove(accessory.id)
+                    continue
                 }
-                await add(accessory, mappings: mappings)
+                await remove(accessory.id)
             }
+            await add(accessory, mappings: mappings)
         }
         for id in devices.keys where !seen.contains(id) { await remove(id) }
     }

@@ -87,7 +87,7 @@ struct BridgeFixture {
         plugin = try #require(created.plugin)
 
         let network = MemoryNetwork()
-        matter = try await HomeswiftMatterBridge(configuration: configuration, host: host, storage: Matter.MemoryStorage(),
+        matter = try await HomeswiftMatterBridge(configuration: configuration, source: host, storage: Matter.MemoryStorage(),
                                                  transport: await network.transport(named: "bridge"), advertise: false,
                                                  reliability: Self.fast, logger: testLogger)
         try await matter.start()

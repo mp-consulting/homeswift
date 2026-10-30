@@ -99,3 +99,9 @@ accessory's numbers are never given to another, so the ecosystems keep their roo
 
 Matter runs over UDP on IPv6 (and IPv4), and is found over mDNS (`_matterc._udp` while the window is open,
 `_matter._tcp` for each fabric). In Docker, use host networking; on Synology and other hosts, keep IPv6 on.
+
+## Trying it
+
+`homeswift-demo --matter` runs the demo bridge (a lamp, a switch, a temperature sensor) over HAP and Matter at once and
+prints the Matter pairing codes; the Matter node's state is kept in `~/.homeswift/homeswift-demo-matter/`, which you
+delete to start over.

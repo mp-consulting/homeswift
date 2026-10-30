@@ -300,7 +300,10 @@ let package = Package(
                     .when(platforms: [.macOS])),
             ]
         ),
-        .executableTarget(name: "homeswift-demo", dependencies: ["Homeswift"]),
+        .executableTarget(
+            name: "homeswift-demo",
+            dependencies: ["Homeswift", "HomeswiftMatter", .product(name: "NIOConcurrencyHelpers", package: "swift-nio")]
+        ),
         .testTarget(
             name: "HomeswiftTests",
             dependencies: ["Homeswift", .product(name: "Logging", package: "swift-log")]

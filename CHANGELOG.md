@@ -13,6 +13,7 @@ All notable changes to this project are documented here. The format follows
   fans, thermostats, buttons, and locks when `exposeSecurity` is on. The Status page's Matter card shows the
   pairing code and QR code to administrators, adds the bridge to another ecosystem and removes one; the MCP tools
   `get_matter_status`, `open_matter_commissioning_window` and `remove_matter_fabric` do the same.
+  `homeswift-demo --matter` bridges the demo's accessories over Matter too.
 - The Assistant arranges the Accessories wall: `get_wall_layout` and `set_wall_layout` (MCP, and the web UI's chat)
   read and change its order, each accessory's size, the default size of each kind of widget and the grouping. An
   `order` of some ids puts them in the places they hold together, so one room is sorted without moving the others.

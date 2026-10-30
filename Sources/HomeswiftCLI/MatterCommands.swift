@@ -10,7 +10,7 @@ enum MatterCommands {
         do {
             guard let block = try configuration.block(for: MatterConfiguration.platform) else { return nil }
             let matter = try MatterConfiguration(block: block)
-            let bridge = try await HomeswiftMatterBridge(configuration: matter, host: catalog.host,
+            let bridge = try await HomeswiftMatterBridge(configuration: matter, source: catalog.host,
                                                          storage: MatterFileStorage(directory: catalog.host.storageDirectory.appendingPathComponent("matter")),
                                                          logger: logger)
             try await bridge.start()
