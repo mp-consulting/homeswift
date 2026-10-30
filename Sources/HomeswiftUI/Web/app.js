@@ -527,7 +527,7 @@
       };
       const card = el("div", { class: "card server", id: own ? `matter-${slug(node.id)}` : "matter" },
         el("div", { class: "server-head" },
-          tile(own ? matterIcon(node) : "link", "green"),
+          tile(own ? matterIcon(node) : "matter", "green"),
           el("div", { class: "who" }, el("strong", { text: own ? node.name : t("Matter bridge") }),
             el("div", { class: "muted", text: own ? t("Matter device of its own, for Apple Home, Google Home, Alexa and Home Assistant") : t("For Google Home, Alexa, SmartThings and Home Assistant") })),
           el("span", { class: `pill status ${fabrics.length ? "on" : "away"}`, text: fabrics.length ? tn("In one ecosystem", "In {n} ecosystems", fabrics.length) : t("Not added yet") })),

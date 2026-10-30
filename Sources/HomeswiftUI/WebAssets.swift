@@ -750,7 +750,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// /api/accessories. A plugin block sits under the bridge its platform entry names; a plugin's accessories are the
   /// ones of its platform on that bridge, given to the first block that has them. A `filter` (see `overviewFilter`)
   /// keeps the accessories it matches, and only the plugins and bridges that still have some.
-  function overviewModel(status, plugins, accessories, filter = null) {
+  function overviewModel(status, plugins, accessories, filter = null, matter = null) {
     const bridges = status.bridges ?? [];
     const main = bridges.find((bridge) => !bridge.childBridge) ?? bridges[0];
     const tops = bridges.map((bridge) => ({
@@ -761,7 +761,27 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const claimed = new Set();
     let pluginCount = 0, pausedCount = 0, colorIndex = 0;
     for (const block of plugins?.blocks ?? []) {
-      if (block.system) { tops.push({ kind: "system", name: block.name, children: [], sub: t("Built in") }); continue; }
+      if (block.system) {
+        const top = { kind: "system", name: block.name, children: [], sub: t("Built in") };
+        // The Matter block: its devices of their own and its bridged ones, each the accessory it shows.
+        if (block.platform === "HomeswiftMatter" && matter?.enabled) {
+          top.icon = "matter";
+          const color = "var(--ok)";
+          const branches = [[t("Devices of their own"), matter.ownDevices], [t("Bridged over Matter"), matter.bridge === false ? [] : matter.devices]];
+          for (const [name, devices] of branches) {
+            const ids = new Set((devices ?? []).map((device) => device.id));
+            let leaves = accessories.filter((accessory) => ids.has(accessory.id));
+            if (filter) leaves = leaves.filter(filter.keeps);
+            if (!leaves.length) continue;
+            leaves.sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
+            top.children.push({ kind: "plugin", name, platform: block.platform, icon: "matter", bridgeName: block.name, paused: false, leaves, color,
+              sub: tn("{n} accessory", "{n} accessories", leaves.length, {}) });
+          }
+          top.sub = tn("{n} accessory", "{n} accessories", top.children.reduce((sum, branch) => sum + branch.leaves.length, 0), {});
+        }
+        tops.push(top);
+        continue;
+      }
       const entry = entries.find((one) => one.name === block.name);
       const bridgeName = entry?.bridge ?? main?.name;
       const parent = topByName.get(bridgeName);
@@ -922,9 +942,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   /// The model of what homeswift runs, with what it was built from (the graph builds filtered ones from it).
   async function loadOverview() {
-    const [status, plugins, accessories] = await Promise.all([api("/api/status"), api("/api/plugins").catch(() => null), api("/api/accessories").catch(() => [])]);
-    const model = overviewModel(status, plugins, accessories);
-    model.source = { status, plugins, accessories };
+    const [status, plugins, accessories, matter] = await Promise.all([api("/api/status"), api("/api/plugins").catch(() => null),
+      api("/api/accessories").catch(() => []), api("/api/matter").catch(() => null)]);
+    const model = overviewModel(status, plugins, accessories, null, matter);
+    model.source = { status, plugins, accessories, matter };
     return model;
   }
 
@@ -975,7 +996,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function bridgeDetails(top) {
     const bridge = top.raw;
     const type = top.kind === "system" ? t("Built in") : t(top.kind === "child" ? "Child bridge" : "Bridge");
-    return { name: top.name, icon: top.kind === "system" ? "system" : "bridge", warn: top.paired === false,
+    return { name: top.name, icon: top.icon ?? (top.kind === "system" ? "system" : "bridge"), warn: top.paired === false,
       status: top.kind === "system" ? t("Built in") : top.paired ? t("Paired · {count}", { count: bridge.controllers ?? 0 }) : t("Not paired"),
       facts: [factRow("bridgeType", type), factRow("bridgeAccessories", top.count), factRow("port", bridge?.port), factRow("deviceId", bridge?.deviceId),
         factRow("platforms", bridge?.platforms?.join(", "))] };
@@ -1234,7 +1255,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     svg.addEventListener("focusout", hide);
 
     // Search and filters, as on the Accessories page: the graph is drawn again from what they keep, faded across.
-    const { status, plugins, accessories: all } = model.source;
+    const { status, plugins, accessories: all, matter } = model.source;
     const chosen = { bridges: new Set(), categories: new Set(), unavailable: false };
     const search = el("input", { type: "search", class: "search", placeholder: t("Search accessories"), "aria-label": t("Search accessories") });
     const filters = el("button", { type: "button", "aria-haspopup": "menu" });
@@ -1252,7 +1273,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // Every graph is built from the filter, the first too (a filtered build moves the accessories the builds share).
     const redraw = () => {
       const filter = filterOf();
-      const next = overviewModel(status, plugins, all, filter);
+      const next = overviewModel(status, plugins, all, filter, matter);
       closeDetail();
       tip.hidden = true;
       cancelAnimationFrame(animation);
@@ -1338,7 +1359,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     for (const top of model.tops) {
       edges.push(link(root, top, "trunk", top.color));
       nodes.push(node(top, { classes: `node bridge-node${top.kind === "system" ? " built-in" : ""}${top.paired === false ? " unpaired" : ""}`,
-        radius: nodeRadius.top, icon: top.kind === "system" ? "system" : "bridge", size: 20, tip: `${top.name} · ${top.sub}`,
+        radius: nodeRadius.top, icon: top.icon ?? (top.kind === "system" ? "system" : "bridge"), size: 20, tip: `${top.name} · ${top.sub}`,
         card: () => bridgeDetails(top), zoom: { radius: (rings.top + rings.plugin) / 2, k: 1.8 } }));
       for (const branch of top.children) {
         edges.push(link(top, branch, `branch${branch.paused ? " paused" : ""}`, branch.color));
@@ -1913,7 +1934,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       };
       const card = el("div", { class: "card server", id: own ? `matter-${slug(node.id)}` : "matter" },
         el("div", { class: "server-head" },
-          tile(own ? matterIcon(node) : "link", "green"),
+          tile(own ? matterIcon(node) : "matter", "green"),
           el("div", { class: "who" }, el("strong", { text: own ? node.name : t("Matter bridge") }),
             el("div", { class: "muted", text: own ? t("Matter device of its own, for Apple Home, Google Home, Alexa and Home Assistant") : t("For Google Home, Alexa, SmartThings and Home Assistant") })),
           el("span", { class: `pill status ${fabrics.length ? "on" : "away"}`, text: fabrics.length ? tn("In one ecosystem", "In {n} ecosystems", fabrics.length) : t("Not added yet") })),
@@ -7196,6 +7217,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     bulb: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/>',
     switch: '<rect x="6" y="3" width="12" height="18" rx="3"/><circle cx="12" cy="9" r="2"/>',
     outlet: '<rect x="4" y="4" width="16" height="16" rx="4"/><path d="M10 9v2M14 9v2M10 15h4"/>',
+    // Matter, as a neutral mark (three linked nodes): its logo is for certified products only.
+    matter: '<circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="18" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="m10.8 7.3-4.6 8.4M13.2 7.3l4.6 8.4M7.5 18h9"/>',
     vacuum: '<circle cx="12" cy="12" r="8.5"/><path d="M6.5 9.5a6.5 6.5 0 0 1 11 0"/><circle cx="12" cy="13.5" r="2"/>',
     sensor: '<circle cx="12" cy="12" r="2"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8"/>',
     fan: '<circle cx="12" cy="12" r="2"/><path d="M12 10c0-4 1-7 4-7 2 0 3 2 2 4l-4 4M14 12c4 0 7 1 7 4 0 2-2 3-4 2l-4-4M12 14c0 4-1 7-4 7-2 0-3-2-2-4l4-4M10 12c-4 0-7-1-7-4 0-2 2-3 4-2l4 4"/>',
@@ -10463,6 +10486,8 @@ HomeswiftI18n.add("es", {
   "{name} loses the bridge and every device on it, with their rooms and automations.": "{name} pierde el puente y todos sus dispositivos, con sus habitaciones y automatizaciones.",
   "In the ecosystem's app: add a Matter device, then scan this code or type it.": "En la app del ecosistema: añade un dispositivo Matter y escanea este código o introdúcelo.",
   "Add to another ecosystem": "Añadir a otro ecosistema",
+  "Devices of their own": "Dispositivos propios",
+  "Bridged over Matter": "Puenteados por Matter",
   "{vendor}'s hubs and other devices lose their link to this device: it stops responding there until it is added again.": "Los concentradores y otros dispositivos de {vendor} pierden su enlace con este dispositivo: deja de responder allí hasta que se vuelva a añadir.",
   "{vendor} system": "Sistema de {vendor}",
   "{vendor}'s own link to the device, from your other devices and hubs: keep it.": "El enlace propio de {vendor} con el dispositivo, desde tus otros dispositivos y concentradores: consérvalo.",
@@ -12800,6 +12825,8 @@ HomeswiftI18n.add("fr", {
   "{name} loses the bridge and every device on it, with their rooms and automations.": "{name} perd le pont et tous ses appareils, avec leurs pièces et automatisations.",
   "In the ecosystem's app: add a Matter device, then scan this code or type it.": "Dans l'app de l'écosystème : ajoutez un appareil Matter, puis scannez ce code ou saisissez-le.",
   "Add to another ecosystem": "Ajouter à un autre écosystème",
+  "Devices of their own": "Appareils à part entière",
+  "Bridged over Matter": "Reliés par Matter",
   "{vendor}'s hubs and other devices lose their link to this device: it stops responding there until it is added again.": "Les concentrateurs et autres appareils de {vendor} perdent leur lien avec cet appareil : il ne répond plus de ce côté jusqu'à ce qu'il soit ajouté de nouveau.",
   "{vendor} system": "Système {vendor}",
   "{vendor}'s own link to the device, from your other devices and hubs: keep it.": "Le lien de {vendor} avec l'appareil, depuis vos autres appareils et concentrateurs : gardez-le.",
@@ -15137,6 +15164,8 @@ HomeswiftI18n.add("pt", {
   "{name} loses the bridge and every device on it, with their rooms and automations.": "{name} perde a ponte e todos os seus dispositivos, com as suas divisões e automatizações.",
   "In the ecosystem's app: add a Matter device, then scan this code or type it.": "Na app do ecossistema: adicione um dispositivo Matter e leia este código ou introduza-o.",
   "Add to another ecosystem": "Adicionar a outro ecossistema",
+  "Devices of their own": "Dispositivos próprios",
+  "Bridged over Matter": "Ligados por Matter",
   "{vendor}'s hubs and other devices lose their link to this device: it stops responding there until it is added again.": "Os concentradores e outros dispositivos do {vendor} perdem a ligação a este dispositivo: deixa de responder aí até ser adicionado de novo.",
   "{vendor} system": "Sistema do {vendor}",
   "{vendor}'s own link to the device, from your other devices and hubs: keep it.": "A ligação própria do {vendor} ao dispositivo, a partir dos seus outros dispositivos e concentradores: mantenha-a.",

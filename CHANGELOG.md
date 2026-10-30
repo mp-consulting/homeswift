@@ -22,7 +22,9 @@ All notable changes to this project are documented here. The format follows
   robot's switch is a cleaning robot, a Robotic Vacuum Cleaner over Matter. Apple Home pairs a device of its own
   (it sends AddNOC's intermediate certificate empty, which swift-matter now takes as none).
 - A Matter device's card on the Status page shows its device type's icon, and each ecosystem by its vendor: Apple
-  Home's unnamed system fabric is a muted chip with a house, to keep.
+  Home's unnamed system fabric is a muted chip with a house, to keep. The Accessories graph shows the Matter block's
+  devices (its devices of their own and its bridged ones) under it, with a neutral Matter mark: the Matter logo is for
+  certified products only.
 - The Assistant arranges the Accessories wall: `get_wall_layout` and `set_wall_layout` (MCP, and the web UI's chat)
   read and change its order, each accessory's size, the default size of each kind of widget and the grouping. An
   `order` of some ids puts them in the places they hold together, so one room is sorted without moving the others.
