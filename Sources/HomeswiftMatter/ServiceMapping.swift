@@ -19,7 +19,8 @@ struct ServiceMapping: Sendable {
         case covering
         /// A fan, with Swing Mode (rocking) and Rotation Direction (airflow) when it has them.
         case fan(rocking: Bool, direction: Bool)
-        case thermostat(cooling: Bool)
+        /// A Thermostat, with auto between its thresholds when it heats, cools and has both.
+        case thermostat(cooling: Bool, auto: Bool)
         /// A Heater Cooler: a thermostat with the modes its target state allows, auto keeping it between its thresholds.
         case heaterCooler(heating: Bool, cooling: Bool, auto: Bool)
         case lock
@@ -86,7 +87,9 @@ struct ServiceMapping: Sendable {
         case ServiceType.thermostat.uuid:
             // Cooling when the target state allows it (2): HAP's default range does, a heater narrows it.
             let modes = service[.targetHeatingCoolingState]?.type.validValues ?? [0, 1, 2, 3]
-            role = .thermostat(cooling: modes.contains(2))
+            let cooling = modes.contains(2)
+            // Auto (3) keeps it between its thresholds: without them it has one target, and auto shows as heat.
+            role = .thermostat(cooling: cooling, auto: cooling && modes.contains(3) && has(.heatingThresholdTemperature) && has(.coolingThresholdTemperature))
         case ServiceType.heaterCooler.uuid:
             // Target Heater Cooler State: auto 0, heat 1, cool 2, as its valid values allow.
             let modes = service[.targetHeaterCoolerState]?.type.validValues ?? [0, 1, 2]
@@ -132,7 +135,7 @@ struct ServiceMapping: Sendable {
         case .leak: return .waterLeakDetector
         case .covering: return .windowCovering
         case .fan(let rocking, let direction): return .fan(rocking: rocking, airflowDirection: direction)
-        case .thermostat(let cooling): return .thermostat(heating: true, cooling: cooling)
+        case .thermostat(let cooling, let auto): return .thermostat(heating: true, cooling: cooling, auto: auto)
         case .heaterCooler(let heating, let cooling, let auto): return .thermostat(heating: heating, cooling: cooling, auto: auto)
         case .lock: return .doorLock
         case .garageDoor: return .closure(.garageDoor)
@@ -205,13 +208,18 @@ struct ServiceMapping: Sendable {
                 let left = filter[.filterLifeLevel]?.value.doubleValue.map { UInt8(min(max($0, 0), 100).rounded()) }
                 states.append(.filter(percentLeft: left, needsChange: filter[.filterChangeIndication].flatMap { Self.flag($0.value) } ?? false))
             }
-        case .thermostat:
+        case .thermostat(_, let auto):
             if let celsius = value(.currentTemperature) { states.append(.localTemperature(celsius.doubleValue)) }
-            let mode = service[.targetHeatingCoolingState]?.value.intValue ?? 1
-            if value(.targetHeatingCoolingState) != nil { states.append(.thermostatMode(Self.systemMode(hap: mode))) }
-            // HAP has one target; Matter a setpoint per mode: the one of the mode in use, again when the mode changes.
+            let (mode, inAuto) = thermostatMode(auto: auto)
+            if value(.targetHeatingCoolingState) != nil { states.append(.thermostatMode(Self.systemMode(hap: mode, auto: auto))) }
+            // HAP has one target, or two thresholds in auto; Matter a setpoint per mode: the ones of the mode in use,
+            // again when the mode changes.
             let modeChanged = changedType == CharacteristicType.targetHeatingCoolingState.uuid
-            if let target = (modeChanged ? service[.targetTemperature]?.value : value(.targetTemperature))?.doubleValue {
+            func current(_ type: CharacteristicType) -> Double? { (modeChanged ? service[type]?.value : value(type))?.doubleValue }
+            if inAuto {
+                if let celsius = current(.heatingThresholdTemperature) { states.append(.heatingSetpoint(celsius)) }
+                if let celsius = current(.coolingThresholdTemperature) { states.append(.coolingSetpoint(celsius)) }
+            } else if let target = current(.targetTemperature) {
                 states.append(mode == 2 ? .coolingSetpoint(target) : .heatingSetpoint(target))
             }
         case .heaterCooler(let heating, let cooling, _):
@@ -283,7 +291,14 @@ struct ServiceMapping: Sendable {
     func writes(for command: DeviceCommand) -> [(Characteristic, HAPValue)] {
         var writes: [(Characteristic, HAPValue)] = []
         func write(_ type: CharacteristicType, _ value: HAPValue) {
-            if let characteristic = service[type] { writes.append((characteristic, value)) }
+            guard let characteristic = service[type] else { return }
+            // A temperature in Matter's limits may lie outside HAP's (a heating threshold stops at 25 °C): the nearest one.
+            if case .double(let number) = value {
+                let low = characteristic.type.minValue ?? -.infinity, high = characteristic.type.maxValue ?? .infinity
+                writes.append((characteristic, .double(min(max(number, low), high))))
+            } else {
+                writes.append((characteristic, value))
+            }
         }
         switch command {
         case .setOn(let on):
@@ -326,16 +341,16 @@ struct ServiceMapping: Sendable {
         case .resetFilter:
             if let reset = filter?[.resetFilterIndication] { writes.append((reset, .int(1))) }
         case .setHeatingSetpoint(let celsius):
-            write(setpoints.heating, .double(celsius))
+            for type in setpointTargets(cooling: false) { write(type, .double(celsius)) }
         case .setCoolingSetpoint(let celsius):
-            write(setpoints.cooling, .double(celsius))
+            for type in setpointTargets(cooling: true) { write(type, .double(celsius)) }
         case .setThermostatMode(let mode):
             if case .heaterCooler = role {
                 // Off is Active off; a mode is Active on with the Target Heater Cooler State.
                 guard let target = Self.heaterCoolerMode(systemMode: mode) else { write(.active, .int(0)); break }
                 write(.active, .int(1))
                 write(.targetHeaterCoolerState, .int(target))
-            } else if let hap = Self.hapMode(systemMode: mode) {
+            } else if case .thermostat(_, let auto) = role, let hap = Self.hapMode(systemMode: mode, auto: auto) {
                 write(.targetHeatingCoolingState, .int(hap))
             }
         case .setLocked(let locked):
@@ -357,10 +372,24 @@ struct ServiceMapping: Sendable {
         return writes
     }
 
-    /// The characteristics Matter's two setpoints write: a Heater Cooler's thresholds, else the one target temperature.
-    private var setpoints: (heating: CharacteristicType, cooling: CharacteristicType) {
-        if case .heaterCooler = role { return (.heatingThresholdTemperature, .coolingThresholdTemperature) }
-        return (.targetTemperature, .targetTemperature)
+    /// What Matter's heating or cooling setpoint writes: a Heater Cooler's threshold; a Thermostat's threshold when it
+    /// has auto (whatever mode HAP reports yet: a controller may send auto and its setpoints together), and its one
+    /// target temperature when that is the setpoint of the mode in use, so a cooling setpoint never moves a heat target.
+    private func setpointTargets(cooling: Bool) -> [CharacteristicType] {
+        let threshold: CharacteristicType = cooling ? .coolingThresholdTemperature : .heatingThresholdTemperature
+        switch role {
+        case .heaterCooler: return [threshold]
+        case .thermostat(_, let auto):
+            let (mode, inAuto) = thermostatMode(auto: auto)
+            return (auto ? [threshold] : []) + ((mode == 2) == cooling && !inAuto ? [.targetTemperature] : [])
+        default: return []
+        }
+    }
+
+    /// A Thermostat's Target Heating Cooling State, and whether it is auto in Matter (3, with thresholds).
+    private func thermostatMode(auto: Bool) -> (mode: Int, inAuto: Bool) {
+        let mode = service[.targetHeatingCoolingState]?.value.intValue ?? 1
+        return (mode, auto && mode == 3)
     }
 
     // MARK: - Conversions
@@ -385,18 +414,19 @@ struct ServiceMapping: Sendable {
         (Double(min(value, 254)) * range / 254).rounded()
     }
 
-    /// HAP Target Heating Cooling State (off 0, heat 1, cool 2, auto 3) to Matter's SystemMode (off 0, cool 3, heat 4):
-    /// auto, which the bridge's thermostats do not offer in Matter, shows as heat.
-    static func systemMode(hap: Int) -> UInt8 {
+    /// HAP Target Heating Cooling State (off 0, heat 1, cool 2, auto 3) to Matter's SystemMode (off 0, auto 1, cool 3,
+    /// heat 4): auto is Matter's for a thermostat that offers it there, else it shows as heat.
+    static func systemMode(hap: Int, auto: Bool = false) -> UInt8 {
         typealias Mode = ThermostatCluster.SystemModeEnum
-        return UInt8(hap == 0 ? Mode.off : hap == 2 ? Mode.cool : Mode.heat)
+        return UInt8(hap == 0 ? Mode.off : hap == 2 ? Mode.cool : hap == 3 && auto ? Mode.auto : Mode.heat)
     }
 
-    static func hapMode(systemMode: UInt8) -> Int? {
+    static func hapMode(systemMode: UInt8, auto: Bool = false) -> Int? {
         switch UInt64(systemMode) {
         case ThermostatCluster.SystemModeEnum.off: 0
         case ThermostatCluster.SystemModeEnum.heat: 1
         case ThermostatCluster.SystemModeEnum.cool: 2
+        case ThermostatCluster.SystemModeEnum.auto where auto: 3
         default: nil
         }
     }
