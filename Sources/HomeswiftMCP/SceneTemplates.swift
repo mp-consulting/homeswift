@@ -60,9 +60,11 @@ extension HomeswiftCatalog {
 
     /// The tried plans still playing or still to undo; the others are forgotten.
     func activeTries() -> [PlanRun] {
-        let live = Set(home.planRuns.withLockedValue { Array($0.keys) }.filter { isPlaying($0) || isStoppable($0) })
+        // Judged outside the lock (it reads other state); a try started meanwhile was not judged, so it stays.
+        let judged = home.planRuns.withLockedValue { Array($0.keys) }
+        let gone = Set(judged.filter { !isPlaying($0) && !isStoppable($0) })
         return home.planRuns.withLockedValue { runs in
-            runs = runs.filter { live.contains($0.key) }
+            runs = runs.filter { !gone.contains($0.key) }
             return runs.values.sorted { $0.startedAt < $1.startedAt }
         }
     }

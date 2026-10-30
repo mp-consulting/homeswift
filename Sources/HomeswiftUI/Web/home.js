@@ -275,7 +275,9 @@
   function hubSceneButton(scene) {
     const picture = sceneImage(scene, "quick-scene-image");
     const colours = (scene.colours || []).filter((colour) => /^#[0-9a-f]{3,8}$/i.test(colour));
-    const button = el("button", { type: "button", class: `scene-run hub-scene${picture ? " pictured" : colours.length ? " coloured" : ""}${scene.active ? " active" : ""}`, title: t("Run {name}", { name: scene.name }) },
+    // A scene its hub runs on its own (an IKEA wake-up) is shown, not run.
+    const runnable = (scene.capabilities || []).includes("recall");
+    const button = el("button", { type: "button", disabled: !runnable, class: `scene-run hub-scene${picture ? " pictured" : colours.length ? " coloured" : ""}${scene.active ? " active" : ""}`, title: runnable ? t("Run {name}", { name: scene.name }) : scene.name },
       picture,
       el("span", { class: "quick-scene-label" }, HomeswiftCommon.icon("play"),
         el("span", {}, el("span", { text: scene.name }), el("span", { class: "scene-source", text: scene.source.pluginName }))),
@@ -284,7 +286,7 @@
     button.addEventListener("click", async () => { if (await runScene(scene, button)) app.route(); });
     const stop = scene.stoppable ? el("button", { type: "button", class: "link", actionIcon: "stop", text: t("Stop"), onclick: () => stopScene(scene, stop) }) : null;
     // A Homeswift scene that recalls it, to give it triggers and conditions.
-    const automate = el("button", { type: "button", class: "link", actionIcon: "history", text: t("Automate"), onclick: async () => {
+    const automate = !runnable ? null : el("button", { type: "button", class: "link", actionIcon: "history", text: t("Automate"), onclick: async () => {
       automate.disabled = true;
       try {
         const saved = await app.api("/api/scenes", { method: "POST", body: { name: scene.name.slice(0, 64), artworkId: scene.artworkId || null, actions: [{ recall: scene.id }] } });
@@ -1334,7 +1336,9 @@
     let targetsAsked = "";
     const refreshTargets = async () => {
       if (!isNew) return;
-      const read = [...actions].flatMap((row) => row.read());
+      let read;
+      // A row still being filled in has nothing to read yet.
+      try { read = [...actions].flatMap((row) => row.read()); } catch { return; }
       const fits = read.length && !read.some((a) => a.recall || !hubLight.has(String(a.characteristic).toLowerCase().replace(/\s/g, "")))
         && ![...triggers].length && !animation.read() && !homeKit.checked;
       const ids = fits ? [...new Set(read.map((a) => a.id))].sort() : [];

@@ -482,6 +482,8 @@ struct PhilipsHueTests {
         #expect(changed.body["metadata"]?["name"]?.stringValue?.count == 32)
         #expect(changed.body["actions"]?[0]?["action"]?["color_temperature"] == ["mirek": 500])
         await #expect(throws: (any Error).self) { try await plugin.updateScene(id: "smart-1", name: "No", lights: nil) }
+        // The desk is upstairs, not in the living room the scene belongs to.
+        await #expect(throws: PluginSceneError.self) { try await plugin.updateScene(id: id, name: nil, lights: [PluginSceneLight(accessoryID: desk, on: true)]) }
 
         try await plugin.deleteScene(id: id)
         #expect(environment.bridge.sent.contains(.init(method: "DELETE", path: "/clip/v2/resource/scene/\(id)", body: .null)))

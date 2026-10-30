@@ -261,4 +261,13 @@ import Testing
         #expect(!HomeswiftCatalog.name("Brightness", normalizesTo: "bright"))
         #expect(SceneArtwork.matching(name: "arctic AURORA!")?.id == "arctic-aurora")
     }
+
+    /// A light whose Hue and Saturation are what HomeKit derives from its Color Temperature keeps a white.
+    @Test func whitesAreToldFromColours() {
+        let warm = ColorUtils.colorTemperatureToHueAndSaturation(370)
+        #expect(HomeswiftCatalog.isWhite(hue: warm.hue, saturation: warm.saturation, mirek: 370))
+        #expect(HomeswiftCatalog.isWhite(hue: 200, saturation: 3, mirek: 250))
+        #expect(!HomeswiftCatalog.isWhite(hue: 120, saturation: 90, mirek: 370))
+        #expect(!HomeswiftCatalog.isWhite(hue: warm.hue + 180, saturation: warm.saturation, mirek: 370))
+    }
 }

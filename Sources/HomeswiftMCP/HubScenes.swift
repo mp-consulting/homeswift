@@ -44,7 +44,8 @@ extension HomeswiftCatalog {
         return order.compactMap { lights[$0] }
     }
 
-    /// The lights' states now, for a hub scene updated "from the lights as they are".
+    /// The lights' states now, for a hub scene updated "from the lights as they are". HomeKit has no colour mode: a
+    /// light whose Hue and Saturation are the colour of its Color Temperature (as HomeKit derives them) shows a white.
     func currentHubLights(_ ids: [String]) throws -> [PluginSceneLight] {
         var actions: [SceneAction] = []
         for id in ids {
@@ -54,7 +55,19 @@ extension HomeswiftCatalog {
                 actions.append(SceneAction(id: id, service: nil, characteristic: name, value: Self.json(target.value), recall: nil))
             }
         }
-        return try hubLights(from: actions)
+        return try hubLights(from: actions).map { light in
+            guard let hue = light.hue, let saturation = light.saturation, let mirek = light.colorTemperature, Self.isWhite(hue: hue, saturation: saturation, mirek: mirek) else { return light }
+            var white = light
+            (white.hue, white.saturation) = (nil, nil)
+            return white
+        }
+    }
+
+    /// Whether this colour is the one HomeKit gives a white of `mirek` (a few degrees and points apart), or a pale tint.
+    static func isWhite(hue: Double, saturation: Double, mirek: Int) -> Bool {
+        let derived = ColorUtils.colorTemperatureToHueAndSaturation(Double(mirek), rounded: false)
+        let hueGap = abs(((hue - derived.hue).truncatingRemainder(dividingBy: 360) + 540).truncatingRemainder(dividingBy: 360) - 180)
+        return saturation < 8 || (hueGap <= 12 && abs(saturation - derived.saturation) <= 12)
     }
 
     /// Saves a plan as a new scene on a hub (`hub`, from `hubTargets`); a dry run answers what would be kept there.

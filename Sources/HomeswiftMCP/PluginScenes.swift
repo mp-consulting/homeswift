@@ -24,7 +24,7 @@ extension HomeswiftCatalog {
     /// The plugin scene with this id, or the only one with this name (case aside). An id asks only the instance it
     /// names.
     func pluginScene(_ reference: String) async -> FoundPluginScene? {
-        for instance in host.platforms where !instance.paused && reference.hasPrefix(Self.pluginSceneID(platform: instance.platform, name: instance.name, scene: "")) {
+        for instance in host.runningInstanceNames() where reference.hasPrefix(Self.pluginSceneID(platform: instance.platform, name: instance.name, scene: "")) {
             guard let entry = await host.pluginScenes(platform: instance.platform, name: instance.name),
                   let scene = entry.scenes.first(where: { Self.pluginSceneID(platform: instance.platform, name: instance.name, scene: $0.id) == reference }) else { continue }
             return FoundPluginScene(instance: entry.instance, scene: scene)

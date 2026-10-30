@@ -57,6 +57,12 @@ extension PhilipsHuePlugin {
 
     public func updateScene(id: String, name: String?, lights: [PluginSceneLight]?) async throws {
         let client = try writableScene(id)
+        if let lights, let scene = snapshot.scenes.first(where: { $0.id == id }), let group = snapshot.groups.first(where: { $0.id == scene.groupID }) {
+            let held = Set(group.lightIDs)
+            guard lights.allSatisfy({ held.contains(Self.lightID(ofAccessory: $0.accessoryID)) }) else {
+                throw PluginSceneError("\(group.name) does not hold all these lights")
+            }
+        }
         var body: [String: JSONValue] = [:]
         if let name { body["metadata"] = ["name": .string(Self.sceneName(name))] }
         if let lights { body["actions"] = .array(try sceneActions(lights)) }

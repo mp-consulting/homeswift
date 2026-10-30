@@ -112,6 +112,11 @@ extension PluginHost {
         await scenes(of: runningPlugins())
     }
 
+    /// The running instances' platforms and names, without describing their accessories.
+    public func runningInstanceNames() -> [(platform: String, name: String)] {
+        runningPlugins().map { ($0.instance.context.platform, $0.instance.context.name) }
+    }
+
     /// The scenes of the instance `name` of `platform` only, when it runs: a hub scene's id names its instance.
     public func pluginScenes(platform: String, name: String) async -> InstanceScenes? {
         await scenes(of: runningPlugins().filter { $0.instance.context.platform == platform && $0.instance.context.name == name }).first
