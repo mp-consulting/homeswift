@@ -161,6 +161,8 @@ public final class PluginHost: @unchecked Sendable {
     private let assistantBox = NIOLockedValueBox<AssistantService?>(nil)
     // Characteristic changes of every server the host runs, for the web UI and the MCP server.
     private let changes: ChangeFeed
+    // Accessories coming and going on every server the host runs, for the Matter bridge.
+    private let structure: StructureFeed
     // How long requests and handlers take on every server, for the Status page's charts.
     private let timings: TimingFeed
     private let values = ValueFeed()
@@ -193,11 +195,15 @@ public final class PluginHost: @unchecked Sendable {
         let changes = ChangeFeed()
         self.changes = changes
         changes.follow(mainServer)
+        let structure = StructureFeed()
+        self.structure = structure
+        structure.follow(mainServer)
         let timings = TimingFeed()
         self.timings = timings
         timings.follow(main)
         externals = ExternalAccessories(bridges: bridgeList, storageDirectory: storageDirectory, options: options, setupCode: { mainServer.setupCode }) { bridge in
             changes.follow(bridge.server)
+            structure.follow(bridge.server)
             timings.follow(bridge)
         }
 
@@ -329,6 +335,12 @@ public final class PluginHost: @unchecked Sendable {
     /// included (a child bridge, a television published after start), until the observation is cancelled.
     public func observeChanges(_ observer: @escaping HAPServer.ChangeObserver) -> Observation {
         changes.add(observer)
+    }
+
+    /// Calls `observer` after an accessory is added, replaced or removed on any server the host runs, and when the
+    /// host adds a server, until the observation is cancelled. It says nothing of what changed: look again.
+    public func observeStructure(_ observer: @escaping @Sendable () -> Void) -> Observation {
+        structure.add(observer)
     }
 
     /// Calls `observer` with how long each request and handler took on any server the host runs, with that
@@ -541,6 +553,7 @@ public final class PluginHost: @unchecked Sendable {
     private func appendBridge(_ bridge: Bridge) {
         bridgeList.withLockedValue { $0.append(bridge) }
         changes.follow(bridge.server)
+        structure.follow(bridge.server)
         timings.follow(bridge)
     }
 
