@@ -9363,7 +9363,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     };
     source?.addEventListener("change", () => filter());
     const node = el("section", { class: "hub-scenes" },
-      el("div", { class: "section-head" }, el("h2", { text: t("Scenes from your hubs") }), count, source),
+      el("div", { class: "section-head hub-scenes-head" }, el("h2", { text: t("Scenes from your hubs") }), count, source),
       el("p", { class: "muted", text: t("Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; rename, update or delete a Hue or IKEA scene from its ⋯ menu.") }),
       groups.map(({ node }) => node));
     return { node, filter };
@@ -9692,7 +9692,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         data.scenes.length ? el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") }) : null),
       el("div", { class: "section-head" }, el("h2", { text: t("Your scenes") }), sceneCount, data.scenes.length || hubScenes.node ? [search, HomeswiftCommon.clearFilters([[search, ""]])] : null),
       data.scenes.length ? el("div", { class: "grid scene-grid" }, sceneCards.map(({ node }) => node))
-        : el("div", { class: "card empty scenes-empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("play")), el("p", { class: "muted", text: t("No scene yet. A scene sets several accessories at once, such as every light of a room for the evening.") }), el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") })),
+        // Short when the hubs' scenes follow: they are what there is to run.
+        : el("div", { class: `card empty scenes-empty${hubScenes.node ? " compact" : ""}` }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("play")), el("p", { class: "muted", text: t("No scene yet. A scene sets several accessories at once, such as every light of a room for the evening.") }), el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") })),
       noMatches, hubScenes.node, templatesSection(accessories, data), locationCard(data));
   }
 
@@ -20397,6 +20398,11 @@ label > input, label > select { margin-top: 5px; }
 .card.empty { text-align: center; padding: 28px var(--space-20); grid-column: 1 / -1; }
 .card.empty p { margin: 0; }
 .scenes-empty > .button { margin-top: var(--space-12); }
+.scenes-empty.compact { display: flex; align-items: center; gap: var(--space-14); padding: var(--space-14) var(--space-18); text-align: left; }
+.scenes-empty.compact > .button { margin: 0 0 0 auto; flex: none; }
+.card.empty.scenes-empty.compact > p { flex: 1; max-width: none; margin: 0; }
+.scenes-empty.compact > .empty-glyph { flex: none; width: 40px; height: 40px; margin: 0; }
+@media (max-width: 640px) { .scenes-empty.compact { flex-wrap: wrap; } .scenes-empty.compact > .button { margin-left: 0; } }
 /* An empty state's glyph: what would be here, in a soft disc above the words. */
 .empty-glyph { display: grid; place-items: center; width: 52px; height: 52px; margin: 0 auto var(--space-12); border-radius: 50%; color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .empty-glyph svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
@@ -21946,9 +21952,13 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 .scene-run.coloured { color: #fff; }
 .scene-run.coloured::after { content: ""; position: absolute; inset: 0; background: linear-gradient(transparent 30%, rgba(0, 0, 0, .55)); z-index: -1; }
 .scene-run.active { box-shadow: 0 0 0 2px var(--accent); }
+/* A hub scene with neither a picture nor colours (DIRIGERA tells none): a warm wash, not a blank card. */
+.hub-scene:not(.pictured):not(.coloured) { background: linear-gradient(135deg, color-mix(in srgb, var(--accent-2) 22%, transparent), color-mix(in srgb, var(--accent) 10%, transparent)); }
 .scene-run .scene-active { position: absolute; top: var(--space-10); right: var(--space-10); }
 .scene-source { display: block; font-size: var(--text-xs); font-weight: var(--weight-medium); opacity: 0.8; }
 .hub-scenes { display: grid; gap: var(--space-12); }
+.hub-scenes-head > select { width: auto; max-width: 260px; }
+.scene-run:disabled { opacity: 0.7; cursor: default; }
 .hub-scene-room { display: grid; gap: var(--space-8); }
 .hub-scene-tile { display: grid; gap: var(--space-4); min-width: 0; }
 .hub-scene-tile > .scene-run { width: 100%; }
