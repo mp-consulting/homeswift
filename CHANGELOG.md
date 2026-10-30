@@ -18,6 +18,11 @@ All notable changes to this project are documented here. The format follows
   add as that device rather than through the bridge: **Make a Matter device** in its ⋯ menu, `set_matter_device`
   over MCP, or the `HomeswiftMatter` block's `devices` (docs/matter.md). Changes to which accessories are on Matter
   apply without restarting it.
+- A plugin can say what a service stands for when HomeKit has no type for it (`Service.standsFor`): the Dolphin pool
+  robot's switch is a cleaning robot, a Robotic Vacuum Cleaner over Matter. Apple Home pairs a device of its own
+  (it sends AddNOC's intermediate certificate empty, which swift-matter now takes as none).
+- A Matter device's card on the Status page shows its device type's icon, and each ecosystem by its vendor: Apple
+  Home's unnamed system fabric is a muted chip with a house, to keep.
 - The Assistant arranges the Accessories wall: `get_wall_layout` and `set_wall_layout` (MCP, and the web UI's chat)
   read and change its order, each accessory's size, the default size of each kind of widget and the grouping. An
   `order` of some ids puts them in the places they hold together, so one room is sorted without moving the others.

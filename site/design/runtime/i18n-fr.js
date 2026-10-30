@@ -10,6 +10,8 @@ HomeswiftI18n.add("fr", {
   "{name} loses the bridge and every device on it, with their rooms and automations.": "{name} perd le pont et tous ses appareils, avec leurs pièces et automatisations.",
   "In the ecosystem's app: add a Matter device, then scan this code or type it.": "Dans l'app de l'écosystème : ajoutez un appareil Matter, puis scannez ce code ou saisissez-le.",
   "Add to another ecosystem": "Ajouter à un autre écosystème",
+  "{vendor} system": "Système {vendor}",
+  "{vendor}'s own link to the device, from your other devices and hubs: keep it.": "Le lien de {vendor} avec l'appareil, depuis vos autres appareils et concentrateurs : gardez-le.",
   "Matter device of its own, for Apple Home, Google Home, Alexa and Home Assistant": "Appareil Matter à part entière, pour Apple Home, Google Home, Alexa et Home Assistant",
   "{name} loses this device, with its room and automations.": "{name} perd cet appareil, avec sa pièce et ses automatisations.",
   "In the Home app (or another ecosystem's): add an accessory, then scan this code or type it.": "Dans l'app Maison (ou celle d'un autre écosystème) : ajoutez un accessoire, puis scannez ce code ou saisissez-le.",

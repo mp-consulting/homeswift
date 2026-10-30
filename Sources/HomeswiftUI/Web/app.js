@@ -509,6 +509,13 @@
 
     // The Matter bridge, when the HomeswiftMatter block runs one, and each accessory that is a Matter device of its
     // own: drawn again after an administrator's change.
+    // A device's icon from the role Matter has it in (its first part's): a robot vacuum, a light, a plug...
+    const matterIcons = { cleaningRobot: "vacuum", light: "bulb", plug: "outlet", contact: "door", occupancy: "sensor", temperature: "sensor",
+      humidity: "sensor", illuminance: "sensor", leak: "drop", covering: "blind", fan: "fan", thermostat: "thermo", lock: "lock",
+      button: "switch", airQuality: "wind", alarm: "bell", valve: "drop" };
+    // The ecosystems a fabric's vendor id says it is (Connectivity Standards Alliance vendor ids).
+    const matterVendors = { "0x1349": "Apple Home", "0x6006": "Google Home", "0x1217": "Alexa" };
+    const matterIcon = (node) => matterIcons[String(node.types?.[0] ?? "").split("(")[0]] ?? "accessory";
     const matterCard = (node, own) => {
       const base = own ? `/api/matter/devices/${encodeURIComponent(node.id)}` : "/api/matter";
       const fabrics = node.fabrics || [];
@@ -520,14 +527,20 @@
       };
       const card = el("div", { class: "card server", id: own ? `matter-${slug(node.id)}` : "matter" },
         el("div", { class: "server-head" },
-          tile(own ? "accessory" : "link", "green"),
+          tile(own ? matterIcon(node) : "link", "green"),
           el("div", { class: "who" }, el("strong", { text: own ? node.name : t("Matter bridge") }),
             el("div", { class: "muted", text: own ? t("Matter device of its own, for Apple Home, Google Home, Alexa and Home Assistant") : t("For Google Home, Alexa, SmartThings and Home Assistant") })),
           el("span", { class: `pill status ${fabrics.length ? "on" : "away"}`, text: fabrics.length ? tn("In one ecosystem", "In {n} ecosystems", fabrics.length) : t("Not added yet") })),
         el("div", { class: "facts lead" }, fact(t("Port"), node.port), own ? null : fact(t("Accessories"), (node.devices || []).length)),
         fabrics.length ? el("div", { class: "chips" }, fabrics.map((fabric) => {
-          const name = fabric.label || t("Ecosystem {index}", { index: fabric.index });
-          return el("span", { class: admin ? "chip removable" : "chip" }, el("span", { text: name }),
+          // Whose fabric it is, by its vendor id: an unnamed one of Apple Home's is its own system fabric (it reaches the
+          // device from the other Apple devices and hubs), shown muted with a house.
+          const vendor = matterVendors[fabric.vendorId];
+          const system = !fabric.label && vendor;
+          const name = fabric.label || (vendor ? t("{vendor} system", { vendor }) : t("Ecosystem {index}", { index: fabric.index }));
+          const hint = system ? t("{vendor}'s own link to the device, from your other devices and hubs: keep it.", { vendor }) : vendor ?? "";
+          return el("span", { class: `chip${admin ? " removable" : ""}${system ? " system" : ""}`, title: hint },
+            system ? HomeswiftCommon.icon("house") : null, el("span", { text: name }),
             admin ? el("button", { type: "button", class: "icon-button", "aria-label": t("Remove {name}", { name }), title: t("Remove {name}", { name }), onclick: async (event) => {
               const message = own ? t("{name} loses this device, with its room and automations.", { name })
                 : t("{name} loses the bridge and every device on it, with their rooms and automations.", { name });

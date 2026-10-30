@@ -1895,6 +1895,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     // The Matter bridge, when the HomeswiftMatter block runs one, and each accessory that is a Matter device of its
     // own: drawn again after an administrator's change.
+    // A device's icon from the role Matter has it in (its first part's): a robot vacuum, a light, a plug...
+    const matterIcons = { cleaningRobot: "vacuum", light: "bulb", plug: "outlet", contact: "door", occupancy: "sensor", temperature: "sensor",
+      humidity: "sensor", illuminance: "sensor", leak: "drop", covering: "blind", fan: "fan", thermostat: "thermo", lock: "lock",
+      button: "switch", airQuality: "wind", alarm: "bell", valve: "drop" };
+    // The ecosystems a fabric's vendor id says it is (Connectivity Standards Alliance vendor ids).
+    const matterVendors = { "0x1349": "Apple Home", "0x6006": "Google Home", "0x1217": "Alexa" };
+    const matterIcon = (node) => matterIcons[String(node.types?.[0] ?? "").split("(")[0]] ?? "accessory";
     const matterCard = (node, own) => {
       const base = own ? `/api/matter/devices/${encodeURIComponent(node.id)}` : "/api/matter";
       const fabrics = node.fabrics || [];
@@ -1906,14 +1913,20 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       };
       const card = el("div", { class: "card server", id: own ? `matter-${slug(node.id)}` : "matter" },
         el("div", { class: "server-head" },
-          tile(own ? "accessory" : "link", "green"),
+          tile(own ? matterIcon(node) : "link", "green"),
           el("div", { class: "who" }, el("strong", { text: own ? node.name : t("Matter bridge") }),
             el("div", { class: "muted", text: own ? t("Matter device of its own, for Apple Home, Google Home, Alexa and Home Assistant") : t("For Google Home, Alexa, SmartThings and Home Assistant") })),
           el("span", { class: `pill status ${fabrics.length ? "on" : "away"}`, text: fabrics.length ? tn("In one ecosystem", "In {n} ecosystems", fabrics.length) : t("Not added yet") })),
         el("div", { class: "facts lead" }, fact(t("Port"), node.port), own ? null : fact(t("Accessories"), (node.devices || []).length)),
         fabrics.length ? el("div", { class: "chips" }, fabrics.map((fabric) => {
-          const name = fabric.label || t("Ecosystem {index}", { index: fabric.index });
-          return el("span", { class: admin ? "chip removable" : "chip" }, el("span", { text: name }),
+          // Whose fabric it is, by its vendor id: an unnamed one of Apple Home's is its own system fabric (it reaches the
+          // device from the other Apple devices and hubs), shown muted with a house.
+          const vendor = matterVendors[fabric.vendorId];
+          const system = !fabric.label && vendor;
+          const name = fabric.label || (vendor ? t("{vendor} system", { vendor }) : t("Ecosystem {index}", { index: fabric.index }));
+          const hint = system ? t("{vendor}'s own link to the device, from your other devices and hubs: keep it.", { vendor }) : vendor ?? "";
+          return el("span", { class: `chip${admin ? " removable" : ""}${system ? " system" : ""}`, title: hint },
+            system ? HomeswiftCommon.icon("house") : null, el("span", { text: name }),
             admin ? el("button", { type: "button", class: "icon-button", "aria-label": t("Remove {name}", { name }), title: t("Remove {name}", { name }), onclick: async (event) => {
               const message = own ? t("{name} loses this device, with its room and automations.", { name })
                 : t("{name} loses the bridge and every device on it, with their rooms and automations.", { name });
@@ -7182,6 +7195,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     bulb: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/>',
     switch: '<rect x="6" y="3" width="12" height="18" rx="3"/><circle cx="12" cy="9" r="2"/>',
     outlet: '<rect x="4" y="4" width="16" height="16" rx="4"/><path d="M10 9v2M14 9v2M10 15h4"/>',
+    vacuum: '<circle cx="12" cy="12" r="8.5"/><path d="M6.5 9.5a6.5 6.5 0 0 1 11 0"/><circle cx="12" cy="13.5" r="2"/>',
     sensor: '<circle cx="12" cy="12" r="2"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8"/>',
     fan: '<circle cx="12" cy="12" r="2"/><path d="M12 10c0-4 1-7 4-7 2 0 3 2 2 4l-4 4M14 12c4 0 7 1 7 4 0 2-2 3-4 2l-4-4M12 14c0 4-1 7-4 7-2 0-3-2-2-4l4-4M10 12c-4 0-7-1-7-4 0-2 2-3 4-2l4 4"/>',
     speaker: '<rect x="6" y="3" width="12" height="18" rx="2"/><circle cx="12" cy="14" r="3"/><path d="M12 7h.01"/>',
@@ -10448,6 +10462,8 @@ HomeswiftI18n.add("es", {
   "{name} loses the bridge and every device on it, with their rooms and automations.": "{name} pierde el puente y todos sus dispositivos, con sus habitaciones y automatizaciones.",
   "In the ecosystem's app: add a Matter device, then scan this code or type it.": "En la app del ecosistema: añade un dispositivo Matter y escanea este código o introdúcelo.",
   "Add to another ecosystem": "Añadir a otro ecosistema",
+  "{vendor} system": "Sistema de {vendor}",
+  "{vendor}'s own link to the device, from your other devices and hubs: keep it.": "El enlace propio de {vendor} con el dispositivo, desde tus otros dispositivos y concentradores: consérvalo.",
   "Matter device of its own, for Apple Home, Google Home, Alexa and Home Assistant": "Dispositivo Matter propio, para Apple Home, Google Home, Alexa y Home Assistant",
   "{name} loses this device, with its room and automations.": "{name} pierde este dispositivo, con su habitación y sus automatizaciones.",
   "In the Home app (or another ecosystem's): add an accessory, then scan this code or type it.": "En la app Casa (o la de otro ecosistema): añade un accesorio y escanea este código o escríbelo.",
@@ -12782,6 +12798,8 @@ HomeswiftI18n.add("fr", {
   "{name} loses the bridge and every device on it, with their rooms and automations.": "{name} perd le pont et tous ses appareils, avec leurs pièces et automatisations.",
   "In the ecosystem's app: add a Matter device, then scan this code or type it.": "Dans l'app de l'écosystème : ajoutez un appareil Matter, puis scannez ce code ou saisissez-le.",
   "Add to another ecosystem": "Ajouter à un autre écosystème",
+  "{vendor} system": "Système {vendor}",
+  "{vendor}'s own link to the device, from your other devices and hubs: keep it.": "Le lien de {vendor} avec l'appareil, depuis vos autres appareils et concentrateurs : gardez-le.",
   "Matter device of its own, for Apple Home, Google Home, Alexa and Home Assistant": "Appareil Matter à part entière, pour Apple Home, Google Home, Alexa et Home Assistant",
   "{name} loses this device, with its room and automations.": "{name} perd cet appareil, avec sa pièce et ses automatisations.",
   "In the Home app (or another ecosystem's): add an accessory, then scan this code or type it.": "Dans l'app Maison (ou celle d'un autre écosystème) : ajoutez un accessoire, puis scannez ce code ou saisissez-le.",
@@ -15116,6 +15134,8 @@ HomeswiftI18n.add("pt", {
   "{name} loses the bridge and every device on it, with their rooms and automations.": "{name} perde a ponte e todos os seus dispositivos, com as suas divisões e automatizações.",
   "In the ecosystem's app: add a Matter device, then scan this code or type it.": "Na app do ecossistema: adicione um dispositivo Matter e leia este código ou introduza-o.",
   "Add to another ecosystem": "Adicionar a outro ecossistema",
+  "{vendor} system": "Sistema do {vendor}",
+  "{vendor}'s own link to the device, from your other devices and hubs: keep it.": "A ligação própria do {vendor} ao dispositivo, a partir dos seus outros dispositivos e concentradores: mantenha-a.",
   "Matter device of its own, for Apple Home, Google Home, Alexa and Home Assistant": "Dispositivo Matter próprio, para o Apple Home, Google Home, Alexa e Home Assistant",
   "{name} loses this device, with its room and automations.": "{name} perde este dispositivo, com a sua divisão e automatizações.",
   "In the Home app (or another ecosystem's): add an accessory, then scan this code or type it.": "Na app Casa (ou na de outro ecossistema): adicione um acessório e depois digitalize este código ou escreva-o.",
@@ -20797,6 +20817,9 @@ textarea.short { min-height: 220px; }
 /* A chip with a remove button (the Matter card's ecosystems, for an administrator). */
 .chip.removable { display: inline-flex; align-items: center; gap: 2px; padding-right: 2px; }
 .chip.removable .icon-button:not(.menu-button) { width: 22px; height: 22px; }
+/* A controller's own system fabric (Apple Home's second one): muted, with a house. */
+.chip.system { display: inline-flex; align-items: center; gap: var(--space-4); color: var(--muted); border-style: dashed; }
+.chip.system > svg { width: 14px; height: 14px; }
 .chip.removable .icon-button:not(.menu-button) svg { width: 12px; height: 12px; }
 
 /* Status: a summary that says whether all is well, the numbers that matter, then a card per server. */
