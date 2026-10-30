@@ -3359,8 +3359,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         }
         const entered = roomRows.get(wall);
         const column = Math.max(1, Math.round((pointer.clientX - grab.x - box.left) / grid.x) + 1);
-        const rows = entered ? entered.rows + (pointer.clientY + scrollY <= entered.bottom ? 1 : 0) : Infinity;
-        const lastRow = rows - spanOf(slot)[1] + 1;
+        // Over the room, a widget may start on its empty row, however tall; past it, it ends on the room's last row.
+        const lastRow = !entered ? Infinity : pointer.clientY + scrollY <= entered.bottom ? entered.rows + 1 : entered.rows - spanOf(slot)[1] + 1;
         const row = Math.max(1, Math.min(Math.round((pointer.clientY - grab.y - box.top) / grid.y) + 1, lastRow));
         if (slotCell?.[0] === column && slotCell?.[1] === row && slot.parentElement === wall) return;
         slotCell = [column, row];
