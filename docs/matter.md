@@ -1,0 +1,88 @@
+# The Matter bridge
+
+Homeswift puts the plugins' accessories in Apple Home over HAP. The Matter bridge puts the same accessories in
+Google Home, Amazon Alexa, SmartThings and Home Assistant: each accessory becomes a Matter bridged device, both
+ways. A value a plugin sets reaches the Matter controllers; a command from a Matter controller writes the
+characteristic as the Home app would, so plugins see no difference and need no change.
+
+The protocol is [swift-matter](https://github.com/mp-consulting/swift-matter) (target `HomeswiftMatter`, the
+`Matter` library), checked out beside this repository until it is published.
+
+## Configuration
+
+A system block in config.json, like the web UI's:
+
+```json
+{ "platform": "HomeswiftMatter", "port": 5540, "include": ["PhilipsHue", "Desk*"], "exclude": ["*garage*"], "exposeSecurity": false }
+```
+
+| Key | Default | What it does |
+|---|---|---|
+| `port` | 5540 | The UDP port Matter controllers reach the bridge on (Matter's own) |
+| `include` | every accessory | Bridge only the accessories matching one of these: a plugin's platform, a plugin instance's name, an accessory id or name; `*` matches any run of characters, case is ignored |
+| `exclude` | none | Accessories never bridged, matched the same way; it wins over `include` |
+| `exposeSecurity` | false | Bridge locks, and what a plugin marks as a security control (a switch that opens a gate) |
+
+Saving the block in the web UI or over MCP restarts the Matter bridge in place; the fabrics stay. The passcode,
+the discriminator, the device attestation keys and the fabrics are made on first start and kept under
+`matter/` in the storage directory (owner-only files), never in config.json. Mirrored accessories (Wingman's Apple
+Home devices) are not bridged.
+
+## Adding the bridge to an ecosystem
+
+Until a controller commissions it, the bridge keeps its commissioning window open, as a HAP bridge stays pairable.
+The pairing code and the QR code's text are printed at start (standard output, never the log) and shown to
+administrators on the web UI's Status page, in the Matter bridge card. In Google Home, Alexa, SmartThings or Home
+Assistant: add a Matter device, then scan the QR code or type the 11-digit code.
+
+To add it to another ecosystem afterwards, an administrator opens the window again: **Add to another ecosystem** on
+the card, or the MCP tool `open_matter_commissioning_window` (15 minutes at most, the spec's limit). The card lists
+each ecosystem (a *fabric*) with a button to remove it; `remove_matter_fabric` does the same over MCP and asks the
+user first.
+
+Homeswift is not a certified Matter product: it uses the test vendor ID `0xFFF1` with connectedhomeip's test
+attestation credentials, as Matterbridge does. Controllers warn that the device is uncertified; Google Home needs a
+developer project for the vendor and product IDs (`0xFFF1`, `0x8000`).
+
+Do not add the Matter bridge to Apple Home too: it already has the accessories over HAP, and would show each twice.
+
+## What is bridged
+
+| HAP service | Matter device type | Conversions |
+|---|---|---|
+| Lightbulb | On/Off, Dimmable, Color Temperature or Extended Color Light | Brightness 0–100 % ↔ CurrentLevel 1–254; mireds both sides; Hue 0–360 and Saturation 0–100 ↔ 0–254; a CIE xy color from Matter becomes hue and saturation |
+| Outlet, Switch | On/Off Plug-in Unit | On ↔ OnOff |
+| Contact Sensor | Contact Sensor | HAP's 0 (contact detected) is StateValue true |
+| Motion Sensor, Occupancy Sensor | Occupancy Sensor | detected ↔ occupied |
+| Temperature Sensor | Temperature Sensor | °C ↔ hundredths of a degree |
+| Humidity Sensor | Humidity Sensor | % ↔ hundredths of a percent |
+| Light Sensor | Light Sensor | lux ↔ 10000·log10(lux) + 1 |
+| Leak Sensor | Water Leak Detector | detected ↔ StateValue true |
+| Window Covering | Window Covering | percent open ↔ hundredths of a percent closed; stop holds the position |
+| Fan, Fanv2 | Fan | Active or On and Rotation Speed ↔ PercentSetting and FanMode |
+| Thermostat | Thermostat, heating (and cooling when the target state allows it) | off/heat/cool ↔ SystemMode; the target temperature ↔ the setpoint of the mode in use |
+| Lock Mechanism | Door Lock (only with `exposeSecurity`) | secured ↔ locked; locking and unlocking need a timed interaction |
+| Stateless Programmable Switch | Generic Switch | single, double and long presses ↔ the Switch cluster's events |
+| Battery (beside the others) | Power Source on the device | percent ↔ BatPercentRemaining |
+
+An accessory with several of these services (a fan with a light, a strip of outlets) becomes one compound device,
+a part per service. Its name, manufacturer, model and serial number fill Bridged Device Basic Information, and a
+paused plugin's accessories show as unreachable. Televisions, cameras, heater-coolers, air purifiers, valves, smoke
+and air quality sensors are not bridged yet.
+
+Each device keeps its endpoint numbers across restarts (they are stored by the SHA-256 of the accessory id), and a
+removed accessory's numbers are never given to another, so the ecosystems keep their rooms and automations.
+
+## Security
+
+- A Matter controller writes what it bridges without the confirmation the web UI and the MCP server ask before a
+  lock or a security control: those stay out unless `exposeSecurity` is on.
+- Only administrators see the pairing code and the QR code, open the commissioning window or remove a fabric, in
+  the web UI and over MCP (`open_matter_commissioning_window` and `remove_matter_fabric` are admin-scoped,
+  `remove_matter_fabric` is destructive). `get_matter_status` never gives the code out.
+- The code, keys and session bodies are never logged.
+
+## Network
+
+Matter runs over UDP on IPv6 (and IPv4), and is found over mDNS (`_matterc._udp` while the window is open,
+`_matter._tcp` for each fabric). In Docker, use host networking; on Synology and other hosts, keep IPv6 on.
