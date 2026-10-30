@@ -2096,12 +2096,16 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 .hub-scenes-head > select { width: auto; max-width: 260px; }
 .scene-run:disabled { opacity: 0.7; cursor: default; }
 .hub-scene-room { display: grid; gap: var(--space-8); }
-.hub-scene-tile { display: grid; gap: var(--space-4); min-width: 0; }
+/* A hub scene's tile carries its actions: round glass buttons over its top-right corner, its "Scene active" on the left. */
+.hub-scene-tile { position: relative; display: grid; min-width: 0; }
 .hub-scene-tile > .scene-run { width: 100%; }
-.hub-scene-actions { display: flex; flex-wrap: wrap; gap: var(--space-10); }
-.hub-scene-actions { align-items: center; }
-.hub-scene-actions button { font-size: var(--text-xs); min-height: 32px; }
-@media (pointer: coarse) { .hub-scene-actions button { min-height: 44px; } }
+.hub-scene-tile > .scene-run .scene-active { right: auto; left: var(--space-10); }
+.hub-scene-actions { position: absolute; top: var(--space-8); right: var(--space-8); z-index: 1; display: flex; gap: var(--space-6); }
+.hub-scene-actions > button { display: grid; place-items: center; width: 32px; height: 32px; min-height: 0; margin: 0; padding: 0; border-radius: 50%;
+  color: var(--text); background: var(--material-thick); border: 0; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+.hub-scene-actions > button.action-with-icon { gap: 0; }
+@media (pointer: coarse) { .hub-scene-actions > button { width: 40px; height: 40px; } }
 .animation-settings { display: grid; gap: var(--space-10); margin-top: var(--space-10); }
 .animation-colours { display: flex; gap: var(--space-10); }
 .animation-lights { display: grid; gap: var(--space-6); }

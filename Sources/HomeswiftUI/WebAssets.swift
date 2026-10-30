@@ -7473,6 +7473,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     image: '<rect x="3" y="4.5" width="18" height="15" rx="2.5"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="m21 15.5-4.5-4.5L7 19.5"/>',
     restore: '<path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.6"/><path d="M4 4v4.6h4.6"/>',
     history: '<path d="M3.5 12a8.5 8.5 0 1 0 2.5-6M3.5 4.5V9H8"/><path d="M12 7.5V12l3 2"/>',
+    film: '<rect x="3.5" y="4" width="17" height="16" rx="2"/><path d="M7.5 4v16M16.5 4v16M3.5 8h4M3.5 12h4M3.5 16h4M16.5 8h4M16.5 12h4M16.5 16h4"/>',
     sliders: '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
     upload: '<path d="M12 15V4"/><path d="M7 9l5-5 5 5"/><path d="M5 20h14"/>',
     folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
@@ -9649,17 +9650,20 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       scene.active ? el("span", { class: "pill scene-active", text: t("Scene active") }) : null);
     if (!picture && colours.length) button.style.background = colours.length > 1 ? `linear-gradient(135deg, ${colours.join(", ")})` : colours[0];
     button.addEventListener("click", async () => { if (await runScene(scene, button)) app.route(); });
-    const stop = scene.stoppable ? el("button", { type: "button", class: "link", actionIcon: "stop", text: t("Stop"), onclick: () => stopScene(scene, stop) }) : null;
+    // Its actions sit on the tile, round over its top corner: Stop while it can be, then the menu (Automate and the rest).
+    const stop = scene.stoppable ? el("button", { type: "button", class: "tile-action", actionIcon: "stop", "aria-label": t("Stop"), title: t("Stop"), onclick: () => stopScene(scene, stop) }) : null;
     // A Homeswift scene that recalls it, to give it triggers and conditions.
-    const automate = !runnable ? null : el("button", { type: "button", class: "link", actionIcon: "history", text: t("Automate"), onclick: async () => {
-      automate.disabled = true;
+    const automate = async () => {
       try {
         const saved = await app.api("/api/scenes", { method: "POST", body: { name: scene.name.slice(0, 64), artworkId: scene.artworkId || null, actions: [{ recall: scene.id }] } });
         app.navigate(`/scenes/${encodeURIComponent(saved.id)}`);
-      } catch (e) { HomeswiftCommon.showAlert(e.message); automate.disabled = false; }
-    } });
-    const menu = !app.isAdmin() ? null : menuButton(t("Actions for {name}", { name: scene.name }), () => [...hubSceneMenu(scene), ...pictureMenu(scene, button)]);
-    return el("div", { class: "hub-scene-tile" }, button, el("div", { class: "hub-scene-actions" }, stop, automate, menu));
+      } catch (e) { HomeswiftCommon.showAlert(e.message); }
+    };
+    const menu = menuButton(t("Actions for {name}", { name: scene.name }), () => [
+      runnable ? { label: t("Automate"), icon: "film", onSelect: automate } : null,
+      ...(app.isAdmin() ? [...hubSceneMenu(scene), ...pictureMenu(scene, button)] : []),
+    ].filter(Boolean));
+    return el("div", { class: "hub-scene-tile" }, button, el("div", { class: "hub-scene-actions" }, stop, menu));
   }
 
   /// What a hub's scene lets Homeswift change on its hub (its `capabilities`): its name, its lights' values as they are
@@ -22536,12 +22540,16 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 .hub-scenes-head > select { width: auto; max-width: 260px; }
 .scene-run:disabled { opacity: 0.7; cursor: default; }
 .hub-scene-room { display: grid; gap: var(--space-8); }
-.hub-scene-tile { display: grid; gap: var(--space-4); min-width: 0; }
+/* A hub scene's tile carries its actions: round glass buttons over its top-right corner, its "Scene active" on the left. */
+.hub-scene-tile { position: relative; display: grid; min-width: 0; }
 .hub-scene-tile > .scene-run { width: 100%; }
-.hub-scene-actions { display: flex; flex-wrap: wrap; gap: var(--space-10); }
-.hub-scene-actions { align-items: center; }
-.hub-scene-actions button { font-size: var(--text-xs); min-height: 32px; }
-@media (pointer: coarse) { .hub-scene-actions button { min-height: 44px; } }
+.hub-scene-tile > .scene-run .scene-active { right: auto; left: var(--space-10); }
+.hub-scene-actions { position: absolute; top: var(--space-8); right: var(--space-8); z-index: 1; display: flex; gap: var(--space-6); }
+.hub-scene-actions > button { display: grid; place-items: center; width: 32px; height: 32px; min-height: 0; margin: 0; padding: 0; border-radius: 50%;
+  color: var(--text); background: var(--material-thick); border: 0; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+.hub-scene-actions > button.action-with-icon { gap: 0; }
+@media (pointer: coarse) { .hub-scene-actions > button { width: 40px; height: 40px; } }
 .animation-settings { display: grid; gap: var(--space-10); margin-top: var(--space-10); }
 .animation-colours { display: flex; gap: var(--space-10); }
 .animation-lights { display: grid; gap: var(--space-6); }

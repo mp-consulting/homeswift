@@ -284,17 +284,20 @@
       scene.active ? el("span", { class: "pill scene-active", text: t("Scene active") }) : null);
     if (!picture && colours.length) button.style.background = colours.length > 1 ? `linear-gradient(135deg, ${colours.join(", ")})` : colours[0];
     button.addEventListener("click", async () => { if (await runScene(scene, button)) app.route(); });
-    const stop = scene.stoppable ? el("button", { type: "button", class: "link", actionIcon: "stop", text: t("Stop"), onclick: () => stopScene(scene, stop) }) : null;
+    // Its actions sit on the tile, round over its top corner: Stop while it can be, then the menu (Automate and the rest).
+    const stop = scene.stoppable ? el("button", { type: "button", class: "tile-action", actionIcon: "stop", "aria-label": t("Stop"), title: t("Stop"), onclick: () => stopScene(scene, stop) }) : null;
     // A Homeswift scene that recalls it, to give it triggers and conditions.
-    const automate = !runnable ? null : el("button", { type: "button", class: "link", actionIcon: "history", text: t("Automate"), onclick: async () => {
-      automate.disabled = true;
+    const automate = async () => {
       try {
         const saved = await app.api("/api/scenes", { method: "POST", body: { name: scene.name.slice(0, 64), artworkId: scene.artworkId || null, actions: [{ recall: scene.id }] } });
         app.navigate(`/scenes/${encodeURIComponent(saved.id)}`);
-      } catch (e) { HomeswiftCommon.showAlert(e.message); automate.disabled = false; }
-    } });
-    const menu = !app.isAdmin() ? null : menuButton(t("Actions for {name}", { name: scene.name }), () => [...hubSceneMenu(scene), ...pictureMenu(scene, button)]);
-    return el("div", { class: "hub-scene-tile" }, button, el("div", { class: "hub-scene-actions" }, stop, automate, menu));
+      } catch (e) { HomeswiftCommon.showAlert(e.message); }
+    };
+    const menu = menuButton(t("Actions for {name}", { name: scene.name }), () => [
+      runnable ? { label: t("Automate"), icon: "film", onSelect: automate } : null,
+      ...(app.isAdmin() ? [...hubSceneMenu(scene), ...pictureMenu(scene, button)] : []),
+    ].filter(Boolean));
+    return el("div", { class: "hub-scene-tile" }, button, el("div", { class: "hub-scene-actions" }, stop, menu));
   }
 
   /// What a hub's scene lets Homeswift change on its hub (its `capabilities`): its name, its lights' values as they are
