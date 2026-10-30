@@ -213,6 +213,15 @@ struct WingmanTests {
         await host.stop()
     }
 
+    /// An accessory removed in the Home app leaves Homeswift at Wingman's "homes" event, not at the next refresh.
+    @Test func anAccessoryRemovedInAppleHomeLeavesAtOnce() async throws {
+        let host = try await environment.start()
+        _ = try await accessory(host, "light-1")
+        environment.wingman.remove(accessory: "light-1")
+        #expect(await eventually { !host.mainBridge.server.accessories.contains { $0.id == "Wingman:light-1" } })
+        await host.stop()
+    }
+
     /// The token goes only to a pinned certificate: an entry without one (edited by hand) is not used.
     @Test func aWingmanWithoutAPinnedCertificateIsNotReached() async throws {
         var entry = TestEnvironment.paired

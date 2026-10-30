@@ -84,6 +84,9 @@ enum WingmanAPI {
 
     struct Event: Decodable, Sendable {
         var seq: Int?
+        /// "homes" when accessories, rooms, names or reachability changed (no characteristic then); a value change
+        /// has "value", or no kind from an older Wingman.
+        var kind: String?
         var accessoryID: String?
         var characteristicID: String?
         var value: JSONValue?
