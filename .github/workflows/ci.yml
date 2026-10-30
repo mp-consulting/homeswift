@@ -64,10 +64,12 @@ jobs:
           restore-keys: ${{ steps.build-key.outputs.key }}-
 
       - name: Rebuild the targets the pull request changes
-        # Not over the pull request's own cache, which is already built from its branch; the script does nothing off a
-        # pull request's merge commit.
+        # Not over the pull request's own cache, which is already built from its branch; the script compares the
+        # checkout with the commit the restored cache was built from.
         if: steps.restore-build.outputs.cache-hit != 'true'
         run: Scripts/forget-changed-targets.sh
+        env:
+          CACHE_KEY: ${{ steps.restore-build.outputs.cache-matched-key }}
 
       - name: Test
         # A watchdog prints the test process's stacks and fails when the tests stall, rather than waiting for the job.
@@ -123,10 +125,12 @@ jobs:
           restore-keys: ${{ steps.build-key.outputs.key }}-
 
       - name: Rebuild the targets the pull request changes
-        # Not over the pull request's own cache, which is already built from its branch; the script does nothing off a
-        # pull request's merge commit.
+        # Not over the pull request's own cache, which is already built from its branch; the script compares the
+        # checkout with the commit the restored cache was built from.
         if: steps.restore-build.outputs.cache-hit != 'true'
         run: Scripts/forget-changed-targets.sh
+        env:
+          CACHE_KEY: ${{ steps.restore-build.outputs.cache-matched-key }}
 
       - name: Test
         timeout-minutes: 25
