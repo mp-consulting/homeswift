@@ -624,10 +624,10 @@
     // A device's icon from the role Matter has it in (its first part's): a robot vacuum, a light, a plug...
     const matterIcons = { cleaningRobot: "vacuum", light: "bulb", plug: "outlet", contact: "door", occupancy: "sensor", temperature: "sensor",
       humidity: "sensor", illuminance: "sensor", leak: "drop", covering: "blind", fan: "fan", thermostat: "thermo", lock: "lock",
-      button: "switch", airQuality: "wind", alarm: "bell", valve: "drop" };
+      button: "switch", airQuality: "wind", alarm: "bell", valve: "drop", heaterCooler: "thermo", garageDoor: "gate", airPurifier: "wind" };
     // The ecosystems a fabric's vendor id says it is (Connectivity Standards Alliance vendor ids).
     const matterVendors = { "0x1349": "Apple Home", "0x1384": "Apple Home", "0x6006": "Google Home", "0x1217": "Alexa" };
-    const matterIcon = (node) => matterIcons[String(node.types?.[0] ?? "").split("(")[0]] ?? "accessory";
+    const matterIcon = (node) => matterIcons[node.types?.[0]] ?? "accessory";
     const matterParts = (node, own, refresh) => {
       const base = own ? `/api/matter/devices/${encodeURIComponent(node.id)}` : "/api/matter";
       const fabrics = node.fabrics || [];
