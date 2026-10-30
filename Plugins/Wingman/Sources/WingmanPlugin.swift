@@ -57,6 +57,8 @@ public actor WingmanPlugin: HomeswiftPlugin {
         var transports: any WingmanTransportFactory = NetworkTransportFactory()
         var browse: @Sendable (Logger) -> AsyncStream<BonjourBrowser.Event> = { BonjourBrowser.browse(type: WingmanPlugin.serviceType, logger: $0) }
         var retry = Backoff(initial: .seconds(2), maximum: .seconds(60), jitter: .proportional(0.2))
+        /// The least time between two reads of the homes that events ask for.
+        var rereadGap: Duration = .seconds(10)
         /// The name a bridge pairs under, shown in Wingman's Paired Bridges.
         var bridgeName: String = "Homeswift on \(ProcessInfo.processInfo.hostName.split(separator: ".").first.map(String.init) ?? "this machine")"
     }
@@ -315,11 +317,16 @@ actor Link {
         var failures = 0
         while !Task.isCancelled {
             do {
+                let readAt = ContinuousClock.now
                 try await refresh()
                 failures = 0
-                var nextRefresh = ContinuousClock.now + refreshInterval
+                var nextRefresh = readAt + refreshInterval
                 while !Task.isCancelled, ContinuousClock.now < nextRefresh {
-                    if try await follow() { nextRefresh = .now }
+                    guard try await follow() else { continue }
+                    // A burst of "homes" events, or Apple Home changing in answer to a read (nothing does: mirrors
+                    // stay out of HomeKit and Matter), reads the homes once per gap, not back to back.
+                    try? await Task.sleep(until: readAt + dependencies.rereadGap, clock: .continuous)
+                    nextRefresh = .now
                 }
             } catch {
                 guard !Task.isCancelled else { return }
@@ -380,21 +387,25 @@ actor Link {
         await plugin.prune()
     }
 
-    /// Waits for value changes and applies them. Answers whether the homes must be read again (Wingman restarted, or
-    /// a change names a characteristic not seen yet).
+    /// Waits for value changes and applies them. Answers whether the homes must be read again (Wingman restarted,
+    /// Apple Home's accessories, rooms or names changed, or a change names a characteristic not seen yet).
     private func follow() async throws -> Bool {
         let answer = try await client.events(since: since, wait: WingmanPlugin.eventWait)
         lastContact = Date()
         // Wingman restarted (its count began again), or dropped events older than it keeps: read the homes again.
         if let last = answer.last, last < since { return true }
         if let first = answer.first, first > since + 1 { return true }
-        var unknown = false
+        var readAgain = false
         for event in answer.events {
             if let seq = event.seq { since = max(since, seq) }
+            if event.kind == "homes" {
+                readAgain = true
+                continue
+            }
             guard let accessoryID = event.accessoryID, let characteristicID = event.characteristicID,
                   let mirror = snapshot?.mirrors[accessoryID] else { continue }
             guard let characteristic = mirror.characteristics[characteristicID] else {
-                unknown = true
+                readAgain = true
                 continue
             }
             Mirror.apply(event.value, to: characteristic)
@@ -402,7 +413,7 @@ actor Link {
             if unreachable.remove(accessoryID) != nil { mirror.accessory.isUnavailable = false }
         }
         if let last = answer.last { since = max(since, last) }
-        return unknown
+        return readAgain
     }
 
     private func lost(_ error: any Error) {

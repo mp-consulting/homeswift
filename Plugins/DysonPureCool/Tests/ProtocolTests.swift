@@ -227,12 +227,12 @@ struct DeviceCatalogTests {
         #expect(DeviceCatalog.features("999") == .default)
     }
 
-    @Test func powerProtocolAndNames() {
-        #expect(DeviceCatalog.powerProtocol("475") == .fpwr)
-        #expect(DeviceCatalog.powerProtocol("469") == .fpwr)
-        #expect(DeviceCatalog.powerProtocol("739") == .fpwr)
-        #expect(DeviceCatalog.powerProtocol("438") == .fmod)
-        #expect(DeviceCatalog.powerProtocol("999") == .fmod)
+    @Test func commandProtocolAndNames() {
+        // As the MyDyson app: only the Link series is gen1.
+        #expect(DeviceCatalog.models.filter { $0.commandProtocol == .gen1 }.map(\.productType).sorted() == ["455", "469", "475"])
+        for productType in ["438", "438E", "438K", "520", "527", "527E", "527K", "358", "358E", "358K", "664", "739", "999"] {
+            #expect(DeviceCatalog.commandProtocol(productType) == .gen2)
+        }
         #expect(DeviceCatalog.modelName("438") == "Dyson Pure Cool Tower (TP04)")
         #expect(DeviceCatalog.modelName("999") == "Dyson Device (999)")
         #expect(DeviceCatalog.displayNames["527K"] == "HP09 - Dyson Purifier Hot+Cool Formaldehyde")
@@ -310,7 +310,8 @@ struct CloudTests {
         #expect(cloud.paths == ["GET /v1/provisioningservice/application/Android/version", "POST /v3/userregistration/email/userstatus", "POST /v3/userregistration/email/auth"])
         #expect(cloud.requests[1].url.query == "country=GB")
         #expect(cloud.requests[2].url.query == "country=GB&culture=en-GB")
-        #expect(cloud.requests[0].header("User-Agent") == "android client")
+        // OkHttp's default, as the MyDyson app sends: Dyson's Cloudflare rule answers 429 to `android client`.
+        #expect(cloud.requests[0].header("User-Agent") == "okhttp/4.12.0")
         let token = try await api.verify(email: "user@example.com", password: "secret", challengeID: "challenge-1", code: "123456", countryCode: "GB")
         #expect(token == "token-1")
         let verify = try #require(cloud.requests.last)

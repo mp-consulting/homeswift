@@ -44,6 +44,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Wingman: an accessory added or removed in the Home app, a room or a name changed, or a change of reachability
+  reaches Homeswift within a couple of seconds (with a Wingman that sends `homes` events), not at the next
+  `refreshMinutes` read. A burst of such changes reads the homes at most once every 10 seconds.
 - config.json's editor is a tab of Settings (`/settings/config`), out of the header; `/config` leads there.
 - The Status page's figures have their icon on a coloured tile at the left; the vault has an icon of its own, a safe.
 - The Status page shows its Vault section once there is something in the vault or to move into it; a page's row of tabs
@@ -51,6 +54,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Dyson Pure Cool: power on/off and Jet Focus did nothing on models newer than the Link series, such as the HP09
+  (homebridge-dyson-pure-cool 1.4.8). As in the MyDyson app, they now get `fpwr` for power, `auto`/`fnsp` for mode and
+  speed and `fdir` for the airflow direction, and their state is read from those fields; only the HP02, TP02 and DP01
+  keep `fmod` and `ffoc`. The TP02 and DP01 move from `fpwr` to `fmod`.
+- Dyson Pure Cool: the Dyson account sign-in failed with HTTP 429 (homebridge-dyson-pure-cool 1.4.7). Dyson's
+  Cloudflare rule rejects the `android client` User-Agent; the sign-in now sends `okhttp/4.12.0`, as the MyDyson app.
 - Settings › Bridge showed a sealed setup code (`enc:v1:…`) instead of the code: it now shows the code the bridge runs
   with, a copy button and the pairing QR code, and saving the form leaves a sealed or vault code as it is.
 - Copy buttons copy in a browser that refuses the Clipboard API, through a hidden field as on plain HTTP.

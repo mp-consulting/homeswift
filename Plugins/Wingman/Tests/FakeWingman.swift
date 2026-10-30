@@ -28,6 +28,8 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
         var requests: [String] = []
         /// Events older than this are gone, as Wingman keeps 500 at most.
         var keptFrom = 1
+        /// Accessories removed in the Home app.
+        var removed: Set<String> = []
     }
 
     private let state = NIOLockedValueBox(State())
@@ -51,6 +53,23 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
         state.withLockedValue { state in
             state.seq += 1
             state.events.append(["seq": state.seq, "accessoryID": accessory, "characteristicID": characteristic, "type": type, "value": value])
+        }
+    }
+
+    /// An accessory removed in the Home app, as Wingman reports it: gone from `/homes`, and a "homes" event.
+    func remove(accessory: String) {
+        state.withLockedValue { state in
+            state.removed.insert(accessory)
+            state.seq += 1
+            state.events.append(["seq": state.seq, "kind": "homes", "home": "Maison", "accessory": accessory])
+        }
+    }
+
+    /// A room or a name changed in the Home app: a "homes" event, `/homes` as it was.
+    func changeHomes() {
+        state.withLockedValue { state in
+            state.seq += 1
+            state.events.append(["seq": state.seq, "kind": "homes", "home": "Maison", "accessory": ""])
         }
     }
 
@@ -90,7 +109,10 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
         guard authorized, state.withLockedValue({ $0.tokenValid }) else { return json(["error": "pair first"], status: 401) }
         switch (request.method, path) {
         case ("GET", "/homes"):
-            return json(["homes": [Self.home]])
+            let removed = state.withLockedValue { $0.removed }
+            var home = Self.home
+            home["accessories"] = (home["accessories"] as? [[String: Any]] ?? []).filter { !removed.contains($0["id"] as? String ?? "") }
+            return json(["homes": [home]])
         case ("GET", "/events"):
             let since = Int(query["since"] ?? "") ?? 0
             let wait = Double(query["wait"] ?? "") ?? 0

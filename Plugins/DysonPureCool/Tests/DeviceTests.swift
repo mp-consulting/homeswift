@@ -220,25 +220,47 @@ struct DeviceTests {
         await #expect(throws: DysonMQTTError.self) { try await device.connect() }
     }
 
-    @Test func powerWithFmod() async throws {
-        let (device, dyson) = try await connected(state: ["fmod": "OFF", "fnsp": "0004"])
+    /// The Link series (HP02, TP02, DP01) takes power and mode through `fmod`, jet focus through `ffoc`.
+    @Test(arguments: ["455", "475", "469"])
+    func gen1Commands(productType: String) async throws {
+        let (device, dyson) = try await connected(productType, state: ["fmod": "OFF", "fnsp": "0004"])
         try await device.setFanPower(true)
         #expect(dyson.commands.last == ["fmod": "FAN"])
         #expect(await eventually { await device.state.isOn })
+        try await device.setFanSpeed(5)
+        #expect(dyson.commands.last == ["fmod": "FAN", "fnsp": "0005"])
+        try await device.setAutoMode(true)
+        #expect(dyson.commands.last == ["fmod": "AUTO"])
+        try await device.setJetFocus(true)
+        #expect(dyson.commands.last == ["ffoc": "ON"])
         try await device.setFanPower(false)
         #expect(dyson.commands.last == ["fmod": "OFF"])
+        #expect(await eventually { await !device.state.isOn })
     }
 
-    @Test func powerWithFpwr() async throws {
-        let (device, dyson) = try await connected("739", state: ["fpwr": "OFF", "fnsp": "0006", "auto": "OFF"])
+    /// Every newer model takes power through `fpwr` and the airflow direction through `fdir`, and ignores `fmod`
+    /// and `ffoc` (the HP09 in homebridge-dyson-pure-cool#29).
+    @Test(arguments: ["527K", "739"])
+    func gen2Commands(productType: String) async throws {
+        let (device, dyson) = try await connected(productType, state: ["fpwr": "OFF", "fnsp": "0006", "auto": "OFF"])
         try await device.setFanPower(true)
         #expect(dyson.commands.last == ["fpwr": "ON", "auto": "OFF", "fnsp": "0006"])
         #expect(await eventually { await device.state.isOn })
+        try await device.setJetFocus(false)
+        #expect(dyson.commands.last == ["fdir": "OFF"])
         try await device.setFanPower(false)
         #expect(dyson.commands.last == ["fpwr": "OFF"])
-        let (link, linkDyson) = try await connected("475", state: ["fpwr": "OFF", "fnsp": "0000", "auto": "ON"])
-        try await link.setFanPower(true)
-        #expect(linkDyson.commands.last == ["fpwr": "ON", "auto": "ON", "fnsp": "AUTO"])
+        #expect(await eventually { await !device.state.isOn })
+    }
+
+    /// A gen2 model reads power from `fpwr` and the jet focus from `fdir`, whatever `fmod` and `ffoc` say.
+    @Test func gen2ReadsItsOwnFields() async throws {
+        let (device, _) = try await connected("527K", state: ["fpwr": "ON", "fmod": "FAN", "fdir": "ON", "ffoc": "OFF"])
+        #expect(await eventually { let state = await device.state; return state.isOn && state.frontAirflow == true })
+        let change: JSONValue = ["msg": "STATE-CHANGE", "product-state": ["fpwr": ["ON", "OFF"], "fmod": "FAN", "ffoc": ["OFF", "ON"]]]
+        await device.handleMessage(change.encoded())
+        #expect(await !device.state.isOn)
+        #expect(await device.state.frontAirflow == true)
     }
 
     @Test func alreadyOnSendsNothing() async throws {
@@ -254,19 +276,19 @@ struct DeviceTests {
         try await device.setFanPower(false)
         #expect(await device.state.isOn)
         try await device.setFanPower(true)
-        #expect(dyson.commands == [["fmod": "OFF"], ["fmod": "FAN"]])
+        #expect(dyson.commands == [["fpwr": "OFF"], ["fpwr": "ON", "auto": "OFF", "fnsp": "0005"]])
         // Once a state message confirms the power commanded, "already on" holds again.
-        let confirmation: JSONValue = ["msg": "STATE-CHANGE", "product-state": ["fmod": ["OFF", "FAN"]]]
+        let confirmation: JSONValue = ["msg": "STATE-CHANGE", "product-state": ["fpwr": ["OFF", "ON"]]]
         await device.handleMessage(confirmation.encoded())
         try await device.setFanPower(true)
         #expect(dyson.commands.count == 2)
     }
 
     @Test func activationDefaultsGoInThePowerOnCommand() async throws {
-        let (device, dyson) = try await connected(state: ["fmod": "OFF", "fnsp": "0004"])
+        let (device, dyson) = try await connected(state: ["fpwr": "OFF", "auto": "OFF", "fnsp": "0004"])
         await device.setActivationDefaults(ActivationDefaults(autoMode: true, oscillation: true, nightMode: true))
         try await device.setFanPower(true)
-        #expect(dyson.commands == [["fmod": "AUTO", "oson": "ON", "nmod": "ON"]])
+        #expect(dyson.commands == [["fpwr": "ON", "auto": "ON", "fnsp": "AUTO", "oson": "ON", "nmod": "ON"]])
 
         // Modes the model lacks are not sent: a CF1 has no auto mode.
         let (fan, fanDyson) = try await connected("739", state: ["fpwr": "OFF", "fnsp": "0003", "auto": "OFF"])
@@ -278,15 +300,15 @@ struct DeviceTests {
     @Test func speedAndAuto() async throws {
         let (device, dyson) = try await connected()
         try await device.setFanSpeed(7)
-        #expect(dyson.commands.last == ["fmod": "FAN", "fnsp": "0007"])
+        #expect(dyson.commands.last == ["fpwr": "ON", "auto": "OFF", "fnsp": "0007"])
         try await device.setFanSpeed(0)
-        #expect(dyson.commands.last == ["fmod": "FAN", "fnsp": "0001"])
+        #expect(dyson.commands.last == ["fpwr": "ON", "auto": "OFF", "fnsp": "0001"])
         try await device.setFanSpeed(14)
-        #expect(dyson.commands.last == ["fmod": "FAN", "fnsp": "0010"])
+        #expect(dyson.commands.last == ["fpwr": "ON", "auto": "OFF", "fnsp": "0010"])
         try await device.setFanSpeed(-1)
-        #expect(dyson.commands.last == ["fmod": "AUTO"])
+        #expect(dyson.commands.last == ["fpwr": "ON", "auto": "ON", "fnsp": "AUTO"])
         try await device.setAutoMode(false)
-        #expect(dyson.commands.last?["fmod"] == "FAN")
+        #expect(dyson.commands.last?["auto"] == "OFF")
     }
 
     @Test func modesRightAfterOffAreDropped() async throws {
@@ -294,12 +316,12 @@ struct DeviceTests {
         try await device.setFanPower(false)
         try await device.setAutoMode(true)
         try await device.setFanSpeed(3)
-        #expect(dyson.commands == [["fmod": "OFF"]])
+        #expect(dyson.commands == [["fpwr": "OFF"]])
         // Switching on through the speed lifts it, though the device has not confirmed the OFF yet.
         try await device.powerOnAndSetSpeed(3)
-        #expect(dyson.commands.last == ["fmod": "FAN", "fnsp": "0003"])
+        #expect(dyson.commands.last == ["fpwr": "ON", "auto": "OFF", "fnsp": "0003"])
         try await device.setAutoMode(true)
-        #expect(dyson.commands.last == ["fmod": "AUTO"])
+        #expect(dyson.commands.last == ["fpwr": "ON", "auto": "ON", "fnsp": "AUTO"])
     }
 
     @Test func otherCommands() async throws {
@@ -316,7 +338,7 @@ struct DeviceTests {
         try await device.setTargetHumidity(45.4)
         try await device.setTargetHumidity(120)
         #expect(dyson.commands == [
-            ["oson": "ON"], ["nmod": "ON"], ["rhtm": "OFF"], ["ffoc": "OFF"], ["hmod": "HEAT"], ["hmax": "2952"], ["hmax": "3102"],
+            ["oson": "ON"], ["nmod": "ON"], ["rhtm": "OFF"], ["fdir": "OFF"], ["hmod": "HEAT"], ["hmax": "2952"], ["hmax": "3102"],
             ["hume": "ON"], ["hume": "AUTO"], ["humt": "0045"], ["humt": "0100"],
         ])
     }

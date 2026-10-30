@@ -46,14 +46,15 @@ the network for those ten minutes, as a first connection does: the fingerprint c
 | `homes` | Only these homes, by name; all of them without it |
 | `exclude` | Accessories left out, by name or HomeKit id |
 | `excludeBridges` | Bridges whose accessories are left out, by name; Homeswift's own are always left out |
-| `refreshMinutes` | How often the whole home is read again (names, rooms, new accessories); value changes arrive at once |
+| `refreshMinutes` | How often the whole home is read again, in case a change was missed; value changes, and accessories, rooms or names changed in the Home app, arrive at once |
 
 ## How it works
 
 `GET /homes` gives the homes, rooms, accessories, services and characteristics with their ids and HomeKit's ranges;
 each accessory becomes `Wingman:<HomeKit id>` with Homeswift's own types (`ServiceType.known(uuid:)`), so the widgets
 and scenes recognise it. `GET /events?since=&wait=25` is a long-poll: a value change reaches Homeswift as HomeKit
-pushes it; events Wingman no longer keeps (it keeps 500) make the plugin read the homes again. Homeswift's own
+pushes it; a `homes` event (an accessory added or removed, a room or name changed, reachability) and events Wingman
+no longer keeps (it keeps 500) make the plugin read the homes again. Homeswift's own
 accessories are recognised by their serial numbers, so a TV or a camera Homeswift publishes on its own is left out too,
 and an entry without a pinned certificate is never sent its token. A write goes to `POST /write` by characteristic id; locks, garage doors and alarms are security controls
 (the web UI and the MCP server ask first) and Wingman refuses them anyway. An accessory Apple Home says is not
