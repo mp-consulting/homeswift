@@ -9,7 +9,8 @@ enum WebAssets {
         "admin.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The Settings pages, after the Homebridge UI's settings, child bridges, config editor backups, restart and power
 // options: the bridge block and this machine's network, HomeKit pairings, cached accessories, child bridges,
-// whole-instance and config.json backups, the schedules, and the audit log; and an accessory's recorded history.
+// whole-instance and config.json backups, the schedules, updates, and the audit log; and an accessory's recorded
+// history.
 // app.js routes /settings[/<page>] here and lends its helpers (HomeswiftApp) when a view is drawn.
 (() => {
   "use strict";
@@ -19,7 +20,7 @@ enum WebAssets {
   const app = () => window.HomeswiftApp;
   const api = (...args) => app().api(...args);
 
-  const pages = [["bridge", t("Bridge"), "bridge"], ["child-bridges", t("Child bridges"), "child"], ["backups", t("Backups"), "archive"], ["vault", t("Vault"), "key"], ["audit", t("Audit log"), "shield"], ["assistant", t("Assistant"), "sparkle"]];
+  const pages = [["bridge", t("Bridge"), "bridge"], ["child-bridges", t("Child bridges"), "child"], ["backups", t("Backups"), "archive"], ["vault", t("Vault"), "key"], ["updates", t("Updates"), "download"], ["audit", t("Audit log"), "shield"], ["assistant", t("Assistant"), "sparkle"]];
 
   const dateTime = new Intl.DateTimeFormat(locale, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
   const fullDate = new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
@@ -62,7 +63,7 @@ enum WebAssets {
   async function view(main, [page = ""] = []) {
     // Settings opens on its first page, Bridge.
     if (!page) { history.replaceState(null, "", "/settings/bridge"); page = "bridge"; }
-    const draw = { bridge: bridgePage, "child-bridges": childBridgesPage, backups: backupsPage, vault: vaultPage, audit: auditPage, assistant: (main) => app().assistantPage(main, subnav("assistant")) }[page];
+    const draw = { bridge: bridgePage, "child-bridges": childBridgesPage, backups: backupsPage, vault: vaultPage, updates: updatesPage, audit: auditPage, assistant: (main) => app().assistantPage(main, subnav("assistant")) }[page];
     if (!draw) { app().show(main, app().pageHead(t("Settings"), t("No such page.")), subnav(null)); return; }
     await draw(main);
   }
@@ -91,7 +92,8 @@ enum WebAssets {
     const fields = {
       name: input("name", { required: true }),
       port: input("port", { type: "number", min: 1, max: 65535, placeholder: settings.listeningPort ? t("Automatic (now {port})", { port: String(settings.listeningPort) }) : t("Automatic [port]") }),
-      pin: input("pin", { class: "mono", placeholder: "031-45-154", pattern: "\\d{3}-\\d{2}-\\d{3}", autocomplete: "off", spellcheck: false }),
+      // The code the bridge runs with: config.json keeps it sealed, or names it in the vault.
+      pin: input("pin", { id: "bridge-pin", class: "mono", placeholder: "031-45-154", pattern: "\\d{3}-\\d{2}-\\d{3}", autocomplete: "off", spellcheck: false, value: settings.setupCode ?? bridge.pin ?? "" }),
       manufacturer: input("manufacturer", { placeholder: "Homeswift" }),
       model: input("model", { placeholder: "Homeswift" }),
       firmwareRevision: input("firmwareRevision", { placeholder: t("The homeswift version") }),
@@ -99,10 +101,25 @@ enum WebAssets {
     const field = (title, control, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: title }), control, help ? el("span", { class: "help", text: help }) : null);
     const message = el("p", { class: "status-line muted", role: "status" });
     const save = el("button", { actionIcon: "check", class: "primary", type: "submit", text: t("Save and restart") });
+    // The setup code is sent only when it changes, so a sealed or vault pin stays as config.json has it.
+    const shownPin = fields.pin.value;
     const read = () => Object.fromEntries(Object.entries(fields).map(([key, control]) => {
       const value = control.value.trim();
       return [key, value === "" ? null : key === "port" ? Number(value) : value];
-    }));
+    }).filter(([key, value]) => key !== "pin" || value !== shownPin));
+    const copyPin = el("button", { type: "button", class: "icon-button setup-code-copy", title: t("Copy the setup code"), "aria-label": t("Copy the setup code"), onclick: async () => {
+      try {
+        await HomeswiftCommon.copyText(fields.pin.value.trim());
+        copyPin.replaceChildren(HomeswiftCommon.icon("check"));
+        copyPin.title = t("Copied");
+      } catch { copyPin.title = t("Not copied"); }
+      setTimeout(() => { copyPin.replaceChildren(HomeswiftCommon.icon("copy")); copyPin.title = t("Copy the setup code"); }, 1800);
+    } }, HomeswiftCommon.icon("copy"));
+    // The pairing QR code, for the Home app's camera: the code the bridge runs with, so a new one shows after the restart.
+    const qr = settings.setupCode ? el("div", { class: "setup setup-in-form" },
+      el("img", { class: "qr", src: "/api/qr/0.svg", alt: t("Pairing QR code"), width: 148, height: 148 }),
+      el("p", { class: "help", text: main?.paired ? t("The bridge is in the Home app. To add it again, reset its pairings below, then scan this code.")
+        : t("In the Home app: Add Accessory, then scan this code, or choose More options and type it.") })) : null;
     const portStatus = el("span", { class: "help", role: "status", "aria-live": "polite" });
     const checkPort = async () => {
       if (!fields.port.value.trim()) return "";
@@ -152,7 +169,7 @@ enum WebAssets {
       catch (error) { portStatus.className = "help error"; portStatus.textContent = error.message; fields.port.focus(); return; }
       if (!(await confirmAction({ title: t("Restart homeswift with these settings?"), danger: false, confirmLabel: t("Save and restart"),
         text: [t("The bridge block is the bridge's HomeKit identity: homeswift restarts to apply it, and every connection drops for a few seconds."),
-          next.pin !== (bridge.pin ?? null) ? t("A new setup code applies to new pairings only: the Home app keeps the bridge.") : ""] }))) return;
+          "pin" in next ? t("A new setup code applies to new pairings only: the Home app keeps the bridge.") : ""] }))) return;
       await busy(save, async () => {
         await checkPort();
         const result = await api("/api/settings/bridge", { method: "PUT", body: { settings: next } });
@@ -167,7 +184,9 @@ enum WebAssets {
       el("div", { class: "fields" },
         field(t("Name"), fields.name, t("What the Home app calls the bridge when it is added.")),
         field(t("Port"), portControl, t("The HomeKit server's port; empty picks a free one and keeps it.")),
-        field(t("Setup code"), fields.pin, t("The code the Home app asks for, as XXX-XX-XXX. It is never logged.")),
+        el("div", { class: "field" }, el("label", { class: "field-title", for: "bridge-pin", text: t("Setup code") }),
+          el("div", { class: "setup-code-field" }, fields.pin, copyPin),
+          el("span", { class: "help", text: t("The code the Home app asks for, as XXX-XX-XXX. It is never logged.") }), qr),
         field(t("Manufacturer"), fields.manufacturer), field(t("Model"), fields.model), field(t("Firmware revision"), fields.firmwareRevision)),
       el("p", { class: "help", text: t("The device ID stays: a new one is a new bridge to the Home app. To pair again from scratch, reset the bridge's pairings below.") }),
       el("div", { class: "actions" }, save), message);
@@ -306,6 +325,63 @@ enum WebAssets {
       el("div", { class: "card page-note" },
         el("p", { text: t("A scheduled restart (a cron expression), the daily backup (its folder and how long it is kept) and the reverse proxies trusted for X-Forwarded-For and X-Forwarded-Proto are settings of the HomeswiftUI block.") }),
         uiBlock ? el("a", { actionIcon: "sliders", class: "button", href: `/plugins/${uiBlock.slug}?section=proxy`, text: t("Open its settings") }) : null));
+  }
+
+  // ---- Updates: this version, the latest release, installing it and relaunching --------------------------------
+
+  async function updatesPage(main) {
+    const update = await api("/api/updates");
+    const installs = { homebrew: "Homebrew", docker: t("Docker container"), synology: t("Synology package"), source: t("Built from source") };
+    const facts = el("div", { class: "facts" });
+    const result = el("div", {});
+    const message = el("p", { class: "muted", role: "status" });
+    const draw = (next) => {
+      Object.assign(update, next);
+      facts.replaceChildren(
+        fact(t("Version"), update.current, { class: "mono" }),
+        fact(t("Installed with"), installs[update.install] ?? update.install),
+        fact(t("Last checked"), update.checkedAt ? when(update.checkedAt) : t("Not yet")));
+      message.textContent = update.error ? t("Could not check for updates. Try again.")
+        : !update.checkedAt ? (update.automatic ? t("Not checked yet: check now, or wait for the first automatic check.") : t("Not checked yet: check now, or turn on the automatic checks."))
+        : update.available ? "" : t("Homeswift is up to date.");
+      message.className = update.error ? "error" : "muted";
+      automatic.checked = Boolean(update.automatic);
+      // The card keeps itself current while it installs; a new check draws a new one.
+      result.replaceChildren(app().updateCard(update, { changed: (state) => { Object.assign(update, state); check.disabled = Boolean(state.installing || state.relaunching); } }) ?? "");
+    };
+    // `checkForUpdates` of the HomeswiftUI block, written as soon as it changes.
+    const automatic = el("input", { type: "checkbox", role: "switch", onchange: async () => {
+      const on = automatic.checked;
+      automatic.disabled = true;
+      try {
+        draw(await api("/api/updates/automatic", { method: "PUT", body: { on } }));
+      } catch (error) {
+        automatic.checked = !on;
+        message.className = "error";
+        message.textContent = error.message;
+      } finally {
+        automatic.disabled = false;
+      }
+    } });
+    const check = el("button", { type: "button", actionIcon: "restore", text: t("Check now"), onclick: (event) =>
+      busy(event.currentTarget, async () => draw(await api("/api/updates/check", { method: "POST", body: {} })), (error) => { message.className = "error"; message.textContent = error.message; }) });
+    const relaunch = el("button", { type: "button", actionIcon: "power", text: t("Restart homeswift…"), onclick: (event) => app().restartBridge(event) });
+    draw(update);
+    app().show(main,
+      app().pageHead(t("Settings"), t("The bridge, its pairings and cached accessories, child bridges, backups and the audit log.")),
+      subnav("updates"),
+      el("section", { class: "updates-settings" },
+        el("div", { class: "card server" },
+          el("div", { class: "server-head" }, tile("update", "green"),
+            el("div", { class: "who" }, el("strong", { text: t("Homeswift updates") }),
+              el("div", { class: "muted", text: update.install === "homebrew" ? t("New releases install here, then the bridge relaunches into them.") : t("Releases from GitHub, with how to install them on this machine.") }))),
+          facts,
+          el("label", { class: "toggle" }, el("span", { class: "switch" }, automatic, el("span")),
+            el("span", {}, el("span", { class: "field-title", text: t("Check for updates twice a day") }),
+              el("p", { class: "help", text: t("Asks GitHub for the latest release and says so on the Status page. The request carries only this version.") }))),
+          message,
+          el("div", { class: "actions" }, check, relaunch)),
+        result));
   }
 
   // ---- Child bridges -------------------------------------------------------------------------------------
@@ -1820,17 +1896,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   // ---- Restart -------------------------------------------------------------
 
-  function confirmRestart() {
+  function confirmRestart({ title = t("Restart Homeswift?"), text = t("Your accessories will disconnect briefly. This page will reconnect automatically when Homeswift is ready."), confirm = t("Restart"), icon = "power" } = {}) {
     return new Promise((resolve) => {
       const dialog = el("dialog", { class: "restart-overlay restart-confirm", "aria-labelledby": "restart-confirm-title", "aria-describedby": "restart-confirm-description" });
       const finish = (accepted) => { dialog.close(); dialog.remove(); resolve(accepted); };
       const cancel = el("button", { actionIcon: "close", text: t("Cancel"), onclick: () => finish(false) });
       dialog.append(
-        el("div", { class: "restart-confirm-icon", "aria-hidden": "true" }, HomeswiftCommon.icon("power")),
-        el("h2", { id: "restart-confirm-title", text: t("Restart Homeswift?") }),
-        el("p", { id: "restart-confirm-description", text: t("Your accessories will disconnect briefly. This page will reconnect automatically when Homeswift is ready.") }),
+        el("div", { class: "restart-confirm-icon", "aria-hidden": "true" }, HomeswiftCommon.icon(icon)),
+        el("h2", { id: "restart-confirm-title", text: title }),
+        el("p", { id: "restart-confirm-description", text }),
         el("div", { class: "restart-confirm-actions" }, cancel,
-          el("button", { actionIcon: "power", class: "primary", text: t("Restart"), onclick: () => finish(true) })));
+          el("button", { actionIcon: icon, class: "primary", text: confirm, onclick: () => finish(true) })));
       dialog.addEventListener("cancel", (event) => { event.preventDefault(); finish(false); });
       document.body.append(dialog); dialog.showModal(); cancel.focus();
     });
@@ -2145,7 +2221,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // The page is widgets the user can hide and order (Customise, at the bottom; Glass UI's dashboard layout),
     // drawn only when shown: the activity charts load nothing while hidden.
     const widgets = {
-      overview: () => [updateCard(status.update),
+      overview: () => [updateCard(status.update, { changed: (next) => updateChanged(next) }),
       // Each figure with its glyph; on a phone the four share one row, "Home app controllers" shortened.
       el("div", { class: "stats" },
         el("a", { class: "stat", href: "/accessories" }, HomeswiftCommon.icon("bulb"), el("b", { text: status.bridges.reduce((sum, bridge) => sum + bridge.accessories, 0) }), el("span", { text: t("Accessories") })),
@@ -2177,19 +2253,32 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     };
     const sections = new Map();
     let footerUpdate = status.update;
-    const updateState = () => footerUpdate?.error ? "error" : footerUpdate?.available ? "available" : footerUpdate?.checkedAt ? "current" : "idle";
-    const updateLabel = () => footerUpdate?.error ? t("Try again") : footerUpdate?.available ? t("Update available") : footerUpdate?.checkedAt ? t("Up to date") : t("Check for updates");
-    const updateLabels = [t("Check for updates"), t("Checking…"), t("Up to date"), t("Update available"), t("Try again")];
+    // Installed but not running yet: Homebrew upgraded it, a relaunch starts it.
+    const relaunchPending = () => Boolean(footerUpdate?.installed && !footerUpdate.canInstall);
+    const updateState = () => footerUpdate?.error ? "error" : footerUpdate?.installing || footerUpdate?.relaunching ? "checking"
+      : relaunchPending() ? "installed" : footerUpdate?.available ? "available" : footerUpdate?.checkedAt ? "current" : "idle";
+    const updateLabel = () => footerUpdate?.error ? t("Try again") : footerUpdate?.installing ? t("Installing…") : footerUpdate?.relaunching ? t("Relaunching…")
+      : relaunchPending() ? t("Relaunch to update") : footerUpdate?.canInstall ? t("Install update") : footerUpdate?.available ? t("Update available")
+      : footerUpdate?.checkedAt ? t("Up to date") : t("Check for updates");
+    const updateLabels = [t("Check for updates"), t("Checking…"), t("Up to date"), t("Update available"), t("Try again"), t("Install update"), t("Installing…"), t("Relaunching…"), t("Relaunch to update")];
     const updateContent = (state, label) => [
-      HomeswiftCommon.icon(({ current: "check", available: "download", error: "warning" })[state] || "restore"),
+      HomeswiftCommon.icon(({ current: "check", available: "download", installed: "power", error: "warning" })[state] || "restore"),
       el("span", { class: "footer-update-label" },
         el("span", { text: label }),
         ...updateLabels.map((text) => el("span", { class: "footer-update-sizer", "aria-hidden": "true", text }))),
     ];
+    // The overview's card and the sheet both tell the footer what an install is doing.
+    const updateChanged = (next) => {
+      footerUpdate = next;
+      checkUpdates.disabled = Boolean(next.installing || next.relaunching);
+      checkUpdates.replaceChildren(...updateContent(updateState(), updateLabel()));
+      checkUpdates.dataset.updateState = updateState();
+    };
     const showUpdate = () => openSheet((done) => el("div", {},
-      el("h2", { id: "update-check-title", text: t("Updates") }), updateCard(footerUpdate),
+      el("h2", { id: "update-check-title", text: t("Updates") }), updateCard(footerUpdate, { changed: updateChanged }),
       el("button", { actionIcon: "close", type: "button", text: t("Close"), onclick: () => done() })), "update-check-title", { returnFocus: checkUpdates });
-    const checkUpdates = el("button", { type: "button", class: "link footer-update-check", "data-update-state": updateState(), "aria-live": "polite", text: updateLabel(), onclick: async () => {
+    const checkUpdates = el("button", { type: "button", class: "link footer-update-check", "data-update-state": updateState(), "aria-live": "polite", text: updateLabel(), onclick: async (event) => {
+      if (relaunchPending()) { restartBridge(event); return; }
       if (footerUpdate?.available && !footerUpdate.error) { showUpdate(); return; }
       checkUpdates.disabled = true;
       checkUpdates.dataset.updateState = "checking";
@@ -2399,8 +2488,21 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         rows.length ? el("div", { class: "vault-status-rows" }, rows) : null)];
   }
 
-  function updateCard(update) {
+  /// `changed` hears each new state of the update (installing, installed, failed), for what shows it elsewhere (the
+  /// Status page's footer). An install the bridge can do itself (Homebrew's) is a button; it then restarts into it.
+  function updateCard(update, { changed = () => {} } = {}) {
     if (!update?.available) return null;
+    const card = el("div", { class: "card update-card" });
+    const draw = (next) => {
+      update = next;
+      changed(update);
+      card.replaceChildren(...updateCardContent(update, draw).filter(Boolean));
+    };
+    card.replaceChildren(...updateCardContent(update, draw).filter(Boolean));
+    return card;
+  }
+
+  function updateCardContent(update, draw) {
     const released = update.publishedAt ? new Date(update.publishedAt).toLocaleDateString(HomeswiftI18n.locale) : null;
     let command = null;
     if (update.command) {
@@ -2410,18 +2512,63 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       } });
       command = el("div", { class: "update-command" }, el("code", { text: update.command }), copy);
     }
-    return el("div", { class: "card update-card" },
+    // On disk but not running: `brew upgrade` done, here or by hand.
+    const pending = update.installed && !update.canInstall && !update.installing;
+    const status = update.installing
+      ? el("p", { class: "update-progress", role: "status" }, el("span", { class: "spinner", "aria-hidden": "true" }), el("span", { text: t("Installing Homeswift {version}… The bridge restarts when it is done.", { version: update.installing }) }))
+      : update.relaunching ? el("p", { class: "update-progress", role: "status" }, el("span", { class: "spinner", "aria-hidden": "true" }), el("span", { text: t("Restarting into Homeswift {version}…", { version: update.installed }) }))
+      : pending ? el("p", { class: "update-progress", role: "status" }, HomeswiftCommon.icon("check"), el("span", { text: t("Homeswift {version} is installed. Relaunch to start it.", { version: update.installed }) }))
+      : null;
+    return [
       el("div", { class: "server-head" },
         tile("update", "green"),
         el("div", { class: "who" },
           el("strong", { text: t("Homeswift {version} is available", { version: update.latest }) }),
           el("div", { class: "muted", text: released ? t("This is {version} · released {date}", { version: update.current, date: released }) : t("This is {version}", { version: update.current }) }))),
-      el("p", { text: HomeswiftI18n.message(update.how) }),
-      command,
+      pending || update.installing || update.relaunching ? null : el("p", { text: HomeswiftI18n.message(update.how) }),
+      status,
+      update.installError ? el("p", { class: "error", role: "alert", text: t("Could not install the update: {error}", { error: update.installError }) }) : null,
+      pending || update.installing || update.relaunching ? null : command,
       el("div", { class: "actions" },
-        update.download ? el("a", { class: "button primary", href: update.download.url, rel: "noopener", title: update.download.name, text: t("Download the package") }) : null,
-        el("a", { class: "button", href: update.url, target: "_blank", rel: "noopener", text: t("On GitHub") })),
-      update.notes ? el("details", { class: "more-options" }, el("summary", { text: t("What's new") }), markdown(update.notes)) : null);
+        update.canInstall && !update.installing && !update.relaunching && isAdmin()
+          ? el("button", { class: "primary", type: "button", actionIcon: "download", text: t("Install and relaunch"), onclick: (event) => installUpdate(event.currentTarget, update, draw) }) : null,
+        pending && isAdmin() ? el("button", { class: "primary", type: "button", actionIcon: "power", text: t("Relaunch now"), onclick: restartBridge }) : null,
+        update.download ? el("a", { class: "button primary", href: update.download.url, rel: "noopener", title: update.download.name, actionIcon: "download", text: t("Download the package") }) : null,
+        el("a", { class: "button", href: update.url, target: "_blank", rel: "noopener", actionIcon: "open", text: t("On GitHub") })),
+      update.notes ? el("details", { class: "more-options" }, el("summary", { text: t("What's new") }), markdown(update.notes)) : null,
+    ];
+  }
+
+  /// Asks the bridge to install the latest release and relaunch, then follows it: the card shows the install, and the
+  /// restart's overlay takes over once the bridge goes down to start the new version.
+  async function installUpdate(button, update, draw) {
+    if (!await confirmRestart({ title: t("Install Homeswift {version}?", { version: update.latest }), confirm: t("Install and relaunch"), icon: "download",
+      text: t("Homeswift installs the update, then restarts. Your accessories will disconnect briefly; this page reconnects when the new version is ready.") })) return;
+    button.disabled = true;
+    const started = Date.now();
+    let state;
+    try {
+      state = await api("/api/updates/install", { method: "POST", body: {} });
+    } catch (e) {
+      button.disabled = false;
+      HomeswiftCommon.showAlert(e.message);
+      return;
+    }
+    draw(state);
+    // An upgrade fetches and may build: minutes, at most the installer's half hour.
+    while (state.installing) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      try {
+        state = await api("/api/updates");
+      } catch (e) {
+        // Gone: the restart began between two questions.
+        if (!(e instanceof ApiError)) { waitForRestart(started); return; }
+        HomeswiftCommon.showAlert(e.message);
+        return;
+      }
+      draw(state);
+    }
+    if (state.relaunching) waitForRestart(started);
   }
 
   /// The Status page's charts: the process's memory and CPU, and how long the Home app's requests and the plugins'
@@ -3636,7 +3783,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         { type: "fieldset", title: t("Connection"), icon: "system", items: ["port", "host", "allowedHosts"] },
         { type: "fieldset", title: t("Sign-in"), icon: "user", items: ["auth", "sessionDays"] },
         { type: "fieldset", title: "HTTPS", icon: "lock", expandable: true, expanded: Boolean(current.https), items: ["https", { items: ["certificate", "privateKey"] }] },
-        { type: "fieldset", title: t("Updates"), icon: "download", expandable: true, expanded: false, items: ["checkForUpdates"] },
+        { type: "fieldset", title: t("Updates"), section: "updates", icon: "download", expandable: true, expanded: false, items: ["checkForUpdates"] },
         ...advanced
       ];
     }
@@ -3838,7 +3985,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     update();
     if (platform === "HomeswiftUI") {
       const section = new URLSearchParams(location.search).get("section");
-      if (["proxy", "schedules"].includes(section)) {
+      if (["proxy", "schedules", "updates"].includes(section)) {
         const target = body.querySelector(`[data-section="${section}"]`);
         if (target) {
           target.open = true;
@@ -5514,7 +5661,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     enumLabels: HomeswiftWidgets.enumLabels, labelFor: HomeswiftWidgets.labelFor, withSlugs,
   });
   // The Settings pages (admin.js) draw with the same helpers.
-  window.HomeswiftApp = { api, navigate, route, pageHead, breadcrumb, show, savedText, waitForRestart, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, assistantPage };
+  window.HomeswiftApp = { api, navigate, route, pageHead, breadcrumb, show, savedText, waitForRestart, updateCard, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, assistantPage };
 
   loadAuth().catch((e) => { $("#auth").classList.remove("hidden"); $("#auth-error").textContent = e.message; });
 })();
@@ -13409,6 +13556,36 @@ HomeswiftI18n.add("es", {
   "Save to {hub} ({place})": "Guardar en {hub} ({place})",
   "A switch in the Home app": "Un interruptor en la app Casa",
   "On the Homeswift Scenes accessory: turning it on runs the scene (without its locks, doors and alarms), turning it off puts the lights back.": "En el accesorio Escenas de Homeswift: al encenderlo se ejecuta la escena (sin sus cerraduras, puertas ni alarmas) y al apagarlo las luces vuelven a como estaban.",
+  "Installing Homeswift {version}… The bridge restarts when it is done.": "Instalando Homeswift {version}… El puente se reinicia al terminar.",
+  "Restarting into Homeswift {version}…": "Reiniciando con Homeswift {version}…",
+  "Homeswift {version} is installed. Relaunch to start it.": "Homeswift {version} está instalado. Vuelve a iniciar para arrancarlo.",
+  "Could not install the update: {error}": "No se pudo instalar la actualización: {error}",
+  "Install and relaunch": "Instalar y reiniciar",
+  "Relaunch now": "Reiniciar ahora",
+  "Install Homeswift {version}?": "¿Instalar Homeswift {version}?",
+  "Homeswift installs the update, then restarts. Your accessories will disconnect briefly; this page reconnects when the new version is ready.": "Homeswift instala la actualización y luego se reinicia. Tus accesorios se desconectarán un momento; esta página se reconecta cuando la nueva versión esté lista.",
+  "Installing…": "Instalando…",
+  "Relaunching…": "Reiniciando…",
+  "Relaunch to update": "Reiniciar para actualizar",
+  "Install update": "Instalar la actualización",
+  "Docker container": "Contenedor Docker",
+  "Synology package": "Paquete Synology",
+  "Built from source": "Compilado desde el código fuente",
+  "Installed with": "Instalado con",
+  "Last checked": "Última comprobación",
+  "Not yet": "Todavía no",
+  "Homeswift is up to date.": "Homeswift está actualizado.",
+  "Check now": "Comprobar ahora",
+  "Homeswift updates": "Actualizaciones de Homeswift",
+  "New releases install here, then the bridge relaunches into them.": "Las nuevas versiones se instalan aquí y luego el puente se reinicia con ellas.",
+  "Releases from GitHub, with how to install them on this machine.": "Las versiones de GitHub y cómo instalarlas en esta máquina.",
+  "there is no update this bridge can install": "no hay ninguna actualización que este puente pueda instalar",
+  "Not checked yet: check now, or turn on the automatic checks.": "Aún no se ha comprobado: comprueba ahora o activa las comprobaciones automáticas.",
+  "Check for updates twice a day": "Buscar actualizaciones dos veces al día",
+  "Asks GitHub for the latest release and says so on the Status page. The request carries only this version.": "Pregunta a GitHub por la última versión y lo indica en la página Estado. La solicitud solo lleva esta versión.",
+  "Not checked yet: check now, or wait for the first automatic check.": "Aún no se ha comprobado: comprueba ahora o espera a la primera comprobación automática.",
+  "Copy the setup code": "Copiar el código de configuración",
+  "The bridge is in the Home app. To add it again, reset its pairings below, then scan this code.": "El puente está en la app Casa. Para añadirlo de nuevo, restablece sus emparejamientos abajo y escanea este código.",
 });
 
 """#),
@@ -15843,6 +16020,36 @@ HomeswiftI18n.add("fr", {
   "Save to {hub} ({place})": "Enregistrer sur {hub} ({place})",
   "A switch in the Home app": "Un interrupteur dans l’app Maison",
   "On the Homeswift Scenes accessory: turning it on runs the scene (without its locks, doors and alarms), turning it off puts the lights back.": "Sur l’accessoire Scènes Homeswift : l’allumer lance la scène (sans ses serrures, portes et alarmes), l’éteindre remet les lumières comme avant.",
+  "Installing Homeswift {version}… The bridge restarts when it is done.": "Installation de Homeswift {version}… Le pont redémarre une fois terminé.",
+  "Restarting into Homeswift {version}…": "Redémarrage sur Homeswift {version}…",
+  "Homeswift {version} is installed. Relaunch to start it.": "Homeswift {version} est installé. Relancez pour le démarrer.",
+  "Could not install the update: {error}": "Impossible d’installer la mise à jour : {error}",
+  "Install and relaunch": "Installer et relancer",
+  "Relaunch now": "Relancer maintenant",
+  "Install Homeswift {version}?": "Installer Homeswift {version} ?",
+  "Homeswift installs the update, then restarts. Your accessories will disconnect briefly; this page reconnects when the new version is ready.": "Homeswift installe la mise à jour, puis redémarre. Vos accessoires se déconnecteront brièvement ; cette page se reconnecte quand la nouvelle version est prête.",
+  "Installing…": "Installation…",
+  "Relaunching…": "Relance…",
+  "Relaunch to update": "Relancer pour mettre à jour",
+  "Install update": "Installer la mise à jour",
+  "Docker container": "Conteneur Docker",
+  "Synology package": "Paquet Synology",
+  "Built from source": "Compilé depuis les sources",
+  "Installed with": "Installé avec",
+  "Last checked": "Dernière vérification",
+  "Not yet": "Pas encore",
+  "Homeswift is up to date.": "Homeswift est à jour.",
+  "Check now": "Vérifier maintenant",
+  "Homeswift updates": "Mises à jour de Homeswift",
+  "New releases install here, then the bridge relaunches into them.": "Les nouvelles versions s’installent ici, puis le pont redémarre dessus.",
+  "Releases from GitHub, with how to install them on this machine.": "Les versions publiées sur GitHub, et comment les installer sur cette machine.",
+  "there is no update this bridge can install": "il n’y a aucune mise à jour que ce pont peut installer",
+  "Not checked yet: check now, or turn on the automatic checks.": "Pas encore vérifié : vérifiez maintenant, ou activez les vérifications automatiques.",
+  "Check for updates twice a day": "Rechercher des mises à jour deux fois par jour",
+  "Asks GitHub for the latest release and says so on the Status page. The request carries only this version.": "Demande à GitHub la dernière version publiée et l’indique sur la page État. La requête ne transmet que cette version.",
+  "Not checked yet: check now, or wait for the first automatic check.": "Pas encore vérifié : vérifiez maintenant, ou attendez la première vérification automatique.",
+  "Copy the setup code": "Copier le code de configuration",
+  "The bridge is in the Home app. To add it again, reset its pairings below, then scan this code.": "Le pont est dans l’app Maison. Pour l’ajouter à nouveau, réinitialisez ses jumelages ci-dessous, puis scannez ce code.",
 });
 
 """#),
@@ -18277,6 +18484,36 @@ HomeswiftI18n.add("pt", {
   "Save to {hub} ({place})": "Guardar em {hub} ({place})",
   "A switch in the Home app": "Um interruptor na app Casa",
   "On the Homeswift Scenes accessory: turning it on runs the scene (without its locks, doors and alarms), turning it off puts the lights back.": "No acessório Cenas do Homeswift: ligá-lo executa a cena (sem as fechaduras, portas e alarmes), desligá-lo repõe as luzes como estavam.",
+  "Installing Homeswift {version}… The bridge restarts when it is done.": "A instalar o Homeswift {version}… A ponte reinicia quando terminar.",
+  "Restarting into Homeswift {version}…": "A reiniciar com o Homeswift {version}…",
+  "Homeswift {version} is installed. Relaunch to start it.": "O Homeswift {version} está instalado. Reinicie para o iniciar.",
+  "Could not install the update: {error}": "Não foi possível instalar a atualização: {error}",
+  "Install and relaunch": "Instalar e reiniciar",
+  "Relaunch now": "Reiniciar agora",
+  "Install Homeswift {version}?": "Instalar o Homeswift {version}?",
+  "Homeswift installs the update, then restarts. Your accessories will disconnect briefly; this page reconnects when the new version is ready.": "O Homeswift instala a atualização e depois reinicia. Os seus acessórios vão desligar-se por momentos; esta página volta a ligar-se quando a nova versão estiver pronta.",
+  "Installing…": "A instalar…",
+  "Relaunching…": "A reiniciar…",
+  "Relaunch to update": "Reiniciar para atualizar",
+  "Install update": "Instalar a atualização",
+  "Docker container": "Contentor Docker",
+  "Synology package": "Pacote Synology",
+  "Built from source": "Compilado a partir do código-fonte",
+  "Installed with": "Instalado com",
+  "Last checked": "Última verificação",
+  "Not yet": "Ainda não",
+  "Homeswift is up to date.": "O Homeswift está atualizado.",
+  "Check now": "Verificar agora",
+  "Homeswift updates": "Atualizações do Homeswift",
+  "New releases install here, then the bridge relaunches into them.": "As novas versões instalam-se aqui e depois a ponte reinicia com elas.",
+  "Releases from GitHub, with how to install them on this machine.": "As versões do GitHub e como as instalar nesta máquina.",
+  "there is no update this bridge can install": "não há nenhuma atualização que esta ponte possa instalar",
+  "Not checked yet: check now, or turn on the automatic checks.": "Ainda não verificado: verifique agora ou ative as verificações automáticas.",
+  "Check for updates twice a day": "Procurar atualizações duas vezes por dia",
+  "Asks GitHub for the latest release and says so on the Status page. The request carries only this version.": "Pergunta ao GitHub pela versão mais recente e indica-o na página Estado. O pedido leva apenas esta versão.",
+  "Not checked yet: check now, or wait for the first automatic check.": "Ainda não verificado: verifique agora ou aguarde a primeira verificação automática.",
+  "Copy the setup code": "Copiar o código de configuração",
+  "The bridge is in the Home app. To add it again, reset its pairings below, then scan this code.": "A ponte está na app Casa. Para a adicionar de novo, reponha os emparelhamentos abaixo e leia este código.",
 });
 
 """#),
@@ -21645,6 +21882,10 @@ textarea.short { min-height: 220px; }
 .update-command code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; font: 0.8125rem/1.5 var(--mono); scrollbar-width: none; }
 .update-command button { flex: none; padding: 5px var(--space-12); font-size: var(--text-sm); }
 .update-card details.more-options { margin: 0; }
+.update-progress { display: flex; align-items: center; gap: var(--space-8); margin: 0; }
+.update-progress svg { width: 16px; height: 16px; flex: none; color: var(--ok); }
+.update-progress .spinner { flex: none; }
+.updates-settings .actions { flex-wrap: wrap; }
 .who { flex: 1; min-width: 0; }
 .health { font-weight: var(--weight-medium); display: flex; align-items: flex-start; gap: var(--space-8); }
 /* The dot on the first line's middle, when the text wraps. */
@@ -21888,6 +22129,11 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .setup { display: flex; gap: var(--space-16); align-items: center; padding-top: var(--space-14); border-top: 1px solid var(--line); }
 .setup p { margin: 0 0 var(--space-6); }
 .setup .code { margin: 0; }
+.setup-code-field { display: flex; align-items: center; gap: var(--space-8); }
+.setup-code-field input { flex: 1; min-width: 0; }
+.setup-in-form { margin-top: var(--space-8); padding-top: var(--space-12); }
+.setup-in-form .qr { width: 120px; height: 120px; flex: none; }
+.setup-in-form p.help { margin: 0; }
 .server .actions { margin-top: 0; }
 .banner { margin: var(--space-14) auto 0; max-width: 1100px; width: calc(100% - 24px); padding: var(--space-10) var(--space-20); text-align: center; color: var(--warn); font-weight: var(--weight-semibold); animation: materialize var(--normal) var(--ease-out); }
 .auth { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; padding: var(--space-20); }
@@ -22556,6 +22802,12 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 .hub-scene-actions > button svg { width: 16px; height: 16px; }
 .hub-scene-actions > button.action-with-icon::before { width: 14px; height: 14px; }
 .hub-scene-tile:has(> .hub-scene:not(.pictured):not(.coloured)) .hub-scene-actions > button { background: rgba(255, 255, 255, 0.55); color: #1d1d1f; }
+/* On a touch screen each takes a 44-point-tall tap around its 30-point disc, so a near miss opens it rather than the
+   scene; only 2 points wider, so Stop and the menu, 4 apart, do not take each other's taps. */
+@media (pointer: coarse) {
+  .hub-scene-actions > button { position: relative; }
+  .hub-scene-actions > button::after { content: ""; position: absolute; inset: -7px -2px; }
+}
 .animation-settings { display: grid; gap: var(--space-10); margin-top: var(--space-10); }
 .animation-colours { display: flex; gap: var(--space-10); }
 .animation-lights { display: grid; gap: var(--space-6); }
@@ -23518,6 +23770,7 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
 
 .status-footer .footer-update-check[data-update-state="current"] { --update-tone: var(--ok); }
 .status-footer .footer-update-check[data-update-state="available"] { --update-tone: var(--warn); }
+.status-footer .footer-update-check[data-update-state="installed"] { --update-tone: var(--ok); }
 .status-footer .footer-update-check[data-update-state="error"] { --update-tone: var(--error); }
 .status-footer .footer-update-check {
   color: var(--update-tone, var(--text));
