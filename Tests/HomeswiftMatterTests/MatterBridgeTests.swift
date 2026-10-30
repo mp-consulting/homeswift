@@ -443,6 +443,40 @@ struct MatterMappingTests {
         #expect(states.contains(.coolingSetpoint(21)))
     }
 
+    @Test func keepsAThermostatInAutoBetweenItsThresholds() throws {
+        typealias Mode = ThermostatCluster.SystemModeEnum
+        let thermostat = Service(.thermostat, name: "Heat pump", optional: [.heatingThresholdTemperature, .coolingThresholdTemperature])
+        thermostat[.targetTemperature]?.value = .double(21)
+        thermostat[.heatingThresholdTemperature]?.value = .double(19)
+        thermostat[.coolingThresholdTemperature]?.value = .double(25)
+        thermostat[.targetHeatingCoolingState]?.value = .int(3)
+        let mapping = try #require(ServiceMapping(thermostat, exposeSecurity: false))
+        #expect(mapping.role == .thermostat(cooling: true, auto: true))
+        // In auto, Matter's two setpoints are the thresholds, both ways.
+        let states = mapping.states(changed: CharacteristicType.targetHeatingCoolingState.uuid)
+        #expect(states == [.thermostatMode(UInt8(Mode.auto)), .heatingSetpoint(19), .coolingSetpoint(25)])
+        #expect(mapping.writes(for: .setHeatingSetpoint(celsius: 18)).map(\.0.type.uuid) == [CharacteristicType.heatingThresholdTemperature.uuid])
+        #expect(mapping.writes(for: .setThermostatMode(UInt8(Mode.auto))).map(\.1) == [.int(3)])
+        // In heat, the one target temperature is the heating setpoint again.
+        thermostat[.targetHeatingCoolingState]?.value = .int(1)
+        #expect(mapping.states(changed: CharacteristicType.targetHeatingCoolingState.uuid) == [.thermostatMode(UInt8(Mode.heat)), .heatingSetpoint(21)])
+        #expect(mapping.writes(for: .setHeatingSetpoint(celsius: 22)).map(\.0.type.uuid) == [CharacteristicType.heatingThresholdTemperature.uuid, CharacteristicType.targetTemperature.uuid])
+        // A cooling setpoint in heat keeps the heat target; one past HAP's range is the nearest it takes.
+        #expect(mapping.writes(for: .setCoolingSetpoint(celsius: 24)).map(\.0.type.uuid) == [CharacteristicType.coolingThresholdTemperature.uuid])
+        thermostat[.targetHeatingCoolingState]?.value = .int(3)
+        #expect(mapping.writes(for: .setHeatingSetpoint(celsius: 28)).map(\.1) == [.double(25)])
+
+        // Without thresholds there is no auto in Matter: HAP's auto shows as heat, and Matter's auto writes nothing.
+        let plain = Service(.thermostat, name: "Radiator")
+        plain[.targetHeatingCoolingState]?.value = .int(3)
+        let single = try #require(ServiceMapping(plain, exposeSecurity: false))
+        #expect(single.role == .thermostat(cooling: true, auto: false))
+        #expect(single.states().contains(.thermostatMode(UInt8(Mode.heat))))
+        #expect(single.writes(for: .setThermostatMode(UInt8(Mode.auto))).isEmpty)
+        #expect(ServiceMapping.hapMode(systemMode: ServiceMapping.systemMode(hap: 3, auto: true), auto: true) == 3)
+        #expect(ServiceMapping.hapMode(systemMode: ServiceMapping.systemMode(hap: 3)) == 1)
+    }
+
     @Test func mapsACleaningRobotToARobotVacuum() throws {
         let robot = Service(.switch, name: "Pool robot")
         // A plain switch is a plug; one that stands for a cleaning robot is a robot vacuum.
