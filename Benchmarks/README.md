@@ -284,16 +284,21 @@ twice, the better run of each:
 
 `bridge-bench.py` seeds `scenes.json` with `--scenes` scenes (40 by default, four lamps' On, Brightness, Hue and
 Saturation each, one in two on a schedule) and times `GET /api/scenes`, a run and a stop, `list_scenes` and
-`run_scene`. Apple M1, 2026-10-29, 60 accessories, `main` (`2c937ff`) against the unified scenes branch, interleaved,
-while other sessions kept the load average between 60 and 350: the ratios held from run to run, the milliseconds did
-not, so CPU per request is the figure to read.
+`run_scene`. Apple M1, 2026-10-30, 60 accessories, `main` (`2c937ff`) against the unified scenes branch (`1cde340`),
+interleaved twice while other sessions kept the load average around 45; the better run of each:
 
 | Scenes, 40 | `main` | branch |
 |---|---:|---:|
-| `GET /api/scenes`, 4 connections, CPU per request | 49 211 µs | 9 241 µs |
-| MCP `list_scenes`, 4 connections, CPU per request | 50 197 µs | 9 357 µs |
-| `GET /api/scenes` p50 | 35 ms | 6.6 ms |
-| `POST /api/scenes/<id>/run` p50 | 42 ms | 4.2 ms |
+| `GET /api/scenes`, 4 connections, CPU per request | 56 250 µs | 7 854 µs |
+| `GET /api/scenes`, 4 connections | 53 req/s | 501 req/s |
+| MCP `list_scenes`, 4 connections, CPU per request | 45 595 µs | 8 914 µs |
+| `GET /api/scenes` p50 | 35 ms | 5.4 ms |
+| MCP `list_scenes` p50 | 37 ms | 6.3 ms |
+| `POST /api/scenes/<id>/run` p50 | 39 ms | 3.9 ms |
+| MCP `run_scene` p50 | 4.2 ms | 3.3 ms |
+
+The other routes stayed within the noise of the two runs (`GET /api/accessories` ×8, 1 036 against 1 057 µs CPU per
+request; idle RSS 23 MB on both).
 
 Before its own fixes the branch was twice as slow as `main` here (122 ms and 214 ms p50 in a run under the same
 load), from the hubs' scenes and pictures it lists. Where it went, from `sample`:

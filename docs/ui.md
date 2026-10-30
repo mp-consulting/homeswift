@@ -228,11 +228,11 @@ Scene cards keep accessory actions collapsed under **Details**. Expand it to see
 
 ![Single-row gallery on mobile](images/ui/scene-gallery-phone.png)
 
-![Horizontal template category](images/ui/mood-row-phone.png)
+![Horizontal template category](images/ui/template-row-phone.png)
 
 Template tiles that play show a centred square Stop icon; idle tiles show their image and name. Winter holidays and Christmas have separate scene selections.
 
-![Template tile playing](images/ui/mood-stop-tile.png)
+![Template tile playing](images/ui/template-playing.png)
 
 The theme menu is alphabetised in the selected language. Template photographs depict their subjects directly, including candles, a fireplace, a home cinema, a disco ball and a police lightbar.
 
@@ -260,7 +260,7 @@ Deleting a scene opens a confirmation in the UI’s design system. Cancel is foc
 
 ![Stop a running scene](images/ui/scene-stop.png)
 
-![Template photographs](images/ui/mood-photographs.png)
+![Template photographs](images/ui/template-photographs.png)
 
 The sunrise/sunset location includes a map: click a point or finish dragging to place the pin and save coordinates immediately. Arrow keys can also position the pin for review.
 **Use this device's location** asks the browser for permission and centres the map; **Save** keeps the reviewed
@@ -709,8 +709,8 @@ It runs the bridge built at `~/Library/Caches/homeswift-build/debug/homeswift` (
 folder with a new identity: the web UI on `127.0.0.1` without sign-in, plugin blocks with demonstration names, all
 paused, so nothing reaches a device or a cloud, and two generated images as wallpapers. It renders in headless Chrome in
 light mode at 2x, replaces this machine's name and the folder's paths in what the API answers, and removes the folder
-when it ends. The Accessories page's images are [widgets.md](widgets.md#screenshots)'s. The Scenes page with hubs' scenes
-(`images/plugins/scenes-from-hubs.png`) comes from `node Scripts/plugin-screenshots.mjs`, against its fake Hue Bridge
+when it ends. The Accessories page's images are [widgets.md](widgets.md#screenshots)'s. The Scenes page's shots that need lights (hubs' scenes,
+the templates, a scene card and its Stop) come from `node Scripts/plugin-screenshots.mjs`, against its fake Hue Bridge
 and DIRIGERA hub.
 
 ### Quick controls on phones

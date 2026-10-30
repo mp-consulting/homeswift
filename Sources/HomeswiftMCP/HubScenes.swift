@@ -50,8 +50,12 @@ extension HomeswiftCatalog {
         var actions: [SceneAction] = []
         for id in ids {
             guard let found = find(id: id) else { throw CatalogError("No accessory \(id)") }
-            for name in ["On", "Brightness", "Hue", "Saturation", "Color Temperature"] {
-                guard let target = try? characteristic(in: found, service: nil, characteristic: name) else { continue }
+            // The light itself: its primary lightbulb, not a gradient's points or an effect's switch, which have On too.
+            let lightbulbs = found.accessory.services.filter { $0.type.uuid == ServiceType.lightbulb.uuid }
+            guard let light = lightbulbs.first(where: \.isPrimary) ?? lightbulbs.first else { throw CatalogError("\(found.accessory.name) is not a light") }
+            let wanted: [(String, CharacteristicType)] = [("On", .on), ("Brightness", .brightness), ("Hue", .hue), ("Saturation", .saturation), ("Color Temperature", .colorTemperature)]
+            for (name, type) in wanted {
+                guard let target = light[type] else { continue }
                 actions.append(SceneAction(id: id, service: nil, characteristic: name, value: Self.json(target.value), recall: nil))
             }
         }
