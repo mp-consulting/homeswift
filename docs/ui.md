@@ -120,7 +120,9 @@ screenshots, and what a plugin does to get good ones.
   the rest under More), Identify, its log, ask the Assistant about it, its plugin's settings (administrators), resume a
   paused plugin, a room, a name for these pages, add to the Quick Controls or hide it, and **History** for an accessory
   whose plugin records an Eve history (temperature, humidity, power…): a day, a week or four weeks.
-- **Edit** shows grid guides, size controls and corner handles, and lets tiles be dragged into place. The wall is
+- **Edit** shows grid guides, size controls and corner handles, and lets tiles be dragged onto any cell of the grid,
+  gaps included: the others make way, and the wall keeps every widget's cell until **Pack the widgets together** (the
+  wall's menu) lets them flow again ([widgets.md](widgets.md)). The wall is
   **One wall** (the default), **By room** (once there are rooms) or **By plugin**. The bridge keeps the layout in
   `ui-layout.json` next to config.json (`/api/layout`), the same for every user.
 - **States**: a paused plugin's accessories are drawn striped, their controls out of reach; an accessory whose device

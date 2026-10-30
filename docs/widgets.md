@@ -43,8 +43,12 @@ At a 393-pixel phone width and 16-pixel page margins, a compact tile is about 17
 A widget's **⋯** menu (an ellipsis in a tinted circle at the corner of every widget; also a right click) offers S, M, L and XL as one segmented control,
 makes its size the one of every accessory
 of the kind ("Medium for every light"), and opens **All controls**. **Edit** shows the sizes and ‹ › arrows on
-every widget, and lets them be dragged: the widget lifts and follows the pointer or the finger, the others make
-room as it passes, and it lands where it is let go. A subtle background grid shows the actual cell spacing and
+every widget, and lets them be dragged: the widget lifts and follows the pointer or the finger, and it lands on the
+cell under its top-left corner, wherever that is: top left, bottom right, with empty cells between it and the others.
+Widgets already there slide down out of its way. Once one is dropped, every widget of that wall keeps its cell (by
+grouping: `positions` in `ui-layout.json`), the gaps too; the ‹ › arrows then move a widget a column, and the wall's
+menu's **Pack the widgets together** lets it flow in the order again. On a narrower screen, a widget past the last
+column moves left and those it meets move down. A subtle background grid shows the actual cell spacing and
 empty space. Drag the bottom-right corner to snap between Small, Medium, Large and Extra large; neighbouring
 widgets slide into their new places. Focus the corner handle and use arrow keys to resize with a keyboard. Near the window's top or bottom the page scrolls. **One wall**
 (the default) puts every accessory on one wall; **By plugin** gives each plugin a wall of its own.
