@@ -2054,15 +2054,19 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             el("p", { text: own ? t("In the Home app (or another ecosystem's): add an accessory, then scan this code or type it.")
               : t("In the ecosystem's app: add a Matter device, then scan this code or type it.") }),
             el("div", { class: "code", text: node.pairing.manualCode.replace(/^(\d{4})(\d{3})(\d{4})$/, "$1-$2-$3") })))
-          : admin ? el("div", { class: "actions" },
-            el("button", { class: "link", actionIcon: "plus", text: t("Add to another ecosystem"),
-              // What it does, on hover: Matter lets several apps share a device, each adding it with its own code.
-              title: own ? t("Shows a new pairing code for 15 minutes, so another app (Google Home, Alexa, Home Assistant or another home in Apple Home) can add this device too. The ecosystems it is in keep it.")
-                : t("Shows a new pairing code for 15 minutes, so another app (Google Home, Alexa, Home Assistant or another home in Apple Home) can add the bridge and its devices too. The ecosystems it is in keep them."),
-              onclick: (event) => HomeswiftCommon.busyButton(event.currentTarget, async () => {
-              await api(`${base}/window`, { method: "POST", body: { minutes: 15 } });
-              await refresh();
-            }) })) : null],
+          : admin ? (() => {
+            // What it does, under it (a phone shows no hover text): Matter lets several apps share a device, each
+            // adding it with its own code.
+            const what = own ? t("Shows a new pairing code for 15 minutes, so another app (Google Home, Alexa, Home Assistant or another home in Apple Home) can add this device too. The ecosystems it is in keep it.")
+              : t("Shows a new pairing code for 15 minutes, so another app (Google Home, Alexa, Home Assistant or another home in Apple Home) can add the bridge and its devices too. The ecosystems it is in keep them.");
+            return el("div", { class: "actions add-ecosystem" },
+              el("button", { class: "link", actionIcon: "plus", text: t("Add to another ecosystem"), title: what,
+                onclick: (event) => HomeswiftCommon.busyButton(event.currentTarget, async () => {
+                  await api(`${base}/window`, { method: "POST", body: { minutes: 15 } });
+                  await refresh();
+                }) }),
+              el("p", { class: "muted", text: what }));
+          })() : null],
         // In no ecosystem yet: its code is what the person needs.
         waiting: !fabrics.length,
         search: [node.name ?? "", ...named.map((one) => one.name)].join(" "),
@@ -21283,6 +21287,9 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .setup p { margin: 0 0 var(--space-6); }
 .setup .code { margin: 0; }
 .server .actions { margin-top: 0; }
+/* A Matter node's Add to another ecosystem, with what it does under it (no hover text on a phone). */
+.actions.add-ecosystem { flex-direction: column; align-items: flex-start; gap: var(--space-4); }
+.actions.add-ecosystem p { margin: 0; padding-left: var(--space-6); font-size: var(--text-sm); max-width: 56ch; }
 /* Accessories and Matter devices of their own: one line each across the section, unfolding to what a card shows. A
    home of a hundred stays one screen to scan; only the chevron moves, as the row opens. */
 .devices { grid-column: 1 / -1; margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-6); align-content: start; animation: materialize var(--normal) var(--ease-out); }

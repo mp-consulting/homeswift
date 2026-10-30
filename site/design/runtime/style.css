@@ -1440,6 +1440,9 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .setup p { margin: 0 0 var(--space-6); }
 .setup .code { margin: 0; }
 .server .actions { margin-top: 0; }
+/* A Matter node's Add to another ecosystem, with what it does under it (no hover text on a phone). */
+.actions.add-ecosystem { flex-direction: column; align-items: flex-start; gap: var(--space-4); }
+.actions.add-ecosystem p { margin: 0; padding-left: var(--space-6); font-size: var(--text-sm); max-width: 56ch; }
 /* Accessories and Matter devices of their own: one line each across the section, unfolding to what a card shows. A
    home of a hundred stays one screen to scan; only the chevron moves, as the row opens. */
 .devices { grid-column: 1 / -1; margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-6); align-content: start; animation: materialize var(--normal) var(--ease-out); }
