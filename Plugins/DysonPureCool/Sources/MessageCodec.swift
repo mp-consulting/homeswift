@@ -17,7 +17,7 @@ struct DeviceState: Sendable, Equatable {
     var oscillationAngleEnd: Int?
     /// Sensors stay on while the fan is off (`rhtm`).
     var continuousMonitoring: Bool?
-    /// Jet focus (`ffoc`).
+    /// Jet focus: `fdir` (front airflow) on gen2 models, `ffoc` on the HP02.
     var frontAirflow: Bool?
     var temperature: Int?
     var humidity: Int?
@@ -105,18 +105,31 @@ enum MessageCodec {
         message["product-state"]?.objectValue ?? message["data"]?.objectValue
     }
 
-    /// The power a state message reports: `fmod` (`OFF`, or `AUTO`/`FAN` for on) wins over `fpwr`.
-    static func reportedPower(_ raw: [String: JSONValue]) -> Bool? {
-        switch value(raw["fmod"]) {
+    /// The power a state message reports: the model's own field first, `fpwr` on gen2 and `fmod` (`OFF`, or
+    /// `AUTO`/`FAN` for on) on gen1 or an unknown model, the other one when it is missing.
+    static func reportedPower(_ raw: [String: JSONValue], protocol commandProtocol: CommandProtocol? = nil) -> Bool? {
+        let fmod: Bool? = switch value(raw["fmod"]) {
         case off?: false
         case auto?, fan?: true
-        default: value(raw["fpwr"]).map { $0 == on }
+        default: nil
+        }
+        let fpwr = value(raw["fpwr"]).map { $0 == on }
+        return commandProtocol == .gen2 ? fpwr ?? fmod : fmod ?? fpwr
+    }
+
+    /// The field that carries the jet focus: `fdir` on gen2, `ffoc` on gen1; for an unknown model `fdir` when
+    /// the message has it, else `ffoc`.
+    private static func airflowField(_ raw: [String: JSONValue], protocol commandProtocol: CommandProtocol?) -> String {
+        switch commandProtocol {
+        case .gen2?: "fdir"
+        case .gen1?: "ffoc"
+        case nil: raw["fdir"] != nil ? "fdir" : "ffoc"
         }
     }
 
-    /// Merges a state message's fields into `state`.
-    static func parseState(_ raw: [String: JSONValue], into state: inout DeviceState) {
-        if let isOn = reportedPower(raw) { state.isOn = isOn }
+    /// Merges a state message's fields into `state`, read as the model's command protocol takes them.
+    static func parseState(_ raw: [String: JSONValue], into state: inout DeviceState, protocol commandProtocol: CommandProtocol? = nil) {
+        if let isOn = reportedPower(raw, protocol: commandProtocol) { state.isOn = isOn }
         if let fnsp = value(raw["fnsp"]) { state.fanSpeed = decodeFanSpeed(fnsp).speed }
         switch value(raw["fmod"]) {
         case off?, fan?: state.autoMode = false
@@ -130,7 +143,7 @@ enum MessageCodec {
         if let osce = value(raw["osce"]), let angle = integer(osce) { state.oscillationAngleEnd = angle }
         if let nmod = value(raw["nmod"]) { state.nightMode = nmod == on }
         if let rhtm = value(raw["rhtm"]) { state.continuousMonitoring = rhtm == on }
-        if let ffoc = value(raw["ffoc"]) { state.frontAirflow = ffoc == on }
+        if let airflow = value(raw[airflowField(raw, protocol: commandProtocol)]) { state.frontAirflow = airflow == on }
         parseEnvironment(raw, into: &state)
         parseFilters(raw, into: &state)
         parseHeating(raw, into: &state)
@@ -207,11 +220,11 @@ enum MessageCodec {
 
     /// Merges what a message reports into `state`. Returns false for messages that carry no state.
     @discardableResult
-    static func apply(_ message: [String: JSONValue], to state: inout DeviceState) -> Bool {
+    static func apply(_ message: [String: JSONValue], to state: inout DeviceState, protocol commandProtocol: CommandProtocol? = nil) -> Bool {
         switch message["msg"]?.stringValue {
         case "CURRENT-STATE", "STATE-CHANGE":
             guard let fields = stateFields(message) else { return false }
-            parseState(fields, into: &state)
+            parseState(fields, into: &state, protocol: commandProtocol)
             return true
         case "ENVIRONMENTAL-CURRENT-SENSOR-DATA":
             parseEnvironment(message["data"]?.objectValue ?? message, into: &state)

@@ -24,13 +24,14 @@ struct DeviceFeatures: Sendable, Equatable {
     static let `default` = DeviceFeatures()
 }
 
-/// The MQTT field that switches the fan on and off.
-enum PowerProtocol: String, Sendable {
-    /// `fmod` carries power and mode at once (`OFF`, `FAN`, `AUTO`). Most purifiers.
-    case fmod
-    /// `fpwr` carries power (`ON`, `OFF`), with `auto` and `fnsp` for mode and speed. The Pure Cool Link series
-    /// and newer fans such as the CF1, which ignore `fmod` for power.
-    case fpwr
+/// The MQTT fields a model takes, as the MyDyson app splits its machines.
+enum CommandProtocol: String, Sendable {
+    /// The Link series (HP02 455, TP02 475, DP01 469): `fmod` carries power and mode at once (`OFF`, `FAN`,
+    /// `AUTO`), `ffoc` the jet focus.
+    case gen1
+    /// Every newer model: `fpwr` carries power (`ON`, `OFF`), with `auto` and `fnsp` for mode and speed, and
+    /// `fdir` the airflow direction (`ON` front, `OFF` back). These models ignore `fmod` and `ffoc`.
+    case gen2
 }
 
 enum DeviceSeries: String, Sendable {
@@ -47,7 +48,7 @@ struct DeviceModel: Sendable {
     var series: DeviceSeries
     var features: DeviceFeatures
     var formaldehyde: Bool
-    var powerProtocol: PowerProtocol = .fmod
+    var commandProtocol: CommandProtocol = .gen2
 }
 
 /// Every Dyson model the plugin knows, as in the Homebridge plugin's `deviceCatalog.ts`.
@@ -84,8 +85,8 @@ enum DeviceCatalog {
 
     static let models: [DeviceModel] = [
         // Pure Cool Link
-        DeviceModel(productType: "475", modelName: "Dyson Pure Cool Link Tower", modelCode: "TP02", series: .pureCoolLink, features: pureCoolLink, formaldehyde: false, powerProtocol: .fpwr),
-        DeviceModel(productType: "469", modelName: "Dyson Pure Cool Link Desk", modelCode: "DP01", series: .pureCoolLink, features: pureCoolLink, formaldehyde: false, powerProtocol: .fpwr),
+        DeviceModel(productType: "475", modelName: "Dyson Pure Cool Link Tower", modelCode: "TP02", series: .pureCoolLink, features: pureCoolLink, formaldehyde: false, commandProtocol: .gen1),
+        DeviceModel(productType: "469", modelName: "Dyson Pure Cool Link Desk", modelCode: "DP01", series: .pureCoolLink, features: pureCoolLink, formaldehyde: false, commandProtocol: .gen1),
         // Pure Cool (438 also covers the TP06, 527 the HP06: they share the product type)
         DeviceModel(productType: "438", modelName: "Dyson Pure Cool Tower", modelCode: "TP04", series: .pureCool, features: pureCoolJet, formaldehyde: false),
         DeviceModel(productType: "438E", modelName: "Dyson Purifier Cool", modelCode: "TP07", series: .pureCool, features: pureCoolJet, formaldehyde: false),
@@ -93,7 +94,7 @@ enum DeviceCatalog {
         DeviceModel(productType: "438M", modelName: "Dyson Purifier Cool", modelCode: "TP11", series: .pureCool, features: pureCoolNoJet, formaldehyde: false),
         DeviceModel(productType: "520", modelName: "Dyson Pure Cool Desk", modelCode: "DP04", series: .pureCool, features: pureCoolJet, formaldehyde: false),
         // Hot+Cool Link
-        DeviceModel(productType: "455", modelName: "Dyson Pure Hot+Cool Link", modelCode: "HP02", series: .hotCoolLink, features: hotCoolLink, formaldehyde: false),
+        DeviceModel(productType: "455", modelName: "Dyson Pure Hot+Cool Link", modelCode: "HP02", series: .hotCoolLink, features: hotCoolLink, formaldehyde: false, commandProtocol: .gen1),
         // Hot+Cool
         DeviceModel(productType: "527", modelName: "Dyson Pure Hot+Cool", modelCode: "HP04", series: .hotCool, features: hotCoolJet, formaldehyde: false),
         DeviceModel(productType: "527E", modelName: "Dyson Purifier Hot+Cool", modelCode: "HP07", series: .hotCool, features: hotCoolJet, formaldehyde: false),
@@ -112,8 +113,8 @@ enum DeviceCatalog {
         DeviceModel(productType: "664B", modelName: "Dyson Purifier Big+Quiet Formaldehyde", modelCode: "BP03", series: .bigQuiet, features: bigQuiet, formaldehyde: true),
         DeviceModel(productType: "664E", modelName: "Dyson Purifier Big+Quiet Formaldehyde", modelCode: "BP04", series: .bigQuiet, features: bigQuiet, formaldehyde: true),
         DeviceModel(productType: "664F", modelName: "Dyson Purifier Big+Quiet", modelCode: "BP06", series: .bigQuiet, features: bigQuiet, formaldehyde: false),
-        // Cool: a plain fan that takes power only through `fpwr`
-        DeviceModel(productType: "739", modelName: "Dyson Cool", modelCode: "CF1", series: .cool, features: coolFan, formaldehyde: false, powerProtocol: .fpwr),
+        // Cool: a plain fan
+        DeviceModel(productType: "739", modelName: "Dyson Cool", modelCode: "CF1", series: .cool, features: coolFan, formaldehyde: false),
     ]
 
     private static let byProductType: [String: DeviceModel] = Dictionary(models.map { ($0.productType, $0) }, uniquingKeysWith: { first, _ in first })
@@ -121,7 +122,7 @@ enum DeviceCatalog {
     static func model(_ productType: String) -> DeviceModel? { byProductType[productType] }
     static func isSupported(_ productType: String) -> Bool { byProductType[productType] != nil }
     static func features(_ productType: String) -> DeviceFeatures { byProductType[productType]?.features ?? .default }
-    static func powerProtocol(_ productType: String) -> PowerProtocol { byProductType[productType]?.powerProtocol ?? .fmod }
+    static func commandProtocol(_ productType: String) -> CommandProtocol { byProductType[productType]?.commandProtocol ?? .gen2 }
 
     /// `Dyson Pure Cool Tower (TP04)`, or `Dyson Device (<code>)` for an unknown one.
     static func modelName(_ productType: String) -> String {

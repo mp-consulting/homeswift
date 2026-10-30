@@ -144,7 +144,9 @@ struct DysonCloud: Sendable {
         guard let url = URL(string: Self.baseURL + endpoint) else { throw Failure(status: 500, message: "Network error: bad URL") }
         var request = HTTPRequest(method: method, url: url, timeout: Self.timeout)
         request.setHeader("Content-Type", "application/json")
-        request.setHeader("User-Agent", "android client")
+        // The MyDyson app sets no User-Agent, so OkHttp sends its default; Dyson's Cloudflare rule answers
+        // HTTP 429 to `android client`.
+        request.setHeader("User-Agent", "okhttp/4.12.0")
         request.setHeader("Accept", "application/json")
         for (name, value) in headers { request.setHeader(name, value) }
         if let body { request.body = body.encoded() }

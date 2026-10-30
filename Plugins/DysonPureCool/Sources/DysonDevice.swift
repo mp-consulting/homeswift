@@ -35,7 +35,9 @@ actor DysonDevice {
     let productType: String
     let name: String
     let features: DeviceFeatures
-    let usesFpwr: Bool
+    /// `gen2` (`fpwr`/`auto`/`fdir`) or the Link series' `gen1` (`fmod`/`ffoc`).
+    let commandProtocol: CommandProtocol
+    var usesGen2: Bool { commandProtocol == .gen2 }
     private let credentials: String
     private(set) var ipAddress: String?
     private(set) var state = DeviceState()
@@ -65,7 +67,7 @@ actor DysonDevice {
         self.logger = logger
         self.backoff = backoff
         features = DeviceCatalog.features(productType)
-        usesFpwr = DeviceCatalog.powerProtocol(productType) == .fpwr
+        commandProtocol = DeviceCatalog.commandProtocol(productType)
     }
 
     var isConnected: Bool {
@@ -211,12 +213,12 @@ actor DysonDevice {
     func handleMessage(_ payload: Data) {
         guard let message = try? JSONValue(data: payload).objectValue else { return }
         var next = state
-        guard MessageCodec.apply(message, to: &next) else { return }
+        guard MessageCodec.apply(message, to: &next, protocol: commandProtocol) else { return }
         if message["msg"]?.stringValue != "ENVIRONMENTAL-CURRENT-SENSOR-DATA" {
             let fields = message["product-state"] ?? message["data"]
             logger.debug("Received state: fmod=\(MessageCodec.value(fields?["fmod"]) ?? "nil"), auto=\(MessageCodec.value(fields?["auto"]) ?? "nil"), fnsp=\(MessageCodec.value(fields?["fnsp"]) ?? "nil")")
             // Once the device reports the power we commanded, it is confirmed.
-            if let fields = MessageCodec.stateFields(message), let isOn = MessageCodec.reportedPower(fields), isOn == commandedPower { commandedPower = nil }
+            if let fields = MessageCodec.stateFields(message), let isOn = MessageCodec.reportedPower(fields, protocol: commandProtocol), isOn == commandedPower { commandedPower = nil }
         }
         updateState { $0 = next }
     }
@@ -245,10 +247,10 @@ actor DysonDevice {
 
     private var manualSpeed: Int { state.fanSpeed > 0 ? state.fanSpeed : MessageCodec.FanSpeed.default }
 
-    /// The fields that run the fan in auto or manual mode, in the model's power protocol.
+    /// The fields that run the fan in auto or manual mode, in the model's command protocol.
     func powerOnFields(auto: Bool, speed: Int) -> [String: String] {
         let encoded = MessageCodec.encodeFanSpeed(auto ? MessageCodec.FanSpeed.auto : speed)
-        if usesFpwr { return ["fpwr": MessageCodec.on, "auto": auto ? MessageCodec.on : MessageCodec.off, "fnsp": encoded] }
+        if usesGen2 { return ["fpwr": MessageCodec.on, "auto": auto ? MessageCodec.on : MessageCodec.off, "fnsp": encoded] }
         return auto ? ["fmod": MessageCodec.auto] : ["fmod": MessageCodec.fan, "fnsp": encoded]
     }
 
@@ -258,7 +260,7 @@ actor DysonDevice {
         if state.isOn, commandedPower != false { return [] }
         commandedPower = true
         offCommandedAt = nil
-        var parts: [[String: String]] = [usesFpwr
+        var parts: [[String: String]] = [usesGen2
             ? powerOnFields(auto: state.autoMode, speed: manualSpeed)
             : ["fmod": state.autoMode ? MessageCodec.auto : MessageCodec.fan]]
         if activationDefaults.autoMode, features.autoMode { parts.append(powerOnFields(auto: true, speed: manualSpeed)) }
@@ -278,7 +280,7 @@ actor DysonDevice {
         } else {
             commandedPower = false
             offCommandedAt = .now
-            try await send([usesFpwr ? ["fpwr": MessageCodec.off] : ["fmod": MessageCodec.off]])
+            try await send([usesGen2 ? ["fpwr": MessageCodec.off] : ["fmod": MessageCodec.off]])
         }
     }
 
@@ -302,7 +304,7 @@ actor DysonDevice {
     func setOscillation(_ on: Bool) async throws { try await send([["oson": on ? MessageCodec.on : MessageCodec.off]]) }
     func setNightMode(_ on: Bool) async throws { try await send([["nmod": on ? MessageCodec.on : MessageCodec.off]]) }
     func setContinuousMonitoring(_ on: Bool) async throws { try await send([["rhtm": on ? MessageCodec.on : MessageCodec.off]]) }
-    func setJetFocus(_ on: Bool) async throws { try await send([["ffoc": on ? MessageCodec.on : MessageCodec.off]]) }
+    func setJetFocus(_ on: Bool) async throws { try await send([[usesGen2 ? "fdir" : "ffoc": on ? MessageCodec.on : MessageCodec.off]]) }
     func setHeating(_ on: Bool) async throws { try await send([["hmod": on ? MessageCodec.heat : MessageCodec.off]]) }
 
     /// Heating on, and the fan on when it is off, in one command.

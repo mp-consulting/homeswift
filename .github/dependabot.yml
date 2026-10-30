@@ -36,3 +36,8 @@ updates:
     groups:
       images:
         update-types: [minor, patch]
+    # The bridge's base stays on Ubuntu's LTS releases (xx.04 of even years): an interim release has nine months of
+    # support. Ranges up to 30.04; extend them then.
+    ignore:
+      - dependency-name: ubuntu
+        versions: [">= 24.10, < 26.04", ">= 26.10, < 28.04", ">= 28.10, < 30.04"]
