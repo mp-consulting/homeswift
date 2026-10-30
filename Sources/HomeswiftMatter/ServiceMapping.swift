@@ -22,13 +22,15 @@ struct ServiceMapping: Sendable {
         case lock
         case button
         case airQuality
-        case smoke
-        case carbonMonoxide
+        /// A smoke alarm, or a carbon monoxide one.
+        case alarm(smoke: Bool)
         case valve
     }
 
     let role: Role
     let service: Service
+    /// Whether the service reports Eve's power or energy readings: its device is metered too.
+    let isMetered: Bool
 
     /// The mapping of a service, or nil for one Matter does not get (information, battery, a camera's, a lock while
     /// `exposeSecurity` is off).
@@ -56,8 +58,8 @@ struct ServiceMapping: Sendable {
         case ServiceType.lockMechanism.uuid: role = .lock
         case ServiceType.statelessProgrammableSwitch.uuid: role = .button
         case ServiceType.airQualitySensor.uuid: role = .airQuality
-        case ServiceType.smokeSensor.uuid: role = .smoke
-        case ServiceType.carbonMonoxideSensor.uuid: role = .carbonMonoxide
+        case ServiceType.smokeSensor.uuid: role = .alarm(smoke: true)
+        case ServiceType.carbonMonoxideSensor.uuid: role = .alarm(smoke: false)
         case ServiceType.valve.uuid: role = .valve
         default: return nil
         }
@@ -65,10 +67,9 @@ struct ServiceMapping: Sendable {
         if !exposeSecurity, role == .lock || service.characteristics.contains(where: \.isSecurityControl) { return nil }
         self.role = role
         self.service = service
+        isMetered = service[EveCharacteristic.currentConsumption] != nil || service[EveCharacteristic.totalConsumption] != nil
     }
 
-    /// Whether the service reports Eve's power or energy readings: its device is metered too.
-    var isMetered: Bool { service[EveCharacteristic.currentConsumption] != nil || service[EveCharacteristic.totalConsumption] != nil }
 
     /// The Matter device kind, metered when the service reports power or energy.
     var kind: DeviceKind { isMetered ? baseKind.metered() : baseKind }
@@ -92,8 +93,7 @@ struct ServiceMapping: Sendable {
         case .lock: return .doorLock
         case .button: return .genericSwitch
         case .airQuality: return .airQualitySensor
-        case .smoke: return .smokeCOAlarm(smoke: true, carbonMonoxide: false)
-        case .carbonMonoxide: return .smokeCOAlarm(smoke: false, carbonMonoxide: true)
+        case .alarm(let smoke): return .smokeCOAlarm(smoke: smoke, carbonMonoxide: !smoke)
         case .valve: return .waterValve
         }
     }
@@ -170,10 +170,10 @@ struct ServiceMapping: Sendable {
         case .airQuality:
             // HAP excellent 1 to poor 5 are Matter's good 1 to very poor 5; unknown stays 0.
             if let quality = value(.airQuality)?.intValue { states.append(.airQuality(UInt8(clamping: min(max(quality, 0), 5)))) }
-        case .smoke:
-            if let detected = value(.smokeDetected).flatMap(Self.flag) { states.append(.smoke(detected)) }
-        case .carbonMonoxide:
-            if let detected = value(.carbonMonoxideDetected).flatMap(Self.flag) { states.append(.carbonMonoxide(detected)) }
+        case .alarm(let smoke):
+            if let detected = value(smoke ? .smokeDetected : .carbonMonoxideDetected).flatMap(Self.flag) {
+                states.append(smoke ? .smoke(detected) : .carbonMonoxide(detected))
+            }
         case .valve:
             // In Use says whether water flows: the valve is open.
             if let inUse = value(.inUse).flatMap(Self.flag) { states.append(.valveOpen(inUse)) }

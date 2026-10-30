@@ -11,13 +11,8 @@ public actor MatterFileStorage: MatterStorage {
         self.directory = directory
     }
 
-    /// The node's keys are plain names; anything else is hex-encoded so it cannot leave the directory.
-    private func url(_ key: String) -> URL {
-        let plain = !key.isEmpty && !key.hasPrefix(".") && key.unicodeScalars.allSatisfy {
-            $0.isASCII && (CharacterSet.alphanumerics.contains($0) || "._-".unicodeScalars.contains($0))
-        }
-        return directory.appendingPathComponent(plain ? key : "x-" + Secrets.hex(Array(key.utf8)))
-    }
+    /// The files `FileStorage` would use, so either reads what the other wrote.
+    private func url(_ key: String) -> URL { directory.appendingPathComponent(FileStorage.fileName(for: key)) }
 
     public func value(for key: String) -> [UInt8]? {
         (try? Data(contentsOf: url(key))).map(Array.init)

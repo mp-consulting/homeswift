@@ -98,11 +98,7 @@ struct BridgeFixture {
     }
 
     /// MRP at a hundredth of its timings: acknowledgements do not hold the exchanges up.
-    static var fast: ReliabilityParameters {
-        var parameters = ReliabilityParameters()
-        parameters.timeScale = 0.01
-        return parameters
-    }
+    static let fast = ReliabilityParameters(timeScale: 0.01)
 
     func endpoint(_ id: String) async throws -> EndpointNumber {
         try #require(await matter.device(for: id)).endpoint
@@ -272,7 +268,7 @@ struct MatterMappingTests {
         let attributes = try FileManager.default.attributesOfItem(atPath: directory.appendingPathComponent("fabrics").path)
         #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
         // A key that is not a plain name stays inside the directory.
-        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted() == ["fabrics", "x-2e2e2f657363617065"])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted() == ["%2E.%2Fescape", "fabrics"])
         try await storage.setValue(nil, for: "fabrics")
         #expect(await storage.value(for: "fabrics") == nil)
     }
