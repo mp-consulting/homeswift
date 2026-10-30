@@ -64,7 +64,8 @@ jobs:
           restore-keys: ${{ steps.build-key.outputs.key }}-
 
       - name: Rebuild the targets the pull request changes
-        if: github.event_name == 'pull_request'
+        # Not over the pull request's own cache, which is already built from its branch.
+        if: github.event_name == 'pull_request' && steps.restore-build.outputs.cache-hit != 'true'
         run: Scripts/forget-changed-targets.sh
 
       - name: Test
@@ -121,7 +122,8 @@ jobs:
           restore-keys: ${{ steps.build-key.outputs.key }}-
 
       - name: Rebuild the targets the pull request changes
-        if: github.event_name == 'pull_request'
+        # Not over the pull request's own cache, which is already built from its branch.
+        if: github.event_name == 'pull_request' && steps.restore-build.outputs.cache-hit != 'true'
         run: Scripts/forget-changed-targets.sh
 
       - name: Test

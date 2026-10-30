@@ -41,7 +41,11 @@ for line in String(decoding: output, as: UTF8.self).split(separator: "\n", omitt
 }
 
 // A merge commit (a pull request's): what it changes against its base is new to the base's cache.
-if run(["rev-parse", "--verify", "--quiet", "HEAD^2"]) != nil, let changed = run(["diff", "--name-only", "--no-renames", "HEAD^1", "HEAD"]) {
+if run(["rev-parse", "--verify", "--quiet", "HEAD^2"]) != nil {
+    guard let changed = run(["diff", "--name-only", "--no-renames", "HEAD^1", "HEAD"]) else {
+        FileHandle.standardError.write(Data("git diff against the merge's base failed: its changed files would keep stale dates\n".utf8))
+        exit(1)
+    }
     let now = Date()
     for path in String(decoding: changed, as: UTF8.self).split(separator: "\n") { times[String(path)] = now }
 }

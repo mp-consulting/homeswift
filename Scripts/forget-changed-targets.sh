@@ -10,8 +10,12 @@ targets=$(git diff --name-only --no-renames HEAD^1 HEAD | sed -nE \
   -e 's#^Tests/([^/]+)/.*#\1#p' \
   -e 's#^Plugins/([^/]+)/Sources/.*#Homeswift\1#p' \
   -e 's#^Plugins/([^/]+)/Tests/.*#\1Tests#p' | sort -u)
-[ -d .build ] || exit 0
-for target in $targets; do
-  find .build \( -name "$target.build" -o -name "$target.swiftmodule" -o -name "$target.swiftdoc" \) -prune -exec rm -rf {} +
-  echo "Rebuilding $target"
+[ -n "$targets" ] || exit 0
+# Only the build products (a triple's debug and release folders), never the dependencies' checkouts; one walk for all.
+set --
+for target in $targets; do set -- "$@" -o -name "$target.build" -o -name "$target.swiftmodule" -o -name "$target.swiftdoc"; done
+shift
+for folder in .build/*/debug .build/*/release; do
+  [ -d "$folder" ] && find "$folder" \( "$@" \) -prune -exec rm -rf {} +
 done
+echo "Rebuilding" $targets

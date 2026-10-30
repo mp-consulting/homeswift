@@ -2105,7 +2105,7 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
   color: var(--text); background: var(--material-thick); border: 0; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
   -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
 .hub-scene-actions > button.action-with-icon { gap: 0; }
-@media (pointer: coarse) { .hub-scene-actions > button { width: 40px; height: 40px; } }
+@media (pointer: coarse) { .hub-scene-actions > button { width: 44px; height: 44px; } }
 .animation-settings { display: grid; gap: var(--space-10); margin-top: var(--space-10); }
 .animation-colours { display: flex; gap: var(--space-10); }
 .animation-lights { display: grid; gap: var(--space-6); }
