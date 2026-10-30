@@ -36,8 +36,8 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-crypto.git", "3.0.0"..<"5.0.0"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.11.0"),
         .package(url: "https://github.com/apple/swift-nio-ssl.git", from: "2.37.0"),
-        // The Matter protocol, a checkout beside this one until the package is published.
-        .package(path: "../swift-matter"),
+        // The Matter protocol (HomeswiftMatter).
+        .package(url: "https://github.com/mp-consulting/swift-matter.git", from: "0.1.0"),
     ],
     targets: [
         // Bonjour on Linux goes through Avahi's dns_sd compatibility layer; macOS has dns_sd built in.

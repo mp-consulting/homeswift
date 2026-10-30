@@ -6,7 +6,7 @@ ways. A value a plugin sets reaches the Matter controllers; a command from a Mat
 characteristic as the Home app would, so plugins see no difference and need no change.
 
 The protocol is [swift-matter](https://github.com/mp-consulting/swift-matter) (target `HomeswiftMatter`, the
-`Matter` library), checked out beside this repository until it is published.
+`Matter` library), a package dependency from 0.1.0.
 
 ## Configuration
 
