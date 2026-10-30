@@ -653,6 +653,16 @@
       // A device's row says where it was added (the homes people named, not the system links); the bridge's card, what
       // it is for.
       const where = named.filter((one) => !one.system).map((one) => one.name).join(" · ") || named.map((one) => one.name).join(" · ");
+      // A device of its own goes back to being only on the bridge, as its accessory's menu does it.
+      const takeOff = own && admin ? el("div", { class: "actions" },
+        el("button", { type: "button", class: "link danger", actionIcon: "close", text: t("Take off Matter"), onclick: async (event) => {
+          if (!await HomeswiftCommon.confirmDialog(t("{name} leaves Matter: the ecosystems that added it lose it.", { name: node.name }))) return;
+          await HomeswiftCommon.busyButton(event.currentTarget, async () => {
+            await api(base, { method: "PUT", body: { own: false } });
+            matterOwn.delete(node.id);
+            await refresh();
+          });
+        } })) : null;
       return {
         // A device's own icon, tagged with Matter's glyph: the list mixes Matter devices with HomeKit accessories.
         head: [own ? el("span", { class: "tile-tagged", title: t("Matter") }, tile(matterIcon(node), "green"), el("span", { class: "tile-tag", "aria-hidden": "true" }, HomeswiftCommon.icon("matter")))
@@ -694,7 +704,8 @@
                   await refresh();
                 }) }),
               el("p", { class: "muted", text: what }));
-          })() : null],
+          })() : null,
+        takeOff],
         search: [node.name ?? "", ...named.map((one) => one.name)].join(" "),
       };
     };
