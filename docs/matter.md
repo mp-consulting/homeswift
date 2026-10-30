@@ -38,7 +38,8 @@ Assistant: add a Matter device, then scan the QR code or type the 11-digit code.
 To add it to another ecosystem afterwards, an administrator opens the window again: **Add to another ecosystem** on
 the card, or the MCP tool `open_matter_commissioning_window` (15 minutes at most, the spec's limit). The card lists
 each ecosystem (a *fabric*) with a button to remove it; `remove_matter_fabric` does the same over MCP and asks the
-user first.
+user first. When the last ecosystem is removed, the window opens again by itself, so the bridge can be added back
+with the same code.
 
 Homeswift is not a certified Matter product: it uses the test vendor ID `0xFFF1` with connectedhomeip's test
 attestation credentials, as Matterbridge does. Controllers warn that the device is uncertified; Google Home needs a
@@ -50,7 +51,7 @@ Do not add the Matter bridge to Apple Home too: it already has the accessories o
 
 | HAP service | Matter device type | Conversions |
 |---|---|---|
-| Lightbulb | On/Off, Dimmable, Color Temperature or Extended Color Light | Brightness 0–100 % ↔ CurrentLevel 1–254; mireds both sides; Hue 0–360 and Saturation 0–100 ↔ 0–254; a CIE xy color from Matter becomes hue and saturation |
+| Lightbulb | On/Off, Dimmable, Color Temperature or Extended Color Light | Brightness 0–100 % ↔ CurrentLevel 1–254; mireds both sides; Hue 0–360 and Saturation 0–100 ↔ 0–254; a CIE xy color from Matter becomes hue and saturation, and a white the hue and saturation of that white on a light without Color Temperature |
 | Outlet, Switch | On/Off Plug-in Unit | On ↔ OnOff |
 | Contact Sensor | Contact Sensor | HAP's 0 (contact detected) is StateValue true |
 | Motion Sensor, Occupancy Sensor | Occupancy Sensor | detected ↔ occupied |

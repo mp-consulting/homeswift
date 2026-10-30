@@ -137,8 +137,9 @@ struct ServiceMapping: Sendable {
             if let celsius = value(.currentTemperature) { states.append(.localTemperature(celsius.doubleValue)) }
             let mode = service[.targetHeatingCoolingState]?.value.intValue ?? 1
             if value(.targetHeatingCoolingState) != nil { states.append(.thermostatMode(Self.systemMode(hap: mode))) }
-            if let target = value(.targetTemperature)?.doubleValue {
-                // HAP has one target; Matter a setpoint per mode: the one of the mode in use.
+            // HAP has one target; Matter a setpoint per mode: the one of the mode in use, again when the mode changes.
+            let modeChanged = changedType == CharacteristicType.targetHeatingCoolingState.uuid
+            if let target = (modeChanged ? service[.targetTemperature]?.value : value(.targetTemperature))?.doubleValue {
                 states.append(mode == 2 ? .coolingSetpoint(target) : .heatingSetpoint(target))
             }
         case .lock:
@@ -182,7 +183,15 @@ struct ServiceMapping: Sendable {
         case .setLevel(let level):
             write(.brightness, .int(Self.percent(level: level)))
         case .setColorTemperature(let mireds):
-            write(.colorTemperature, .int(Int(mireds)))
+            if service[.colorTemperature] != nil {
+                write(.colorTemperature, .int(Int(mireds)))
+            } else {
+                // An Extended Color Light has whites in Matter: a light with only hue and saturation shows the color
+                // of that white, from the table Adaptive Lighting uses.
+                let white = ColorUtils.colorTemperatureToHueAndSaturation(Double(mireds))
+                write(.hue, .double(white.hue))
+                write(.saturation, .double(white.saturation))
+            }
         case .setHueSaturation(let hue, let saturation):
             write(.hue, .double(Self.unscale(hue, to: 360)))
             write(.saturation, .double(Self.unscale(saturation, to: 100)))

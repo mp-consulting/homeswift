@@ -60,7 +60,7 @@ extension HomeswiftCatalog {
                 inputSchema: ["type": "object", "required": ["index"], "properties": [
                     "index": ["type": "integer", "minimum": 1, "maximum": 254, "description": "The fabric's index, from get_matter_status"],
                 ]],
-                scope: .admin, destructive: true, idempotent: true
+                scope: .admin, destructive: true
             ) { call in
                 guard let index = call.arguments["index"]?.intValue else { throw JSONRPCError.invalidParams("index is required") }
                 return .json(try await catalog.requireMatter().removeFabric(index: index))

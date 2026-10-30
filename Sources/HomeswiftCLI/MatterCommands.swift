@@ -11,7 +11,8 @@ enum MatterCommands {
             guard let block = try configuration.block(for: MatterConfiguration.platform) else { return nil }
             let matter = try MatterConfiguration(block: block)
             let bridge = try await HomeswiftMatterBridge(configuration: matter, host: catalog.host,
-                                                         storageDirectory: catalog.host.storageDirectory.appendingPathComponent("matter"), logger: logger)
+                                                         storage: MatterFileStorage(directory: catalog.host.storageDirectory.appendingPathComponent("matter")),
+                                                         logger: logger)
             try await bridge.start()
             catalog.matter.current = bridge
             return bridge

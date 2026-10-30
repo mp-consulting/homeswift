@@ -45,14 +45,13 @@ public actor HomeswiftMatterBridge: MatterControl {
         static func shape(_ mappings: [ServiceMapping]) -> [String] { mappings.map { "\($0.service.iid):\($0.service.type.uuid)" } }
     }
 
-    /// The node's state lives in `storageDirectory` (its fabrics and keys, owner-only files). `transport` and
-    /// `advertiser` default to UDP on the configured port and the built-in mDNS responder; tests pass memory ones.
-    public init(configuration: MatterConfiguration, host: PluginHost, storageDirectory: URL, transport: (any MatterTransport)? = nil,
+    /// The node's state (its fabrics and keys) lives in `storage`: `MatterFileStorage` under `matter/`, or memory in
+    /// tests. `transport` and the advertiser default to UDP on the configured port and the built-in mDNS responder.
+    public init(configuration: MatterConfiguration, host: PluginHost, storage: any MatterStorage, transport: (any MatterTransport)? = nil,
                 advertise: Bool = true, logger: Logger = Logger(label: "homeswift.matter")) async throws {
         self.configuration = configuration
         self.host = host
         self.logger = logger
-        let storage = try FileStorage(directory: storageDirectory)
         var nodeConfiguration = NodeConfiguration(
             information: NodeInformation(vendorName: "Homeswift", productName: "Homeswift Bridge", nodeLabel: "Homeswift",
                                          softwareVersionString: PluginHost.version),
@@ -64,10 +63,9 @@ public actor HomeswiftMatterBridge: MatterControl {
         bridge = try await MatterBridge(node: node)
     }
 
-    /// Bridges the accessories there are now, starts the node, then follows the plugins' changes.
+    /// Follows the plugins' changes, bridges the accessories there are now, then starts the node. Following comes
+    /// first, so nothing a plugin does meanwhile is missed.
     public func start() async throws {
-        await sync()
-        try await node.start()
         let (changes, continuation) = AsyncStream<(Accessory, Characteristic, HAPValue)>.makeStream()
         // One stream keeps the changes in order (a press after the state it follows).
         observations.append(host.observeChanges { accessory, characteristic, value in continuation.yield((accessory, characteristic, value)) })
@@ -80,6 +78,8 @@ public actor HomeswiftMatterBridge: MatterControl {
         tasks.append(Task { [weak self] in
             for await _ in structure { await self?.sync() }
         })
+        await sync()
+        try await node.start()
         logger.info("Matter bridge on port \(configuration.port): \(devices.count) accessories bridged")
     }
 
@@ -114,9 +114,14 @@ public actor HomeswiftMatterBridge: MatterControl {
                 guard !mappings.isEmpty else { continue }
                 seen.insert(accessory.id)
                 if let known = devices[accessory.id] {
-                    if known.accessory === accessory, known.shape == Bridged.shape(mappings) {
-                        if known.name != accessory.name {
-                            await known.device.setName(accessory.name)
+                    if known.shape == Bridged.shape(mappings) {
+                        if known.name != accessory.name { await known.device.setName(accessory.name) }
+                        if known.accessory !== accessory {
+                            // A plugin replaced the accessory with one of the same shape (its cached one, once it
+                            // reached the device): the device stays, on the new object's values.
+                            devices[accessory.id] = Bridged(device: known.device, accessory: accessory, mappings: mappings)
+                            await report(accessory, mappings: mappings, on: known.device)
+                        } else {
                             devices[accessory.id]?.name = accessory.name
                         }
                         continue
@@ -135,34 +140,44 @@ public actor HomeswiftMatterBridge: MatterControl {
             id: accessory.id, name: accessory.name,
             vendorName: information[.manufacturer]?.value.stringValue?.nonEmpty, productName: information[.model]?.value.stringValue?.nonEmpty,
             serialNumber: information[.serialNumber]?.value.stringValue?.nonEmpty)
-        let logger = logger, identify = information[.identify], name = accessory.name
-        let parts = mappings.map { mapping in
-            DevicePart(mapping.kind) { command in
-                if case .identify(let seconds) = command {
-                    if seconds > 0 { try await identify?.write(.bool(true)) }
-                    return
-                }
-                for (characteristic, value) in mapping.writes(for: command) {
-                    do {
-                        try await characteristic.write(value)
-                    } catch {
-                        logger.warning("Matter: \(name) refused \(characteristic.type.name): \(error)")
-                        throw error
-                    }
-                }
-            }
+        // Commands go through the actor to the accessory bridged now, which a plugin may have replaced since.
+        let id = accessory.id
+        let parts = mappings.indices.map { index in
+            DevicePart(mappings[index].kind) { [weak self] command in try await self?.perform(command, on: id, part: index) }
         }
         let battery = accessory.services.contains { $0.type.uuid == ServiceType.battery.uuid && $0[.batteryLevel] != nil }
         do {
             let device = try await bridge.add(info, parts: parts, battery: battery)
             devices[accessory.id] = Bridged(device: device, accessory: accessory, mappings: mappings)
-            for (index, mapping) in mappings.enumerated() {
-                for state in mapping.states() { await device.update(state, part: index) }
-            }
-            if let level = batteryLevel(accessory) { await device.update(.battery(percent: level)) }
-            await device.setReachable(!accessory.isUnavailable)
+            await report(accessory, mappings: mappings, on: device)
         } catch {
             logger.error("Matter: could not bridge \(accessory.name): \(error)")
+        }
+    }
+
+    /// Reports every state of an accessory: when it is bridged, and when a plugin replaced it.
+    private func report(_ accessory: Accessory, mappings: [ServiceMapping], on device: BridgedDevice) async {
+        for (index, mapping) in mappings.enumerated() {
+            for state in mapping.states() { await device.update(state, part: index) }
+        }
+        if let level = batteryLevel(accessory) { await device.update(.battery(percent: level)) }
+        await device.setReachable(!accessory.isUnavailable)
+    }
+
+    /// A Matter controller's command: the characteristic writes Apple Home would make.
+    private func perform(_ command: DeviceCommand, on id: String, part: Int) async throws {
+        guard let bridged = devices[id], bridged.mappings.indices.contains(part) else { throw HAPStatusError(.resourceDoesNotExist) }
+        if case .identify(let seconds) = command {
+            if seconds > 0 { try await bridged.accessory.information[.identify]?.write(.bool(true)) }
+            return
+        }
+        for (characteristic, value) in bridged.mappings[part].writes(for: command) {
+            do {
+                try await characteristic.write(value)
+            } catch {
+                logger.warning("Matter: \(bridged.name) refused \(characteristic.type.name): \(error)")
+                throw error
+            }
         }
     }
 

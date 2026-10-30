@@ -52,6 +52,14 @@ actor HouseholdPlugin: HomeswiftPlugin {
     func stop() async {}
 
     func removeDoor() async throws { try await context.remove(id: "Household:door") }
+
+    /// The door again as a new object of the same shape, as a plugin replaces a cached accessory.
+    func replaceDoor(contact: Int) throws -> Service {
+        let door = Service(.contactSensor, name: "Door")
+        door[.contactSensorState]?.value = .int(contact)
+        try context.add(Accessory(id: "Household:door", name: "Front door", category: .sensor, services: [door]))
+        return door
+    }
 }
 
 /// A host running the plugin, a Matter bridge over it on a memory network, and a commissioner on that network.
@@ -79,7 +87,7 @@ struct BridgeFixture {
         plugin = try #require(created.plugin)
 
         let network = MemoryNetwork()
-        matter = try await HomeswiftMatterBridge(configuration: configuration, host: host, storageDirectory: directory.appendingPathComponent("matter"),
+        matter = try await HomeswiftMatterBridge(configuration: configuration, host: host, storage: Matter.MemoryStorage(),
                                                  transport: await network.transport(named: "bridge"), advertise: false, logger: testLogger)
         try await matter.start()
         let layer = MessageLayer(transport: await network.transport(named: "controller"))
@@ -102,15 +110,25 @@ struct BridgeFixture {
     }
 }
 
+/// Runs `body` on a fresh fixture and stops it afterwards, whether or not `body` throws.
+func withFixture(_ configuration: MatterConfiguration = MatterConfiguration(), _ body: (BridgeFixture) async throws -> Void) async throws {
+    let fixture = try await BridgeFixture(configuration)
+    do {
+        try await body(fixture)
+    } catch {
+        await fixture.stop()
+        throw error
+    }
+    await fixture.stop()
+}
+
 final class PluginBox: @unchecked Sendable {
     var plugin: HouseholdPlugin?
 }
 
 @Suite(.timeLimit(.minutes(1)))
 struct MatterBridgeTests {
-    @Test func bridgesAccessoriesBothWays() async throws {
-        let fixture = try await BridgeFixture()
-        defer { Task { await fixture.stop() } }
+    @Test func bridgesAccessoriesBothWays() async throws { try await withFixture { fixture in
         // The lock stays out unless exposeSecurity is on; the others are bridged.
         #expect(await fixture.matter.bridgedIDs == ["Household:button", "Household:door", "Household:lamp"])
 
@@ -136,22 +154,41 @@ struct MatterBridgeTests {
         // An accessory the plugin removes leaves the bridge.
         try await fixture.plugin.removeDoor()
         try await eventually { await fixture.matter.bridgedIDs == ["Household:button", "Household:lamp"] }
-    }
+    } }
+
+    @Test func turnsWhitesIntoColorsOnALightWithoutColorTemperature() async throws { try await withFixture { fixture in
+        let lamp = try await fixture.endpoint("Household:lamp")
+        // MoveToColorTemperature: 370 mireds, a warm white, written as the hue and saturation of that white.
+        _ = try await fixture.commissioner.client.invoke(
+            CommandPath(endpoint: lamp, cluster: ColorControlCluster.id, command: ColorControlCluster.Command.moveToColorTemperature),
+            fields: .structure([.field(0, .unsigned(370)), .field(1, .unsigned(0)), .field(2, .unsigned(0)), .field(3, .unsigned(0))]),
+            session: fixture.session)
+        let white = ColorUtils.colorTemperatureToHueAndSaturation(370)
+        try await eventually { fixture.plugin.lamp[.hue]?.value == .double(white.hue) && fixture.plugin.lamp[.saturation]?.value == .double(white.saturation) }
+    } }
+
+    @Test func keepsTheDeviceWhenAPluginReplacesTheAccessory() async throws { try await withFixture { fixture in
+        let endpoint = try await fixture.endpoint("Household:door")
+        let door = try await fixture.plugin.replaceDoor(contact: 1)
+        // The same device on the new object's value, and following the new object's changes.
+        try await eventually { (try? await fixture.read("Household:door", BooleanStateCluster.id, BooleanStateCluster.Attribute.stateValue)) == .bool(false) }
+        #expect(try await fixture.endpoint("Household:door") == endpoint)
+        door[.contactSensorState]?.value = .int(0)
+        try await eventually { (try? await fixture.read("Household:door", BooleanStateCluster.id, BooleanStateCluster.Attribute.stateValue)) == .bool(true) }
+    } }
 
     @Test func bridgesLocksOnlyWhenAsked() async throws {
         var configuration = MatterConfiguration()
         configuration.exposeSecurity = true
         configuration.include = ["Lock"]
-        let fixture = try await BridgeFixture(configuration)
-        defer { Task { await fixture.stop() } }
+        try await withFixture(configuration) { fixture in
         #expect(await fixture.matter.bridgedIDs == ["Household:lock"])
         fixture.plugin.lock[.lockCurrentState]?.value = .int(1)
         try await eventually { (try? await fixture.read("Household:lock", DoorLockCluster.id, DoorLockCluster.Attribute.lockState)) == .unsigned(1) }
+        }
     }
 
-    @Test func reportsStatusWithoutTheCodeUnlessAsked() async throws {
-        let fixture = try await BridgeFixture()
-        defer { Task { await fixture.stop() } }
+    @Test func reportsStatusWithoutTheCodeUnlessAsked() async throws { try await withFixture { fixture in
         let status = await fixture.matter.statusJSON(includePairing: true)
         #expect(status["commissioned"] == .bool(true))
         #expect(status["fabrics"]?.arrayValue?.count == 1)
@@ -164,8 +201,10 @@ struct MatterBridgeTests {
 
         _ = try await fixture.matter.removeFabric(index: 1)
         #expect(await !fixture.matter.isCommissioned)
+        // Without an ecosystem the bridge can be added again with its code.
+        #expect(await fixture.matter.statusJSON(includePairing: true)["commissioningWindow"] == "open")
         await #expect(throws: Error.self) { try await fixture.matter.removeFabric(index: 1) }
-    }
+    } }
 }
 
 struct MatterMappingTests {
@@ -210,6 +249,32 @@ struct MatterMappingTests {
         #expect(ServiceMapping(opener, exposeSecurity: false) == nil)
         #expect(ServiceMapping(Service(.lockMechanism, name: "Lock"), exposeSecurity: false) == nil)
         #expect(ServiceMapping(Service(.lockMechanism, name: "Lock"), exposeSecurity: true)?.role == .lock)
+    }
+
+    @Test func keepsTheNodeStateInOwnerOnlyFiles() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("homeswift-matter-storage-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storage = MatterFileStorage(directory: directory)
+        try await storage.setValue([1, 2, 3], for: "fabrics")
+        try await storage.setValue([4], for: "../escape")
+        #expect(await storage.value(for: "fabrics") == [1, 2, 3])
+        #expect(await storage.value(for: "../escape") == [4])
+        let attributes = try FileManager.default.attributesOfItem(atPath: directory.appendingPathComponent("fabrics").path)
+        #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+        // A key that is not a plain name stays inside the directory.
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted() == ["fabrics", "x-2e2e2f657363617065"])
+        try await storage.setValue(nil, for: "fabrics")
+        #expect(await storage.value(for: "fabrics") == nil)
+    }
+
+    @Test func reportsTheSetpointOfANewMode() throws {
+        let thermostat = Service(.thermostat, name: "Heat pump")
+        thermostat[.targetTemperature]?.value = .double(21)
+        thermostat[.targetHeatingCoolingState]?.value = .int(2)
+        let mapping = try #require(ServiceMapping(thermostat, exposeSecurity: false))
+        let states = mapping.states(changed: CharacteristicType.targetHeatingCoolingState.uuid)
+        #expect(states.contains(.thermostatMode(UInt8(ThermostatCluster.SystemModeEnum.cool))))
+        #expect(states.contains(.coolingSetpoint(21)))
     }
 
     @Test func convertsChromaticity() {
