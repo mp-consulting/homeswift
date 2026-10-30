@@ -57,6 +57,9 @@
     bulb: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/>',
     switch: '<rect x="6" y="3" width="12" height="18" rx="3"/><circle cx="12" cy="9" r="2"/>',
     outlet: '<rect x="4" y="4" width="16" height="16" rx="4"/><path d="M10 9v2M14 9v2M10 15h4"/>',
+    // Matter, as a neutral mark (three linked nodes): its logo is for certified products only.
+    matter: '<circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="18" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="m10.8 7.3-4.6 8.4M13.2 7.3l4.6 8.4M7.5 18h9"/>',
+    vacuum: '<circle cx="12" cy="12" r="8.5"/><path d="M6.5 9.5a6.5 6.5 0 0 1 11 0"/><circle cx="12" cy="13.5" r="2"/>',
     sensor: '<circle cx="12" cy="12" r="2"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8"/>',
     fan: '<circle cx="12" cy="12" r="2"/><path d="M12 10c0-4 1-7 4-7 2 0 3 2 2 4l-4 4M14 12c4 0 7 1 7 4 0 2-2 3-4 2l-4-4M12 14c0 4-1 7-4 7-2 0-3-2-2-4l4-4M10 12c-4 0-7-1-7-4 0-2 2-3 4-2l4 4"/>',
     speaker: '<rect x="6" y="3" width="12" height="18" rx="2"/><circle cx="12" cy="14" r="3"/><path d="M12 7h.01"/>',
@@ -94,6 +97,8 @@
     chart: '<path d="M4 4v16h16"/><path d="m7 15 4-5 3 3 5-6"/>',
     archive: '<rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"/>',
     key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l2 2M15 8l2 2"/>',
+    // The vault: a safe, its door, the dial and its handle, the feet. In outline, as the others; few strokes so it reads at 16px.
+    vault: '<rect x="3.5" y="3" width="17" height="16" rx="3"/><rect x="6.5" y="6" width="11" height="10" rx="1.5"/><circle cx="10.5" cy="11" r="2"/><path d="M12.5 11h2.5M7 19v1.5M17 19v1.5"/>',
     link: '<path d="M9.5 14.5l5-5M8 11l-2 2a3.5 3.5 0 0 0 5 5l2-2M16 13l2-2a3.5 3.5 0 0 0-5-5l-2 2"/>',
     shield: '<path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z"/><path d="m9 12 2 2 4-4"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
@@ -178,9 +183,23 @@
   /// A page's views as a row of links under its title, a glyph each, the current one lit (a phone puts the glyph over
   /// the name): `pages` are [path, text, glyph] under `base`, the glyph an icon's name or an element.
   function subnav(label, base, pages, current) {
-    return el("nav", { class: "group subnav", "aria-label": label }, pages.map(([path, text, glyph]) =>
+    const nav = el("nav", { class: "group subnav", "aria-label": label }, pages.map(([path, text, glyph]) =>
       el("a", { href: `${base}${path ? `/${path}` : ""}`, class: path === current ? "on" : "", "aria-current": path === current ? "page" : null },
         typeof glyph === "string" ? icon(glyph) : glyph, el("span", { text }))));
+    // A row wider than the window scrolls: its edges fade where tabs are hidden, and the current tab starts in view.
+    const edges = () => {
+      const more = nav.scrollWidth - nav.clientWidth;
+      nav.toggleAttribute("data-more-start", nav.scrollLeft > 2);
+      nav.toggleAttribute("data-more-end", more > 2 && nav.scrollLeft < more - 2);
+    };
+    nav.addEventListener("scroll", edges, { passive: true });
+    new ResizeObserver(edges).observe(nav);
+    requestAnimationFrame(() => {
+      const on = nav.querySelector("a.on");
+      if (on && nav.scrollWidth > nav.clientWidth) nav.scrollLeft = Math.max(0, on.offsetLeft + on.offsetWidth / 2 - nav.clientWidth / 2);
+      edges();
+    });
+    return nav;
   }
 
   /// A tile: the icon on a colour (`tone-orange`, `-blue`, `-violet`, `-green`, `-teal`, `-yellow`, `-grey`);
@@ -629,9 +648,12 @@
   const layerHost = (anchor) => anchor?.closest?.("dialog[open]") ?? document.body;
 
   /// Puts `text` on the clipboard. The Clipboard API exists only over HTTPS or on localhost; a page on the
-  /// network over plain HTTP copies through a hidden text field instead.
+  /// network over plain HTTP, or a browser that refuses the API (an embedded one without the permission), copies
+  /// through a hidden text field instead.
   async function copyText(text) {
-    if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+    if (navigator.clipboard && window.isSecureContext) {
+      try { return await navigator.clipboard.writeText(text); } catch {}
+    }
     const field = el("textarea", { value: text, readOnly: true, style: "position:fixed;top:-1000px;opacity:0" });
     // Outside an open modal dialog the field is inert: it could not be selected.
     layerHost(document.activeElement).append(field);
@@ -1157,7 +1179,7 @@
 
   // ---- The sections, and the tab bar a phone shows them in -----------------------------------------------
 
-  const sections = [["/status", t("Status"), "bridge"], ["/accessories", t("Accessories"), "bulb"], ["/scenes", t("Scenes"), "play"], ["/plugins", t("Plugins"), "plugin"], ["/config", t("Config"), "code"], ["/logs", t("Logs"), "logs"], ["/settings", t("Settings"), "gear"]];
+  const sections = [["/status", t("Status"), "bridge"], ["/accessories", t("Accessories"), "bulb"], ["/scenes", t("Scenes"), "play"], ["/plugins", t("Plugins"), "plugin"], ["/logs", t("Logs"), "logs"], ["/settings", t("Settings"), "gear"]];
 
   /// The sections at the bottom of a phone's screen, within the thumb's reach, as iOS puts them: an icon and
   /// a label each, the current one in the accent. `parent` is what hides it with the app (the sign-in screen has

@@ -550,6 +550,7 @@ label > input, label > select { margin-top: 5px; }
 .empty-glyph { display: grid; place-items: center; width: 52px; height: 52px; margin: 0 auto var(--space-12); border-radius: 50%; color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .empty-glyph svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .card.empty:has(> .empty-glyph) p { max-width: 34em; margin-inline: auto; }
+.card.empty > .actions { justify-content: center; margin-top: var(--space-14); }
 .card.notice { color: var(--warn); font-weight: var(--weight-medium); }
 .card.notice p { margin: 0; }
 .search { width: 240px; max-width: 100%; }
@@ -1199,6 +1200,15 @@ textarea.short { min-height: 220px; }
 .mono { font-family: var(--mono); font-size: var(--text-sm); letter-spacing: 0; }
 .chips { display: flex; flex-wrap: wrap; gap: var(--space-6); }
 .chip { padding: 3px var(--space-10); border-radius: var(--radius-pill); font-size: var(--text-sm); background: var(--material-thin); border: 1px solid var(--line); }
+/* A chip with a remove button (the Matter card's ecosystems, for an administrator). */
+.chip.removable { display: inline-flex; align-items: center; gap: 2px; padding-right: 2px; }
+/* A chip's remove button stays a 22-point disc (no button minimum stretches it) with a 40-point tap around it. */
+.chip.removable .icon-button:not(.menu-button) { width: 22px; height: 22px; min-height: 0; min-width: 0; position: relative; }
+.chip.removable .icon-button:not(.menu-button)::after { content: ""; position: absolute; inset: -9px; }
+/* A controller's own system fabric (Apple Home's second one): muted, with a house. */
+.chip.system { display: inline-flex; align-items: center; gap: var(--space-4); color: var(--muted); border-style: dashed; }
+.chip.system > svg { width: 14px; height: 14px; }
+.chip.removable .icon-button:not(.menu-button) svg { width: 12px; height: 12px; }
 
 /* Status: a summary that says whether all is well, the numbers that matter, then a card per server. */
 /* A newer release, under the summary: how to upgrade this install, its command with Copy, the notes folded. */
@@ -1213,6 +1223,14 @@ textarea.short { min-height: 220px; }
 .update-progress svg { width: 16px; height: 16px; flex: none; color: var(--ok); }
 .update-progress .spinner { flex: none; }
 .updates-settings .actions { flex-wrap: wrap; }
+/* Settings › Updates: the headline is the state; it fades when it changes. */
+.update-head .who { min-width: 0; }
+.update-head > button { flex: none; margin-left: auto; }
+.update-head-changed { animation: fade var(--normal) var(--ease-out); }
+.updates-settings .card > p.error:empty, .updates-settings .card > div:empty { display: none; }
+.update-details { display: grid; gap: var(--space-12); margin-top: var(--space-14); }
+.update-preferences { margin-top: var(--space-14); padding-top: var(--space-4); border-top: 1px solid var(--line); }
+@media (max-width: 560px) { .update-head { flex-wrap: wrap; } .update-head > button { margin-left: 0; } }
 .who { flex: 1; min-width: 0; }
 .health { font-weight: var(--weight-medium); display: flex; align-items: flex-start; gap: var(--space-8); }
 /* The dot on the first line's middle, when the text wraps. */
@@ -1225,11 +1243,16 @@ textarea.short { min-height: 220px; }
   box-shadow: var(--shadow-control), inset 0 1px 0 var(--edge-light);
 }
 .stat { position: relative; display: block; color: inherit; text-decoration: none; }
-a.stat { touch-action: manipulation; transition: transform var(--fast) var(--ease-out); }
+a.stat { touch-action: manipulation; transition: transform var(--fast) var(--ease-out), background-color var(--fast) ease; }
 a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
-.stat > svg { position: absolute; top: 14px; right: 14px; width: 20px; height: 20px; fill: none; stroke: var(--muted); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; opacity: 0.7; }
+@media (hover: hover) and (pointer: fine) { a.stat:hover { background-color: color-mix(in srgb, var(--text) 4%, var(--material)); } }
+/* The Status page's figures: the icon on a tile at the left, the figure and its name beside it. */
+.stat:has(> .tile) { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--space-12); align-items: center; }
+.stat > .tile { grid-column: 1; grid-row: 1 / span 2; }
+.stat:has(> .tile) > b { grid-column: 2; }
+.stat:has(> .tile) > span:not(.tile) { grid-column: 2; min-width: 0; line-height: 1.3; }
 .stat b { display: block; font-size: 1.5rem; line-height: 1.1; letter-spacing: -0.02em; font-weight: var(--weight-figure); font-variant-numeric: tabular-nums; }
-.stat span { color: var(--muted); font-size: var(--text-sm); letter-spacing: 0.01em; }
+.stat span:not(.tile) { color: var(--muted); font-size: var(--text-sm); letter-spacing: 0.01em; }
 .stat .short { display: none; }
 /* The Status page's activity charts: the filters in one row above them, two charts a row, one on a phone. */
 .activity { transition: opacity var(--normal) var(--ease-out); }
@@ -1456,12 +1479,51 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .setup { display: flex; gap: var(--space-16); align-items: center; padding-top: var(--space-14); border-top: 1px solid var(--line); }
 .setup p { margin: 0 0 var(--space-6); }
 .setup .code { margin: 0; }
+/* Settings › Bridge: the QR code, then the setup code, one row across the form (the code first in the page for screen readers). */
+.setup-field { grid-column: 1 / -1; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-8) var(--space-18); align-items: start; }
+.setup-field-main { display: grid; gap: var(--space-6); min-width: 0; max-width: 420px; }
+.setup-field .qr { width: 120px; height: 120px; order: -1; }
+.setup-field-note { margin: var(--space-4) 0 0; }
+@media (max-width: 560px) { .setup-field { grid-template-columns: minmax(0, 1fr); } }
 .setup-code-field { display: flex; align-items: center; gap: var(--space-8); }
 .setup-code-field input { flex: 1; min-width: 0; }
-.setup-in-form { margin-top: var(--space-8); padding-top: var(--space-12); }
-.setup-in-form .qr { width: 120px; height: 120px; flex: none; }
-.setup-in-form p.help { margin: 0; }
+/* Copy, then a check for a moment: the two icons cross-fade in place. */
+.setup-code-copy svg { grid-area: 1 / 1; transition: opacity 160ms var(--ease-out), transform 160ms var(--ease-out), filter 160ms var(--ease-out); }
+.setup-code-copy .copied-icon, .setup-code-copy[data-copied] .copy-icon { opacity: 0; transform: scale(0.6); filter: blur(2px); }
+.setup-code-copy[data-copied] .copied-icon { opacity: 1; transform: none; filter: none; color: var(--ok); }
+@media (prefers-reduced-motion: reduce) { .setup-code-copy svg { transform: none !important; filter: none !important; } }
 .server .actions { margin-top: 0; }
+/* A Matter node's Add to another ecosystem, with what it does under it (no hover text on a phone). */
+.actions.add-ecosystem { flex-direction: column; align-items: flex-start; gap: var(--space-4); }
+.actions.add-ecosystem p { margin: 0; padding-left: var(--space-6); font-size: var(--text-sm); max-width: 56ch; }
+/* Accessories and Matter devices of their own: one line each across the section, unfolding to what a card shows. A
+   home of a hundred stays one screen to scan; only the chevron moves, as the row opens. */
+.devices { grid-column: 1 / -1; margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-6); align-content: start; animation: materialize var(--normal) var(--ease-out); }
+.devices-head { display: flex; align-items: center; gap: var(--space-12); flex-wrap: wrap; padding-bottom: var(--space-6); }
+.devices-head .who { flex: 1 1 200px; min-width: 0; }
+.devices-head strong { display: block; font-size: var(--text-xl); letter-spacing: -0.01em; }
+.devices-head .muted { font-size: var(--text-sm); }
+.device-rows { display: grid; grid-template-columns: minmax(0, 1fr); }
+.device-row { border-top: 1px solid var(--line); }
+.device-row > summary { list-style: none; display: flex; align-items: center; gap: var(--space-12); min-height: 44px; padding: var(--space-8) var(--space-8); margin: 0 calc(-1 * var(--space-8)); cursor: pointer; border-radius: var(--radius-sm); }
+.device-row > summary::-webkit-details-marker { display: none; }
+.device-row > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.device-row > summary .tile { width: 32px; height: 32px; }
+.device-row > summary .tile svg { width: 18px; height: 18px; }
+.device-row > summary .who { flex: 1; min-width: 0; }
+.device-row > summary strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.device-row > summary .muted { font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.device-row > summary .pill { flex: none; }
+.device-row > summary > svg:last-child { flex: none; width: 16px; height: 16px; color: var(--muted); transition: transform var(--normal) var(--ease-out); }
+.device-row[open] > summary > svg:last-child { transform: rotate(90deg); }
+/* A tile with a small tag in its corner: a Matter device's own icon with Matter's glyph. */
+.tile-tagged { position: relative; flex: none; display: inline-flex; }
+.tile-tag { position: absolute; right: -5px; bottom: -5px; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: var(--material-thick); color: var(--ok); box-shadow: 0 1px 3px rgba(25, 34, 56, 0.25); }
+.tile-tag svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.device-row-body { display: grid; gap: var(--space-14); padding: var(--space-4) 0 var(--space-16) 44px; }
+.device-row-body .setup { border-top: 0; padding-top: 0; }
+@media (hover: hover) and (pointer: fine) { .device-row > summary { transition: background-color var(--fast) ease; } .device-row > summary:hover { background: var(--material-thin); } }
 .banner { margin: var(--space-14) auto 0; max-width: 1100px; width: calc(100% - 24px); padding: var(--space-10) var(--space-20); text-align: center; color: var(--warn); font-weight: var(--weight-semibold); animation: materialize var(--normal) var(--ease-out); }
 .auth { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; padding: var(--space-20); }
 .auth .card { width: min(400px, 100%); padding: 26px 26px 22px; animation: materialize 320ms var(--ease-out); }
@@ -1591,6 +1653,7 @@ dd { margin: 0; }
   .log-line .text { grid-column: 1 / -1; }
   .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .setup { flex-direction: column; align-items: flex-start; }
+  .device-row-body { padding-left: 0; }
 }
 @media (prefers-reduced-motion: reduce) { .servers .server, .card.server { animation: fade var(--normal) ease; } }
 @media (max-width: 640px) { header { gap: var(--space-6); padding: var(--space-6) var(--space-8); } nav a { padding: var(--space-6) var(--space-10); white-space: nowrap; } main { padding: var(--space-14) var(--space-10) 30px; } input[type=range] { width: 110px; } }
@@ -1968,11 +2031,14 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
   .filter-bar > .count:empty { display: none; }
   .dash-widget .stats { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-8); }
   .dash-widget .stat { padding: var(--space-10) var(--space-6) 9px; border-radius: var(--radius-lg); text-align: center; }
-  .dash-widget .stat > svg { position: static; display: block; margin: 0 auto var(--space-4); width: 18px; height: 18px; }
+  /* Four across a phone: the tile smaller, above the figure. */
+  .dash-widget .stat:has(> .tile) { display: block; }
+  .dash-widget .stat > .tile { width: 30px; height: 30px; margin: 0 auto var(--space-6); border-radius: var(--radius-sm); }
+  .dash-widget .stat > .tile svg { width: 17px; height: 17px; }
   .dash-widget .stat b { font-size: var(--text-2xl); }
-  .dash-widget .stat span { display: block; font-size: var(--text-2xs); letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .dash-widget .stat .long { display: none; }
-  .dash-widget .stat .short { display: block; }
+  .dash-widget .stat span:not(.tile) { display: block; font-size: var(--text-2xs); letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dash-widget .stat span.long { display: none; }
+  .dash-widget .stat span.short { display: block; }
 }
 /* The narrowest phones (320 points): the figures two by two, so their names read whole. */
 @media (max-width: 360px) {
@@ -2230,6 +2296,10 @@ a.button.primary { background: linear-gradient(180deg, var(--accent-fill-top), v
 a.link:hover { text-decoration: underline; }
 .subnav { margin: -6px 0 var(--space-18); max-width: 100%; overflow-x: auto; scrollbar-width: none; }
 .subnav::-webkit-scrollbar { display: none; }
+/* Where tabs are scrolled out of sight, the row fades: the way it scrolls, without a bar. */
+.subnav[data-more-end] { mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); }
+.subnav[data-more-start] { mask-image: linear-gradient(to left, #000 calc(100% - 40px), transparent); }
+.subnav[data-more-start][data-more-end] { mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent); }
 .group a { color: var(--text); text-decoration: none; padding: 5px 13px; border-radius: var(--radius-pill); white-space: nowrap; transition: background-color var(--fast) var(--ease-out); }
 .group a:hover:not(.on) { background: var(--material-thin); }
 .group a.on { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); }
@@ -2676,6 +2746,10 @@ select:disabled { opacity: .5; cursor: not-allowed; }
 .catalog-toolbar .popup { margin: 0; }
 /* A phone: the search takes the row, the order sits under it at its own width. */
 @media (max-width: 600px) { .catalog-toolbar { grid-template-columns: minmax(0, 1fr); } .catalog-toolbar .popup { justify-self: start; } }
+/* With a filter: the search, the filter and the order on one row; on a phone, the search over the two menus. */
+.catalog-toolbar.with-filter { grid-template-columns: minmax(0, 1fr) auto auto; }
+@media (max-width: 600px) { .catalog-toolbar.with-filter { grid-template-columns: auto auto; justify-content: start; } .catalog-toolbar.with-filter .search { grid-column: 1 / -1; } }
+.devices .catalog-toolbar { margin-bottom: var(--space-4); }
 /* A running plugin's state: a green dot where the other states have a pill. */
 .status-dot { flex: none; align-self: center; width: 9px; height: 9px; margin: 0 var(--space-6); border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 18%, transparent); }
 /* The lighting pages' finder (plugin.js `finder`): one row (the search takes the room left), held under the header
@@ -3086,7 +3160,8 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
   .status-footer-meta { grid-column: 1 / -1; grid-row: 2; min-width: 0; }
 }
 
-.status-footer-meta { flex-wrap: nowrap; }
+/* The update pill keeps to its label, and goes under the version when the row is narrow. */
+.status-footer-meta { flex-wrap: wrap; }
 .status-footer-meta > .muted { max-width: none; }
 .status-footer .footer-update-check {
   padding: 3px var(--space-8); min-height: 28px; border: 1px solid rgba(255,255,255,.2); border-radius: 5px;
@@ -3117,11 +3192,6 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
 @media (prefers-reduced-motion: reduce) {
   .status-footer .footer-update-check[data-update-state="checking"] svg { animation: none; }
 }
-
-/* Reserve the widest translated status without exposing sizing text to assistive technology. */
-.footer-update-label { display: inline-grid; text-align: center; }
-.footer-update-label > span { grid-area: 1 / 1; }
-.footer-update-sizer { visibility: hidden; pointer-events: none; }
 
 .group-box > summary > svg { width: 18px; height: 18px; margin-right: var(--space-8); vertical-align: -3px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 

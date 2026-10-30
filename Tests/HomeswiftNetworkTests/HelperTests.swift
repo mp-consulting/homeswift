@@ -174,3 +174,14 @@ struct HTTPHeaderTests {
         #expect(redactingPassword(URL(string: "http://host/path?x=1")!) == "http://host/path?x=1")
     }
 }
+
+struct LogExcerptTests {
+    @Test func makesABodyOneLogLine() {
+        #expect(logExcerpt("\n\n<!DOCTYPE html>\n<html><head><title>\n  Not   Found\n</title></head></html>") == "an HTML page, Not Found")
+        #expect(logExcerpt("<HTML><body>Request\n  blocked</body></HTML>") == "an HTML page, Request blocked")
+        #expect(logExcerpt("<html><body></body></html>") == "an HTML page")
+        #expect(logExcerpt("  busy\n\n  later ") == "busy later")
+        #expect(logExcerpt(" \n ") == nil)
+        #expect(logExcerpt(String(repeating: "ab ", count: 500), limit: 10) == "ab ab ab a")
+    }
+}

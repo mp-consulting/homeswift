@@ -295,10 +295,13 @@ public final class UIServer: Sendable {
             // Scripts, styles and images are revalidated rather than downloaded again on every visit: an ETag of
             // their bytes, a 304 while it still matches. Pages keep no-store, like the API.
             let (body, tag) = asset(file, name: name, platform: platform, live: live != nil)
+            // An address the page versioned with these bytes (`/app.js?v=<tag>`) never changes: kept for a year,
+            // never asked again. Any other (an older page's version, or none) is revalidated.
+            let cache = request.query["v"] == Self.version(of: tag) ? "max-age=31536000, immutable" : "no-cache"
             if request.headers["if-none-match"] == tag {
-                return .data(status: 304, contentType: file.contentType, body: Data(), headers: ["ETag": tag, "Cache-Control": "no-cache"])
+                return .data(status: 304, contentType: file.contentType, body: Data(), headers: ["ETag": tag, "Cache-Control": cache])
             }
-            return .data(status: 200, contentType: file.contentType, body: body, headers: ["ETag": tag, "Cache-Control": "no-cache"])
+            return .data(status: 200, contentType: file.contentType, body: body, headers: ["ETag": tag, "Cache-Control": cache])
         }
         var body = file.body
         if platform == nil, name == "index.html", tls.withLockedValue({ $0 }) != nil {
@@ -322,7 +325,54 @@ public final class UIServer: Sendable {
             let head = #"<base href="/plugins/\#(Self.attribute(instance.slug))/"><meta name="homeswift-plugin" data-platform="\#(Self.attribute(platform))" data-name="\#(Self.attribute(instance.name))"><script src="/i18n.js"></script>"#
             body = body.range(of: "<head>").map { body.replacingCharacters(in: $0, with: "<head>" + head) } ?? head + body
         }
+        if live == nil {
+            // After an update, a page must not run with the scripts of the version before: each of its files is asked
+            // for at an address of its bytes, and the page knows its build, which /api/status says too (app.js reloads
+            // when they differ).
+            body = versioned(body, files: files, platform: platform)
+            if platform == nil, name == "index.html", let head = body.range(of: "<head>") {
+                body.replaceSubrange(head, with: #"<head><meta name="homeswift-build" content="\#(Self.build)">"#)
+            }
+        }
         return .data(status: 200, contentType: file.contentType, body: Data(body.utf8))
+    }
+
+    /// The compiled-in pages' files, as one value: it changes with any of them, so a page tells an update from its
+    /// own version. Stable across restarts.
+    public static let build: String = {
+        var hash = fnvBasis
+        for name in WebAssets.files.keys.sorted() {
+            hash = fnv1a(name.utf8, from: hash)
+            hash = fnv1a(WebAssets.files[name]!.data, from: hash)
+        }
+        return String(hash, radix: 16)
+    }()
+
+    /// FNV-1a over `bytes`, from `hash`: stable across launches, so a restart does not make browsers fetch everything
+    /// again.
+    static func fnv1a<Bytes: Sequence<UInt8>>(_ bytes: Bytes, from hash: UInt64 = fnvBasis) -> UInt64 {
+        var hash = hash
+        for byte in bytes { hash = (hash ^ UInt64(byte)) &* 0x100_0000_01b3 }
+        return hash
+    }
+
+    static let fnvBasis: UInt64 = 0xcbf2_9ce4_8422_2325
+
+    /// An ETag as the `v` of an address: its hex digits.
+    static func version(of tag: String) -> String { tag.trimmingCharacters(in: CharacterSet(charactersIn: "\"")) }
+
+    nonisolated(unsafe) private static let fileAddress = #/(src|href)="(/?)([A-Za-z0-9._\-/]+\.(?:js|css|svg|png|webp|webmanifest|json))"/#
+
+    /// The page with `src` and `href` of its files given their version: the UI's at `/name`, a plugin page's beside it
+    /// (`name`). Addresses that are not files served here (a view, another site, a data: URL) stay as they are.
+    private func versioned(_ html: String, files: [String: WebFile], platform: String?) -> String {
+        return html.replacing(Self.fileAddress) { match in
+            let (attribute, slash, path) = (String(match.output.1), String(match.output.2), String(match.output.3))
+            let own = slash.isEmpty && platform != nil
+            guard let file = own ? files[path] : WebAssets.files[path] else { return String(match.output.0) }
+            let (_, tag) = asset(file, name: path, platform: own ? platform : nil, live: false)
+            return #"\#(attribute)="\#(slash)\#(path)?v=\#(Self.version(of: tag))""#
+        }
     }
 
     /// A file's bytes and ETag; those of the compiled-in files, which never change, are kept.
@@ -330,10 +380,7 @@ public final class UIServer: Sendable {
         let key = "\(platform ?? "")/\(name)"
         if !live, let kept = assets.withLockedValue({ $0[key] }), kept.file == file { return (kept.body, kept.tag) }
         let body = file.data
-        // FNV-1a: stable across launches, so a restart does not make browsers fetch everything again.
-        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
-        for byte in body { hash = (hash ^ UInt64(byte)) &* 0x100_0000_01b3 }
-        let tag = "\"\(String(hash, radix: 16))\""
+        let tag = "\"\(String(Self.fnv1a(body), radix: 16))\""
         if !live { assets.withLockedValue { $0[key] = (file, body, tag) } }
         return (body, tag)
     }
@@ -581,6 +628,9 @@ public final class UIServer: Sendable {
             return .json(response.json, status: response.status)
         }
         if route.first == "preferences", let reply = preferencesRoute(Array(route.dropFirst()), request, body: body, username: username) { return reply }
+        if route.first == "matter", let reply = try await matterRoute(Array(route.dropFirst()), request, body: body, username: username, admin: caller.isAdmin) {
+            return reply
+        }
         if route.first == "assistant", route.count >= 2, route[1] != "chat", route[1] != "chats",
            let reply = try await assistantRoute(Array(route.dropFirst()), request, body: body, username: username) { return reply }
         // Rooms, scenes and notifications (HomeRoutes.swift).
@@ -590,6 +640,11 @@ public final class UIServer: Sendable {
             switch route {
             case ["status"]:
                 return .json(status(username: username, admin: caller.isAdmin))
+            case ["updates"]:
+                // The Settings page's Updates: as the last check left it, the version on disk looked at again.
+                guard let releases = options.releases else { return .error(503, "update checking is unavailable") }
+                await releases.noteInstalledVersion()
+                return .json(releases.json(always: true) ?? .null)
             case ["assistant"]:
                 // Whether pages may offer "Explain": the HomeswiftAiKit block's Assistant, when one works.
                 guard let assistant = catalog.host.assistant else { return .json(["enabled": false]) }
@@ -745,7 +800,8 @@ public final class UIServer: Sendable {
                 return .json(["saveDetails": .bool(archive?.savesDetails ?? false), "available": .bool(archive != nil)])
             case ["events"]:
                 // The log is for administrators, as Glass UI's restrictLogsToAdmins.
-                return .events(events.stream(logs: caller.isAdmin))
+                // With the pages' build: one still running an older version's files after an update reloads (app.js).
+                return .events(events.stream(logs: caller.isAdmin, hello: live == nil ? #"{"build":"\#(Self.build)"}"# : "{}"))
             default:
                 if route.count == 2, route[0] == "qr", route[1].hasSuffix(".svg") {
                     // The pairing QR code of a bridge, for the Home app's camera: the setup URI, which the status page shows anyway.
@@ -763,10 +819,10 @@ public final class UIServer: Sendable {
                     return await camera(route[1], route[2], request, username: username)
                 }
                 if route.count == 3, route[0] == "plugins", route[2] == "schema" {
-                    // The runtime's own blocks, the web UI's and the Assistant's, have forms too.
+                    // The runtime's own blocks, the web UI's, the Assistant's and the Matter bridge's, have forms too.
                     let schema = route[1] == UIConfiguration.platform ? UIConfiguration.schemaJSON
                         : route[1] == AIConfiguration.platform ? AIConfiguration.schemaJSON
-                        : catalog.host.registry.entry(for: route[1])?.configurationSchemaJSON
+                        : catalog.blockSchema(for: route[1]) ?? catalog.host.registry.entry(for: route[1])?.configurationSchemaJSON
                     guard let text = schema else { return .error(404, "no schema for \(route[1])") }
                     return .text(text, contentType: "application/json")
                 }
@@ -811,6 +867,15 @@ public final class UIServer: Sendable {
                     return .error(409, error.description)
                 }
             }
+            if route == ["updates", "automatic"] {
+                // Settings › Updates' switch: `checkForUpdates` in the HomeswiftUI block (left out when on, its default).
+                // The saved block restarts the web UI, which starts or stops the checks; they change here at once too.
+                guard let on = body["on"]?.boolValue else { return .error(400, "on (true or false) is required") }
+                _ = try await catalog.editBlock(platform: UIConfiguration.platform, name: nil, create: false, dryRun: false) { $0["checkForUpdates"] = on ? nil : .bool(false) }
+                noteConfigChange(by: username)
+                if let releases = options.releases { on ? releases.start() : releases.stop() }
+                return .json(options.releases?.json(always: true) ?? ["automatic": .bool(on)])
+            }
             if route.count == 4, route[0] == "config", route[1] == "block" {
                 // A block by platform and name, for a plugin's own page: its read-modify-write never needs
                 // the whole file, nor an index that may have moved.
@@ -830,6 +895,17 @@ public final class UIServer: Sendable {
                 guard let releases = options.releases else { return .error(503, "update checking is unavailable") }
                 await releases.check()
                 return .json(releases.json() ?? .null)
+            }
+            if route == ["updates", "install"] {
+                // Installs in the background, the page asking GET /api/updates how it goes; then, unless
+                // `relaunch` is false, restarts into the new version.
+                guard let releases = options.releases else { return .error(503, "update checking is unavailable") }
+                let relaunch = body["relaunch"]?.boolValue ?? true
+                let catalog = catalog
+                guard releases.install(relaunch: { relaunch && catalog.scheduleRestart(requestedBy: "web UI user \(username): installing an update") }) else {
+                    return .error(409, "there is no update this bridge can install")
+                }
+                return .json(releases.json(always: true) ?? .null)
             }
             if route == ["config", "check-port"] {
                 guard let candidate = body["port"]?.intValue, (1...65535).contains(candidate) else {
@@ -1157,6 +1233,8 @@ public final class UIServer: Sendable {
         status["username"] = .string(username)
         status["system"] = HomeswiftCatalog.systemJSON()
         if let update = options.releases?.json() { status["update"] = update }
+        // The pages' build: one open since an update reloads (app.js).
+        if live == nil { status["build"] = .string(Self.build) }
         // The vault's widget, for the administrators who can act on it.
         if admin, let vault = catalog.vaultSummary() { status["vault"] = vault }
         return .object(status)
@@ -1472,14 +1550,18 @@ final class EventHub: Sendable {
         }
         // The rooms or the wall changed (a page, the chat, an MCP client): the Accessories page draws them again.
         let layout = catalog.home.observeLayout { [self] in broadcast(event: "layout", payload: [:]) }
-        observations.withLockedValue { $0 = [changes, log, layout] }
+        // A Matter node added to an ecosystem or opened for one: the Status page draws its card or row again.
+        let matter = catalog.matter.observeChanges { [self] device in
+            broadcast(event: "matter", payload: ["device": device.map(JSONValue.string) ?? .null])
+        }
+        observations.withLockedValue { $0 = [changes, log, layout, matter] }
     }
 
-    func stream(logs: Bool = true) -> AsyncStream<Data> {
+    func stream(logs: Bool = true, hello: String = "{}") -> AsyncStream<Data> {
         let id = UUID()
         return AsyncStream(bufferingPolicy: .bufferingNewest(500)) { continuation in
             listeners.withLockedValue { $0[id] = (continuation, logs) }
-            continuation.yield(SSE.frame(event: "hello", data: "{}"))
+            continuation.yield(SSE.frame(event: "hello", data: hello))
             continuation.onTermination = { _ in _ = self.listeners.withLockedValue { $0.removeValue(forKey: id) } }
         }
     }

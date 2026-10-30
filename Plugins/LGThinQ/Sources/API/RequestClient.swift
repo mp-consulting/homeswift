@@ -31,7 +31,7 @@ public enum ThinQError: Error, CustomStringConvertible, Equatable, Sendable {
             .manualProcessNeeded(let message), .monitor(let message), .invalid(let message):
             message
         case .http(let status, let body):
-            "Request failed with status code \(status)" + (body.stringValue.map { $0.isEmpty ? "" : ": \($0.prefix(200))" } ?? ": \(body.text().prefix(200))")
+            "Request failed with status code \(status)" + (logExcerpt(body.stringValue ?? body.text()).map { ": \($0)" } ?? "")
         }
     }
 }

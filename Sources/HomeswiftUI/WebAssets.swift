@@ -8,8 +8,9 @@ enum WebAssets {
     static let files: [String: WebFile] = [
         "admin.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The Settings pages, after the Homebridge UI's settings, child bridges, config editor backups, restart and power
-// options: the bridge block and this machine's network, HomeKit pairings, cached accessories, child bridges,
-// whole-instance and config.json backups, the schedules, and the audit log; and an accessory's recorded history.
+// options: the bridge block and this machine's network, HomeKit pairings, cached accessories, config.json's editor, child bridges,
+// whole-instance and config.json backups, the schedules, updates, and the audit log; and an accessory's recorded
+// history.
 // app.js routes /settings[/<page>] here and lends its helpers (HomeswiftApp) when a view is drawn.
 (() => {
   "use strict";
@@ -19,7 +20,7 @@ enum WebAssets {
   const app = () => window.HomeswiftApp;
   const api = (...args) => app().api(...args);
 
-  const pages = [["bridge", t("Bridge"), "bridge"], ["child-bridges", t("Child bridges"), "child"], ["backups", t("Backups"), "archive"], ["vault", t("Vault"), "key"], ["audit", t("Audit log"), "shield"], ["assistant", t("Assistant"), "sparkle"]];
+  const pages = [["bridge", t("Bridge"), "bridge"], ["config", t("Config"), "code"], ["child-bridges", t("Child bridges"), "child"], ["backups", t("Backups"), "archive"], ["vault", t("Vault"), "vault"], ["updates", t("Updates"), "download"], ["audit", t("Audit log"), "shield"], ["assistant", t("Assistant"), "sparkle"]];
 
   const dateTime = new Intl.DateTimeFormat(locale, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
   const fullDate = new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
@@ -62,7 +63,7 @@ enum WebAssets {
   async function view(main, [page = ""] = []) {
     // Settings opens on its first page, Bridge.
     if (!page) { history.replaceState(null, "", "/settings/bridge"); page = "bridge"; }
-    const draw = { bridge: bridgePage, "child-bridges": childBridgesPage, backups: backupsPage, vault: vaultPage, audit: auditPage, assistant: (main) => app().assistantPage(main, subnav("assistant")) }[page];
+    const draw = { bridge: bridgePage, config: (main) => app().configPage(main, subnav("config")), "child-bridges": childBridgesPage, backups: backupsPage, vault: vaultPage, updates: updatesPage, audit: auditPage, assistant: (main) => app().assistantPage(main, subnav("assistant")) }[page];
     if (!draw) { app().show(main, app().pageHead(t("Settings"), t("No such page.")), subnav(null)); return; }
     await draw(main);
   }
@@ -91,7 +92,8 @@ enum WebAssets {
     const fields = {
       name: input("name", { required: true }),
       port: input("port", { type: "number", min: 1, max: 65535, placeholder: settings.listeningPort ? t("Automatic (now {port})", { port: String(settings.listeningPort) }) : t("Automatic [port]") }),
-      pin: input("pin", { class: "mono", placeholder: "031-45-154", pattern: "\\d{3}-\\d{2}-\\d{3}", autocomplete: "off", spellcheck: false }),
+      // The code the bridge runs with: config.json keeps it sealed, or names it in the vault.
+      pin: input("pin", { id: "bridge-pin", class: "mono", placeholder: "031-45-154", pattern: "\\d{3}-\\d{2}-\\d{3}", autocomplete: "off", spellcheck: false, value: settings.setupCode ?? bridge.pin ?? "" }),
       manufacturer: input("manufacturer", { placeholder: "Homeswift" }),
       model: input("model", { placeholder: "Homeswift" }),
       firmwareRevision: input("firmwareRevision", { placeholder: t("The homeswift version") }),
@@ -99,10 +101,35 @@ enum WebAssets {
     const field = (title, control, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: title }), control, help ? el("span", { class: "help", text: help }) : null);
     const message = el("p", { class: "status-line muted", role: "status" });
     const save = el("button", { actionIcon: "check", class: "primary", type: "submit", text: t("Save and restart") });
+    // The setup code is sent only when it changes, so a sealed or vault pin stays as config.json has it.
+    const shownPin = fields.pin.value;
     const read = () => Object.fromEntries(Object.entries(fields).map(([key, control]) => {
       const value = control.value.trim();
       return [key, value === "" ? null : key === "port" ? Number(value) : value];
-    }));
+    }).filter(([key, value]) => key !== "pin" || value !== shownPin));
+    const copied = el("span", { class: "visually-hidden", role: "status" });
+    const copyIcon = HomeswiftCommon.icon("copy"), doneIcon = HomeswiftCommon.icon("check");
+    copyIcon.classList.add("copy-icon");
+    doneIcon.classList.add("copied-icon");
+    let copyTimer;
+    const copyPin = el("button", { type: "button", class: "icon-button setup-code-copy", title: t("Copy the setup code"), "aria-label": t("Copy the setup code"), onclick: async () => {
+      clearTimeout(copyTimer);
+      try {
+        await HomeswiftCommon.copyText(fields.pin.value.trim());
+        copyPin.dataset.copied = "";
+        copied.textContent = t("Copied");
+      } catch {
+        // Selected, ⌘C or Ctrl+C copies it.
+        fields.pin.focus();
+        fields.pin.select();
+        copied.textContent = t("Not copied");
+      }
+      copyTimer = setTimeout(() => { delete copyPin.dataset.copied; copied.textContent = ""; }, 1600);
+    } }, copyIcon, doneIcon);
+    // The pairing QR code, for the Home app's camera: the code the bridge runs with, so a new one shows after the restart.
+    const qr = settings.setupCode ? el("img", { class: "qr", src: "/api/qr/0.svg", alt: t("Pairing QR code"), width: 120, height: 120 }) : null;
+    const qrNote = settings.setupCode ? el("p", { class: "help setup-field-note", text: main?.paired ? t("The bridge is in the Home app. To add it again, reset its pairings below, then scan this code.")
+      : t("In the Home app: Add Accessory, then scan this code, or choose More options and type it.") }) : null;
     const portStatus = el("span", { class: "help", role: "status", "aria-live": "polite" });
     const checkPort = async () => {
       if (!fields.port.value.trim()) return "";
@@ -152,7 +179,7 @@ enum WebAssets {
       catch (error) { portStatus.className = "help error"; portStatus.textContent = error.message; fields.port.focus(); return; }
       if (!(await confirmAction({ title: t("Restart homeswift with these settings?"), danger: false, confirmLabel: t("Save and restart"),
         text: [t("The bridge block is the bridge's HomeKit identity: homeswift restarts to apply it, and every connection drops for a few seconds."),
-          next.pin !== (bridge.pin ?? null) ? t("A new setup code applies to new pairings only: the Home app keeps the bridge.") : ""] }))) return;
+          "pin" in next ? t("A new setup code applies to new pairings only: the Home app keeps the bridge.") : ""] }))) return;
       await busy(save, async () => {
         await checkPort();
         const result = await api("/api/settings/bridge", { method: "PUT", body: { settings: next } });
@@ -167,7 +194,13 @@ enum WebAssets {
       el("div", { class: "fields" },
         field(t("Name"), fields.name, t("What the Home app calls the bridge when it is added.")),
         field(t("Port"), portControl, t("The HomeKit server's port; empty picks a free one and keeps it.")),
-        field(t("Setup code"), fields.pin, t("The code the Home app asks for, as XXX-XX-XXX. It is never logged.")),
+        // The code and its QR code side by side, across the form: they say the same thing.
+        el("div", { class: "field setup-field" },
+          el("div", { class: "setup-field-main" },
+            el("label", { class: "field-title", for: "bridge-pin", text: t("Setup code") }),
+            el("div", { class: "setup-code-field" }, fields.pin, copyPin, copied),
+            el("span", { class: "help", text: t("The code the Home app asks for, as XXX-XX-XXX. It is never logged.") }), qrNote),
+          qr),
         field(t("Manufacturer"), fields.manufacturer), field(t("Model"), fields.model), field(t("Firmware revision"), fields.firmwareRevision)),
       el("p", { class: "help", text: t("The device ID stays: a new one is a new bridge to the Home app. To pair again from scratch, reset the bridge's pairings below.") }),
       el("div", { class: "actions" }, save), message);
@@ -308,6 +341,78 @@ enum WebAssets {
         uiBlock ? el("a", { actionIcon: "sliders", class: "button", href: `/plugins/${uiBlock.slug}?section=proxy`, text: t("Open its settings") }) : null));
   }
 
+  // ---- Updates: this version, the latest release, installing it and relaunching --------------------------------
+
+  async function updatesPage(main) {
+    const update = await api("/api/updates");
+    const installs = { homebrew: "Homebrew", docker: t("Docker container"), synology: t("Synology package"), source: t("Built from source") };
+    const head = el("div", { class: "server-head update-head" });
+    const details = el("div", {});
+    const message = el("p", { class: "error", role: "alert" });
+    let shown = "";
+    // The headline is the state: up to date, a release out, installing, waiting for a relaunch, or a failed check.
+    const drawHead = () => {
+      const state = app().updatePhase(update);
+      const [icon, tone] = { current: ["check", "green"], available: ["download", "orange"], installed: ["power", "green"], installing: ["update", "blue"],
+        relaunching: ["power", "blue"], error: ["warning", "heat"], idle: ["update", "grey"] }[state];
+      const title = {
+        current: () => t("Homeswift is up to date"), available: () => t("Homeswift {version} is available", { version: update.latest }),
+        installed: () => t("Homeswift {version} is installed", { version: update.installed }), installing: () => t("Installing Homeswift {version}…", { version: update.installing }),
+        relaunching: () => t("Restarting into Homeswift {version}…", { version: update.installed }), error: () => t("Could not check for updates"), idle: () => t("Not checked yet"),
+      }[state]();
+      const meta = [t("This is {version}", { version: update.current }), installs[update.install] ?? update.install,
+        update.checkedAt ? t("Checked {when}", { when: HomeswiftCommon.ago(update.checkedAt) }) : null].filter(Boolean).join(" · ");
+      // Redrawn (and faded in) only when it says something new, not on each question while an update installs.
+      const key = `${state}|${title}|${meta}`;
+      if (key === shown) return;
+      const fade = shown !== "";
+      shown = key;
+      head.replaceChildren(tile(icon, tone),
+        el("div", { class: `who${fade ? " update-head-changed" : ""}` }, el("strong", { text: title }), el("div", { class: "muted", text: meta })),
+        check);
+      check.disabled = state === "installing" || state === "relaunching";
+    };
+    const draw = (next) => {
+      Object.assign(update, next);
+      automatic.checked = Boolean(update.automatic);
+      drawHead();
+      // The release's details, its install button among them; they keep the headline current while it installs.
+      const card = app().updateCard(update, { embedded: true, changed: (state) => { Object.assign(update, state); drawHead(); } });
+      details.replaceChildren(...(card ? [card] : []));
+    };
+    // `checkForUpdates` of the HomeswiftUI block, written as soon as it changes.
+    const automatic = el("input", { type: "checkbox", role: "switch", onchange: async () => {
+      const on = automatic.checked;
+      automatic.disabled = true;
+      message.textContent = "";
+      try {
+        draw(await api("/api/updates/automatic", { method: "PUT", body: { on } }));
+      } catch (error) {
+        automatic.checked = !on;
+        message.textContent = error.message;
+      } finally {
+        automatic.disabled = false;
+      }
+    } });
+    const check = el("button", { type: "button", actionIcon: "restore", text: t("Check now"), onclick: (event) => {
+      message.textContent = "";
+      busy(event.currentTarget, async () => draw(await api("/api/updates/check", { method: "POST", body: {} })), (error) => { message.textContent = error.message; });
+    } });
+    const relaunch = el("button", { type: "button", class: "link", onclick: (event) => app().restartBridge(event) }, HomeswiftCommon.icon("power"), el("span", { text: t("Restart homeswift…") }));
+    draw(update);
+    app().show(main,
+      app().pageHead(t("Settings"), t("The bridge, its pairings and cached accessories, child bridges, backups and the audit log.")),
+      subnav("updates"),
+      el("section", { class: "updates-settings" },
+        el("div", { class: "card server" },
+          head, message, details,
+          el("div", { class: "update-preferences" },
+            el("label", { class: "toggle" }, el("span", { class: "switch" }, automatic, el("span")),
+              el("span", {}, el("span", { class: "field-title", text: t("Check for updates twice a day") }),
+                el("p", { class: "help", text: t("Asks GitHub for the latest release and says so on the Status page. The request carries only this version.") })))),
+          el("div", { class: "actions dashboard-quick-actions" }, relaunch))));
+  }
+
   // ---- Child bridges -------------------------------------------------------------------------------------
 
   async function childBridgesPage(main) {
@@ -337,16 +442,23 @@ enum WebAssets {
             { label: t("Reset pairings…"), icon: "key", danger: true, onSelect: () => resetPairings({ name: bridge.name, deviceId: bridge.id }) },
           ])));
     };
+    const blocks = plugins.blocks.filter((block) => !["HomeswiftUI", "HomeswiftAiKit"].includes(block.platform));
+    const empty = (text, ...actions) => el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("child")),
+      el("p", { class: "muted", text }), actions.length ? el("div", { class: "actions" }, actions) : null);
     app().show(main,
       app().pageHead(t("Child bridges"), t("Plugins on HomeKit bridges of their own (a block with _bridge), inside this process: one can restart without the others.")),
       subnav("child-bridges"),
-      el("section", {}, sectionHead(t("Plugin bridges")),
-        el("div", { class: "card rows" }, plugins.blocks.filter((block) => !["HomeswiftUI", "HomeswiftAiKit"].includes(block.platform)).map((block) =>
-          el("div", { class: "row" }, tile("child", "blue"),
-            el("div", { class: "who" }, el("strong", { text: block.name }), el("div", { class: "muted", text: block.childBridge ? t("Child bridge") : t("Main bridge") })),
-            el("button", { actionIcon: "sliders", text: t("Configure"), onclick: () => editChildBridge(block) }))))),
-      childBridges.length ? el("div", { class: "servers" }, childBridges.map(card))
-        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("child")), el("p", { class: "muted", text: t("No child bridges yet. Configure a plugin above to give it its own bridge.") })));
+      // Without a plugin there is nothing to put on a bridge of its own: one empty state, the way to add one.
+      blocks.length ? [
+        el("section", {}, sectionHead(t("Plugin bridges")),
+          el("div", { class: "card rows" }, blocks.map((block) =>
+            el("div", { class: "row" }, tile("child", "blue"),
+              el("div", { class: "who" }, el("strong", { text: block.name }), el("div", { class: "muted", text: block.childBridge ? t("Child bridge") : t("Main bridge") })),
+              el("button", { actionIcon: "sliders", text: t("Configure"), onclick: () => editChildBridge(block) }))))),
+        childBridges.length ? el("div", { class: "servers" }, childBridges.map(card))
+          : empty(t("No child bridges yet. Configure a plugin above to give it its own bridge.")),
+      ] : empty(t("No plugins yet. Add one, then give it a HomeKit bridge of its own here."),
+        el("a", { class: "button primary", href: "/plugins", actionIcon: "plus", text: t("Add a plugin") })));
   }
 
   async function editChildBridge(entry) {
@@ -560,7 +672,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       plan.items.length ? migrationCard(plan, vault) : null,
       sectionHead(t("Entries"), vault.entries.length ? tn("{n} entry", "{n} entries", vault.entries.length) : "", add),
       vault.entries.length ? el("div", { class: "card rows" }, vault.entries.map((entry) => entryRow(entry, vault)))
-        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("key")),
+        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("vault")),
           el("p", { class: "muted", text: t("None yet: add one, or move config.json's secrets here.") })));
   }
 
@@ -760,10 +872,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         target.textContent = t("Shares {entry}", { entry: namer?.value.trim() || item.entry });
       }
     };
-    const move = el("button", { actionIcon: "key", class: "primary", onclick: (event) => {
+    const move = el("button", { actionIcon: "vault", class: "primary", onclick: (event) => {
       const button = event.currentTarget;
       confirmAction({
-        title: t("Move config.json's secrets to the vault?"), confirmLabel: t("Move"), danger: false, confirmIcon: "key",
+        title: t("Move config.json's secrets to the vault?"), confirmLabel: t("Move"), danger: false, confirmIcon: "vault",
         text: [t("Each one becomes an entry, and config.json names it as vault:<name>. config.json is backed up first: restoring that backup undoes it."),
           t("A copy of config.json no longer works on Homebridge: its secrets stay in this bridge's vault.")],
       }).then((ok) => ok && busy(button, async () => {
@@ -782,7 +894,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     count();
     showShared();
     return el("div", { class: "card server vault-card" },
-      el("div", { class: "server-head" }, tile("key", "violet"),
+      el("div", { class: "server-head" }, tile("vault", "violet"),
         el("div", { class: "who" }, el("strong", { text: tn("{n} secret is still in config.json", "{n} secrets are still in config.json", plan.items.length) }),
           el("div", { class: "muted", text: tn("Move it here: the plugin keeps working with the same value.", "Move them here: identical values share one entry, and each plugin keeps working with the same value.", plan.items.length) }))),
       el("div", { class: "rows" }, rows),
@@ -996,7 +1108,19 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// /api/accessories. A plugin block sits under the bridge its platform entry names; a plugin's accessories are the
   /// ones of its platform on that bridge, given to the first block that has them. A `filter` (see `overviewFilter`)
   /// keeps the accessories it matches, and only the plugins and bridges that still have some.
-  function overviewModel(status, plugins, accessories, filter = null) {
+  /// A plugin's branch, or one of the Matter block's: its accessories by device type, then name.
+  function branchOf(fields, leaves) {
+    leaves.sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
+    const sub = fields.paused ? t("Paused") : leaves.length ? tn("{n} accessory", "{n} accessories", leaves.length, {}) : t("No accessories");
+    return { kind: "plugin", ...fields, leaves, sub };
+  }
+
+  /// The ids of the Matter block's devices, from /api/matter (nothing else of it is kept: it carries pairing codes).
+  const matterIDs = (matter) => matter?.enabled ? {
+    own: new Set((matter.ownDevices ?? []).map((device) => device.id)), bridged: new Set((matter.devices ?? []).map((device) => device.id)),
+  } : null;
+
+  function overviewModel(status, plugins, accessories, filter = null, matter = null) {
     const bridges = status.bridges ?? [];
     const main = bridges.find((bridge) => !bridge.childBridge) ?? bridges[0];
     const tops = bridges.map((bridge) => ({
@@ -1007,7 +1131,22 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const claimed = new Set();
     let pluginCount = 0, pausedCount = 0, colorIndex = 0;
     for (const block of plugins?.blocks ?? []) {
-      if (block.system) { tops.push({ kind: "system", name: block.name, children: [], sub: t("Built in") }); continue; }
+      if (block.system) {
+        const top = { kind: "system", name: block.name, children: [], sub: t("Built in") };
+        // The Matter block: its devices of their own and its bridged ones. Each is a copy of the accessory it shows: the
+        // layout places the plugin's dot and this one apart.
+        if (block.platform === "HomeswiftMatter" && matter) {
+          top.icon = "matter";
+          for (const [name, ids] of [[t("Devices of their own"), matter.own], [t("Bridged over Matter"), matter.bridged]]) {
+            let leaves = accessories.filter((accessory) => ids.has(accessory.id));
+            if (filter) leaves = leaves.filter(filter.keeps);
+            if (leaves.length) top.children.push(branchOf({ name, icon: "matter", matter: true, color: "var(--ok)" }, leaves.map((one) => ({ ...one }))));
+          }
+          top.sub = tn("{n} accessory", "{n} accessories", top.children.reduce((sum, branch) => sum + branch.leaves.length, 0), {});
+        }
+        tops.push(top);
+        continue;
+      }
       const entry = entries.find((one) => one.name === block.name);
       const bridgeName = entry?.bridge ?? main?.name;
       const parent = topByName.get(bridgeName);
@@ -1024,9 +1163,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const paused = Boolean(entry?.paused);
       pluginCount += 1;
       pausedCount += paused ? 1 : 0;
-      leaves.sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
-      parent.children.push({ kind: "plugin", name: block.name, platform: block.platform, icon: block.icon ?? "plugin", bridgeName, paused, leaves, color,
-        sub: paused ? t("Paused") : leaves.length ? tn("{n} accessory", "{n} accessories", leaves.length, {}) : t("No accessories") });
+      parent.children.push(branchOf({ name: block.name, platform: block.platform, icon: block.icon ?? "plugin", bridgeName, paused, color }, leaves));
     }
     for (const top of tops) top.color = "var(--muted)";
     if (filter) tops.splice(0, tops.length, ...tops.filter((top) => top.children.length));
@@ -1168,9 +1305,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   /// The model of what homeswift runs, with what it was built from (the graph builds filtered ones from it).
   async function loadOverview() {
-    const [status, plugins, accessories] = await Promise.all([api("/api/status"), api("/api/plugins").catch(() => null), api("/api/accessories").catch(() => [])]);
-    const model = overviewModel(status, plugins, accessories);
-    model.source = { status, plugins, accessories };
+    const [status, plugins, accessories, matter] = await Promise.all([api("/api/status"), api("/api/plugins").catch(() => null),
+      api("/api/accessories").catch(() => []), api("/api/matter").catch(() => null)]);
+    const ids = matterIDs(matter);
+    const model = overviewModel(status, plugins, accessories, null, ids);
+    model.source = { status, plugins, accessories, matter: ids };
     return model;
   }
 
@@ -1221,7 +1360,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function bridgeDetails(top) {
     const bridge = top.raw;
     const type = top.kind === "system" ? t("Built in") : t(top.kind === "child" ? "Child bridge" : "Bridge");
-    return { name: top.name, icon: top.kind === "system" ? "system" : "bridge", warn: top.paired === false,
+    return { name: top.name, icon: top.icon ?? (top.kind === "system" ? "system" : "bridge"), warn: top.paired === false,
       status: top.kind === "system" ? t("Built in") : top.paired ? t("Paired · {count}", { count: bridge.controllers ?? 0 }) : t("Not paired"),
       facts: [factRow("bridgeType", type), factRow("bridgeAccessories", top.count), factRow("port", bridge?.port), factRow("deviceId", bridge?.deviceId),
         factRow("platforms", bridge?.platforms?.join(", "))] };
@@ -1231,7 +1370,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     for (const leaf of plugin.leaves) categories.set(leaf.category, (categories.get(leaf.category) ?? 0) + 1);
     const unavailable = plugin.leaves.filter((one) => one.unavailable).length;
     return { name: plugin.name, icon: plugin.icon, status: plugin.sub, warn: unavailable > 0,
-      facts: [factRow("platform", plugin.platform), factRow("bridge", plugin.bridgeName), factRow("state", plugin.paused ? t("Paused") : t("Running")),
+      facts: [factRow("platform", plugin.platform), factRow("bridge", plugin.bridgeName), plugin.matter ? null : factRow("state", plugin.paused ? t("Paused") : t("Running")),
         factRow("unavailable", unavailable || null), factRow("categories", [...categories].map(([key, count]) => `${categoryName(key)} ${count}`).join(", "))],
       items: accessoryItems(plugin.leaves) };
   }
@@ -1250,7 +1389,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// its readings and its accessories, each of which `open` shows in the card's place.
   function detailNodes(data, close, { back = null, open = null } = {}) {
     const glyph = data.image ? el("img", { src: data.image, alt: "", width: 24, height: 24 }) : HomeswiftCommon.icon(data.icon);
-    const shown = (facts) => facts.filter(([, value]) => value !== undefined && value !== null && value !== "");
+    const shown = (facts) => facts.filter((fact) => fact && fact[1] !== undefined && fact[1] !== null && fact[1] !== "");
     // Rows of a label and a value, and a tooltip on the row when it has one.
     const list = (rows) => (rows.length ? el("dl", { class: "detail-list" }, ...rows.map(([label, value, tip]) =>
       el("div", { title: tip ?? null }, el("dt", { text: label }), el("dd", { text: String(value) })))) : null);
@@ -1276,7 +1415,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function groupDetails(group) {
     const unavailable = group.leaves.filter((one) => one.unavailable).length;
     return { name: group.name, icon: group.icon, status: group.sub, warn: unavailable > 0,
-      facts: [factRow("plugin", group.plugin.name), factRow("bridge", group.plugin.bridgeName), factRow("unavailable", unavailable || null)],
+      facts: [group.plugin.matter ? null : factRow("plugin", group.plugin.name), factRow("bridge", group.plugin.bridgeName), factRow("unavailable", unavailable || null)],
       items: accessoryItems(group.leaves) };
   }
 
@@ -1480,7 +1619,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     svg.addEventListener("focusout", hide);
 
     // Search and filters, as on the Accessories page: the graph is drawn again from what they keep, faded across.
-    const { status, plugins, accessories: all } = model.source;
+    const { status, plugins, accessories: all, matter } = model.source;
     const chosen = { bridges: new Set(), categories: new Set(), unavailable: false };
     const search = el("input", { type: "search", class: "search", placeholder: t("Search accessories"), "aria-label": t("Search accessories") });
     const filters = el("button", { type: "button", "aria-haspopup": "menu" });
@@ -1498,7 +1637,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // Every graph is built from the filter, the first too (a filtered build moves the accessories the builds share).
     const redraw = () => {
       const filter = filterOf();
-      const next = overviewModel(status, plugins, all, filter);
+      const next = overviewModel(status, plugins, all, filter, matter);
       closeDetail();
       tip.hidden = true;
       cancelAnimationFrame(animation);
@@ -1510,7 +1649,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       Object.assign(zoom, home());
       apply();
       svg.animate([{ opacity: 0, scale: 0.97 }, { opacity: 1, scale: 1 }], { duration: matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 260, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
-      const shown = next.tops.reduce((sum, top) => sum + top.children.reduce((total, plugin) => total + plugin.leaves.length, 0), 0);
+      // Each accessory once: the Matter block's branches show again accessories a plugin has.
+      const shown = new Set(next.tops.flatMap((top) => top.children.flatMap((plugin) => plugin.leaves.map((leaf) => leaf.id)))).size;
       svg.hidden = !next.tops.length;
       empty.hidden = Boolean(next.tops.length);
       count.textContent = filter ? tn("{n} accessory", "{n} accessories", shown, {}) : "";
@@ -1584,7 +1724,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     for (const top of model.tops) {
       edges.push(link(root, top, "trunk", top.color));
       nodes.push(node(top, { classes: `node bridge-node${top.kind === "system" ? " built-in" : ""}${top.paired === false ? " unpaired" : ""}`,
-        radius: nodeRadius.top, icon: top.kind === "system" ? "system" : "bridge", size: 20, tip: `${top.name} · ${top.sub}`,
+        radius: nodeRadius.top, icon: top.icon ?? (top.kind === "system" ? "system" : "bridge"), size: 20, tip: `${top.name} · ${top.sub}`,
         card: () => bridgeDetails(top), zoom: { radius: (rings.top + rings.plugin) / 2, k: 1.8 } }));
       for (const branch of top.children) {
         edges.push(link(top, branch, `branch${branch.paused ? " paused" : ""}`, branch.color));
@@ -1820,17 +1960,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   // ---- Restart -------------------------------------------------------------
 
-  function confirmRestart() {
+  function confirmRestart({ title = t("Restart Homeswift?"), text = t("Your accessories will disconnect briefly. This page will reconnect automatically when Homeswift is ready."), confirm = t("Restart"), icon = "power" } = {}) {
     return new Promise((resolve) => {
       const dialog = el("dialog", { class: "restart-overlay restart-confirm", "aria-labelledby": "restart-confirm-title", "aria-describedby": "restart-confirm-description" });
       const finish = (accepted) => { dialog.close(); dialog.remove(); resolve(accepted); };
       const cancel = el("button", { actionIcon: "close", text: t("Cancel"), onclick: () => finish(false) });
       dialog.append(
-        el("div", { class: "restart-confirm-icon", "aria-hidden": "true" }, HomeswiftCommon.icon("power")),
-        el("h2", { id: "restart-confirm-title", text: t("Restart Homeswift?") }),
-        el("p", { id: "restart-confirm-description", text: t("Your accessories will disconnect briefly. This page will reconnect automatically when Homeswift is ready.") }),
+        el("div", { class: "restart-confirm-icon", "aria-hidden": "true" }, HomeswiftCommon.icon(icon)),
+        el("h2", { id: "restart-confirm-title", text: title }),
+        el("p", { id: "restart-confirm-description", text }),
         el("div", { class: "restart-confirm-actions" }, cancel,
-          el("button", { actionIcon: "power", class: "primary", text: t("Restart"), onclick: () => finish(true) })));
+          el("button", { actionIcon: icon, class: "primary", text: confirm, onclick: () => finish(true) })));
       dialog.addEventListener("cancel", (event) => { event.preventDefault(); finish(false); });
       document.body.append(dialog); dialog.showModal(); cancel.focus();
     });
@@ -1911,7 +2051,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           const status = await response.json();
           healthyReplies++;
           const younger = Number.isFinite(status.uptimeSeconds) && status.uptimeSeconds < (Date.now() - started) / 1000 + 5;
-          if (younger || (wasOffline && healthyReplies >= 2)) { await finishRestart(); return; }
+          if (younger || (wasOffline && healthyReplies >= 2)) {
+            if (reloadIfUpdated(status)) return;
+            await finishRestart();
+            return;
+          }
         } else if (response.status === 401) { await finishRestart(); return; }
       } catch { wasOffline = true; healthyReplies = 0; }
       if (Date.now() < deadline) setTimeout(poll, 1000);
@@ -1950,7 +2094,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // As Glass UI's: a user who is not an administrator sees Status and Accessories (and controls accessories); the
   // plugins, config.json, the log and the users are an administrator's. The server refuses the rest anyway.
 
-  const adminSections = new Set(["plugins", "config", "logs", "settings", "users", "import", "welcome"]);
+  const adminSections = new Set(["plugins", "logs", "settings", "users", "import", "welcome"]);
   const isAdmin = () => Boolean(auth && auth.admin);
 
   /// Shows the header's and the tab bar's sections the user may open.
@@ -1977,6 +2121,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     for (const dialog of document.querySelectorAll("dialog[open]")) if (dialog !== restartOverlay) dialog.close();
     const decode = (part) => { try { return decodeURIComponent(part); } catch { return part; } };
     let [name = "status", ...args] = location.pathname.split("/").filter(Boolean).map(decode);
+    // config.json's editor moved into Settings: an old link or bookmark lands there.
+    if (name === "config") {
+      history.replaceState(null, "", `/settings/config${location.search}${location.hash}`);
+      [name, args] = ["settings", ["config"]];
+    }
     if (adminSections.has(name) && !isAdmin()) {
       // An administrator's view, from a link or a bookmark: Status instead.
       history.replaceState(null, "", "/status");
@@ -2020,7 +2169,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const url = new URL(link.href, location.href);
     if (url.origin !== location.origin || url.pathname.startsWith("/api/") || /\.[a-z0-9]+$/i.test(url.pathname) || /^\/plugins\/[^/]+\/?$/.test(url.pathname)) return;
     event.preventDefault();
-    if (url.pathname + url.search !== location.pathname + location.search) navigate(url.pathname + url.search);
+    // Another view, with the place in it to show (/status#matter-<device>); on this view, that place opened and in sight.
+    if (url.pathname + url.search !== location.pathname + location.search) return navigate(url.pathname + url.search + url.hash);
+    const target = url.hash && document.getElementById(decodeURIComponent(url.hash.slice(1)));
+    if (!target) return;
+    history.replaceState(null, "", url.pathname + url.search + url.hash);
+    if (target instanceof HTMLDetailsElement) target.open = true;
+    target.scrollIntoView({ block: "center" });
   });
   // Closing the tab or reloading: the browser asks, when the page has unsaved changes.
   window.addEventListener("beforeunload", (event) => { if (leaveGuard?.quiet && !leaveGuard.quiet()) event.preventDefault(); });
@@ -2028,6 +2183,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // ---- Live events ---------------------------------------------------------
 
   let events = null;
+  // The build of the files this page runs (UIServer.build, in its <meta>); /api/status says the bridge's.
+  const pageBuild = document.querySelector('meta[name="homeswift-build"]')?.content || null;
+  /// After an update the bridge serves other files: a page still running the old ones loads again, unless it holds
+  /// unsaved changes (it does on the next check after they are saved or left). True when it reloads.
+  function reloadIfUpdated(status) {
+    if (!pageBuild || !status?.build || status.build === pageBuild) return false;
+    if (leaveGuard && !leaveGuard.quiet?.()) return false;
+    location.reload();
+    return true;
+  }
+
   function openEvents() {
     if (events) return;
     const stream = events = new EventSource("/api/events");
@@ -2040,8 +2206,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     });
     // Subscribe first, then read a snapshot: replay anything received during the read last.
     // This also reconciles an automatic SSE reconnect without replacing forms or the wall.
-    stream.addEventListener("hello", async () => {
+    stream.addEventListener("hello", async (event) => {
       const current = ++generation;
+      // The bridge's build: it may have restarted into an update while this page was away or disconnected.
+      try { if (reloadIfUpdated(JSON.parse(event.data))) return; } catch {}
       pending = [];
       try {
         const accessories = await api("/api/accessories");
@@ -2069,6 +2237,18 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
     });
     stream.addEventListener("log", (event) => appendLogLine(JSON.parse(event.data)));
+    // A Matter node added to an ecosystem, removed from one, or opened for one: its card or row on the Status page is
+    // drawn again, once the burst of changes a pairing makes (the new fabric, the window closing) has settled.
+    const matterChanges = new Map();
+    stream.addEventListener("matter", (message) => {
+      const { device } = JSON.parse(message.data);
+      clearTimeout(matterChanges.get(device));
+      matterChanges.set(device, setTimeout(() => {
+        matterChanges.delete(device);
+        if (location.pathname !== "/status") return;
+        document.getElementById(device ? `matter-${slug(device)}` : "matter")?.refreshMatter?.();
+      }, 500));
+    });
     // The rooms or the wall changed elsewhere (the chat, an MCP client, another page): the Accessories page draws them
     // again, once for a burst, unless the change is the page's own. While it is being edited or a dialog is open over
     // it, the redraw waits for them to end, so a save from Edit does not put back what changed meanwhile.
@@ -2108,13 +2288,62 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     el("div", { class: "who" }, el("h1", { text: title }), subtitle ? el("p", { class: "muted", text: subtitle }) : null),
     tools.filter(Boolean).length ? el("div", { class: "tools" }, ...tools) : null);
 
+  /// A search, an optional filter and an order over a list of cards, on one row; while the search or the filter narrows
+  /// the list, how many it keeps and the way back under it. `entries` are { card, name, text } and more; `orders` are
+  /// [value, label, compare], the first the default, ties by name; `filters` are [value, label, keep], the first keeping
+  /// all. The order and the filter chosen stay in the address under `param` and `filterParam`.
+  const finder = ({ grid, entries, orders, filters = [], param, filterParam, placeholder, sortLabel, filterLabel, empty, counted,
+    emptyClass = "card empty" }) => {
+    const params = new URLSearchParams(location.search);
+    const search = el("input", { type: "search", class: "search", placeholder, "aria-label": placeholder });
+    const choose = (options, label, saved) => {
+      const select = el("select", { class: "popup", "aria-label": label }, options.map(([value, text]) => el("option", { value, text })));
+      select.value = options.some(([value]) => value === saved) ? saved : options[0][0];
+      return select;
+    };
+    const sort = choose(orders, sortLabel, params.get(param));
+    const filter = filters.length ? choose(filters, filterLabel, params.get(filterParam)) : null;
+    const status = el("div", { class: "finder-status", "aria-live": "polite" });
+    const clear = HomeswiftCommon.clearFilters([[search, ""], ...(filter ? [[filter, filters[0][0]]] : [])]);
+    const none = el("p", { class: emptyClass, hidden: true, text: empty });
+    const remember = (name, value) => {
+      const url = new URL(location.href); url.searchParams.set(name, value);
+      history.replaceState(null, "", url.pathname + url.search);
+    };
+    const arrange = () => {
+      const compare = orders.find(([value]) => value === sort.value)[2];
+      const collator = new Intl.Collator(undefined, { numeric: true });
+      grid.append(...[...entries].sort((a, b) => compare(a, b) || collator.compare(a.name, b.name) || a.text.localeCompare(b.text)).map(({ card }) => card));
+    };
+    const narrow = () => {
+      const query = search.value.trim().toLocaleLowerCase();
+      const keep = filter ? filters.find(([value]) => value === filter.value)[2] : () => true;
+      let visible = 0;
+      for (const entry of entries) {
+        entry.card.hidden = !(keep(entry) && entry.text.toLocaleLowerCase().includes(query));
+        if (!entry.card.hidden) visible++;
+      }
+      const narrowed = query || (filter && filter.value !== filters[0][0]);
+      status.replaceChildren(...(narrowed ? [el("span", { text: counted(visible, entries.length) }), clear] : []));
+      none.hidden = visible > 0;
+    };
+    sort.addEventListener("change", () => { arrange(); remember(param, sort.value); });
+    filter?.addEventListener("change", () => { narrow(); remember(filterParam, filter.value); });
+    search.addEventListener("input", narrow);
+    arrange();
+    if (filter && filter.value !== filters[0][0]) narrow();
+    return [el("div", { class: `catalog-toolbar${filter ? " with-filter" : ""}` }, search, filter, sort), status, grid, none];
+  };
+
   // /status?since=24h&bridge=<bridge>&accessory=<accessory>: the activity charts' range and whose durations they show,
   // as on the Logs page.
   views.status = async (main) => {
-    const [status, accessories] = await Promise.all([
+    const [status, accessories, matter] = await Promise.all([
       api("/api/status"),
       api("/api/accessories").then((list) => withSlugs(list, "accessory")).catch(() => []),
+      api("/api/matter").catch(() => null),
     ]);
+    rememberMatterOwn(matter);
     $("#banner").classList.toggle("hidden", !status.restartNeeded || !isAdmin());
     const waiting = status.bridges.filter((bridge) => !bridge.paired);
     const [health, healthKind] = status.restartNeeded ? [t("Running; some changes need a restart"), "away"]
@@ -2123,43 +2352,195 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const plugins = new Set(status.bridges.filter((bridge) => !bridge.external).flatMap((bridge) => bridge.platforms));
     const main0 = status.bridges.find((bridge) => !bridge.childBridge && !bridge.external);
 
-    const bridges = status.bridges.map((bridge, index) => {
+    // A server's heading (icon, name, role, state) and the rest of its card: a bridge's card shows both; an accessory of
+    // its own is a row of the devices list, its heading the row and the rest unfolded.
+    const bridgeParts = (bridge, index) => {
       const kind = bridge.external ? "accessory" : bridge.childBridge ? "child" : "bridge";
       const tone = { accessory: "blue", child: "violet", bridge: "orange" }[kind];
       const role = bridge.external ? (bridge.platforms.length ? t("Accessory of its own, from {plugins}", { plugins: bridge.platforms.join(", ") }) : t("Accessory of its own, from a plugin")) : bridge.childBridge ? t("Child bridge") : t("Main bridge");
-      return el("div", { class: "card server" },
-        el("div", { class: "server-head" },
-          tile(kind, tone),
+      return {
+        head: [tile(kind, tone),
           el("div", { class: "who" }, el("strong", { text: bridge.name }), el("div", { class: "muted", text: role })),
-          el("span", { class: `pill status ${bridge.paired ? "on" : "away"}`, text: bridge.paired ? t("Paired · {count}", { count: bridge.controllers }) : t("Not paired"), title: bridge.paired ? tn("{n} Home app controller", "{n} Home app controllers", bridge.controllers) : "" })),
-        el("div", { class: "facts lead" },
+          el("span", { class: `pill status ${bridge.paired ? "on" : "away"}`, text: bridge.paired ? t("Paired · {count}", { count: bridge.controllers }) : t("Not paired"), title: bridge.paired ? tn("{n} Home app controller", "{n} Home app controllers", bridge.controllers) : "" })],
+        body: () => [el("div", { class: "facts lead" },
           fact(t("Device ID"), bridge.deviceId, { class: "mono" }), fact(t("Port"), bridge.port ?? "?"), fact(t("Accessories"), bridge.accessories)),
         !bridge.external && bridge.platforms.length ? el("div", { class: "chips" }, bridge.platforms.map((name) => el("span", { class: "chip", text: name }))) : null,
         bridge.setupCode ? el("div", { class: "setup" },
-          el("img", { class: "qr", src: `/api/qr/${index}.svg`, alt: t("Pairing QR code"), width: 148, height: 148 }),
+          el("img", { class: "qr", src: `/api/qr/${index}.svg`, alt: t("Pairing QR code"), width: 148, height: 148, loading: "lazy" }),
           el("div", {},
             el("p", { text: t("In the Home app: Add Accessory, then scan this code, or choose More options and type it.") }),
-            el("div", { class: "code", text: bridge.setupCode }))) : null);
-    });
+            el("div", { class: "code", text: bridge.setupCode }))) : null],
+        waiting: !bridge.paired,
+        search: [bridge.name, ...bridge.platforms, bridge.deviceId].join(" "),
+      };
+    };
+    const serverCard = ({ head, body }, id) => el("div", { class: "card server", id }, el("div", { class: "server-head" }, ...head), ...body());
+    // A device of its own as one line that unfolds; its details are built the first time it opens, so a hundred folded
+    // rows stay a hundred lines.
+    const deviceRow = ({ head, body, search }, id, open) => {
+      const row = el("details", { class: "device-row", id, "data-search": search.toLowerCase() }, el("summary", {}, ...head, HomeswiftCommon.icon("forward")));
+      const unfold = () => { if (row.open && row.childElementCount === 1) row.append(el("div", { class: "device-row-body" }, ...body())); };
+      row.addEventListener("toggle", unfold);
+      row.open = open;
+      unfold();
+      return row;
+    };
+    const bridges = status.bridges.map((bridge, index) => bridge.external ? null : serverCard(bridgeParts(bridge, index)));
+
+    // The Matter bridge, when the HomeswiftMatter block runs one, and each accessory that is a Matter device of its
+    // own: drawn again after an administrator's change.
+    // A device's icon from the role Matter has it in (its first part's): a robot vacuum, a light, a plug...
+    const matterIcons = { cleaningRobot: "vacuum", light: "bulb", plug: "outlet", contact: "door", occupancy: "sensor", temperature: "sensor",
+      humidity: "sensor", illuminance: "sensor", leak: "drop", covering: "blind", fan: "fan", thermostat: "thermo", lock: "lock",
+      button: "switch", airQuality: "wind", alarm: "bell", valve: "drop" };
+    // The ecosystems a fabric's vendor id says it is (Connectivity Standards Alliance vendor ids).
+    const matterVendors = { "0x1349": "Apple Home", "0x1384": "Apple Home", "0x6006": "Google Home", "0x1217": "Alexa" };
+    const matterIcon = (node) => matterIcons[String(node.types?.[0] ?? "").split("(")[0]] ?? "accessory";
+    const matterParts = (node, own, refresh) => {
+      const base = own ? `/api/matter/devices/${encodeURIComponent(node.id)}` : "/api/matter";
+      const fabrics = node.fabrics || [];
+      const admin = isAdmin();
+      // Whose fabric it is, by its vendor id: an unnamed one of Apple Home's is its own system fabric (it reaches the
+      // device from the other Apple devices and hubs), shown muted with a house.
+      const named = fabrics.map((fabric) => {
+        const vendor = matterVendors[fabric.vendorId];
+        const system = Boolean(!fabric.label && vendor);
+        return { fabric, vendor, system, name: fabric.label || (vendor ? t("{vendor} system", { vendor }) : t("Ecosystem {index}", { index: fabric.index })) };
+      });
+      // A device's row says where it was added (the homes people named, not the system links); the bridge's card, what
+      // it is for.
+      const where = named.filter((one) => !one.system).map((one) => one.name).join(" · ") || named.map((one) => one.name).join(" · ");
+      return {
+        // A device's own icon, tagged with Matter's glyph: the list mixes Matter devices with HomeKit accessories.
+        head: [own ? el("span", { class: "tile-tagged", title: t("Matter") }, tile(matterIcon(node), "green"), el("span", { class: "tile-tag", "aria-hidden": "true" }, HomeswiftCommon.icon("matter")))
+          : tile("matter", "green"),
+          el("div", { class: "who" }, el("strong", { text: own ? node.name : t("Matter bridge") }),
+            el("div", { class: "muted", text: !own ? t("For Google Home, Alexa, SmartThings and Home Assistant") : where ? t("Matter · {ecosystems}", { ecosystems: where }) : t("Matter device of its own") })),
+          el("span", { class: `pill status ${fabrics.length ? "on" : "away"}`, text: fabrics.length ? tn("In one ecosystem", "In {n} ecosystems", fabrics.length) : t("Not added yet") })],
+        body: () => [el("div", { class: "facts lead" }, fact(t("Port"), node.port), own ? null : fact(t("Accessories"), (node.devices || []).length)),
+        fabrics.length ? el("div", { class: "chips" }, named.map(({ fabric, vendor, system, name }) => {
+          const hint = system ? t("{vendor}'s own link to the device, from your other devices and hubs: keep it.", { vendor }) : vendor ?? "";
+          return el("span", { class: `chip${admin ? " removable" : ""}${system ? " system" : ""}`, title: hint },
+            system ? HomeswiftCommon.icon("house") : null, el("span", { text: name }),
+            admin ? el("button", { type: "button", class: "icon-button", "aria-label": t("Remove {name}", { name }), title: t("Remove {name}", { name }), onclick: async (event) => {
+              const message = system ? t("{vendor}'s hubs and other devices lose their link to this device: it stops responding there until it is added again.", { vendor })
+                : own ? t("{name} loses this device, with its room and automations.", { name })
+                : t("{name} loses the bridge and every device on it, with their rooms and automations.", { name });
+              if (!await HomeswiftCommon.confirmDialog(message)) return;
+              await HomeswiftCommon.busyButton(event.currentTarget, async () => {
+                await api(`${base}/fabrics/${fabric.index}/remove`, { method: "POST", body: {} });
+                await refresh();
+              });
+            } }, HomeswiftCommon.icon("close")) : null);
+        })) : null,
+        node.pairing ? el("div", { class: "setup" },
+          el("img", { class: "qr", src: `${base}/qr.svg`, alt: t("Pairing QR code"), width: 148, height: 148, loading: "lazy" }),
+          el("div", {},
+            el("p", { text: own ? t("In the Home app (or another ecosystem's): add an accessory, then scan this code or type it.")
+              : t("In the ecosystem's app: add a Matter device, then scan this code or type it.") }),
+            el("div", { class: "code", text: node.pairing.manualCode.replace(/^(\d{4})(\d{3})(\d{4})$/, "$1-$2-$3") })))
+          : admin ? (() => {
+            // What it does, under it (a phone shows no hover text): Matter lets several apps share a device, each
+            // adding it with its own code.
+            const what = own ? t("Shows a new pairing code for 15 minutes, so another app (Google Home, Alexa, Home Assistant or another home in Apple Home) can add this device too. The ecosystems it is in keep it.")
+              : t("Shows a new pairing code for 15 minutes, so another app (Google Home, Alexa, Home Assistant or another home in Apple Home) can add the bridge and its devices too. The ecosystems it is in keep them.");
+            return el("div", { class: "actions add-ecosystem" },
+              el("button", { class: "link", actionIcon: "plus", text: t("Add to another ecosystem"), title: what,
+                onclick: (event) => HomeswiftCommon.busyButton(event.currentTarget, async () => {
+                  await api(`${base}/window`, { method: "POST", body: { minutes: 15 } });
+                  await refresh();
+                }) }),
+              el("p", { class: "muted", text: what }));
+          })() : null],
+        // In no ecosystem yet: its code is what the person needs.
+        waiting: !fabrics.length,
+        search: [node.name ?? "", ...named.map((one) => one.name)].join(" "),
+      };
+    };
+    // The Matter bridge's card, or a device's row: drawn again after an administrator's change, a row kept open and as
+    // the search left it.
+    const matterNode = (node, own, open = false) => {
+      const id = own ? `matter-${slug(node.id)}` : "matter";
+      const refresh = async () => {
+        const next = await api("/api/matter");
+        const fresh = own ? (next.ownDevices || []).find((device) => device.id === node.id) : next;
+        if (!fresh) return element.remove();
+        const replacement = matterNode(fresh, own, own && element.open);
+        replacement.hidden = element.hidden;
+        element.replaceWith(replacement);
+      };
+      const parts = matterParts(node, own, refresh);
+      const element = own ? deviceRow(parts, id, open) : serverCard(parts, id);
+      // Drawn again when the bridge says the node changed (the event stream's "matter").
+      element.refreshMatter = refresh;
+      // Reached from an accessory's menu: brought into view (its row opened by the list).
+      if (location.hash === `#${id}`) requestAnimationFrame(() => element.scrollIntoView({ block: "center" }));
+      return element;
+    };
+
+    // Accessories and Matter devices of their own, one line each, those waiting to be added first: a home may have a
+    // hundred, which cards would bury the bridges under. Built on each draw (Customise draws the section again), with a
+    // search once the list is long.
+    const devicesCard = () => {
+      const external = status.bridges.flatMap((bridge, index) => {
+        if (!bridge.external) return [];
+        const parts = bridgeParts(bridge, index);
+        const id = `accessory-${slug(bridge.deviceId)}`;
+        return [{ name: bridge.name, id, kind: "homekit", ecosystems: bridge.paired ? 1 : 0, waiting: parts.waiting, make: (open) => deviceRow(parts, id, open) }];
+      });
+      const own = !matter?.enabled ? [] : (matter.ownDevices || []).map((device) => ({
+        name: device.name, id: `matter-${slug(device.id)}`, kind: "matter", ecosystems: (device.fabrics || []).length,
+        waiting: !(device.fabrics || []).length, make: (open) => matterNode(device, true, open) }));
+      const entries = [...external, ...own];
+      if (!entries.length) return null;
+      const waiting = entries.filter((entry) => entry.waiting).length;
+      const list = el("div", { class: "device-rows" });
+      // One or two to add come open, their codes in view; more stay folded, their pills saying so. One an accessory's
+      // menu links to opens. A row redrawn after a change replaces its element: the entry finds it by its id.
+      for (const entry of entries) {
+        const row = entry.make((entry.waiting && waiting <= 2) || location.hash === `#${entry.id}`);
+        list.append(row);
+        entry.text = row.dataset.search;
+        Object.defineProperty(entry, "card", { get: () => list.querySelector(`#${CSS.escape(entry.id)}`) });
+      }
+      const head = el("div", { class: "devices-head" },
+        el("div", { class: "who" }, el("strong", { text: t("Devices of their own") }),
+          el("div", { class: "muted", text: waiting ? tn("{count} devices · one waits to be added", "{count} devices · {n} wait to be added", waiting, { count: entries.length })
+            : tn("One device, with its own pairing", "{n} devices, each with its own pairing", entries.length) })));
+      // A short list is read at a glance; a long one is searched, filtered by kind and sorted.
+      if (entries.length <= 8) {
+        const collator = new Intl.Collator(undefined, { numeric: true });
+        list.append(...entries.sort((a, b) => Number(b.waiting) - Number(a.waiting) || collator.compare(a.name, b.name)).map((entry) => entry.card));
+        return el("div", { class: "card devices" }, head, list);
+      }
+      return el("div", { class: "card devices" }, head, ...finder({ grid: list, entries, param: "devices", filterParam: "show",
+        orders: [["waiting", t("Waiting to be added first"), (a, b) => Number(b.waiting) - Number(a.waiting)], ["name", t("Name A–Z"), () => 0],
+          ["ecosystems", t("Most ecosystems"), (a, b) => b.ecosystems - a.ecosystems]],
+        filters: [["all", t("All devices"), () => true], ["matter", t("Matter"), (entry) => entry.kind === "matter"],
+          ["homekit", t("HomeKit"), (entry) => entry.kind === "homekit"], ["waiting", t("Waiting to be added"), (entry) => entry.waiting]],
+        placeholder: t("Search devices"), sortLabel: t("Sort devices"), filterLabel: t("Show devices"), empty: t("No device matches."),
+        emptyClass: "muted", counted: (shown, total) => t("{shown} of {total} devices", { shown, total }) }));
+    };
 
     // The page is widgets the user can hide and order (Customise, at the bottom; Glass UI's dashboard layout),
     // drawn only when shown: the activity charts load nothing while hidden.
     const widgets = {
-      overview: () => [updateCard(status.update),
+      overview: () => [updateCard(status.update, { changed: (next) => updateChanged(next) }),
       // Each figure with its glyph; on a phone the four share one row, "Home app controllers" shortened.
       el("div", { class: "stats" },
-        el("a", { class: "stat", href: "/accessories" }, HomeswiftCommon.icon("bulb"), el("b", { text: status.bridges.reduce((sum, bridge) => sum + bridge.accessories, 0) }), el("span", { text: t("Accessories") })),
-        el(isAdmin() ? "a" : "div", { class: "stat", href: isAdmin() ? "/plugins" : null }, HomeswiftCommon.icon("plugin"), el("b", { text: plugins.size }), el("span", { text: plugins.size === 1 ? t("Plugin") : t("Plugins") })),
-        el("div", { class: "stat", title: t("Home app controllers") }, HomeswiftCommon.icon("users"), el("b", { text: main0 ? main0.controllers : 0 }),
+        el("a", { class: "stat", href: "/accessories" }, tile("bulb", "yellow"), el("b", { text: status.bridges.reduce((sum, bridge) => sum + bridge.accessories, 0) }), el("span", { text: t("Accessories") })),
+        el(isAdmin() ? "a" : "div", { class: "stat", href: isAdmin() ? "/plugins" : null }, tile("plugin", "blue"), el("b", { text: plugins.size }), el("span", { text: plugins.size === 1 ? t("Plugin") : t("Plugins") })),
+        el("div", { class: "stat", title: t("Home app controllers") }, tile("users", "teal"), el("b", { text: main0 ? main0.controllers : 0 }),
           el("span", { class: "long", text: t("Home app controllers") }), el("span", { class: "short", "aria-hidden": "true", text: t("Controllers") })),
-        el("div", { class: "stat" }, HomeswiftCommon.icon("history"), el("b", { text: formatDuration(status.uptimeSeconds) }), el("span", { text: t("Up [uptime]") })))],
+        el("div", { class: "stat" }, tile("history", "violet"), el("b", { text: formatDuration(status.uptimeSeconds) }), el("span", { text: t("Up [uptime]") })))],
       quick: () => window.HomeswiftHome?.quickSection(accessories),
       digest: () => status.assistant ? digestWidget() : null,
-      vault: () => isAdmin() && status.vault ? vaultCard(status.vault) : null,
+      // Nothing in the vault and nothing to move into it: no section until there is.
+      vault: () => isAdmin() && status.vault && (status.vault.entries || status.vault.inConfig || status.vault.problems?.length) ? vaultCard(status.vault) : null,
       activity: () => activity(accessories, withSlugs(status.bridges, "bridge")),
       energy: () => energy(),
       bridges: () => [el("h2", { text: status.bridges.length === 1 ? t("Bridge") : t("Bridges and accessories") }),
-      el("div", { class: "servers" }, ...bridges)],
+      el("div", { class: "servers" }, ...bridges, matter?.enabled && matter.bridge !== false ? matterNode(matter, false) : null, devicesCard())],
       system: () => [el("h2", { text: t("System") }),
       el("div", { class: "card server" },
         el("div", { class: "server-head" }, tile("system", "grey"),
@@ -2177,23 +2558,31 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     };
     const sections = new Map();
     let footerUpdate = status.update;
-    const updateState = () => footerUpdate?.error ? "error" : footerUpdate?.available ? "available" : footerUpdate?.checkedAt ? "current" : "idle";
-    const updateLabel = () => footerUpdate?.error ? t("Try again") : footerUpdate?.available ? t("Update available") : footerUpdate?.checkedAt ? t("Up to date") : t("Check for updates");
-    const updateLabels = [t("Check for updates"), t("Checking…"), t("Up to date"), t("Update available"), t("Try again")];
-    const updateContent = (state, label) => [
-      HomeswiftCommon.icon(({ current: "check", available: "download", error: "warning" })[state] || "restore"),
-      el("span", { class: "footer-update-label" },
-        el("span", { text: label }),
-        ...updateLabels.map((text) => el("span", { class: "footer-update-sizer", "aria-hidden": "true", text }))),
-    ];
+    // Installed but not running yet: Homebrew upgraded it, a relaunch starts it.
+    const relaunchPending = () => updatePhase(footerUpdate) === "installed";
+    const footerLabels = { error: () => t("Try again"), installing: () => t("Installing…"), relaunching: () => t("Relaunching…"), installed: () => t("Relaunch to update"),
+      available: () => footerUpdate.canInstall ? t("Install update") : t("Update available"), current: () => t("Up to date"), idle: () => t("Check for updates") };
+    /// The footer's button as `phase` says (a failed check first), or `label` while it checks.
+    const renderUpdate = (phase = footerUpdate?.error ? "error" : updatePhase(footerUpdate), label = footerLabels[phase]()) => {
+      const state = phase === "installing" || phase === "relaunching" ? "checking" : phase;
+      checkUpdates.dataset.updateState = state;
+      checkUpdates.replaceChildren(HomeswiftCommon.icon(({ current: "check", available: "download", installed: "power", error: "warning" })[state] || "restore"),
+        el("span", { class: "footer-update-label", text: label }));
+    };
+    // The overview's card and the sheet both tell the footer what an install is doing.
+    const updateChanged = (next) => {
+      footerUpdate = next;
+      checkUpdates.disabled = Boolean(next.installing || next.relaunching);
+      renderUpdate();
+    };
     const showUpdate = () => openSheet((done) => el("div", {},
-      el("h2", { id: "update-check-title", text: t("Updates") }), updateCard(footerUpdate),
+      el("h2", { id: "update-check-title", text: t("Updates") }), updateCard(footerUpdate, { changed: updateChanged }),
       el("button", { actionIcon: "close", type: "button", text: t("Close"), onclick: () => done() })), "update-check-title", { returnFocus: checkUpdates });
-    const checkUpdates = el("button", { type: "button", class: "link footer-update-check", "data-update-state": updateState(), "aria-live": "polite", text: updateLabel(), onclick: async () => {
+    const checkUpdates = el("button", { type: "button", class: "link footer-update-check", "aria-live": "polite", onclick: async (event) => {
+      if (relaunchPending()) { restartBridge(event); return; }
       if (footerUpdate?.available && !footerUpdate.error) { showUpdate(); return; }
       checkUpdates.disabled = true;
-      checkUpdates.dataset.updateState = "checking";
-      checkUpdates.replaceChildren(...updateContent("checking", t("Checking…")));
+      renderUpdate("checking", t("Checking…"));
       try {
         footerUpdate = await api("/api/updates/check", { method: "POST", body: {} });
         if (!footerUpdate || footerUpdate.error) throw new Error();
@@ -2204,11 +2593,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         checkUpdates.title = t("Could not check for updates. Try again.");
       } finally {
         checkUpdates.disabled = false;
-        checkUpdates.replaceChildren(...updateContent(updateState(), updateLabel()));
-        checkUpdates.dataset.updateState = updateState();
+        renderUpdate();
       }
     } });
-    checkUpdates.replaceChildren(...updateContent(updateState(), updateLabel()));
+    renderUpdate();
     const footer = el("footer", { class: "actions page-foot status-footer" },
       el("div", { class: "status-footer-summary" },
         el("p", { class: `health ${healthKind}` }, el("strong", { text: health })),
@@ -2393,14 +2781,40 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return [el("h2", { text: t("Vault") }),
       el("div", { class: "card server vault-status", "data-state": urgent ? "bad" : count ? "warn" : "ok" },
         el("div", { class: "server-head" },
-          tile(urgent ? "warning" : "key", urgent ? "heat" : count ? "yellow" : "green"),
+          tile(urgent ? "warning" : "vault", urgent ? "heat" : count ? "yellow" : "green"),
           el("div", { class: "who" }, el("strong", { text: headline }), el("div", { class: "muted", text: detail })),
-          el("a", { class: `button${urgent ? " primary" : ""}`, href: "/settings/vault", actionIcon: "key", text: t("Open the vault") })),
+          el("a", { class: `button${urgent ? " primary" : ""}`, href: "/settings/vault", actionIcon: "vault", text: t("Open the vault") })),
         rows.length ? el("div", { class: "vault-status-rows" }, rows) : null)];
   }
 
-  function updateCard(update) {
+  /// `changed` hears each new state of the update (installing, installed, failed), for what shows it elsewhere (the
+  /// Status page's footer). An install the bridge can do itself (Homebrew's) is a button; it then restarts into it.
+  /// `embedded` leaves out the card and its heading, for a page whose own heading says it (Settings › Updates).
+  function updateCard(update, { changed = () => {}, embedded = false } = {}) {
     if (!update?.available) return null;
+    const card = el("div", { class: embedded ? "update-card update-details" : "card update-card" });
+    const fill = () => card.replaceChildren(...updateCardContent(update, draw, embedded).filter(Boolean));
+    const draw = (next) => {
+      update = next;
+      changed(update);
+      fill();
+    };
+    fill();
+    return card;
+  }
+
+  /// What an update is doing, one word for each page that shows it: installing, relaunching, installed (on disk, a
+  /// relaunch starts it), available, error (the last check failed), current or idle (not checked yet).
+  function updatePhase(update) {
+    if (update?.installing) return "installing";
+    if (update?.relaunching) return "relaunching";
+    if (update?.installed && !update.canInstall) return "installed";
+    if (update?.available) return "available";
+    if (update?.error) return "error";
+    return update?.checkedAt ? "current" : "idle";
+  }
+
+  function updateCardContent(update, draw, embedded = false) {
     const released = update.publishedAt ? new Date(update.publishedAt).toLocaleDateString(HomeswiftI18n.locale) : null;
     let command = null;
     if (update.command) {
@@ -2410,18 +2824,68 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       } });
       command = el("div", { class: "update-command" }, el("code", { text: update.command }), copy);
     }
-    return el("div", { class: "card update-card" },
-      el("div", { class: "server-head" },
+    const phase = updatePhase(update);
+    // Installing, relaunching, or on disk but not running (`brew upgrade` done, here or by hand): no how-to.
+    const underway = ["installing", "relaunching", "installed"].includes(phase);
+    const spinner = () => el("span", { class: "spinner", "aria-hidden": "true" });
+    const progress = (glyph, text) => el("p", { class: "update-progress", role: "status" }, glyph, el("span", { text }));
+    const status = {
+      installing: () => progress(spinner(), t("Installing Homeswift {version}… The bridge restarts when it is done.", { version: update.installing })),
+      relaunching: () => progress(spinner(), t("Restarting into Homeswift {version}…", { version: update.installed })),
+      installed: () => progress(HomeswiftCommon.icon("check"), t("Homeswift {version} is installed. Relaunch to start it.", { version: update.installed })),
+    }[phase]?.() ?? null;
+    return [
+      embedded ? null : el("div", { class: "server-head" },
         tile("update", "green"),
         el("div", { class: "who" },
           el("strong", { text: t("Homeswift {version} is available", { version: update.latest }) }),
           el("div", { class: "muted", text: released ? t("This is {version} · released {date}", { version: update.current, date: released }) : t("This is {version}", { version: update.current }) }))),
-      el("p", { text: HomeswiftI18n.message(update.how) }),
-      command,
+      underway ? null : el("p", { text: HomeswiftI18n.message(update.how) }),
+      status,
+      update.installError ? el("p", { class: "error", role: "alert", text: t("Could not install the update: {error}", { error: update.installError }) }) : null,
+      underway ? null : command,
       el("div", { class: "actions" },
-        update.download ? el("a", { class: "button primary", href: update.download.url, rel: "noopener", title: update.download.name, text: t("Download the package") }) : null,
-        el("a", { class: "button", href: update.url, target: "_blank", rel: "noopener", text: t("On GitHub") })),
-      update.notes ? el("details", { class: "more-options" }, el("summary", { text: t("What's new") }), markdown(update.notes)) : null);
+        update.canInstall && !underway && isAdmin()
+          ? el("button", { class: "primary", type: "button", actionIcon: "download", text: t("Install and relaunch"), onclick: (event) => installUpdate(event.currentTarget, update, draw) }) : null,
+        phase === "installed" && isAdmin() ? el("button", { class: "primary", type: "button", actionIcon: "power", text: t("Relaunch now"), onclick: restartBridge }) : null,
+        update.download ? el("a", { class: "button primary", href: update.download.url, rel: "noopener", title: update.download.name, actionIcon: "download", text: t("Download the package") }) : null,
+        el("a", { class: "button", href: update.url, target: "_blank", rel: "noopener", actionIcon: "open", text: t("On GitHub") })),
+      update.notes ? el("details", { class: "more-options" }, el("summary", { text: t("What's new") }), markdown(update.notes)) : null,
+    ];
+  }
+
+  /// Asks the bridge to install the latest release and relaunch, then follows it: the card shows the install, and the
+  /// restart's overlay takes over once the bridge goes down to start the new version.
+  async function installUpdate(button, update, draw) {
+    if (!await confirmRestart({ title: t("Install Homeswift {version}?", { version: update.latest }), confirm: t("Install and relaunch"), icon: "download",
+      text: t("Homeswift installs the update, then restarts. Your accessories will disconnect briefly; this page reconnects when the new version is ready.") })) return;
+    button.disabled = true;
+    const started = Date.now();
+    let state;
+    try {
+      state = await api("/api/updates/install", { method: "POST", body: {} });
+    } catch (e) {
+      button.disabled = false;
+      HomeswiftCommon.showAlert(e.message);
+      return;
+    }
+    draw(state);
+    // Redrawn only when the state says something new: the card keeps its open "What's new".
+    let shown = JSON.stringify(state);
+    // An upgrade fetches and may build: minutes, at most the installer's half hour.
+    while (state.installing) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      try {
+        state = await api("/api/updates");
+      } catch (e) {
+        // Gone: the restart began between two questions.
+        if (!(e instanceof ApiError)) { waitForRestart(started); return; }
+        HomeswiftCommon.showAlert(e.message);
+        return;
+      }
+      if (JSON.stringify(state) !== shown) { shown = JSON.stringify(state); draw(state); }
+    }
+    if (state.relaunching) waitForRestart(started);
   }
 
   /// The Status page's charts: the process's memory and CPU, and how long the Home app's requests and the plugins'
@@ -2940,6 +3404,33 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     sensor: t("sensor"), camera: t("camera"), inspector: t("other accessory"),
   };
 
+  // The accessories that are Matter devices of their own (/api/matter), for their menus: the pages with accessory
+  // menus (Accessories, Status's quick section) keep it current.
+  let matterOwn = new Set();
+  const rememberMatterOwn = (matter) => { matterOwn = new Set((matter?.ownDevices || []).map((device) => device.id)); };
+  const loadMatterOwn = () => api("/api/matter").then(rememberMatterOwn).catch(() => {});
+
+  /// An accessory as a Matter device of its own, with its own pairing code (the Status page shows it), or back off.
+  function matterActions(accessory) {
+    const card = `/status#matter-${slug(accessory.id)}`;
+    const set = async (own) => {
+      try {
+        await api(`/api/matter/devices/${encodeURIComponent(accessory.id)}`, { method: "PUT", body: { own } });
+        // The reply comes once Matter has the change: the Status page then shows the device's code.
+        if (own) { matterOwn.add(accessory.id); navigate(card); } else { matterOwn.delete(accessory.id); route(); }
+      } catch (e) { HomeswiftCommon.showAlert(e.message); }
+    };
+    if (!matterOwn.has(accessory.id)) {
+      return [{ label: t("Make a Matter device"), icon: "link", onSelect: () => set(true) }];
+    }
+    return [
+      { label: t("Matter pairing code"), icon: "link", href: card },
+      { label: t("Take off Matter"), icon: "close", onSelect: async () => {
+        if (await HomeswiftCommon.confirmDialog(t("{name} leaves Matter: the ecosystems that added it lose it.", { name: accessory.name }))) await set(false);
+      } },
+    ];
+  }
+
   /// What the menu of an accessory's widget offers, after its sizes.
   /// An accessory's ⋯ menu after All controls, in groups as a context menu orders them: what to look at or do with
   /// it, how it sits on the wall (`arrange`, the wall's size choices, first), then the administrator's way to its
@@ -2957,6 +3448,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         try { await setPaused(accessory.platform, accessory.platformName, false); route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
       } } : null,
       isAdmin() ? { label: t("Show its log"), icon: "logs", href: `/logs/${accessory.slug ?? encodeURIComponent(accessory.id)}` } : null,
+      ...(isAdmin() && !accessory.mirroredFrom ? matterActions(accessory) : []),
       accessory.platform && isAdmin() ? { label: t("Plugin settings"), icon: "gear", href: `/plugins/${slug(accessory.platformName || accessory.platform)}` } : null,
     ];
     return [use, layout, manage].map((group) => group.filter(Boolean)).filter((group) => group.length)
@@ -2970,7 +3462,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   views.accessories = async (main, args = []) => {
     if (args[0] === "graph") return HomeswiftAdmin.graph(main, accessoryTabs("graph"));
-    const [list, saved, home] = await Promise.all([api("/api/accessories"), api("/api/layout").catch(() => null), api("/api/rooms").catch(() => ({ rooms: [] }))]);
+    const [list, saved, home] = await Promise.all([api("/api/accessories"), api("/api/layout").catch(() => null), api("/api/rooms").catch(() => ({ rooms: [] })),
+      isAdmin() ? loadMatterOwn() : null]);
     const all = withSlugs(list, "accessory");
     const params = new URLSearchParams(location.search);
     // Hidden accessories (an accessory's ⋯ menu) only with ?hidden=1.
@@ -3724,41 +4217,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
     }
 
-    /// A search and an order over a grid of cards, on one row; while a search narrows the grid, how many it keeps and
-    /// the way back under it. `entries` are { card, name, text } and more; `orders` are [value, label, compare] after
-    /// Name A–Z, ties by name; the order chosen stays in the address under `param`.
-    const finder = ({ grid, entries, orders: more, param, placeholder, sortLabel, empty }) => {
-      const orders = [["name", t("Name A–Z"), () => 0], ...more];
-      const search = el("input", { type: "search", class: "search", placeholder, "aria-label": placeholder });
-      const status = el("div", { class: "finder-status", "aria-live": "polite" });
-      const clear = HomeswiftCommon.clearFilters([[search, ""]]);
-      const none = el("p", { class: "card empty", hidden: true, text: empty });
-      const sort = el("select", { class: "popup", "aria-label": sortLabel }, orders.map(([value, text]) => el("option", { value, text })));
-      const saved = new URLSearchParams(location.search).get(param);
-      sort.value = orders.some(([value]) => value === saved) ? saved : orders[0][0];
-      const arrange = () => {
-        const compare = orders.find(([value]) => value === sort.value)[2];
-        grid.append(...[...entries].sort((a, b) => compare(a, b) || a.name.localeCompare(b.name) || a.text.localeCompare(b.text)).map(({ card }) => card));
-      };
-      sort.addEventListener("change", () => {
-        arrange();
-        const url = new URL(location.href); url.searchParams.set(param, sort.value);
-        history.replaceState(null, "", url.pathname + url.search);
-      });
-      search.addEventListener("input", () => {
-        const query = search.value.trim().toLocaleLowerCase();
-        let visible = 0;
-        for (const entry of entries) {
-          entry.card.hidden = !entry.text.toLocaleLowerCase().includes(query);
-          if (!entry.card.hidden) visible++;
-        }
-        status.replaceChildren(...(query ? [el("span", { text: t("{shown} of {total} plugins", { shown: visible, total: entries.length }) }), clear] : []));
-        none.hidden = visible > 0;
-      });
-      arrange();
-      return [el("div", { class: "catalog-toolbar" }, search, sort), status, grid, none];
-    };
-
     // Your plugins: by name, those that need a look first (no plugin, not running, paused), or by their accessories.
     const blocks = plugins.blocks.map((block) => {
       const plugin = byPlatform.get(block.platform), instance = running(block);
@@ -3767,13 +4225,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         text: [block.name, block.platform, plugin?.name, instance?.bridge].filter(Boolean).join(" ") };
     });
     const installed = finder({ grid: el("div", { class: "grid plugin-instances" }), entries: blocks, param: "order",
-      orders: [["attention", t("Needs attention first"), (a, b) => a.attention - b.attention],
+      orders: [["name", t("Name A–Z"), () => 0], ["attention", t("Needs attention first"), (a, b) => a.attention - b.attention],
         ["accessories", t("Most accessories"), (a, b) => b.accessories - a.accessories]],
-      placeholder: t("Search your plugins"), sortLabel: t("Sort your plugins"), empty: t("No plugin of yours matches the search.") });
+      placeholder: t("Search your plugins"), sortLabel: t("Sort your plugins"), empty: t("No plugin of yours matches the search."),
+      counted: (shown, total) => t("{shown} of {total} plugins", { shown, total }) });
     const available = finder({ grid: el("div", { class: "grid plugin-catalog" }), param: "sort", entries: catalogEntries,
-      orders: [["used", t("In use first"), (a, b) => Number(b.used) - Number(a.used)],
+      orders: [["name", t("Name A–Z"), () => 0], ["used", t("In use first"), (a, b) => Number(b.used) - Number(a.used)],
         ["available", t("Available first"), (a, b) => Number(a.used) - Number(b.used)]],
-      placeholder: t("Search plugins"), sortLabel: t("Sort plugins"), empty: t("No plugin matches the search.") });
+      placeholder: t("Search plugins"), sortLabel: t("Sort plugins"), empty: t("No plugin matches the search."),
+      counted: (shown, total) => t("{shown} of {total} plugins", { shown, total }) });
     show(main,
       pageHead(t("Plugins"), t("The blocks of config.json. A save applies at once: the plugin reloads with its accessories kept.")),
       // Blocks no plugin here runs, by the names the cards show (Homebridge's own blocks, from an imported config).
@@ -3850,7 +4310,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         { type: "fieldset", title: t("Connection"), icon: "system", items: ["port", "host", "allowedHosts"] },
         { type: "fieldset", title: t("Sign-in"), icon: "user", items: ["auth", "sessionDays"] },
         { type: "fieldset", title: "HTTPS", icon: "lock", expandable: true, expanded: Boolean(current.https), items: ["https", { items: ["certificate", "privateKey"] }] },
-        { type: "fieldset", title: t("Updates"), icon: "download", expandable: true, expanded: false, items: ["checkForUpdates"] },
+        { type: "fieldset", title: t("Updates"), section: "updates", icon: "download", expandable: true, expanded: false, items: ["checkForUpdates"] },
         ...advanced
       ];
     }
@@ -4052,7 +4512,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     update();
     if (platform === "HomeswiftUI") {
       const section = new URLSearchParams(location.search).get("section");
-      if (["proxy", "schedules"].includes(section)) {
+      if (["proxy", "schedules", "updates"].includes(section)) {
         const target = body.querySelector(`[data-section="${section}"]`);
         if (target) {
           target.open = true;
@@ -4565,7 +5025,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const secretField = (wrap, input) => {
       const masked = input.type === "password";
       const reveal = () => { input.type = masked && !isReference(input.value) ? "password" : "text"; };
-      const pick = el("button", { type: "button", class: "icon-button", "aria-label": t("Choose from the vault"), title: t("Choose from the vault") }, HomeswiftCommon.icon("key"));
+      const pick = el("button", { type: "button", class: "icon-button", "aria-label": t("Choose from the vault"), title: t("Choose from the vault") }, HomeswiftCommon.icon("vault"));
       pick.addEventListener("click", async (event) => {
         event.preventDefault();
         const keyboard = event.detail === 0;
@@ -5271,7 +5731,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// A save's schema problems, `{ text, line?, offset? }`, each with its line when the editor shows it.
   const problemList = (items, editor) => el("ul", { class: "schema-problems" }, items.map((item) => el("li", {}, ...lineLink(item, editor), item.text)));
 
-  views.config = async (main) => {
+  /// The whole config.json, a tab of Settings (`/settings/config`; `/config` leads there).
+  async function configPage(main, subnav) {
     let saved;
     // The plugins' list for the secret rule only; an older bridge without it leaves the keys unmarked.
     [saved, secretRule] = await Promise.all([api("/api/config", { raw: true }), api("/api/plugins").then(readSecretRule, () => null)]);
@@ -5346,11 +5807,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     format.addEventListener("click", () => { try { textarea.value = JSON.stringify(JSON.parse(textarea.value), null, 2); editor.repaint(); update(); } catch {} });
     update();
     show(main,
-      pageHead(t("Configuration"), t("The whole config.json. Saving validates it, keeps a backup of the previous file (the last 20 under backups/), and applies it at once.")),
+      pageHead(t("Settings"), t("The whole config.json. Saving validates it, keeps a backup of the previous file (the last 20 under backups/), and applies it at once.")),
+      subnav,
       el("div", { class: "card editor-card" },
         el("div", { class: "editor-bar" }, el("span", { class: "mono muted file-name", text: "config.json" }), check, el("span", { class: "spacer" }), secretsOnly, format, revert, force, save),
         secretsBanner, editor, message));
-  };
+  }
 
   // ---- Logs ----------------------------------------------------------------
 
@@ -5728,7 +6190,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     enumLabels: HomeswiftWidgets.enumLabels, labelFor: HomeswiftWidgets.labelFor, withSlugs,
   });
   // The Settings pages (admin.js) draw with the same helpers.
-  window.HomeswiftApp = { api, navigate, route, pageHead, breadcrumb, show, savedText, waitForRestart, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, assistantPage };
+  window.HomeswiftApp = { api, navigate, route, pageHead, breadcrumb, show, savedText, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, assistantPage, configPage };
 
   loadAuth().catch((e) => { $("#auth").classList.remove("hidden"); $("#auth-error").textContent = e.message; });
 })();
@@ -7635,6 +8097,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     bulb: '<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/>',
     switch: '<rect x="6" y="3" width="12" height="18" rx="3"/><circle cx="12" cy="9" r="2"/>',
     outlet: '<rect x="4" y="4" width="16" height="16" rx="4"/><path d="M10 9v2M14 9v2M10 15h4"/>',
+    // Matter, as a neutral mark (three linked nodes): its logo is for certified products only.
+    matter: '<circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="18" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="m10.8 7.3-4.6 8.4M13.2 7.3l4.6 8.4M7.5 18h9"/>',
+    vacuum: '<circle cx="12" cy="12" r="8.5"/><path d="M6.5 9.5a6.5 6.5 0 0 1 11 0"/><circle cx="12" cy="13.5" r="2"/>',
     sensor: '<circle cx="12" cy="12" r="2"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8"/>',
     fan: '<circle cx="12" cy="12" r="2"/><path d="M12 10c0-4 1-7 4-7 2 0 3 2 2 4l-4 4M14 12c4 0 7 1 7 4 0 2-2 3-4 2l-4-4M12 14c0 4-1 7-4 7-2 0-3-2-2-4l4-4M10 12c-4 0-7-1-7-4 0-2 2-3 4-2l4 4"/>',
     speaker: '<rect x="6" y="3" width="12" height="18" rx="2"/><circle cx="12" cy="14" r="3"/><path d="M12 7h.01"/>',
@@ -7672,6 +8137,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     chart: '<path d="M4 4v16h16"/><path d="m7 15 4-5 3 3 5-6"/>',
     archive: '<rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"/>',
     key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l2 2M15 8l2 2"/>',
+    // The vault: a safe, its door, the dial and its handle, the feet. In outline, as the others; few strokes so it reads at 16px.
+    vault: '<rect x="3.5" y="3" width="17" height="16" rx="3"/><rect x="6.5" y="6" width="11" height="10" rx="1.5"/><circle cx="10.5" cy="11" r="2"/><path d="M12.5 11h2.5M7 19v1.5M17 19v1.5"/>',
     link: '<path d="M9.5 14.5l5-5M8 11l-2 2a3.5 3.5 0 0 0 5 5l2-2M16 13l2-2a3.5 3.5 0 0 0-5-5l-2 2"/>',
     shield: '<path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z"/><path d="m9 12 2 2 4-4"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
@@ -7756,9 +8223,23 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// A page's views as a row of links under its title, a glyph each, the current one lit (a phone puts the glyph over
   /// the name): `pages` are [path, text, glyph] under `base`, the glyph an icon's name or an element.
   function subnav(label, base, pages, current) {
-    return el("nav", { class: "group subnav", "aria-label": label }, pages.map(([path, text, glyph]) =>
+    const nav = el("nav", { class: "group subnav", "aria-label": label }, pages.map(([path, text, glyph]) =>
       el("a", { href: `${base}${path ? `/${path}` : ""}`, class: path === current ? "on" : "", "aria-current": path === current ? "page" : null },
         typeof glyph === "string" ? icon(glyph) : glyph, el("span", { text }))));
+    // A row wider than the window scrolls: its edges fade where tabs are hidden, and the current tab starts in view.
+    const edges = () => {
+      const more = nav.scrollWidth - nav.clientWidth;
+      nav.toggleAttribute("data-more-start", nav.scrollLeft > 2);
+      nav.toggleAttribute("data-more-end", more > 2 && nav.scrollLeft < more - 2);
+    };
+    nav.addEventListener("scroll", edges, { passive: true });
+    new ResizeObserver(edges).observe(nav);
+    requestAnimationFrame(() => {
+      const on = nav.querySelector("a.on");
+      if (on && nav.scrollWidth > nav.clientWidth) nav.scrollLeft = Math.max(0, on.offsetLeft + on.offsetWidth / 2 - nav.clientWidth / 2);
+      edges();
+    });
+    return nav;
   }
 
   /// A tile: the icon on a colour (`tone-orange`, `-blue`, `-violet`, `-green`, `-teal`, `-yellow`, `-grey`);
@@ -8207,9 +8688,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const layerHost = (anchor) => anchor?.closest?.("dialog[open]") ?? document.body;
 
   /// Puts `text` on the clipboard. The Clipboard API exists only over HTTPS or on localhost; a page on the
-  /// network over plain HTTP copies through a hidden text field instead.
+  /// network over plain HTTP, or a browser that refuses the API (an embedded one without the permission), copies
+  /// through a hidden text field instead.
   async function copyText(text) {
-    if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+    if (navigator.clipboard && window.isSecureContext) {
+      try { return await navigator.clipboard.writeText(text); } catch {}
+    }
     const field = el("textarea", { value: text, readOnly: true, style: "position:fixed;top:-1000px;opacity:0" });
     // Outside an open modal dialog the field is inert: it could not be selected.
     layerHost(document.activeElement).append(field);
@@ -8735,7 +9219,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   // ---- The sections, and the tab bar a phone shows them in -----------------------------------------------
 
-  const sections = [["/status", t("Status"), "bridge"], ["/accessories", t("Accessories"), "bulb"], ["/scenes", t("Scenes"), "play"], ["/plugins", t("Plugins"), "plugin"], ["/config", t("Config"), "code"], ["/logs", t("Logs"), "logs"], ["/settings", t("Settings"), "gear"]];
+  const sections = [["/status", t("Status"), "bridge"], ["/accessories", t("Accessories"), "bulb"], ["/scenes", t("Scenes"), "play"], ["/plugins", t("Plugins"), "plugin"], ["/logs", t("Logs"), "logs"], ["/settings", t("Settings"), "gear"]];
 
   /// The sections at the bottom of a phone's screen, within the thumb's reach, as iOS puts them: an icon and
   /// a label each, the current one in the accent. `parent` is what hides it with the app (the sign-in screen has
@@ -11195,6 +11679,46 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         "i18n-es.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Spanish (Spain): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("es", {
+  "Matter bridge": "Puente Matter",
+  "For Google Home, Alexa, SmartThings and Home Assistant": "Para Google Home, Alexa, SmartThings y Home Assistant",
+  "In one ecosystem": "En un ecosistema",
+  "In {n} ecosystems": "En {n} ecosistemas",
+  "Not added yet": "Aún no añadido",
+  "Ecosystem {index}": "Ecosistema {index}",
+  "Remove {name}": "Quitar {name}",
+  "{name} loses the bridge and every device on it, with their rooms and automations.": "{name} pierde el puente y todos sus dispositivos, con sus habitaciones y automatizaciones.",
+  "In the ecosystem's app: add a Matter device, then scan this code or type it.": "En la app del ecosistema: añade un dispositivo Matter y escanea este código o introdúcelo.",
+  "Add to another ecosystem": "Añadir a otro ecosistema",
+  "Devices of their own": "Dispositivos propios",
+  "Bridged over Matter": "Puenteados por Matter",
+  "{vendor}'s hubs and other devices lose their link to this device: it stops responding there until it is added again.": "Los concentradores y otros dispositivos de {vendor} pierden su enlace con este dispositivo: deja de responder allí hasta que se vuelva a añadir.",
+  "{vendor} system": "Sistema de {vendor}",
+  "{vendor}'s own link to the device, from your other devices and hubs: keep it.": "El enlace propio de {vendor} con el dispositivo, desde tus otros dispositivos y concentradores: consérvalo.",
+  "Matter device of its own": "Dispositivo Matter propio",
+  "Matter · {ecosystems}": "Matter · {ecosystems}",
+  "Matter": "Matter",
+  "Shows a new pairing code for 15 minutes, so another app (Google Home, Alexa, Home Assistant or another home in Apple Home) can add this device too. The ecosystems it is in keep it.": "Muestra un nuevo código de emparejamiento durante 15 minutos, para que otra app (Google Home, Alexa, Home Assistant u otra casa en Apple Home) también pueda añadir este dispositivo. Los ecosistemas en los que está lo conservan.",
+  "Shows a new pairing code for 15 minutes, so another app (Google Home, Alexa, Home Assistant or another home in Apple Home) can add the bridge and its devices too. The ecosystems it is in keep them.": "Muestra un nuevo código de emparejamiento durante 15 minutos, para que otra app (Google Home, Alexa, Home Assistant u otra casa en Apple Home) también pueda añadir el puente y sus dispositivos. Los ecosistemas en los que está los conservan.",
+  "Waiting to be added first": "Pendientes de añadir primero",
+  "Most ecosystems": "Más ecosistemas",
+  "All devices": "Todos los dispositivos",
+  "HomeKit": "HomeKit",
+  "Waiting to be added": "Pendientes de añadir",
+  "Sort devices": "Ordenar dispositivos",
+  "Show devices": "Mostrar dispositivos",
+  "{shown} of {total} devices": "{shown} de {total} dispositivos",
+  "{count} devices · one waits to be added": "{count} dispositivos · uno espera a ser añadido",
+  "{count} devices · {n} wait to be added": "{count} dispositivos · {n} esperan a ser añadidos",
+  "One device, with its own pairing": "Un dispositivo, con su propio emparejamiento",
+  "{n} devices, each with its own pairing": "{n} dispositivos, cada uno con su propio emparejamiento",
+  "Search devices": "Buscar dispositivos",
+  "No device matches.": "Ningún dispositivo coincide.",
+  "{name} loses this device, with its room and automations.": "{name} pierde este dispositivo, con su habitación y sus automatizaciones.",
+  "In the Home app (or another ecosystem's): add an accessory, then scan this code or type it.": "En la app Casa (o la de otro ecosistema): añade un accesorio y escanea este código o escríbelo.",
+  "Make a Matter device": "Convertir en dispositivo Matter",
+  "Matter pairing code": "Código de vinculación Matter",
+  "Take off Matter": "Quitar de Matter",
+  "{name} leaves Matter: the ecosystems that added it lose it.": "{name} sale de Matter: los ecosistemas que lo añadieron lo pierden.",
   "A room's scenes, then templates to try on its lights; save one as a scene when you like it.": "Las escenas de una habitación y, después, plantillas para probar en sus luces; guarda una como escena si te gusta.",
   "From a template": "A partir de una plantilla",
   "Scenes in {room}": "Escenas de {room}",
@@ -13631,12 +14155,83 @@ HomeswiftI18n.add("es", {
   "Save to {hub} ({place})": "Guardar en {hub} ({place})",
   "A switch in the Home app": "Un interruptor en la app Casa",
   "On the Homeswift Scenes accessory: turning it on runs the scene (without its locks, doors and alarms), turning it off puts the lights back.": "En el accesorio Escenas de Homeswift: al encenderlo se ejecuta la escena (sin sus cerraduras, puertas ni alarmas) y al apagarlo las luces vuelven a como estaban.",
+  "Installing Homeswift {version}… The bridge restarts when it is done.": "Instalando Homeswift {version}… El puente se reinicia al terminar.",
+  "Restarting into Homeswift {version}…": "Reiniciando con Homeswift {version}…",
+  "Homeswift {version} is installed. Relaunch to start it.": "Homeswift {version} está instalado. Vuelve a iniciar para arrancarlo.",
+  "Could not install the update: {error}": "No se pudo instalar la actualización: {error}",
+  "Install and relaunch": "Instalar y reiniciar",
+  "Relaunch now": "Reiniciar ahora",
+  "Install Homeswift {version}?": "¿Instalar Homeswift {version}?",
+  "Homeswift installs the update, then restarts. Your accessories will disconnect briefly; this page reconnects when the new version is ready.": "Homeswift instala la actualización y luego se reinicia. Tus accesorios se desconectarán un momento; esta página se reconecta cuando la nueva versión esté lista.",
+  "Installing…": "Instalando…",
+  "Relaunching…": "Reiniciando…",
+  "Relaunch to update": "Reiniciar para actualizar",
+  "Install update": "Instalar la actualización",
+  "Docker container": "Contenedor Docker",
+  "Synology package": "Paquete Synology",
+  "Built from source": "Compilado desde el código fuente",
+  "Check now": "Comprobar ahora",
+  "Homeswift updates": "Actualizaciones de Homeswift",
+  "New releases install here, then the bridge relaunches into them.": "Las nuevas versiones se instalan aquí y luego el puente se reinicia con ellas.",
+  "Releases from GitHub, with how to install them on this machine.": "Las versiones de GitHub y cómo instalarlas en esta máquina.",
+  "there is no update this bridge can install": "no hay ninguna actualización que este puente pueda instalar",
+  "Check for updates twice a day": "Buscar actualizaciones dos veces al día",
+  "Asks GitHub for the latest release and says so on the Status page. The request carries only this version.": "Pregunta a GitHub por la última versión y lo indica en la página Estado. La solicitud solo lleva esta versión.",
+  "Copy the setup code": "Copiar el código de configuración",
+  "The bridge is in the Home app. To add it again, reset its pairings below, then scan this code.": "El puente está en la app Casa. Para añadirlo de nuevo, restablece sus emparejamientos abajo y escanea este código.",
+  "Homeswift is up to date": "Homeswift está actualizado",
+  "Homeswift {version} is installed": "Homeswift {version} está instalado",
+  "Installing Homeswift {version}…": "Instalando Homeswift {version}…",
+  "Could not check for updates": "No se pudieron buscar actualizaciones",
+  "Not checked yet": "Aún no se ha comprobado",
+  "Checked {when}": "Comprobado {when}",
+  "No plugins yet. Add one, then give it a HomeKit bridge of its own here.": "Aún no hay plugins. Añade uno y luego dale aquí su propio puente HomeKit.",
 });
 
 """#),
         "i18n-fr.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in French: English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("fr", {
+  "Matter bridge": "Pont Matter",
+  "For Google Home, Alexa, SmartThings and Home Assistant": "Pour Google Home, Alexa, SmartThings et Home Assistant",
+  "In one ecosystem": "Dans un écosystème",
+  "In {n} ecosystems": "Dans {n} écosystèmes",
+  "Not added yet": "Pas encore ajouté",
+  "Ecosystem {index}": "Écosystème {index}",
+  "Remove {name}": "Retirer {name}",
+  "{name} loses the bridge and every device on it, with their rooms and automations.": "{name} perd le pont et tous ses appareils, avec leurs pièces et automatisations.",
+  "In the ecosystem's app: add a Matter device, then scan this code or type it.": "Dans l'app de l'écosystème : ajoutez un appareil Matter, puis scannez ce code ou saisissez-le.",
+  "Add to another ecosystem": "Ajouter à un autre écosystème",
+  "Devices of their own": "Appareils à part entière",
+  "Bridged over Matter": "Reliés par Matter",
+  "{vendor}'s hubs and other devices lose their link to this device: it stops responding there until it is added again.": "Les concentrateurs et autres appareils de {vendor} perdent leur lien avec cet appareil : il ne répond plus de ce côté jusqu'à ce qu'il soit ajouté de nouveau.",
+  "{vendor} system": "Système {vendor}",
+  "{vendor}'s own link to the device, from your other devices and hubs: keep it.": "Le lien de {vendor} avec l'appareil, depuis vos autres appareils et concentrateurs : gardez-le.",
+  "Matter device of its own": "Appareil Matter à part entière",
+  "Matter · {ecosystems}": "Matter · {ecosystems}",
+  "Matter": "Matter",
+  "Shows a new pairing code for 15 minutes, so another app (Google Home, Alexa, Home Assistant or another home in Apple Home) can add this device too. The ecosystems it is in keep it.": "Affiche un nouveau code d'appairage pendant 15 minutes, pour qu'une autre app (Google Home, Alexa, Home Assistant ou une autre maison dans Apple Home) puisse aussi ajouter cet appareil. Les écosystèmes où il se trouve le gardent.",
+  "Shows a new pairing code for 15 minutes, so another app (Google Home, Alexa, Home Assistant or another home in Apple Home) can add the bridge and its devices too. The ecosystems it is in keep them.": "Affiche un nouveau code d'appairage pendant 15 minutes, pour qu'une autre app (Google Home, Alexa, Home Assistant ou une autre maison dans Apple Home) puisse aussi ajouter le pont et ses appareils. Les écosystèmes où il se trouve les gardent.",
+  "Waiting to be added first": "En attente d'ajout d'abord",
+  "Most ecosystems": "Le plus d'écosystèmes",
+  "All devices": "Tous les appareils",
+  "HomeKit": "HomeKit",
+  "Waiting to be added": "En attente d'ajout",
+  "Sort devices": "Trier les appareils",
+  "Show devices": "Afficher les appareils",
+  "{shown} of {total} devices": "{shown} sur {total} appareils",
+  "{count} devices · one waits to be added": "{count} appareils · un attend d'être ajouté",
+  "{count} devices · {n} wait to be added": "{count} appareils · {n} attendent d'être ajoutés",
+  "One device, with its own pairing": "Un appareil, avec son propre appairage",
+  "{n} devices, each with its own pairing": "{n} appareils, chacun avec son propre appairage",
+  "Search devices": "Rechercher des appareils",
+  "No device matches.": "Aucun appareil ne correspond.",
+  "{name} loses this device, with its room and automations.": "{name} perd cet appareil, avec sa pièce et ses automatisations.",
+  "In the Home app (or another ecosystem's): add an accessory, then scan this code or type it.": "Dans l'app Maison (ou celle d'un autre écosystème) : ajoutez un accessoire, puis scannez ce code ou saisissez-le.",
+  "Make a Matter device": "En faire un appareil Matter",
+  "Matter pairing code": "Code d'appairage Matter",
+  "Take off Matter": "Retirer de Matter",
+  "{name} leaves Matter: the ecosystems that added it lose it.": "{name} quitte Matter : les écosystèmes qui l'avaient ajouté le perdent.",
   "A room's scenes, then templates to try on its lights; save one as a scene when you like it.": "Les scènes d’une pièce, puis des modèles à essayer sur ses lumières ; enregistrez-en un comme scène s’il vous plaît.",
   "From a template": "À partir d’un modèle",
   "Scenes in {room}": "Scènes de {room}",
@@ -16073,12 +16668,83 @@ HomeswiftI18n.add("fr", {
   "Save to {hub} ({place})": "Enregistrer sur {hub} ({place})",
   "A switch in the Home app": "Un interrupteur dans l’app Maison",
   "On the Homeswift Scenes accessory: turning it on runs the scene (without its locks, doors and alarms), turning it off puts the lights back.": "Sur l’accessoire Scènes Homeswift : l’allumer lance la scène (sans ses serrures, portes et alarmes), l’éteindre remet les lumières comme avant.",
+  "Installing Homeswift {version}… The bridge restarts when it is done.": "Installation de Homeswift {version}… Le pont redémarre une fois terminé.",
+  "Restarting into Homeswift {version}…": "Redémarrage sur Homeswift {version}…",
+  "Homeswift {version} is installed. Relaunch to start it.": "Homeswift {version} est installé. Relancez pour le démarrer.",
+  "Could not install the update: {error}": "Impossible d’installer la mise à jour : {error}",
+  "Install and relaunch": "Installer et relancer",
+  "Relaunch now": "Relancer maintenant",
+  "Install Homeswift {version}?": "Installer Homeswift {version} ?",
+  "Homeswift installs the update, then restarts. Your accessories will disconnect briefly; this page reconnects when the new version is ready.": "Homeswift installe la mise à jour, puis redémarre. Vos accessoires se déconnecteront brièvement ; cette page se reconnecte quand la nouvelle version est prête.",
+  "Installing…": "Installation…",
+  "Relaunching…": "Relance…",
+  "Relaunch to update": "Relancer pour mettre à jour",
+  "Install update": "Installer la mise à jour",
+  "Docker container": "Conteneur Docker",
+  "Synology package": "Paquet Synology",
+  "Built from source": "Compilé depuis les sources",
+  "Check now": "Vérifier maintenant",
+  "Homeswift updates": "Mises à jour de Homeswift",
+  "New releases install here, then the bridge relaunches into them.": "Les nouvelles versions s’installent ici, puis le pont redémarre dessus.",
+  "Releases from GitHub, with how to install them on this machine.": "Les versions publiées sur GitHub, et comment les installer sur cette machine.",
+  "there is no update this bridge can install": "il n’y a aucune mise à jour que ce pont peut installer",
+  "Check for updates twice a day": "Rechercher des mises à jour deux fois par jour",
+  "Asks GitHub for the latest release and says so on the Status page. The request carries only this version.": "Demande à GitHub la dernière version publiée et l’indique sur la page État. La requête ne transmet que cette version.",
+  "Copy the setup code": "Copier le code de configuration",
+  "The bridge is in the Home app. To add it again, reset its pairings below, then scan this code.": "Le pont est dans l’app Maison. Pour l’ajouter à nouveau, réinitialisez ses jumelages ci-dessous, puis scannez ce code.",
+  "Homeswift is up to date": "Homeswift est à jour",
+  "Homeswift {version} is installed": "Homeswift {version} est installé",
+  "Installing Homeswift {version}…": "Installation de Homeswift {version}…",
+  "Could not check for updates": "Impossible de rechercher des mises à jour",
+  "Not checked yet": "Pas encore vérifié",
+  "Checked {when}": "Vérifié {when}",
+  "No plugins yet. Add one, then give it a HomeKit bridge of its own here.": "Aucun plugin pour l’instant. Ajoutez-en un, puis donnez-lui ici son propre pont HomeKit.",
 });
 
 """#),
         "i18n-pt.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Portuguese (Portugal): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("pt", {
+  "Matter bridge": "Ponte Matter",
+  "For Google Home, Alexa, SmartThings and Home Assistant": "Para Google Home, Alexa, SmartThings e Home Assistant",
+  "In one ecosystem": "Num ecossistema",
+  "In {n} ecosystems": "Em {n} ecossistemas",
+  "Not added yet": "Ainda não adicionada",
+  "Ecosystem {index}": "Ecossistema {index}",
+  "Remove {name}": "Remover {name}",
+  "{name} loses the bridge and every device on it, with their rooms and automations.": "{name} perde a ponte e todos os seus dispositivos, com as suas divisões e automatizações.",
+  "In the ecosystem's app: add a Matter device, then scan this code or type it.": "Na app do ecossistema: adicione um dispositivo Matter e leia este código ou introduza-o.",
+  "Add to another ecosystem": "Adicionar a outro ecossistema",
+  "Devices of their own": "Dispositivos próprios",
+  "Bridged over Matter": "Ligados por Matter",
+  "{vendor}'s hubs and other devices lose their link to this device: it stops responding there until it is added again.": "Os concentradores e outros dispositivos do {vendor} perdem a ligação a este dispositivo: deixa de responder aí até ser adicionado de novo.",
+  "{vendor} system": "Sistema do {vendor}",
+  "{vendor}'s own link to the device, from your other devices and hubs: keep it.": "A ligação própria do {vendor} ao dispositivo, a partir dos seus outros dispositivos e concentradores: mantenha-a.",
+  "Matter device of its own": "Dispositivo Matter próprio",
+  "Matter · {ecosystems}": "Matter · {ecosystems}",
+  "Matter": "Matter",
+  "Shows a new pairing code for 15 minutes, so another app (Google Home, Alexa, Home Assistant or another home in Apple Home) can add this device too. The ecosystems it is in keep it.": "Mostra um novo código de emparelhamento durante 15 minutos, para que outra app (Google Home, Alexa, Home Assistant ou outra casa na Apple Home) também possa adicionar este dispositivo. Os ecossistemas em que está mantêm-no.",
+  "Shows a new pairing code for 15 minutes, so another app (Google Home, Alexa, Home Assistant or another home in Apple Home) can add the bridge and its devices too. The ecosystems it is in keep them.": "Mostra um novo código de emparelhamento durante 15 minutos, para que outra app (Google Home, Alexa, Home Assistant ou outra casa na Apple Home) também possa adicionar a ponte e os seus dispositivos. Os ecossistemas em que está mantêm-nos.",
+  "Waiting to be added first": "A aguardar adição primeiro",
+  "Most ecosystems": "Mais ecossistemas",
+  "All devices": "Todos os dispositivos",
+  "HomeKit": "HomeKit",
+  "Waiting to be added": "A aguardar adição",
+  "Sort devices": "Ordenar dispositivos",
+  "Show devices": "Mostrar dispositivos",
+  "{shown} of {total} devices": "{shown} de {total} dispositivos",
+  "{count} devices · one waits to be added": "{count} dispositivos · um aguarda ser adicionado",
+  "{count} devices · {n} wait to be added": "{count} dispositivos · {n} aguardam ser adicionados",
+  "One device, with its own pairing": "Um dispositivo, com o seu próprio emparelhamento",
+  "{n} devices, each with its own pairing": "{n} dispositivos, cada um com o seu próprio emparelhamento",
+  "Search devices": "Pesquisar dispositivos",
+  "No device matches.": "Nenhum dispositivo corresponde.",
+  "{name} loses this device, with its room and automations.": "{name} perde este dispositivo, com a sua divisão e automatizações.",
+  "In the Home app (or another ecosystem's): add an accessory, then scan this code or type it.": "Na app Casa (ou na de outro ecossistema): adicione um acessório e depois digitalize este código ou escreva-o.",
+  "Make a Matter device": "Tornar um dispositivo Matter",
+  "Matter pairing code": "Código de emparelhamento Matter",
+  "Take off Matter": "Retirar do Matter",
+  "{name} leaves Matter: the ecosystems that added it lose it.": "{name} sai do Matter: os ecossistemas que o adicionaram perdem-no.",
   "A room's scenes, then templates to try on its lights; save one as a scene when you like it.": "As cenas de uma divisão e, depois, modelos para experimentar nas suas luzes; guarde um como cena se gostar.",
   "From a template": "A partir de um modelo",
   "Scenes in {room}": "Cenas de {room}",
@@ -18515,6 +19181,37 @@ HomeswiftI18n.add("pt", {
   "Save to {hub} ({place})": "Guardar em {hub} ({place})",
   "A switch in the Home app": "Um interruptor na app Casa",
   "On the Homeswift Scenes accessory: turning it on runs the scene (without its locks, doors and alarms), turning it off puts the lights back.": "No acessório Cenas do Homeswift: ligá-lo executa a cena (sem as fechaduras, portas e alarmes), desligá-lo repõe as luzes como estavam.",
+  "Installing Homeswift {version}… The bridge restarts when it is done.": "A instalar o Homeswift {version}… A ponte reinicia quando terminar.",
+  "Restarting into Homeswift {version}…": "A reiniciar com o Homeswift {version}…",
+  "Homeswift {version} is installed. Relaunch to start it.": "O Homeswift {version} está instalado. Reinicie para o iniciar.",
+  "Could not install the update: {error}": "Não foi possível instalar a atualização: {error}",
+  "Install and relaunch": "Instalar e reiniciar",
+  "Relaunch now": "Reiniciar agora",
+  "Install Homeswift {version}?": "Instalar o Homeswift {version}?",
+  "Homeswift installs the update, then restarts. Your accessories will disconnect briefly; this page reconnects when the new version is ready.": "O Homeswift instala a atualização e depois reinicia. Os seus acessórios vão desligar-se por momentos; esta página volta a ligar-se quando a nova versão estiver pronta.",
+  "Installing…": "A instalar…",
+  "Relaunching…": "A reiniciar…",
+  "Relaunch to update": "Reiniciar para atualizar",
+  "Install update": "Instalar a atualização",
+  "Docker container": "Contentor Docker",
+  "Synology package": "Pacote Synology",
+  "Built from source": "Compilado a partir do código-fonte",
+  "Check now": "Verificar agora",
+  "Homeswift updates": "Atualizações do Homeswift",
+  "New releases install here, then the bridge relaunches into them.": "As novas versões instalam-se aqui e depois a ponte reinicia com elas.",
+  "Releases from GitHub, with how to install them on this machine.": "As versões do GitHub e como as instalar nesta máquina.",
+  "there is no update this bridge can install": "não há nenhuma atualização que esta ponte possa instalar",
+  "Check for updates twice a day": "Procurar atualizações duas vezes por dia",
+  "Asks GitHub for the latest release and says so on the Status page. The request carries only this version.": "Pergunta ao GitHub pela versão mais recente e indica-o na página Estado. O pedido leva apenas esta versão.",
+  "Copy the setup code": "Copiar o código de configuração",
+  "The bridge is in the Home app. To add it again, reset its pairings below, then scan this code.": "A ponte está na app Casa. Para a adicionar de novo, reponha os emparelhamentos abaixo e leia este código.",
+  "Homeswift is up to date": "O Homeswift está atualizado",
+  "Homeswift {version} is installed": "O Homeswift {version} está instalado",
+  "Installing Homeswift {version}…": "A instalar o Homeswift {version}…",
+  "Could not check for updates": "Não foi possível procurar atualizações",
+  "Not checked yet": "Ainda não verificado",
+  "Checked {when}": "Verificado {when}",
+  "No plugins yet. Add one, then give it a HomeKit bridge of its own here.": "Ainda não há plugins. Adicione um e depois dê-lhe aqui uma ponte HomeKit própria.",
 });
 
 """#),
@@ -19238,7 +19935,6 @@ HomeswiftI18n.add("pt", {
       <a href="/accessories" data-i18n>Accessories</a>
       <a href="/scenes" data-i18n>Scenes</a>
       <a href="/plugins" data-i18n>Plugins</a>
-      <a href="/config" data-i18n>Config</a>
       <a href="/logs" data-i18n>Logs</a>
       <a href="/settings" data-i18n>Settings</a>
     </nav>
@@ -21237,6 +21933,7 @@ label > input, label > select { margin-top: 5px; }
 .empty-glyph { display: grid; place-items: center; width: 52px; height: 52px; margin: 0 auto var(--space-12); border-radius: 50%; color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .empty-glyph svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .card.empty:has(> .empty-glyph) p { max-width: 34em; margin-inline: auto; }
+.card.empty > .actions { justify-content: center; margin-top: var(--space-14); }
 .card.notice { color: var(--warn); font-weight: var(--weight-medium); }
 .card.notice p { margin: 0; }
 .search { width: 240px; max-width: 100%; }
@@ -21886,6 +22583,15 @@ textarea.short { min-height: 220px; }
 .mono { font-family: var(--mono); font-size: var(--text-sm); letter-spacing: 0; }
 .chips { display: flex; flex-wrap: wrap; gap: var(--space-6); }
 .chip { padding: 3px var(--space-10); border-radius: var(--radius-pill); font-size: var(--text-sm); background: var(--material-thin); border: 1px solid var(--line); }
+/* A chip with a remove button (the Matter card's ecosystems, for an administrator). */
+.chip.removable { display: inline-flex; align-items: center; gap: 2px; padding-right: 2px; }
+/* A chip's remove button stays a 22-point disc (no button minimum stretches it) with a 40-point tap around it. */
+.chip.removable .icon-button:not(.menu-button) { width: 22px; height: 22px; min-height: 0; min-width: 0; position: relative; }
+.chip.removable .icon-button:not(.menu-button)::after { content: ""; position: absolute; inset: -9px; }
+/* A controller's own system fabric (Apple Home's second one): muted, with a house. */
+.chip.system { display: inline-flex; align-items: center; gap: var(--space-4); color: var(--muted); border-style: dashed; }
+.chip.system > svg { width: 14px; height: 14px; }
+.chip.removable .icon-button:not(.menu-button) svg { width: 12px; height: 12px; }
 
 /* Status: a summary that says whether all is well, the numbers that matter, then a card per server. */
 /* A newer release, under the summary: how to upgrade this install, its command with Copy, the notes folded. */
@@ -21900,6 +22606,14 @@ textarea.short { min-height: 220px; }
 .update-progress svg { width: 16px; height: 16px; flex: none; color: var(--ok); }
 .update-progress .spinner { flex: none; }
 .updates-settings .actions { flex-wrap: wrap; }
+/* Settings › Updates: the headline is the state; it fades when it changes. */
+.update-head .who { min-width: 0; }
+.update-head > button { flex: none; margin-left: auto; }
+.update-head-changed { animation: fade var(--normal) var(--ease-out); }
+.updates-settings .card > p.error:empty, .updates-settings .card > div:empty { display: none; }
+.update-details { display: grid; gap: var(--space-12); margin-top: var(--space-14); }
+.update-preferences { margin-top: var(--space-14); padding-top: var(--space-4); border-top: 1px solid var(--line); }
+@media (max-width: 560px) { .update-head { flex-wrap: wrap; } .update-head > button { margin-left: 0; } }
 .who { flex: 1; min-width: 0; }
 .health { font-weight: var(--weight-medium); display: flex; align-items: flex-start; gap: var(--space-8); }
 /* The dot on the first line's middle, when the text wraps. */
@@ -21912,11 +22626,16 @@ textarea.short { min-height: 220px; }
   box-shadow: var(--shadow-control), inset 0 1px 0 var(--edge-light);
 }
 .stat { position: relative; display: block; color: inherit; text-decoration: none; }
-a.stat { touch-action: manipulation; transition: transform var(--fast) var(--ease-out); }
+a.stat { touch-action: manipulation; transition: transform var(--fast) var(--ease-out), background-color var(--fast) ease; }
 a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
-.stat > svg { position: absolute; top: 14px; right: 14px; width: 20px; height: 20px; fill: none; stroke: var(--muted); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; opacity: 0.7; }
+@media (hover: hover) and (pointer: fine) { a.stat:hover { background-color: color-mix(in srgb, var(--text) 4%, var(--material)); } }
+/* The Status page's figures: the icon on a tile at the left, the figure and its name beside it. */
+.stat:has(> .tile) { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--space-12); align-items: center; }
+.stat > .tile { grid-column: 1; grid-row: 1 / span 2; }
+.stat:has(> .tile) > b { grid-column: 2; }
+.stat:has(> .tile) > span:not(.tile) { grid-column: 2; min-width: 0; line-height: 1.3; }
 .stat b { display: block; font-size: 1.5rem; line-height: 1.1; letter-spacing: -0.02em; font-weight: var(--weight-figure); font-variant-numeric: tabular-nums; }
-.stat span { color: var(--muted); font-size: var(--text-sm); letter-spacing: 0.01em; }
+.stat span:not(.tile) { color: var(--muted); font-size: var(--text-sm); letter-spacing: 0.01em; }
 .stat .short { display: none; }
 /* The Status page's activity charts: the filters in one row above them, two charts a row, one on a phone. */
 .activity { transition: opacity var(--normal) var(--ease-out); }
@@ -22143,12 +22862,51 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .setup { display: flex; gap: var(--space-16); align-items: center; padding-top: var(--space-14); border-top: 1px solid var(--line); }
 .setup p { margin: 0 0 var(--space-6); }
 .setup .code { margin: 0; }
+/* Settings › Bridge: the QR code, then the setup code, one row across the form (the code first in the page for screen readers). */
+.setup-field { grid-column: 1 / -1; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-8) var(--space-18); align-items: start; }
+.setup-field-main { display: grid; gap: var(--space-6); min-width: 0; max-width: 420px; }
+.setup-field .qr { width: 120px; height: 120px; order: -1; }
+.setup-field-note { margin: var(--space-4) 0 0; }
+@media (max-width: 560px) { .setup-field { grid-template-columns: minmax(0, 1fr); } }
 .setup-code-field { display: flex; align-items: center; gap: var(--space-8); }
 .setup-code-field input { flex: 1; min-width: 0; }
-.setup-in-form { margin-top: var(--space-8); padding-top: var(--space-12); }
-.setup-in-form .qr { width: 120px; height: 120px; flex: none; }
-.setup-in-form p.help { margin: 0; }
+/* Copy, then a check for a moment: the two icons cross-fade in place. */
+.setup-code-copy svg { grid-area: 1 / 1; transition: opacity 160ms var(--ease-out), transform 160ms var(--ease-out), filter 160ms var(--ease-out); }
+.setup-code-copy .copied-icon, .setup-code-copy[data-copied] .copy-icon { opacity: 0; transform: scale(0.6); filter: blur(2px); }
+.setup-code-copy[data-copied] .copied-icon { opacity: 1; transform: none; filter: none; color: var(--ok); }
+@media (prefers-reduced-motion: reduce) { .setup-code-copy svg { transform: none !important; filter: none !important; } }
 .server .actions { margin-top: 0; }
+/* A Matter node's Add to another ecosystem, with what it does under it (no hover text on a phone). */
+.actions.add-ecosystem { flex-direction: column; align-items: flex-start; gap: var(--space-4); }
+.actions.add-ecosystem p { margin: 0; padding-left: var(--space-6); font-size: var(--text-sm); max-width: 56ch; }
+/* Accessories and Matter devices of their own: one line each across the section, unfolding to what a card shows. A
+   home of a hundred stays one screen to scan; only the chevron moves, as the row opens. */
+.devices { grid-column: 1 / -1; margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-6); align-content: start; animation: materialize var(--normal) var(--ease-out); }
+.devices-head { display: flex; align-items: center; gap: var(--space-12); flex-wrap: wrap; padding-bottom: var(--space-6); }
+.devices-head .who { flex: 1 1 200px; min-width: 0; }
+.devices-head strong { display: block; font-size: var(--text-xl); letter-spacing: -0.01em; }
+.devices-head .muted { font-size: var(--text-sm); }
+.device-rows { display: grid; grid-template-columns: minmax(0, 1fr); }
+.device-row { border-top: 1px solid var(--line); }
+.device-row > summary { list-style: none; display: flex; align-items: center; gap: var(--space-12); min-height: 44px; padding: var(--space-8) var(--space-8); margin: 0 calc(-1 * var(--space-8)); cursor: pointer; border-radius: var(--radius-sm); }
+.device-row > summary::-webkit-details-marker { display: none; }
+.device-row > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.device-row > summary .tile { width: 32px; height: 32px; }
+.device-row > summary .tile svg { width: 18px; height: 18px; }
+.device-row > summary .who { flex: 1; min-width: 0; }
+.device-row > summary strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.device-row > summary .muted { font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.device-row > summary .pill { flex: none; }
+.device-row > summary > svg:last-child { flex: none; width: 16px; height: 16px; color: var(--muted); transition: transform var(--normal) var(--ease-out); }
+.device-row[open] > summary > svg:last-child { transform: rotate(90deg); }
+/* A tile with a small tag in its corner: a Matter device's own icon with Matter's glyph. */
+.tile-tagged { position: relative; flex: none; display: inline-flex; }
+.tile-tag { position: absolute; right: -5px; bottom: -5px; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: var(--material-thick); color: var(--ok); box-shadow: 0 1px 3px rgba(25, 34, 56, 0.25); }
+.tile-tag svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.device-row-body { display: grid; gap: var(--space-14); padding: var(--space-4) 0 var(--space-16) 44px; }
+.device-row-body .setup { border-top: 0; padding-top: 0; }
+@media (hover: hover) and (pointer: fine) { .device-row > summary { transition: background-color var(--fast) ease; } .device-row > summary:hover { background: var(--material-thin); } }
 .banner { margin: var(--space-14) auto 0; max-width: 1100px; width: calc(100% - 24px); padding: var(--space-10) var(--space-20); text-align: center; color: var(--warn); font-weight: var(--weight-semibold); animation: materialize var(--normal) var(--ease-out); }
 .auth { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; padding: var(--space-20); }
 .auth .card { width: min(400px, 100%); padding: 26px 26px 22px; animation: materialize 320ms var(--ease-out); }
@@ -22278,6 +23036,7 @@ dd { margin: 0; }
   .log-line .text { grid-column: 1 / -1; }
   .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .setup { flex-direction: column; align-items: flex-start; }
+  .device-row-body { padding-left: 0; }
 }
 @media (prefers-reduced-motion: reduce) { .servers .server, .card.server { animation: fade var(--normal) ease; } }
 @media (max-width: 640px) { header { gap: var(--space-6); padding: var(--space-6) var(--space-8); } nav a { padding: var(--space-6) var(--space-10); white-space: nowrap; } main { padding: var(--space-14) var(--space-10) 30px; } input[type=range] { width: 110px; } }
@@ -22655,11 +23414,14 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
   .filter-bar > .count:empty { display: none; }
   .dash-widget .stats { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-8); }
   .dash-widget .stat { padding: var(--space-10) var(--space-6) 9px; border-radius: var(--radius-lg); text-align: center; }
-  .dash-widget .stat > svg { position: static; display: block; margin: 0 auto var(--space-4); width: 18px; height: 18px; }
+  /* Four across a phone: the tile smaller, above the figure. */
+  .dash-widget .stat:has(> .tile) { display: block; }
+  .dash-widget .stat > .tile { width: 30px; height: 30px; margin: 0 auto var(--space-6); border-radius: var(--radius-sm); }
+  .dash-widget .stat > .tile svg { width: 17px; height: 17px; }
   .dash-widget .stat b { font-size: var(--text-2xl); }
-  .dash-widget .stat span { display: block; font-size: var(--text-2xs); letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .dash-widget .stat .long { display: none; }
-  .dash-widget .stat .short { display: block; }
+  .dash-widget .stat span:not(.tile) { display: block; font-size: var(--text-2xs); letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dash-widget .stat span.long { display: none; }
+  .dash-widget .stat span.short { display: block; }
 }
 /* The narrowest phones (320 points): the figures two by two, so their names read whole. */
 @media (max-width: 360px) {
@@ -22917,6 +23679,10 @@ a.button.primary { background: linear-gradient(180deg, var(--accent-fill-top), v
 a.link:hover { text-decoration: underline; }
 .subnav { margin: -6px 0 var(--space-18); max-width: 100%; overflow-x: auto; scrollbar-width: none; }
 .subnav::-webkit-scrollbar { display: none; }
+/* Where tabs are scrolled out of sight, the row fades: the way it scrolls, without a bar. */
+.subnav[data-more-end] { mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); }
+.subnav[data-more-start] { mask-image: linear-gradient(to left, #000 calc(100% - 40px), transparent); }
+.subnav[data-more-start][data-more-end] { mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent); }
 .group a { color: var(--text); text-decoration: none; padding: 5px 13px; border-radius: var(--radius-pill); white-space: nowrap; transition: background-color var(--fast) var(--ease-out); }
 .group a:hover:not(.on) { background: var(--material-thin); }
 .group a.on { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); }
@@ -23363,6 +24129,10 @@ select:disabled { opacity: .5; cursor: not-allowed; }
 .catalog-toolbar .popup { margin: 0; }
 /* A phone: the search takes the row, the order sits under it at its own width. */
 @media (max-width: 600px) { .catalog-toolbar { grid-template-columns: minmax(0, 1fr); } .catalog-toolbar .popup { justify-self: start; } }
+/* With a filter: the search, the filter and the order on one row; on a phone, the search over the two menus. */
+.catalog-toolbar.with-filter { grid-template-columns: minmax(0, 1fr) auto auto; }
+@media (max-width: 600px) { .catalog-toolbar.with-filter { grid-template-columns: auto auto; justify-content: start; } .catalog-toolbar.with-filter .search { grid-column: 1 / -1; } }
+.devices .catalog-toolbar { margin-bottom: var(--space-4); }
 /* A running plugin's state: a green dot where the other states have a pill. */
 .status-dot { flex: none; align-self: center; width: 9px; height: 9px; margin: 0 var(--space-6); border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 18%, transparent); }
 /* The lighting pages' finder (plugin.js `finder`): one row (the search takes the room left), held under the header
@@ -23773,7 +24543,8 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
   .status-footer-meta { grid-column: 1 / -1; grid-row: 2; min-width: 0; }
 }
 
-.status-footer-meta { flex-wrap: nowrap; }
+/* The update pill keeps to its label, and goes under the version when the row is narrow. */
+.status-footer-meta { flex-wrap: wrap; }
 .status-footer-meta > .muted { max-width: none; }
 .status-footer .footer-update-check {
   padding: 3px var(--space-8); min-height: 28px; border: 1px solid rgba(255,255,255,.2); border-radius: 5px;
@@ -23804,11 +24575,6 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
 @media (prefers-reduced-motion: reduce) {
   .status-footer .footer-update-check[data-update-state="checking"] svg { animation: none; }
 }
-
-/* Reserve the widest translated status without exposing sizing text to assistive technology. */
-.footer-update-label { display: inline-grid; text-align: center; }
-.footer-update-label > span { grid-area: 1 / 1; }
-.footer-update-sizer { visibility: hidden; pointer-events: none; }
 
 .group-box > summary > svg { width: 18px; height: 18px; margin-right: var(--space-8); vertical-align: -3px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
@@ -26410,11 +27176,14 @@ self.addEventListener("notificationclick", (event) => {
     return dialog;
   }
 
+  /// The icon of what a service stands for when HomeKit has no type for it (`Service.standsFor`): a robot vacuum.
+  const standsForIcon = (accessory) => accessory.services?.some((service) => service.standsFor === "cleaningRobot") ? "vacuum" : null;
+
   /// The tile's glyph, and a painter for its colour and state.
   function glyphFor(ctx, widget, built, primary) {
     const [fallbackIcon, fallbackTone] = categoryIcons[ctx.accessory.category] || ["generic", "grey"];
     const pick = (value, fallback) => typeof value === "function" ? value(ctx, primary) : value ?? fallback;
-    const glyph = el("span", { class: "tile", "aria-hidden": "true" }, icon(pick(widget.icon, fallbackIcon)));
+    const glyph = el("span", { class: "tile", "aria-hidden": "true" }, icon(standsForIcon(ctx.accessory) ?? pick(widget.icon, fallbackIcon)));
     return [glyph, () => {
       const on = built.on ? built.on() : true;
       const color = on && built.color ? built.color() : null;
@@ -26750,6 +27519,8 @@ self.addEventListener("notificationclick", (event) => {
     /// The icon an accessory's tile shows: its widget's (a battery's for a power station filed as Other), else its
     /// category's. Other pages use it so an accessory looks the same everywhere.
     accessoryIcon(accessory) {
+      const standsFor = standsForIcon(accessory);
+      if (standsFor) return standsFor;
       try {
         const ctx = context(accessory);
         const { widget, primary } = resolve(ctx);
