@@ -23,8 +23,12 @@ A system block in config.json, like the web UI's:
 | `exclude` | none | Accessories never bridged, matched the same way; it wins over `include` |
 | `exposeSecurity` | false | Bridge locks, and what a plugin marks as a security control (a switch that opens a gate) |
 | `tcp` | false | Also accept Matter over TCP on the same port, for controllers that send large messages; UDP is always on |
+| `bridge` | true | Run the bridge; off, only the `devices` are on Matter |
+| `devices` | none | Accessory ids that are Matter devices of their own (below) rather than bridged |
 
-Saving the block in the web UI or over MCP restarts the Matter bridge in place; the fabrics stay. The passcode,
+Saving the block in the web UI or over MCP applies it: a change to which accessories are on Matter (`include`,
+`exclude`, `exposeSecurity`, `devices`) applies in place, and the controllers keep their sessions; a change of
+`port`, `tcp` or `bridge` restarts Matter, and the fabrics stay. The passcode,
 the discriminator, the device attestation keys and the fabrics are made on first start and kept under
 `matter/` in the storage directory (owner-only files), never in config.json. Mirrored accessories (Wingman's Apple
 Home devices) are not bridged.
@@ -50,6 +54,23 @@ attestation credentials, as Matterbridge does. Controllers warn that the device 
 developer project for the vendor and product IDs (`0xFFF1`, `0x8000`).
 
 Do not add the Matter bridge to Apple Home too: it already has the accessories over HAP, and would show each twice.
+
+## A device of its own
+
+An accessory can be a Matter device by itself rather than a bridged one: a node of its own, with its own port (the
+first free one after the bridge's, kept for the next start), pairing code and QR code, which Apple Home, Google
+Home or Alexa add as that device, not as a bridge. An administrator turns it on from the accessory's ⋯ menu on the
+Accessories page, **Make a Matter device**, which then opens the Status page at the device's Matter card with its
+code; **Take off Matter** puts it back. Over MCP, `set_matter_device` does the same. It writes the accessory's id
+in the block's `devices`, and makes the block if there is none, with `bridge` off so that only that accessory is on
+Matter.
+
+The switch refuses an accessory Matter has nothing for (a lock while `exposeSecurity` is off, services without a
+Matter device type). The device's state lives under `matter/devices/<its id>/` and stays when it is taken off
+Matter, so turning it on again finds the ecosystems that had it. Its name and whether it responds are its node's
+Basic Information.
+
+To try it: `homeswift-demo --matter-device demo-lamp` prints the lamp's own pairing code.
 
 ## What is bridged
 

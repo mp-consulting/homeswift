@@ -234,12 +234,9 @@ let main = Task {
                 logger.info(started == nil ? "MCP server stopped" : "MCP server restarted with the new settings")
             }
             if platforms.contains(MatterConfiguration.platform) {
-                // The old bridge goes first: the new one wants the same port. Its fabrics stay in storage.
-                await catalog.matter.current?.stop()
-                catalog.matter.current = nil
-                let started = await MatterCommands.start(catalog: catalog, configuration: next, logger: logger)
-                logger.info(started == nil ? "Matter bridge stopped" : "Matter bridge restarted with the new settings")
-                if let started { say(await MatterCommands.bannerLines(started)) }
+                if let bridge = await MatterCommands.reload(catalog: catalog, configuration: next, logger: logger) {
+                    say(await MatterCommands.bannerLines(bridge))
+                }
             }
             if platforms.contains(UIConfiguration.platform) {
                 // The old server goes first: the new one usually wants the same port.
@@ -275,6 +272,8 @@ let main = Task {
     if let started = await UICommands.startServer(catalog: catalog, configuration: configuration, mcp: { mcpServer.withLockedValue { $0 } }, logger: logger) {
         uiServer.withLockedValue { $0 = started }
     }
+    // The Matter switch asks the mapping whether an accessory can be a device, with Matter on or off.
+    catalog.matter.maps = { HomeswiftMatterBridge.maps($0, exposeSecurity: $1) }
     let startedMatter = await MatterCommands.start(catalog: catalog, configuration: configuration, logger: logger)
     for bridge in host.bridges {
         let server = bridge.server

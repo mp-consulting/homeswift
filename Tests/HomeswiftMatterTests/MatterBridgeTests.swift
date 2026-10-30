@@ -88,13 +88,17 @@ struct BridgeFixture {
 
         let network = MemoryNetwork()
         matter = try await HomeswiftMatterBridge(configuration: configuration, source: host, storage: Matter.MemoryStorage(),
-                                                 transport: await network.transport(named: "bridge"), advertise: false,
+                                                 deviceStorage: { _ in Matter.MemoryStorage() },
+                                                 transport: await network.transport(named: "bridge"),
+                                                 deviceTransport: { await network.transport(named: $0) }, advertise: false,
                                                  reliability: Self.fast, logger: testLogger)
         try await matter.start()
         let layer = MessageLayer(transport: await network.transport(named: "controller"), reliability: Self.fast)
         commissioner = try Commissioner(layer: layer, fabricID: 0xFAB, nodeID: 0x1122)
         try await commissioner.start()
-        session = try await commissioner.commission(.memory("bridge"), passcode: matter.setupPayload.passcode, nodeID: 0x42).localSessionID
+        // Without the bridge, a test commissions the accessories' own nodes itself.
+        session = configuration.bridge
+            ? try await commissioner.commission(.memory("bridge"), passcode: matter.setupPayload.passcode, nodeID: 0x42).localSessionID : 0
     }
 
     /// MRP at a hundredth of its timings: acknowledgements do not hold the exchanges up.
@@ -160,6 +164,56 @@ struct MatterBridgeTests {
         try await eventually { await fixture.matter.bridgedIDs == ["Household:button", "Household:lamp"] }
     } }
 
+    @Test func makesAnAccessoryAMatterDeviceOfItsOwn() async throws {
+        var configuration = MatterConfiguration()
+        configuration.bridge = false
+        configuration.devices = ["Household:lamp"]
+        try await withFixture(configuration) { fixture in
+            // Only the lamp is on Matter, on a node of its own.
+            #expect(await fixture.matter.bridgedIDs == ["Household:lamp"])
+            let status = await fixture.matter.statusJSON(includePairing: true)
+            let own = try #require(status["ownDevices"]?.arrayValue?.first)
+            #expect(own["id"] == "Household:lamp")
+            #expect(own["port"] == .number(5541))
+            #expect(status["devices"] == .array([]))
+            let code = try #require(own["pairing"]?["manualCode"]?.stringValue)
+            let passcode = try ManualPairingCode(code).passcode
+            let session = try await fixture.commissioner.commission(.memory("Household:lamp"), passcode: passcode, nodeID: 0x43).localSessionID
+
+            // The lamp is the node's device: on endpoint 1, under the root, with no Aggregator.
+            let client = fixture.commissioner.client
+            #expect(try await client.read(endpoint: 0, cluster: DescriptorCluster.id, attribute: DescriptorCluster.Attribute.partsList, session: session)
+                == .array([TLVElement(.unsigned(1))]))
+            #expect(try await client.read(endpoint: 0, cluster: BasicInformationCluster.id, attribute: BasicInformationCluster.Attribute.nodeLabel,
+                                          session: session) == .utf8("Lamp"))
+            _ = try await client.invoke(CommandPath(endpoint: 1, cluster: OnOffCluster.id, command: OnOffCluster.Command.on), session: session)
+            #expect(fixture.plugin.lamp[.on]?.value == .bool(true))
+            fixture.plugin.lamp[.on]?.value = .bool(false)
+            try await eventually {
+                (try? await client.read(endpoint: 1, cluster: OnOffCluster.id, attribute: OnOffCluster.Attribute.onOff, session: session)) == .bool(false)
+            }
+            let after = await fixture.matter.statusJSON(includePairing: true)["ownDevices"]?.arrayValue?.first
+            #expect(after?["commissioned"] == .bool(true))
+            #expect(after?["pairing"] == nil)
+        }
+    }
+
+    @Test func movesAnAccessoryToANodeOfItsOwnInPlace() async throws { try await withFixture { fixture in
+        var next = await fixture.matter.configuration
+        next.devices = ["Household:door"]
+        #expect(await fixture.matter.apply(next))
+        // The door leaves the bridge for a node of its own; the bridge's session goes on.
+        #expect(await fixture.matter.statusJSON(includePairing: false)["ownDevices"]?.arrayValue?.first?["id"] == "Household:door")
+        let lamp = try await fixture.endpoint("Household:lamp")
+        _ = try await fixture.commissioner.client.invoke(CommandPath(endpoint: lamp, cluster: OnOffCluster.id, command: OnOffCluster.Command.on),
+                                                         session: fixture.session)
+        #expect(fixture.plugin.lamp[.on]?.value == .bool(true))
+        #expect(await fixture.matter.qrCode(device: "Household:door") != nil)
+        // A new port needs a restart.
+        next.port += 10
+        #expect(await !fixture.matter.apply(next))
+    } }
+
     @Test func turnsWhitesIntoColorsOnALightWithoutColorTemperature() async throws { try await withFixture { fixture in
         let lamp = try await fixture.endpoint("Household:lamp")
         // MoveToColorTemperature: 370 mireds, a warm white, written as the hue and saturation of that white.
@@ -198,16 +252,16 @@ struct MatterBridgeTests {
         #expect(status["fabrics"]?.arrayValue?.count == 1)
         // Commissioned: the window closed, so no code even for an administrator.
         #expect(status["pairing"] == nil)
-        _ = try await fixture.matter.openCommissioningWindow(minutes: 5)
+        _ = try await fixture.matter.openCommissioningWindow(minutes: 5, device: nil)
         #expect(await fixture.matter.statusJSON(includePairing: true)["pairing"]?["manualCode"]?.stringValue == fixture.matter.setupPayload.manualCode)
         #expect(await fixture.matter.statusJSON(includePairing: false)["pairing"] == nil)
         #expect(await fixture.matter.statusJSON(includePairing: true)["pairing"]?["qrCode"]?.stringValue == fixture.matter.setupPayload.qrCode)
 
-        _ = try await fixture.matter.removeFabric(index: 1)
+        _ = try await fixture.matter.removeFabric(index: 1, device: nil)
         #expect(await !fixture.matter.isCommissioned)
         // Without an ecosystem the bridge can be added again with its code.
         #expect(await fixture.matter.statusJSON(includePairing: true)["commissioningWindow"] == "open")
-        await #expect(throws: Error.self) { try await fixture.matter.removeFabric(index: 1) }
+        await #expect(throws: Error.self) { try await fixture.matter.removeFabric(index: 1, device: nil) }
     } }
 }
 

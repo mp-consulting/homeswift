@@ -620,10 +620,16 @@ public struct HomeswiftCatalog: Sendable {
         var pending = report.needsRestart
         let services = report.systemBlocksChanged.filter { $0 != AIConfiguration.platform || reloadServices != nil }
         if let reloadServices, !services.isEmpty {
-            // After this reply: the web UI server may be the one answering it.
-            Task {
-                try? await Task.sleep(for: .milliseconds(400))
-                await reloadServices(configuration, services)
+            // The servers that may be answering this request (the web UI, the MCP server) reload after the reply; the
+            // others (Matter) before it, so the reply reflects them.
+            let answering: Set<String> = [AIConfiguration.platform, "HomeswiftUI"]
+            let now = services.filter { !answering.contains($0) }, later = services.filter { answering.contains($0) }
+            if !now.isEmpty { await reloadServices(configuration, now) }
+            if !later.isEmpty {
+                Task {
+                    try? await Task.sleep(for: .milliseconds(400))
+                    await reloadServices(configuration, later)
+                }
             }
         } else {
             pending += services.map { "the \($0) block changed" }

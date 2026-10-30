@@ -1865,6 +1865,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       api("/api/accessories").then((list) => withSlugs(list, "accessory")).catch(() => []),
       api("/api/matter").catch(() => null),
     ]);
+    rememberMatterOwn(matter);
     $("#banner").classList.toggle("hidden", !status.restartNeeded || !isAdmin());
     const waiting = status.bridges.filter((bridge) => !bridge.paired);
     const [health, healthKind] = status.restartNeeded ? [t("Running; some changes need a restart"), "away"]
@@ -1892,40 +1893,56 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             el("div", { class: "code", text: bridge.setupCode }))) : null);
     });
 
-    // The Matter bridge, when the HomeswiftMatter block runs one: drawn again after an administrator's change.
-    const matterCard = (matter) => {
-      const fabrics = matter.fabrics || [];
+    // The Matter bridge, when the HomeswiftMatter block runs one, and each accessory that is a Matter device of its
+    // own: drawn again after an administrator's change.
+    const matterCard = (node, own) => {
+      const base = own ? `/api/matter/devices/${encodeURIComponent(node.id)}` : "/api/matter";
+      const fabrics = node.fabrics || [];
       const admin = isAdmin();
-      const refresh = async () => card.replaceWith(matterCard(await api("/api/matter")));
-      const card = el("div", { class: "card server" },
+      const refresh = async () => {
+        const next = await api("/api/matter");
+        const fresh = own ? (next.ownDevices || []).find((device) => device.id === node.id) : next;
+        if (fresh) card.replaceWith(matterCard(fresh, own)); else card.remove();
+      };
+      const card = el("div", { class: "card server", id: own ? `matter-${slug(node.id)}` : "matter" },
         el("div", { class: "server-head" },
-          tile("link", "green"),
-          el("div", { class: "who" }, el("strong", { text: t("Matter bridge") }), el("div", { class: "muted", text: t("For Google Home, Alexa, SmartThings and Home Assistant") })),
+          tile(own ? "accessory" : "link", "green"),
+          el("div", { class: "who" }, el("strong", { text: own ? node.name : t("Matter bridge") }),
+            el("div", { class: "muted", text: own ? t("Matter device of its own, for Apple Home, Google Home, Alexa and Home Assistant") : t("For Google Home, Alexa, SmartThings and Home Assistant") })),
           el("span", { class: `pill status ${fabrics.length ? "on" : "away"}`, text: fabrics.length ? tn("In one ecosystem", "In {n} ecosystems", fabrics.length) : t("Not added yet") })),
-        el("div", { class: "facts lead" }, fact(t("Port"), matter.port), fact(t("Accessories"), (matter.devices || []).length)),
+        el("div", { class: "facts lead" }, fact(t("Port"), node.port), own ? null : fact(t("Accessories"), (node.devices || []).length)),
         fabrics.length ? el("div", { class: "chips" }, fabrics.map((fabric) => {
           const name = fabric.label || t("Ecosystem {index}", { index: fabric.index });
           return el("span", { class: admin ? "chip removable" : "chip" }, el("span", { text: name }),
             admin ? el("button", { type: "button", class: "icon-button", "aria-label": t("Remove {name}", { name }), title: t("Remove {name}", { name }), onclick: async (event) => {
-              if (!await HomeswiftCommon.confirmDialog(t("{name} loses the bridge and every device on it, with their rooms and automations.", { name }))) return;
+              const message = own ? t("{name} loses this device, with its room and automations.", { name })
+                : t("{name} loses the bridge and every device on it, with their rooms and automations.", { name });
+              if (!await HomeswiftCommon.confirmDialog(message)) return;
               await HomeswiftCommon.busyButton(event.currentTarget, async () => {
-                await api(`/api/matter/fabrics/${fabric.index}/remove`, { method: "POST", body: {} });
+                await api(`${base}/fabrics/${fabric.index}/remove`, { method: "POST", body: {} });
                 await refresh();
               });
             } }, HomeswiftCommon.icon("close")) : null);
         })) : null,
-        matter.pairing ? el("div", { class: "setup" },
-          el("img", { class: "qr", src: "/api/matter/qr.svg", alt: t("Pairing QR code"), width: 148, height: 148 }),
+        node.pairing ? el("div", { class: "setup" },
+          el("img", { class: "qr", src: `${base}/qr.svg`, alt: t("Pairing QR code"), width: 148, height: 148 }),
           el("div", {},
-            el("p", { text: t("In the ecosystem's app: add a Matter device, then scan this code or type it.") }),
-            el("div", { class: "code", text: matter.pairing.manualCode.replace(/^(\d{4})(\d{3})(\d{4})$/, "$1-$2-$3") })))
+            el("p", { text: own ? t("In the Home app (or another ecosystem's): add an accessory, then scan this code or type it.")
+              : t("In the ecosystem's app: add a Matter device, then scan this code or type it.") }),
+            el("div", { class: "code", text: node.pairing.manualCode.replace(/^(\d{4})(\d{3})(\d{4})$/, "$1-$2-$3") })))
           : admin ? el("div", { class: "actions" },
             el("button", { class: "link", actionIcon: "plus", text: t("Add to another ecosystem"), onclick: (event) => HomeswiftCommon.busyButton(event.currentTarget, async () => {
-              await api("/api/matter/window", { method: "POST", body: { minutes: 15 } });
+              await api(`${base}/window`, { method: "POST", body: { minutes: 15 } });
               await refresh();
             }) })) : null);
+      // Reached from an accessory's menu: brought into view.
+      if (location.hash === `#${card.id}`) requestAnimationFrame(() => card.scrollIntoView({ block: "center" }));
       return card;
     };
+    const matterCards = (matter) => !matter?.enabled ? [] : [
+      matter.bridge !== false ? matterCard(matter, false) : null,
+      ...(matter.ownDevices || []).map((device) => matterCard(device, true)),
+    ];
 
     // The page is widgets the user can hide and order (Customise, at the bottom; Glass UI's dashboard layout),
     // drawn only when shown: the activity charts load nothing while hidden.
@@ -1943,7 +1960,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       activity: () => activity(accessories, withSlugs(status.bridges, "bridge")),
       energy: () => energy(),
       bridges: () => [el("h2", { text: status.bridges.length === 1 ? t("Bridge") : t("Bridges and accessories") }),
-      el("div", { class: "servers" }, ...bridges, matter?.enabled ? matterCard(matter) : null)],
+      el("div", { class: "servers" }, ...bridges, ...matterCards(matter))],
       system: () => [el("h2", { text: t("System") }),
       el("div", { class: "card server" },
         el("div", { class: "server-head" }, tile("system", "grey"),
@@ -2680,6 +2697,33 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     sensor: t("sensor"), camera: t("camera"), inspector: t("other accessory"),
   };
 
+  // The accessories that are Matter devices of their own (/api/matter), for their menus: the pages with accessory
+  // menus (Accessories, Status's quick section) keep it current.
+  let matterOwn = new Set();
+  const rememberMatterOwn = (matter) => { matterOwn = new Set((matter?.ownDevices || []).map((device) => device.id)); };
+  const loadMatterOwn = () => api("/api/matter").then(rememberMatterOwn).catch(() => {});
+
+  /// An accessory as a Matter device of its own, with its own pairing code (the Status page shows it), or back off.
+  function matterActions(accessory) {
+    const card = `/status#matter-${slug(accessory.id)}`;
+    const set = async (own) => {
+      try {
+        await api(`/api/matter/devices/${encodeURIComponent(accessory.id)}`, { method: "PUT", body: { own } });
+        // The reply comes once Matter has the change: the Status page then shows the device's code.
+        if (own) { matterOwn.add(accessory.id); navigate(card); } else { matterOwn.delete(accessory.id); route(); }
+      } catch (e) { HomeswiftCommon.showAlert(e.message); }
+    };
+    if (!matterOwn.has(accessory.id)) {
+      return [{ label: t("Make a Matter device"), icon: "link", onSelect: () => set(true) }];
+    }
+    return [
+      { label: t("Matter pairing code"), icon: "link", href: card },
+      { label: t("Take off Matter"), icon: "close", onSelect: async () => {
+        if (await HomeswiftCommon.confirmDialog(t("{name} leaves Matter: the ecosystems that added it lose it.", { name: accessory.name }))) await set(false);
+      } },
+    ];
+  }
+
   /// What the menu of an accessory's widget offers, after its sizes.
   /// An accessory's ⋯ menu after All controls, in groups as a context menu orders them: what to look at or do with
   /// it, how it sits on the wall (`arrange`, the wall's size choices, first), then the administrator's way to its
@@ -2697,6 +2741,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         try { await setPaused(accessory.platform, accessory.platformName, false); route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
       } } : null,
       isAdmin() ? { label: t("Show its log"), icon: "logs", href: `/logs/${accessory.slug ?? encodeURIComponent(accessory.id)}` } : null,
+      ...(isAdmin() && !accessory.mirroredFrom ? matterActions(accessory) : []),
       accessory.platform && isAdmin() ? { label: t("Plugin settings"), icon: "gear", href: `/plugins/${slug(accessory.platformName || accessory.platform)}` } : null,
     ];
     return [use, layout, manage].map((group) => group.filter(Boolean)).filter((group) => group.length)
@@ -2710,7 +2755,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   views.accessories = async (main, args = []) => {
     if (args[0] === "graph") return HomeswiftAdmin.graph(main, accessoryTabs("graph"));
-    const [list, saved, home] = await Promise.all([api("/api/accessories"), api("/api/layout").catch(() => null), api("/api/rooms").catch(() => ({ rooms: [] }))]);
+    const [list, saved, home] = await Promise.all([api("/api/accessories"), api("/api/layout").catch(() => null), api("/api/rooms").catch(() => ({ rooms: [] })),
+      isAdmin() ? loadMatterOwn() : null]);
     const all = withSlugs(list, "accessory");
     const params = new URLSearchParams(location.search);
     // Hidden accessories (an accessory's ⋯ menu) only with ?hidden=1.
@@ -10402,6 +10448,13 @@ HomeswiftI18n.add("es", {
   "{name} loses the bridge and every device on it, with their rooms and automations.": "{name} pierde el puente y todos sus dispositivos, con sus habitaciones y automatizaciones.",
   "In the ecosystem's app: add a Matter device, then scan this code or type it.": "En la app del ecosistema: añade un dispositivo Matter y escanea este código o introdúcelo.",
   "Add to another ecosystem": "Añadir a otro ecosistema",
+  "Matter device of its own, for Apple Home, Google Home, Alexa and Home Assistant": "Dispositivo Matter propio, para Apple Home, Google Home, Alexa y Home Assistant",
+  "{name} loses this device, with its room and automations.": "{name} pierde este dispositivo, con su habitación y sus automatizaciones.",
+  "In the Home app (or another ecosystem's): add an accessory, then scan this code or type it.": "En la app Casa (o la de otro ecosistema): añade un accesorio y escanea este código o escríbelo.",
+  "Make a Matter device": "Convertir en dispositivo Matter",
+  "Matter pairing code": "Código de vinculación Matter",
+  "Take off Matter": "Quitar de Matter",
+  "{name} leaves Matter: the ecosystems that added it lose it.": "{name} sale de Matter: los ecosistemas que lo añadieron lo pierden.",
 
   "Start time": "Hora de inicio",
   "End time": "Hora de fin",
@@ -12729,6 +12782,13 @@ HomeswiftI18n.add("fr", {
   "{name} loses the bridge and every device on it, with their rooms and automations.": "{name} perd le pont et tous ses appareils, avec leurs pièces et automatisations.",
   "In the ecosystem's app: add a Matter device, then scan this code or type it.": "Dans l'app de l'écosystème : ajoutez un appareil Matter, puis scannez ce code ou saisissez-le.",
   "Add to another ecosystem": "Ajouter à un autre écosystème",
+  "Matter device of its own, for Apple Home, Google Home, Alexa and Home Assistant": "Appareil Matter à part entière, pour Apple Home, Google Home, Alexa et Home Assistant",
+  "{name} loses this device, with its room and automations.": "{name} perd cet appareil, avec sa pièce et ses automatisations.",
+  "In the Home app (or another ecosystem's): add an accessory, then scan this code or type it.": "Dans l'app Maison (ou celle d'un autre écosystème) : ajoutez un accessoire, puis scannez ce code ou saisissez-le.",
+  "Make a Matter device": "En faire un appareil Matter",
+  "Matter pairing code": "Code d'appairage Matter",
+  "Take off Matter": "Retirer de Matter",
+  "{name} leaves Matter: the ecosystems that added it lose it.": "{name} quitte Matter : les écosystèmes qui l'avaient ajouté le perdent.",
 
   "Start time": "Début",
   "End time": "Fin",
@@ -15056,6 +15116,13 @@ HomeswiftI18n.add("pt", {
   "{name} loses the bridge and every device on it, with their rooms and automations.": "{name} perde a ponte e todos os seus dispositivos, com as suas divisões e automatizações.",
   "In the ecosystem's app: add a Matter device, then scan this code or type it.": "Na app do ecossistema: adicione um dispositivo Matter e leia este código ou introduza-o.",
   "Add to another ecosystem": "Adicionar a outro ecossistema",
+  "Matter device of its own, for Apple Home, Google Home, Alexa and Home Assistant": "Dispositivo Matter próprio, para o Apple Home, Google Home, Alexa e Home Assistant",
+  "{name} loses this device, with its room and automations.": "{name} perde este dispositivo, com a sua divisão e automatizações.",
+  "In the Home app (or another ecosystem's): add an accessory, then scan this code or type it.": "Na app Casa (ou na de outro ecossistema): adicione um acessório e depois digitalize este código ou escreva-o.",
+  "Make a Matter device": "Tornar um dispositivo Matter",
+  "Matter pairing code": "Código de emparelhamento Matter",
+  "Take off Matter": "Retirar do Matter",
+  "{name} leaves Matter: the ecosystems that added it lose it.": "{name} sai do Matter: os ecossistemas que o adicionaram perdem-no.",
 
   "Start time": "Hora de início",
   "End time": "Hora de fim",

@@ -14,6 +14,10 @@ All notable changes to this project are documented here. The format follows
   pairing code and QR code to administrators, adds the bridge to another ecosystem and removes one; the MCP tools
   `get_matter_status`, `open_matter_commissioning_window` and `remove_matter_fabric` do the same.
   `homeswift-demo --matter` bridges the demo's accessories over Matter too.
+- An accessory can be a Matter device of its own, with its own pairing code, which Apple Home, Google Home or Alexa
+  add as that device rather than through the bridge: **Make a Matter device** in its ⋯ menu, `set_matter_device`
+  over MCP, or the `HomeswiftMatter` block's `devices` (docs/matter.md). Changes to which accessories are on Matter
+  apply without restarting it.
 - The Assistant arranges the Accessories wall: `get_wall_layout` and `set_wall_layout` (MCP, and the web UI's chat)
   read and change its order, each accessory's size, the default size of each kind of widget and the grouping. An
   `order` of some ids puts them in the places they hold together, so one room is sorted without moving the others.

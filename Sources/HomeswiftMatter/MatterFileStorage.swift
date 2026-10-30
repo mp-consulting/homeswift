@@ -11,6 +11,11 @@ public actor MatterFileStorage: MatterStorage {
         self.directory = directory
     }
 
+    /// The node of an accessory that is a Matter device of its own: `devices/<its id, escaped>/` under `root`.
+    public init(device accessoryID: String, in root: URL) {
+        self.init(directory: root.appendingPathComponent("devices").appendingPathComponent(FileStorage.fileName(for: accessoryID)))
+    }
+
     /// The files `FileStorage` would use, so either reads what the other wrote.
     private func url(_ key: String) -> URL { directory.appendingPathComponent(FileStorage.fileName(for: key)) }
 

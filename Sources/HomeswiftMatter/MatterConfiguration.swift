@@ -24,6 +24,11 @@ public struct MatterConfiguration: Sendable, Equatable {
     public var exposeSecurity = false
     /// Also listens for TCP on the port, for controllers that send large messages over it (Core §4.15).
     public var tcp = false
+    /// Whether the bridge runs: off, only the `devices` are on Matter.
+    public var bridge = true
+    /// Accessory ids that are Matter devices of their own rather than bridged: each its own node, port and pairing
+    /// code, which a controller adds as the device itself.
+    public var devices: [String] = []
 
     public init() {}
 
@@ -42,6 +47,11 @@ public struct MatterConfiguration: Sendable, Equatable {
             guard let value = tcp.boolValue else { throw MatterConfigurationError.invalid(key: "tcp", expected: "true or false") }
             self.tcp = value
         }
+        if let bridge = block["bridge"], !bridge.isNull {
+            guard let value = bridge.boolValue else { throw MatterConfigurationError.invalid(key: "bridge", expected: "true or false") }
+            self.bridge = value
+        }
+        devices = try Self.patterns(block, "devices")
     }
 
     private static func patterns(_ block: JSONValue, _ key: String) throws -> [String] {
@@ -83,7 +93,9 @@ public struct MatterConfiguration: Sendable, Equatable {
               "include": { "title": "Only these", "type": "array", "items": { "title": "Plugin or accessory", "type": "string" }, "description": "Bridge only the accessories of these plugins, or with these ids or names; * matches anything. Empty: every accessory." },
               "exclude": { "title": "Leave out", "type": "array", "items": { "title": "Plugin or accessory", "type": "string" }, "description": "Accessories never bridged, named as above. It wins over Only these." },
               "exposeSecurity": { "title": "Bridge locks", "type": "boolean", "default": false, "description": "Locks, and switches a plugin marks as opening something, are left out unless this is on: a Matter controller changes them without the confirmation the web UI and the MCP server ask for." },
-              "tcp": { "title": "TCP", "type": "boolean", "default": false, "description": "Also accept Matter over TCP on the same port, for controllers that send large messages. UDP is always on." }
+              "tcp": { "title": "TCP", "type": "boolean", "default": false, "description": "Also accept Matter over TCP on the same port, for controllers that send large messages. UDP is always on." },
+              "bridge": { "title": "Bridge", "type": "boolean", "default": true, "description": "Run the Matter bridge. Off, only the accessories turned into Matter devices of their own are on Matter." },
+              "devices": { "title": "Matter devices of their own", "type": "array", "items": { "title": "Accessory id", "type": "string" }, "description": "Accessories that are Matter devices by themselves, each with its own pairing code, rather than bridged. The Accessories page's Matter switch fills this in." }
             }
           },
           "i18n": {
@@ -98,7 +110,12 @@ public struct MatterConfiguration: Sendable, Equatable {
               "Bridge locks": "Relier les serrures",
               "Locks, and switches a plugin marks as opening something, are left out unless this is on: a Matter controller changes them without the confirmation the web UI and the MCP server ask for.": "Les serrures, et les interrupteurs qu'un plugin marque comme ouvrant quelque chose, sont laissés de côté sauf si cette option est activée : un contrôleur Matter les change sans la confirmation que demandent l'interface web et le serveur MCP.",
               "TCP": "TCP",
-              "Also accept Matter over TCP on the same port, for controllers that send large messages. UDP is always on.": "Accepter aussi Matter en TCP sur le même port, pour les contrôleurs qui envoient de gros messages. L'UDP reste toujours actif."
+              "Also accept Matter over TCP on the same port, for controllers that send large messages. UDP is always on.": "Accepter aussi Matter en TCP sur le même port, pour les contrôleurs qui envoient de gros messages. L'UDP reste toujours actif.",
+              "Bridge": "Pont",
+              "Run the Matter bridge. Off, only the accessories turned into Matter devices of their own are on Matter.": "Faire tourner le pont Matter. Désactivé, seuls les accessoires transformés en appareils Matter à part entière sont sur Matter.",
+              "Matter devices of their own": "Appareils Matter à part entière",
+              "Accessory id": "Identifiant d'accessoire",
+              "Accessories that are Matter devices by themselves, each with its own pairing code, rather than bridged. The Accessories page's Matter switch fills this in.": "Les accessoires qui sont des appareils Matter à eux seuls, chacun avec son propre code d'appairage, plutôt que reliés au pont. L'interrupteur Matter de la page Accessoires remplit cette liste."
             },
             "es": {
               "Port": "Puerto",
@@ -111,7 +128,12 @@ public struct MatterConfiguration: Sendable, Equatable {
               "Bridge locks": "Puentear cerraduras",
               "Locks, and switches a plugin marks as opening something, are left out unless this is on: a Matter controller changes them without the confirmation the web UI and the MCP server ask for.": "Las cerraduras, y los interruptores que un plugin marca como que abren algo, quedan fuera salvo que esto esté activado: un controlador Matter los cambia sin la confirmación que piden la interfaz web y el servidor MCP.",
               "TCP": "TCP",
-              "Also accept Matter over TCP on the same port, for controllers that send large messages. UDP is always on.": "Aceptar también Matter por TCP en el mismo puerto, para los controladores que envían mensajes grandes. UDP siempre está activo."
+              "Also accept Matter over TCP on the same port, for controllers that send large messages. UDP is always on.": "Aceptar también Matter por TCP en el mismo puerto, para los controladores que envían mensajes grandes. UDP siempre está activo.",
+              "Bridge": "Puente",
+              "Run the Matter bridge. Off, only the accessories turned into Matter devices of their own are on Matter.": "Ejecutar el puente Matter. Desactivado, solo están en Matter los accesorios convertidos en dispositivos Matter propios.",
+              "Matter devices of their own": "Dispositivos Matter propios",
+              "Accessory id": "Identificador del accesorio",
+              "Accessories that are Matter devices by themselves, each with its own pairing code, rather than bridged. The Accessories page's Matter switch fills this in.": "Accesorios que son dispositivos Matter por sí mismos, cada uno con su propio código de vinculación, en lugar de puenteados. El interruptor Matter de la página Accesorios rellena esta lista."
             },
             "pt": {
               "Port": "Porta",
@@ -124,7 +146,12 @@ public struct MatterConfiguration: Sendable, Equatable {
               "Bridge locks": "Ligar fechaduras",
               "Locks, and switches a plugin marks as opening something, are left out unless this is on: a Matter controller changes them without the confirmation the web UI and the MCP server ask for.": "As fechaduras, e os interruptores que um plugin marca como abrindo algo, ficam de fora a menos que isto esteja ativado: um controlador Matter altera-os sem a confirmação que a interface web e o servidor MCP pedem.",
               "TCP": "TCP",
-              "Also accept Matter over TCP on the same port, for controllers that send large messages. UDP is always on.": "Aceitar também Matter por TCP na mesma porta, para os controladores que enviam mensagens grandes. O UDP está sempre ativo."
+              "Also accept Matter over TCP on the same port, for controllers that send large messages. UDP is always on.": "Aceitar também Matter por TCP na mesma porta, para os controladores que enviam mensagens grandes. O UDP está sempre ativo.",
+              "Bridge": "Ponte",
+              "Run the Matter bridge. Off, only the accessories turned into Matter devices of their own are on Matter.": "Executar a ponte Matter. Desativada, apenas os acessórios transformados em dispositivos Matter próprios estão no Matter.",
+              "Matter devices of their own": "Dispositivos Matter próprios",
+              "Accessory id": "Identificador do acessório",
+              "Accessories that are Matter devices by themselves, each with its own pairing code, rather than bridged. The Accessories page's Matter switch fills this in.": "Acessórios que são dispositivos Matter por si só, cada um com o seu próprio código de emparelhamento, em vez de ligados à ponte. O interruptor Matter da página Acessórios preenche esta lista."
             }
           }
         }
