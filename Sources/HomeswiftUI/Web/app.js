@@ -474,9 +474,10 @@
   // /status?since=24h&bridge=<bridge>&accessory=<accessory>: the activity charts' range and whose durations they show,
   // as on the Logs page.
   views.status = async (main) => {
-    const [status, accessories] = await Promise.all([
+    const [status, accessories, matter] = await Promise.all([
       api("/api/status"),
       api("/api/accessories").then((list) => withSlugs(list, "accessory")).catch(() => []),
+      api("/api/matter").catch(() => null),
     ]);
     $("#banner").classList.toggle("hidden", !status.restartNeeded || !isAdmin());
     const waiting = status.bridges.filter((bridge) => !bridge.paired);
@@ -505,6 +506,40 @@
             el("div", { class: "code", text: bridge.setupCode }))) : null);
     });
 
+    // The Matter bridge, when the HomeswiftMatter block runs one: drawn again after an administrator's change.
+    const matterCard = (matter) => {
+      const fabrics = matter.fabrics || [];
+      const refresh = async () => card.replaceWith(matterCard(await api("/api/matter")));
+      const card = el("div", { class: "card server" },
+        el("div", { class: "server-head" },
+          tile("link", "green"),
+          el("div", { class: "who" }, el("strong", { text: t("Matter bridge") }), el("div", { class: "muted", text: t("For Google Home, Alexa, SmartThings and Home Assistant") })),
+          el("span", { class: `pill status ${fabrics.length ? "on" : "away"}`, text: fabrics.length ? tn("In one ecosystem", "In {n} ecosystems", fabrics.length) : t("Not added yet") })),
+        el("div", { class: "facts lead" }, fact(t("Port"), matter.port), fact(t("Accessories"), (matter.devices || []).length)),
+        fabrics.length ? el("div", { class: "chips" }, fabrics.map((fabric) => {
+          const name = fabric.label || t("Ecosystem {index}", { index: fabric.index });
+          return el("span", { class: isAdmin() ? "chip removable" : "chip" }, el("span", { text: name }),
+            isAdmin() ? el("button", { type: "button", class: "icon-button", "aria-label": t("Remove {name}", { name }), title: t("Remove {name}", { name }), onclick: async (event) => {
+              if (!await HomeswiftCommon.confirmDialog(t("{name} loses the bridge and every device on it, with their rooms and automations.", { name }))) return;
+              await HomeswiftCommon.busyButton(event.currentTarget, async () => {
+                await api(`/api/matter/fabrics/${fabric.index}/remove`, { method: "POST", body: {} });
+                await refresh();
+              });
+            } }, HomeswiftCommon.icon("close")) : null);
+        })) : null,
+        matter.pairing ? el("div", { class: "setup" },
+          el("img", { class: "qr", src: `/api/matter/qr.svg?${Date.now()}`, alt: t("Pairing QR code"), width: 148, height: 148 }),
+          el("div", {},
+            el("p", { text: t("In the ecosystem's app: add a Matter device, then scan this code or type it.") }),
+            el("div", { class: "code", text: matter.pairing.manualCode.replace(/^(\d{4})(\d{3})(\d{4})$/, "$1-$2-$3") })))
+          : isAdmin() ? el("div", { class: "actions" },
+            el("button", { class: "link", actionIcon: "plus", text: t("Add to another ecosystem"), onclick: (event) => HomeswiftCommon.busyButton(event.currentTarget, async () => {
+              await api("/api/matter/window", { method: "POST", body: { minutes: 15 } });
+              await refresh();
+            }) })) : null);
+      return card;
+    };
+
     // The page is widgets the user can hide and order (Customise, at the bottom; Glass UI's dashboard layout),
     // drawn only when shown: the activity charts load nothing while hidden.
     const widgets = {
@@ -521,7 +556,7 @@
       activity: () => activity(accessories, withSlugs(status.bridges, "bridge")),
       energy: () => energy(),
       bridges: () => [el("h2", { text: status.bridges.length === 1 ? t("Bridge") : t("Bridges and accessories") }),
-      el("div", { class: "servers" }, ...bridges)],
+      el("div", { class: "servers" }, ...bridges, matter?.enabled ? matterCard(matter) : null)],
       system: () => [el("h2", { text: t("System") }),
       el("div", { class: "card server" },
         el("div", { class: "server-head" }, tile("system", "grey"),

@@ -577,6 +577,9 @@ public final class UIServer: Sendable {
             return .json(response.json, status: response.status)
         }
         if route.first == "preferences", let reply = preferencesRoute(Array(route.dropFirst()), request, body: body, username: username) { return reply }
+        if route.first == "matter", let reply = try await matterRoute(Array(route.dropFirst()), request, body: body, username: username, admin: caller.isAdmin) {
+            return reply
+        }
         if route.first == "assistant", route.count >= 2, route[1] != "chat", route[1] != "chats",
            let reply = try await assistantRoute(Array(route.dropFirst()), request, body: body, username: username) { return reply }
         // Rooms, scenes and notifications (HomeRoutes.swift).
@@ -756,10 +759,10 @@ public final class UIServer: Sendable {
                     return await camera(route[1], route[2], request, username: username)
                 }
                 if route.count == 3, route[0] == "plugins", route[2] == "schema" {
-                    // The runtime's own blocks, the web UI's and the Assistant's, have forms too.
+                    // The runtime's own blocks, the web UI's, the Assistant's and the Matter bridge's, have forms too.
                     let schema = route[1] == UIConfiguration.platform ? UIConfiguration.schemaJSON
                         : route[1] == AIConfiguration.platform ? AIConfiguration.schemaJSON
-                        : catalog.host.registry.entry(for: route[1])?.configurationSchemaJSON
+                        : catalog.blockSchema(for: route[1]) ?? catalog.host.registry.entry(for: route[1])?.configurationSchemaJSON
                     guard let text = schema else { return .error(404, "no schema for \(route[1])") }
                     return .text(text, contentType: "application/json")
                 }

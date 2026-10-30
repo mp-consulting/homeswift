@@ -1,5 +1,16 @@
 // The web UI in French: English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("fr", {
+  "Matter bridge": "Pont Matter",
+  "For Google Home, Alexa, SmartThings and Home Assistant": "Pour Google Home, Alexa, SmartThings et Home Assistant",
+  "In one ecosystem": "Dans un écosystème",
+  "In {n} ecosystems": "Dans {n} écosystèmes",
+  "Not added yet": "Pas encore ajouté",
+  "Ecosystem {index}": "Écosystème {index}",
+  "Remove {name}": "Retirer {name}",
+  "{name} loses the bridge and every device on it, with their rooms and automations.": "{name} perd le pont et tous ses appareils, avec leurs pièces et automatisations.",
+  "In the ecosystem's app: add a Matter device, then scan this code or type it.": "Dans l'app de l'écosystème : ajoutez un appareil Matter, puis scannez ce code ou saisissez-le.",
+  "Add to another ecosystem": "Ajouter à un autre écosystème",
+
   "Start time": "Début",
   "End time": "Fin",
 

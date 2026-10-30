@@ -1860,9 +1860,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // /status?since=24h&bridge=<bridge>&accessory=<accessory>: the activity charts' range and whose durations they show,
   // as on the Logs page.
   views.status = async (main) => {
-    const [status, accessories] = await Promise.all([
+    const [status, accessories, matter] = await Promise.all([
       api("/api/status"),
       api("/api/accessories").then((list) => withSlugs(list, "accessory")).catch(() => []),
+      api("/api/matter").catch(() => null),
     ]);
     $("#banner").classList.toggle("hidden", !status.restartNeeded || !isAdmin());
     const waiting = status.bridges.filter((bridge) => !bridge.paired);
@@ -1891,6 +1892,40 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             el("div", { class: "code", text: bridge.setupCode }))) : null);
     });
 
+    // The Matter bridge, when the HomeswiftMatter block runs one: drawn again after an administrator's change.
+    const matterCard = (matter) => {
+      const fabrics = matter.fabrics || [];
+      const refresh = async () => card.replaceWith(matterCard(await api("/api/matter")));
+      const card = el("div", { class: "card server" },
+        el("div", { class: "server-head" },
+          tile("link", "green"),
+          el("div", { class: "who" }, el("strong", { text: t("Matter bridge") }), el("div", { class: "muted", text: t("For Google Home, Alexa, SmartThings and Home Assistant") })),
+          el("span", { class: `pill status ${fabrics.length ? "on" : "away"}`, text: fabrics.length ? tn("In one ecosystem", "In {n} ecosystems", fabrics.length) : t("Not added yet") })),
+        el("div", { class: "facts lead" }, fact(t("Port"), matter.port), fact(t("Accessories"), (matter.devices || []).length)),
+        fabrics.length ? el("div", { class: "chips" }, fabrics.map((fabric) => {
+          const name = fabric.label || t("Ecosystem {index}", { index: fabric.index });
+          return el("span", { class: isAdmin() ? "chip removable" : "chip" }, el("span", { text: name }),
+            isAdmin() ? el("button", { type: "button", class: "icon-button", "aria-label": t("Remove {name}", { name }), title: t("Remove {name}", { name }), onclick: async (event) => {
+              if (!await HomeswiftCommon.confirmDialog(t("{name} loses the bridge and every device on it, with their rooms and automations.", { name }))) return;
+              await HomeswiftCommon.busyButton(event.currentTarget, async () => {
+                await api(`/api/matter/fabrics/${fabric.index}/remove`, { method: "POST", body: {} });
+                await refresh();
+              });
+            } }, HomeswiftCommon.icon("close")) : null);
+        })) : null,
+        matter.pairing ? el("div", { class: "setup" },
+          el("img", { class: "qr", src: `/api/matter/qr.svg?${Date.now()}`, alt: t("Pairing QR code"), width: 148, height: 148 }),
+          el("div", {},
+            el("p", { text: t("In the ecosystem's app: add a Matter device, then scan this code or type it.") }),
+            el("div", { class: "code", text: matter.pairing.manualCode.replace(/^(\d{4})(\d{3})(\d{4})$/, "$1-$2-$3") })))
+          : isAdmin() ? el("div", { class: "actions" },
+            el("button", { class: "link", actionIcon: "plus", text: t("Add to another ecosystem"), onclick: (event) => HomeswiftCommon.busyButton(event.currentTarget, async () => {
+              await api("/api/matter/window", { method: "POST", body: { minutes: 15 } });
+              await refresh();
+            }) })) : null);
+      return card;
+    };
+
     // The page is widgets the user can hide and order (Customise, at the bottom; Glass UI's dashboard layout),
     // drawn only when shown: the activity charts load nothing while hidden.
     const widgets = {
@@ -1907,7 +1942,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       activity: () => activity(accessories, withSlugs(status.bridges, "bridge")),
       energy: () => energy(),
       bridges: () => [el("h2", { text: status.bridges.length === 1 ? t("Bridge") : t("Bridges and accessories") }),
-      el("div", { class: "servers" }, ...bridges)],
+      el("div", { class: "servers" }, ...bridges, matter?.enabled ? matterCard(matter) : null)],
       system: () => [el("h2", { text: t("System") }),
       el("div", { class: "card server" },
         el("div", { class: "server-head" }, tile("system", "grey"),
@@ -10356,6 +10391,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         "i18n-es.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Spanish (Spain): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("es", {
+  "Matter bridge": "Puente Matter",
+  "For Google Home, Alexa, SmartThings and Home Assistant": "Para Google Home, Alexa, SmartThings y Home Assistant",
+  "In one ecosystem": "En un ecosistema",
+  "In {n} ecosystems": "En {n} ecosistemas",
+  "Not added yet": "Aún no añadido",
+  "Ecosystem {index}": "Ecosistema {index}",
+  "Remove {name}": "Quitar {name}",
+  "{name} loses the bridge and every device on it, with their rooms and automations.": "{name} pierde el puente y todos sus dispositivos, con sus habitaciones y automatizaciones.",
+  "In the ecosystem's app: add a Matter device, then scan this code or type it.": "En la app del ecosistema: añade un dispositivo Matter y escanea este código o introdúcelo.",
+  "Add to another ecosystem": "Añadir a otro ecosistema",
+
   "Start time": "Hora de inicio",
   "End time": "Hora de fin",
 
@@ -12672,6 +12718,17 @@ HomeswiftI18n.add("es", {
         "i18n-fr.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in French: English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("fr", {
+  "Matter bridge": "Pont Matter",
+  "For Google Home, Alexa, SmartThings and Home Assistant": "Pour Google Home, Alexa, SmartThings et Home Assistant",
+  "In one ecosystem": "Dans un écosystème",
+  "In {n} ecosystems": "Dans {n} écosystèmes",
+  "Not added yet": "Pas encore ajouté",
+  "Ecosystem {index}": "Écosystème {index}",
+  "Remove {name}": "Retirer {name}",
+  "{name} loses the bridge and every device on it, with their rooms and automations.": "{name} perd le pont et tous ses appareils, avec leurs pièces et automatisations.",
+  "In the ecosystem's app: add a Matter device, then scan this code or type it.": "Dans l'app de l'écosystème : ajoutez un appareil Matter, puis scannez ce code ou saisissez-le.",
+  "Add to another ecosystem": "Ajouter à un autre écosystème",
+
   "Start time": "Début",
   "End time": "Fin",
 
@@ -14988,6 +15045,17 @@ HomeswiftI18n.add("fr", {
         "i18n-pt.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The web UI in Portuguese (Portugal): English text → translation (docs/translations.md). Loaded by i18n.js.
 HomeswiftI18n.add("pt", {
+  "Matter bridge": "Ponte Matter",
+  "For Google Home, Alexa, SmartThings and Home Assistant": "Para Google Home, Alexa, SmartThings e Home Assistant",
+  "In one ecosystem": "Num ecossistema",
+  "In {n} ecosystems": "Em {n} ecossistemas",
+  "Not added yet": "Ainda não adicionada",
+  "Ecosystem {index}": "Ecossistema {index}",
+  "Remove {name}": "Remover {name}",
+  "{name} loses the bridge and every device on it, with their rooms and automations.": "{name} perde a ponte e todos os seus dispositivos, com as suas divisões e automatizações.",
+  "In the ecosystem's app: add a Matter device, then scan this code or type it.": "Na app do ecossistema: adicione um dispositivo Matter e leia este código ou introduza-o.",
+  "Add to another ecosystem": "Adicionar a outro ecossistema",
+
   "Start time": "Hora de início",
   "End time": "Hora de fim",
 
@@ -20658,6 +20726,10 @@ textarea.short { min-height: 220px; }
 .mono { font-family: var(--mono); font-size: var(--text-sm); letter-spacing: 0; }
 .chips { display: flex; flex-wrap: wrap; gap: var(--space-6); }
 .chip { padding: 3px var(--space-10); border-radius: var(--radius-pill); font-size: var(--text-sm); background: var(--material-thin); border: 1px solid var(--line); }
+/* A chip with a remove button (the Matter card's ecosystems, for an administrator). */
+.chip.removable { display: inline-flex; align-items: center; gap: 2px; padding-right: 2px; }
+.chip.removable .icon-button:not(.menu-button) { width: 22px; height: 22px; }
+.chip.removable .icon-button:not(.menu-button) svg { width: 12px; height: 12px; }
 
 /* Status: a summary that says whether all is well, the numbers that matter, then a card per server. */
 /* A newer release, under the summary: how to upgrade this install, its command with Copy, the notes folded. */
