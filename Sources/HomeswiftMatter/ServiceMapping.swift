@@ -25,6 +25,8 @@ struct ServiceMapping: Sendable {
         /// A smoke alarm, or a carbon monoxide one.
         case alarm(smoke: Bool)
         case valve
+        /// A Switch that runs a cleaning robot (`Service.standsFor`): a Robotic Vacuum Cleaner.
+        case cleaningRobot
     }
 
     let role: Role
@@ -42,6 +44,7 @@ struct ServiceMapping: Sendable {
         switch type {
         case ServiceType.lightbulb.uuid:
             role = .light(dimmable: has(.brightness), colorTemperature: has(.colorTemperature), hueSaturation: has(.hue) && has(.saturation))
+        case ServiceType.switch.uuid where service.standsFor == .cleaningRobot: role = .cleaningRobot
         case ServiceType.outlet.uuid, ServiceType.switch.uuid: role = .plug
         case ServiceType.contactSensor.uuid: role = .contact
         case ServiceType.motionSensor.uuid, ServiceType.occupancySensor.uuid: role = .occupancy
@@ -95,6 +98,7 @@ struct ServiceMapping: Sendable {
         case .airQuality: return .airQualitySensor
         case .alarm(let smoke): return .smokeCOAlarm(smoke: smoke, carbonMonoxide: !smoke)
         case .valve: return .waterValve
+        case .cleaningRobot: return .roboticVacuum
         }
     }
 
@@ -177,6 +181,9 @@ struct ServiceMapping: Sendable {
         case .valve:
             // In Use says whether water flows: the valve is open.
             if let inUse = value(.inUse).flatMap(Self.flag) { states.append(.valveOpen(inUse)) }
+        case .cleaningRobot:
+            // The switch says only whether it cleans: running, else stopped (where it is is not known).
+            if let on = value(.on)?.boolValue { states.append(.robot(on ? .running : .stopped)) }
         }
         if isMetered {
             if let watts = value(EveCharacteristic.currentConsumption) { states.append(.power(watts: watts.doubleValue)) }
@@ -251,8 +258,13 @@ struct ServiceMapping: Sendable {
             write(.lockTargetState, .int(locked ? 1 : 0))
         case .setValveOpen(let open):
             write(.active, .int(open ? 1 : 0))
-        case .identify, .startCleaning, .stopCleaning, .pauseCleaning, .resumeCleaning, .returnToDock:
-            // Identify goes to the accessory; HAP has no robot vacuum service to map.
+        case .startCleaning, .resumeCleaning:
+            if role == .cleaningRobot { write(.on, .bool(true)) }
+        case .stopCleaning, .pauseCleaning, .returnToDock:
+            // The switch only starts and stops: pausing and going home stop it, and the robot goes back by itself.
+            if role == .cleaningRobot { write(.on, .bool(false)) }
+        case .identify, .setClosureOpen, .stopClosure:
+            // Identify goes to the accessory; HAP has no closure service to map.
             break
         }
         return writes

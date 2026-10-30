@@ -47,6 +47,14 @@ actor HouseholdPlugin: HomeswiftPlugin {
         try context.add(Accessory(id: "Household:door", name: "Front door", category: .sensor, services: [door]))
         try context.add(Accessory(id: "Household:lock", name: "Lock", category: .doorLock, services: [lock]))
         try context.add(Accessory(id: "Household:button", name: "Button", category: .programmableSwitch, services: [button]))
+        try addRobot(standsFor: nil)
+    }
+
+    /// A pool robot's switch, as its cached copy (no hint) or as the plugin makes it.
+    func addRobot(standsFor: ServiceStandsFor?) throws {
+        let robot = Service(.switch, name: "Robot")
+        robot.standsFor = standsFor
+        try context.add(Accessory(id: "Household:robot", name: "Robot", category: .switch, services: [robot]))
     }
 
     func stop() async {}
@@ -138,7 +146,7 @@ final class PluginBox: @unchecked Sendable {
 struct MatterBridgeTests {
     @Test func bridgesAccessoriesBothWays() async throws { try await withFixture { fixture in
         // The lock stays out unless exposeSecurity is on; the others are bridged.
-        #expect(await fixture.matter.bridgedIDs == ["Household:button", "Household:door", "Household:lamp"])
+        #expect(await fixture.matter.bridgedIDs == ["Household:button", "Household:door", "Household:lamp", "Household:robot"])
 
         // A Matter command writes the characteristic as Apple Home would.
         let lamp = try await fixture.endpoint("Household:lamp")
@@ -161,7 +169,7 @@ struct MatterBridgeTests {
 
         // An accessory the plugin removes leaves the bridge.
         try await fixture.plugin.removeDoor()
-        try await eventually { await fixture.matter.bridgedIDs == ["Household:button", "Household:lamp"] }
+        try await eventually { await fixture.matter.bridgedIDs == ["Household:button", "Household:lamp", "Household:robot"] }
     } }
 
     @Test func makesAnAccessoryAMatterDeviceOfItsOwn() async throws {
@@ -336,6 +344,32 @@ struct MatterMappingTests {
         #expect(states.contains(.thermostatMode(UInt8(ThermostatCluster.SystemModeEnum.cool))))
         #expect(states.contains(.coolingSetpoint(21)))
     }
+
+    @Test func mapsACleaningRobotToARobotVacuum() throws {
+        let robot = Service(.switch, name: "Pool robot")
+        // A plain switch is a plug; one that stands for a cleaning robot is a robot vacuum.
+        #expect(ServiceMapping(robot, exposeSecurity: false)?.role == .plug)
+        robot.standsFor = .cleaningRobot
+        let mapping = try #require(ServiceMapping(robot, exposeSecurity: false))
+        #expect(mapping.role == .cleaningRobot)
+        #expect(mapping.kind.deviceTypes.map(\.id) == [DeviceTypes.roboticVacuumCleaner.id])
+        robot[.on]?.value = .bool(true)
+        #expect(mapping.states() == [.robot(.running)])
+        // Start and resume turn the switch on; stop, pause and going home turn it off.
+        #expect(mapping.writes(for: .startCleaning).map(\.1) == [.bool(true)])
+        #expect(mapping.writes(for: .resumeCleaning).map(\.1) == [.bool(true)])
+        for command in [DeviceCommand.stopCleaning, .pauseCleaning, .returnToDock] { #expect(mapping.writes(for: command).map(\.1) == [.bool(false)]) }
+    }
+
+    @Test func makesTheDeviceAgainWhenItsRoleChanges() async throws { try await withFixture { fixture in
+        // A plugin replaces its cached switch with one that stands for a cleaning robot: the plug becomes a robot vacuum,
+        // on the same endpoint.
+        try await fixture.plugin.addRobot(standsFor: .cleaningRobot)
+        try await eventually {
+            let types = try? await fixture.read("Household:robot", DescriptorCluster.id, DescriptorCluster.Attribute.deviceTypeList)
+            return types?.elements?.first?.value[0]?.uint == UInt64(DeviceTypes.roboticVacuumCleaner.id)
+        }
+    } }
 
     @Test func mapsAlarmsValvesAndMeters() throws {
         let smoke = Service(.smokeSensor, name: "Hall")

@@ -78,6 +78,7 @@ To try it: `homeswift-demo --matter-device demo-lamp` prints the lamp's own pair
 |---|---|---|
 | Lightbulb | On/Off, Dimmable, Color Temperature or Extended Color Light | Brightness 0–100 % ↔ CurrentLevel 1–254; mireds both sides; Hue 0–360 and Saturation 0–100 ↔ 0–254; a CIE xy color from Matter becomes hue and saturation, and a white the hue and saturation of that white on a light without Color Temperature |
 | Outlet, Switch | On/Off Plug-in Unit | On ↔ OnOff |
+| Switch that stands for a cleaning robot (`Service.standsFor = .cleaningRobot`) | Robotic Vacuum Cleaner | On ↔ RVC Run Mode Cleaning; Pause, Stop and GoHome turn it off; running or stopped as On says |
 | Contact Sensor | Contact Sensor | HAP's 0 (contact detected) is StateValue true |
 | Motion Sensor, Occupancy Sensor | Occupancy Sensor | detected ↔ occupied |
 | Temperature Sensor | Temperature Sensor | °C ↔ hundredths of a degree |

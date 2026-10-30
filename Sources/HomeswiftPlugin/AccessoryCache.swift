@@ -96,9 +96,12 @@ struct CachedService: Codable {
     var isHidden: Bool
     /// Positions, in the accessory's cached services, of the services this one links to.
     var linked: [Int]?
+    /// What the service stands for, so a restored accessory is the same to Matter before its plugin publishes it again.
+    var standsFor: ServiceStandsFor?
     var characteristics: [CachedCharacteristic]
 
     init(_ service: Service, linked: [Int]) {
+        standsFor = service.standsFor
         self.linked = linked.isEmpty ? nil : linked
         name = service.type.name
         uuid = service.type.uuid.uuidString
@@ -111,7 +114,9 @@ struct CachedService: Codable {
     func restore() -> Service {
         // No required characteristics: every characteristic comes back exactly as saved.
         let type = ServiceType(name: name, uuid: HAPUUID(uuid), required: [], optional: [])
-        return Service(type, subtype: subtype, extra: characteristics.map { $0.restore() }, isPrimary: isPrimary, isHidden: isHidden)
+        let service = Service(type, subtype: subtype, extra: characteristics.map { $0.restore() }, isPrimary: isPrimary, isHidden: isHidden)
+        service.standsFor = standsFor
+        return service
     }
 }
 

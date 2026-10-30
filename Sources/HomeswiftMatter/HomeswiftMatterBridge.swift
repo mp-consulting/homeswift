@@ -54,10 +54,22 @@ public actor HomeswiftMatterBridge: MatterControl {
             self.parts = parts
         }
 
-        /// The services' iids and types, and where the device is: when they change, it is made again.
-        var shape: [String] { Self.shape(mappings, own: own != nil) }
-        static func shape(_ mappings: [ServiceMapping], own: Bool) -> [String] {
-            mappings.map { "\($0.service.iid):\($0.service.type.uuid)" } + (own ? ["own"] : [])
+        /// The services, the roles Matter has them in, and where the device is: when they change, it is made again.
+        var shape: Shape { Shape(mappings, own: own != nil) }
+    }
+
+    struct Shape: Equatable {
+        struct Part: Equatable {
+            let iid: Int
+            let type: HAPUUID
+            let role: ServiceMapping.Role
+        }
+        let parts: [Part]
+        let own: Bool
+
+        init(_ mappings: [ServiceMapping], own: Bool) {
+            parts = mappings.map { Part(iid: $0.service.iid, type: $0.service.type.uuid, role: $0.role) }
+            self.own = own
         }
     }
 
@@ -183,7 +195,7 @@ public actor HomeswiftMatterBridge: MatterControl {
             guard !mappings.isEmpty else { continue }
             seen.insert(accessory.id)
             if let known = devices[accessory.id] {
-                if known.shape == Bridged.shape(mappings, own: own) {
+                if known.shape == Shape(mappings, own: own) {
                     if known.name != accessory.name { await known.device.setName(accessory.name) }
                     if known.accessory !== accessory {
                         // A plugin replaced the accessory with one of the same shape (its cached one, once it

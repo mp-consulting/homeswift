@@ -41,6 +41,8 @@ final class DolphinAccessory: Sendable {
         let switchService = Service(
             .switch, name: name, subtype: "robot-switch", extra: [Characteristic(.configuredName, value: .string(name))], isPrimary: true)
         switchService.characteristic(.on).value = .bool(state.isCleaning)
+        // A robot to ecosystems that have one: a robot vacuum over Matter, with start, stop and go home.
+        switchService.standsFor = .cleaningRobot
         self.switchService = switchService
 
         if temperatureSensor ?? device.features.hasTemperatureSensor, configuration?.enableTemperature != false {
