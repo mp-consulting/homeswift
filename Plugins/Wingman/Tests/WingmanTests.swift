@@ -232,12 +232,16 @@ struct WingmanTests {
         let host = try await environment.start()
         _ = try await accessory(host, "light-1")
         let reads = environment.wingman.requests.filter { $0 == "homes" }.count
+        let start = ContinuousClock.now
         for _ in 0..<40 {
             environment.wingman.changeHomes()
             try await Task.sleep(for: .milliseconds(25))
         }
+        // A busy runner stretches the burst: allow a read per gap that actually went by, not per event.
+        let elapsed = ContinuousClock.now - start
+        let gaps = Int((elapsed / .milliseconds(400)).rounded(.up))
         let burst = environment.wingman.requests.filter { $0 == "homes" }.count - reads
-        #expect(burst >= 1 && burst <= 4, "\(burst) reads for 40 events over 1 s")
+        #expect(burst >= 1 && burst <= gaps + 2, "\(burst) reads for 40 events over \(elapsed)")
         await host.stop()
     }
 

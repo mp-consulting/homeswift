@@ -34,7 +34,7 @@ public actor HomeswiftMatterBridge: MatterControl {
     /// The look at the accessories under way: the next one waits for it, so two never add the same device.
     private var syncing: Task<Void, Never>?
     private var observations: [Observation] = []
-    private let changeObservers = NIOLockedValueBox<[@Sendable (_ device: String?) -> Void]>([])
+    private let changed = NIOLockedValueBox<(@Sendable (_ device: String?) -> Void)?>(nil)
 
     private struct Bridged {
         let device: BridgedDevice
@@ -54,7 +54,7 @@ public actor HomeswiftMatterBridge: MatterControl {
             name = accessory.name
             var parts: [ObjectIdentifier: Int] = [:]
             for (index, mapping) in mappings.enumerated() {
-                for characteristic in mapping.service.characteristics { parts[ObjectIdentifier(characteristic)] = index }
+                for characteristic in mapping.characteristics { parts[ObjectIdentifier(characteristic)] = index }
             }
             self.parts = parts
         }
@@ -103,16 +103,15 @@ public actor HomeswiftMatterBridge: MatterControl {
         await watch(node, device: nil)
     }
 
-    /// Calls `observer` when a node is added to an ecosystem or removed from one, or opens or closes its commissioning
-    /// window: with the accessory's id for a device of its own, nil for the bridge.
+    /// Calls `observer` (one: the CLI passes changes on to the catalog, whose pages follow them) when a node is added to
+    /// an ecosystem or removed from one, or opens or closes its commissioning window: with the accessory's id for a
+    /// device of its own, nil for the bridge.
     public nonisolated func onChange(_ observer: @escaping @Sendable (_ device: String?) -> Void) {
-        changeObservers.withLockedValue { $0.append(observer) }
+        changed.withLockedValue { $0 = observer }
     }
 
     private nonisolated func watch(_ node: MatterNode, device: String?) async {
-        let notify: @Sendable () -> Void = { [changeObservers] in
-            for observer in changeObservers.withLockedValue({ $0 }) { observer(device) }
-        }
+        let notify: @Sendable () -> Void = { [changed] in changed.withLockedValue { $0 }?(device) }
         await node.fabrics.onChange { _ in notify() }
         await node.commissioning.onWindowChange { _, _ in notify() }
     }
@@ -260,6 +259,8 @@ public actor HomeswiftMatterBridge: MatterControl {
                         storage: deviceStorage(accessory.id), transport: await deviceTransport?(accessory.id), tcp: configuration.tcp,
                         advertise: advertise, reliability: reliability, logger: logger)
                     let device = try await ownNode.addDevice(info, parts: parts, battery: battery)
+                    // Watched before it starts, so the window it opens reaches the pages too.
+                    await watch(ownNode, device: accessory.id)
                     do {
                         try await ownNode.start()
                     } catch where refused.count < 4 {
@@ -269,7 +270,6 @@ public actor HomeswiftMatterBridge: MatterControl {
                         continue
                     }
                     devices[accessory.id] = Bridged(device: device, accessory: accessory, mappings: mappings, own: ownNode)
-                    await watch(ownNode, device: accessory.id)
                     await report(accessory, mappings: mappings, on: device)
                     logger.info("Matter: \(accessory.name) is a device of its own on port \(port)")
                     return
@@ -389,7 +389,7 @@ public actor HomeswiftMatterBridge: MatterControl {
         var bridged: [JSONValue] = [], own: [JSONValue] = []
         for device in devices.values.sorted(by: { $0.name < $1.name }) {
             var entry: [String: JSONValue] = ["name": .string(device.name), "id": .string(device.accessory.id),
-                                              "types": .array(device.mappings.map { .string("\($0.role)") })]
+                                              "types": .array(device.mappings.map { .string($0.role.name) })]
             if let node = device.own {
                 entry.merge(await Self.nodeStatus(node, includePairing: includePairing)) { $1 }
                 entry["port"] = ports[device.accessory.id].map { .number(Double($0)) }

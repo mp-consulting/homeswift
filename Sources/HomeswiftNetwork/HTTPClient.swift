@@ -408,15 +408,15 @@ private final class ResponseCollector: ChannelDuplexHandler {
 }
 
 /// A response body as one log line: an HTML page (a server answering an error with a web page) by its title, else by its
-/// text without the tags; any other text with its runs of spaces and line breaks made one space; cut to `limit`
-/// characters, nil when there is nothing. Only the start of a long body is read.
+/// text without the tags, scripts and styles; any other text with its runs of spaces and line breaks made one space;
+/// cut to `limit` characters, nil when there is nothing. Only the start of a long body is read.
 public func logExcerpt(_ text: String, limit: Int = 200) -> String? {
     let head = text.prefix(4 * limit + 1024)
     if head.range(of: "<html", options: .caseInsensitive) != nil || head.range(of: "<!doctype html", options: .caseInsensitive) != nil {
         let title = head.range(of: "<title>", options: .caseInsensitive).flatMap { start in
             head.range(of: "</title>", options: .caseInsensitive, range: start.upperBound..<head.endIndex).map { head[start.upperBound..<$0.lowerBound] }
         }
-        let text = title.map(String.init) ?? head.replacingOccurrences(of: "<[^>]*>", with: " ", options: .regularExpression)
+        let text = title.map(String.init) ?? head.replacingOccurrences(of: "(?is)<(script|style)\\b.*?</\\1>|<[^>]*>", with: " ", options: .regularExpression)
         let words = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         return words.isEmpty ? "an HTML page" : "an HTML page, \(words.prefix(limit))"
     }
