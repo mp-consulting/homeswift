@@ -31,8 +31,23 @@ public enum ThinQError: Error, CustomStringConvertible, Equatable, Sendable {
             .manualProcessNeeded(let message), .monitor(let message), .invalid(let message):
             message
         case .http(let status, let body):
-            "Request failed with status code \(status)" + (body.stringValue.map { $0.isEmpty ? "" : ": \($0.prefix(200))" } ?? ": \(body.text().prefix(200))")
+            "Request failed with status code \(status)" + (Self.excerpt(body.stringValue ?? body.text()).map { ": \($0)" } ?? "")
         }
+    }
+
+    /// A body for one log line: an HTML page by its title (LG answers some errors with a whole web page), any other text
+    /// with its runs of spaces and line breaks made one space, cut to 200 characters.
+    static func excerpt(_ text: String) -> String? {
+        let lowered = text.lowercased()
+        if lowered.contains("<html") || lowered.contains("<!doctype html") {
+            let title = text.range(of: "<title>", options: .caseInsensitive).flatMap { start in
+                text.range(of: "</title>", options: .caseInsensitive, range: start.upperBound..<text.endIndex).map { text[start.upperBound..<$0.lowerBound] }
+            }
+            let words = title.map { $0.split(whereSeparator: \.isWhitespace).joined(separator: " ") } ?? ""
+            return words.isEmpty ? "an HTML page" : "an HTML page, \(words.prefix(200))"
+        }
+        let words = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        return words.isEmpty ? nil : String(words.prefix(200))
     }
 }
 
