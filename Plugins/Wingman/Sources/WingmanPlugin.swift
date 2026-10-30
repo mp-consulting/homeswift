@@ -380,21 +380,25 @@ actor Link {
         await plugin.prune()
     }
 
-    /// Waits for value changes and applies them. Answers whether the homes must be read again (Wingman restarted, or
-    /// a change names a characteristic not seen yet).
+    /// Waits for value changes and applies them. Answers whether the homes must be read again (Wingman restarted,
+    /// Apple Home's accessories, rooms or names changed, or a change names a characteristic not seen yet).
     private func follow() async throws -> Bool {
         let answer = try await client.events(since: since, wait: WingmanPlugin.eventWait)
         lastContact = Date()
         // Wingman restarted (its count began again), or dropped events older than it keeps: read the homes again.
         if let last = answer.last, last < since { return true }
         if let first = answer.first, first > since + 1 { return true }
-        var unknown = false
+        var readAgain = false
         for event in answer.events {
             if let seq = event.seq { since = max(since, seq) }
+            if event.kind == "homes" {
+                readAgain = true
+                continue
+            }
             guard let accessoryID = event.accessoryID, let characteristicID = event.characteristicID,
                   let mirror = snapshot?.mirrors[accessoryID] else { continue }
             guard let characteristic = mirror.characteristics[characteristicID] else {
-                unknown = true
+                readAgain = true
                 continue
             }
             Mirror.apply(event.value, to: characteristic)
@@ -402,7 +406,7 @@ actor Link {
             if unreachable.remove(accessoryID) != nil { mirror.accessory.isUnavailable = false }
         }
         if let last = answer.last { since = max(since, last) }
-        return unknown
+        return readAgain
     }
 
     private func lost(_ error: any Error) {
