@@ -576,21 +576,24 @@
               await api(`${base}/window`, { method: "POST", body: { minutes: 15 } });
               await refresh();
             }) })) : null],
-        // Not in any ecosystem yet, or open for one more: its code is what the person needs.
-        waiting: !fabrics.length || Boolean(node.pairing),
+        // In no ecosystem yet: its code is what the person needs.
+        waiting: !fabrics.length,
         search: [node.name ?? "", ...named.map((one) => one.name)].join(" "),
       };
     };
-    // The Matter bridge's card, or a device's row: drawn again after an administrator's change, a row kept open.
-    const matterNode = (node, own) => {
+    // The Matter bridge's card, or a device's row: drawn again after an administrator's change, a row kept open and as
+    // the search left it; `replaced` hears of the new element.
+    const matterNode = (node, own, replaced) => {
       const id = own ? `matter-${slug(node.id)}` : "matter";
       const refresh = async () => {
         const next = await api("/api/matter");
         const fresh = own ? (next.ownDevices || []).find((device) => device.id === node.id) : next;
         if (!fresh) return element.remove();
-        const replacement = matterNode(fresh, own);
+        const replacement = matterNode(fresh, own, replaced);
         if (own && element.open) replacement.open = true;
+        replacement.classList.toggle("hidden", element.classList.contains("hidden"));
         element.replaceWith(replacement);
+        replaced?.(replacement);
       };
       const parts = matterParts(node, own, refresh);
       const element = own ? deviceRow(parts, id) : serverCard(parts, id);
@@ -601,9 +604,12 @@
       }
       return element;
     };
+    // Kept up to date as rows are redrawn, so the widget drawn again (Customise) shows the latest.
     const matterRows = !matter?.enabled ? [] : (matter.ownDevices || []).map((device) => {
-      const node = matterNode(device, true);
-      return { name: device.name, waiting: node.open, node };
+      const row = { name: device.name };
+      row.node = matterNode(device, true, (next) => { row.node = next; });
+      row.waiting = !(device.fabrics || []).length;
+      return row;
     });
 
     // Accessories and Matter devices of their own, one line each, those waiting to be added first: a home may have a
