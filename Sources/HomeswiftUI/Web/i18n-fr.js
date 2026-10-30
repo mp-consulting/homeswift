@@ -18,6 +18,8 @@ HomeswiftI18n.add("fr", {
   "Matter device of its own": "Appareil Matter à part entière",
   "Matter · {ecosystems}": "Matter · {ecosystems}",
   "Matter": "Matter",
+  "Shows a new pairing code for 15 minutes, so another app (Google Home, Alexa, Home Assistant or another home in Apple Home) can add this device too. The ecosystems it is in keep it.": "Affiche un nouveau code d'appairage pendant 15 minutes, pour qu'une autre app (Google Home, Alexa, Home Assistant ou une autre maison dans Apple Home) puisse aussi ajouter cet appareil. Les écosystèmes où il se trouve le gardent.",
+  "Shows a new pairing code for 15 minutes, so another app (Google Home, Alexa, Home Assistant or another home in Apple Home) can add the bridge and its devices too. The ecosystems it is in keep them.": "Affiche un nouveau code d'appairage pendant 15 minutes, pour qu'une autre app (Google Home, Alexa, Home Assistant ou une autre maison dans Apple Home) puisse aussi ajouter le pont et ses appareils. Les écosystèmes où il se trouve les gardent.",
   "Waiting to be added first": "En attente d'ajout d'abord",
   "Most ecosystems": "Le plus d'écosystèmes",
   "All devices": "Tous les appareils",

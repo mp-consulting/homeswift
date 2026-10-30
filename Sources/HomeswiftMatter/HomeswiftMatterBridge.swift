@@ -5,6 +5,7 @@ import HomeswiftMCP
 import HomeswiftPlugin
 import Logging
 import Matter
+import NIOConcurrencyHelpers
 
 /// The Matter bridge: every accessory the plugins publish (that the `HomeswiftMatter` block bridges) as a Matter
 /// bridged device, both ways (or a single HAP server's, `ServerAccessories`). An accessory in the block's `devices` is a
@@ -33,6 +34,7 @@ public actor HomeswiftMatterBridge: MatterControl {
     /// The look at the accessories under way: the next one waits for it, so two never add the same device.
     private var syncing: Task<Void, Never>?
     private var observations: [Observation] = []
+    private let changeObservers = NIOLockedValueBox<[@Sendable (_ device: String?) -> Void]>([])
 
     private struct Bridged {
         let device: BridgedDevice
@@ -98,6 +100,21 @@ public actor HomeswiftMatterBridge: MatterControl {
             port: configuration.port, deviceType: DeviceTypes.aggregator.id, storage: storage, transport: transport,
             tcp: configuration.tcp, advertise: advertise, reliability: reliability, logger: logger)
         bridge = try await MatterBridge(node: node)
+        await watch(node, device: nil)
+    }
+
+    /// Calls `observer` when a node is added to an ecosystem or removed from one, or opens or closes its commissioning
+    /// window: with the accessory's id for a device of its own, nil for the bridge.
+    public nonisolated func onChange(_ observer: @escaping @Sendable (_ device: String?) -> Void) {
+        changeObservers.withLockedValue { $0.append(observer) }
+    }
+
+    private nonisolated func watch(_ node: MatterNode, device: String?) async {
+        let notify: @Sendable () -> Void = { [changeObservers] in
+            for observer in changeObservers.withLockedValue({ $0 }) { observer(device) }
+        }
+        await node.fabrics.onChange { _ in notify() }
+        await node.commissioning.onWindowChange { _, _ in notify() }
     }
 
     /// A node of the bridge's or of an accessory's: its window stays open until it is commissioned, as a HAP bridge
@@ -252,6 +269,7 @@ public actor HomeswiftMatterBridge: MatterControl {
                         continue
                     }
                     devices[accessory.id] = Bridged(device: device, accessory: accessory, mappings: mappings, own: ownNode)
+                    await watch(ownNode, device: accessory.id)
                     await report(accessory, mappings: mappings, on: device)
                     logger.info("Matter: \(accessory.name) is a device of its own on port \(port)")
                     return

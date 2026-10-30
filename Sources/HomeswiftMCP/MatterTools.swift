@@ -1,5 +1,7 @@
+import Foundation
 import Homeswift
 import HomeswiftAI
+import HomeswiftPlugin
 import NIOConcurrencyHelpers
 
 /// The Matter bridge as the catalog sees it: what the MCP tools and the web UI read and do. `HomeswiftMatter`
@@ -28,6 +30,18 @@ public final class MatterControlSlot: Sendable {
     public var current: (any MatterControl)? {
         get { box.withLockedValue { $0 } }
         set { box.withLockedValue { $0 = newValue } }
+    }
+    private let listeners = NIOLockedValueBox<[UUID: @Sendable (_ device: String?) -> Void]>([:])
+    /// Calls `observer` when the bridge (nil) or the accessory that is a Matter device of its own (its id) is added to
+    /// an ecosystem or removed from one, or opens or closes its commissioning window: the web UI's pages follow it.
+    public func observeChanges(_ observer: @escaping @Sendable (_ device: String?) -> Void) -> Observation {
+        let id = UUID()
+        listeners.withLockedValue { $0[id] = observer }
+        return Observation { [listeners] in _ = listeners.withLockedValue { $0.removeValue(forKey: id) } }
+    }
+    /// The running bridge says what changed (the CLI passes its changes on).
+    public func changed(device: String?) {
+        for listener in listeners.withLockedValue({ Array($0.values) }) { listener(device) }
     }
     /// Whether Matter can show an accessory (set by the CLI, which has the mapping): the switch refuses one it cannot.
     public var maps: (@Sendable (_ accessory: Accessory, _ exposeSecurity: Bool) -> Bool)? {

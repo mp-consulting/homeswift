@@ -14,6 +14,7 @@ enum MatterCommands {
             let bridge = try await HomeswiftMatterBridge(configuration: matter, source: catalog.host, storage: MatterFileStorage(directory: directory),
                                                          deviceStorage: { MatterFileStorage(device: $0, in: directory) }, logger: logger)
             try await bridge.start()
+            bridge.onChange { [slot = catalog.matter] device in slot.changed(device: device) }
             catalog.matter.current = bridge
             return bridge
         } catch {

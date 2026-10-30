@@ -438,6 +438,18 @@
       }
     });
     stream.addEventListener("log", (event) => appendLogLine(JSON.parse(event.data)));
+    // A Matter node added to an ecosystem, removed from one, or opened for one: its card or row on the Status page is
+    // drawn again, once the burst of changes a pairing makes (the new fabric, the window closing) has settled.
+    const matterChanges = new Map();
+    stream.addEventListener("matter", (message) => {
+      const { device } = JSON.parse(message.data);
+      clearTimeout(matterChanges.get(device));
+      matterChanges.set(device, setTimeout(() => {
+        matterChanges.delete(device);
+        if (location.pathname !== "/status") return;
+        document.getElementById(device ? `matter-${slug(device)}` : "matter")?.refreshMatter?.();
+      }, 500));
+    });
     // The rooms or the wall changed elsewhere (the chat, an MCP client, another page): the Accessories page draws them
     // again, once for a burst, unless the change is the page's own. While it is being edited or a dialog is open over
     // it, the redraw waits for them to end, so a save from Edit does not put back what changed meanwhile.
@@ -629,7 +641,11 @@
               : t("In the ecosystem's app: add a Matter device, then scan this code or type it.") }),
             el("div", { class: "code", text: node.pairing.manualCode.replace(/^(\d{4})(\d{3})(\d{4})$/, "$1-$2-$3") })))
           : admin ? el("div", { class: "actions" },
-            el("button", { class: "link", actionIcon: "plus", text: t("Add to another ecosystem"), onclick: (event) => HomeswiftCommon.busyButton(event.currentTarget, async () => {
+            el("button", { class: "link", actionIcon: "plus", text: t("Add to another ecosystem"),
+              // What it does, on hover: Matter lets several apps share a device, each adding it with its own code.
+              title: own ? t("Shows a new pairing code for 15 minutes, so another app (Google Home, Alexa, Home Assistant or another home in Apple Home) can add this device too. The ecosystems it is in keep it.")
+                : t("Shows a new pairing code for 15 minutes, so another app (Google Home, Alexa, Home Assistant or another home in Apple Home) can add the bridge and its devices too. The ecosystems it is in keep them."),
+              onclick: (event) => HomeswiftCommon.busyButton(event.currentTarget, async () => {
               await api(`${base}/window`, { method: "POST", body: { minutes: 15 } });
               await refresh();
             }) })) : null],
@@ -652,6 +668,8 @@
       };
       const parts = matterParts(node, own, refresh);
       const element = own ? deviceRow(parts, id, open) : serverCard(parts, id);
+      // Drawn again when the bridge says the node changed (the event stream's "matter").
+      element.refreshMatter = refresh;
       // Reached from an accessory's menu: brought into view (its row opened by the list).
       if (location.hash === `#${id}`) requestAnimationFrame(() => element.scrollIntoView({ block: "center" }));
       return element;

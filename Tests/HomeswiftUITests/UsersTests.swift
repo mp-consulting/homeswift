@@ -360,6 +360,21 @@ struct UsersServerTests {
         #expect(text.contains("event: layout"))
     }
 
+    @Test func tellsPagesWhenAMatterNodeChanges() async throws {
+        let environment = try UITestEnvironment()
+        _ = try await environment.start()
+        defer { Task { await environment.stop() } }
+        // The bridge says a device of its own joined an ecosystem: the Status page hears which, to draw its row again.
+        let stream = environment.server.events.stream(logs: false)
+        environment.server.catalog.matter.changed(device: "Lights:1")
+        var text = ""
+        for await chunk in stream {
+            text += String(decoding: chunk, as: UTF8.self)
+            if text.contains("event: matter") { break }
+        }
+        #expect(text.contains("event: matter") && text.contains("\"device\":\"Lights:1\""))
+    }
+
     @Test func keepsTheLogFromOtherUsersEventStreams() async throws {
         let hub = EventHub()
         let stream = hub.stream(logs: false)

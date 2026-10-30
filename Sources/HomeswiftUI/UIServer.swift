@@ -1466,7 +1466,11 @@ final class EventHub: Sendable {
         }
         // The rooms or the wall changed (a page, the chat, an MCP client): the Accessories page draws them again.
         let layout = catalog.home.observeLayout { [self] in broadcast(event: "layout", payload: [:]) }
-        observations.withLockedValue { $0 = [changes, log, layout] }
+        // A Matter node added to an ecosystem or opened for one: the Status page draws its card or row again.
+        let matter = catalog.matter.observeChanges { [self] device in
+            broadcast(event: "matter", payload: ["device": device.map(JSONValue.string) ?? .null])
+        }
+        observations.withLockedValue { $0 = [changes, log, layout, matter] }
     }
 
     func stream(logs: Bool = true) -> AsyncStream<Data> {

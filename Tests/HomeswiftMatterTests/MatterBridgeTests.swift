@@ -3,6 +3,7 @@ import Homeswift
 import HomeswiftPlugin
 import Logging
 import Matter
+import NIOConcurrencyHelpers
 import Testing
 
 @testable import HomeswiftMatter
@@ -193,7 +194,12 @@ struct MatterBridgeTests {
             #expect(status["devices"] == .array([]))
             let code = try #require(own["pairing"]?["manualCode"]?.stringValue)
             let passcode = try ManualPairingCode(code).passcode
+            // Pages hear of the lamp's new fabric and its window closing, by the lamp's id.
+            let changes = NIOLockedValueBox<[String?]>([])
+            fixture.matter.onChange { device in changes.withLockedValue { $0.append(device) } }
             let session = try await fixture.commissioner.commission(.memory("Household:lamp"), passcode: passcode, nodeID: 0x43).localSessionID
+            try await eventually { changes.withLockedValue { $0.contains("Household:lamp") } }
+            #expect(changes.withLockedValue { $0.allSatisfy { $0 == "Household:lamp" } })
 
             // The lamp is the node's device: on endpoint 1, under the root, with no Aggregator.
             let client = fixture.commissioner.client
