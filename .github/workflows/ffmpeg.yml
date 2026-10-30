@@ -36,20 +36,30 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # A published tag is built again only by a new REVISION. A push that changed FFmpeg/ without one fails; a push
+      # that changed only this workflow (Dependabot's action bumps) or a manual run has nothing new to build.
       - name: The tag, unpublished
         id: tag
+        env:
+          BEFORE: ${{ github.event.before }}
         run: |
           version=$(sed -n 's/^ARG FFMPEG_VERSION=//p' FFmpeg/Dockerfile)
           revision=$(sed -n 's/^ARG REVISION=//p' FFmpeg/Dockerfile)
           tag="$version-$revision"
           if docker buildx imagetools inspect "$IMAGE:$tag" > /dev/null 2>&1; then
-            echo "::error::$IMAGE:$tag exists: bump REVISION in FFmpeg/Dockerfile"
-            exit 1
+            if [ "$GITHUB_EVENT_NAME" = push ] && ! { git fetch -q --depth=1 origin "$BEFORE" \
+                && git diff --quiet "$BEFORE" HEAD -- FFmpeg/; }; then
+              echo "::error::$IMAGE:$tag exists: bump REVISION in FFmpeg/Dockerfile"
+              exit 1
+            fi
+            echo "::notice::$IMAGE:$tag exists and FFmpeg/ is unchanged: nothing to build"
+            exit 0
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
   build:
     needs: version
+    if: needs.version.outputs.tag != ''
     strategy:
       matrix:
         include:
@@ -98,6 +108,7 @@ jobs:
 
   merge:
     needs: [version, build]
+    if: needs.version.outputs.tag != ''
     runs-on: ubuntu-24.04
     permissions:
       contents: read
