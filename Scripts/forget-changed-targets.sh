@@ -1,7 +1,8 @@
 #!/bin/sh
 # Drops, from a build restored from CI's cache, what was built of the targets a pull request changes: their objects and
-# modules are compiled whole instead. Scripts/restore-mtimes.swift dates a pull request's files now, yet the macOS
-# runner's incremental build kept a stale object of a file the branch changed (HAPServer.swift) and failed to link.
+# modules are compiled whole instead. Scripts/restore-mtimes.swift dates files by their last commit, which can be older
+# than the base's cached build: the macOS runner kept a stale object of a file the branch changed (HAPServer.swift) and
+# failed to link, even with that file dated now.
 # Run on a merge commit (a pull request's), after the cache is restored; elsewhere it does nothing.
 set -e
 git rev-parse --verify --quiet HEAD^2 >/dev/null || exit 0
@@ -16,6 +17,6 @@ set --
 for target in $targets; do set -- "$@" -o -name "$target.build" -o -name "$target.swiftmodule" -o -name "$target.swiftdoc"; done
 shift
 for folder in .build/*/debug .build/*/release; do
-  [ -d "$folder" ] && find "$folder" \( "$@" \) -prune -exec rm -rf {} +
+  if [ -d "$folder" ]; then find "$folder" \( "$@" \) -prune -exec rm -rf {} +; fi
 done
 echo "Rebuilding" $targets

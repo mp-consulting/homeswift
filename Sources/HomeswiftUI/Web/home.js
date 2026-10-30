@@ -287,11 +287,14 @@
     // Its actions sit on the tile, round over its top corner: Stop while it can be, then the menu (Automate and the rest).
     const stop = scene.stoppable ? el("button", { type: "button", actionIcon: "stop", "aria-label": t("Stop"), title: t("Stop"), onclick: () => stopScene(scene, stop) }) : null;
     // A Homeswift scene that recalls it, to give it triggers and conditions.
+    let automating = false;
     const automate = async () => {
+      if (automating) return;
+      automating = true;
       try {
         const saved = await app.api("/api/scenes", { method: "POST", body: { name: scene.name.slice(0, 64), artworkId: scene.artworkId || null, actions: [{ recall: scene.id }] } });
         app.navigate(`/scenes/${encodeURIComponent(saved.id)}`);
-      } catch (e) { HomeswiftCommon.showAlert(e.message); }
+      } catch (e) { HomeswiftCommon.showAlert(e.message); automating = false; }
     };
     // Everything in it changes scenes or pictures: an administrator's.
     const menu = !app.isAdmin() ? null : menuButton(t("Actions for {name}", { name: scene.name }), () => [

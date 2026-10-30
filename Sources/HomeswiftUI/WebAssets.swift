@@ -9653,11 +9653,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // Its actions sit on the tile, round over its top corner: Stop while it can be, then the menu (Automate and the rest).
     const stop = scene.stoppable ? el("button", { type: "button", actionIcon: "stop", "aria-label": t("Stop"), title: t("Stop"), onclick: () => stopScene(scene, stop) }) : null;
     // A Homeswift scene that recalls it, to give it triggers and conditions.
+    let automating = false;
     const automate = async () => {
+      if (automating) return;
+      automating = true;
       try {
         const saved = await app.api("/api/scenes", { method: "POST", body: { name: scene.name.slice(0, 64), artworkId: scene.artworkId || null, actions: [{ recall: scene.id }] } });
         app.navigate(`/scenes/${encodeURIComponent(saved.id)}`);
-      } catch (e) { HomeswiftCommon.showAlert(e.message); }
+      } catch (e) { HomeswiftCommon.showAlert(e.message); automating = false; }
     };
     // Everything in it changes scenes or pictures: an administrator's.
     const menu = !app.isAdmin() ? null : menuButton(t("Actions for {name}", { name: scene.name }), () => [
@@ -22545,12 +22548,13 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 .hub-scene-tile { position: relative; display: grid; min-width: 0; }
 .hub-scene-tile > .scene-run { width: 100%; }
 .hub-scene-tile > .scene-run .scene-active { right: auto; left: var(--space-10); }
-.hub-scene-actions { position: absolute; top: var(--space-8); right: var(--space-8); z-index: 1; display: flex; gap: var(--space-6); }
-.hub-scene-actions > button { display: grid; place-items: center; width: 32px; height: 32px; min-height: 0; margin: 0; padding: 0; border-radius: 50%;
-  color: var(--text); background: var(--material-thick); border: 0; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
-  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
-.hub-scene-actions > button.action-with-icon { gap: 0; }
-@media (pointer: coarse) { .hub-scene-actions > button { width: 44px; height: 44px; } }
+/* The same buttons as a plugin page's scene tiles (`.scene .eye`): a dark disc on a picture, a light one on a pale tile. */
+.hub-scene-actions { position: absolute; top: 6px; right: 6px; z-index: 2; display: flex; gap: var(--space-4); }
+.hub-scene-actions > button { display: grid; place-items: center; width: 30px; height: 30px; min-height: 0; margin: 0; padding: 0; border-radius: 50%;
+  color: #fff; background: rgba(0, 0, 0, 0.28); border: 0; box-shadow: none; }
+.hub-scene-actions > button svg { width: 16px; height: 16px; }
+.hub-scene-actions > button.action-with-icon::before { width: 14px; height: 14px; }
+.hub-scene-tile:has(> .hub-scene:not(.pictured):not(.coloured)) .hub-scene-actions > button { background: rgba(255, 255, 255, 0.55); color: #1d1d1f; }
 .animation-settings { display: grid; gap: var(--space-10); margin-top: var(--space-10); }
 .animation-colours { display: flex; gap: var(--space-10); }
 .animation-lights { display: grid; gap: var(--space-6); }
