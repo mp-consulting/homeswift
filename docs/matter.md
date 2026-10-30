@@ -70,8 +70,8 @@ a part per service. Its name, manufacturer, model and serial number fill Bridged
 paused plugin's accessories show as unreachable. Televisions, cameras, heater-coolers, air purifiers, valves, smoke
 and air quality sensors are not bridged yet.
 
-Each device keeps its endpoint numbers across restarts (they are stored by the SHA-256 of the accessory id), and a
-removed accessory's numbers are never given to another, so the ecosystems keep their rooms and automations.
+Each device keeps its endpoint numbers across restarts (they are stored by accessory id), and a removed
+accessory's numbers are never given to another, so the ecosystems keep their rooms and automations.
 
 ## Security
 
