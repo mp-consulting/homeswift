@@ -81,8 +81,7 @@ extension PluginHost {
 
     /// The running plugins that own some of these accessories, each with its own, in the order given.
     private func owners(of accessoryIDs: [String]) -> [(any HomeswiftPlugin, [String])] {
-        instances.compactMap { instance in
-            guard !instance.block.paused, let plugin = instance.plugin.withLockedValue({ $0 }) else { return nil }
+        runningPlugins().compactMap { instance, plugin in
             let mine = Set(instance.context.accessories.map(\.id))
             let owned = accessoryIDs.filter(mine.contains)
             return owned.isEmpty ? nil : (plugin, owned)

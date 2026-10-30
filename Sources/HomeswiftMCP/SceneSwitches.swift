@@ -26,11 +26,12 @@ extension HomeswiftCatalog {
             refreshSceneSwitches()
             return
         }
-        let catalog = self
         let services = chosen.map { scene in
             let service = Service(.switch, name: scene.name, subtype: "scene:" + scene.id)
             service.characteristic(.on).value = .bool(sceneSwitchIsOn(scene))
             let id = scene.id
+            // A run or a stop refreshes the switches itself; a failure sets this one back.
+            let catalog = self
             service.characteristic(.on).onWrite { value in
                 let on = value.boolValue ?? false
                 Task {
@@ -38,8 +39,8 @@ extension HomeswiftCatalog {
                         if on { _ = try await catalog.runScene(id, trigger: .homeKit) } else { _ = try await catalog.stopScene(id) }
                     } catch {
                         catalog.logger.warning("The Home app's switch for a scene did not \(on ? "run" : "stop") it: \(error)")
+                        catalog.refreshSceneSwitches()
                     }
-                    catalog.refreshSceneSwitches()
                 }
             }
             return service
@@ -55,14 +56,17 @@ extension HomeswiftCatalog {
     /// Shows on each switch whether its scene is active, or can still be stopped.
     func refreshSceneSwitches() {
         guard let accessory = host.mainBridge.server.accessory(id: Self.sceneSwitchesID) else { return }
-        for scene in home.scenes.value.scenes where scene.homeKit == true {
-            guard let on = accessory.services.first(where: { $0.subtype == "scene:" + scene.id })?[.on] else { continue }
-            let value = HAPValue.bool(sceneSwitchIsOn(scene))
-            if on.value != value { on.value = value }
+        let switches = Dictionary(accessory.services.compactMap { service in service.subtype.map { ($0, service) } }, uniquingKeysWith: { first, _ in first })
+        withLookup {
+            for scene in home.scenes.value.scenes where scene.homeKit == true {
+                guard let on = switches["scene:" + scene.id]?[.on] else { continue }
+                let value = HAPValue.bool(sceneSwitchIsOn(scene))
+                if on.value != value { on.value = value }
+            }
         }
     }
 
     private func sceneSwitchIsOn(_ scene: Scene) -> Bool {
-        isActive(scene) || home.lightRuns.withLockedValue { $0.values.contains { $0.show.id == "scene:" + scene.id } }
+        isActive(scene) || !lightRuns(of: scene.id).isEmpty
     }
 }

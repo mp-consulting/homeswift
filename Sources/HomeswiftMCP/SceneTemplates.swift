@@ -60,13 +60,9 @@ extension HomeswiftCatalog {
 
     /// The tried plans still playing or still to undo; the others are forgotten.
     func activeTries() -> [PlanRun] {
-        let undo = home.sceneUndo.value
-        let live = { (run: PlanRun) in
-            self.isPlaying(run.id) || undo[run.id].map { Date().timeIntervalSince($0.at) < LightShowRules.undoSeconds && !$0.actions.isEmpty } == true
-                || self.home.lightRuns.withLockedValue { $0.values.contains { $0.show.id == "scene:" + run.id } }
-        }
+        let live = Set(home.planRuns.withLockedValue { Array($0.keys) }.filter { isPlaying($0) || isStoppable($0) })
         return home.planRuns.withLockedValue { runs in
-            runs = runs.filter { live($0.value) }
+            runs = runs.filter { live.contains($0.key) }
             return runs.values.sorted { $0.startedAt < $1.startedAt }
         }
     }

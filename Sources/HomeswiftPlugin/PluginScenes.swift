@@ -109,18 +109,21 @@ extension PluginHost {
     /// Every running instance's scenes (`HomeswiftPlugin.scenes()`), asked at the same time; paused instances and
     /// those with none are left out.
     public func pluginScenes() async -> [InstanceScenes] {
-        let running = instances.compactMap { instance -> (PlatformInstance, any HomeswiftPlugin)? in
-            guard !instance.block.paused, let plugin = instance.plugin.withLockedValue({ $0 }) else { return nil }
-            let described = PlatformInstance(
-                name: instance.context.name, platform: instance.context.platform, pluginName: instance.entry.name, bridge: instance.context.bridge,
-                accessoryIDs: instance.context.accessories.map(\.id))
-            return (described, plugin)
-        }
-        return await withTaskGroup(of: (Int, InstanceScenes?).self) { group in
-            for (index, (described, plugin)) in running.enumerated() {
+        await scenes(of: runningPlugins())
+    }
+
+    /// The scenes of the instance `name` of `platform` only, when it runs: a hub scene's id names its instance.
+    public func pluginScenes(platform: String, name: String) async -> InstanceScenes? {
+        await scenes(of: runningPlugins().filter { $0.instance.context.platform == platform && $0.instance.context.name == name }).first
+    }
+
+    private func scenes(of running: [(instance: Instance, plugin: any HomeswiftPlugin)]) async -> [InstanceScenes] {
+        await withTaskGroup(of: (Int, InstanceScenes?).self) { group in
+            for (index, (instance, plugin)) in running.enumerated() {
                 group.addTask {
                     let scenes = await plugin.scenes()
-                    return (index, scenes.isEmpty ? nil : InstanceScenes(instance: described, scenes: scenes))
+                    // Described only when it has some: most plugins have none.
+                    return (index, scenes.isEmpty ? nil : InstanceScenes(instance: instance.described, scenes: scenes))
                 }
             }
             var found: [(Int, InstanceScenes)] = []
@@ -144,17 +147,19 @@ extension PluginHost {
     /// The running instances that can keep a scene of these lights (`HomeswiftPlugin.sceneTarget`), asked at once.
     public func sceneTargets(accessoryIDs: [String]) async -> [SceneTarget] {
         guard !accessoryIDs.isEmpty else { return [] }
-        let candidates = instances.compactMap { instance -> (PlatformInstance, any HomeswiftPlugin)? in
-            let ids = Set(instance.context.accessories.map(\.id))
-            // Only an instance that has every one of the lights is asked.
-            guard !instance.block.paused, accessoryIDs.allSatisfy(ids.contains), let plugin = instance.plugin.withLockedValue({ $0 }) else { return nil }
-            return (PlatformInstance(name: instance.context.name, platform: instance.context.platform, pluginName: instance.entry.name, bridge: instance.context.bridge, accessoryIDs: Array(ids)), plugin)
+        // Only an instance that has every one of the lights is asked.
+        let candidates = runningPlugins().filter { candidate in
+            let ids = Set(candidate.instance.context.accessories.map(\.id))
+            return accessoryIDs.allSatisfy(ids.contains)
         }
-        var targets: [SceneTarget] = []
-        for (instance, plugin) in candidates {
-            if let label = await plugin.sceneTarget(accessoryIDs: accessoryIDs) { targets.append(SceneTarget(instance: instance, label: label)) }
+        return await withTaskGroup(of: (Int, SceneTarget?).self) { group in
+            for (index, (instance, plugin)) in candidates.enumerated() {
+                group.addTask { (index, await plugin.sceneTarget(accessoryIDs: accessoryIDs).map { SceneTarget(instance: instance.described, label: $0) }) }
+            }
+            var found: [(Int, SceneTarget)] = []
+            for await (index, target) in group { if let target { found.append((index, target)) } }
+            return found.sorted { $0.0 < $1.0 }.map(\.1)
         }
-        return targets
     }
 
     public func createScene(platform: String, name: String, sceneName: String, lights: [PluginSceneLight]) async throws -> String {
@@ -170,8 +175,9 @@ extension PluginHost {
     }
 
     private func runningPlugin(platform: String, name: String) throws -> any HomeswiftPlugin {
-        guard let instance = instances.first(where: { $0.context.platform == platform && $0.context.name == name }), !instance.block.paused,
-              let plugin = instance.plugin.withLockedValue({ $0 }) else { throw PluginSceneError("\(name) is not running") }
-        return plugin
+        guard let running = runningPlugins().first(where: { $0.instance.context.platform == platform && $0.instance.context.name == name }) else {
+            throw PluginSceneError("\(name) is not running")
+        }
+        return running.plugin
     }
 }

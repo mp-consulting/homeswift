@@ -122,6 +122,13 @@ public final class PluginHost: @unchecked Sendable {
         /// Why its plugin did not start, the last time it was launched.
         let failure = NIOLockedValueBox<String?>(nil)
 
+        /// What callers outside the runtime see of it.
+        var described: PlatformInstance {
+            PlatformInstance(
+                name: context.name, platform: context.platform, pluginName: entry.name, bridge: context.bridge,
+                accessoryIDs: context.accessories.map(\.id), paused: block.paused)
+        }
+
         init(entry: PluginRegistry.Entry, block: HomeswiftConfiguration.Platform, context: PluginContext) {
             self.entry = entry
             self.block = block
@@ -143,18 +150,17 @@ public final class PluginHost: @unchecked Sendable {
     /// The platform instance that published the accessory `id` on `bridge` (its claim, or the external accessory's
     /// owner), without describing every instance as `platforms` does.
     public func platform(owning id: String, on bridge: Bridge) -> PlatformInstance? {
-        guard let key = bridge.isExternal ? bridge.ownerKey : bridge.claimant(of: id),
-              let instance = instances.first(where: { $0.context.key == key }) else { return nil }
-        return PlatformInstance(
-            name: instance.context.name, platform: instance.context.platform, pluginName: instance.entry.name, bridge: instance.context.bridge,
-            accessoryIDs: instance.context.accessories.map(\.id), paused: instance.block.paused)
+        guard let key = bridge.isExternal ? bridge.ownerKey : bridge.claimant(of: id) else { return nil }
+        return instances.first { $0.context.key == key }?.described
     }
 
-    public var platforms: [PlatformInstance] {
-        instances.map {
-            PlatformInstance(
-                name: $0.context.name, platform: $0.context.platform, pluginName: $0.entry.name, bridge: $0.context.bridge,
-                accessoryIDs: $0.context.accessories.map(\.id), paused: $0.block.paused)
+    public var platforms: [PlatformInstance] { instances.map(\.described) }
+
+    /// The instances whose plugin runs (not paused, started), with it.
+    func runningPlugins() -> [(instance: Instance, plugin: any HomeswiftPlugin)] {
+        instances.compactMap { instance in
+            guard !instance.block.paused, let plugin = instance.plugin.withLockedValue({ $0 }) else { return nil }
+            return (instance, plugin)
         }
     }
 
@@ -578,7 +584,7 @@ public final class PluginHost: @unchecked Sendable {
         return PluginContext(
             platform: block.platform, name: block.name, key: key, logger: pluginLogger, bridge: bridge,
             cache: AccessoryCache(url: storageDirectory.appendingPathComponent("accessories").appendingPathComponent("\(key).json")),
-            storageURL: storageDirectory.appendingPathComponent("plugins").appendingPathComponent(key),
+            storageURL: storageDirectory.appendingPathComponent("plugins").appendingPathComponent(key), storageRoot: storageDirectory,
             assistant: assistant, externals: externals, assistantBackground: assistantBackground,
             recordSink: { series, value, tag in values.publish(series, value, tag) },
             energyImportSink: { hours in energyImports.publish(key, hours) },

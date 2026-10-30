@@ -232,28 +232,36 @@ public struct HomeswiftCatalog: Sendable {
         var bytes: [UInt8] = []
         bytes.reserveCapacity(name.utf8.count)
         for byte in name.utf8 {
-            switch byte {
-            case UInt8(ascii: "A")...UInt8(ascii: "Z"): bytes.append(byte + 32)
-            case UInt8(ascii: "a")...UInt8(ascii: "z"), UInt8(ascii: "0")...UInt8(ascii: "9"): bytes.append(byte)
-            case 0x80...: return name.lowercased().filter { $0.isLetter || $0.isNumber }
-            default: continue
+            switch folded(byte) {
+            case .letter(let kept): bytes.append(kept)
+            case .skipped: continue
+            case .unicode: return name.lowercased().filter { $0.isLetter || $0.isNumber }
             }
         }
         return String(decoding: bytes, as: UTF8.self)
+    }
+
+    private enum Folded { case letter(UInt8), skipped, unicode }
+
+    /// One byte of a name as `normalized` keeps it: an ASCII letter lowercased, a digit, skipped, or not ASCII.
+    @inline(__always) private static func folded(_ byte: UInt8) -> Folded {
+        switch byte {
+        case UInt8(ascii: "A")...UInt8(ascii: "Z"): .letter(byte + 32)
+        case UInt8(ascii: "a")...UInt8(ascii: "z"), UInt8(ascii: "0")...UInt8(ascii: "9"): .letter(byte)
+        case 0x80...: .unicode
+        default: .skipped
+        }
     }
 
     /// Whether `name` normalizes to `wanted` (already normalized), without making the normalized copy.
     static func name(_ name: String, normalizesTo wanted: String) -> Bool {
         var expected = wanted.utf8.makeIterator()
         for byte in name.utf8 {
-            let folded: UInt8
-            switch byte {
-            case UInt8(ascii: "A")...UInt8(ascii: "Z"): folded = byte + 32
-            case UInt8(ascii: "a")...UInt8(ascii: "z"), UInt8(ascii: "0")...UInt8(ascii: "9"): folded = byte
-            case 0x80...: return normalized(name) == wanted
-            default: continue
+            switch folded(byte) {
+            case .letter(let kept): guard expected.next() == kept else { return false }
+            case .skipped: continue
+            case .unicode: return normalized(name) == wanted
             }
-            guard expected.next() == folded else { return false }
         }
         return expected.next() == nil
     }
@@ -1224,7 +1232,7 @@ public struct HomeswiftCatalog: Sendable {
                     var held: LightRun?
                     let heldRun = "action-" + SceneRules.newID()
                     if action.changesLights {
-                        held = try await catalog.holdLightChanges("\(entry.name): \(action.title)", id: "scene:" + heldRun, platform: instance, by: "MCP \(call.session.principal.name)", during: send)
+                        held = try await catalog.holdLightChanges("\(entry.name): \(action.title)", id: Self.showID(of: heldRun), platform: instance, by: "MCP \(call.session.principal.name)", during: send)
                     } else {
                         _ = try await send()
                     }
@@ -1398,8 +1406,11 @@ public struct CatalogError: Error, CustomStringConvertible {
     /// A device's or a service's own words (Wingman relaying Apple Home): masked, one line, and for MCP clients
     /// wrapped as untrusted data, since a device chooses them.
     public let detail: String?
-    public init(_ message: String, detail: String? = nil) {
+    /// What was asked for does not exist (a scene, a hub's scene): the web UI answers 404.
+    public let notFound: Bool
+    public init(_ message: String, detail: String? = nil, notFound: Bool = false) {
         self.message = message
+        self.notFound = notFound
         self.detail = detail.map { String(HomeswiftCatalog.safe($0.split(whereSeparator: \.isNewline).joined(separator: " ")).prefix(300)) }
     }
     public var description: String { detail.map { "\(message): \($0)" } ?? message }

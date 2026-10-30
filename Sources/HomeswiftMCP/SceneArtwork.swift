@@ -12,6 +12,9 @@ public struct SceneArtwork: Sendable {
         LightShow(id: "gallery-" + id, name: name, description: "Photographic colour palette.", category: "gallery",
              steps: [LightStep(colors, assign: .spread, seconds: 1)])
     }
+    /// Every picture's id and name, as the Scenes page lists them; made once.
+    static let catalogueJSON: JSONValue = .array(all.map(\.json))
+
     public static func find(_ id: String) -> SceneArtwork? { all.first { $0.id == id } ?? templatePhotographs.first { $0.id == id } }
     /// The gallery picture with a scene's name, letters and digits compared case aside, as plugin pages match a hub's
     /// scenes (plugin.js's `matchedArtwork`): Hue's standard scenes share the gallery's titles.
@@ -24,9 +27,7 @@ public struct SceneArtwork: Sendable {
     /// The gallery by its names as `matching` compares them, made once: a scene list matches every hub scene.
     private static let byNormalizedName: [String: SceneArtwork] = Dictionary(all.map { (normalized($0.name), $0) }, uniquingKeysWith: { first, _ in first })
 
-    private static func normalized(_ text: String) -> String {
-        String(text.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }.map(Character.init))
-    }
+    private static func normalized(_ text: String) -> String { HomeswiftCatalog.normalized(text) }
 
     public static func forTemplate(_ id: String?) -> SceneArtwork? {
         guard let id else { return nil }

@@ -28,6 +28,6 @@ extension HomeswiftCatalog {
 
     private func requireScene(_ id: String) async throws {
         if home.scenes.value.scenes.contains(where: { $0.id == id }) { return }
-        guard await foundPluginScenes().contains(where: { $0.id == id }) else { throw CatalogError("No scene \(id)") }
+        guard await pluginScene(id)?.id == id else { throw CatalogError("No scene \(id)", notFound: true) }
     }
 }

@@ -310,8 +310,8 @@ public final class PluginContext: @unchecked Sendable {
     let cache: AccessoryCache
     let externals: ExternalAccessories
     let storageURL: URL
-    /// The bridge's storage directory (`homeswift -U`), which holds `plugins/<key>`.
-    var storageRoot: URL { storageURL.deletingLastPathComponent().deletingLastPathComponent() }
+    /// The bridge's storage directory (`homeswift -U`): the core's files plugins share (scenes' pictures).
+    let storageRoot: URL
     private let assistantBox: NIOLockedValueBox<AssistantService?>
     private let assistantBackground: String?
     private let recordSink: @Sendable (String, Double, EnergyTag?) -> Void
@@ -384,12 +384,13 @@ public final class PluginContext: @unchecked Sendable {
     }
 
     init(
-        platform: String, name: String, key: String, logger: Logger, bridge: PluginHost.Bridge, cache: AccessoryCache, storageURL: URL,
+        platform: String, name: String, key: String, logger: Logger, bridge: PluginHost.Bridge, cache: AccessoryCache, storageURL: URL, storageRoot: URL,
         assistant: NIOLockedValueBox<AssistantService?>, externals: ExternalAccessories, assistantBackground: String? = nil,
         recordSink: @escaping @Sendable (String, Double, EnergyTag?) -> Void = { _, _, _ in },
         energyImportSink: @escaping @Sendable ([EnergyHourImport]) -> Void = { _ in },
         energyProgressSink: @escaping @Sendable (EnergyImportProgress) -> Void = { _ in }
     ) {
+        self.storageRoot = storageRoot
         self.energyProgressSink = energyProgressSink
         self.recordSink = recordSink
         self.energyImportSink = energyImportSink

@@ -362,7 +362,6 @@ struct SavedHeldLights: Codable, Sendable {
     var show: LightShow
     var startedAt: Date
     var by: String
-    var room: String?
     var snapshots: [String: LightSnapshot]
 }
 
@@ -374,20 +373,17 @@ final class LightRun: Sendable {
     let startedAt: Date
     let endsAt: Date?
     let by: String
-    /// The room it was started for, when it was.
-    let room: String?
     let task = NIOLockedValueBox<Task<Void, Never>?>(nil)
     /// The lights it puts back when it ends, with their values; a show that takes a light over takes its snapshot.
     let snapshots: NIOLockedValueBox<[String: LightSnapshot]>
 
-    init(id: String, show: LightShow, lights: [SceneLight], startedAt: Date, endsAt: Date?, by: String, room: String?, snapshots: [String: LightSnapshot]) {
+    init(id: String, show: LightShow, lights: [SceneLight], startedAt: Date, endsAt: Date?, by: String, snapshots: [String: LightSnapshot]) {
         self.id = id
         self.show = show
         self.lights = lights
         self.startedAt = startedAt
         self.endsAt = endsAt
         self.by = by
-        self.room = room
         self.snapshots = NIOLockedValueBox(snapshots)
     }
 
@@ -406,7 +402,6 @@ final class LightRun: Sendable {
             object["undoUntil"] = .string(Timestamp.iso8601(startedAt.addingTimeInterval(LightShowRules.undoSeconds)))
         }
         if let showID = show.id { object["show"] = .string(showID) }
-        if let room { object["room"] = .string(room) }
         if let endsAt { object["endsAt"] = .string(Timestamp.iso8601(endsAt)) }
         return .object(object)
     }
@@ -458,7 +453,7 @@ extension HomeswiftCatalog {
     func saveHeldLights() {
         let saved = home.lightRuns.withLockedValue { Array($0.values) }.filter(\.isHeld).sorted { $0.startedAt < $1.startedAt }.compactMap { run in
             let snapshots = run.snapshots.withLockedValue { $0 }
-            return snapshots.isEmpty ? nil : SavedHeldLights(id: run.id, show: run.show, startedAt: run.startedAt, by: run.by, room: run.room, snapshots: snapshots)
+            return snapshots.isEmpty ? nil : SavedHeldLights(id: run.id, show: run.show, startedAt: run.startedAt, by: run.by, snapshots: snapshots)
         }
         do { try home.heldLights.update { $0 = saved } } catch { logger.warning("Could not save the shows that can be undone: \(error)") }
     }
@@ -473,7 +468,7 @@ extension HomeswiftCatalog {
             let found = currentLights(keys: keys)
             let lights = keys.compactMap { found[$0] }
             guard !lights.isEmpty else { continue }
-            _ = hold(saved.show, on: lights, snapshots: saved.snapshots, by: saved.by, room: saved.room,
+            _ = hold(saved.show, on: lights, snapshots: saved.snapshots, by: saved.by,
                      id: saved.id, startedAt: saved.startedAt, save: false)
             logger.info("LightShow \"\(saved.show.name)\" can still be undone after the restart", metadata: ["run": "\(saved.id)"])
         }
@@ -514,7 +509,7 @@ extension HomeswiftCatalog {
         guard !changed.isEmpty else { return nil }
         let snapshots = await takeOver(changed, before: before)
         let show = LightShow(id: id, name: name, steps: [LightStep(changed.map(\.color), seconds: LightShowRules.minSeconds)])
-        let run = hold(show, on: changed, snapshots: snapshots, by: by, room: nil)
+        let run = hold(show, on: changed, snapshots: snapshots, by: by)
         logger.info("\(name) changed \(changed.count) light(s); stop_scene undoes it", metadata: ["by": "\(by)", "run": "\(run.id)"])
         return run
     }
@@ -562,11 +557,11 @@ extension HomeswiftCatalog {
 
     /// Starts an animated show in the background; lights another show was playing on change hands without a flash
     /// back to their old values.
-    func play(_ show: LightShow, on lights: [SceneLight], by: String, room: String?) async -> LightRun {
+    func play(_ show: LightShow, on lights: [SceneLight], by: String) async -> LightRun {
         let snapshots = await takeOver(lights)
         let now = Date()
         let total = show.loop == true ? (show.durationSeconds ?? LightShowRules.defaultDuration) : show.steps.reduce(0) { $0 + $1.seconds }
-        let run = LightRun(id: LightShowRules.newID(), show: show, lights: lights, startedAt: now, endsAt: now.addingTimeInterval(total), by: by, room: room, snapshots: snapshots)
+        let run = LightRun(id: LightShowRules.newID(), show: show, lights: lights, startedAt: now, endsAt: now.addingTimeInterval(total), by: by, snapshots: snapshots)
         let catalog = self
         // Registered with its task before anything else can stop it.
         home.lightRuns.withLockedValue { running in
@@ -608,9 +603,9 @@ extension HomeswiftCatalog {
     /// Keeps a show that set the lights once, for `LightShowRules.undoSeconds`: stopping it in that time puts the lights
     /// back; after it, the chance to undo ends and the lights stay.
     /// A run brought back after a restart keeps its id and start, so its chance to undo ends when it would have.
-    func hold(_ show: LightShow, on lights: [SceneLight], snapshots: [String: LightSnapshot], by: String, room: String?,
+    func hold(_ show: LightShow, on lights: [SceneLight], snapshots: [String: LightSnapshot], by: String,
                       id: String = LightShowRules.newID(), startedAt: Date = Date(), save: Bool = true) -> LightRun {
-        let run = LightRun(id: id, show: show, lights: lights, startedAt: startedAt, endsAt: nil, by: by, room: room, snapshots: snapshots)
+        let run = LightRun(id: id, show: show, lights: lights, startedAt: startedAt, endsAt: nil, by: by, snapshots: snapshots)
         let catalog = self
         let left = max(0, LightShowRules.undoSeconds - Date().timeIntervalSince(startedAt))
         home.lightRuns.withLockedValue { running in

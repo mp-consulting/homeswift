@@ -52,8 +52,23 @@ public struct SceneAnimation: Codable, Sendable, Equatable {
 extension HomeswiftCatalog {
     /// Whether a scene's animation plays now: natively on a plugin's lights, or by Homeswift's player.
     func isPlaying(_ sceneID: String) -> Bool {
-        home.nativeAnimations.withLockedValue { $0[sceneID] != nil }
-            || home.lightRuns.withLockedValue { $0.values.contains { $0.show.id == "scene:" + sceneID && !$0.isHeld } }
+        home.nativeAnimations.withLockedValue { $0[sceneID] != nil } || !lightRuns(of: sceneID, held: false).isEmpty
+    }
+
+    /// The id of the light runs a scene, a hub's scene or a plan holds or plays.
+    static func showID(of sceneID: String) -> String { "scene:" + sceneID }
+
+    /// The light runs of a scene (`held`: only those holding values, or only those playing); their run ids.
+    func lightRuns(of sceneID: String, held: Bool? = nil) -> [String] {
+        let show = Self.showID(of: sceneID)
+        return home.lightRuns.withLockedValue { $0.values.filter { $0.show.id == show && (held == nil || $0.isHeld == held) }.map(\.id) }
+    }
+
+    /// Whether `stop_scene` can still put back what this scene, hub scene or plan changed: an undo younger than 12
+    /// hours, or lights it holds or plays.
+    func isStoppable(_ sceneID: String) -> Bool {
+        let undo = home.sceneUndo.value[sceneID]
+        return undo.map { Date().timeIntervalSince($0.at) < LightShowRules.undoSeconds && !$0.actions.isEmpty } == true || !lightRuns(of: sceneID).isEmpty
     }
 
     /// Starts a scene's animation: the plugins play what they can natively, Homeswift's player the rest. Answers which
@@ -61,7 +76,7 @@ extension HomeswiftCatalog {
     func startAnimation(_ animation: SceneAnimation, of scene: Scene, by: String) async -> JSONValue {
         let lights = Self.lights(of: Array(Set(animation.lights)).compactMap { find(id: $0) })
         guard !lights.isEmpty else { return ["native": [], "played": [], "error": "none of its lights is here"] }
-        let showID = "scene:" + scene.id
+        let showID = Self.showID(of: scene.id)
         var native: Set<String> = []
         var rest = lights
         let show: LightShow?
@@ -73,7 +88,7 @@ extension HomeswiftCatalog {
                 // Held as a set once, so stopping the scene puts them back once their plugins stopped the effect.
                 let snapshots = await takeOver(played, before: before)
                 _ = hold(LightShow(id: showID, name: scene.name, steps: [LightStep(played.map(\.color), seconds: LightShowRules.minSeconds)]),
-                         on: played, snapshots: snapshots, by: by, room: nil)
+                         on: played, snapshots: snapshots, by: by)
                 home.nativeAnimations.withLockedValue { $0[scene.id] = Array(native) }
             }
             rest = lights.filter { !native.contains($0.located.accessory.id) }
@@ -83,7 +98,7 @@ extension HomeswiftCatalog {
         }
         var playedByHomeswift: [String] = []
         if let show, !rest.isEmpty {
-            _ = await play(show, on: rest, by: by, room: nil)
+            _ = await play(show, on: rest, by: by)
             playedByHomeswift = Array(Set(rest.map(\.located.accessory.id))).sorted()
         }
         logger.info("Scene \"\(scene.name)\" animates \(native.count) accessory(ies) natively, \(playedByHomeswift.count) by Homeswift")

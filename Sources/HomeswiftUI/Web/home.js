@@ -257,13 +257,11 @@
   }
 
   /// The animation styles, by id, in the order the editor lists them.
-  function effectStyleNames() {
-    return {
-      candle: t("Candle"), fire: t("Fire"), sparkle: t("Sparkle"), prism: t("Prism"), opal: t("Opal"), glisten: t("Glisten"),
-      underwater: t("Underwater"), cosmos: t("Cosmos"), sunbeam: t("Sunbeam"), enchant: t("Enchant"), palette: t("Moving colours"),
-      sunrise: t("Sunrise"), sunset: t("Sunset"), music: t("Follow the music"),
-    };
-  }
+  const effectStyleNames = {
+    candle: t("Candle"), fire: t("Fire"), sparkle: t("Sparkle"), prism: t("Prism"), opal: t("Opal"), glisten: t("Glisten"),
+    underwater: t("Underwater"), cosmos: t("Cosmos"), sunbeam: t("Sunbeam"), enchant: t("Enchant"), palette: t("Moving colours"),
+    sunrise: t("Sunrise"), sunset: t("Sunset"), music: t("Follow the music"),
+  };
 
   function sceneButton(scene) {
     const picture = sceneImage(scene, "quick-scene-image");
@@ -284,14 +282,7 @@
       scene.active ? el("span", { class: "pill scene-active", text: t("Scene active") }) : null);
     if (!picture && colours.length) button.style.background = colours.length > 1 ? `linear-gradient(135deg, ${colours.join(", ")})` : colours[0];
     button.addEventListener("click", async () => { if (await runScene(scene, button)) app.route(); });
-    const stop = scene.stoppable ? el("button", { type: "button", class: "link", actionIcon: "stop", text: t("Stop"), onclick: async () => {
-      stop.disabled = true;
-      try {
-        const result = await app.api(`/api/scenes/${encodeURIComponent(scene.id)}/stop`, { method: "POST", body: {} });
-        if (!result.ok) HomeswiftCommon.showAlert(result.failed.map((f) => HomeswiftI18n.message(f.error)).join("\n"));
-        app.route();
-      } catch (e) { HomeswiftCommon.showAlert(e.message); stop.disabled = false; }
-    } }) : null;
+    const stop = scene.stoppable ? el("button", { type: "button", class: "link", actionIcon: "stop", text: t("Stop"), onclick: () => stopScene(scene, stop) }) : null;
     // A Homeswift scene that recalls it, to give it triggers and conditions.
     const automate = el("button", { type: "button", class: "link", actionIcon: "history", text: t("Automate"), onclick: async () => {
       automate.disabled = true;
@@ -364,6 +355,19 @@
   }
 
   /// Runs a scene; one that changes a lock, a door or an alarm asks first, as the cards' own controls do.
+  /// Puts back what a scene's last run changed (a saved scene's locks, doors and alarms once the person agrees), then
+  /// redraws the page.
+  async function stopScene(scene, button) {
+    const confirmSecurity = Boolean(scene.security || scene.stopSecurity);
+    if (confirmSecurity && !await HomeswiftCommon.confirmDialog(t("Restore the previous state of this scene’s locks, doors or alarms?"))) return;
+    button.disabled = true;
+    try {
+      const result = await app.api(`/api/scenes/${encodeURIComponent(scene.id)}/stop`, { method: "POST", body: { confirmSecurity } });
+      if (!result.ok) HomeswiftCommon.showAlert(result.failed.map((f) => HomeswiftI18n.message(f.error)).join("\n"));
+      app.route();
+    } catch (e) { HomeswiftCommon.showAlert(e.message); button.disabled = false; }
+  }
+
   async function runScene(scene, button) {
     let confirmSecurity = false;
     if (scene.security) {
@@ -635,22 +639,13 @@
       const last = scene.lastRun ? (scene.lastRun.ok ? t("Last run {date} ({trigger})", lastVars) : t("Last run {date} ({trigger}), with errors", lastVars)) : t("Never run");
       const run = el("button", { actionIcon: "play", class: "primary", text: t("Run") });
       run.addEventListener("click", async () => { if (await runScene(scene, run)) app.route(); });
-      const stop = scene.stoppable ? el("button", { type: "button", actionIcon: "stop", text: t("Stop"), onclick: async () => {
-        const confirmSecurity = scene.security || scene.stopSecurity;
-        if (confirmSecurity && !await HomeswiftCommon.confirmDialog(t("Restore the previous state of this scene’s locks, doors or alarms?"))) return;
-        stop.disabled = true;
-        try {
-          const result = await app.api(`/api/scenes/${encodeURIComponent(scene.id)}/stop`, { method: "POST", body: { confirmSecurity } });
-          if (!result.ok) HomeswiftCommon.showAlert(result.failed.map((f) => HomeswiftI18n.message(f.error)).join("\n"));
-          app.route();
-        } catch (e) { HomeswiftCommon.showAlert(e.message); stop.disabled = false; }
-      } }) : null;
+      const stop = scene.stoppable ? el("button", { type: "button", actionIcon: "stop", text: t("Stop"), onclick: () => stopScene(scene, stop) }) : null;
       return el("div", { class: "card server scene-card" },
         sceneImage(scene),
         el("div", { class: "server-head" }, tile("play", scene.security ? "violet" : "orange"),
           el("div", { class: "who" }, el("a", { class: "card-title", href: `/scenes/${encodeURIComponent(scene.id)}` }, el("strong", { text: scene.name }),
               scene.active ? el("span", { class: "pill scene-active", text: t("Scene active") }) : null),
-            el("div", { class: "muted", text: [scene.room, scene.homeKit ? t("In the Home app") : null, scene.animation ? t("Animated: {style}", { style: scene.animation.effect ? effectStyleNames()[scene.animation.effect.style] || scene.animation.effect.style : t("Timed sequence") }) : null, scene.triggers.length ? scene.triggers.map((trigger) => describeTrigger(trigger, names)).join(" · ") : t("Run by hand")].filter(Boolean).join(" · ") })),
+            el("div", { class: "muted", text: [scene.room, scene.homeKit ? t("In the Home app") : null, scene.animation ? t("Animated: {style}", { style: scene.animation.effect ? effectStyleNames[scene.animation.effect.style] || scene.animation.effect.style : t("Timed sequence") }) : null, scene.triggers.length ? scene.triggers.map((trigger) => describeTrigger(trigger, names)).join(" · ") : t("Run by hand")].filter(Boolean).join(" · ") })),
           el("div", { class: "scene-run-actions" }, run, stop)),
         el("details", { class: "scene-card-details" }, el("summary", { text: t("Details") }), el("div", { class: "controls" }, actions)),
         scene.security ? el("p", { class: "muted note", text: t("It changes a lock, a door or an alarm: the page asks before running it, and automations leave those actions out.") }) : null,
@@ -1240,7 +1235,7 @@
       const current = scene.animation, effect = current?.effect || {};
       const style = el("select", { "aria-label": t("Animation") }, el("option", { value: "", text: t("No animation") }),
         current?.steps ? el("option", { value: "sequence", text: t("Timed sequence") }) : null,
-        Object.entries(effectStyleNames()).map(([value, label]) => el("option", { value, text: label })));
+        Object.entries(effectStyleNames).map(([value, label]) => el("option", { value, text: label })));
       style.value = current?.steps ? "sequence" : effect.style || "";
       const speed = el("input", { type: "range", min: 0, max: 100, value: Math.round((effect.speed ?? 0.5) * 100) });
       const brightness = el("input", { type: "range", min: 1, max: 100, value: effect.brightness ?? 80 });

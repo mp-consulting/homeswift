@@ -171,9 +171,7 @@ public final class PluginPictures: @unchecked Sendable {
         return key
     }
 
-    static func encode(_ key: String) -> String {
-        Data(key.utf8).base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
-    }
+    static func encode(_ key: String) -> String { Secrets.base64URL(Data(key.utf8)) }
 
     static func decode(_ name: String) -> String? {
         var base64 = name.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")

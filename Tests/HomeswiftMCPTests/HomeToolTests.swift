@@ -271,7 +271,7 @@ struct SceneToolTests {
         let lamp = try #require(catalog.find(id: "Devices:lamp"))
         let light = try #require(HomeswiftCatalog.lights(of: [lamp]).first)
         let show = LightShow(id: "test-held", name: "Held lights", steps: [LightStep([light.color], seconds: 1)])
-        let run = catalog.hold(show, on: [light], snapshots: [light.key: light.snapshot()], by: "test", room: nil)
+        let run = catalog.hold(show, on: [light], snapshots: [light.key: light.snapshot()], by: "test")
         let brightness = try catalog.characteristic(in: lamp, service: nil, characteristic: "Brightness")
         brightness.onWrite { _ in throw CatalogError("offline") }
         let scene = try catalog.createScene(["name": "Failed scene", "actions": [

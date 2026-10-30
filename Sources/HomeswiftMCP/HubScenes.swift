@@ -78,16 +78,17 @@ extension HomeswiftCatalog {
     /// Renames a hub's scene and/or replaces its lights: from a plan's values, or from its lights as they are now
     /// (`fromCurrent`). A dry run answers what would change.
     public func updateHubScene(_ reference: String, name: String?, plan: JSONValue?, fromCurrent: Bool, dryRun: Bool) async throws -> JSONValue {
-        guard let found = await pluginScene(reference) else { throw CatalogError("No hub scene \"\(reference)\"") }
+        guard let found = await pluginScene(reference) else { throw CatalogError("No hub scene \"\(reference)\"", notFound: true) }
         let name = name?.trimmingCharacters(in: .whitespaces).nonEmpty.map { String($0.prefix(64)) }
         var lights: [PluginSceneLight]?
+        if plan != nil || fromCurrent, !found.scene.capabilities.contains(.update) {
+            throw CatalogError("\(found.scene.name)'s lights cannot be changed from Homeswift")
+        }
         if let plan {
-            guard found.scene.capabilities.contains(.update) else { throw CatalogError("\(found.scene.name)'s lights cannot be changed from Homeswift") }
             let scene = try planScene(plan)
             guard scene.animation == nil else { throw CatalogError("A hub scene cannot animate") }
             lights = try hubLights(from: scene.actions)
         } else if fromCurrent {
-            guard found.scene.capabilities.contains(.update) else { throw CatalogError("\(found.scene.name)'s lights cannot be changed from Homeswift") }
             guard !found.scene.accessoryIDs.isEmpty else { throw CatalogError("The hub does not say which lights \(found.scene.name) sets") }
             lights = try currentHubLights(found.scene.accessoryIDs)
         }
@@ -107,7 +108,7 @@ extension HomeswiftCatalog {
 
     /// Removes a hub's scene from its hub, and its picture.
     public func deleteHubScene(_ reference: String, dryRun: Bool = false) async throws -> JSONValue {
-        guard let found = await pluginScene(reference) else { throw CatalogError("No hub scene \"\(reference)\"") }
+        guard let found = await pluginScene(reference) else { throw CatalogError("No hub scene \"\(reference)\"", notFound: true) }
         guard found.scene.capabilities.contains(.delete) else { throw CatalogError("\(found.scene.name) cannot be removed from Homeswift") }
         let answer: JSONValue = ["id": .string(found.id), "name": .string(found.scene.name), "hub": .string(found.instance.name)]
         if dryRun { return answer }

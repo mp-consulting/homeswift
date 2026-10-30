@@ -38,7 +38,7 @@ extension UIServer {
         do {
             return try await homeRoute(route, method, body: body, username: username, language: language)
         } catch let error as CatalogError {
-            return .error(error.description.hasPrefix("No scene") || error.description.hasPrefix("No hub scene") ? 404 : 400, error.description)
+            return .error(error.notFound ? 404 : 400, error.description)
         } catch let error as JSONGenerationError {
             return .error(502, "the Assistant did not answer with a scene: \(error.message)")
         }
@@ -96,7 +96,7 @@ extension UIServer {
             logger.info("Web UI changed a scene", metadata: ["user": "\(username)", "scene": "\(scene["name"]?.stringValue ?? "")"])
             return .json(scene)
         case (.DELETE, let path) where path.count == 2 && path[0] == "scenes":
-            guard catalog.savedScene(path[1]) != nil else {
+            guard catalog.isSavedScene(path[1]) else {
                 // A hub's scene: the page asked the person first.
                 let removed = try await catalog.deleteHubScene(path[1])
                 logger.notice("Web UI removed a scene from its hub", metadata: ["user": "\(username)", "scene": "\(removed["name"]?.stringValue ?? "")"])

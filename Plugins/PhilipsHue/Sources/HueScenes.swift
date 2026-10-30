@@ -25,8 +25,7 @@ extension PhilipsHuePlugin {
     /// The room or zone a new scene of exactly these lights goes in: one that holds them all, the one that holds just
     /// them first, then the smallest, a room before a zone.
     func sceneGroup(accessoryIDs: [String]) -> HueGroup? {
-        let prefix = "\(Self.platform):"
-        let wanted = Set(accessoryIDs.map { $0.hasPrefix(prefix) ? String($0.dropFirst(prefix.count)) : $0 })
+        let wanted = Set(accessoryIDs.map(Self.lightID(ofAccessory:)))
         let known = Set(snapshot.lights.map(\.id))
         guard !wanted.isEmpty, wanted.isSubset(of: known) else { return nil }
         return snapshot.groups.filter { wanted.isSubset(of: Set($0.lightIDs)) }
@@ -49,9 +48,15 @@ extension PhilipsHuePlugin {
         return id
     }
 
-    public func updateScene(id: String, name: String?, lights: [PluginSceneLight]?) async throws {
+    /// The bridge's client and a scene Homeswift may change: not a smart scene, which follows the time of day.
+    private func writableScene(_ id: String) throws -> HueClient {
         guard let client else { throw PluginSceneError("the Hue Bridge is not paired") }
-        guard let scene = snapshot.scenes.first(where: { $0.id == id }), !scene.smart else { throw PluginSceneError("no such scene") }
+        guard snapshot.scenes.contains(where: { $0.id == id && !$0.smart }) else { throw PluginSceneError("no such scene") }
+        return client
+    }
+
+    public func updateScene(id: String, name: String?, lights: [PluginSceneLight]?) async throws {
+        let client = try writableScene(id)
         var body: [String: JSONValue] = [:]
         if let name { body["metadata"] = ["name": .string(Self.sceneName(name))] }
         if let lights { body["actions"] = .array(try sceneActions(lights)) }
@@ -60,19 +65,23 @@ extension PhilipsHuePlugin {
     }
 
     public func deleteScene(id: String) async throws {
-        guard let client else { throw PluginSceneError("the Hue Bridge is not paired") }
-        guard let scene = snapshot.scenes.first(where: { $0.id == id }), !scene.smart else { throw PluginSceneError("no such scene") }
+        let client = try writableScene(id)
         try await client.delete("scene", id: id)
         await refresh()
+    }
+
+    /// The bridge's light id of one of this plugin's accessories (`accessoryID(lightID:)` the other way).
+    static func lightID(ofAccessory id: String) -> String {
+        let prefix = "\(platform):"
+        return id.hasPrefix(prefix) ? String(id.dropFirst(prefix.count)) : id
     }
 
     static func sceneName(_ name: String) -> String { String(name.trimmingCharacters(in: .whitespaces).prefix(32)) }
 
     /// A scene's actions: each light's on, brightness (no lower than it goes), colour in its gamut or white in its range.
     func sceneActions(_ lights: [PluginSceneLight]) throws -> [JSONValue] {
-        let prefix = "\(Self.platform):"
-        return try lights.map { light in
-            let lightID = light.accessoryID.hasPrefix(prefix) ? String(light.accessoryID.dropFirst(prefix.count)) : light.accessoryID
+        try lights.map { light in
+            let lightID = Self.lightID(ofAccessory: light.accessoryID)
             guard let known = snapshot.lights.first(where: { $0.id == lightID }) else { throw PluginSceneError("the Hue Bridge has no light \(light.accessoryID)") }
             var action: [String: JSONValue] = ["on": ["on": .bool(light.on)]]
             if light.on {

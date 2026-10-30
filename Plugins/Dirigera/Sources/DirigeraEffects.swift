@@ -16,7 +16,7 @@ extension DirigeraPlugin {
                     if effect.style == .sunrise {
                         try await hub.client.patch(deviceID: device.id, attributes: ["isOn": true])
                         try await hub.client.patch(deviceID: device.id, attributes: ["lightLevel": 1])
-                        if let range = device.mirekRange { try await hub.client.patch(deviceID: device.id, attributes: ["colorTemperature": .number((1_000_000 / Double(range.upperBound)).rounded())]) }
+                        if let range = device.mirekRange { try await hub.client.patch(deviceID: device.id, attributes: .object(DirigeraLightCommands.white(mirek: range.upperBound))) }
                         try await hub.client.patch(deviceID: device.id, attributes: ["lightLevel": .number(top.rounded())], transitionMs: milliseconds)
                     } else {
                         try await hub.client.patch(deviceID: device.id, attributes: ["lightLevel": 1], transitionMs: milliseconds)

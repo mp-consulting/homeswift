@@ -30,10 +30,15 @@ extension DirigeraPlugin {
 
     // MARK: Writing (lpgera/dirigera's scenes API)
 
+    /// The hub's device id of one of this plugin's accessories (`accessoryID(deviceID:)` the other way).
+    static func deviceID(ofAccessory id: String) -> String {
+        let prefix = "\(platform):"
+        return id.hasPrefix(prefix) ? String(id.dropFirst(prefix.count)) : id
+    }
+
     /// The hub whose lights these all are.
     func sceneHub(accessoryIDs: [String]) -> Hub? {
-        let prefix = "\(Self.platform):"
-        let ids = accessoryIDs.map { $0.hasPrefix(prefix) ? String($0.dropFirst(prefix.count)) : $0 }
+        let ids = accessoryIDs.map(Self.deviceID(ofAccessory:))
         guard !ids.isEmpty else { return nil }
         return hubs.keys.sorted().compactMap { hubs[$0] }.first { hub in ids.allSatisfy { hub.devices[$0]?.kind == .light } }
     }
@@ -53,10 +58,16 @@ extension DirigeraPlugin {
         return id
     }
 
-    public func updateScene(id: String, name: String?, lights: [PluginSceneLight]?) async throws {
+    /// A scene Homeswift may change (not one the hub runs on its own schedule), with its hub.
+    private func writableScene(_ id: String) throws -> (Hub, DirigeraScene) {
         guard let host = host(ofScene: id), let hub = hubs[host], let scene = hub.scenes.first(where: { $0.id == id }), scene.isRunnable else {
             throw PluginSceneError("no such scene")
         }
+        return (hub, scene)
+    }
+
+    public func updateScene(id: String, name: String?, lights: [PluginSceneLight]?) async throws {
+        let (hub, scene) = try writableScene(id)
         if let lights, sceneHub(accessoryIDs: lights.map(\.accessoryID)) !== hub { throw PluginSceneError("the scene's hub does not have all these lights") }
         try await hub.client.updateScene(id: id, [
             "info": ["name": .string(name.map(Self.sceneName) ?? scene.name), "icon": .string(scene.icon ?? "scenes_heart")], "type": .string(scene.type),
@@ -66,7 +77,7 @@ extension DirigeraPlugin {
     }
 
     public func deleteScene(id: String) async throws {
-        guard let host = host(ofScene: id), let hub = hubs[host], hub.scenes.first(where: { $0.id == id })?.isRunnable == true else { throw PluginSceneError("no such scene") }
+        let (hub, _) = try writableScene(id)
         try await hub.client.deleteScene(id: id)
         await refresh(hub)
     }
@@ -75,20 +86,17 @@ extension DirigeraPlugin {
 
     /// Each light's `device` action: on, level (1 to 100), a colour (saturation 0 to 1) or a white in kelvin.
     static func sceneActions(_ lights: [PluginSceneLight]) -> [JSONValue] {
-        let prefix = "\(platform):"
-        return lights.map { light in
+        lights.map { light in
             var attributes: [String: JSONValue] = ["isOn": .bool(light.on)]
             if light.on {
-                if let level = light.brightness { attributes["lightLevel"] = .number(min(max(level.rounded(), 1), 100)) }
+                if let level = light.brightness { attributes.merge(DirigeraLightCommands.level(level)) { $1 } }
                 if light.hasColour, let hue = light.hue, let saturation = light.saturation {
-                    attributes["colorHue"] = .number(min(max(hue, 0), 360))
-                    attributes["colorSaturation"] = .number(min(max(saturation, 0), 100) / 100)
+                    attributes.merge(DirigeraLightCommands.colour(hue: hue, saturation: saturation)) { $1 }
                 } else if let mirek = light.colorTemperature, mirek > 0 {
-                    attributes["colorTemperature"] = .number((1_000_000 / Double(mirek)).rounded())
+                    attributes.merge(DirigeraLightCommands.white(mirek: mirek)) { $1 }
                 }
             }
-            let device = light.accessoryID.hasPrefix(prefix) ? String(light.accessoryID.dropFirst(prefix.count)) : light.accessoryID
-            return ["type": "device", "deviceId": .string(device), "attributes": .object(attributes)]
+            return ["type": "device", "deviceId": .string(deviceID(ofAccessory: light.accessoryID)), "attributes": .object(attributes)]
         }
     }
 }
