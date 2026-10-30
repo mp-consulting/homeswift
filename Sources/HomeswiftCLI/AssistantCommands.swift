@@ -169,12 +169,17 @@ enum AssistantCommands {
         let lines = LogArchive(directory: storage.appendingPathComponent("logs")).lines(from: now.addingTimeInterval(-hours * 3600), to: now, limit: 20_000)
         let problems = lines.filter { $0.level >= .warning || !DailyDigestInput.problemLines([$0.text]).isEmpty }.suffix(150).map(\.formatted)
         let platforms = configuration.platforms.map { $0.paused ? "\($0.platform) (paused)" : $0.platform }
-        let status: JSONValue = [
+        var status: [String: JSONValue] = [
             "homeswiftVersion": .string(PluginHost.version), "period": .string("the last \(hours == hours.rounded() ? String(Int(hours)) : String(hours)) hours"),
             "platforms": .array(platforms.map(JSONValue.string)),
         ]
+        // The vault's problems, from config.json as written (its references, not what they resolve to).
+        if let config = try? JSONValue(data: Data(contentsOf: storage.appendingPathComponent("config.json"))),
+           let entries = try? CredentialVault(storage: storage).listing(), case let vault = VaultHealth.check(config: config, entries: entries), !vault.problems.isEmpty {
+            status["vault"] = vault.json
+        }
         let accessories = cachedAccessories(storage: storage, states: true)
-        return DailyDigestInput(status: status, logs: Array(problems), accessories: accessories.isEmpty ? nil : .array(accessories))
+        return DailyDigestInput(status: .object(status), logs: Array(problems), accessories: accessories.isEmpty ? nil : .array(accessories))
     }
 
     /// Rooms and names for the cached accessories; `--json` prints upstream's JSON.

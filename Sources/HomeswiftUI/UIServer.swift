@@ -393,8 +393,9 @@ public final class UIServer: Sendable {
             if [["status"], ["accessories"], ["plugins"], ["metrics"], ["metrics", "energy"], ["metrics", "energy", "history"], ["events"], ["assistant"]].contains(route) { return .read }
             if route.count == 3, route[0] == "cameras" { return .read }
             if route.count == 3, route[0] == "accessories", route[2] == "history" { return .read }
+            if route.count == 3, route[0] == "scenes", route[2] == "picture" { return .read }
             // The rooms, scenes and Quick Controls the Accessories and Status pages show; this browser's Web Push.
-            if [["layout"], ["rooms"], ["scenes"], ["moods"], ["notifications", "push"]].contains(route) { return .read }
+            if [["layout"], ["rooms"], ["scenes"], ["scenes", "templates"], ["notifications", "push"]].contains(route) { return .read }
             if route == ["assistant", "chat"] { return .control }
             // Today's digest, as the Status page's widget shows it (writing one is an administrator's); each user's
             // own conversations and appearance.
@@ -415,8 +416,9 @@ public final class UIServer: Sendable {
             // Running a scene is controlling its accessories (locks and the like still ask first); a browser turns
             // its own notifications on and off.
             if route.count == 3, route[0] == "scenes", route[2] == "run" { return .control }
-            // Playing and stopping a mood is controlling lights; saving one as a scene is making a scene.
-            if route == ["moods", "start"] || route == ["moods", "stop"] { return .control }
+            // Trying a template or a description, and putting the lights back after any run, is controlling lights;
+            // saving a scene is an administrator's.
+            if route == ["scenes", "try"] || (route.count == 3 && route[0] == "scenes" && route[2] == "stop") { return .control }
             if route == ["notifications", "push", "subscribe"] || route == ["notifications", "push", "unsubscribe"] { return .control }
             // Approving an OAuth client: the token it gets is capped by the user's role.
             if route == ["oauth", "decision"] { return .control }
@@ -562,6 +564,8 @@ public final class UIServer: Sendable {
         let username = caller.username
         // Settings, child bridges, backups, the audit log: Admin.swift.
         if let reply = try await adminAPI(route, request, caller: caller) { return reply }
+        // The vault's entries and the migration (VaultRoutes.swift).
+        if let reply = try await vaultAPI(route, request, caller: caller) { return reply }
         let body = request.body.isEmpty ? JSONValue.null : try JSONValue(data: request.body)
         // Approving an OAuth client, and the account's connected apps (OAuthRoutes.swift).
         if let reply = oauthAPI(route, request, body: body, caller: caller) { return reply }
@@ -622,7 +626,10 @@ public final class UIServer: Sendable {
                 var plugins = catalog.pluginsJSON().objectValue ?? [:]
                 plugins["blocks"] = .array(blocks)
                 // The key rule the server seals and redacts by; the settings page reads it from here.
-                plugins["secretRule"] = ["keys": .string(Redaction.secretKeyPattern), "except": .string(Redaction.notSecretKeyPattern), "placeholder": .string(Redaction.placeholder)]
+                plugins["secretRule"] = [
+                    "keys": .string(Redaction.secretKeyPattern), "except": .string(Redaction.notSecretKeyPattern), "placeholder": .string(Redaction.placeholder),
+                    "reference": .string(Redaction.referencePattern),
+                ]
                 return .json(.object(plugins))
             case ["config"]:
                 // Secrets show as the placeholder, as the block views show them; a save that keeps it keeps the stored value.
@@ -1153,6 +1160,8 @@ public final class UIServer: Sendable {
         status["username"] = .string(username)
         status["system"] = HomeswiftCatalog.systemJSON()
         if let update = options.releases?.json() { status["update"] = update }
+        // The vault's widget, for the administrators who can act on it.
+        if admin, let vault = catalog.vaultSummary() { status["vault"] = vault }
         return .object(status)
     }
 

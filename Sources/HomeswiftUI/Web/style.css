@@ -526,12 +526,26 @@ label > input, label > select { margin-top: 5px; }
 .page-head > .who { flex: 1 1 280px; }
 .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-12); margin: 26px 0 var(--space-10); }
 .section-head h2 { margin: 0; }
+/* A room's name on the Accessories wall in Edit: a field that reads as the heading, outlined to say it can be typed in. */
+.room-name-input {
+  font: inherit; letter-spacing: inherit; color: inherit; min-width: 4ch; max-width: 70vw;
+  margin: -3px calc(-1 * var(--space-8)); padding: 2px var(--space-8); border: 1px dashed var(--line); border-radius: var(--radius-xs);
+  background: transparent; transition: border-color var(--fast) var(--ease-out), background-color var(--fast) var(--ease-out);
+}
+.room-name-input:hover { border-color: var(--muted); }
+.room-name-input:focus { outline: none; border-style: solid; border-color: var(--accent); background: var(--field); }
+.room-name-input:disabled { opacity: .6; }
 .section-head .muted { font-size: var(--text-sm); }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: var(--space-14); }
 .grid > .card { margin: 0; min-width: 0; }
 .card.empty { text-align: center; padding: 28px var(--space-20); grid-column: 1 / -1; }
 .card.empty p { margin: 0; }
 .scenes-empty > .button { margin-top: var(--space-12); }
+.scenes-empty.compact { display: flex; align-items: center; gap: var(--space-14); padding: var(--space-14) var(--space-18); text-align: left; }
+.scenes-empty.compact > .button { margin: 0 0 0 auto; flex: none; }
+.card.empty.scenes-empty.compact > p { flex: 1; max-width: none; margin: 0; }
+.scenes-empty.compact > .empty-glyph { flex: none; width: 40px; height: 40px; margin: 0; }
+@media (max-width: 640px) { .scenes-empty.compact { flex-wrap: wrap; } .scenes-empty.compact > .button { margin-left: 0; } }
 /* An empty state's glyph: what would be here, in a soft disc above the words. */
 .empty-glyph { display: grid; place-items: center; width: 52px; height: 52px; margin: 0 auto var(--space-12); border-radius: 50%; color: var(--accent-ink); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .empty-glyph svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
@@ -939,6 +953,10 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget.lifted::after { display: none; }
 .wall > .drag-slot::after { display: none; }
 .wall > .drag-slot { border: 2px dashed color-mix(in srgb, var(--accent) 55%, transparent); border-radius: var(--radius); background: color-mix(in srgb, var(--accent) 6%, transparent); box-shadow: none; }
+/* By room, in Edit: an empty room's wall still takes a drop, and the room a widget is dragged into is outlined. */
+.wall.editing[data-room]:empty { min-height: 96px; border: 2px dashed var(--line); border-radius: var(--radius); }
+.accessory-section.room-drop-target > .wall { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 6px; border-radius: var(--radius); }
+.accessory-section.room-drop-target > .section-head h2 { color: var(--accent); }
 
 /* Segmented: equal columns, a thumb sliding to the one chosen. */
 .seg { position: relative; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; padding: 3px; border-radius: var(--radius-md); background: var(--track); }
@@ -1112,6 +1130,8 @@ textarea.short { min-height: 220px; }
   border: 1px solid var(--edge); box-shadow: 0 18px 44px rgba(25, 34, 56, 0.24), inset 0 1px 0 var(--edge-light);
   animation: menu-in 180ms var(--ease-out);
 }
+.menu .menu-search { width: 100%; margin-bottom: var(--space-4); }
+.menu .menu-empty { margin: 0; padding: var(--space-8) var(--space-10); font-size: var(--text-sm); }
 .menu { max-height: min(480px, calc(100dvh - 24px)); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; grid-auto-rows: max-content; touch-action: pan-y; }
 .menu:focus { outline: none; }
 .menu.closing { animation: menu-out 140ms var(--ease-out) forwards; pointer-events: none; }
@@ -1198,6 +1218,10 @@ textarea.short { min-height: 220px; }
 .update-command code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; font: 0.8125rem/1.5 var(--mono); scrollbar-width: none; }
 .update-command button { flex: none; padding: 5px var(--space-12); font-size: var(--text-sm); }
 .update-card details.more-options { margin: 0; }
+.update-progress { display: flex; align-items: center; gap: var(--space-8); margin: 0; }
+.update-progress svg { width: 16px; height: 16px; flex: none; color: var(--ok); }
+.update-progress .spinner { flex: none; }
+.updates-settings .actions { flex-wrap: wrap; }
 .who { flex: 1; min-width: 0; }
 .health { font-weight: var(--weight-medium); display: flex; align-items: flex-start; gap: var(--space-8); }
 /* The dot on the first line's middle, when the text wraps. */
@@ -1441,6 +1465,11 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .setup { display: flex; gap: var(--space-16); align-items: center; padding-top: var(--space-14); border-top: 1px solid var(--line); }
 .setup p { margin: 0 0 var(--space-6); }
 .setup .code { margin: 0; }
+.setup-code-field { display: flex; align-items: center; gap: var(--space-8); }
+.setup-code-field input { flex: 1; min-width: 0; }
+.setup-in-form { margin-top: var(--space-8); padding-top: var(--space-12); }
+.setup-in-form .qr { width: 120px; height: 120px; flex: none; }
+.setup-in-form p.help { margin: 0; }
 .server .actions { margin-top: 0; }
 /* A Matter node's Add to another ecosystem, with what it does under it (no hover text on a phone). */
 .actions.add-ecosystem { flex-direction: column; align-items: flex-start; gap: var(--space-4); }
@@ -2109,62 +2138,102 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 .quick-scene-label { display: flex; align-items: center; gap: var(--space-8); }
 .quick-scene-label > svg { flex: none; width: 18px; height: 18px; }
 .quick-scene-label > span { overflow-wrap: anywhere; }
-.scene-run.busy { opacity: 0.6; }
+.scene-run { transition: transform 160ms var(--ease-out), opacity 200ms ease, box-shadow 200ms ease-out; }
+.scene-run.busy { opacity: 0.6; cursor: progress; }
+.quick-scene-image { transition: transform 240ms var(--ease-out); }
+@media (hover: hover) and (pointer: fine) {
+  .scene-run.pictured:hover .quick-scene-image { transform: scale(1.03); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .scene-run, .quick-scene-image { transition: opacity 200ms ease, box-shadow 200ms ease-out; }
+  .scene-run:active:not(:disabled), .scene-run.pictured:hover .quick-scene-image { transform: none; }
+}
+.scene-run.coloured { color: #fff; }
+.scene-run.coloured::after { content: ""; position: absolute; inset: 0; background: linear-gradient(transparent 30%, rgba(0, 0, 0, .55)); z-index: -1; }
+.scene-run.active { box-shadow: 0 0 0 2px var(--accent); }
+/* A hub scene with neither a picture nor colours (DIRIGERA tells none): a warm wash, not a blank card. */
+.hub-scene:not(.pictured):not(.coloured) { background: linear-gradient(135deg, color-mix(in srgb, var(--accent-2) 22%, transparent), color-mix(in srgb, var(--accent) 10%, transparent)); }
+.scene-run .scene-active { position: absolute; top: var(--space-10); right: var(--space-10); }
+.scene-source { display: block; font-size: var(--text-xs); font-weight: var(--weight-medium); opacity: 0.8; }
+.hub-scenes { display: grid; gap: var(--space-12); }
+.hub-scenes-head > select { width: auto; max-width: 260px; }
+.scene-run:disabled { opacity: 0.7; cursor: default; }
+.hub-scene-room { display: grid; gap: var(--space-8); }
+/* A hub scene's tile carries its actions: round glass buttons over its top-right corner, its "Scene active" on the left. */
+.hub-scene-tile { position: relative; display: grid; min-width: 0; }
+.hub-scene-tile > .scene-run { width: 100%; }
+.hub-scene-tile > .scene-run .scene-active { right: auto; left: var(--space-10); }
+/* The same buttons as a plugin page's scene tiles (`.scene .eye`): a dark disc on a picture, a light one on a pale tile. */
+.hub-scene-actions { position: absolute; top: 6px; right: 6px; z-index: 2; display: flex; gap: var(--space-4); }
+.hub-scene-actions > button { display: grid; place-items: center; width: 30px; height: 30px; min-height: 0; margin: 0; padding: 0; border-radius: 50%;
+  color: #fff; background: rgba(0, 0, 0, 0.28); border: 0; box-shadow: none; }
+.hub-scene-actions > button svg { width: 16px; height: 16px; }
+.hub-scene-actions > button.action-with-icon::before { width: 14px; height: 14px; }
+.hub-scene-tile:has(> .hub-scene:not(.pictured):not(.coloured)) .hub-scene-actions > button { background: rgba(255, 255, 255, 0.55); color: #1d1d1f; }
+/* On a touch screen each takes a 44-point-tall tap around its 30-point disc, so a near miss opens it rather than the
+   scene; only 2 points wider, so Stop and the menu, 4 apart, do not take each other's taps. */
+@media (pointer: coarse) {
+  .hub-scene-actions > button { position: relative; }
+  .hub-scene-actions > button::after { content: ""; position: absolute; inset: -7px -2px; }
+}
+.animation-settings { display: grid; gap: var(--space-10); margin-top: var(--space-10); }
+.animation-colours { display: flex; gap: var(--space-10); }
+.animation-lights { display: grid; gap: var(--space-6); }
 @media (max-width: 640px) {
   .quick-scenes { grid-template-columns: none; grid-template-rows: auto; grid-auto-flow: column; grid-auto-columns: min(240px, 85%); overflow-x: auto; scroll-snap-type: x proximity; padding: var(--space-4); }
-  .quick-scenes > .scene-run { scroll-snap-align: start; }
+  .quick-scenes > .scene-run, .quick-scenes > .hub-scene-tile { scroll-snap-align: start; }
 }
 .scene-card .server-head > button { flex: none; }
-/* Moods: the rooms as chips, what plays, the Assistant's box, the collection as pills with their colours. Pills and chips
+/* Templates: the rooms as chips, what plays, the Assistant's box, the collection as pills with their colours. Pills and chips
    are controls: no text selection or callout on a long press, press feedback at once, the lift on hover only with a
    mouse (a tap would leave it stuck). On a phone each kind is a row that swipes sideways and snaps, so the card fits a
    screen and what a tap starts shows beside the finger. */
-.mood-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-14); }
-.mood-rooms, .mood-buttons { display: flex; gap: var(--space-8); }
-.mood-rooms { flex-wrap: wrap; }
-.mood-buttons { flex-wrap: wrap; }
-.mood-room, .mood-button { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
-.mood-room { padding: 7px var(--space-14); font-size: var(--text-md); }
-.mood-room[aria-pressed="true"] { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); border-color: transparent; }
-.mood-button {
+.template-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-14); }
+.template-rooms, .template-buttons { display: flex; gap: var(--space-8); }
+.template-rooms { flex-wrap: wrap; }
+.template-buttons { flex-wrap: wrap; }
+.template-room, .template-button { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.template-room { padding: 7px var(--space-14); font-size: var(--text-md); }
+.template-room[aria-pressed="true"] { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); border-color: transparent; }
+.template-button {
   display: inline-flex; align-items: center; gap: var(--space-10); flex: none; min-height: 44px; padding: var(--space-6) var(--space-16) var(--space-6) var(--space-6);
   transition: transform var(--fast) var(--ease-out), box-shadow var(--normal) var(--ease-out);
 }
-.mood-button:active:not(:disabled), .mood-room:active { transform: scale(0.96); transition-duration: 80ms; }
-.mood-button.playing { box-shadow: 0 0 0 2px var(--accent), var(--shadow-control); }
-.mood-button.busy::after { margin-left: 0; }
-.mood-swatch { width: 32px; height: 32px; border-radius: var(--radius-sm); flex: none; }
-.mood-group .service-name { margin: 0 0 var(--space-8); }
-.mood-collection { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-16); }
-.mood-describe { display: flex; gap: var(--space-8); }
-.mood-describe input { flex: 1; min-width: 0; }
-.mood-create { display: inline-flex; align-items: center; gap: var(--space-6); flex: none; white-space: nowrap; }
-.mood-running { display: grid; gap: var(--space-8); }
-.mood-running:empty { display: none; }
-.mood-run {
+.template-button:active:not(:disabled), .template-room:active { transform: scale(0.96); transition-duration: 80ms; }
+.template-button.playing { box-shadow: 0 0 0 2px var(--accent), var(--shadow-control); }
+.template-button.busy::after { margin-left: 0; }
+.template-swatch { width: 32px; height: 32px; border-radius: var(--radius-sm); flex: none; }
+.template-group .service-name { margin: 0 0 var(--space-8); }
+.template-collection { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-16); }
+.template-describe { display: flex; gap: var(--space-8); }
+.template-describe input { flex: 1; min-width: 0; }
+.template-create { display: inline-flex; align-items: center; gap: var(--space-6); flex: none; white-space: nowrap; }
+.template-running { display: grid; gap: var(--space-8); }
+.template-running:empty { display: none; }
+.template-run {
   display: flex; align-items: center; gap: var(--space-12); padding: var(--space-8) var(--space-8) var(--space-8) var(--space-10); border-radius: var(--radius-lg); background: var(--material-thin); border: 1px solid var(--line);
   transition: opacity var(--normal) var(--ease-out), transform var(--normal) var(--ease-out);
 }
-@starting-style { .mood-run { opacity: 0; transform: translateY(-4px); } }
-.mood-run-text { flex: 1; min-width: 0; display: grid; }
-.mood-run-text .muted { font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mood-stop { flex: none; }
-.mood-card .status-line { margin: 0; }
-.mood-card .status-line:empty { display: none; }
-/* A phone: rooms and each kind of mood scroll sideways from edge to edge of the card, snapping to a pill; the input stays
+@starting-style { .template-run { opacity: 0; transform: translateY(-4px); } }
+.template-run-text { flex: 1; min-width: 0; display: grid; }
+.template-run-text .muted { font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.template-stop { flex: none; }
+.template-card .status-line { margin: 0; }
+.template-card .status-line:empty { display: none; }
+/* A phone: rooms and each kind of template scroll sideways from edge to edge of the card, snapping to a pill; the input stays
    at 16px so iOS does not zoom into it. */
 @media (max-width: 640px) {
-  .mood-rooms, .mood-buttons {
+  .template-rooms, .template-buttons {
     flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scrollbar-width: none;
     margin: 0 -20px; padding: 2px var(--space-20) var(--space-6); scroll-padding: 0 20px;
     -webkit-mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 22px), transparent);
     mask-image: linear-gradient(90deg, transparent, #000 14px, #000 calc(100% - 22px), transparent);
   }
-  .mood-rooms::-webkit-scrollbar, .mood-buttons::-webkit-scrollbar { display: none; }
-  .mood-room, .mood-button { flex: none; scroll-snap-align: start; }
+  .template-rooms::-webkit-scrollbar, .template-buttons::-webkit-scrollbar { display: none; }
+  .template-room, .template-button { flex: none; scroll-snap-align: start; }
 }
-@media (pointer: coarse) { .mood-describe input { font-size: 16px; } }
-@media (prefers-reduced-motion: reduce) { .mood-run { transition: none; } }
+@media (pointer: coarse) { .template-describe input { font-size: 16px; } }
+@media (prefers-reduced-motion: reduce) { .template-run { transition: none; } }
 .location summary { cursor: pointer; }
 .location { margin-top: var(--space-14); }
 .scene-editor h2 { margin: 22px 0 2px; font-size: var(--text-xl); }
@@ -2227,6 +2296,11 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .notice-list p { margin: var(--space-4) 0; font-size: var(--text-md); }
 .secret-note { margin: 0 0 var(--space-8); font-size: var(--text-sm); color: var(--warn); }
 .admin-dialog { margin: auto; width: min(520px, calc(100% - 24px)); max-height: calc(100% - 48px); overflow: auto; padding: var(--space-20) 22px; color: var(--text); background-color: var(--material-solid); }
+/* A modal grows in from a little smaller, in place (it has no trigger to grow from), with its backdrop fading in. */
+.admin-dialog:not(.sheet)[open] { animation: dialog-in 200ms var(--ease-out); }
+.admin-dialog:not(.sheet)[open]::backdrop { animation: fade 200ms ease; }
+@keyframes dialog-in { from { opacity: 0; transform: scale(0.96); } }
+@media (prefers-reduced-motion: reduce) { .admin-dialog:not(.sheet)[open] { animation: fade 160ms ease; } }
 .admin-dialog.wide { width: min(980px, calc(100% - 24px)); }
 .admin-dialog::backdrop { background: rgba(10, 14, 24, 0.35); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
 .admin-dialog h2 { margin: 0 0 var(--space-10); }
@@ -2432,6 +2506,74 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .assistant-setup-example { margin-top: var(--space-24); }
 .assistant-setup-example summary { cursor: pointer; font-size: var(--text-md); }
 .assistant-setup-example p { font-size: var(--text-md); line-height: 1.6; }
+
+/* The Vault page: a secret of config.json to move, its entry's name editable; a field's vault picker beside it. */
+.rows > .row.vault-move { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 16rem); transition: opacity 160ms ease; }
+.rows > .row.vault-move input[type="text"] { width: 100%; }
+/* A secret left in config.json stays readable but steps back, so the ones that move stand out. */
+.rows > .row.vault-move.left { opacity: 0.55; }
+.vault-shares { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); }
+@media (max-width: 640px) {
+  .rows > .row.vault-move { grid-template-columns: auto minmax(0, 1fr); }
+  .rows > .row.vault-move > :last-child { grid-column: 2 / -1; }
+}
+/* The vault's cards stand apart as other cards do (`.server` alone sits in a grid's gap), and the move card's status
+   line takes room only once it has something to say. */
+.vault-card { margin-bottom: var(--space-14); }
+.vault-card .status-line:empty { display: none; }
+/* The vault's cards explain themselves: their line under the title wraps instead of being cut. */
+.vault-card .server-head { align-items: flex-start; }
+.vault-card .server-head .muted { margin-top: var(--space-4); line-height: 1.5; white-space: normal; overflow: visible; }
+/* An entry's kind and who uses it, on one line; the count of users opens where config.json names it. */
+.vault-detail { display: flex; align-items: center; gap: var(--space-6); min-width: 0; }
+.vault-detail > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-detail .vault-users { padding: 0; font: inherit; color: inherit; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: 2px; }
+@media (hover: hover) and (pointer: fine) { .vault-detail .vault-users:hover { color: var(--text); } }
+span.warning, .vault-problem .warning { color: var(--warn); }
+.vault-when { flex-shrink: 0; white-space: nowrap; }
+/* On a phone an entry's date gives way to its name and kind; an expiry stays, it is a warning. */
+@media (max-width: 640px) { .vault-when > .muted { display: none; } }
+/* A problem's entry, what to do and where config.json names it, with the button that fixes it on the right. */
+.rows > .row.vault-problem > .who > div { white-space: normal; line-height: 1.5; }
+.rows > .row.vault-problem > button { flex-shrink: 0; }
+@media (max-width: 640px) { .rows > .row.vault-problem { flex-wrap: wrap; } .rows > .row.vault-problem > button { margin-left: auto; } }
+/* The Status page's vault widget: a head that says whether anything needs doing (its button on the right), then a row
+   per problem, each a link to the Vault page: a dot for how pressing, the entry, what is wrong, a chevron. */
+.vault-status { display: grid; gap: var(--space-12); }
+.vault-status .server-head { align-items: center; }
+.vault-status .server-head > .button { flex-shrink: 0; margin-left: auto; }
+.vault-status-rows { display: grid; border-top: 1px solid var(--line); margin: 0 calc(-1 * var(--space-20)) calc(-1 * var(--space-10)); }
+.vault-status-row {
+  display: grid; grid-template-columns: auto minmax(0, max-content) minmax(0, 1fr) auto; align-items: center; gap: var(--space-10);
+  padding: var(--space-10) var(--space-20); color: inherit; text-decoration: none;
+  transition: background-color 150ms ease;
+}
+.vault-status-row + .vault-status-row { border-top: 1px solid var(--line); }
+.vault-status-row > svg { width: 16px; height: 16px; color: var(--muted); fill: none; stroke: currentColor; stroke-width: 2; }
+.vault-status-row:active { background: color-mix(in srgb, var(--text) 8%, transparent); }
+@media (hover: hover) and (pointer: fine) { .vault-status-row:hover { background: color-mix(in srgb, var(--text) 5%, transparent); } }
+.vault-status-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.vault-status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.vault-status-row[data-tone="bad"] .vault-status-dot { background: var(--error); box-shadow: 0 0 0 3px color-mix(in srgb, var(--error) 22%, transparent); }
+.vault-status-row[data-tone="warn"] .vault-status-dot { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent); }
+/* Not a problem, something to do: a ring, not a filled dot. */
+.vault-status-row[data-tone="info"] .vault-status-dot { background: none; box-shadow: inset 0 0 0 2px var(--muted); }
+.vault-status-name { font-weight: var(--weight-semibold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-status-row.mono-name .vault-status-name { font-family: var(--mono); font-size: var(--text-sm); }
+.vault-status-says { color: var(--muted); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-status-row[data-tone="bad"] .vault-status-says { color: var(--error); }
+.vault-status-row[data-tone="warn"] .vault-status-says { color: var(--warn); }
+.vault-status-more { margin: 0; padding: var(--space-8) var(--space-20) 0 calc(var(--space-20) + 18px); font-size: var(--text-sm); }
+/* On a phone the button takes the card's width under its head, and a row's text goes under the entry's name. */
+@media (max-width: 640px) {
+  .vault-status .server-head { flex-wrap: wrap; }
+  .vault-status .server-head > .button { order: 3; flex-basis: 100%; justify-content: center; margin-left: 0; }
+  .vault-status-row { grid-template-columns: auto minmax(0, 1fr) auto; row-gap: 2px; }
+  .vault-status-row > svg { grid-row: 1 / span 2; grid-column: 3; }
+  .vault-status-says { grid-column: 2; text-align: left; white-space: normal; font-size: var(--text-sm); }
+}
+.secret-field { display: flex; gap: var(--space-8); align-items: center; }
+.secret-field input { flex: 1; min-width: 0; }
 
 /* Backup creation and recovery share a compact, responsive workspace. */
 .backup-actions-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: var(--space-20); margin: var(--space-24) 0 32px; }
@@ -2654,9 +2796,9 @@ select:disabled { opacity: .5; cursor: not-allowed; }
 .scene-card .card-foot { font-size: var(--text-xs); line-height: 1.5; padding-top: var(--space-10); }
 .section-head:has(+ .scene-grid) { gap: var(--space-12); flex-wrap: wrap; }
 .section-head:has(+ .scene-grid) .search { margin-left: auto; max-width: 280px; }
-.moods .mood-card { padding: var(--space-18); }
-.moods .mood-rooms { padding-bottom: var(--space-14); border-bottom: 1px solid var(--line); }
-.moods .status-line:empty, .moods .mood-running:empty { display: none; }
+.templates .template-card { padding: var(--space-18); }
+.templates .template-rooms { padding-bottom: var(--space-14); border-bottom: 1px solid var(--line); }
+.templates .status-line:empty, .templates .template-running:empty { display: none; }
 @media (max-width: 560px) { .section-head:has(+ .scene-grid) .search { max-width: none; width: 100%; } }
 
 .scene-flow { border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; margin: var(--space-20) 0; background: var(--material-solid); }
@@ -3000,6 +3142,7 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
 
 .status-footer .footer-update-check[data-update-state="current"] { --update-tone: var(--ok); }
 .status-footer .footer-update-check[data-update-state="available"] { --update-tone: var(--warn); }
+.status-footer .footer-update-check[data-update-state="installed"] { --update-tone: var(--ok); }
 .status-footer .footer-update-check[data-update-state="error"] { --update-tone: var(--error); }
 .status-footer .footer-update-check {
   color: var(--update-tone, var(--text));
@@ -3580,22 +3723,22 @@ select option:disabled { color: var(--muted); }
 .widget-battery.size-medium .w-top { position: static; }
 .widget-battery.size-medium .w-top > .w-hero:has(> .battery-gauge) { position: absolute; left: 50%; top: 36%; transform: translate(-50%, -50%); display: flex; align-items: center; justify-content: center; }
 
-/* Shared photographic artwork for saved scenes and room moods. */
+/* Shared photographic artwork for saved scenes and templates. */
 .scene-artwork { width: 100%; aspect-ratio: 16/9; object-fit: cover; border-radius: var(--radius-sm); }
 .artwork-preview { max-width: 320px; }
 .artwork-picker { margin-block: var(--space-16); }
 .artwork-picker > button { margin-bottom: var(--space-16); }
 .artwork-picker summary { cursor: pointer; padding-block: var(--space-12); }
-.artwork-grid, .mood-buttons.artwork-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: var(--space-12); max-height: 520px; overflow: auto; padding: var(--space-8) 3px; }
+.artwork-grid, .template-buttons.artwork-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: var(--space-12); max-height: 520px; overflow: auto; padding: var(--space-8) 3px; }
 /* The Hue scene widget: a full-bleed picture and its name over a bottom scrim. */
-.scene.artwork-choice, .mood-button.scene.artwork-choice { width: 100%; aspect-ratio: 16 / 9; min-height: 110px; display: grid; align-content: end; justify-content: stretch; padding: var(--space-12) var(--space-14); border-radius: var(--radius-lg); gap: 0; color: #fff; white-space: normal; }
-.scene.artwork-choice img, .scene.artwork-choice .mood-swatch { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 0; }
+.scene.artwork-choice, .template-button.scene.artwork-choice { width: 100%; aspect-ratio: 16 / 9; min-height: 110px; display: grid; align-content: end; justify-content: stretch; padding: var(--space-12) var(--space-14); border-radius: var(--radius-lg); gap: 0; color: #fff; white-space: normal; }
+.scene.artwork-choice img, .scene.artwork-choice .template-swatch { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 0; }
 .scene.artwork-choice .name { text-align: left; padding-left: var(--space-20); line-height: 1.3; }
 .scene.artwork-choice:not(.action-with-icon) .name { padding-left: 0; }
 .scene.artwork-choice.action-with-icon::before { position: absolute; bottom: 14px; left: 12px; z-index: 1; }
 .scene.artwork-choice[aria-pressed="true"] { box-shadow: 0 0 0 3px var(--accent), var(--shadow-control); }
 .scene.artwork-choice[hidden] { display: none; }
-.mood-group .mood-buttons { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 168px), 1fr)); gap: var(--space-10); overflow: visible; margin-inline: 0; padding-inline: 3px; }
+.template-group .template-buttons { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 168px), 1fr)); gap: var(--space-10); overflow: visible; margin-inline: 0; padding-inline: 3px; }
 
 /* Theme shelves: two rows, with horizontal scrolling like a photographic gallery. */
 .artwork-filters { display: flex; gap: var(--space-12); margin-block: var(--space-12); }
@@ -3623,7 +3766,8 @@ select option:disabled { color: var(--muted); }
 .location-map-controls { position: absolute; top: 10px; left: 10px; display: flex; gap: var(--space-8); }
 .location-map-credit { position: absolute; right: 0; bottom: 0; padding: var(--space-4) var(--space-8); background: #fff; color: #222; font-size: var(--text-xs); }
 
-.artwork-dialog { width: min(850px, calc(100vw - 32px)); max-height: 85vh; overflow: auto; }
+.artwork-dialog { max-height: 85vh; }
+.artwork-dialog input[type="search"] { width: 100%; }
 .artwork-dialog .artwork-grid { margin-block: var(--space-12); }
 
 .appearance-card-title { display: flex; align-items: center; gap: var(--space-10); }
@@ -3633,8 +3777,8 @@ select option:disabled { color: var(--muted); }
 .scene-color-input { width: 100%; height: 64px; padding: var(--space-4); border-radius: var(--radius-md); cursor: pointer; }
 .value-slot input[role="switch"] { width: 44px; height: 28px; accent-color: var(--accent); }
 
-.mood-stop-badge { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 44px; height: 44px; background: #fff; color: #222; border-radius: var(--radius-pill); display: grid; place-items: center; box-shadow: var(--shadow-control); pointer-events: none; }
-.mood-stop-badge::before { content: ""; width: 14px; height: 14px; background: currentColor; border-radius: 0; }
+.template-stop-badge { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 44px; height: 44px; background: #fff; color: #222; border-radius: var(--radius-pill); display: grid; place-items: center; box-shadow: var(--shadow-control); pointer-events: none; }
+.template-stop-badge::before { content: ""; width: 14px; height: 14px; background: currentColor; border-radius: 0; }
 
 
 .scene-run-actions { display: flex; flex-wrap: wrap; gap: var(--space-8); align-items: center; }
@@ -3725,9 +3869,9 @@ select option:disabled { color: var(--muted); }
 .scene-card-details > summary { min-height: 44px; align-content: center; cursor: pointer; color: var(--text); }
 .scene-card-details[open] > summary { margin-bottom: var(--space-8); }
 
-/* Match gallery shelves across built-in moods and plugin scene collections on phones. */
+/* Match gallery shelves across templates and plugin scene collections on phones. */
 @media (max-width: 640px) {
-  .mood-group .mood-buttons, .scene-tiles:has(> .scene) {
+  .template-group .template-buttons, .scene-tiles:has(> .scene) {
     display: grid; grid-template-columns: none; grid-template-rows: auto; grid-auto-flow: column; grid-auto-columns: 160px;
     gap: var(--space-12); overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity;
     margin-inline: 0; padding: 3px; scroll-padding-inline: 3px; mask-image: none; -webkit-mask-image: none;

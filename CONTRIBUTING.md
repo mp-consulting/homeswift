@@ -63,6 +63,9 @@ says why).
   WebSocket fakes are in `HomeswiftNetworkTestSupport`. Tests use `MemoryStorage` and `advertise: false`.
 - **Linux:** Darwin-only APIs behind `#if canImport(...)`, `URLSession` with `#if canImport(FoundationNetworking)`.
 - **No secrets in the log:** tokens, passwords, keys and setup codes are never logged, at any level.
+- **Secrets in the vault:** secrets in the configuration under secret-named keys (`password`, `token`, `apiKey`…),
+  so the bridge seals them and resolves `vault:` references; tokens the plugin stores in
+  `context.secretFile(_:as:)`, never in a plain file ([docs/plugins.md](docs/plugins.md#secrets)).
 - **Light on the bridge:** push before polling, one request per cycle where the API allows it, `Backoff` on
   failures, only changed characteristics set, slider writes coalesced with `LatestCallGuard`, nothing that grows
   with uptime. The `homeswift-plugin` skill's "Keep it light" has the full list; the Status page's memory and CPU

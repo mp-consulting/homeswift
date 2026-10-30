@@ -294,6 +294,50 @@
     </div>
   </section>
 
+  <section class="band" id="vault">
+    <div class="wrap dev flip">
+      <!-- A drawing of the vault (demonstration names), not a screenshot: config.json naming an entry, and the Vault
+           page's entries with the one it names lit; one expiring. -->
+      <div class="vault-stage" aria-hidden="true">
+        <div class="term vault-config"><pre><span class="c">// config.json</span>
+{
+  <span class="t">"platform"</span>: <span class="s">"UniFiProtect"</span>,
+  <span class="t">"username"</span>: <span class="s">"admin"</span>,
+  <span class="t">"password"</span>: <mark class="vault-ref">"vault:unifi-home"</mark>
+}</pre></div>
+        <div class="vault-entries">
+          <div class="vault-entries-head"><b>Vault</b><span>3 entries · sealed</span></div>
+          <div class="vault-entry lit">
+            <i class="tone-blue"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></i>
+            <div><b>unifi-home</b><small>Login · used by 2 settings</small></div>
+            <span class="vault-when">Used today</span>
+          </div>
+          <div class="vault-entry">
+            <i class="tone-violet"><svg viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l2 2M15 8l2 2"/></svg></i>
+            <div><b>anthropic</b><small>API key · the Assistant</small></div>
+            <span class="vault-when">Used today</span>
+          </div>
+          <div class="vault-entry">
+            <i class="tone-teal"><svg viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z"/></svg></i>
+            <div><b>ecoflow-cloud</b><small>Token · used by 1 setting</small></div>
+            <span class="vault-when soon">Expires in 12 days</span>
+          </div>
+        </div>
+      </div>
+      <div>
+        <p class="eyebrow">Vault</p>
+        <h2 class="dev-title">Secrets out of config.json.</h2>
+        <p class="lede graph-lede">Passwords, API keys and plugins' tokens live in a sealed vault beside config.json. The config only names them, so it can be shown, compared, backed up or pasted into a chat without giving a key away.</p>
+        <ul>
+          <li>One step moves them in: the Vault page finds every secret, gives the ones that match a single entry, and backs config.json up first.</li>
+          <li>Typed once, never shown again. Each value is sealed with ChaCha20-Poly1305; the web UI, the log, MCP clients and the Assistant only ever see the name.</li>
+          <li><span>Docker secrets and environment variables work too: <code>file:/run/secrets/unifi</code>, <code>env:UNIFI_PASSWORD</code>.</span></li>
+          <li>The Status page says when a key is about to expire, or a setting names one that is gone.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
   <section class="band" id="plugins">
     <div class="wrap">
       <div class="section-head">

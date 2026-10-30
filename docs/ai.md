@@ -98,11 +98,11 @@ For the web UI and the MCP server:
   upstream's shape. The ids reach the model as aliases (`a1`, `a2`…), so long ids and MAC addresses in them
   stay home, and ids the model invents are dropped. Each reply is schema-checked JSON with one repair; large
   homes go in batches sized to `maxOutputTokens`, three at a time, with `onProgress(done, total)`.
-- **Moods**: `assistant.designMood(_:lights:)` turns a description ("a rainy afternoon") into a mood for the
+- **Scenes**: `assistant.designScene(_:lights:)` turns a description ("a rainy afternoon") into a scene for a room's
   lights: steps of colours, how long each holds, whether it loops and puts the lights back
-  (`AssistantService.moodSchema`, schema-checked with one repair). It learns how many lights there are and which
-  take colours or only whites, never their names or rooms. Homeswift plays it as it plays the collection's
-  (docs/mcp.md, "Moods").
+  (`AssistantService.sceneDesignSchema`, schema-checked with one repair). It learns how many lights there are and which
+  take colours or only whites, never their names or rooms. `run_scene` tries it and `save_scene` keeps it (docs/mcp.md,
+  "Scenes").
 - homebridge-ai-kit's `assessPluginUpdate` (the risk of a plugin update, from its changelog) is not ported:
   Homeswift's plugins are compiled into the binary and have no updates of their own.
 
@@ -166,7 +166,7 @@ The command line and the MCP server leave the language to the model.
 - **Logs and device data are data.** They are wrapped in `<untrusted-data>` tags and the system prompt
   tells the model never to follow instructions found in them.
 - **Every prompt is readable.** The words sent to a model are Markdown files in
-  [`Sources/HomeswiftAI/Prompts/`](../Sources/HomeswiftAI/Prompts), one per feature (logs, the config copilot, moods,
+  [`Sources/HomeswiftAI/Prompts/`](../Sources/HomeswiftAI/Prompts), one per feature (logs, the config copilot, scenes,
   the digest, the chat…); its README says how a file reads. Edit one, then run
   `swift Scripts/embed-assets.swift prompts Sources/HomeswiftAI/Prompts Sources/HomeswiftAI/PromptFiles.swift`.
 - **Inputs are trimmed** to the provider's context window, keeping the end of a log and the start of a

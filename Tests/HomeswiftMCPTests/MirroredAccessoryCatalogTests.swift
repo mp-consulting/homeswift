@@ -6,7 +6,7 @@ import Testing
 @testable import HomeswiftMCP
 
 /// An accessory mirrored from Apple Home (Wingman's) is the catalog's like any other: listed with where it comes from
-/// and the room Apple Home gives it, in the layout's rooms, and lit by a mood of that room.
+/// and the room Apple Home gives it, in the layout's rooms, and lit by a template tried on that room.
 @Suite struct MirroredAccessoryCatalogTests {
     static let config = """
         {
@@ -18,7 +18,7 @@ import Testing
         }
         """
 
-    @Test func aMirroredAccessoryIsListedInItsSuggestedRoomAndAMoodLightsIt() async throws {
+    @Test func aMirroredAccessoryIsListedInItsSuggestedRoomAndATemplateLightsIt() async throws {
         let environment = try MCPTestEnvironment(config: Self.config)
         try await environment.start()
         defer { Task { await environment.stop() } }
@@ -34,7 +34,7 @@ import Testing
         let rooms = environment.catalog.layoutJSON()["rooms"]?.arrayValue ?? []
         #expect(rooms.contains { $0["name"] == "Salon" && $0["accessories"]?.arrayValue?.count == 1 })
 
-        let result = try await client.tool("start_mood", ["mood": "relax", "room": "salon"])
+        let result = try await client.tool("run_scene", ["template": "relax", "room": "salon"])
         #expect(result["structuredContent"]?["ok"] == true)
         #expect(environment.written.contains { $0.0 == "mirrored.brightness" })
 

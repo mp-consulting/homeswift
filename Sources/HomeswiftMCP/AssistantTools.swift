@@ -32,26 +32,53 @@ extension HomeswiftCatalog {
     /// Sends a one-word request with a `HomeswiftAiKit` block (the settings form's, saved or not; the saved one
     /// when nil) and answers `ConnectionTestResult.json`. `__REDACTED__` values come from the saved block. The
     /// request counts in the Assistant's usage, for `user`.
+    ///
+    /// A key the bridge supplies (`__REDACTED__`, a sealed value, a reference) goes only to the saved block's provider
+    /// and address: a form that points elsewhere tests with a key typed into it, or the bridge would send its secrets
+    /// wherever the form says.
     public func testAssistantConnection(block: JSONValue?, user: String?) async -> JSONValue {
         let saved = ((try? readConfig())?["platforms"]?.arrayValue ?? []).first { $0["platform"]?.stringValue == AIConfiguration.platform }
         guard var tested = block ?? saved else {
             return ConnectionTestResult(ok: false, message: "There is no HomeswiftAiKit block: choose a provider first.").json
         }
+        let sameService = tested["provider"] == saved?["provider"] && tested["baseUrl"] == saved?["baseUrl"]
+        if !sameService, Self.holdsSuppliedSecret(tested) {
+            return ConnectionTestResult(ok: false, message: "Type the API key to test another provider or address: a saved key goes only to the saved one.").json
+        }
         if let saved, Redaction.containsRedacted(tested) { tested = (try? Redaction.restoreSecrets(tested, from: saved)) ?? tested }
+        // A sealed key or a reference (`vault:`, `env:`) is sent as the key it stands for.
+        do {
+            tested = try ConfigurationSecrets.opening(block: tested, storage: storageDirectory)
+        } catch {
+            return ConnectionTestResult(ok: false, message: "\(error)").json
+        }
         let result = await AssistantService.testConnection(block: tested, transport: host.aiTransport, usage: host.assistant?.usage, user: user)
         logger.info("Assistant connection test", metadata: ["ok": "\(result.ok)", "provider": "\(result.provider ?? "?")", "model": "\(result.model ?? "?")"])
         return result.json
+    }
+
+    /// Whether a secret-named value of `block` is one the bridge fills in: the placeholder, a sealed value or a reference.
+    static func holdsSuppliedSecret(_ block: JSONValue) -> Bool {
+        var supplied = false
+        SecretWalk.forEach(block) { _, _, value in
+            guard let text = value.stringValue else { return }
+            if text == Redaction.placeholder || SecretBox.isSealed(text) || Redaction.isSecretReference(text) { supplied = true }
+        }
+        return supplied
     }
 
     // MARK: Daily digest
 
     /// What the digest is written from: the status, the warnings and errors of the last `hours` (the latest 150, as
     /// Glass UI picks them, through `safe`: a confirmation code is a warning line, and the digest goes back to
-    /// clients) and the accessories with their values.
+    /// clients), the accessories with their values, and the vault's problems (`vaultHealth`) in the status.
     public func digestInput(hours: Double = 24, now: Date = Date()) -> DailyDigestInput {
         let lines = logs.lines(from: now.addingTimeInterval(-hours * 3600), to: now, limit: 20_000).map(\.formatted)
+        var status = statusJSON().objectValue ?? [:]
+        let vault = vaultHealth(now: now)
+        if !vault.problems.isEmpty { status["vault"] = vault.json }
         return DailyDigestInput(
-            date: DailyDigestInput.today(now), status: statusJSON(),
+            date: DailyDigestInput.today(now), status: .object(status),
             logs: DailyDigestInput.problemLines(lines).suffix(150).map(Self.safe),
             accessories: .array(located().map { Self.accessoryJSON($0, detailed: false) }))
     }

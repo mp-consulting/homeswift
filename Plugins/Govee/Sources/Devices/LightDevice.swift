@@ -371,6 +371,32 @@ final class LightDevice: GoveeDevice {
         }
     }
 
+    /// The scenes picked from the Govee library (the switches), by subtype: what Homeswift's Scenes page lists.
+    var librarySceneNames: [(key: String, name: String)] {
+        scenes.filter { $0.key.hasPrefix(Self.sceneServicePrefix) }.map { ($0.key, $0.name) }
+    }
+
+    /// Applies a library pick by subtype, as its switch does.
+    func applyScene(key: String) async throws {
+        guard let scene = scenes.first(where: { $0.key == key }) else { throw PluginSceneError("no such scene") }
+        try await internalSceneUpdate(scene, true, isService: true)
+    }
+
+    /// Plays a library scene that is not one of the light's switches (an animated scene's effect); answers whether
+    /// the light took it.
+    func applyLibraryScene(name: String, code: String) async -> Bool {
+        do {
+            try await send(.rgbScene(code: code, bleCode: nil))
+            if !colourSafeMode, let adaptiveLighting, adaptiveLighting.isAdaptiveLightingActive { adaptiveLighting.disableAdaptiveLighting() }
+            cacheScene = name
+            log("\(Lang.curScene) [\(name)]")
+            return true
+        } catch {
+            logWarn("\(Lang.devNotUpdated) \(error)")
+            return false
+        }
+    }
+
     private func internalSceneUpdate(_ scene: ActiveScene, _ value: Bool, isService: Bool) async throws {
         guard value else { return }
         do {

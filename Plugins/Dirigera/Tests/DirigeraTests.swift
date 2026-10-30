@@ -76,6 +76,8 @@ final class FakeHub: HTTPSending, @unchecked Sendable {
         switch (request.method, path) {
         case ("GET", "/v1/devices"): return json(Self.devices)
         case ("GET", "/v1/scenes"): return json(Self.scenes)
+        case ("GET", "/v1/rooms"): return json(Self.rooms)
+        case ("POST", "/v1/scenes"): return json(["id": "scene-new"], status: 201)
         default: return json([:], status: 202)
         }
     }
@@ -115,6 +117,11 @@ final class FakeHub: HTTPSending, @unchecked Sendable {
          "attributes": ["customName": "Kitchen Remote", "model": "STYRBAR remote control", "batteryPercentage": 70]],
         ["id": "styrbar-down", "relationId": "styrbar-1", "type": "controller", "deviceType": "lightController", "isReachable": true,
          "attributes": ["customName": "Kitchen Remote", "model": "STYRBAR remote control"]],
+    ]
+
+    static let rooms: JSONValue = [
+        ["id": "r1", "name": "Living Room", "icon": "rooms_sofa", "color": "ikea_green_no_65"],
+        ["id": "r2", "name": "Kitchen", "icon": "rooms_kitchen", "color": "ikea_yellow_no_24"],
     ]
 
     static let scenes: JSONValue = [
@@ -200,11 +207,13 @@ struct DirigeraTests {
         let answer = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "pair", body: ["host": "192.0.2.20"], user: "admin"))
         #expect(answer.json["paired"] == "192.0.2.20")
         _ = try await accessory(host, sofaID)
-        let directory = environment.directory
+        // The token is kept sealed in the vault, under the instance's namespace.
+        let vault = CredentialVault(storage: environment.directory)
         #expect(await eventually {
-            let files = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: nil)?.compactMap { $0 as? URL } ?? []
-            return files.first { $0.lastPathComponent == "hubs.json" }.flatMap { try? String(contentsOf: $0, encoding: .utf8) }?.contains(FakeHub.token) == true
+            let entry = (try? vault.names())?.first { $0.hasPrefix("plugin.") && $0.hasSuffix(".hubs.json") }
+            return entry.flatMap { try? vault.entry(named: $0)?.fields["token"] }?.contains(FakeHub.token) == true
         })
+        #expect(try !String(contentsOf: vault.url, encoding: .utf8).contains(FakeHub.token))
         await host.stop()
     }
 
@@ -392,6 +401,90 @@ struct DirigeraTests {
     }
 
     /// The Assistant lists the scenes and runs the one it picked, through the actions.
+    /// Homeswift's Scenes page lists the hub's user scenes, by the hub's id, and triggers them.
+    @Test func scenesReachHomeswiftsScenesPage() async throws {
+        let host = try await environment.start()
+        _ = try await accessory(host, scenesID)
+        let plugin = try #require(environment.plugin)
+        let scenes = await plugin.scenes()
+        let movie = try #require(scenes.first { $0.name == "Movie night" })
+        #expect(movie.id == "scene-1")
+        #expect(movie.active == nil)
+        #expect(!scenes.contains { $0.id == "scene-2" })
+        try await plugin.recallScene(id: movie.id)
+        #expect(environment.hub.sent.last?.path == "/v1/scenes/scene-1/trigger")
+        await #expect(throws: (any Error).self) { try await plugin.recallScene(id: "nope") }
+        await host.stop()
+    }
+
+    /// Homeswift writes scenes to the hub as lpgera/dirigera does: a new user scene of the hub's lights, a rename that
+    /// sends its actions back unchanged, new values, a removal; a wake-up scene is left alone.
+    @Test func scenesAreWrittenToTheHub() async throws {
+        let host = try await environment.start()
+        _ = try await accessory(host, scenesID)
+        let plugin = try #require(environment.plugin)
+        let sofa = DirigeraPlugin.accessoryID(deviceID: "bulb-1"), hallway = DirigeraPlugin.accessoryID(deviceID: "bulb-2")
+        #expect(await plugin.sceneTarget(accessoryIDs: [sofa, hallway]) == "DIRIGERA 192.0.2.20")
+        #expect(await plugin.sceneTarget(accessoryIDs: [sofa, DirigeraPlugin.accessoryID(deviceID: "plug-1")]) == nil)
+
+        let id = try await plugin.createScene(name: "Evening", lights: [
+            PluginSceneLight(accessoryID: sofa, on: true, brightness: 0, hue: 30, saturation: 50),
+            PluginSceneLight(accessoryID: hallway, on: true, brightness: 40, colorTemperature: 370),
+        ])
+        #expect(id == "scene-new")
+        let created = try #require(environment.hub.sent.last { $0.method == "POST" && $0.path == "/v1/scenes" })
+        let body = try JSONValue(data: Data(created.body.utf8))
+        #expect(body["type"] == "userScene")
+        #expect(body["info"] == ["name": "Evening", "icon": "scenes_heart"])
+        #expect(body["triggers"] == [["type": "app"]])
+        #expect(body["actions"]?[0] == ["type": "device", "deviceId": "bulb-1", "attributes": ["isOn": true, "lightLevel": 1, "colorHue": 30, "colorSaturation": 0.5]])
+        #expect(body["actions"]?[1]?["attributes"]?["colorTemperature"] == 2703)
+
+        try await plugin.updateScene(id: "scene-1", name: "Film night", lights: nil)
+        let renamed = try JSONValue(data: Data(try #require(environment.hub.sent.last { $0.method == "PUT" }).body.utf8))
+        #expect(renamed["info"] == ["name": "Film night", "icon": "scenes_tv"])
+        #expect(renamed["actions"] == [])
+        await #expect(throws: (any Error).self) { try await plugin.updateScene(id: "scene-2", name: "No", lights: nil) }
+        await #expect(throws: (any Error).self) { try await plugin.deleteScene(id: "scene-2") }
+
+        try await plugin.deleteScene(id: "scene-1")
+        #expect(environment.hub.sent.contains { $0.method == "DELETE" && $0.path == "/v1/scenes/scene-1" })
+        await host.stop()
+    }
+
+    /// Homeswift renames the hub's rooms with `PUT /v1/rooms/<id>`, keeping each room's icon and colour
+    /// (lpgera/dirigera's `rooms.update`).
+    @Test func roomsAreRenamedOnTheHub() async throws {
+        let host = try await environment.start()
+        _ = try await accessory(host, scenesID)
+        let plugin = try #require(environment.plugin)
+        let rooms = await plugin.rooms()
+        #expect(rooms == [PluginRoom(id: "r1@192.0.2.20", name: "Living Room"), PluginRoom(id: "r2@192.0.2.20", name: "Kitchen")])
+
+        try await plugin.renameRoom(id: "r1@192.0.2.20", name: "Lounge")
+        let renamed = try #require(environment.hub.sent.last { $0.method == "PUT" })
+        #expect(renamed.path == "/v1/rooms/r1")
+        #expect(try JSONValue(data: Data(renamed.body.utf8)) == ["name": "Lounge", "icon": "rooms_sofa", "color": "ikea_green_no_65"])
+        await #expect(throws: PluginRoomError.self) { try await plugin.renameRoom(id: "r9@192.0.2.20", name: "Attic") }
+        await #expect(throws: PluginRoomError.self) { try await plugin.renameRoom(id: "r1@192.0.2.99", name: "Attic") }
+        await host.stop()
+    }
+
+    /// A sunrise is one long fade the hub runs, from the lowest level; other styles are left to Homeswift.
+    @Test func sunriseIsALongFade() async throws {
+        let host = try await environment.start()
+        _ = try await accessory(host, scenesID)
+        let plugin = try #require(environment.plugin)
+        let bulb = DirigeraPlugin.accessoryID(deviceID: "bulb-1")
+        #expect(await plugin.animate(LightEffect(style: .fire), accessoryIDs: [bulb]).isEmpty)
+        #expect(await plugin.animate(LightEffect(style: .sunrise, durationSeconds: 600), accessoryIDs: [bulb]) == [bulb])
+        let patches = environment.hub.patches.filter { $0.path == "/v1/devices/bulb-1" }.map(\.body)
+        #expect(patches.contains { $0.contains("\"lightLevel\":1") })
+        #expect(patches.last?.contains("\"lightLevel\":100") == true)
+        #expect(patches.last?.contains("\"transitionTime\":600000") == true)
+        await host.stop()
+    }
+
     @Test func theAssistantRunsAScene() async throws {
         let host = try await environment.start()
         _ = try await accessory(host, scenesID)

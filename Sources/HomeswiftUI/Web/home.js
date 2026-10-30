@@ -158,6 +158,33 @@
       ? el("img", { class: className, src: `/artwork-${id}.webp`, alt: "", loading: "lazy", decoding: "async" }) : null;
   }
 
+  /// A scene's picture: the one a person gave it (by version, so the browser keeps it until it changes), else its
+  /// catalogue artwork.
+  function sceneImage(scene, className = "scene-artwork") {
+    if (typeof scene.picture === "string" && /^[a-z0-9]+$/.test(scene.picture)) {
+      return el("img", { class: className, src: `/api/scenes/${encodeURIComponent(scene.id)}/picture?v=${scene.picture}`, alt: "", loading: "lazy", decoding: "async" });
+    }
+    return artworkImage(scene.artworkId, className);
+  }
+
+  /// The menu entries that give a scene, Homeswift's or a hub's, a picture of the person's own or take it away.
+  /// `tileNode` shows busy while the picture is shrunk and sent.
+  function pictureMenu(scene, tileNode) {
+    const path = `/api/scenes/${encodeURIComponent(scene.id)}/picture`;
+    return [
+      { label: scene.picture ? t("Change the picture…") : t("Choose a picture…"), icon: "camera", onSelect: () => HomeswiftCommon.choosePictureFile(async (file) => {
+        tileNode?.classList.add("busy");
+        try {
+          await app.api(path, { method: "PUT", body: { data: await HomeswiftCommon.pictureDataURL(file) } });
+          app.route();
+        } catch (e) { HomeswiftCommon.showAlert(e.message); tileNode?.classList.remove("busy"); }
+      }) },
+      scene.picture ? { label: t("Remove the picture"), icon: "trash", onSelect: async () => {
+        try { await app.api(path, { method: "DELETE" }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
+      } } : null,
+    ].filter(Boolean);
+  }
+
   const artworkThemeNames = {
     "Essentials": t("Essentials"),
     "Get cozy": t("Get cozy"),
@@ -229,14 +256,127 @@
     return el("div", { class: "artwork-themes" }, el("div", { class: "artwork-filters" }, search, select, sort), empty, groups.map(({ node }) => node));
   }
 
+  /// The animation styles, by id, in the order the editor lists them.
+  const effectStyleNames = {
+    candle: t("Candle"), fire: t("Fire"), sparkle: t("Sparkle"), prism: t("Prism"), opal: t("Opal"), glisten: t("Glisten"),
+    underwater: t("Underwater"), cosmos: t("Cosmos"), sunbeam: t("Sunbeam"), enchant: t("Enchant"), palette: t("Moving colours"),
+    sunrise: t("Sunrise"), sunset: t("Sunset"), music: t("Follow the music"),
+  };
+
   function sceneButton(scene) {
-    const picture = artworkImage(scene.artworkId, "quick-scene-image");
+    const picture = sceneImage(scene, "quick-scene-image");
     const button = el("button", { type: "button", class: `scene-run${picture ? " pictured" : ""}`, title: t("Run {name}", { name: scene.name }) }, picture, el("span", { class: "quick-scene-label" }, HomeswiftCommon.icon("play"), el("span", { text: scene.name })));
     button.addEventListener("click", () => runScene(scene, button));
     return button;
   }
 
+  /// A scene a plugin's hub keeps (Hue, IKEA, Govee): its picture or its colours, its source, whether the hub says it
+  /// is on now. Running it recalls it on the hub.
+  function hubSceneButton(scene) {
+    const picture = sceneImage(scene, "quick-scene-image");
+    const colours = (scene.colours || []).filter((colour) => /^#[0-9a-f]{3,8}$/i.test(colour));
+    // A scene its hub runs on its own (an IKEA wake-up) is shown, not run.
+    const runnable = (scene.capabilities || []).includes("recall");
+    const button = el("button", { type: "button", disabled: !runnable, class: `scene-run hub-scene${picture ? " pictured" : colours.length ? " coloured" : ""}${scene.active ? " active" : ""}`, title: runnable ? t("Run {name}", { name: scene.name }) : scene.name },
+      picture,
+      el("span", { class: "quick-scene-label" }, HomeswiftCommon.icon("play"),
+        el("span", {}, el("span", { text: scene.name }), el("span", { class: "scene-source", text: scene.source.pluginName }))),
+      scene.active ? el("span", { class: "pill scene-active", text: t("Scene active") }) : null);
+    if (!picture && colours.length) button.style.background = colours.length > 1 ? `linear-gradient(135deg, ${colours.join(", ")})` : colours[0];
+    button.addEventListener("click", async () => { if (await runScene(scene, button)) app.route(); });
+    // Its actions sit on the tile, round over its top corner: Stop while it can be, then the menu (Automate and the rest).
+    const stop = scene.stoppable ? el("button", { type: "button", actionIcon: "stop", "aria-label": t("Stop"), title: t("Stop"), onclick: () => stopScene(scene, stop) }) : null;
+    // A Homeswift scene that recalls it, to give it triggers and conditions.
+    let automating = false;
+    const automate = async () => {
+      if (automating) return;
+      automating = true;
+      try {
+        const saved = await app.api("/api/scenes", { method: "POST", body: { name: scene.name.slice(0, 64), artworkId: scene.artworkId || null, actions: [{ recall: scene.id }] } });
+        app.navigate(`/scenes/${encodeURIComponent(saved.id)}`);
+      } catch (e) { HomeswiftCommon.showAlert(e.message); automating = false; }
+    };
+    // Everything in it changes scenes or pictures: an administrator's.
+    const menu = !app.isAdmin() ? null : menuButton(t("Actions for {name}", { name: scene.name }), () => [
+      runnable ? { label: t("Automate"), icon: "workflow", onSelect: automate } : null,
+      ...hubSceneMenu(scene), ...pictureMenu(scene, button),
+    ].filter(Boolean));
+    return el("div", { class: "hub-scene-tile" }, button, el("div", { class: "hub-scene-actions" }, stop, menu));
+  }
+
+  /// What a hub's scene lets Homeswift change on its hub (its `capabilities`): its name, its lights' values as they are
+  /// now, or the scene itself, which goes from the hub's own app too.
+  function hubSceneMenu(scene) {
+    const can = new Set(scene.capabilities || []);
+    const path = `/api/scenes/${encodeURIComponent(scene.id)}`;
+    const change = async (body) => {
+      try { await app.api(`${path}/hub`, { method: "PUT", body }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
+    };
+    return [
+      can.has("rename") ? { label: t("Rename…"), icon: "edit", onSelect: async () => {
+        const name = (await HomeswiftCommon.promptDialog(t("A new name for {name} on {hub}.", { name: scene.name, hub: scene.source.name }), scene.name))?.trim();
+        if (name && name !== scene.name) await change({ name });
+      } } : null,
+      can.has("update") && scene.accessoryIds?.length ? { label: t("Keep the lights as they are"), icon: "check", onSelect: async () => {
+        if (await HomeswiftAdmin.confirmAction({ title: t("Update {name}?", { name: scene.name }), text: t("{name} on {hub} will set its lights as they are now.", { name: scene.name, hub: scene.source.name }), confirmLabel: t("Update"), danger: false })) await change({ fromCurrent: true });
+      } } : null,
+      can.has("delete") ? { label: t("Delete from {hub}", { hub: scene.source.name }), icon: "trash", danger: true, onSelect: async () => {
+        if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete the scene {name}?", { name: scene.name }), text: t("This removes it from {hub} and its own app too. This cannot be undone.", { hub: scene.source.name }), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
+        try { await app.api(path, { method: "DELETE" }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
+      } } : null,
+    ].filter(Boolean);
+  }
+
+  /// The scenes of the plugins' hubs, by room, with a source filter when there are several. `filter(query)` hides
+  /// those whose name does not match; answers how many show.
+  function hubScenesSection(scenes) {
+    if (!scenes.length) return { node: null, filter: () => 0 };
+    const other = t("Other");
+    const rooms = [...new Set(scenes.map((scene) => scene.room || other))].sort((a, b) => a === other ? 1 : b === other ? -1 : a.localeCompare(b, HomeswiftI18n.locale));
+    const sourceKey = (scene) => `${scene.source.platform}:${scene.source.name}`;
+    const sources = [...new Map(scenes.map((scene) => [sourceKey(scene), scene.source.name])).entries()];
+    const source = sources.length > 1 ? el("select", { "aria-label": t("Source") }, el("option", { value: "", text: t("All sources") }),
+      sources.map(([key, name]) => el("option", { value: key, text: name }))) : null;
+    const tiles = scenes.map((scene) => ({ scene, node: hubSceneButton(scene) }));
+    const groups = rooms.map((room) => {
+      const members = tiles.filter(({ scene }) => (scene.room || other) === room);
+      return { members, node: el("div", { class: "hub-scene-room" }, el("div", { class: "service-name", text: room }), el("div", { class: "quick-scenes" }, members.map(({ node }) => node))) };
+    });
+    const count = el("span", { class: "pill", text: String(scenes.length) });
+    let query = "";
+    const filter = (text = query) => {
+      query = text;
+      let shown = 0;
+      for (const { scene, node } of tiles) {
+        node.hidden = !scene.name.toLocaleLowerCase().includes(query) || (source?.value && sourceKey(scene) !== source.value);
+        if (!node.hidden) shown += 1;
+      }
+      for (const group of groups) group.node.hidden = group.members.every(({ node }) => node.hidden);
+      count.textContent = String(shown);
+      return shown;
+    };
+    source?.addEventListener("change", () => filter());
+    const node = el("section", { class: "hub-scenes" },
+      el("div", { class: "section-head hub-scenes-head" }, el("h2", { text: t("Scenes from your hubs") }), count, source),
+      el("p", { class: "muted", text: t("Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; rename, update or delete a Hue or IKEA scene from its ⋯ menu.") }),
+      groups.map(({ node }) => node));
+    return { node, filter };
+  }
+
   /// Runs a scene; one that changes a lock, a door or an alarm asks first, as the cards' own controls do.
+  /// Puts back what a scene's last run changed (a saved scene's locks, doors and alarms once the person agrees), then
+  /// redraws the page.
+  async function stopScene(scene, button) {
+    const confirmSecurity = Boolean(scene.security || scene.stopSecurity);
+    if (confirmSecurity && !await HomeswiftCommon.confirmDialog(t("Restore the previous state of this scene’s locks, doors or alarms?"))) return;
+    button.disabled = true;
+    try {
+      const result = await app.api(`/api/scenes/${encodeURIComponent(scene.id)}/stop`, { method: "POST", body: { confirmSecurity } });
+      if (!result.ok) HomeswiftCommon.showAlert(result.failed.map((f) => HomeswiftI18n.message(f.error)).join("\n"));
+      app.route();
+    } catch (e) { HomeswiftCommon.showAlert(e.message); button.disabled = false; }
+  }
+
   async function runScene(scene, button) {
     let confirmSecurity = false;
     if (scene.security) {
@@ -248,7 +388,7 @@
     if (button) button.disabled = true;
     try {
       const result = await app.api(`/api/scenes/${encodeURIComponent(scene.id)}/run`, { method: "POST", body: { confirmSecurity } });
-      if (!result.ok) {
+      if (!result.ok && result.results) {
         const failures = result.results.filter((r) => !r.ok).map((r) => `${r.name || r.id} ${r.characteristic}: ${HomeswiftI18n.message(r.error || r.skipped)}`);
         HomeswiftCommon.showAlert(t("{scene} ran, but not everything worked:\n{failures}", { scene: scene.name, failures: failures.join("\n") }));
       }
@@ -259,10 +399,10 @@
     }
   }
 
-  // ---- Moods -----------------------------------------------------------------------------------------
+  // ---- Templates -------------------------------------------------------------------------------------
 
   /// The collection's names and descriptions, by id: translated here, the server's being English for MCP clients.
-  const moodTexts = {
+  const templateTexts = {
     "candlelight": [t("Candlelight"), t("Very warm, dim light for dinner.")],
     "relax": [t("Relax"), t("Soft warm white for the evening.")],
     "golden-hour": [t("Golden hour"), t("Amber and soft orange, a little different on each light.")],
@@ -286,131 +426,133 @@
     "alert": [t("Alert flash"), t("Two red pulses, then the lights go back to how they were.")],
     "bedtime": [t("Bedtime"), t("A slow fade to a dim red over fifteen minutes.")],
   };
-  const moodCategories = [["gallery", t("Scene gallery")], ["calm", t("Calm")], ["animated", t("Slow animations")], ["party", t("Party")], ["signal", t("Signals")]];
-  const moodName = (id, name) => moodTexts[id]?.[0] ?? name;
-  const moodRoomKey = "homeswift.moods.room";
+  const templateCategories = [["gallery", t("Scene gallery")], ["calm", t("Calm")], ["animated", t("Slow animations")], ["party", t("Party")], ["signal", t("Signals")]];
+  const templateName = (id, name) => templateTexts[id]?.[0] ?? name;
+  const templateRoomKey = "homeswift.templates.room";
 
-  /// The rooms with a light in them, for the moods.
+  /// The rooms with a light in them, for the templates.
   function lightRooms(accessories) {
     const rooms = accessories.filter((a) => !a.hidden && a.room && a.services.some((s) => s.type === "Lightbulb")).map((a) => a.room);
     return [...new Set(rooms)].sort((a, b) => a.localeCompare(b, HomeswiftI18n.locale));
   }
 
-  /// Moods for a room's lights: the rooms as chips, what plays now, a box where the Assistant writes one from a
-  /// description, and the collection by kind. On a phone each kind is a row that swipes sideways, so the whole card
-  /// fits on a screen and what a tap started shows next to the finger: the pill lights up while its mood plays.
-  function moodsSection(accessories) {
-    const section = el("section", { class: "moods" });
-    const head = el("div", { class: "section-head" }, el("div", {}, el("h2", { text: t("Moods") }), el("span", { class: "muted", text: t("Ambiances and light shows for a room's lights.") })));
+  /// Templates for a room's lights: the rooms as chips, what was tried there and can still be stopped or undone, a box
+  /// where the Assistant writes a scene from a description, and the collection by kind. A tap tries one at once without
+  /// saving it (the pill lights up while it plays); Save keeps it as a scene. On a phone each kind is a row that swipes
+  /// sideways, so the whole card fits on a screen.
+  function templatesSection(accessories, scenes = { scenes: [], pluginScenes: [] }) {
+    const section = el("section", { class: "templates" });
+    const head = el("div", { class: "section-head" }, el("div", {}, el("h2", { text: t("By room") }), el("span", { class: "muted", text: t("A room's scenes, then templates to try on its lights; save one as a scene when you like it.") })));
     const rooms = lightRooms(accessories);
     if (!rooms.length) {
-      section.append(head, el("div", { class: "card empty" }, el("p", { class: "muted", text: t("Put your lights in rooms (a card's menu on the Accessories page) to play moods on them.") })));
+      section.append(head, el("div", { class: "card empty" }, el("p", { class: "muted", text: t("Put your lights in rooms (a card's menu on the Accessories page) to try templates on them.") })));
       return section;
     }
     let room = rooms[0];
-    try { const remembered = localStorage.getItem(moodRoomKey); if (rooms.includes(remembered)) room = remembered; } catch {}
-    const roomChips = el("div", { class: "mood-rooms", role: "group", "aria-label": t("Room") }, rooms.map((name) => {
-      const chip = el("button", { type: "button", class: "mood-room", text: name, "aria-pressed": String(name === room) });
+    try { const remembered = localStorage.getItem(templateRoomKey); if (rooms.includes(remembered)) room = remembered; } catch {}
+    const roomChips = el("div", { class: "template-rooms", role: "group", "aria-label": t("Room") }, rooms.map((name) => {
+      const chip = el("button", { type: "button", class: "template-room", text: name, "aria-pressed": String(name === room) });
       chip.addEventListener("click", () => {
         room = name;
-        try { localStorage.setItem(moodRoomKey, name); } catch {}
+        try { localStorage.setItem(templateRoomKey, name); } catch {}
         for (const other of roomChips.children) other.setAttribute("aria-pressed", String(other === chip));
-        drawRunning(data.running);
+        drawStrip();
+        drawTries();
         markPlaying();
       });
       return chip;
     }));
     const line = statusLine();
-    const running = el("div", { class: "mood-running" });
-    const collection = el("div", { class: "mood-collection" });
-    const describe = el("input", { type: "text", maxLength: 500, enterKeyHint: "go", placeholder: t("Describe a mood…"), title: t("Describe one: a jazz bar, a rainy afternoon…"), "aria-label": t("Describe a mood") });
-    const create = el("button", { type: "submit", class: "primary mood-create" }, sparkle(), el("span", { text: t("Create") }));
-    const designer = el("form", { class: "mood-describe hidden" }, describe, create);
-    section.append(head, el("div", { class: "card mood-card" }, roomChips, running, line, designer, collection));
+    const running = el("div", { class: "template-running" });
+    const collection = el("div", { class: "template-collection" });
+    const describe = el("input", { type: "text", maxLength: 500, enterKeyHint: "go", placeholder: t("Describe a scene…"), title: t("Describe one: a jazz bar, a rainy afternoon…"), "aria-label": t("Describe a scene") });
+    const create = el("button", { type: "submit", class: "primary template-create" }, sparkle(), el("span", { text: t("Create") }));
+    const designer = el("form", { class: "template-describe hidden" }, describe, create);
+    // The chosen room's own scenes and its hubs' scenes, to run in a tap.
+    const strip = el("div", { class: "quick-scenes room-scenes" });
+    const stripHead = el("div", { class: "service-name" });
+    const templatesHead = el("div", { class: "service-name", text: t("From a template") });
+    function drawStrip() {
+      const own = scenes.scenes.filter((scene) => scene.room === room).map((scene) => sceneButton(scene));
+      const hubs = (scenes.pluginScenes || []).filter((scene) => scene.room === room).map((scene) => hubSceneButton(scene));
+      strip.replaceChildren(...own, ...hubs);
+      stripHead.textContent = t("Scenes in {room}", { room });
+      strip.hidden = stripHead.hidden = !own.length && !hubs.length;
+    }
+    drawStrip();
+    section.append(head, el("div", { class: "card template-card" }, roomChips, stripHead, strip, running, line, designer, templatesHead, collection));
 
-    let data = { moods: [], running: [] };
+    let data = { templates: [], tries: [] };
     const buttons = [];
-    let timer = null;
+    const name = (run) => run.template ? templateName(run.template, run.name) : run.name;
 
-    /// The pills of the moods playing in the chosen room light up.
+    /// The pills of the templates playing in the chosen room light up.
     function markPlaying() {
-      const playing = new Set(data.running.filter((run) => run.room === room).map((run) => run.mood).filter(Boolean));
+      const playing = new Set(data.tries.filter((run) => run.room === room && run.template).map((run) => run.template));
       for (const [id, button] of buttons) {
         button.classList.toggle("playing", playing.has(id));
         button.setAttribute("aria-pressed", String(playing.has(id)));
-        let badge = button.querySelector(".mood-stop-badge");
-        if (playing.has(id) && !badge) { badge = el("span", { class: "mood-stop-badge", "aria-hidden": "true" }); button.append(badge); }
+        let badge = button.querySelector(".template-stop-badge");
+        if (playing.has(id) && !badge) { badge = el("span", { class: "template-stop-badge", "aria-hidden": "true" }); button.append(badge); }
         if (!playing.has(id)) badge?.remove();
-        const label = button.querySelector(".name")?.textContent || moodName(id, id);
+        const label = button.querySelector(".name")?.textContent || templateName(id, id);
         button.setAttribute("aria-label", playing.has(id) ? `${t("Stop")} ${label}` : label);
       }
     }
 
     async function refresh() {
-      data = await app.api("/api/moods");
-      drawRunning(data.running);
+      data = await app.api("/api/scenes/templates");
+      drawTries();
       markPlaying();
-      // Look again just after the next one ends by itself.
-      clearTimeout(timer);
-      const next = Math.min(...data.running.map((run) => run.endsAt ? new Date(run.endsAt) - Date.now() : Infinity));
-      if (Number.isFinite(next)) timer = setTimeout(() => { if (section.isConnected) refresh().catch(() => {}); }, Math.max(1000, next + 1500));
     }
 
-    function drawRunning(runs) {
-      running.replaceChildren(...runs.map((run) => {
-        const name = moodName(run.mood, run.name);
-        // A mood that set the lights once is undone; one that plays is stopped. Either way the lights go back.
-        const stop = el("button", { type: "button", class: "mood-stop", actionIcon: "stop", text: run.held ? t("Undo") : t("Stop") });
+    async function stopTry(run) {
+      await app.api(`/api/scenes/${encodeURIComponent(run.run)}/stop`, { method: "POST", body: {} });
+      say(line, run.playing ? t("{scene} stopped: the lights are back as they were.", { scene: name(run) }) : t("{scene} undone: the lights are back as they were.", { scene: name(run) }));
+    }
+
+    function drawTries() {
+      running.replaceChildren(...data.tries.map((run) => {
+        // One that plays is stopped; one that set the lights once is undone. Either way the lights go back.
+        const stop = el("button", { type: "button", class: "template-stop", actionIcon: "stop", text: run.playing ? t("Stop") : t("Undo") });
         stop.addEventListener("click", async () => {
           stop.classList.add("busy");
           stop.disabled = true;
-          try {
-            await app.api("/api/moods/stop", { method: "POST", body: { run: run.id } });
-            say(line, run.held ? t("{mood} undone: the lights are back as they were.", { mood: name }) : t("{mood} stopped: the lights are back as they were.", { mood: name }));
-            await refresh();
-          } catch (e) { say(line, e.message, "error"); stop.disabled = false; stop.classList.remove("busy"); }
+          try { await stopTry(run); await refresh(); } catch (e) { say(line, e.message, "error"); stop.disabled = false; stop.classList.remove("busy"); }
         });
-        const lights = tn("{n} light", "{n} lights", run.lights.length);
+        const save = el("button", { type: "button", class: "link", actionIcon: "check", text: t("Save as a scene"), onclick: () => saveAsScene(run) });
         // The room shows only when it is not the one chosen above.
-        const where = run.room && run.room !== room ? t("{room}, {lights}", { room: run.room, lights }) : lights;
-        return el("div", { class: "mood-run" }, swatch(run.mood),
-          el("div", { class: "mood-run-text" }, el("strong", { text: name }),
-            el("span", { class: "muted", text: run.held ? t("{lights}, set at {time}", { lights: where, time: timeFormat.format(new Date(run.startedAt)) })
-              : run.endsAt ? t("{lights}, until {time}", { lights: where, time: timeFormat.format(new Date(run.endsAt)) }) : where })),
-          stop);
+        const time = timeFormat.format(new Date(run.startedAt));
+        const where = run.room && run.room !== room ? t("{room}, {time}", { room: run.room, time }) : time;
+        return el("div", { class: "template-run" }, swatch(run.template, run.plan?.artworkId),
+          el("div", { class: "template-run-text" }, el("strong", { text: name(run) }), el("span", { class: "muted", text: where })),
+          save, stop);
       }));
     }
 
-    function swatch(id) {
-      const artworkId = data.moods.find((mood) => mood.id === id)?.artworkId;
-      return artworkImage(artworkId || "tyrell", "mood-swatch");
+    function swatch(id, artworkId) {
+      return artworkImage(artworkId || data.templates.find((template) => template.id === id)?.artworkId || "tyrell", "template-swatch");
     }
 
-    async function start(body, name, button) {
+    async function start(body, label, button) {
       if (button?.classList.contains("busy")) return;
       button?.classList.add("busy");
-      say(line, body.description ? t("The Assistant is writing a mood…") : t("Starting {mood}…", { mood: name }));
+      say(line, body.description ? t("The Assistant is writing a scene…") : t("Trying {template}…", { template: label }));
       try {
-        const result = await app.api("/api/moods/start", { method: "POST", body: { ...body, room } });
-        const shown = body.mood ? name : result.mood.name;
-        const count = result.lights.length;
-        if (result.run && !result.run.held) {
-          say(line, "");
-        } else if (result.ok) {
-          say(line, tn("{mood} is set on {n} light.", "{mood} is set on {n} lights.", count, { mood: shown }));
-          line.append(" ", el("button", { actionIcon: "check", type: "button", class: "link", text: t("Save as a scene"), onclick: () => saveAsScene(body.mood ? { mood: body.mood } : { plan: result.mood }, shown) }));
-        } else {
-          const failures = result.failed.map((f) => `${f.name}: ${HomeswiftI18n.message(f.error)}`).join("; ");
-          say(line, t("{mood} is set, but not on every light: {failures}", { mood: shown, failures }), "error");
+        const result = await app.api("/api/scenes/try", { method: "POST", body: { ...body, room } });
+        if (result.ok) say(line, "");
+        else {
+          const failures = (result.results || []).filter((r) => !r.ok).map((r) => `${r.name || r.id || r.recall}: ${HomeswiftI18n.message(r.error || r.skipped)}`).join("; ");
+          say(line, t("{scene} is set, but not on every light: {failures}", { scene: body.template ? label : result.name, failures }), "error");
         }
         if (body.description) describe.value = "";
         await refresh();
       } catch (e) { say(line, e.message, "error"); } finally { button?.classList.remove("busy"); }
     }
 
-    async function saveAsScene(source, name) {
+    async function saveAsScene(run) {
       try {
-        const scene = await app.api("/api/moods/save", { method: "POST", body: { ...source, room, name: t("{mood} in {room}", { mood: name, room }) } });
+        const scene = await app.api("/api/scenes", { method: "POST", body: { ...run.plan, name: t("{scene} in {room}", { scene: name(run), room: run.room || room }).slice(0, 64) } });
         say(line, t("Saved as the scene {name}.", { name: scene.name }));
         setTimeout(() => { if (section.isConnected) app.route(); }, 1200);
       } catch (e) { say(line, e.message, "error"); }
@@ -426,30 +568,29 @@
       await refresh();
       const themes = await loadArtworkThemes();
       designer.classList.toggle("hidden", !data.assistant);
-      collection.replaceChildren(...moodCategories.map(([category, label]) => {
-        const moods = data.moods.filter((mood) => mood.category === category);
-        if (!moods.length) return null;
-        const makeButton = (mood) => {
-          const name = moodName(mood.id, mood.name);
-          const button = el("button", { type: "button", class: "mood-button scene pictured artwork-choice", title: category === "gallery" ? name : moodTexts[mood.id]?.[1] ?? mood.description ?? "", "aria-pressed": "false" },
-            swatch(mood.id), el("span", { class: "name", text: name }));
+      collection.replaceChildren(...templateCategories.map(([category, label]) => {
+        const templates = data.templates.filter((template) => template.category === category);
+        if (!templates.length) return null;
+        const makeButton = (template) => {
+          const label = templateName(template.id, template.name);
+          const button = el("button", { type: "button", class: "template-button scene pictured artwork-choice", title: category === "gallery" ? label : templateTexts[template.id]?.[1] ?? template.description ?? "", "aria-pressed": "false" },
+            swatch(template.id), el("span", { class: "name", text: label }));
           button.addEventListener("click", async () => {
             if (button.classList.contains("busy")) return;
-            const active = data.running.filter((run) => run.room === room && run.mood === mood.id);
-            if (!active.length) return start({ mood: mood.id }, name, button);
+            const active = data.tries.filter((run) => run.room === room && run.template === template.id);
+            if (!active.length) return start({ template: template.id }, label, button);
             button.classList.add("busy");
             try {
-              for (const run of active) await app.api("/api/moods/stop", { method: "POST", body: { run: run.id } });
-              say(line, t("{mood} stopped: the lights are back as they were.", { mood: name }));
+              for (const run of active) await stopTry(run);
               await refresh();
             } catch (e) { say(line, e.message, "error"); }
             finally { button.classList.remove("busy"); }
           });
-          buttons.push([mood.id, button]);
+          buttons.push([template.id, button]);
           return button;
         };
-        return el("div", { class: "mood-group" }, el("div", { class: "service-name", text: label }),
-          category === "gallery" ? themedArtwork(moods, themes, makeButton) : el("div", { class: "mood-buttons" }, moods.map(makeButton)));
+        return el("div", { class: "template-group" }, el("div", { class: "service-name", text: label }),
+          category === "gallery" ? themedArtwork(templates, themes, makeButton) : el("div", { class: "template-buttons" }, templates.map(makeButton)));
       }).filter(Boolean));
       markPlaying();
     })().catch((e) => say(line, e.message, "error"));
@@ -498,28 +639,22 @@
     const [data, accessories] = await Promise.all([app.api("/api/scenes"), app.api("/api/accessories")]);
     const names = new Map(accessories.map((a) => [a.id, displayName(a)]));
     const card = (scene) => {
-      const actions = scene.actions.map((action) => el("div", { class: "control" },
+      const actions = scene.actions.map((action) => action.recall ? el("div", { class: "control" },
+        el("span", { text: action.missing ? t("{name} (gone)", { name: action.name || action.recall }) : action.name || action.recall }),
+        el("span", { class: "value", text: t("Hub scene") })) : el("div", { class: "control" },
         el("span", { text: action.missing ? t("{name} (gone)", { name: action.name || action.id }) : action.name || action.id }),
         el("span", { class: "value", text: `${action.characteristic} → ${typeof action.value === "boolean" && !app.enumLabels[action.characteristic] ? (action.value ? t("On") : t("Off")) : app.labelFor(action.characteristic, action.value)}` })));
       const lastVars = scene.lastRun ? { date: dateTimeFormat.format(new Date(scene.lastRun.at)), trigger: scene.lastRun.trigger } : null;
       const last = scene.lastRun ? (scene.lastRun.ok ? t("Last run {date} ({trigger})", lastVars) : t("Last run {date} ({trigger}), with errors", lastVars)) : t("Never run");
       const run = el("button", { actionIcon: "play", class: "primary", text: t("Run") });
       run.addEventListener("click", async () => { if (await runScene(scene, run)) app.route(); });
-      const stop = scene.stoppable ? el("button", { type: "button", actionIcon: "stop", text: t("Stop"), onclick: async () => {
-        const confirmSecurity = scene.security || scene.stopSecurity;
-        if (confirmSecurity && !await HomeswiftCommon.confirmDialog(t("Restore the previous state of this scene’s locks, doors or alarms?"))) return;
-        stop.disabled = true;
-        try {
-          const result = await app.api(`/api/scenes/${encodeURIComponent(scene.id)}/stop`, { method: "POST", body: { confirmSecurity } });
-          if (!result.ok) HomeswiftCommon.showAlert(result.failed.map((f) => HomeswiftI18n.message(f.error)).join("\n"));
-          app.route();
-        } catch (e) { HomeswiftCommon.showAlert(e.message); stop.disabled = false; }
-      } }) : null;
+      const stop = scene.stoppable ? el("button", { type: "button", actionIcon: "stop", text: t("Stop"), onclick: () => stopScene(scene, stop) }) : null;
       return el("div", { class: "card server scene-card" },
-        artworkImage(scene.artworkId),
+        sceneImage(scene),
         el("div", { class: "server-head" }, tile("play", scene.security ? "violet" : "orange"),
-          el("div", { class: "who" }, el("a", { class: "card-title", href: `/scenes/${encodeURIComponent(scene.id)}` }, el("strong", { text: scene.name })),
-            el("div", { class: "muted", text: scene.triggers.length ? scene.triggers.map((trigger) => describeTrigger(trigger, names)).join(" · ") : t("Run by hand") })),
+          el("div", { class: "who" }, el("a", { class: "card-title", href: `/scenes/${encodeURIComponent(scene.id)}` }, el("strong", { text: scene.name }),
+              scene.active ? el("span", { class: "pill scene-active", text: t("Scene active") }) : null),
+            el("div", { class: "muted", text: [scene.room, scene.homeKit ? t("In the Home app") : null, scene.animation ? t("Animated: {style}", { style: scene.animation.effect ? effectStyleNames[scene.animation.effect.style] || scene.animation.effect.style : t("Timed sequence") }) : null, scene.triggers.length ? scene.triggers.map((trigger) => describeTrigger(trigger, names)).join(" · ") : t("Run by hand")].filter(Boolean).join(" · ") })),
           el("div", { class: "scene-run-actions" }, run, stop)),
         el("details", { class: "scene-card-details" }, el("summary", { text: t("Details") }), el("div", { class: "controls" }, actions)),
         scene.security ? el("p", { class: "muted note", text: t("It changes a lock, a door or an alarm: the page asks before running it, and automations leave those actions out.") }) : null,
@@ -527,6 +662,7 @@
           menuButton(t("Actions for {name}", { name: scene.name }), () => [
             { label: t("Run"), icon: "play", onSelect: () => runScene(scene) },
             { label: t("Edit"), icon: "edit", href: `/scenes/${encodeURIComponent(scene.id)}` },
+            ...pictureMenu(scene),
             { label: t("Delete"), icon: "trash", danger: true, onSelect: async () => {
               if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete the scene {name}?", { name: scene.name }), text: t("This removes the scene and its automatic triggers. This cannot be undone."), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
               try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
@@ -535,21 +671,24 @@
     };
     const sceneCount = el("span", { class: "pill", text: String(data.scenes.length) });
     const sceneCards = data.scenes.map((scene) => ({ scene, node: card(scene) }));
+    const hubScenes = hubScenesSection(data.pluginScenes || []);
     const search = el("input", { type: "search", class: "search", placeholder: t("Filter text"), "aria-label": t("Your scenes") });
     const noMatches = el("p", { class: "card empty", hidden: true, text: t("Nothing in this range matches.") });
     search.addEventListener("input", () => {
       const query = search.value.trim().toLocaleLowerCase();
       for (const { scene, node } of sceneCards) node.hidden = !scene.name.toLocaleLowerCase().includes(query);
       sceneCount.textContent = String(sceneCards.filter(({ node }) => !node.hidden).length);
-      noMatches.hidden = sceneCards.some(({ node }) => !node.hidden);
+      const hubShown = hubScenes.filter(query);
+      noMatches.hidden = sceneCards.some(({ node }) => !node.hidden) || hubShown > 0;
     });
     app.show(main,
-      app.pageHead(t("Scenes"), t("Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; the Home app does not see them."),
+      app.pageHead(t("Scenes"), t("Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; one you choose is also a switch in the Home app."),
         data.scenes.length ? el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") }) : null),
-      el("div", { class: "section-head" }, el("h2", { text: t("Your scenes") }), sceneCount, data.scenes.length ? [search, HomeswiftCommon.clearFilters([[search, ""]])] : null),
+      el("div", { class: "section-head" }, el("h2", { text: t("Your scenes") }), sceneCount, data.scenes.length || hubScenes.node ? [search, HomeswiftCommon.clearFilters([[search, ""]])] : null),
       data.scenes.length ? el("div", { class: "grid scene-grid" }, sceneCards.map(({ node }) => node))
-        : el("div", { class: "card empty scenes-empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("play")), el("p", { class: "muted", text: t("No scene yet. A scene sets several accessories at once, such as every light of a room for the evening.") }), el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") })),
-      noMatches, moodsSection(accessories), locationCard(data));
+        // Short when the hubs' scenes follow: they are what there is to run.
+        : el("div", { class: `card empty scenes-empty${hubScenes.node ? " compact" : ""}` }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("play")), el("p", { class: "muted", text: t("No scene yet. A scene sets several accessories at once, such as every light of a room for the evening.") }), el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") })),
+      noMatches, hubScenes.node, templatesSection(accessories, data), locationCard(data));
   }
 
   /// Where sunrise and sunset are computed for: Glass UI took its weather widget's city; here it is typed, or
@@ -905,6 +1044,11 @@
     const choices = accessories.filter((a) => !a.hidden || scene.actions.some((x) => x.id === a.id));
 
     const name = el("input", { type: "text", value: scene.name, maxLength: 64, required: true, placeholder: t("Evening") });
+    const homeKit = el("input", { type: "checkbox", checked: Boolean(scene.homeKit) });
+    // The settings pages' toggle: a switch, then its title over its help.
+    const homeKitRow = el("label", { class: "toggle" }, el("span", { class: "switch" }, homeKit, el("span")), el("span", {},
+      el("span", { class: "field-title", text: t("A switch in the Home app") }),
+      el("p", { class: "help", text: t("On the Homeswift Scenes accessory: turning it on runs the scene (without its locks, doors and alarms), turning it off puts the lights back.") })));
     let artworkId = scene.artworkId || null;
     const themes = await loadArtworkThemes();
     const artworkPreview = el("div", { class: "artwork-preview" }, artworkImage(artworkId));
@@ -934,7 +1078,29 @@
       remove.setAttribute("aria-label", label);
       return remove;
     };
+    const hubScenes = data.pluginScenes || [];
+    /// A hub's scene to recall: its name and source, not editable; removed and added again to change it.
+    const addRecall = (id) => {
+      const known = hubScenes.find((scene) => scene.id === id);
+      const action = scene.actions.find((a) => a.recall === id);
+      const name = known?.name || action?.name || id;
+      const fields = rowShell(el("p", { class: "muted", text: known ? t("Recalled on {source}.", { source: known.source.name }) : t("This hub's scene is gone: the run skips it.") }));
+      const summary = el("summary", { class: "scene-action-summary" }, HomeswiftCommon.icon("play"),
+        el("span", {}, el("strong", { text: name }), el("small", { text: t("Hub scene") })), HomeswiftCommon.icon("down"));
+      const row = el("details", { class: "scene-action" }, summary, fields);
+      row.read = () => [{ recall: id }];
+      fields.append(deleteButton(row, actions, t("Delete action")));
+      actions.add(row);
+      actionList.append(row);
+    };
+    const recallPicker = hubScenes.length ? (() => {
+      const select = el("select", { "aria-label": t("Hub scene") }, el("option", { value: "", text: t("Add a hub scene…") }),
+        hubScenes.map((hub) => el("option", { value: hub.id, text: `${hub.name} · ${hub.source.name}` })));
+      select.addEventListener("change", () => { if (select.value) addRecall(select.value); select.value = ""; });
+      return select;
+    })() : null;
     const addAction = (action = {}) => {
+      if (action.recall) return addRecall(action.recall);
       const pick = {};
       const [accessory, control, value] = characteristicPicker(choices, pick, { id: action.id, service: action.service, characteristic: action.characteristic, value: action.value, list: colorControls });
       control.setAttribute("aria-label", t("Control"));
@@ -1074,6 +1240,60 @@
       step.panel.querySelector("button").focus({ preventScroll: true });
     };
     canvas.append(el("div", { class: "scene-flow-terminal" }, HomeswiftCommon.icon("play"), el("span", { text: t("Start") })));
+    // The animation: an effect (each brand's own where its lights have it, Homeswift's elsewhere) on chosen lights,
+    // after the actions. A timed sequence (from a template) is kept as it is.
+    const animationRows = new Set();
+    const animation = (() => {
+      const current = scene.animation, effect = current?.effect || {};
+      const style = el("select", { "aria-label": t("Animation") }, el("option", { value: "", text: t("No animation") }),
+        current?.steps ? el("option", { value: "sequence", text: t("Timed sequence") }) : null,
+        Object.entries(effectStyleNames).map(([value, label]) => el("option", { value, text: label })));
+      style.value = current?.steps ? "sequence" : effect.style || "";
+      const speed = el("input", { type: "range", min: 0, max: 100, value: Math.round((effect.speed ?? 0.5) * 100) });
+      const brightness = el("input", { type: "range", min: 1, max: 100, value: effect.brightness ?? 80 });
+      const minutes = el("input", { type: "number", min: 1, max: 60, value: Math.round((effect.durationSeconds ?? 900) / 60) });
+      const tint = el("input", { type: "checkbox", checked: !!effect.colors?.length });
+      const first = colorInput(effect.colors?.[0] || { hue: 30, saturation: 100 }), second = colorInput(effect.colors?.[1] || { hue: 280, saturation: 80 });
+      const lights = choices.filter((a) => a.services.some((s) => s.type === "Lightbulb")).map((a) => {
+        const input = el("input", { type: "checkbox", value: a.id, checked: !!current?.lights?.includes(a.id) });
+        return { input, node: el("label", { class: "toggle compact" }, input, el("span", { text: displayName(a) })) };
+      });
+      const speedField = field(t("Speed"), speed), brightnessField = field(t("Brightness"), brightness), minutesField = field(t("Minutes"), minutes);
+      const tintField = el("label", { class: "toggle compact" }, tint, el("span", { text: t("Its own colour") }));
+      const colours = el("div", { class: "animation-colours" }, first, second);
+      const settings = el("div", { class: "animation-settings" }, speedField, brightnessField, minutesField, tintField, colours,
+        el("div", { class: "field-title", text: t("Lights") }), lights.length ? el("div", { class: "animation-lights" }, lights.map(({ node }) => node)) : el("p", { class: "muted", text: t("No light to animate.") }));
+      const sync = () => {
+        const value = style.value, timed = value === "sunrise" || value === "sunset", palette = value === "palette";
+        const effect = value && value !== "sequence" && value !== "music";
+        settings.hidden = !value;
+        speedField.hidden = !effect || timed;
+        brightnessField.hidden = !effect;
+        minutesField.hidden = !timed;
+        tintField.hidden = !effect || timed || palette;
+        colours.hidden = !(palette || (tint.checked && !tintField.hidden));
+        second.hidden = !palette;
+        animationRows.clear();
+        if (value) animationRows.add(style);
+      };
+      style.addEventListener("change", sync); tint.addEventListener("change", sync);
+      sync();
+      const read = () => {
+        const value = style.value;
+        // Lights the page cannot list now (a paused plugin's) stay in the animation.
+        const unlisted = (current?.lights || []).filter((id) => !lights.some(({ input }) => input.value === id));
+        const chosen = [...lights.filter(({ input }) => input.checked).map(({ input }) => input.value), ...unlisted];
+        if (!value) return null;
+        if (value === "sequence") return { ...current, lights: chosen };
+        const result = { style: value };
+        if (!speedField.hidden) result.speed = Number(speed.value) / 100;
+        if (!brightnessField.hidden) result.brightness = Number(brightness.value);
+        if (!minutesField.hidden) result.durationSeconds = Number(minutes.value) * 60;
+        if (!colours.hidden) result.colors = value === "palette" ? [first.read(), second.read()] : [first.read()];
+        return { lights: chosen, effect: result };
+      };
+      return { content: el("div", {}, field(t("Animation"), style), settings), read };
+    })();
     const node = (title, glyph, tone, description, rows, content) => {
       const count = el("span", { class: "scene-flow-count", text: String(rows.size) });
       const summary = el("span", { class: "scene-flow-summary" });
@@ -1100,7 +1320,9 @@
     node(t("Conditions"), "shield", "condition", t("An automatic run goes ahead only when all of these hold. Running it by hand ignores them."), conditions,
       [conditionList, el("button", { actionIcon: "plus", type: "button", text: t("Add a condition"), onclick: () => addCondition() })]);
     node(t("Actions"), "bulb", "action", t("The values to set, in this order."), actions,
-      [actionList, el("button", { actionIcon: "plus", type: "button", text: t("Add an action"), onclick: () => addAction() }), capture]);
+      [actionList, el("button", { actionIcon: "plus", type: "button", text: t("Add an action"), onclick: () => addAction() }), recallPicker, capture]);
+    node(t("Animation"), "sparkle", "action", t("Plays on the chosen lights after the actions: each brand's own effect where its lights have it (Hue, Govee, IKEA, Ambilight), Homeswift's elsewhere. Stopping the scene puts the lights back."), animationRows,
+      animation.content);
     canvas.append(el("div", { class: "scene-flow-connector", "aria-hidden": "true" }, HomeswiftCommon.icon("down")),
       el("div", { class: "scene-flow-terminal finish" }, HomeswiftCommon.icon("check"), el("span", { text: t("Finish") })));
     let zoom = 1;
@@ -1118,10 +1340,40 @@
 
     const line = statusLine();
     const save = el("button", { class: "primary", actionIcon: "check", type: "submit", text: isNew ? t("Create the scene") : t("Save") });
+    // A new scene of lights only, without triggers or an animation, can be kept on the hub that has them all instead.
+    const hubLight = new Set(["on", "brightness", "hue", "saturation", "colortemperature"]);
+    const keepOn = el("select", { "aria-label": t("Keep it on"), hidden: true });
+    let targetsAsked = "";
+    const refreshTargets = async () => {
+      if (!isNew) return;
+      let read;
+      // A row still being filled in has nothing to read yet.
+      try { read = [...actions].flatMap((row) => row.read()); } catch { return; }
+      const fits = read.length && !read.some((a) => a.recall || !hubLight.has(String(a.characteristic).toLowerCase().replace(/\s/g, "")))
+        && ![...triggers].length && !animation.read() && !homeKit.checked;
+      const ids = fits ? [...new Set(read.map((a) => a.id))].sort() : [];
+      const key = ids.join("|");
+      if (key === targetsAsked) return;
+      targetsAsked = key;
+      const targets = ids.length ? (await app.api("/api/scenes/targets", { method: "POST", body: { ids } }).catch(() => ({ targets: [] }))).targets : [];
+      if (key !== targetsAsked) return;
+      const kept = keepOn.value;
+      keepOn.replaceChildren(el("option", { value: "", text: t("Keep it in Homeswift") }),
+        ...targets.map((target) => el("option", { value: target.hub, text: t("Save to {hub} ({place})", { hub: target.name, place: target.label }) })));
+      keepOn.value = targets.some((target) => target.hub === kept) ? kept : "";
+      keepOn.hidden = !targets.length;
+    };
     const form = el("form", { class: "card scene-editor", onsubmit: async (event) => {
       event.preventDefault();
-      const body = { name: name.value.trim(), artworkId, actions: [...actions].flatMap((row) => row.read()), triggers: [...triggers].map((row) => row.read()), conditions: [...conditions].map((row) => row.read()) };
+      const body = { name: name.value.trim(), artworkId, homeKit: homeKit.checked, actions: [...actions].flatMap((row) => row.read()), triggers: [...triggers].map((row) => row.read()), conditions: [...conditions].map((row) => row.read()), animation: animation.read() };
       save.disabled = true;
+      if (isNew && keepOn.value && !keepOn.hidden) {
+        try {
+          await app.api("/api/scenes/hub", { method: "POST", body: { hub: keepOn.value, name: body.name, actions: body.actions } });
+          app.navigate("/scenes");
+        } catch (e) { say(line, e.message, "error"); save.disabled = false; }
+        return;
+      }
       try {
         const saved = await app.api(isNew ? "/api/scenes" : `/api/scenes/${encodeURIComponent(scene.id)}`, { method: isNew ? "POST" : "PUT", body });
         const security = saved.actions.some((a) => a.security);
@@ -1134,16 +1386,19 @@
       } catch (e) { say(line, e.message, "error"); }
       save.disabled = false;
     } },
-      field(t("Name"), name), artworkPreview, artworkPicker,
+      field(t("Name"), name), homeKitRow, artworkPreview, artworkPicker,
       flow,
-      el("div", { class: "save-bar" }, save, el("a", { class: "button", actionIcon: "close", href: "/scenes", text: t("Cancel") }),
+      el("div", { class: "save-bar" }, save, keepOn, el("a", { class: "button", actionIcon: "close", href: "/scenes", text: t("Cancel") }),
         isNew ? null : el("span", { class: "spacer" }),
         isNew ? null : el("button", { actionIcon: "trash", type: "button", class: "danger", text: t("Delete"), onclick: async () => {
           if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete the scene {name}?", { name: scene.name }), text: t("This removes the scene and its automatic triggers. This cannot be undone."), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
           try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); app.navigate("/scenes"); } catch (e) { say(line, e.message, "error"); }
         } })),
       line);
+    form.addEventListener("change", refreshTargets);
+    form.addEventListener("click", () => setTimeout(refreshTargets));
     app.show(main, app.breadcrumb([t("Scenes"), "/scenes"], [isNew ? t("New scene") : scene.name]), form);
+    refreshTargets();
   }
 
   // ---- Notifications ---------------------------------------------------------------------------------

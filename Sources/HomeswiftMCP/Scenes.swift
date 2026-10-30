@@ -16,12 +16,19 @@ import Logging
 // set_security_accessory; an automation, with nobody there to ask, skips those actions and reports them.
 
 public struct SceneAction: Codable, Sendable, Equatable {
-    /// The accessory id.
+    /// The accessory id; for a hub's scene, its id (`recall`).
     public var id: String
     /// The service type, name or subtype, when the accessory has several with the characteristic.
     public var service: String?
     public var characteristic: String
     public var value: JSONValue
+    /// A scene of a plugin's hub to recall (`<platform>:<instance>:<hub id>`) instead of a value to set.
+    public var recall: String?
+
+    /// Recalls a hub's scene: `{"recall": id}` in a request body.
+    static func recalling(_ id: String) -> SceneAction {
+        SceneAction(id: id, service: nil, characteristic: "Scene", value: true, recall: id)
+    }
 }
 
 struct SceneUndo: Codable, Sendable {
@@ -80,6 +87,10 @@ public struct Scene: Codable, Sendable, Equatable {
     public var conditions: [SceneCondition]
     public var lastRun: SceneRunRecord?
     public var lastSkipped: SceneRunRecord?
+    /// What it plays on its lights after its actions, when it moves.
+    public var animation: SceneAnimation? = nil
+    /// A switch in the Home app runs it (`SceneSwitches.swift`).
+    public var homeKit: Bool? = nil
 }
 
 public struct SceneLocation: Codable, Sendable, Equatable {
@@ -99,7 +110,20 @@ public struct SceneFile: Codable, Sendable, Equatable {
 }
 
 public enum SceneRunTrigger: String, Sendable {
-    case manual, schedule, sun, characteristic
+    /// `homeKit`: its switch in the Home app, which a person turned on.
+    case manual, schedule, sun, characteristic, homeKit
+
+    /// Run by a trigger rather than a person: conditions apply, and a failure is notified.
+    var isAutomatic: Bool { self == .schedule || self == .sun || self == .characteristic }
+
+    /// Why a lock, a door or an alarm in the scene was left as it was, run this way without a person's confirmation.
+    var securitySkipReason: String {
+        switch self {
+        case .manual: "a lock, door or alarm: a person confirms it (set_security_accessory, or the web UI)"
+        case .homeKit: "a lock, door or alarm: the Home app's scene switch leaves them out"
+        case .schedule, .sun, .characteristic: "a lock, door or alarm: automations do not change them"
+        }
+    }
 }
 
 enum SceneRules {
@@ -220,6 +244,7 @@ enum SceneRules {
     static func action(_ value: JSONValue, index: Int) throws -> SceneAction {
         let label = "Action \(index + 1)"
         guard let object = value.objectValue else { throw CatalogError("\(label) must be an object") }
+        if object["recall"] != nil { return .recalling(try string(object, "recall", label, max: 512)) }
         guard isValue(object["value"]) else { throw CatalogError("\(label): the value must be a boolean, a number or a short text") }
         return SceneAction(id: try string(object, "id", label), service: object["service"]?.stringValue?.nonEmpty, characteristic: try string(object, "characteristic", label, max: 64), value: object["value"]!)
     }
@@ -304,7 +329,10 @@ enum SceneRules {
         guard let object = body.objectValue else { throw CatalogError("Expected a scene") }
         let name = object["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !name.isEmpty, name.count <= 64 else { throw CatalogError("The name must be 1 to 64 characters") }
-        guard let actions = object["actions"]?.arrayValue, !actions.isEmpty, actions.count <= maxActions else { throw CatalogError("A scene needs 1 to \(maxActions) actions") }
+        let animation = try object["animation"].flatMap { $0.isNull ? nil : try SceneAnimation.checked($0) } ?? (object["animation"] == nil ? existing?.animation : nil)
+        guard let actions = object["actions"]?.arrayValue ?? (animation != nil ? [] : nil), !actions.isEmpty || animation != nil, actions.count <= maxActions else {
+            throw CatalogError("A scene needs 1 to \(maxActions) actions, or an animation")
+        }
         let triggers = try object["triggers"].map { value -> [SceneTrigger] in
             guard let list = value.arrayValue, list.count <= maxTriggers else { throw CatalogError("At most \(maxTriggers) triggers") }
             return try list.enumerated().map { try trigger($1, index: $0) }
@@ -319,8 +347,13 @@ enum SceneRules {
             else if let id = value.stringValue, SceneArtwork.find(id) != nil { artworkId = id }
             else { throw CatalogError("Unknown scene artwork") }
         } else { artworkId = existing?.artworkId }
+        let homeKit: Bool?
+        if let value = object["homeKit"], !value.isNull {
+            guard let on = value.boolValue else { throw CatalogError("homeKit is true or false") }
+            homeKit = on ? true : nil
+        } else { homeKit = object["homeKit"] == nil ? existing?.homeKit : nil }
         return Scene(artworkId: artworkId, id: id, name: name, actions: try actions.enumerated().map { try action($1, index: $0) }, triggers: triggers, conditions: conditions,
-                     lastRun: existing?.lastRun, lastSkipped: existing?.lastSkipped)
+                     lastRun: existing?.lastRun, lastSkipped: existing?.lastSkipped, animation: animation, homeKit: homeKit)
     }
 
     static func newID() -> String {
@@ -336,8 +369,13 @@ extension HomeswiftCatalog {
     /// What the Scenes page and list_scenes show: each scene with its accessories' names and whether it changes a
     /// security control, the location, and the next sunrise and sunset there.
     public func scenesJSON(now: Date = Date()) -> JSONValue {
+        .object(withLookup { scenesObject(now: now) })
+    }
+
+    func scenesObject(now: Date) -> [String: JSONValue] {
         let file = home.scenes.value
-        var answer: [String: JSONValue] = ["scenes": .array(file.scenes.map(sceneJSON)), "artworks": .array(SceneArtwork.all.map(\.json))]
+        let pictures = scenePictures.versions()
+        var answer: [String: JSONValue] = ["scenes": .array(file.scenes.map { sceneJSON($0, pictures: pictures) }), "artworks": SceneArtwork.catalogueJSON]
         if let location = file.location {
             answer["location"] = (try? JSONValue(encoding: location)) ?? .null
             answer["nextSunrise"] = Solar.next(.sunrise, latitude: location.lat, longitude: location.lon, after: now).map { .string(Timestamp.iso8601($0)) } ?? .null
@@ -345,11 +383,13 @@ extension HomeswiftCatalog {
         } else {
             answer["location"] = .null
         }
-        return .object(answer)
+        return answer
     }
 
-    func sceneJSON(_ scene: Scene) -> JSONValue {
+    /// A scene for the page; `pictures` is the scene pictures' versions, when the caller listed them already.
+    func sceneJSON(_ scene: Scene, pictures: [String: String]? = nil) -> JSONValue {
         guard var object = (try? JSONValue(encoding: scene))?.objectValue else { return .null }
+        object["picture"] = (pictures ?? scenePictures.versions())[scene.id].map(JSONValue.string) ?? .null
         let security = securityActions(of: scene)
         object["security"] = .bool(!security.isEmpty)
         let undo = home.sceneUndo.value[scene.id]
@@ -357,11 +397,14 @@ extension HomeswiftCatalog {
             guard let found = find(id: action.id) else { return false }
             return (try? characteristic(in: found, service: action.service, characteristic: action.characteristic).isSecurityControl) == true
         } ?? false)
-        object["stoppable"] = .bool((undo.map { Date().timeIntervalSince($0.at) < MoodRules.undoSeconds && !$0.actions.isEmpty } ?? false)
-            || home.runningMoods.withLockedValue { $0.values.contains { $0.mood.id == "scene:" + scene.id } })
+        object["stoppable"] = .bool(isStoppable(scene.id))
+        object["room"] = sharedRoom(of: scene.actions.map(\.id)).map(JSONValue.string) ?? .null
+        object["active"] = .bool(isActive(scene))
         object["actions"] = .array(scene.actions.map { action in
             var entry = (try? JSONValue(encoding: action))?.objectValue ?? [:]
-            if let found = find(id: action.id) {
+            if action.recall != nil {
+                // Named, or marked missing, with the hubs' scenes (allScenesJSON).
+            } else if let found = find(id: action.id) {
                 entry["name"] = .string(found.layout?.name ?? found.accessory.name)
                 if let target = try? characteristic(in: found, service: action.service, characteristic: action.characteristic), target.isSecurityControl { entry["security"] = true }
             } else {
@@ -372,18 +415,58 @@ extension HomeswiftCatalog {
         return .object(object)
     }
 
+    /// Whether every value the scene sets is what its accessory shows now. A light switched off shows no colour: once
+    /// a scene's On is false, its other values for that light are not compared.
+    func isActive(_ scene: Scene) -> Bool {
+        if scene.animation != nil { return isPlaying(scene.id) }
+        let actions = scene.actions.filter { $0.recall == nil }
+        guard !actions.isEmpty else { return false }
+        let off = Set(actions.filter { Self.name($0.characteristic, normalizesTo: "on") && SceneRules.number($0.value) == 0 }.map { "\($0.id)|\($0.service ?? "")" })
+        return actions.allSatisfy { action in
+            if off.contains("\(action.id)|\(action.service ?? "")"), !Self.name(action.characteristic, normalizesTo: "on") { return true }
+            guard let found = find(id: action.id), let target = try? characteristic(in: found, service: action.service, characteristic: action.characteristic) else { return false }
+            let current = Self.value(of: target)
+            if let a = SceneRules.number(current), let b = SceneRules.number(action.value) { return abs(a - b) <= max(1, target.type.minStep ?? 0) }
+            return SceneRules.compare(current, "eq", action.value)
+        }
+    }
+
+    /// Why run_scene does not run this scene: it changes a lock, a garage door or an alarm. nil when it does not.
+    func securityRefusal(_ scene: Scene) -> String? {
+        let sensitive = securityActions(of: scene)
+        guard !sensitive.isEmpty else { return nil }
+        let names = sensitive.map { "\(find(id: $0.id)?.accessory.name ?? $0.id) \($0.characteristic)" }.joined(separator: ", ")
+        return "Scene \"\(scene.name)\" changes a lock, garage door or alarm (\(names)), so run_scene does not run it. "
+            + "Apply those actions with set_security_accessory (it asks the user to confirm), or ask the user to run the scene in the web UI."
+    }
+
     /// The actions of a scene that unlock, open or disarm (security controls).
     func securityActions(of scene: Scene) -> [SceneAction] {
         scene.actions.filter { action in
-            guard let found = find(id: action.id), let target = try? characteristic(in: found, service: action.service, characteristic: action.characteristic) else { return false }
+            guard action.recall == nil, let found = find(id: action.id), let target = try? characteristic(in: found, service: action.service, characteristic: action.characteristic) else { return false }
             return target.isSecurityControl
         }
     }
 
-    func scene(_ reference: String) throws -> Scene {
+    /// Whether a saved scene has this id (any other is a hub's scene or nothing).
+    public func isSavedScene(_ id: String) -> Bool { home.scenes.value.scenes.contains { $0.id == id } }
+
+    /// A saved scene's name and whether it changes a lock, a door or an alarm; nil for any other id (a hub's scene).
+    public func savedScene(_ id: String) -> (name: String, security: Bool)? {
+        guard let scene = home.scenes.value.scenes.first(where: { $0.id == id }) else { return nil }
+        return (scene.name, !securityActions(of: scene).isEmpty)
+    }
+
+    /// The saved scene with this id, or this name (case aside); nil when there is none.
+    func savedScene(reference: String) -> Scene? {
         let scenes = home.scenes.value.scenes
-        guard let scene = scenes.first(where: { $0.id == reference }) ?? scenes.first(where: { $0.name.caseInsensitiveCompare(reference) == .orderedSame }) else {
-            throw CatalogError("No scene \"\(reference)\". Scenes: \(scenes.isEmpty ? "none" : scenes.map(\.name).joined(separator: ", ")).")
+        return scenes.first(where: { $0.id == reference }) ?? scenes.first(where: { $0.name.caseInsensitiveCompare(reference) == .orderedSame })
+    }
+
+    func scene(_ reference: String) throws -> Scene {
+        guard let scene = savedScene(reference: reference) else {
+            let scenes = home.scenes.value.scenes
+            throw CatalogError("No scene \"\(reference)\". Scenes: \(scenes.isEmpty ? "none" : scenes.map(\.name).joined(separator: ", ")).", notFound: true)
         }
         return scene
     }
@@ -397,24 +480,28 @@ extension HomeswiftCatalog {
             file.scenes.append(scene)
         }
         seedWatchedValues()
+        syncSceneSwitches()
         return sceneJSON(scene)
     }
 
     public func updateScene(id: String, _ body: JSONValue) throws -> JSONValue {
         let updated = try home.scenes.update { file -> Scene in
-            guard let index = file.scenes.firstIndex(where: { $0.id == id }) else { throw CatalogError("No scene \(id)") }
+            guard let index = file.scenes.firstIndex(where: { $0.id == id }) else { throw CatalogError("No scene \(id)", notFound: true) }
             file.scenes[index] = try SceneRules.scene(from: body, id: id, existing: file.scenes[index])
             return file.scenes[index]
         }
         seedWatchedValues()
+        syncSceneSwitches()
         return sceneJSON(updated)
     }
 
     public func deleteScene(id: String) throws {
         try home.scenes.update { file in
-            guard file.scenes.contains(where: { $0.id == id }) else { throw CatalogError("No scene \(id)") }
+            guard file.scenes.contains(where: { $0.id == id }) else { throw CatalogError("No scene \(id)", notFound: true) }
             file.scenes.removeAll { $0.id == id }
         }
+        scenePictures.remove(key: id)
+        syncSceneSwitches()
     }
 
     /// Sets where sunrise and sunset are computed for; nil forgets it.
@@ -473,15 +560,23 @@ extension HomeswiftCatalog {
     /// control runs only with `allowSecurity` (a person confirmed); otherwise it is skipped and reported. An
     /// automatic run checks the conditions first, and records why it did not go ahead.
     public func runScene(_ reference: String, trigger: SceneRunTrigger = .manual, allowSecurity: Bool = false) async throws -> JSONValue {
-        let scene = try scene(reference)
+        if let scene = savedScene(reference: reference) { return try await run(scene, trigger: trigger, allowSecurity: allowSecurity) }
+        // Not one of Homeswift's: a scene of a plugin's hub.
+        guard let found = await pluginScene(reference) else { return try await run(try scene(reference), trigger: trigger, allowSecurity: allowSecurity) }
+        return try await runPluginScene(found, by: "scene \(trigger.rawValue)")
+    }
+
+    /// Runs a scene, saved or not (a plan: `runPlan`). Its changes are kept for `LightShowRules.undoSeconds` under its id,
+    /// so `stopScene` puts them back.
+    func run(_ scene: Scene, trigger: SceneRunTrigger, allowSecurity: Bool) async throws -> JSONValue {
         guard home.runningScenes.withLockedValue({ $0.insert(scene.id).inserted }) else { throw CatalogError("This scene is already running") }
         defer { _ = home.runningScenes.withLockedValue { $0.remove(scene.id) } }
-        if trigger != .manual, let reason = conditionsFail(scene.conditions) {
+        if trigger.isAutomatic, let reason = conditionsFail(scene.conditions) {
             logger.info("Scene \"\(scene.name)\" not run (\(trigger.rawValue)): \(reason)")
             record(scene.id) { $0.lastSkipped = SceneRunRecord(at: SceneRules.now(), ok: true, trigger: trigger.rawValue, reason: reason) }
             return ["sceneId": .string(scene.id), "name": .string(scene.name), "ok": true, "results": [], "skipped": .string(reason)]
         }
-        // Light snapshots include color mode, power and Adaptive Lighting, and inherit the baseline of a mood they replace.
+        // Light snapshots include color mode, power and Adaptive Lighting, and inherit the baseline of a show they replace.
         let located = Set(scene.actions.map(\.id)).compactMap { find(id: $0) }
         let lights = Self.lights(of: located).filter { light in
             scene.actions.contains { action in
@@ -491,11 +586,11 @@ extension HomeswiftCatalog {
             }
         }
         let beforeLights = Dictionary(uniqueKeysWithValues: lights.map { ($0.key, $0.snapshot()) })
-        var snapshots: [String: MoodSnapshot] = [:]
-        var changedLights: [MoodLight] = []
+        var snapshots: [String: LightSnapshot] = [:]
+        var changedLights: [SceneLight] = []
         var undoActions: [SceneAction] = [], expected: [SceneAction] = []
         // A skipped or failed rerun still owes restoration for earlier successful writes.
-        if let prior = home.sceneUndo.value[scene.id], Date().timeIntervalSince(prior.at) < MoodRules.undoSeconds {
+        if let prior = home.sceneUndo.value[scene.id], Date().timeIntervalSince(prior.at) < LightShowRules.undoSeconds {
             for (action, after) in zip(prior.actions, prior.expected) {
                 guard let found = find(id: after.id),
                       let target = try? characteristic(in: found, service: after.service, characteristic: after.characteristic),
@@ -507,6 +602,21 @@ extension HomeswiftCatalog {
         var results: [JSONValue] = []
         var failed = 0, held = 0
         for action in scene.actions {
+            if let recall = action.recall {
+                var result: [String: JSONValue] = ["recall": .string(recall)]
+                do {
+                    guard let found = await pluginScene(recall) else { throw CatalogError("the hub's scene is gone") }
+                    result["name"] = .string(found.scene.name)
+                    _ = try await runPluginScene(found, by: "scene \(scene.name)", holdAs: scene.id)
+                    result["ok"] = true
+                } catch {
+                    failed += 1
+                    result["ok"] = false
+                    result["error"] = .string(Redaction.redactText("\(error)"))
+                }
+                results.append(.object(result))
+                continue
+            }
             var result: [String: JSONValue] = ["id": .string(action.id), "characteristic": .string(action.characteristic), "value": action.value]
             do {
                 guard let found = find(id: action.id) else { throw CatalogError("the accessory is gone") }
@@ -515,16 +625,14 @@ extension HomeswiftCatalog {
                 if target.isSecurityControl, !allowSecurity {
                     held += 1
                     result["ok"] = false
-                    result["skipped"] = .string(trigger == .manual
-                        ? "a lock, door or alarm: a person confirms it (set_security_accessory, or the web UI)"
-                        : "a lock, door or alarm: automations do not change them")
+                    result["skipped"] = .string(trigger.securitySkipReason)
                     results.append(.object(result))
                     continue
                 }
                 let before = Self.value(of: target)
                 _ = try await write(found, service: action.service, characteristic: action.characteristic, value: action.value, allowSecurity: allowSecurity)
                 let light = lights.first { light in [light.on, light.brightness, light.hue, light.saturation, light.colorTemperature].compactMap { $0 }.contains { $0 === target } }
-                // Only a successful write may take ownership from an existing mood.
+                // Only a successful write may take ownership from an existing show.
                 if let light, !changedLights.contains(where: { $0.key == light.key }) {
                     snapshots.merge(await takeOver([light], before: beforeLights)) { _, new in new }
                     changedLights.append(light)
@@ -548,37 +656,52 @@ extension HomeswiftCatalog {
             results.append(.object(result))
         }
         if !changedLights.isEmpty {
-            let mood = Mood(id: "scene:" + scene.id, name: scene.name, steps: [MoodStep(changedLights.map(\.color), seconds: MoodRules.minSeconds)])
-            _ = hold(mood, on: changedLights, snapshots: snapshots, by: "scene", room: nil)
+            let show = LightShow(id: Self.showID(of: scene.id), name: scene.name, steps: [LightStep(changedLights.map(\.color), seconds: LightShowRules.minSeconds)])
+            _ = hold(show, on: changedLights, snapshots: snapshots, by: "scene")
         }
+        var animated: JSONValue?
+        if let animation = scene.animation { animated = await startAnimation(animation, of: scene, by: "scene \(trigger.rawValue)") }
         try home.sceneUndo.update { file in
-            file = file.filter { Date().timeIntervalSince($0.value.at) < MoodRules.undoSeconds }
+            file = file.filter { Date().timeIntervalSince($0.value.at) < LightShowRules.undoSeconds }
             file[scene.id] = SceneUndo(at: Date(), actions: undoActions, expected: expected)
         }
         let ok = failed == 0
         let note = held > 0 ? "\(held) security action(s) not run" : nil
         record(scene.id) { $0.lastRun = SceneRunRecord(at: SceneRules.now(), ok: ok, trigger: trigger.rawValue, reason: note) }
-        if trigger != .manual, !ok {
+        if trigger.isAutomatic, !ok {
             await notify(.sceneFailed, title: "Scene \(scene.name) failed", message: "\(failed) of \(scene.actions.count) actions failed when the \(trigger.rawValue) trigger ran it.", path: "/scenes", subject: scene.id)
         }
         var answer: [String: JSONValue] = ["sceneId": .string(scene.id), "name": .string(scene.name), "ok": .bool(ok), "results": .array(results)]
         if let note { answer["note"] = .string(note) }
+        if let animated { answer["animation"] = animated }
+        refreshSceneSwitches()
         return .object(answer)
     }
 
     /// Stops a saved scene and restores its captured state. Later manual changes to non-light controls are preserved.
     public func stopScene(_ reference: String, allowSecurity: Bool = false) async throws -> JSONValue {
-        let scene = try scene(reference)
-        guard home.runningScenes.withLockedValue({ $0.insert(scene.id).inserted }) else { throw CatalogError("This scene is already running") }
-        defer { _ = home.runningScenes.withLockedValue { $0.remove(scene.id) } }
-        let undo = home.sceneUndo.value[scene.id]
-        let actions = undo.map { Date().timeIntervalSince($0.at) < MoodRules.undoSeconds ? $0.actions : [] } ?? []
+        defer { refreshSceneSwitches() }
+        // A saved scene by id or name; else what ran under this id (a hub's scene, a plan).
+        let id: String
+        if let scene = savedScene(reference: reference) {
+            id = scene.id
+        } else if home.sceneUndo.value[reference] != nil || !lightRuns(of: reference).isEmpty {
+            id = reference
+        } else if let found = await pluginScene(reference) {
+            id = found.id
+        } else {
+            throw CatalogError("No scene \"\(reference)\" to stop", notFound: true)
+        }
+        guard home.runningScenes.withLockedValue({ $0.insert(id).inserted }) else { throw CatalogError("This scene is already running") }
+        defer { _ = home.runningScenes.withLockedValue { $0.remove(id) } }
+        let undo = home.sceneUndo.value[id]
+        let actions = undo.map { Date().timeIntervalSince($0.at) < LightShowRules.undoSeconds ? $0.actions : [] } ?? []
         if !allowSecurity, actions.contains(where: { action in
             guard let found = find(id: action.id) else { return false }
             return (try? characteristic(in: found, service: action.service, characteristic: action.characteristic).isSecurityControl) == true
         }) { throw CatalogError("Confirm before restoring a lock, door or alarm") }
-        let runs = home.runningMoods.withLockedValue { $0.values.filter { $0.mood.id == "scene:" + scene.id }.map(\.id) }
-        for run in runs { _ = try await stopMoods(id: run) }
+        if let native = home.nativeAnimations.withLockedValue({ $0.removeValue(forKey: id) }) { await host.stopAnimation(accessoryIDs: native) }
+        for run in lightRuns(of: id) { _ = try await stopLightRuns(id: run) }
         var failures: [JSONValue] = [], remaining: [SceneAction] = [], expected: [SceneAction] = []
         for (index, action) in actions.enumerated() {
             do {
@@ -591,7 +714,7 @@ extension HomeswiftCatalog {
                 failures.append(["id": .string(action.id), "error": .string(Redaction.redactText("\(error)"))])
             }
         }
-        try home.sceneUndo.update { $0[scene.id] = remaining.isEmpty ? nil : SceneUndo(at: undo!.at, actions: remaining, expected: expected) }
+        try home.sceneUndo.update { $0[id] = remaining.isEmpty ? nil : SceneUndo(at: undo!.at, actions: remaining, expected: expected) }
         return ["ok": .bool(failures.isEmpty), "failed": .array(failures)]
     }
 
@@ -697,44 +820,153 @@ extension HomeswiftCatalog {
         return [
             MCPTool(
                 name: "list_scenes", title: "List scenes",
-                description: "The scenes kept by Homeswift: named sets of accessory values applied together, with their actions (security: true marks a lock, door or alarm), "
-                    + "triggers (time of day and days, cron, sunrise or sunset with an offset, a characteristic change), conditions and last run.",
-                outputSchema: Output.object(["scenes": ["type": "array"]], required: ["scenes"]),
+                description: "The scenes: scenes kept by Homeswift, named sets of accessory values applied together, with their room, whether they are active now, their actions "
+                    + "(security: true marks a lock, door or alarm), triggers (time of day and days, cron, sunrise or sunset with an offset, a characteristic change), conditions and last run; "
+                    + "and pluginScenes, the scenes plugins' hubs keep (a Hue Bridge's, an IKEA hub's, a Govee light's), with their room, source and whether the hub reports them active. "
+                    + "run_scene runs either kind by id.",
+                outputSchema: Output.object(["scenes": ["type": "array"], "pluginScenes": ["type": "array"]], required: ["scenes"]),
                 scope: .read, idempotent: true
-            ) { _ in .json(catalog.scenesJSON()) },
+            ) { _ in .json(await catalog.allScenesJSON()) },
             MCPTool(
                 name: "run_scene", title: "Run scene",
-                description: "Runs a scene now: every action is applied and the result per action is returned. Scenes that lock or unlock, open or close, or arm or disarm something "
-                    + "are refused: apply those actions with set_security_accessory, which asks the user to confirm, or let the user run the scene in the web UI.",
-                inputSchema: ["type": "object", "required": ["scene"], "properties": ["scene": ["type": "string", "minLength": 1, "description": "The scene id or name, from list_scenes"]]],
+                description: "Runs a scene now and answers the result per action: a saved one or a hub's (scene, from list_scenes), or one you compose (plan), which is not saved. "
+                    + "Compose a plan for an ambiance the user describes: set the room's lights (On, Brightness, Hue, Saturation, Color Temperature), recall a hub's scene where one fits, "
+                    + "and add an animation (a fire, a candle, a sunrise…) when the lights should move. "
+                    + "What a run changes can be put back for 12 hours with stop_scene (a plan by the run it answers); save_scene keeps a plan the user likes. "
+                    + "Scenes and plans that lock or unlock, open or close, or arm or disarm something are refused: apply those actions with set_security_accessory, which asks the user to confirm, "
+                    + "or let the user run the scene in the web UI.",
+                inputSchema: [
+                    "type": "object",
+                    "properties": [
+                        "scene": ["type": "string", "minLength": 1, "description": "The scene id or name, from list_scenes (scenes or pluginScenes)"],
+                        "plan": HomeswiftCatalog.planSchema,
+                        "template": ["type": "string", "description": "A template's id, from list_scene_templates, for the lights of room (or ids)"],
+                        "description": ["type": "string", "maxLength": 500, "description": "An ambiance in words that the bridge's Assistant turns into a plan for the lights of room (or ids)"],
+                        "room": ["type": "string", "description": "With template or description: the room whose lights it sets"],
+                        "ids": ["type": "array", "items": ["type": "string"], "description": "With template or description: the lights it sets, instead of a room"],
+                    ],
+                ],
                 scope: .control, idempotent: true
             ) { call in
-                let scene = try catalog.scene(try call.string("scene"))
-                let sensitive = catalog.securityActions(of: scene)
-                guard sensitive.isEmpty else {
-                    let names = sensitive.map { "\(catalog.find(id: $0.id)?.accessory.name ?? $0.id) \($0.characteristic)" }.joined(separator: ", ")
-                    return .error("Scene \"\(scene.name)\" changes a lock, garage door or alarm (\(names)), so run_scene does not run it. "
-                        + "Apply those actions with set_security_accessory (it asks the user to confirm), or ask the user to run the scene in the web UI.")
+                if call.arguments["template"] != nil || call.arguments["description"] != nil {
+                    return .json(try await catalog.tryScene(call.arguments))
                 }
+                if let plan = call.arguments["plan"] {
+                    guard call.arguments["scene"] == nil else { return .error("Pass scene or plan, not both") }
+                    let scene = try catalog.planScene(plan)
+                    if let refusal = catalog.securityRefusal(scene) { return .error(refusal) }
+                    return .json(try await catalog.runPlan(plan))
+                }
+                let reference = try call.string("scene")
+                guard let scene = catalog.savedScene(reference: reference) else {
+                    // Neither kind: scene(_:) throws the error that lists the saved scenes.
+                    guard let found = await catalog.pluginScene(reference) else { return .json(try await catalog.run(try catalog.scene(reference), trigger: .manual, allowSecurity: false)) }
+                    return .json(try await catalog.runPluginScene(found, by: "MCP \(call.session.principal.name)"))
+                }
+                if let refusal = catalog.securityRefusal(scene) { return .error(refusal) }
                 return .json(try await catalog.runScene(scene.id, trigger: .manual))
             },
             MCPTool(
-                name: "save_scene", title: "Save scene from current state",
-                description: "Creates a scene from the current values of the chosen accessories, so the user can bring this state back with run_scene or the web UI's Scenes page. "
-                    + "Every writable characteristic is captured unless characteristics names some (On, Brightness…). Locks, garage doors and alarms are never captured. dryRun shows the actions first.",
+                name: "list_scene_templates", title: "List scene templates",
+                description: "Ready-made ambiances to start a scene from: calm ones that set the lights once (candlelight, cinema, focus), effects each brand plays its own way "
+                    + "(a fireplace, a candle flicker, an ocean, a sunrise), timed sequences (disco, a police siren, an alert flash) and the gallery's pictures, each a palette. "
+                    + "run_scene with template and room tries one on a room's lights; save_scene with template, room and name keeps it.",
+                outputSchema: Output.object(["templates": ["type": "array"]], required: ["templates"]),
+                scope: .read, idempotent: true
+            ) { _ in .json(["templates": .array(SceneTemplateLibrary.all.map { show in
+                var entry = HomeswiftCatalog.templateJSON(show).objectValue ?? [:]
+                entry.removeValue(forKey: "swatch")
+                return .object(entry)
+            })]) },
+            MCPTool(
+                name: "stop_scene", title: "Stop scene",
+                description: "Puts back what a scene changed when it ran in the last 12 hours, and stops it if it still plays: a saved scene, a hub's scene, or a plan by the run run_scene answered. "
+                    + "A value changed since the run is left as it is. Restoring a lock, garage door or alarm is refused: the user does it in the web UI.",
+                inputSchema: ["type": "object", "required": ["scene"], "properties": ["scene": ["type": "string", "minLength": 1, "description": "A scene's id or name, a hub scene's id, or a plan's run"]]],
+                scope: .control, idempotent: true
+            ) { call in
+                .json(try await catalog.stopScene(try call.string("scene")))
+            },
+            MCPTool(
+                name: "save_scene", title: "Save scene",
+                description: "Creates a scene the user can run again with run_scene or from the web UI's Scenes page: from a plan (one run_scene ran, or a new one), "
+                    + "or from the current values of the chosen accessories (ids), every writable characteristic unless characteristics names some (On, Brightness…). "
+                    + "Locks, garage doors and alarms are never captured. dryRun shows the actions first, and hubs, the hubs that could keep it instead. "
+                    + "With hub (a Hue Bridge's or an IKEA hub's, from hubs), the scene is kept on that hub rather than in Homeswift: lights' On, Brightness, colour and white only, "
+                    + "no triggers or animation; the hub's own app then shows it too.",
                 inputSchema: [
-                    "type": "object", "required": ["name", "ids"],
+                    "type": "object", "required": ["name"],
                     "properties": [
                         "name": ["type": "string", "minLength": 1, "maxLength": 64],
-                        "ids": ["type": "array", "minItems": 1, "maxItems": 50, "items": ["type": "string"], "description": "The accessories to capture, from list_accessories"],
+                        "plan": HomeswiftCatalog.planSchema,
+                        "template": ["type": "string", "description": "A template's id, from list_scene_templates, for the lights of room (or ids)"],
+                        "description": ["type": "string", "maxLength": 500, "description": "An ambiance in words that the bridge's Assistant turns into the scene, for the lights of room (or ids)"],
+                        "room": ["type": "string", "description": "With template or description: the room whose lights it sets"],
+                        "ids": ["type": "array", "minItems": 1, "maxItems": 50, "items": ["type": "string"], "description": "The accessories to capture, from list_accessories (with template or description: the lights it sets)"],
                         "characteristics": ["type": "array", "minItems": 1, "items": ["type": "string"], "description": "Only these characteristics, e.g. On, Brightness"],
+                        "hub": ["type": "string", "minLength": 1, "description": "Keep it on this hub instead (<platform>:<instance>, from a dry run's hubs)"],
                     ],
                 ],
                 scope: .admin, supportsDryRun: true
             ) { call in
-                let ids = call.arguments["ids"]?.arrayValue?.compactMap(\.stringValue) ?? []
-                let wanted = call.arguments["characteristics"]?.arrayValue?.compactMap(\.stringValue)
-                return .json(try catalog.captureScene(name: try call.string("name").trimmingCharacters(in: .whitespaces), ids: ids, characteristics: wanted, dryRun: call.isDryRun))
+                let name = try call.string("name").trimmingCharacters(in: .whitespaces)
+                var plan = call.arguments["plan"]
+                if call.arguments["template"] != nil || call.arguments["description"] != nil {
+                    plan = try await catalog.composedPlan(call.arguments, language: nil).plan
+                }
+                if plan == nil {
+                    let ids = call.arguments["ids"]?.arrayValue?.compactMap(\.stringValue) ?? []
+                    guard !ids.isEmpty else { return .error("Pass a plan, or the ids of the accessories to capture") }
+                    let wanted = call.arguments["characteristics"]?.arrayValue?.compactMap(\.stringValue)
+                    // Captured straight into a scene, unless it goes to a hub or is only shown.
+                    let captured = try catalog.captureScene(name: name, ids: ids, characteristics: wanted, dryRun: call.arguments["hub"] != nil || call.isDryRun)
+                    if call.arguments["hub"] == nil {
+                        guard call.isDryRun, var shown = captured.objectValue else { return .json(captured) }
+                        let ids = (shown["actions"]?.arrayValue ?? []).compactMap { $0["id"]?.stringValue }
+                        shown["hubs"] = .array(await catalog.hubTargets(accessoryIDs: ids))
+                        return .json(.object(shown))
+                    }
+                    plan = ["actions": captured["actions"] ?? []]
+                }
+                guard let plan else { return .error("Pass a plan") }
+                if let hub = call.optionalString("hub") {
+                    return .json(try await catalog.saveHubScene(plan, name: name, hub: hub, dryRun: call.isDryRun))
+                }
+                guard var answer = try catalog.savePlan(plan, name: name, dryRun: call.isDryRun).objectValue else { return .error("Nothing to save") }
+                if call.isDryRun {
+                    let ids = (answer["actions"]?.arrayValue ?? []).compactMap { $0["recall"] == nil ? $0["id"]?.stringValue : nil }
+                    answer["hubs"] = .array(await catalog.hubTargets(accessoryIDs: ids))
+                }
+                return .json(.object(answer))
+            },
+            MCPTool(
+                name: "update_hub_scene", title: "Change a hub's scene",
+                description: "Renames a scene a hub keeps (a Hue Bridge's, an IKEA hub's; pluginScenes in list_scenes) and/or replaces its lights' values: "
+                    + "from a plan (lights' On, Brightness, Hue, Saturation, Color Temperature), or from its lights as they are now (fromCurrent). "
+                    + "What a scene allows is in its capabilities (rename, update). The hub's own app shows the change. dryRun shows it first.",
+                inputSchema: [
+                    "type": "object", "required": ["scene"],
+                    "properties": [
+                        "scene": ["type": "string", "minLength": 1, "description": "The hub scene's id or name, from list_scenes' pluginScenes"],
+                        "name": ["type": "string", "minLength": 1, "maxLength": 64, "description": "Its new name"],
+                        "plan": HomeswiftCatalog.planSchema,
+                        "fromCurrent": ["type": "boolean", "description": "Keep its lights' values as they are now"],
+                    ],
+                ],
+                scope: .admin, supportsDryRun: true
+            ) { call in
+                .json(try await catalog.updateHubScene(
+                    try call.string("scene"), name: call.optionalString("name"), plan: call.arguments["plan"],
+                    fromCurrent: call.arguments["fromCurrent"]?.boolValue == true, dryRun: call.isDryRun))
+            },
+            MCPTool(
+                name: "delete_hub_scene", title: "Remove a hub's scene",
+                description: "Removes a scene from the hub that keeps it (a Hue Bridge, an IKEA hub): it is gone from the hub's own app too, and cannot be brought back. "
+                    + "The user confirms first. Only scenes whose capabilities include delete.",
+                inputSchema: ["type": "object", "required": ["scene"], "properties": ["scene": ["type": "string", "minLength": 1, "description": "The hub scene's id, from list_scenes' pluginScenes"]]],
+                scope: .admin, destructive: true, supportsDryRun: true
+            ) { call in
+                .json(try await catalog.deleteHubScene(try call.string("scene"), dryRun: call.isDryRun))
             },
         ]
     }

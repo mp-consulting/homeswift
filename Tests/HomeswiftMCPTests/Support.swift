@@ -18,7 +18,7 @@ let testLogger: Logger = {
 actor DevicesPlugin: HomeswiftPlugin {
     struct Configuration: Decodable, Sendable {
         var name: String?
-        /// Colour lightbulbs `Devices:bulb1`…, for the moods; the last one fails every write when `failingBulb` is set.
+        /// Colour lightbulbs `Devices:bulb1`…, for scenes and their animations; the last one fails every write when `failingBulb` is set.
         var colourBulbs: Int?
         var failingBulb: Bool?
         /// Each colour bulb write takes 300 ms, as a plugin that waits to send a light's values together.
@@ -41,10 +41,14 @@ actor DevicesPlugin: HomeswiftPlugin {
         self.init(configuration: configuration, context: context, writes: NIOLockedValueBox([]))
     }
 
-    init(configuration: Configuration, context: PluginContext, writes: NIOLockedValueBox<[(String, HAPValue)]>) {
+    init(configuration: Configuration, context: PluginContext, writes: NIOLockedValueBox<[(String, HAPValue)]>,
+         hubScenes: NIOLockedValueBox<[String: (name: String, lights: [PluginSceneLight])]> = NIOLockedValueBox([:]),
+         hubRooms: NIOLockedValueBox<[String: String]> = NIOLockedValueBox([:])) {
         self.configuration = configuration
         self.context = context
         self.writes = writes
+        self.hubScenes = hubScenes
+        self.hubRooms = hubRooms
     }
 
     func start() async throws {
@@ -132,6 +136,74 @@ actor DevicesPlugin: HomeswiftPlugin {
         guard request.method == "POST", request.path == "pair", let ip = request.body["ip"]?.stringValue else { return .error(404, "nothing there") }
         return PluginWebResponse(["device": ["ip": .string(ip), "mac": "AA:BB:CC:00:11:22", "username": "homeswift", "password": "s3cret-pass"]])
     }
+
+    /// The devices' own hub keeps one scene, Magenta, in its room "salon", when there are colour bulbs, and those
+    /// Homeswift wrote to it (which it can rename, change and remove).
+    func scenes() async -> [PluginScene] {
+        guard (configuration.colourBulbs ?? 0) > 0 else { return [] }
+        let written = hubScenes.withLockedValue { $0 }.sorted { $0.key < $1.key }.map { id, scene in
+            PluginScene(id: id, name: scene.name, room: "salon", accessoryIDs: scene.lights.map(\.accessoryID), capabilities: [.recall, .rename, .update, .delete])
+        }
+        return [PluginScene(id: "magenta", name: "Magenta", room: "salon", active: false, colours: ["#ff00ff"])] + written
+    }
+
+    /// The devices' hub's rooms, by id.
+    let hubRooms: NIOLockedValueBox<[String: String]>
+
+    func rooms() async -> [PluginRoom] {
+        hubRooms.withLockedValue { $0 }.sorted { $0.key < $1.key }.map { PluginRoom(id: $0.key, name: $0.value) }
+    }
+
+    /// The hub refuses a room named "Attic".
+    func renameRoom(id: String, name: String) async throws {
+        guard name != "Attic" else { throw PluginRoomError("that name is taken") }
+        try hubRooms.withLockedValue { rooms in
+            guard rooms[id] != nil else { throw PluginRoomError("no such room") }
+            rooms[id] = name
+        }
+    }
+
+    /// The scenes Homeswift wrote to the devices' hub, by id.
+    let hubScenes: NIOLockedValueBox<[String: (name: String, lights: [PluginSceneLight])]>
+
+    /// The hub keeps scenes of its colour bulbs only.
+    func sceneTarget(accessoryIDs: [String]) async -> String? {
+        accessoryIDs.allSatisfy { $0.hasPrefix("Devices:bulb") } ? "salon" : nil
+    }
+
+    func createScene(name: String, lights: [PluginSceneLight]) async throws -> String {
+        let id = "written-\(hubScenes.withLockedValue { $0.count } + 1)"
+        hubScenes.withLockedValue { $0[id] = (name, lights) }
+        return id
+    }
+
+    func updateScene(id: String, name: String?, lights: [PluginSceneLight]?) async throws {
+        try hubScenes.withLockedValue { scenes in
+            guard let scene = scenes[id] else { throw PluginSceneError("no such scene") }
+            scenes[id] = (name ?? scene.name, lights ?? scene.lights)
+        }
+    }
+
+    func deleteScene(id: String) async throws {
+        guard hubScenes.withLockedValue({ $0.removeValue(forKey: id) }) != nil else { throw PluginSceneError("no such scene") }
+    }
+
+    /// The devices' hub plays a candle on the first colour bulb itself.
+    func animate(_ effect: LightEffect, accessoryIDs: [String]) async -> Set<String> {
+        guard effect.style == .candle, accessoryIDs.contains("Devices:bulb1") else { return [] }
+        writes.withLockedValue { $0.append(("bulb1.effect", .string(effect.style.rawValue))) }
+        return ["Devices:bulb1"]
+    }
+
+    func stopAnimation(accessoryIDs: [String]) async {
+        for id in accessoryIDs { writes.withLockedValue { $0.append(("\(id).effect", "stop")) } }
+    }
+
+    /// Recalls Magenta as `POST scene` does.
+    func recallScene(id: String) async throws {
+        guard id == "magenta" else { throw PluginSceneError("no such scene") }
+        _ = try await handleWebRequest(PluginWebRequest(method: "POST", path: "scene", query: [:], body: .null, user: "test"))
+    }
 }
 
 /// A model that follows a script: each step answers a request with text or tool calls.
@@ -181,6 +253,10 @@ final class MCPTestEnvironment: @unchecked Sendable {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("homeswift-mcp-tests-\(UUID().uuidString)")
     let logs = LogBuffer()
     let writes = NIOLockedValueBox<[(String, HAPValue)]>([])
+    /// The scenes Homeswift wrote to the devices' hub.
+    let hubScenes = NIOLockedValueBox<[String: (name: String, lights: [PluginSceneLight])]>([:])
+    /// The devices' hub's rooms, by id.
+    let hubRooms = NIOLockedValueBox<[String: String]>(["r1": "Séjour", "r2": "Kitchen", "r3": "Bedroom"])
     let host: PluginHost
     let catalog: HomeswiftCatalog
     let server: MCPServer
@@ -206,9 +282,9 @@ final class MCPTestEnvironment: @unchecked Sendable {
             """
         try Data(config.utf8).write(to: configURL)
         var registry = PluginRegistry()
-        let writes = self.writes
+        let writes = self.writes, hubScenes = self.hubScenes, hubRooms = self.hubRooms
         registry.register(platform: DevicesPlugin.platform, name: DevicesPlugin.name, configurationSchemaJSON: schema, assistantActions: DevicesPlugin.assistantActions) { json, context in
-            DevicesPlugin(configuration: try JSONDecoder().decode(DevicesPlugin.Configuration.self, from: json), context: context, writes: writes)
+            DevicesPlugin(configuration: try JSONDecoder().decode(DevicesPlugin.Configuration.self, from: json), context: context, writes: writes, hubScenes: hubScenes, hubRooms: hubRooms)
         }
         var hostOptions = PluginHost.Options(advertise: false, logger: testLogger) { _ in MemoryStorage() }
         hostOptions.aiTransport = aiTransport

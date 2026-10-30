@@ -91,7 +91,7 @@ public struct HomeswiftCatalog: Sendable {
     /// log, the cached accessories, the pairings, the child bridges' health, and writing the digest. Hidden from the
     /// principals of users who are not administrators (the web UI's chat, the apps they connect).
     public static let administratorOnly: Set<String> = [
-        "get_config", "list_config_backups", "get_recent_logs", "search_logs", "get_cached_accessories", "get_pairing_info", "get_matter_status", "get_child_bridge_health",
+        "get_config", "list_config_backups", "list_vault", "get_recent_logs", "search_logs", "get_cached_accessories", "get_pairing_info", "get_matter_status", "get_child_bridge_health",
         "homeswift://logs/recent", "homeswift://child-bridge/{id}", "diagnose-logs", "audit-config", digestRefresh,
     ]
 
@@ -138,11 +138,33 @@ public struct HomeswiftCatalog: Sendable {
 
     public func find(id: String) -> Located? {
         guard id != "bridge" else { return nil }
+        if let lookup = Self.lookup { return lookup[id] }
         for bridge in host.bridges {
-            guard let accessory = bridge.server.accessories.first(where: { $0.id == id }) else { continue }
-            return Located(accessory: accessory, bridge: bridge, platform: Owners(host.platforms).instance(of: id, on: bridge), layout: home.layout.value.accessories[id])
+            guard let accessory = bridge.server.accessory(id: id) else { continue }
+            // Its instance by its claim; an accessory no instance claimed is looked for in every instance's list.
+            let platform = host.platform(owning: id, on: bridge) ?? Owners(host.platforms).instance(of: id, on: bridge)
+            return Located(accessory: accessory, bridge: bridge, platform: platform, layout: home.layout.value.accessories[id])
         }
         return nil
+    }
+
+    /// Every accessory by id while a request that looks many up runs (`withLookup`): a scene list looks up each of
+    /// its actions' accessories several times.
+    @TaskLocal static var lookup: [String: Located]?
+
+    /// Runs `body` with every accessory indexed once (`find(id:)` reads the index).
+    func withLookup<T>(_ body: () throws -> T) rethrows -> T {
+        guard Self.lookup == nil else { return try body() }
+        return try Self.$lookup.withValue(lookupIndex()) { try body() }
+    }
+
+    func withLookup<T>(_ body: () async throws -> T) async rethrows -> T {
+        guard Self.lookup == nil else { return try await body() }
+        return try await Self.$lookup.withValue(lookupIndex()) { try await body() }
+    }
+
+    private func lookupIndex() -> [String: Located] {
+        Dictionary(located().map { ($0.accessory.id, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
     /// The instance an accessory belongs to: the first that lists it, on the accessory's bridge (any bridge for
@@ -210,7 +232,42 @@ public struct HomeswiftCatalog: Sendable {
 
     /// `"Target Lock State"`, `"targetLockState"` and `"target-lock-state"` name the same characteristic.
     static func normalized(_ name: String) -> String {
-        name.lowercased().filter { $0.isLetter || $0.isNumber }
+        // ASCII names (every HAP type's) by their bytes: the Unicode properties isLetter reads cost most of a scene list.
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(name.utf8.count)
+        for byte in name.utf8 {
+            switch folded(byte) {
+            case .letter(let kept): bytes.append(kept)
+            case .skipped: continue
+            case .unicode: return name.lowercased().filter { $0.isLetter || $0.isNumber }
+            }
+        }
+        return String(decoding: bytes, as: UTF8.self)
+    }
+
+    private enum Folded { case letter(UInt8), skipped, unicode }
+
+    /// One byte of a name as `normalized` keeps it: an ASCII letter lowercased, a digit, skipped, or not ASCII.
+    @inline(__always) private static func folded(_ byte: UInt8) -> Folded {
+        switch byte {
+        case UInt8(ascii: "A")...UInt8(ascii: "Z"): .letter(byte + 32)
+        case UInt8(ascii: "a")...UInt8(ascii: "z"), UInt8(ascii: "0")...UInt8(ascii: "9"): .letter(byte)
+        case 0x80...: .unicode
+        default: .skipped
+        }
+    }
+
+    /// Whether `name` normalizes to `wanted` (already normalized), without making the normalized copy.
+    static func name(_ name: String, normalizesTo wanted: String) -> Bool {
+        var expected = wanted.utf8.makeIterator()
+        for byte in name.utf8 {
+            switch folded(byte) {
+            case .letter(let kept): guard expected.next() == kept else { return false }
+            case .skipped: continue
+            case .unicode: return normalized(name) == wanted
+            }
+        }
+        return expected.next() == nil
     }
 
     public static func accessoryJSON(_ located: Located, detailed: Bool, lastRing: String? = nil) -> JSONValue {
@@ -357,10 +414,11 @@ public struct HomeswiftCatalog: Sendable {
         let services = located.accessory.services.filter { service in
             guard let serviceName else { return service.type.uuid != ServiceType.accessoryInformation.uuid }
             let wanted = Self.normalized(serviceName)
-            return Self.normalized(service.type.name) == wanted || service.subtype.map(Self.normalized) == wanted || service[.name]?.value.stringValue.map(Self.normalized) == wanted
+            return Self.name(service.type.name, normalizesTo: wanted) || service.subtype.map { Self.name($0, normalizesTo: wanted) } == true
+                || service[.name]?.value.stringValue.map { Self.name($0, normalizesTo: wanted) } == true
         }
         let wanted = Self.normalized(characteristicName)
-        let matches = services.flatMap { $0.characteristics.filter { Self.normalized($0.type.name) == wanted } }
+        let matches = services.flatMap { $0.characteristics.filter { Self.name($0.type.name, normalizesTo: wanted) } }
         guard let first = matches.first else {
             throw CatalogError("\(located.accessory.name) has no characteristic \(characteristicName)\(serviceName.map { " on service \($0)" } ?? "")")
         }
@@ -527,7 +585,12 @@ public struct HomeswiftCatalog: Sendable {
     public var backupsDirectory: URL { storageDirectory.appendingPathComponent("backups") }
 
     public func backups() -> [String] {
-        ((try? FileManager.default.contentsOfDirectory(atPath: backupsDirectory.path)) ?? []).filter { $0.hasPrefix("config-") && $0.hasSuffix(".json") }.sorted()
+        Self.backups(in: backupsDirectory)
+    }
+
+    /// The config.json backups in `directory`, oldest first.
+    static func backups(in directory: URL) -> [String] {
+        ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []).filter { $0.hasPrefix("config-") && $0.hasSuffix(".json") }.sorted()
     }
 
     /// Backs up the current file and writes the new one owner-only (`applyConfig` validated it). Returns the backup's
@@ -536,31 +599,41 @@ public struct HomeswiftCatalog: Sendable {
     func writeConfig(_ config: JSONValue, expecting: JSONValue? = nil) throws -> String {
         try configWrites.withLock {
             if let expecting, try readConfig() != expecting { throw ConfigChanged() }
-            // Every write seals the plain secrets it holds (the editor, the MCP tools, a restored backup), so none
-            // reaches config.json as plain text. The key is made on the first plain secret; a config without one never
-            // creates it.
-            var key: SecretBox?
-            let stored = try SecretBox.sealingSecrets(config) { text in
-                let box = try key ?? SecretBox.load(storage: storageDirectory, create: true)
-                key = box
-                return try box.seal(text)
-            }
-            let manager = FileManager.default
-            try manager.createDirectory(at: backupsDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-            let stamp = Timestamp.iso8601(Date()).replacingOccurrences(of: ":", with: "-")
-            var backup = "config-\(stamp).json"
-            var suffix = 2
-            while manager.fileExists(atPath: backupsDirectory.appendingPathComponent(backup).path) {
-                backup = "config-\(stamp)-\(suffix).json"
-                suffix += 1
-            }
-            if manager.fileExists(atPath: configURL.path) {
-                try manager.copyItem(at: configURL, to: backupsDirectory.appendingPathComponent(backup))
-            }
-            for old in backups().dropLast(20) { try? manager.removeItem(at: backupsDirectory.appendingPathComponent(old)) }
-            try OwnerOnlyFile.write(stored.encoded(pretty: true), to: configURL)
-            return backup
+            // Once config.json names the vault, a plain secret a save brings (the editor, the MCP tools, a restored backup)
+            // becomes an entry, and the file gets its reference.
+            let config = VaultMigration.isMigrated(config) ? try movingNewSecretsToVault(config) : config
+            return try Self.writeConfigFile(config, to: configURL)
         }
+    }
+
+    /// Writes `config` as config.json, owner-only, after a backup of the current file in `backups/` (the last 20 are
+    /// kept). Returns the backup's name. Every write seals the plain secrets it holds, so none reaches config.json as
+    /// plain text. The key is made on the first plain secret; a config without one never creates it. The CLI's
+    /// `homeswift vault migrate` writes through it too.
+    public static func writeConfigFile(_ config: JSONValue, to configURL: URL) throws -> String {
+        let storageDirectory = configURL.deletingLastPathComponent()
+        let backupsDirectory = storageDirectory.appendingPathComponent("backups")
+        var key: SecretBox?
+        let stored = try SecretBox.sealingSecrets(config) { text in
+            let box = try key ?? SecretBox.load(storage: storageDirectory, create: true)
+            key = box
+            return try box.seal(text)
+        }
+        let manager = FileManager.default
+        try manager.createDirectory(at: backupsDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let stamp = Timestamp.iso8601(Date()).replacingOccurrences(of: ":", with: "-")
+        var backup = "config-\(stamp).json"
+        var suffix = 2
+        while manager.fileExists(atPath: backupsDirectory.appendingPathComponent(backup).path) {
+            backup = "config-\(stamp)-\(suffix).json"
+            suffix += 1
+        }
+        if manager.fileExists(atPath: configURL.path) {
+            try manager.copyItem(at: configURL, to: backupsDirectory.appendingPathComponent(backup))
+        }
+        for old in backups(in: backupsDirectory).dropLast(20) { try? manager.removeItem(at: backupsDirectory.appendingPathComponent(old)) }
+        try OwnerOnlyFile.write(stored.encoded(pretty: true), to: configURL)
+        return backup
     }
 
     /// When config.json turns the MCP server on and no client has a token (none in the block, none from the
@@ -593,8 +666,15 @@ public struct HomeswiftCatalog: Sendable {
     /// and setup code) restarts the process on its own; only when it cannot does the restart flag go up.
     /// With `checkSchemas`, what the save changes in a plugin block must match the plugin's config.schema.json
     /// (`checkBlocks`); a plugin's own page, a restored backup and "save anyway" skip it.
-    public func applyConfig(_ next: JSONValue, dryRun: Bool, checkSchemas: Bool = true) async throws -> JSONValue {
-        try await applyConfig(next, dryRun: dryRun, current: (try? readConfig()) ?? [:], checkSchemas: checkSchemas)
+    public func applyConfig(_ next: JSONValue, dryRun: Bool, checkSchemas: Bool = true, by writer: ConfigWriter = .person) async throws -> JSONValue {
+        try await applyConfig(next, dryRun: dryRun, current: (try? readConfig()) ?? [:], checkSchemas: checkSchemas, by: writer)
+    }
+
+    /// Who writes a config: a person (the web UI's editor, a plugin's page, the command line), or a client acting
+    /// for one (an MCP client, the web UI's chat), which may not add `env:` or `file:` references (they name what the
+    /// bridge reads from its machine) and learns only that a reference does not resolve, not why.
+    public enum ConfigWriter: Sendable {
+        case person, client
     }
 
     /// Applies a config whose secrets are sealed: the file keeps the sealed text, and the running bridge gets
@@ -607,10 +687,25 @@ public struct HomeswiftCatalog: Sendable {
 
     /// `applyConfig` with the file as it was just read, so a caller that read it does not read it again. With
     /// `opened`, the bridge runs that configuration and the file keeps `next` as written.
-    func applyConfig(_ next: JSONValue, dryRun: Bool, current: JSONValue, checkSchemas: Bool = true, opened: HomeswiftConfiguration? = nil, expecting: JSONValue? = nil) async throws -> JSONValue {
+    func applyConfig(
+        _ next: JSONValue, dryRun: Bool, current: JSONValue, checkSchemas: Bool = true, opened: HomeswiftConfiguration? = nil, expecting: JSONValue? = nil,
+        by writer: ConfigWriter = .person
+    ) async throws -> JSONValue {
         let restored = Redaction.containsRedacted(next) ? try Redaction.restoreSecrets(next, from: current) : next
-        // The runtime gets the secrets opened, as at startup; the file keeps `restored` as it is written.
-        let configuration = try opened ?? SecretBox.revealing(HomeswiftConfiguration.decode(restored.encoded()), storage: storageDirectory)
+        if writer == .client {
+            let added = ConfigurationSecrets.newExternalReferences(in: restored, comparedWith: current)
+            guard added.isEmpty else {
+                throw CatalogError("env: and file: references are set from the web UI's config editor or the command line, not here: \(added.joined(separator: ", "))")
+            }
+        }
+        // The runtime gets the secrets opened and the references resolved, as at startup; the file keeps `restored` as
+        // it is written. A reference that does not resolve stops the save; a dry run or a client is not told why.
+        let configuration: HomeswiftConfiguration
+        do {
+            configuration = try ConfigurationSecrets.opening(opened ?? HomeswiftConfiguration.decode(restored.encoded()), storage: storageDirectory)
+        } catch let error as SecretReferenceError where dryRun || writer == .client {
+            throw error.withoutReasons
+        }
         try configuration.validate()
         if checkSchemas { try checkBlocks(restored, current: current) }
         let changed = Self.changedKeys(from: current, to: restored)
@@ -618,6 +713,18 @@ public struct HomeswiftCatalog: Sendable {
             return ["dryRun": true, "changes": .array(changed.map(JSONValue.string)), "config": Redaction.redactSecrets(restored)]
         }
         let backup = try writeConfig(restored, expecting: expecting)
+        var answer = await run(configuration).objectValue ?? [:]
+        answer["written"] = .string(configURL.path)
+        answer["backup"] = .string(backup)
+        answer["changes"] = .array(changed.map(JSONValue.string))
+        return .object(answer)
+    }
+
+    /// Runs `configuration` on the bridge (`PluginHost.apply`): plugin blocks reload in place, the system blocks'
+    /// services reload, and what needs a restart restarts the process, or raises the restart flag when it cannot.
+    /// Answers what was reloaded, started, stopped and what still needs a restart. A save runs it after writing the
+    /// file, a changed vault entry without one.
+    func run(_ configuration: HomeswiftConfiguration) async -> JSONValue {
         let report = await host.apply(configuration)
         var pending = report.needsRestart
         let services = report.systemBlocksChanged.filter { $0 != AIConfiguration.platform || reloadServices != nil }
@@ -641,7 +748,6 @@ public struct HomeswiftCatalog: Sendable {
         let names = { (list: [String]) in JSONValue.array(list.map(JSONValue.string)) }
         let note = pending.isEmpty ? "Applied." : restarting ? "Applied; homeswift restarts by itself for the rest (\(pending.joined(separator: "; ")))." : "Restart homeswift to apply the rest: \(pending.joined(separator: "; "))."
         return [
-            "written": .string(configURL.path), "backup": .string(backup), "changes": .array(changed.map(JSONValue.string)),
             "reloaded": names(report.reloaded), "started": names(report.started), "stopped": names(report.stopped),
             "restarting": .bool(restarting), "restartNeeded": names(restarting ? [] : pending), "note": .string(note),
         ]
@@ -698,9 +804,10 @@ public struct HomeswiftCatalog: Sendable {
     /// Changes the block with this platform (and name, when there are several), or adds it when `create`;
     /// `edit` gets the block to change. What `editPlatforms` answers.
     public func editBlock(
-        platform: String, name: String?, create: Bool = true, dryRun: Bool, checkSchemas: Bool = true, _ edit: (inout [String: JSONValue]) throws -> Void
+        platform: String, name: String?, create: Bool = true, dryRun: Bool, checkSchemas: Bool = true, by writer: ConfigWriter = .person,
+        _ edit: (inout [String: JSONValue]) throws -> Void
     ) async throws -> JSONValue {
-        try await editPlatforms(dryRun: dryRun, checkSchemas: checkSchemas) { platforms in
+        try await editPlatforms(dryRun: dryRun, checkSchemas: checkSchemas, by: writer) { platforms in
             let matching = platforms.indices.filter { platforms[$0]["platform"]?.stringValue == platform && (name == nil || (platforms[$0]["name"]?.stringValue ?? platform) == name) }
             guard matching.count <= 1 else { throw CatalogError("\(matching.count) blocks have platform \(platform); give the name") }
             guard create || !matching.isEmpty else { throw CatalogError("No block \(name ?? platform) of \(platform)") }
@@ -710,13 +817,13 @@ public struct HomeswiftCatalog: Sendable {
         }
     }
 
-    public func editPlatforms(dryRun: Bool, checkSchemas: Bool = true, _ edit: (inout [JSONValue]) throws -> Void) async throws -> JSONValue {
+    public func editPlatforms(dryRun: Bool, checkSchemas: Bool = true, by writer: ConfigWriter = .person, _ edit: (inout [JSONValue]) throws -> Void) async throws -> JSONValue {
         let current = try readConfig()
         var root = current.objectValue ?? [:]
         var platforms = root["platforms"]?.arrayValue ?? []
         try edit(&platforms)
         root["platforms"] = .array(platforms)
-        return try await applyConfig(.object(root), dryRun: dryRun, current: current, checkSchemas: checkSchemas)
+        return try await applyConfig(.object(root), dryRun: dryRun, current: current, checkSchemas: checkSchemas, by: writer)
     }
 
     static func changedKeys(from a: JSONValue, to b: JSONValue, path: String = "") -> [String] {
@@ -1007,7 +1114,7 @@ public struct HomeswiftCatalog: Sendable {
                 inputSchema: ["type": "object", "required": ["config"], "properties": ["config": ["type": "object"], "ignoreSchema": ignoreSchema]],
                 scope: .admin, destructive: true, supportsDryRun: true
             ) { call in
-                .json(try await catalog.applyConfig(call.arguments["config"] ?? [:], dryRun: call.isDryRun, checkSchemas: call.arguments["ignoreSchema"] != .bool(true)))
+                .json(try await catalog.applyConfig(call.arguments["config"] ?? [:], dryRun: call.isDryRun, checkSchemas: call.arguments["ignoreSchema"] != .bool(true), by: .client))
             },
             MCPTool(
                 name: "patch_config", title: "Change one platform block",
@@ -1021,7 +1128,7 @@ public struct HomeswiftCatalog: Sendable {
                 let platform = try call.string("platform")
                 let name = call.optionalString("name")
                 let settings = call.arguments["settings"]?.objectValue ?? [:]
-                return .json(try await catalog.editBlock(platform: platform, name: name, dryRun: call.isDryRun, checkSchemas: call.arguments["ignoreSchema"] != .bool(true)) { block in
+                return .json(try await catalog.editBlock(platform: platform, name: name, dryRun: call.isDryRun, checkSchemas: call.arguments["ignoreSchema"] != .bool(true), by: .client) { block in
                     for (key, value) in settings where key != "platform" {
                         if value.isNull { block.removeValue(forKey: key) } else { block[key] = value }
                     }
@@ -1059,7 +1166,7 @@ public struct HomeswiftCatalog: Sendable {
                 let match = call.optionalString("match") ?? "mac"
                 guard let entry = call.arguments["entry"]?.objectValue else { throw JSONRPCError.invalidParams("entry must be an object") }
                 guard let key = entry[match], !key.isNull else { throw JSONRPCError.invalidParams("the entry needs its \(match)") }
-                return .json(try await catalog.editBlock(platform: platform, name: name, dryRun: call.isDryRun, checkSchemas: call.arguments["ignoreSchema"] != .bool(true)) { block in
+                return .json(try await catalog.editBlock(platform: platform, name: name, dryRun: call.isDryRun, checkSchemas: call.arguments["ignoreSchema"] != .bool(true), by: .client) { block in
                     var entries = block[list]?.arrayValue ?? []
                     if let index = entries.firstIndex(where: { Self.sameKey($0[match], key) }) {
                         // The entry it replaces holds its secrets: a rename changes the fields restoreSecrets matches on.
@@ -1070,7 +1177,7 @@ public struct HomeswiftCatalog: Sendable {
                     block[list] = .array(entries)
                 })
             },
-        ] + hostTools + adminTools + layoutTools + wallTools + sceneTools + moodTools + notificationTools + assistantTools + matterTools + pluginActionTools
+        ] + hostTools + adminTools + layoutTools + wallTools + sceneTools + notificationTools + assistantTools + vaultTools + matterTools + pluginActionTools
     }
 
     /// `set_accessories` with `ids` or `filter`: one characteristic and value on every target.
@@ -1181,11 +1288,12 @@ public struct HomeswiftCatalog: Sendable {
                         sent = try await catalog.host.handleWebRequest(platform: entry.platform, name: instance.name, request)
                         return (sent?.status ?? 500) < 400
                     }
-                    // A scene recalled on the plugin's own hub: what its lights were before is kept, as for a mood, so
-                    // stop_mood can put them back.
-                    var held: MoodRun?
+                    // A scene recalled on the plugin's own hub: what its lights were before is kept under a run of its
+                    // own, as after any scene, so stop_scene can put them back.
+                    var held: LightRun?
+                    let heldRun = "action-" + SceneRules.newID()
                     if action.changesLights {
-                        held = try await catalog.holdLightChanges("\(entry.name): \(action.title)", platform: instance, by: "MCP \(call.session.principal.name)", during: send)
+                        held = try await catalog.holdLightChanges("\(entry.name): \(action.title)", id: Self.showID(of: heldRun), platform: instance, by: "MCP \(call.session.principal.name)", during: send)
                     } else {
                         _ = try await send()
                     }
@@ -1195,7 +1303,7 @@ public struct HomeswiftCatalog: Sendable {
                     let answer = call.session.vault.conceal(response.json)
                     var text = "<untrusted-data source=\"\(entry.platform)\">\n\(answer.text(pretty: true))\n</untrusted-data>"
                     if let held {
-                        text += "\nThe bridge kept how \(held.lights.count) light(s) were before this: stop_mood with run \(held.id) puts them back, for \(Int(MoodRules.undoSeconds / 3600)) hours."
+                        text += "\nThe bridge kept how \(held.lights.count) light(s) were before this: stop_scene with scene \(heldRun) puts them back, for \(Int(LightShowRules.undoSeconds / 3600)) hours."
                     }
                     return ToolResult(text: text)
                 }
@@ -1263,7 +1371,7 @@ public struct HomeswiftCatalog: Sendable {
                     + "Say what is wrong, the likely cause and the steps to fix it. Do not change anything unless the user asks."
             },
             MCPPrompt(name: "scene-builder", title: "Build a scene", description: "Turn a description (\"cosy movie night in the living room\") into accessory values, set them, and save them as a Homeswift scene.",
-                      arguments: [.init(name: "description", description: "The mood or purpose, e.g. movie night", required: true), .init(name: "area", description: "A room, or a word the accessories' names share, e.g. Living Room")]) { arguments in
+                      arguments: [.init(name: "description", description: "The show or purpose, e.g. movie night", required: true), .init(name: "area", description: "A room, or a word the accessories' names share, e.g. Living Room")]) { arguments in
                 let area = arguments["area"]?.nonEmpty
                 return "Build a scene for: \"\(arguments["description"] ?? "")\"\(area.map { " in \"\($0)\"" } ?? ""). "
                     + "1) list_accessories\(area.map { " with room \"\($0)\" (get_accessory_layout lists the rooms; when it is not one, use name \"\($0)\")" } ?? "") to find the relevant lights, switches, blinds, thermostats and so on. "
@@ -1359,8 +1467,11 @@ public struct CatalogError: Error, CustomStringConvertible {
     /// A device's or a service's own words (Wingman relaying Apple Home): masked, one line, and for MCP clients
     /// wrapped as untrusted data, since a device chooses them.
     public let detail: String?
-    public init(_ message: String, detail: String? = nil) {
+    /// What was asked for does not exist (a scene, a hub's scene): the web UI answers 404.
+    public let notFound: Bool
+    public init(_ message: String, detail: String? = nil, notFound: Bool = false) {
         self.message = message
+        self.notFound = notFound
         self.detail = detail.map { String(HomeswiftCatalog.safe($0.split(whereSeparator: \.isNewline).joined(separator: " ")).prefix(300)) }
     }
     public var description: String { detail.map { "\(message): \($0)" } ?? message }

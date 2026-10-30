@@ -70,11 +70,13 @@ public struct SecretBox: Sendable {
     public static func isSealed(_ value: String) -> Bool { value.hasPrefix(prefix) }
 
     /// `value` with every plain string under a secret-named key sealed by `seal` (a key's whole subtree counts). A
-    /// string already sealed, or the redaction placeholder, is kept as it is. A number under a secret's name is sealed
-    /// as its text. Nothing is sealed, and `seal` is never called, when no secret is plain.
+    /// string already sealed, the redaction placeholder, or a reference (`vault:…`, `env:…`, `file:…`) is kept as it is.
+    /// A number under a secret's name is sealed as its text. Nothing is sealed, and `seal` is never called, when no
+    /// secret is plain.
     public static func sealingSecrets(_ value: JSONValue, underSecret: Bool = false, seal: (String) throws -> String) rethrows -> JSONValue {
         switch value {
-        case .string(let text) where (underSecret || Redaction.isCredentialURL(text)) && !text.isEmpty && !isSealed(text) && text != Redaction.placeholder:
+        case .string(let text) where (underSecret || Redaction.isCredentialURL(text)) && !text.isEmpty && !isSealed(text)
+            && text != Redaction.placeholder && !Redaction.isSecretReference(text):
             return .string(try seal(text))
         case .number where underSecret:
             // A secret is text (the schemas' password fields are strings): a number under a secret's name is sealed as its text.
@@ -100,12 +102,12 @@ public struct SecretBox: Sendable {
         }
     }
 
-    /// `configuration` with its sealed secrets opened, as the runtime reads them. Only a config that holds sealed
-    /// text needs the key file, so a config without any never touches it.
-    public static func revealing(_ configuration: HomeswiftConfiguration, storage: URL) throws -> HomeswiftConfiguration {
+    /// `configuration` with its sealed secrets opened, as the runtime reads them; `opened` is told each value it opens.
+    /// Only a config that holds sealed text needs the key file, so a config without any never touches it.
+    public static func revealing(_ configuration: HomeswiftConfiguration, storage: URL, opened: ((String) -> Void)? = nil) throws -> HomeswiftConfiguration {
         // A byte search first: only a block that carries the prefix is parsed to see whether a value starts with it.
         guard holdsSealed(configuration) else { return configuration }
-        return try load(storage: storage, create: false).revealing(configuration)
+        return try load(storage: storage, create: false).revealing(configuration, opened: opened)
     }
 
     /// `configuration` with its sealed secrets opened by `key` (a backup's, read from its archive). A configuration
@@ -117,9 +119,9 @@ public struct SecretBox: Sendable {
     }
 
     /// `config` (a config.json value) with its sealed secrets opened from `storage`'s key; unchanged when none is sealed.
-    public static func revealed(_ config: JSONValue, storage: URL) throws -> JSONValue {
+    public static func revealed(_ config: JSONValue, storage: URL, opened: ((String) -> Void)? = nil) throws -> JSONValue {
         guard holdsSealed(config) else { return config }
-        return try load(storage: storage, create: false).revealing(json: config)
+        return try load(storage: storage, create: false).revealing(json: config, opened: opened)
     }
 
     /// Whether a sealed secret is in `configuration`: a platform block that carries the prefix (the child bridge's PIN
@@ -134,12 +136,12 @@ public struct SecretBox: Sendable {
     }
 
     /// `config` with every sealed string in its platform blocks and bridge opened, for the runtime to read.
-    public func revealing(_ configuration: HomeswiftConfiguration) throws -> HomeswiftConfiguration {
+    public func revealing(_ configuration: HomeswiftConfiguration, opened: ((String) -> Void)? = nil) throws -> HomeswiftConfiguration {
         var result = configuration
         result.bridge.pin = try result.bridge.pin.map(revealText)
         for index in result.platforms.indices {
             let block = try JSONValue(data: result.platforms[index].json)
-            let revealed = try revealing(json: block)
+            let revealed = try revealing(json: block, opened: opened)
             result.platforms[index].json = revealed.encoded()
             if var child = result.platforms[index].childBridge {
                 child.pin = try child.pin.map(revealText)
@@ -154,12 +156,15 @@ public struct SecretBox: Sendable {
         Self.isSealed(text) ? try open(text) : text
     }
 
-    /// `value` (a config.json value) with every sealed string this key opens.
-    public func revealing(json value: JSONValue) throws -> JSONValue {
+    /// `value` (a config.json value) with every sealed string this key opens; `opened` is told each value it opens.
+    public func revealing(json value: JSONValue, opened: ((String) -> Void)? = nil) throws -> JSONValue {
         switch value {
-        case .string(let text) where Self.isSealed(text): return .string(try open(text))
-        case .array(let items): return .array(try items.map { try revealing(json: $0) })
-        case .object(let object): return .object(try object.mapValues { try revealing(json: $0) })
+        case .string(let text) where Self.isSealed(text):
+            let plain = try open(text)
+            opened?(plain)
+            return .string(plain)
+        case .array(let items): return .array(try items.map { try revealing(json: $0, opened: opened) })
+        case .object(let object): return .object(try object.mapValues { try revealing(json: $0, opened: opened) })
         default: return value
         }
     }

@@ -346,7 +346,7 @@
   const markDirty = () => { dirty = true; $("#save-state").textContent = t("Unsaved changes."); };
 
   const speed = homeswift.speedScale({
-    help: t("How fast a light reaches a new colour or brightness. Fast is the default; Extreme changes at once, snappiest for moods and flashes."),
+    help: t("How fast a light reaches a new colour or brightness. Fast is the default; Extreme changes at once, snappiest for animated scenes and flashes."),
     onInput: markDirty,
   });
   const polling = el("input", { type: "number", id: "pollingInterval", min: 1, max: 300, step: 1, placeholder: "2", inputmode: "numeric" });

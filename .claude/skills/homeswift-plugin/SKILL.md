@@ -73,6 +73,11 @@ swift test --scratch-path ~/Library/Caches/homeswift-build --filter <Name>Tests
   with the same stable id it used (serial, MAC, cloud device id) and never a name or an address.
 - **Crypto and byte layouts:** port them exactly from the source and test them against values the source
   produces. Never guess a layout.
+- **Secrets:** keep the Homebridge option names; under a secret-named key (`password`, `token`, `apiKey`…) the plugin
+  receives the plain value whether config.json holds it, a sealed copy or a `vault:`/`env:`/`file:` reference. A
+  token the plugin stores (a session, a hub's token, a client key) goes in `context.secretFile(_:as:)` under the
+  Homebridge plugin's file name, so a copied file moves into the vault; never `jsonFile` for it (docs/plugins.md,
+  "Secrets").
 - **Logging:** the messages the Homebridge plugin logs, at the same levels; never a token, password, key, cookie
   or setup code.
 - **Background work:** in the plugin's `TaskBag`, cancelled in `stop()`; `start()` returns quickly.

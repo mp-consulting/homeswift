@@ -91,6 +91,42 @@ public protocol HomeswiftPlugin: Sendable {
     /// prefer a low-bandwidth channel. Defaults to nil: the card shows the camera's snapshots instead, from its
     /// `CameraController`.
     func liveFeed(accessoryID: String) async throws -> CameraLiveFeed?
+
+    /// The scenes the plugin's hub keeps, for Homeswift to list with its own (`PluginScene`). Asked each time they
+    /// are listed, so answer from what the plugin already knows rather than asking the hub. Defaults to none.
+    func scenes() async -> [PluginScene]
+
+    /// Recalls one of `scenes()` by its `PluginScene.id`. Defaults to throwing.
+    func recallScene(id: String) async throws
+
+    /// Plays an effect on those of these accessories the plugin can animate the way its brand's app does (a Hue
+    /// light's fire effect, a Govee light's library scene); answers the ids it plays. Homeswift plays the others
+    /// itself, and puts every light back when the scene stops. Defaults to none.
+    func animate(_ effect: LightEffect, accessoryIDs: [String]) async -> Set<String>
+
+    /// Stops what `animate` started on these accessories; Homeswift then puts their values back. Defaults to nothing.
+    func stopAnimation(accessoryIDs: [String]) async
+
+    /// Where a new scene of exactly these lights would be kept on the plugin's hub (a Hue room or zone, an IKEA hub),
+    /// to offer "Save to …"; nil when the hub cannot keep it (a light it does not have). Defaults to nil.
+    func sceneTarget(accessoryIDs: [String]) async -> String?
+
+    /// Makes a scene on the hub with these lights' states; answers its `PluginScene.id`. Defaults to throwing.
+    func createScene(name: String, lights: [PluginSceneLight]) async throws -> String
+
+    /// Renames a scene of the hub (`name`) and replaces its lights' states (`lights`), either or both: what its
+    /// `PluginScene.capabilities` allow (`rename`, `update`). Defaults to throwing.
+    func updateScene(id: String, name: String?, lights: [PluginSceneLight]?) async throws
+
+    /// Removes a scene from the hub (`delete` capability). Homeswift asks the person first. Defaults to throwing.
+    func deleteScene(id: String) async throws
+
+    /// The rooms the plugin's hub or cloud keeps (`PluginRoom`), for Homeswift to rename the one named like a room
+    /// renamed in Homeswift, when `syncRoomNames` is on. Asked only then, so it may ask the hub. Defaults to none.
+    func rooms() async -> [PluginRoom]
+
+    /// Renames one of `rooms()` by its `PluginRoom.id` on the hub. Defaults to throwing.
+    func renameRoom(id: String, name: String) async throws
 }
 
 extension HomeswiftPlugin {
@@ -135,7 +171,7 @@ public struct AssistantAction: Sendable {
     /// The user confirms before it runs.
     public var confirm: Bool
     /// It may change lights (a scene recalled on the device's own hub): the bridge keeps how the lights it changed
-    /// were, and `stop_mood` puts them back, as for a mood.
+    /// were, and `stop_scene` puts them back, as after any scene.
     public var changesLights: Bool
 
     public init(
@@ -280,7 +316,10 @@ public final class PluginContext: @unchecked Sendable {
     let bridge: PluginHost.Bridge
     let cache: AccessoryCache
     let externals: ExternalAccessories
-    private let storageURL: URL
+    let storageURL: URL
+    /// The bridge's storage directory (`homeswift -U`): where `vault.json` and `secrets.key` are (`secretFile`), and the
+    /// core's files plugins share (scenes' pictures).
+    let vaultStorage: URL
     private let assistantBox: NIOLockedValueBox<AssistantService?>
     private let assistantBackground: String?
     private let recordSink: @Sendable (String, Double, EnergyTag?) -> Void
@@ -354,7 +393,7 @@ public final class PluginContext: @unchecked Sendable {
 
     init(
         platform: String, name: String, key: String, logger: Logger, bridge: PluginHost.Bridge, cache: AccessoryCache, storageURL: URL,
-        assistant: NIOLockedValueBox<AssistantService?>, externals: ExternalAccessories, assistantBackground: String? = nil,
+        vaultStorage: URL, assistant: NIOLockedValueBox<AssistantService?>, externals: ExternalAccessories, assistantBackground: String? = nil,
         recordSink: @escaping @Sendable (String, Double, EnergyTag?) -> Void = { _, _, _ in },
         energyImportSink: @escaping @Sendable ([EnergyHourImport]) -> Void = { _ in },
         energyProgressSink: @escaping @Sendable (EnergyImportProgress) -> Void = { _ in }
@@ -370,6 +409,7 @@ public final class PluginContext: @unchecked Sendable {
         self.bridge = bridge
         self.cache = cache
         self.storageURL = storageURL
+        self.vaultStorage = vaultStorage
         assistantBox = assistant
         self.externals = externals
     }

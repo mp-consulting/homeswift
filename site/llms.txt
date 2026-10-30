@@ -20,6 +20,7 @@ Both are also in French (https://homeswift.dev/fr/), Spanish (https://homeswift.
 - [The web UI](https://github.com/mp-consulting/homeswift/blob/main/docs/ui.md): configuration, pages, accounts and security
 - [The MCP server](https://github.com/mp-consulting/homeswift/blob/main/docs/mcp.md): scopes, confirmations, OAuth for claude.ai and the Claude apps
 - [The Assistant](https://github.com/mp-consulting/homeswift/blob/main/docs/ai.md): providers, the command line, what reaches a provider
+- [The vault](https://github.com/mp-consulting/homeswift/blob/main/docs/vault-design.md): secrets sealed beside config.json and named as vault:<entry>, env: or file: references, the migration, plugins' tokens
 - [Synology](https://github.com/mp-consulting/homeswift/blob/main/docs/synology.md): the package and the container on a NAS
 
 ## Optional

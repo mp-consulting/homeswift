@@ -26,8 +26,9 @@ sensors; the other kinds, writes, scenes and events against a fake hub in the te
 ```
 
 A hub without a `token` pairs from the plugin's page: **Pair** (on a hub found on the network, or an address), then
-press the action button under the hub within a minute. The token is kept in the plugin's folder
-(`plugins/Dirigera-<name>/hubs.json`), never in config.json, with the hub's certificate pinned on first use. A token
+press the action button under the hub within a minute. The token is kept sealed in the bridge's vault (`vault.json`,
+docs/vault-design.md; `plugins/Dirigera-<name>/hubs.json` before, which moves there when the plugin reads it), never in
+config.json, with the hub's certificate pinned on first use. A token
 from homebridge-dirigera in `token` works as it is.
 
 | Option | Default | What it does |
@@ -69,7 +70,8 @@ hubs found on the network to pair, an address to add), then three tabs: **Device
 Accessories page's widgets (a remote's buttons light as they are pressed), room by room or by name under the Hue page's
 toolbar: a search, a room, and filters for lights, outlets, sensors, blinds and air, remotes, low battery and No
 Response; **Scenes**, a tile per scene (a tap runs it; drop a picture on it, or choose
-one from its ⋯ menu, to give the scene its own, kept in the plugin's folder; the same menu leaves it out of the Home
+one from its ⋯ menu, to give the scene its own, kept with every scene's picture so Homeswift's Scenes page shows it
+too; the same menu leaves it out of the Home
 app); **Settings**, the transition on a 12-step speed scale (Very slow to Extreme; Fast, 100 ms, by default) and the scenes switch.
 
 ![Scenes](../../docs/images/plugins/dirigera-scenes.png)

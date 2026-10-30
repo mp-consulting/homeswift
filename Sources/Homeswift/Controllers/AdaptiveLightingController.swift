@@ -208,7 +208,7 @@ public final class AdaptiveLightingController: SerializableController, @unchecke
 
     /// Turns Adaptive Lighting on again with the last schedule the Home app sent, as the Home app itself does: the
     /// same transition id, a start time of now, and the curve rotated so it begins at the point for this time of day
-    /// (`rotated(_:toStartAt:)`). The web UI's Adaptive swatch and moods use it. False when it is on already, when
+    /// (`rotated(_:toStartAt:)`). The web UI's Adaptive swatch and shows use it. False when it is on already, when
     /// HomeKit never sent a schedule, or when a curve shorter than a day does not reach the time of day it is now.
     @discardableResult
     public func resumeAdaptiveLighting() -> Bool {

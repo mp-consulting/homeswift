@@ -96,6 +96,33 @@ actor DirigeraClient {
         _ = try await send("POST", "/scenes/\(Self.segment(sceneID))/trigger")
     }
 
+    /// `POST /v1/scenes` with `{info, type, actions, triggers}` (lpgera/dirigera's `scenes.create`); answers its id.
+    func createScene(_ scene: JSONValue) async throws -> String {
+        let reply = try await JSONValue(data: send("POST", "/scenes", body: scene.encoded(), contentType: "application/json").body)
+        guard let id = reply["id"]?.stringValue else { throw Failure.malformed("a new scene") }
+        return id
+    }
+
+    /// `PUT /v1/scenes/<id>`: the hub replaces the scene whole.
+    func updateScene(id: String, _ scene: JSONValue) async throws {
+        _ = try await send("PUT", "/scenes/\(Self.segment(id))", body: scene.encoded(), contentType: "application/json")
+    }
+
+    func deleteScene(id: String) async throws {
+        _ = try await send("DELETE", "/scenes/\(Self.segment(id))")
+    }
+
+    /// `GET /v1/rooms`: `[{id, name, icon, color}]` (lpgera/dirigera's `rooms.list`).
+    func rooms() async throws -> [JSONValue] {
+        guard let list = try await JSONValue(data: send("GET", "/rooms").body).arrayValue else { throw Failure.malformed("a room list") }
+        return list
+    }
+
+    /// `PUT /v1/rooms/<id>` with `{name, icon, color}` (lpgera/dirigera's `rooms.update`): the hub takes all three.
+    func updateRoom(id: String, _ room: JSONValue) async throws {
+        _ = try await send("PUT", "/rooms/\(Self.segment(id))", body: room.encoded(), contentType: "application/json")
+    }
+
     func undo(sceneID: String) async throws {
         _ = try await send("POST", "/scenes/\(Self.segment(sceneID))/undo")
     }

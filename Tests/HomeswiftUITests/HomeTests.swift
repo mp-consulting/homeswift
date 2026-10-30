@@ -73,41 +73,48 @@ struct HomeTests {
         #expect(try await browser.get("/api/scenes").json?["scenes"]?.arrayValue?.isEmpty == true)
     }
 
-    /// Moods: the collection, one set once, one playing until stopped, a calm one saved as a scene; who may do what.
-    @Test func moodsPlayStopAndSaveAsScenes() async throws {
+    /// Templates: the collection, one tried and undone, one playing until stopped, one saved as a scene from its
+    /// plan; who may do what.
+    @Test func templatesAreTriedStoppedAndSaved() async throws {
         let environment = try UITestEnvironment(auth: .none)
         let base = try await environment.start()
         defer { Task { await environment.stop() } }
         let browser = Browser(base: base)
         #expect(try await browser.put("/api/rooms", ["accessories": ["Lamps:lamp": ["room": "Desk"], "Lamps:strip": ["room": "Desk"]]]).status == 200)
 
-        let moods = try #require(try await browser.get("/api/moods").json)
-        #expect(moods["moods"]?.arrayValue?.isEmpty == false)
-        #expect(moods["assistant"] == false)
-        #expect(moods["moods"]?[0]?["swatch"]?.arrayValue?.isEmpty == false)
+        let templates = try #require(try await browser.get("/api/scenes/templates").json)
+        #expect(templates["templates"]?.arrayValue?.isEmpty == false)
+        #expect(templates["assistant"] == false)
+        #expect(templates["templates"]?[0]?["swatch"]?.arrayValue?.isEmpty == false)
 
-        let focus = try await browser.post("/api/moods/start", ["mood": "focus", "room": "Desk"])
+        let focus = try await browser.post("/api/scenes/try", ["template": "focus", "room": "Desk"])
         #expect(focus.status == 200)
         #expect(focus.json?["ok"] == true)
         #expect(environment.writes.withLockedValue { $0 }.contains { $0.0 == "brightness" && $0.1 == .int(100) })
+        let focusRun = try #require(focus.json?["run"]?.stringValue)
+        #expect(try await browser.get("/api/scenes/templates").json?["tries"]?[0]?["run"]?.stringValue == focusRun)
+        #expect(try await browser.post("/api/scenes/\(focusRun)/stop", [:]).json?["ok"] == true)
 
-        let police = try await browser.post("/api/moods/start", ["mood": "police", "room": "Desk", "durationSeconds": 60])
-        let run = try #require(police.json?["run"]?["id"]?.stringValue)
-        #expect(try await browser.get("/api/moods").json?["running"]?[0]?["id"]?.stringValue == run)
-        #expect(try await browser.post("/api/moods/stop", ["run": .string(run)]).json?["stopped"]?.arrayValue?.count == 1)
-        #expect(try await browser.get("/api/moods").json?["running"]?.arrayValue?.isEmpty == true)
+        let police = try await browser.post("/api/scenes/try", ["template": "police", "room": "Desk"])
+        let run = try #require(police.json?["run"]?.stringValue)
+        let tried = try await browser.get("/api/scenes/templates").json?["tries"]?.arrayValue ?? []
+        #expect(tried.first { $0["run"]?.stringValue == run }?["playing"] == true)
+        _ = try await browser.post("/api/scenes/\(run)/stop", [:])
+        #expect(try await browser.get("/api/scenes/templates").json?["tries"]?.arrayValue?.isEmpty == true)
 
-        let saved = try await browser.post("/api/moods/save", ["mood": "relax", "room": "Desk", "name": "Evening"])
-        #expect(saved.status == 201)
+        let relax = try await browser.post("/api/scenes/try", ["template": "relax", "room": "Desk"])
+        var plan = try #require(relax.json?["plan"]?.objectValue)
+        plan["name"] = "Evening"
+        #expect(try await browser.post("/api/scenes", .object(plan)).status == 201)
         #expect(try await browser.get("/api/scenes").json?["scenes"]?[0]?["name"] == "Evening")
-        #expect(try await browser.post("/api/moods/save", ["mood": "disco", "room": "Desk", "name": "Party"]).status == 400)
         // Without the Assistant a description has nobody to write it.
-        #expect(try await browser.post("/api/moods/start", ["description": "a jazz bar", "room": "Desk"]).status == 404)
+        #expect(try await browser.post("/api/scenes/try", ["description": "a jazz bar", "room": "Desk"]).status == 404)
+        #expect(try await browser.get("/api/moods").status == 404)
 
-        #expect(UIServer.requiredScope(.GET, ["moods"]) == .read)
-        #expect(UIServer.requiredScope(.POST, ["moods", "start"]) == .control)
-        #expect(UIServer.requiredScope(.POST, ["moods", "stop"]) == .control)
-        #expect(UIServer.requiredScope(.POST, ["moods", "save"]) == .admin)
+        #expect(UIServer.requiredScope(.GET, ["scenes", "templates"]) == .read)
+        #expect(UIServer.requiredScope(.POST, ["scenes", "try"]) == .control)
+        #expect(UIServer.requiredScope(.POST, ["scenes", "abc", "stop"]) == .control)
+        #expect(UIServer.requiredScope(.POST, ["scenes"]) == .admin)
     }
 
     @Test func notificationSettingsHideTheirSecrets() async throws {

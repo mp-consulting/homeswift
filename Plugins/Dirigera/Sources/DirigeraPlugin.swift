@@ -16,8 +16,8 @@ import Logging
 /// websocket, so the Home app follows the IKEA app and the remotes at once.
 ///
 /// The block is homebridge-dirigera's (`hubs`, each with `host` and an optional `token`). A hub without a token pairs
-/// from the plugin's page: the page asks for the hub's action button, and the token is kept in the plugin's directory
-/// (`hubs.json`), never in config.json. See README.md in this directory.
+/// from the plugin's page: the page asks for the hub's action button, and the token is kept sealed in the vault
+/// (`hubs.json` in the plugin's directory before, moved there when read), never in config.json. See README.md here.
 public actor DirigeraPlugin: HomeswiftPlugin {
     public struct Configuration: Decodable, Sendable {
         public struct Hub: Decodable, Sendable {
@@ -35,7 +35,7 @@ public actor DirigeraPlugin: HomeswiftPlugin {
         public var excludeScenes: [String]?
     }
 
-    /// What the plugin keeps of a hub in `hubs.json`, by address.
+    /// What the plugin keeps of a hub in the vault (`hubs.json` before), by address.
     struct StoredHub: Codable, Sendable, Equatable {
         var token: String?
         var fingerprint: String?
@@ -75,7 +75,7 @@ public actor DirigeraPlugin: HomeswiftPlugin {
     let dependencies: Dependencies
     private let tasks = TaskBag()
     var logger: Logger { context.logger }
-    private let store: JSONFile<[String: StoredHub]>
+    private let store: SecretFile<[String: StoredHub]>
     /// The pictures people gave scenes on the page, by scene id.
     let pictures: PluginPictures
     private var stored: [String: StoredHub]
@@ -136,8 +136,8 @@ public actor DirigeraPlugin: HomeswiftPlugin {
         excludedScenes = Set((configuration.excludeScenes ?? []).map { $0.lowercased() })
         self.context = context
         self.dependencies = dependencies
-        store = context.jsonFile("hubs.json")
-        pictures = context.pictures("scene-pictures")
+        store = context.secretFile("hubs.json")
+        pictures = context.scenePictures()
         stored = store.load() ?? [:]
     }
 
@@ -182,7 +182,7 @@ public actor DirigeraPlugin: HomeswiftPlugin {
     }
 
     private func save() {
-        do { try store.save(stored) } catch { logger.warning("Could not save hubs.json: \(error)") }
+        do { try store.save(stored) } catch { logger.warning("Could not save the hubs to the vault: \(error)") }
     }
 
     // MARK: Running a hub

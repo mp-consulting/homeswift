@@ -282,11 +282,12 @@ extension AssistantService {
     }
 }
 
-// MARK: - Moods
+// MARK: - Light shows
 
 extension AssistantService {
-    /// The shape of a mood (Homeswift's `Mood`): steps of colours for a room's lights, played once or looped.
-    public static let moodSchema: JSONValue = {
+    /// The shape of a scene the Assistant writes (Homeswift's `LightShow`): steps of colours for a room's lights, played
+    /// once or looped.
+    public static let sceneDesignSchema: JSONValue = {
         let color: JSONValue = [
             "type": "object", "additionalProperties": false,
             "properties": [
@@ -315,13 +316,13 @@ extension AssistantService {
         ]
     }()
 
-    /// Writes a mood from what the user describes. `lights` says how many lights there are and which take colours
+    /// Writes a show from what the user describes. `lights` says how many lights there are and which take colours
     /// or whites (no names: nothing about the home but its lights' abilities reaches the provider).
-    public func designMood(_ description: String, lights: JSONValue) async throws -> JSONGenerationResult {
+    public func designScene(_ description: String, lights: JSONValue) async throws -> JSONGenerationResult {
         try await usage.checkBudget()
         let result = try await JSONGeneration.generate(
-            provider: provider, schema: Self.moodSchema, prompt: Prompts.DesignMood.user(description: description, lights: lights),
-            system: system(Prompts.DesignMood.system), maxOutputTokens: maxOutputTokens)
+            provider: provider, schema: Self.sceneDesignSchema, prompt: Prompts.DesignScene.user(description: description, lights: lights),
+            system: system(Prompts.DesignScene.system), maxOutputTokens: maxOutputTokens)
         await record(model: provider.model, usage: result.usage)
         return result
     }

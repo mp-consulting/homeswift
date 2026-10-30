@@ -294,6 +294,50 @@
     </div>
   </section>
 
+  <section class="band" id="vault">
+    <div class="wrap dev flip">
+      <!-- A drawing of the vault (demonstration names), not a screenshot: config.json naming an entry, and the Vault
+           page's entries with the one it names lit; one expiring. -->
+      <div class="vault-stage" aria-hidden="true">
+        <div class="term vault-config"><pre><span class="c">// config.json</span>
+{
+  <span class="t">"platform"</span>: <span class="s">"UniFiProtect"</span>,
+  <span class="t">"username"</span>: <span class="s">"admin"</span>,
+  <span class="t">"password"</span>: <mark class="vault-ref">"vault:unifi-home"</mark>
+}</pre></div>
+        <div class="vault-entries">
+          <div class="vault-entries-head"><b>Coffre</b><span>3 entrées · scellées</span></div>
+          <div class="vault-entry lit">
+            <i class="tone-blue"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></i>
+            <div><b>unifi-home</b><small>Identifiant · utilisé par 2 réglages</small></div>
+            <span class="vault-when">Utilisée aujourd’hui</span>
+          </div>
+          <div class="vault-entry">
+            <i class="tone-violet"><svg viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l2 2M15 8l2 2"/></svg></i>
+            <div><b>anthropic</b><small>Clé d’API · l’Assistant</small></div>
+            <span class="vault-when">Utilisée aujourd’hui</span>
+          </div>
+          <div class="vault-entry">
+            <i class="tone-teal"><svg viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z"/></svg></i>
+            <div><b>ecoflow-cloud</b><small>Jeton · utilisé par 1 réglage</small></div>
+            <span class="vault-when soon">Expire dans 12 jours</span>
+          </div>
+        </div>
+      </div>
+      <div>
+        <p class="eyebrow">Coffre</p>
+        <h2 class="dev-title">Les secrets hors de config.json.</h2>
+        <p class="lede graph-lede">Mots de passe, clés d’API et jetons des plugins vivent dans un coffre scellé à côté de config.json. La configuration ne fait que les nommer : on peut la montrer, la comparer, la sauvegarder ou la coller dans une conversation sans livrer une seule clé.</p>
+        <ul>
+          <li>Une étape suffit pour les y ranger : la page Coffre trouve chaque secret, donne une seule entrée à ceux qui sont identiques, et sauvegarde config.json avant.</li>
+          <li>Saisie une fois, jamais réaffichée. Chaque valeur est scellée avec ChaCha20-Poly1305 ; l’interface web, le journal, les clients MCP et l’Assistant n’en voient que le nom.</li>
+          <li><span>Les secrets Docker et les variables d’environnement aussi : <code>file:/run/secrets/unifi</code>, <code>env:UNIFI_PASSWORD</code>.</span></li>
+          <li>La page État prévient quand une clé va expirer, ou qu’un réglage en nomme une qui n’existe plus.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
   <section class="band" id="plugins">
     <div class="wrap">
       <div class="section-head">

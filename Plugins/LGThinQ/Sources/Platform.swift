@@ -39,7 +39,10 @@ final class LGThinQPlatform {
         } else if let username = configuration.username, let password = configuration.password, !username.isEmpty, !password.isEmpty {
             api.setUsernamePassword(username, password)
         }
-        thinq = ThinQ(api: api, persist: Persist(directory: context.storageDirectory.appendingPathComponent("persist")), mqtt: mqtt, logger: context.logger)
+        let persist = Persist(directory: context.storageDirectory.appendingPathComponent("persist")) { [context] key, legacyFile in
+            context.secretFile("persist-\(key)", as: JSONValue.self, legacyFile: legacyFile)
+        }
+        thinq = ThinQ(api: api, persist: persist, mqtt: mqtt, logger: context.logger)
         thinq1Enabled = configuration.thinq1 ?? false
         // The schema's and the page's default; the Homebridge runtime fell back to 5 s, a monitoring request per
         // ThinQ1 device every 5 s against LG's rate limit.

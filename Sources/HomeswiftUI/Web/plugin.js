@@ -438,8 +438,9 @@
       const search = el("input", { type: "search", placeholder: t("Search images…"), "aria-label": t("Search images…"), oninput: () => {
         for (const item of grid.children) item.hidden = !normalize(item.textContent).includes(normalize(search.value));
       } });
-      const dialog = el("dialog", { class: "artwork-dialog" }, el("h2", { text: t("Scene image") }), search, grid,
-        el("button", { actionIcon: "close", text: t("Close"), onclick: () => dialog.close() }));
+      // The design system's dialog (common.js's messageDialog, admin.js's): a card over a dimmed page, wide for the grid.
+      const dialog = el("dialog", { class: "admin-dialog card wide artwork-dialog", "aria-label": t("Scene image") }, el("h2", { text: t("Scene image") }), search, grid,
+        el("div", { class: "actions" }, el("button", { type: "button", actionIcon: "close", text: t("Close"), onclick: () => dialog.close() })));
       for (const artwork of artworks) grid.append(el("button", { class: "scene pictured artwork-choice", actionIcon: "image", onclick: async () => {
         try {
           const response = await fetch(`/artwork-${artwork.id}.webp`);
@@ -471,18 +472,10 @@
       return data;
     }
 
-    async function shrink(file) {
-      if (!/^image\//.test(file.type)) throw new Error(t("This file is not a picture."));
-      const bitmap = await createImageBitmap(file).catch(() => { throw new Error(t("This file is not a picture.")); });
-      const canvas = HomeswiftCommon.scaledCanvas(bitmap, 640);
-      bitmap.close?.();
-      return canvas.toDataURL("image/jpeg", 0.85);
-    }
-
     async function setPicture(scene, file, tileNode) {
       tileNode.classList.add("busy");
       try {
-        const data = await shrink(file);
+        const data = await HomeswiftCommon.pictureDataURL(file);
         const { version } = await request("scene-picture", { method: "POST", body: { id: scene.id, data } });
         cache.set(scene.id, { version: String(version), data: Promise.resolve(data) });
         await refresh();
@@ -494,9 +487,7 @@
     }
 
     function choosePicture(scene, tileNode) {
-      const input = el("input", { type: "file", accept: "image/jpeg,image/png,image/webp,image/heic" });
-      input.addEventListener("change", () => { if (input.files?.[0]) setPicture(scene, input.files[0], tileNode); });
-      input.click();
+      HomeswiftCommon.choosePictureFile((file) => setPicture(scene, file, tileNode));
     }
 
     async function removePicture(scene) {
