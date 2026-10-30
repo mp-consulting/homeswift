@@ -22517,7 +22517,7 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 .quick-scene-label > span { overflow-wrap: anywhere; }
 .scene-run { transition: transform 160ms var(--ease-out), opacity 200ms ease, box-shadow 200ms ease-out; }
 .scene-run.busy { opacity: 0.6; cursor: progress; }
-.quick-scene-image { transition: transform 300ms var(--ease-out); }
+.quick-scene-image { transition: transform 240ms var(--ease-out); }
 @media (hover: hover) and (pointer: fine) {
   .scene-run.pictured:hover .quick-scene-image { transform: scale(1.03); }
 }
