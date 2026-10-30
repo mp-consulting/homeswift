@@ -1,0 +1,38 @@
+# Keeps the Swift packages, the pinned actions and the images' base layers current. Minor and patch updates
+# come grouped, one pull request per ecosystem a week; security updates come at once, on their own.
+version: 2
+updates:
+  - package-ecosystem: swift
+    directories: ["/", "/Benchmarks"]
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+      include: scope
+    labels: [dependencies]
+    groups:
+      swift:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+    labels: [dependencies]
+    groups:
+      actions:
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker
+    directories: ["/", "/Synology", "/FFmpeg"]
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+      include: scope
+    labels: [dependencies]
+    groups:
+      images:
+        update-types: [minor, patch]

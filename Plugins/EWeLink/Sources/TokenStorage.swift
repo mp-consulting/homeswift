@@ -3,7 +3,7 @@ import Homeswift
 import HomeswiftPlugin
 
 /// The session the plugin keeps between launches, as the Homebridge plugin's `ewelink-tokens.json`: reused
-/// for a day, then the plugin logs in again. Written owner-only: it is an account credential.
+/// for a day, then the plugin logs in again. Kept sealed in the vault: it is an account credential.
 struct StoredTokens: Codable, Sendable, Equatable {
     var accessToken: String
     var refreshToken: String
@@ -16,12 +16,17 @@ struct StoredTokens: Codable, Sendable, Equatable {
 struct TokenStorage: Sendable {
     /// Tokens older than this are not reused.
     static let maximumAge: Double = 24 * 60 * 60 * 1000
+    /// The file the tokens were kept in before the vault, in the plugin's folder: moved into the vault when read.
+    static let fileName = "ewelink-tokens.json"
 
-    let file: JSONFile<StoredTokens>
-    var url: URL { file.url }
+    let file: SecretFile<StoredTokens>
 
-    init(directory: URL) {
-        file = JSONFile(url: directory.appendingPathComponent("ewelink-tokens.json"))
+    init(file: SecretFile<StoredTokens>) {
+        self.file = file
+    }
+
+    init(context: PluginContext) {
+        file = context.secretFile(Self.fileName)
     }
 
     func save(accessToken: String, refreshToken: String, apiKey: String, region: String, now: Double = Date().timeIntervalSince1970 * 1000) throws {
@@ -41,9 +46,7 @@ struct TokenStorage: Sendable {
         return isValid(tokens, now: now) ? tokens : nil
     }
 
-    /// Empties the file, keeping it owner-only.
     func clear() {
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
-        try? OwnerOnlyFile.write(Data("{}".utf8), to: url)
+        file.remove()
     }
 }

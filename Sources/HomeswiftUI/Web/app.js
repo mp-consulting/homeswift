@@ -34,7 +34,12 @@
   let secretRule = null;
   /// The server's rule (Redaction): whether a key holds a secret.
   const isSecretKey = (key) => Boolean(secretRule) && secretRule.keys.test(key) && !secretRule.except.test(key);
-  const readSecretRule = (plugins) => plugins.secretRule ? { keys: new RegExp(plugins.secretRule.keys, "i"), except: new RegExp(plugins.secretRule.except, "i"), placeholder: plugins.secretRule.placeholder } : null;
+  const readSecretRule = (plugins) => plugins.secretRule ? {
+    keys: new RegExp(plugins.secretRule.keys, "i"), except: new RegExp(plugins.secretRule.except, "i"), placeholder: plugins.secretRule.placeholder,
+    reference: new RegExp(plugins.secretRule.reference),
+  } : null;
+  /// The server's rule (Redaction.referencePattern): whether a value names a secret kept elsewhere (`vault:<name>`).
+  const isReference = (value) => Boolean(secretRule) && secretRule.reference.test(value);
 
   async function loadAuth() {
     auth = await api("/api/auth/state");
@@ -518,6 +523,7 @@
         el("div", { class: "stat" }, HomeswiftCommon.icon("history"), el("b", { text: formatDuration(status.uptimeSeconds) }), el("span", { text: t("Up [uptime]") })))],
       quick: () => window.HomeswiftHome?.quickSection(accessories),
       digest: () => status.assistant ? digestWidget() : null,
+      vault: () => isAdmin() && status.vault ? vaultCard(status.vault) : null,
       activity: () => activity(accessories, withSlugs(status.bridges, "bridge")),
       energy: () => energy(),
       bridges: () => [el("h2", { text: status.bridges.length === 1 ? t("Bridge") : t("Bridges and accessories") }),
@@ -608,6 +614,7 @@
   // Each user's own, kept on the server with their other preferences (/api/preferences, `dashboard`).
 
   const dashboardWidgets = [["overview", t("Overview"), t("Health, accessories, plugins, uptime")], ["quick", t("Quick controls"), t("Favourite accessories and scenes")], ["digest", t("Daily digest"), t("The Assistant's summary of the day")],
+    ["vault", t("Vault"), t("Passwords, keys and tokens, and what needs attention")],
     ["activity", t("Activity"), t("Memory, CPU and response times")], ["energy", t("Energy"), t("Solar, home, grid and batteries")], ["bridges", t("Bridges"), t("Pairing codes and what each bridge runs")], ["system", t("System"), t("The machine, and Restart")]];
 
   /// The widgets in the user's order (new ones last), and those hidden.
@@ -717,6 +724,49 @@
 
   /// A newer release, when the bridge found one (ReleaseWatcher): how to get it on this install, the package to
   /// download on a NAS or the command to run, and its notes.
+  /// The vault at a glance (an administrator's /api/status has it). The head says whether anything needs doing; then a
+  /// row per problem (up to three, most pressing first) and one for the secrets still in config.json, each a way to
+  /// the Vault page, which says how to fix it.
+  function vaultCard(vault) {
+    const { problems } = vault;
+    const count = new Set(problems.map((problem) => problem.entry)).size;
+    const urgent = problems.some((problem) => problem.state !== "expiring");
+    // "in 12 days", "tomorrow", "3 days ago": how soon matters more than the date, which the row's title keeps.
+    const relative = new Intl.RelativeTimeFormat(HomeswiftI18n.locale, { numeric: "auto" });
+    const fromNow = (iso) => {
+      const days = Math.round((new Date(iso) - Date.now()) / 86_400_000);
+      return Math.abs(days) < 45 ? relative.format(days, "day") : relative.format(Math.round(days / 30), "month");
+    };
+    const says = {
+      missing: () => t("Not in the vault: the bridge does not start without it"),
+      failing: () => t("A setting cannot read it"),
+      expired: (problem) => t("Expired {when}", { when: fromNow(problem.expires) }),
+      expiring: (problem) => t("Expires {when}", { when: fromNow(problem.expires) }),
+    };
+    const row = (tone, name, text, attrs = {}) => el("a", { class: "vault-status-row", href: "/settings/vault", "data-tone": tone, ...attrs },
+      el("span", { class: "vault-status-dot", "aria-hidden": "true" }),
+      el("span", { class: "vault-status-name", text: name }),
+      el("span", { class: "vault-status-says", text }),
+      HomeswiftCommon.icon("forward"));
+    const rows = [
+      ...problems.slice(0, 3).map((problem) => row(problem.state === "expiring" ? "warn" : "bad", problem.entry, says[problem.state]?.(problem) ?? problem.state,
+        { class: "vault-status-row mono-name", title: problem.expires ? new Date(problem.expires).toLocaleString(HomeswiftI18n.locale, { dateStyle: "full", timeStyle: "short" }) : null })),
+      problems.length > 3 ? el("p", { class: "muted vault-status-more", text: tn("And {n} more", "And {n} more", problems.length - 3) }) : null,
+      vault.inConfig ? row("info", tn("{n} secret is still in config.json", "{n} secrets are still in config.json", vault.inConfig), t("Move [to the vault]")) : null,
+    ].filter(Boolean);
+    const headline = count ? tn("One entry needs attention", "{n} entries need attention", count)
+      : vault.entries ? t("Nothing to do") : t("No secrets in the vault yet");
+    const detail = vault.entries ? tn("{n} entry · {used} used by config.json", "{n} entries · {used} used by config.json", vault.entries, { used: vault.inUse })
+      : t("Passwords, keys and tokens, sealed on disk");
+    return [el("h2", { text: t("Vault") }),
+      el("div", { class: "card server vault-status", "data-state": urgent ? "bad" : count ? "warn" : "ok" },
+        el("div", { class: "server-head" },
+          tile(urgent ? "warning" : "key", urgent ? "heat" : count ? "yellow" : "green"),
+          el("div", { class: "who" }, el("strong", { text: headline }), el("div", { class: "muted", text: detail })),
+          el("a", { class: `button${urgent ? " primary" : ""}`, href: "/settings/vault", actionIcon: "key", text: t("Open the vault") })),
+        rows.length ? el("div", { class: "vault-status-rows" }, rows) : null)];
+  }
+
   function updateCard(update) {
     if (!update?.available) return null;
     const released = update.publishedAt ? new Date(update.publishedAt).toLocaleDateString(HomeswiftI18n.locale) : null;
@@ -2660,7 +2710,32 @@
       }
       const input = el("input", { type: property["x-schema-form"] && property["x-schema-form"].type === "password" ? "password" : "text", value: current ?? "", placeholder: tr(property.placeholder ?? property["x-schema-form"]?.placeholder) ?? property.default ?? "", required });
       if (property["x-schema-form"]?.type === "file") return { element: el("div", {}, wrap(input), dropZone(key, input, property["x-schema-form"].accept)), get: () => (input.value === "" ? undefined : input.value) };
+      // A secret's key (the rule references resolve by): a value typed, or an entry of the vault.
+      if (isSecretKey(key)) return secretField(wrap, input);
       return { element: wrap(input), get: () => (input.value === "" ? undefined : input.value) };
+    };
+    /// A secret's field with the vault's menu beside it: an entry picked is written `vault:<name>` and shown as it is,
+    /// a name rather than the secret; a typed value stays masked when the schema masks it.
+    const secretField = (wrap, input) => {
+      const masked = input.type === "password";
+      const reveal = () => { input.type = masked && !isReference(input.value) ? "password" : "text"; };
+      const pick = el("button", { type: "button", class: "icon-button", "aria-label": t("Choose from the vault"), title: t("Choose from the vault") }, HomeswiftCommon.icon("key"));
+      pick.addEventListener("click", async (event) => {
+        event.preventDefault();
+        const keyboard = event.detail === 0;
+        let entries = [];
+        try { entries = (await api("/api/vault")).entries; } catch { /* the menu still opens the vault */ }
+        const choose = (value) => { input.value = value; reveal(); input.dispatchEvent(new Event("input", { bubbles: true })); };
+        HomeswiftCommon.menu(pick, [
+          // The entry the field names now is ticked.
+          ...entries.map((entry) => ({ label: entry.name, icon: "key", checked: input.value === `vault:${entry.name}`, onSelect: () => choose(`vault:${entry.name}`) })),
+          isReference(input.value) ? { label: t("Type a value instead"), icon: "edit", pinned: true, onSelect: () => { choose(""); input.focus(); } } : null,
+          { label: entries.length ? t("Open the vault") : t("Add one in the vault"), icon: "gear", pinned: true, href: "/settings/vault" },
+        ].filter(Boolean), { keyboard, search: entries.length ? t("Search the vault") : null });
+      });
+      input.addEventListener("input", reveal);
+      reveal();
+      return { element: wrap(el("span", { class: "secret-field" }, input, pick)), get: () => (input.value === "" ? undefined : input.value) };
     };
 
     /// Required fields and the ones that hold a value show; the rest wait under "More options", unless that would

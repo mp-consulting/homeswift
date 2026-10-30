@@ -172,7 +172,8 @@ extension UIServer {
 
     /// Records a change made from the UI in the MCP audit log, as client "web UI" with the user as principal: the
     /// route, the outcome and a small JSON body with its secrets masked. The Assistant's chat is recorded by its own
-    /// tool calls; the account's own routes (passwords, two-factor codes) without their body.
+    /// tool calls; the account's own routes (passwords, two-factor codes) and the vault's (an entry's values sit under
+    /// field names no key rule knows) without their body.
     func audit(_ route: [String], _ request: Request, caller: Caller, reply: Reply) {
         // The Assistant's requests and each user's own preferences change nothing of the bridge.
         guard let auditLog, route.first != "assistant", route.first != "preferences" else { return }
@@ -183,7 +184,7 @@ extension UIServer {
             if code >= 400 { error = (try? JSONValue(data: body))?["error"]?.stringValue }
         }
         var arguments: JSONValue = [:]
-        if route.first != "account", !request.body.isEmpty {
+        if route.first != "account", route.first != "vault", !request.body.isEmpty {
             // A config import's body is a whole config.json, passwords and all, and a key-name redaction does not
             // reach its `text` field: only its size is kept, as for the bodies too large to read.
             if route.first != "import", request.body.count <= 2048, !Self.acceptsArchive(request), let json = try? JSONValue(data: request.body) {

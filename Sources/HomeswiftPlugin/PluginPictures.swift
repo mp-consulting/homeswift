@@ -200,7 +200,7 @@ extension PluginContext {
     /// This instance's scenes' pictures, keyed by the scene's id on its hub (`PluginScene.id`): the core's, so the
     /// Scenes page shows them too. The pictures the plugin kept in its own `scene-pictures` before are moved there once.
     public func scenePictures() -> PluginPictures {
-        let store = PluginPictures.scenePictures(root: storageRoot, platform: platform, name: name)
+        let store = PluginPictures.scenePictures(root: vaultStorage, platform: platform, name: name)
         let old = storageURL.appendingPathComponent("scene-pictures", isDirectory: true)
         if FileManager.default.fileExists(atPath: old.path) { store.adopt(PluginPictures(directory: old)) }
         return store

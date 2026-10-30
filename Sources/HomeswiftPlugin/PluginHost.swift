@@ -16,7 +16,7 @@ import NIOConcurrencyHelpers
 /// | `plugins/<platform>-<name>/` | Each plugin's own files |
 /// | `ai-usage.json` | The Assistant's usage per day, month, model and user, for its budgets |
 public final class PluginHost: @unchecked Sendable {
-    public static let version = "0.14.0"
+    public static let version = "0.15.0"
 
     public struct Options: Sendable {
         /// Advertise the bridges over Bonjour. Turn off in tests.
@@ -584,8 +584,8 @@ public final class PluginHost: @unchecked Sendable {
         return PluginContext(
             platform: block.platform, name: block.name, key: key, logger: pluginLogger, bridge: bridge,
             cache: AccessoryCache(url: storageDirectory.appendingPathComponent("accessories").appendingPathComponent("\(key).json")),
-            storageURL: storageDirectory.appendingPathComponent("plugins").appendingPathComponent(key), storageRoot: storageDirectory,
-            assistant: assistant, externals: externals, assistantBackground: assistantBackground,
+            storageURL: storageDirectory.appendingPathComponent("plugins").appendingPathComponent(key),
+            vaultStorage: storageDirectory, assistant: assistant, externals: externals, assistantBackground: assistantBackground,
             recordSink: { series, value, tag in values.publish(series, value, tag) },
             energyImportSink: { hours in energyImports.publish(key, hours) },
             energyProgressSink: { progress in energyProgress.withLockedValue { $0[key] = progress } })

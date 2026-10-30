@@ -201,11 +201,13 @@ struct DirigeraTests {
         let answer = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "pair", body: ["host": "192.0.2.20"], user: "admin"))
         #expect(answer.json["paired"] == "192.0.2.20")
         _ = try await accessory(host, sofaID)
-        let directory = environment.directory
+        // The token is kept sealed in the vault, under the instance's namespace.
+        let vault = CredentialVault(storage: environment.directory)
         #expect(await eventually {
-            let files = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: nil)?.compactMap { $0 as? URL } ?? []
-            return files.first { $0.lastPathComponent == "hubs.json" }.flatMap { try? String(contentsOf: $0, encoding: .utf8) }?.contains(FakeHub.token) == true
+            let entry = (try? vault.names())?.first { $0.hasPrefix("plugin.") && $0.hasSuffix(".hubs.json") }
+            return entry.flatMap { try? vault.entry(named: $0)?.fields["token"] }?.contains(FakeHub.token) == true
         })
+        #expect(try !String(contentsOf: vault.url, encoding: .utf8).contains(FakeHub.token))
         await host.stop()
     }
 

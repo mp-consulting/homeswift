@@ -20,7 +20,7 @@
 | `ws` | `WebSocket.connect(to:options:)` |
 | `dgram` broadcast discovery | `UDPSocket`, `localIPv4Networks()` |
 | `bonjour-service` / `mdns` | `BonjourBrowser.browse(type:)`, or `MDNSQuery` when the sender's address matters |
-| `api.user.storagePath()` + a token file | `context.jsonFile(_:as:)` or `PersistedDictionary`, owner-only |
+| `api.user.storagePath()` + a token file | `context.secretFile(_:as:)` (sealed in the vault, keeps the Homebridge file's name so a copied one moves in); `context.jsonFile(_:as:)` or `PersistedDictionary` for what is not a secret |
 | `homebridge-ui/server.js` routes | `handleWebRequest(_:)`; its `public/` page goes in `Web/` (`docs/ui.md`) |
 | `fakegato-history` | `EveHistory` |
 

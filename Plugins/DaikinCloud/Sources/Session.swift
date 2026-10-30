@@ -86,7 +86,7 @@ actor DaikinSession {
         self.timing = timing
         connectWebSocket = webSocket
         (events, continuation) = AsyncStream.makeStream(of: Event.self)
-        let file = context.storageDirectory.appendingPathComponent(settings.authMode.tokenFileName)
+        let file = context.secretFile(settings.authMode.tokenFileName, as: JSONValue.self)
         let onError: @Sendable (String) -> Void = { logger.error("[Error] \($0)") }
         if settings.authMode == .mobileApp {
             tokens = MobileOAuth.client(file: file, http: http, log: { logger.info("\($0)") }, onError: onError)
@@ -97,7 +97,7 @@ actor DaikinSession {
         api = DaikinAPI(oauth: tokens, http: http, dependencies: apiDependencies) { continuation.yield(.rateLimit($0)) }
     }
 
-    var tokenFile: URL { context.storageDirectory.appendingPathComponent(mode.tokenFileName) }
+    var tokenFile: TokenLocation { context.secretFile(mode.tokenFileName, as: JSONValue.self) }
 
     var serviceContext: ServiceContext {
         let continuation = continuation
@@ -448,13 +448,9 @@ actor DaikinSession {
     }
 
     private func invalidGrant() {
-        logger.warning("[API Syncing] TokenSet is invalid, removing TokenSet file")
-        do {
-            try FileManager.default.removeItem(at: tokenFile)
-            logger.warning("[API Syncing] TokenSet file removed. Please re-authenticate on the plugin's page in the Homeswift UI.")
-        } catch {
-            logger.error("[API Syncing] TokenSet file could not be removed. Location: \(tokenFile.path) \(error)")
-        }
+        logger.warning("[API Syncing] TokenSet is invalid, removing it")
+        tokenFile.remove()
+        logger.warning("[API Syncing] TokenSet removed. Please re-authenticate on the plugin's page in the Homeswift UI.")
         Task { await tokens.reload() }
     }
 

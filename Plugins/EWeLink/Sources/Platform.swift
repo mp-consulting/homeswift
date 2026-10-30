@@ -45,7 +45,7 @@ final class EWeLinkPlatform {
     }
 
     var hasPendingRetry: Bool { retryTask != nil }
-    var tokenStorage: TokenStorage { TokenStorage(directory: context.storageDirectory) }
+    var tokenStorage: TokenStorage { TokenStorage(context: context) }
 
     // MARK: Connection
 

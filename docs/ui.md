@@ -60,6 +60,9 @@ The start page: a summary (accessories, plugins, Home app controllers, uptime), 
 - **Daily digest**, with the Assistant on: what needs attention today, from the day's warnings and errors and the
   accessories. **Write today's digest** streams it; the bridge keeps it for the day (`ai-digest.json`, owner-only) and
   the card's **⋯** writes it again. Any user reads today's digest; an administrator writes it.
+- **Vault**, for administrators: how many entries the vault keeps, how many config.json uses and how many secrets
+  config.json still holds, then what needs attention, most pressing first (a reference to an entry that is gone, one
+  that cannot read its entry, an entry expired or expiring within 30 days), and **Open the vault**.
 - **Energy**, once a plugin records readings with an energy role (`EnergyTag`, docs/plugins.md). See [Energy](#energy) below.
 - **System**: the version, uptime, machine and configuration file, and, for administrators, **Restart homeswift…**,
   Settings and Notifications.
@@ -428,6 +431,23 @@ For administrators, after the Homebridge UI's settings, child bridges, backups a
     keeping this machine's bridge and web UI ports. Files the backup does not have stay.
   - **config.json backups**: the file before each of its last 20 saves, each compared with the file as it is (a diff)
     or restored.
+- **Vault** (docs/vault-design.md), for administrators:
+
+  ![Settings › Vault: a secret still in config.json, and the entries](images/ui/vault.png)
+
+  - The secrets still in config.json, each with the entry it would become (identical values share one): untick one to
+    leave it, rename an entry, then **Move to the vault**, which backs config.json up and writes it with `vault:`
+    references.
+  - The entries: kind, field names, who uses them (settings that name them, or the plugin that keeps a token), when
+    they were last used (a reference resolved or the plugin read its token; noted once an hour at most) and when they
+    expire. **Add a secret** and **Replace the value…** take values that are never shown again; an entry config.json
+    still names cannot be deleted.
+  - What needs attention is listed on top, each with the step that fixes it: references to entries that are gone (the
+    bridge does not start with them, **Add it…**), references that cannot read their entry (a field it does not have,
+    or another plugin's entry), and entries expired or expiring within 30 days (**Replace the value…**). The Status
+    page's Vault widget and the daily digest say so too.
+  - In a settings form, a secret's field has a key button: its menu searches the vault's entries and puts the one
+    chosen as `vault:<name>`, shown as it is.
 - **Audit log**: the MCP audit log (`homeswift-mcp-audit.jsonl`): every write of MCP clients and of the Assistant's chat,
   and every change made in this UI (client `web UI`, the user, the route, a small body with its secrets masked), newest
   first, filtered by time, outcome, tool and client (`/settings/audit?since=7d&outcome=failed&tool=…&client=…`).

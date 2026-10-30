@@ -87,7 +87,7 @@ public struct HomeswiftCatalog: Sendable {
     /// log, the cached accessories, the pairings, the child bridges' health, and writing the digest. Hidden from the
     /// principals of users who are not administrators (the web UI's chat, the apps they connect).
     public static let administratorOnly: Set<String> = [
-        "get_config", "list_config_backups", "get_recent_logs", "search_logs", "get_cached_accessories", "get_pairing_info", "get_child_bridge_health",
+        "get_config", "list_config_backups", "list_vault", "get_recent_logs", "search_logs", "get_cached_accessories", "get_pairing_info", "get_child_bridge_health",
         "homeswift://logs/recent", "homeswift://child-bridge/{id}", "diagnose-logs", "audit-config", digestRefresh,
     ]
 
@@ -579,7 +579,12 @@ public struct HomeswiftCatalog: Sendable {
     public var backupsDirectory: URL { storageDirectory.appendingPathComponent("backups") }
 
     public func backups() -> [String] {
-        ((try? FileManager.default.contentsOfDirectory(atPath: backupsDirectory.path)) ?? []).filter { $0.hasPrefix("config-") && $0.hasSuffix(".json") }.sorted()
+        Self.backups(in: backupsDirectory)
+    }
+
+    /// The config.json backups in `directory`, oldest first.
+    static func backups(in directory: URL) -> [String] {
+        ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []).filter { $0.hasPrefix("config-") && $0.hasSuffix(".json") }.sorted()
     }
 
     /// Backs up the current file and writes the new one owner-only (`applyConfig` validated it). Returns the backup's
@@ -588,31 +593,41 @@ public struct HomeswiftCatalog: Sendable {
     func writeConfig(_ config: JSONValue, expecting: JSONValue? = nil) throws -> String {
         try configWrites.withLock {
             if let expecting, try readConfig() != expecting { throw ConfigChanged() }
-            // Every write seals the plain secrets it holds (the editor, the MCP tools, a restored backup), so none
-            // reaches config.json as plain text. The key is made on the first plain secret; a config without one never
-            // creates it.
-            var key: SecretBox?
-            let stored = try SecretBox.sealingSecrets(config) { text in
-                let box = try key ?? SecretBox.load(storage: storageDirectory, create: true)
-                key = box
-                return try box.seal(text)
-            }
-            let manager = FileManager.default
-            try manager.createDirectory(at: backupsDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-            let stamp = Timestamp.iso8601(Date()).replacingOccurrences(of: ":", with: "-")
-            var backup = "config-\(stamp).json"
-            var suffix = 2
-            while manager.fileExists(atPath: backupsDirectory.appendingPathComponent(backup).path) {
-                backup = "config-\(stamp)-\(suffix).json"
-                suffix += 1
-            }
-            if manager.fileExists(atPath: configURL.path) {
-                try manager.copyItem(at: configURL, to: backupsDirectory.appendingPathComponent(backup))
-            }
-            for old in backups().dropLast(20) { try? manager.removeItem(at: backupsDirectory.appendingPathComponent(old)) }
-            try OwnerOnlyFile.write(stored.encoded(pretty: true), to: configURL)
-            return backup
+            // Once config.json names the vault, a plain secret a save brings (the editor, the MCP tools, a restored backup)
+            // becomes an entry, and the file gets its reference.
+            let config = VaultMigration.isMigrated(config) ? try movingNewSecretsToVault(config) : config
+            return try Self.writeConfigFile(config, to: configURL)
         }
+    }
+
+    /// Writes `config` as config.json, owner-only, after a backup of the current file in `backups/` (the last 20 are
+    /// kept). Returns the backup's name. Every write seals the plain secrets it holds, so none reaches config.json as
+    /// plain text. The key is made on the first plain secret; a config without one never creates it. The CLI's
+    /// `homeswift vault migrate` writes through it too.
+    public static func writeConfigFile(_ config: JSONValue, to configURL: URL) throws -> String {
+        let storageDirectory = configURL.deletingLastPathComponent()
+        let backupsDirectory = storageDirectory.appendingPathComponent("backups")
+        var key: SecretBox?
+        let stored = try SecretBox.sealingSecrets(config) { text in
+            let box = try key ?? SecretBox.load(storage: storageDirectory, create: true)
+            key = box
+            return try box.seal(text)
+        }
+        let manager = FileManager.default
+        try manager.createDirectory(at: backupsDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let stamp = Timestamp.iso8601(Date()).replacingOccurrences(of: ":", with: "-")
+        var backup = "config-\(stamp).json"
+        var suffix = 2
+        while manager.fileExists(atPath: backupsDirectory.appendingPathComponent(backup).path) {
+            backup = "config-\(stamp)-\(suffix).json"
+            suffix += 1
+        }
+        if manager.fileExists(atPath: configURL.path) {
+            try manager.copyItem(at: configURL, to: backupsDirectory.appendingPathComponent(backup))
+        }
+        for old in backups(in: backupsDirectory).dropLast(20) { try? manager.removeItem(at: backupsDirectory.appendingPathComponent(old)) }
+        try OwnerOnlyFile.write(stored.encoded(pretty: true), to: configURL)
+        return backup
     }
 
     /// When config.json turns the MCP server on and no client has a token (none in the block, none from the
@@ -645,8 +660,15 @@ public struct HomeswiftCatalog: Sendable {
     /// and setup code) restarts the process on its own; only when it cannot does the restart flag go up.
     /// With `checkSchemas`, what the save changes in a plugin block must match the plugin's config.schema.json
     /// (`checkBlocks`); a plugin's own page, a restored backup and "save anyway" skip it.
-    public func applyConfig(_ next: JSONValue, dryRun: Bool, checkSchemas: Bool = true) async throws -> JSONValue {
-        try await applyConfig(next, dryRun: dryRun, current: (try? readConfig()) ?? [:], checkSchemas: checkSchemas)
+    public func applyConfig(_ next: JSONValue, dryRun: Bool, checkSchemas: Bool = true, by writer: ConfigWriter = .person) async throws -> JSONValue {
+        try await applyConfig(next, dryRun: dryRun, current: (try? readConfig()) ?? [:], checkSchemas: checkSchemas, by: writer)
+    }
+
+    /// Who writes a config: a person (the web UI's editor, a plugin's page, the command line), or a client acting
+    /// for one (an MCP client, the web UI's chat), which may not add `env:` or `file:` references (they name what the
+    /// bridge reads from its machine) and learns only that a reference does not resolve, not why.
+    public enum ConfigWriter: Sendable {
+        case person, client
     }
 
     /// Applies a config whose secrets are sealed: the file keeps the sealed text, and the running bridge gets
@@ -659,10 +681,25 @@ public struct HomeswiftCatalog: Sendable {
 
     /// `applyConfig` with the file as it was just read, so a caller that read it does not read it again. With
     /// `opened`, the bridge runs that configuration and the file keeps `next` as written.
-    func applyConfig(_ next: JSONValue, dryRun: Bool, current: JSONValue, checkSchemas: Bool = true, opened: HomeswiftConfiguration? = nil, expecting: JSONValue? = nil) async throws -> JSONValue {
+    func applyConfig(
+        _ next: JSONValue, dryRun: Bool, current: JSONValue, checkSchemas: Bool = true, opened: HomeswiftConfiguration? = nil, expecting: JSONValue? = nil,
+        by writer: ConfigWriter = .person
+    ) async throws -> JSONValue {
         let restored = Redaction.containsRedacted(next) ? try Redaction.restoreSecrets(next, from: current) : next
-        // The runtime gets the secrets opened, as at startup; the file keeps `restored` as it is written.
-        let configuration = try opened ?? SecretBox.revealing(HomeswiftConfiguration.decode(restored.encoded()), storage: storageDirectory)
+        if writer == .client {
+            let added = ConfigurationSecrets.newExternalReferences(in: restored, comparedWith: current)
+            guard added.isEmpty else {
+                throw CatalogError("env: and file: references are set from the web UI's config editor or the command line, not here: \(added.joined(separator: ", "))")
+            }
+        }
+        // The runtime gets the secrets opened and the references resolved, as at startup; the file keeps `restored` as
+        // it is written. A reference that does not resolve stops the save; a dry run or a client is not told why.
+        let configuration: HomeswiftConfiguration
+        do {
+            configuration = try ConfigurationSecrets.opening(opened ?? HomeswiftConfiguration.decode(restored.encoded()), storage: storageDirectory)
+        } catch let error as SecretReferenceError where dryRun || writer == .client {
+            throw error.withoutReasons
+        }
         try configuration.validate()
         if checkSchemas { try checkBlocks(restored, current: current) }
         let changed = Self.changedKeys(from: current, to: restored)
@@ -670,6 +707,18 @@ public struct HomeswiftCatalog: Sendable {
             return ["dryRun": true, "changes": .array(changed.map(JSONValue.string)), "config": Redaction.redactSecrets(restored)]
         }
         let backup = try writeConfig(restored, expecting: expecting)
+        var answer = await run(configuration).objectValue ?? [:]
+        answer["written"] = .string(configURL.path)
+        answer["backup"] = .string(backup)
+        answer["changes"] = .array(changed.map(JSONValue.string))
+        return .object(answer)
+    }
+
+    /// Runs `configuration` on the bridge (`PluginHost.apply`): plugin blocks reload in place, the system blocks'
+    /// services reload, and what needs a restart restarts the process, or raises the restart flag when it cannot.
+    /// Answers what was reloaded, started, stopped and what still needs a restart. A save runs it after writing the
+    /// file, a changed vault entry without one.
+    func run(_ configuration: HomeswiftConfiguration) async -> JSONValue {
         let report = await host.apply(configuration)
         var pending = report.needsRestart
         let services = report.systemBlocksChanged.filter { $0 != AIConfiguration.platform || reloadServices != nil }
@@ -687,7 +736,6 @@ public struct HomeswiftCatalog: Sendable {
         let names = { (list: [String]) in JSONValue.array(list.map(JSONValue.string)) }
         let note = pending.isEmpty ? "Applied." : restarting ? "Applied; homeswift restarts by itself for the rest (\(pending.joined(separator: "; ")))." : "Restart homeswift to apply the rest: \(pending.joined(separator: "; "))."
         return [
-            "written": .string(configURL.path), "backup": .string(backup), "changes": .array(changed.map(JSONValue.string)),
             "reloaded": names(report.reloaded), "started": names(report.started), "stopped": names(report.stopped),
             "restarting": .bool(restarting), "restartNeeded": names(restarting ? [] : pending), "note": .string(note),
         ]
@@ -744,9 +792,10 @@ public struct HomeswiftCatalog: Sendable {
     /// Changes the block with this platform (and name, when there are several), or adds it when `create`;
     /// `edit` gets the block to change. What `editPlatforms` answers.
     public func editBlock(
-        platform: String, name: String?, create: Bool = true, dryRun: Bool, checkSchemas: Bool = true, _ edit: (inout [String: JSONValue]) throws -> Void
+        platform: String, name: String?, create: Bool = true, dryRun: Bool, checkSchemas: Bool = true, by writer: ConfigWriter = .person,
+        _ edit: (inout [String: JSONValue]) throws -> Void
     ) async throws -> JSONValue {
-        try await editPlatforms(dryRun: dryRun, checkSchemas: checkSchemas) { platforms in
+        try await editPlatforms(dryRun: dryRun, checkSchemas: checkSchemas, by: writer) { platforms in
             let matching = platforms.indices.filter { platforms[$0]["platform"]?.stringValue == platform && (name == nil || (platforms[$0]["name"]?.stringValue ?? platform) == name) }
             guard matching.count <= 1 else { throw CatalogError("\(matching.count) blocks have platform \(platform); give the name") }
             guard create || !matching.isEmpty else { throw CatalogError("No block \(name ?? platform) of \(platform)") }
@@ -756,13 +805,13 @@ public struct HomeswiftCatalog: Sendable {
         }
     }
 
-    public func editPlatforms(dryRun: Bool, checkSchemas: Bool = true, _ edit: (inout [JSONValue]) throws -> Void) async throws -> JSONValue {
+    public func editPlatforms(dryRun: Bool, checkSchemas: Bool = true, by writer: ConfigWriter = .person, _ edit: (inout [JSONValue]) throws -> Void) async throws -> JSONValue {
         let current = try readConfig()
         var root = current.objectValue ?? [:]
         var platforms = root["platforms"]?.arrayValue ?? []
         try edit(&platforms)
         root["platforms"] = .array(platforms)
-        return try await applyConfig(.object(root), dryRun: dryRun, current: current, checkSchemas: checkSchemas)
+        return try await applyConfig(.object(root), dryRun: dryRun, current: current, checkSchemas: checkSchemas, by: writer)
     }
 
     static func changedKeys(from a: JSONValue, to b: JSONValue, path: String = "") -> [String] {
@@ -1053,7 +1102,7 @@ public struct HomeswiftCatalog: Sendable {
                 inputSchema: ["type": "object", "required": ["config"], "properties": ["config": ["type": "object"], "ignoreSchema": ignoreSchema]],
                 scope: .admin, destructive: true, supportsDryRun: true
             ) { call in
-                .json(try await catalog.applyConfig(call.arguments["config"] ?? [:], dryRun: call.isDryRun, checkSchemas: call.arguments["ignoreSchema"] != .bool(true)))
+                .json(try await catalog.applyConfig(call.arguments["config"] ?? [:], dryRun: call.isDryRun, checkSchemas: call.arguments["ignoreSchema"] != .bool(true), by: .client))
             },
             MCPTool(
                 name: "patch_config", title: "Change one platform block",
@@ -1067,7 +1116,7 @@ public struct HomeswiftCatalog: Sendable {
                 let platform = try call.string("platform")
                 let name = call.optionalString("name")
                 let settings = call.arguments["settings"]?.objectValue ?? [:]
-                return .json(try await catalog.editBlock(platform: platform, name: name, dryRun: call.isDryRun, checkSchemas: call.arguments["ignoreSchema"] != .bool(true)) { block in
+                return .json(try await catalog.editBlock(platform: platform, name: name, dryRun: call.isDryRun, checkSchemas: call.arguments["ignoreSchema"] != .bool(true), by: .client) { block in
                     for (key, value) in settings where key != "platform" {
                         if value.isNull { block.removeValue(forKey: key) } else { block[key] = value }
                     }
@@ -1105,7 +1154,7 @@ public struct HomeswiftCatalog: Sendable {
                 let match = call.optionalString("match") ?? "mac"
                 guard let entry = call.arguments["entry"]?.objectValue else { throw JSONRPCError.invalidParams("entry must be an object") }
                 guard let key = entry[match], !key.isNull else { throw JSONRPCError.invalidParams("the entry needs its \(match)") }
-                return .json(try await catalog.editBlock(platform: platform, name: name, dryRun: call.isDryRun, checkSchemas: call.arguments["ignoreSchema"] != .bool(true)) { block in
+                return .json(try await catalog.editBlock(platform: platform, name: name, dryRun: call.isDryRun, checkSchemas: call.arguments["ignoreSchema"] != .bool(true), by: .client) { block in
                     var entries = block[list]?.arrayValue ?? []
                     if let index = entries.firstIndex(where: { Self.sameKey($0[match], key) }) {
                         // The entry it replaces holds its secrets: a rename changes the fields restoreSecrets matches on.
@@ -1116,7 +1165,7 @@ public struct HomeswiftCatalog: Sendable {
                     block[list] = .array(entries)
                 })
             },
-        ] + hostTools + adminTools + layoutTools + wallTools + sceneTools + notificationTools + assistantTools + pluginActionTools
+        ] + hostTools + adminTools + layoutTools + wallTools + sceneTools + notificationTools + assistantTools + vaultTools + pluginActionTools
     }
 
     /// `set_accessories` with `ids` or `filter`: one characteristic and value on every target.

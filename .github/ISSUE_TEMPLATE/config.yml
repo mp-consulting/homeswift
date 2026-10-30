@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a vulnerability
+    url: https://github.com/mp-consulting/homeswift/security/advisories/new
+    about: Security problems are reported privately, never in an issue.
+  - name: Documentation
+    url: https://homeswift.dev
+    about: Installing the bridge, the plugins, the web UI, the Assistant and the MCP server.

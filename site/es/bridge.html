@@ -289,6 +289,50 @@
     </div>
   </section>
 
+  <section class="band" id="vault">
+    <div class="wrap dev flip">
+      <!-- A drawing of the vault (demonstration names), not a screenshot: config.json naming an entry, and the Vault
+           page's entries with the one it names lit; one expiring. -->
+      <div class="vault-stage" aria-hidden="true">
+        <div class="term vault-config"><pre><span class="c">// config.json</span>
+{
+  <span class="t">"platform"</span>: <span class="s">"UniFiProtect"</span>,
+  <span class="t">"username"</span>: <span class="s">"admin"</span>,
+  <span class="t">"password"</span>: <mark class="vault-ref">"vault:unifi-home"</mark>
+}</pre></div>
+        <div class="vault-entries">
+          <div class="vault-entries-head"><b>Bóveda</b><span>3 entradas · selladas</span></div>
+          <div class="vault-entry lit">
+            <i class="tone-blue"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></i>
+            <div><b>unifi-home</b><small>Inicio de sesión · usado por 2 ajustes</small></div>
+            <span class="vault-when">Usada hoy</span>
+          </div>
+          <div class="vault-entry">
+            <i class="tone-violet"><svg viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l2 2M15 8l2 2"/></svg></i>
+            <div><b>anthropic</b><small>Clave de API · el Asistente</small></div>
+            <span class="vault-when">Usada hoy</span>
+          </div>
+          <div class="vault-entry">
+            <i class="tone-teal"><svg viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z"/></svg></i>
+            <div><b>ecoflow-cloud</b><small>Token · usado por 1 ajuste</small></div>
+            <span class="vault-when soon">Caduca en 12 días</span>
+          </div>
+        </div>
+      </div>
+      <div>
+        <p class="eyebrow">Bóveda</p>
+        <h2 class="dev-title">Los secretos, fuera de config.json.</h2>
+        <p class="lede graph-lede">Contraseñas, claves de API y tokens de los plugins viven en una bóveda sellada junto a config.json. La configuración solo los nombra: puedes enseñarla, compararla, guardarla o pegarla en un chat sin entregar ninguna clave.</p>
+        <ul>
+          <li>Un paso basta para moverlos: la página Bóveda encuentra cada secreto, da una sola entrada a los que coinciden y antes guarda una copia de config.json.</li>
+          <li>Se escribe una vez y no se vuelve a mostrar. Cada valor se sella con ChaCha20-Poly1305; la interfaz web, el registro, los clientes MCP y el Asistente solo ven su nombre.</li>
+          <li><span>Los secretos de Docker y las variables de entorno también: <code>file:/run/secrets/unifi</code>, <code>env:UNIFI_PASSWORD</code>.</span></li>
+          <li>La página Estado avisa cuando una clave va a caducar o un ajuste nombra una que ya no existe.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
   <section class="band" id="plugins">
     <div class="wrap">
       <div class="section-head">

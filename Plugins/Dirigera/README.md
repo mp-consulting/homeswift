@@ -26,8 +26,9 @@ sensors; the other kinds, writes, scenes and events against a fake hub in the te
 ```
 
 A hub without a `token` pairs from the plugin's page: **Pair** (on a hub found on the network, or an address), then
-press the action button under the hub within a minute. The token is kept in the plugin's folder
-(`plugins/Dirigera-<name>/hubs.json`), never in config.json, with the hub's certificate pinned on first use. A token
+press the action button under the hub within a minute. The token is kept sealed in the bridge's vault (`vault.json`,
+docs/vault-design.md; `plugins/Dirigera-<name>/hubs.json` before, which moves there when the plugin reads it), never in
+config.json, with the hub's certificate pinned on first use. A token
 from homebridge-dirigera in `token` works as it is.
 
 | Option | Default | What it does |

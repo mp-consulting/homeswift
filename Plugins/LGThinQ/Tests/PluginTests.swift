@@ -149,11 +149,32 @@ import _CryptoExtras
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("lg-persist-\(UUID().uuidString)")
         let persist = Persist(directory: directory)
         var made = 0
-        _ = try await persist.cacheForever("keys") { made += 1; return ["a": 1] }
-        let value = try await persist.cacheForever("keys") { made += 1; return ["a": 2] }
+        _ = try await persist.cacheForever("model-1") { made += 1; return ["a": 1] }
+        let value = try await persist.cacheForever("model-1") { made += 1; return ["a": 2] }
         #expect(made == 1 && value == ["a": 1])
-        let attributes = try FileManager.default.attributesOfItem(atPath: persist.url("keys").path)
+        let attributes = try FileManager.default.attributesOfItem(atPath: persist.url("model-1").path)
         #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+        persist.removeItem("model-1")
+        #expect(persist.item("model-1") == nil)
+    }
+
+    @Test func keepsTheClientKeySealedInTheVault() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("lg-persist-\(UUID().uuidString)")
+        let vault = CredentialVault(storage: directory)
+        let persist = Persist(directory: directory.appendingPathComponent("persist")) { key, legacyFile in
+            SecretFile(vault: vault, entryName: "plugin.lgthinq.persist-\(key)", owner: "LGThinQ/LG", legacyFile: legacyFile)
+        }
+        // A key the plugin kept in a file before moves into the vault when it is read.
+        try OwnerOnlyFile.write(JSONValue.object(["key": "keys", "value": ["privateKey": "private-key-pem"]]).encoded(), to: persist.url("keys"))
+        #expect(persist.item("keys")?["privateKey"]?.stringValue == "private-key-pem")
+        #expect(!FileManager.default.fileExists(atPath: persist.url("keys").path))
+        #expect(try !String(contentsOf: vault.url, encoding: .utf8).contains("private-key-pem"))
+        let csr = try await persist.cacheForever("csr") { "certificate-request" }
+        #expect(csr == "certificate-request" && persist.item("csr") == "certificate-request")
+        #expect(!FileManager.default.fileExists(atPath: persist.url("csr").path))
+        // A device's model is not a secret: it stays a file.
+        try persist.setItem("model-1", ["a": 1])
+        #expect(FileManager.default.fileExists(atPath: persist.url("model-1").path))
         persist.removeItem("keys")
         #expect(persist.item("keys") == nil)
     }

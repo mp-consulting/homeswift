@@ -10,7 +10,7 @@
   const app = () => window.HomeswiftApp;
   const api = (...args) => app().api(...args);
 
-  const pages = [["bridge", t("Bridge"), "bridge"], ["child-bridges", t("Child bridges"), "child"], ["backups", t("Backups"), "archive"], ["audit", t("Audit log"), "shield"], ["assistant", t("Assistant"), "sparkle"]];
+  const pages = [["bridge", t("Bridge"), "bridge"], ["child-bridges", t("Child bridges"), "child"], ["backups", t("Backups"), "archive"], ["vault", t("Vault"), "key"], ["audit", t("Audit log"), "shield"], ["assistant", t("Assistant"), "sparkle"]];
 
   const dateTime = new Intl.DateTimeFormat(locale, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
   const fullDate = new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
@@ -53,7 +53,7 @@
   async function view(main, [page = ""] = []) {
     // Settings opens on its first page, Bridge.
     if (!page) { history.replaceState(null, "", "/settings/bridge"); page = "bridge"; }
-    const draw = { bridge: bridgePage, "child-bridges": childBridgesPage, backups: backupsPage, audit: auditPage, assistant: (main) => app().assistantPage(main, subnav("assistant")) }[page];
+    const draw = { bridge: bridgePage, "child-bridges": childBridgesPage, backups: backupsPage, vault: vaultPage, audit: auditPage, assistant: (main) => app().assistantPage(main, subnav("assistant")) }[page];
     if (!draw) { app().show(main, app().pageHead(t("Settings"), t("No such page.")), subnav(null)); return; }
     await draw(main);
   }
@@ -533,6 +533,252 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     });
     if (folded) nodes.push(el("span", { class: "diff-fold", text: `  … ${tn("{n} unchanged line", "{n} unchanged lines", folded)}\n` }));
     return el("div", {}, el("p", { class: "muted", text: `− ${before}   + ${after}` }), el("pre", { class: "diff" }, nodes));
+  }
+
+  // ---- Vault: the bridge's credentials by name, their values never shown ---------------------------------------
+
+  const kindNames = { login: t("Login"), apiKey: t("API key"), token: t("Token"), secret: t("Secret [vault]") };
+  const fieldNames = { password: t("Password"), username: t("Username"), key: t("Key"), token: t("Token"), value: t("Value") };
+  const fieldName = (field) => fieldNames[field] ?? field;
+
+  async function vaultPage(main) {
+    const [vault, plan] = await Promise.all([api("/api/vault"), api("/api/vault/migration")]);
+    const add = el("button", { actionIcon: "plus", class: "primary", text: t("Add a secret"), onclick: () => entryDialog(null, vault) });
+    app().show(main,
+      app().pageHead(t("Vault"), t("The bridge's passwords, keys and tokens by name, sealed on disk. config.json names them as vault:<name>; a saved value is never shown again.")),
+      subnav("vault"),
+      vault.problems.length ? healthCard(vault.problems, vault) : null,
+      plan.items.length ? migrationCard(plan, vault) : null,
+      sectionHead(t("Entries"), vault.entries.length ? tn("{n} entry", "{n} entries", vault.entries.length) : "", add),
+      vault.entries.length ? el("div", { class: "card rows" }, vault.entries.map((entry) => entryRow(entry, vault)))
+        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("key")),
+          el("p", { class: "muted", text: t("None yet: add one, or move config.json's secrets here.") })));
+  }
+
+  /// When an entry expires, as a warning from 30 days before.
+  function expiry(entry) {
+    if (!entry.expires) return null;
+    const date = new Date(entry.expires);
+    const days = (date - Date.now()) / 86_400_000;
+    if (days < 0) return el("span", { class: "error", text: t("Expired {date}", { date: when(entry.expires) }) });
+    return el("span", { class: days < 30 ? "warning" : "muted", text: t("Expires {date}", { date: when(entry.expires) }) });
+  }
+
+  /// Each kind's glyph and tone: a list of names reads by kind at a glance.
+  const kindLooks = { login: ["user", "blue"], apiKey: ["key", "violet"], token: ["shield", "teal"], secret: ["lock", "grey"] };
+
+  function entryRow(entry, vault) {
+    const [glyph, tone] = kindLooks[entry.kind] ?? ["key", "grey"];
+    const detail = el("div", { class: "row-detail hidden", id: `vault-users-${entry.name}` },
+      el("p", { class: "muted", text: t("config.json names it in:") }), el("pre", { class: "mono", text: entry.usedBy.join("\n") }));
+    // Who uses it: the count opens the settings that name it, where the eye already is.
+    const users = entry.usedBy.length
+      ? el("button", { type: "button", class: "link vault-users", actionIcon: "search", "aria-expanded": "false", "aria-controls": detail.id,
+        text: tn("Used by {n} setting", "Used by {n} settings", entry.usedBy.length),
+        onclick: (event) => event.currentTarget.setAttribute("aria-expanded", String(!detail.classList.toggle("hidden"))) })
+      : el("span", { text: entry.owner ? t("Kept by {plugin}", { plugin: entry.owner }) : t("Not used yet") });
+    // A login names its fields; the other kinds hold one value, which the kind already says.
+    const kind = entry.kind === "login" ? `${kindNames.login} · ${entry.fields.map(fieldName).join(", ")}` : kindNames[entry.kind] ?? entry.kind;
+    return el("div", { class: "row-block" },
+      el("div", { class: "row" },
+        tile(glyph, tone),
+        el("div", { class: "who" }, el("strong", { class: "mono", text: entry.name, title: entry.name }),
+          el("div", { class: "muted vault-detail" }, el("span", { text: kind }), el("span", { "aria-hidden": "true", text: "·" }), users)),
+        el("span", { class: "vault-when" }, entry.health === "missing" || entry.health === "failing" ? el("span", { class: "error", text: t("A setting cannot read it") })
+          // When it was last read; "Not used yet" beside the kind already says it for an entry nothing names.
+          : expiry(entry) ?? (entry.used || entry.usedBy.length ? el("span", { class: "muted", text: entry.used ? t("Used {date}", { date: when(entry.used) }) : t("Never used") }) : null)),
+        menuButton(t("Actions for {name}", { name: entry.name }), () => [
+          { label: t("Copy the reference"), icon: "copy", onSelect: () => HomeswiftCommon.copyText(`vault:${entry.name}`) },
+          { label: t("Replace the value…"), icon: "edit", onSelect: () => entryDialog(entry, vault) },
+          { label: t("Delete…"), icon: "trash", danger: true, onSelect: () => removeEntry(entry) },
+        ])),
+      detail);
+  }
+
+  /// The server's rule for an entry's name (Redaction.vaultNamePattern) as an input's `pattern`, which browsers read
+  /// with the `v` flag: there a `-` in a class is escaped.
+  const namePattern = (vault) => vault.namePattern.replaceAll("-]", "\\-]");
+
+  /// Adds an entry (`entry` null, `suggested` its name) or replaces an entry's values: values are typed, never shown, and
+  /// an empty field keeps the one saved.
+  function entryDialog(entry, vault, suggested = "") {
+    const { kinds } = vault;
+    const editing = Boolean(entry);
+    const name = el("input", { type: "text", value: entry?.name ?? suggested, required: !editing, disabled: editing, autocomplete: "off", spellcheck: false,
+      pattern: namePattern(vault), placeholder: "unifi-home" });
+    const kind = el("select", {}, kinds.map(({ kind: value }) => el("option", { value, text: kindNames[value] ?? value, selected: value === (entry?.kind ?? "secret") })));
+    const username = el("input", { type: "text", autocomplete: "off", placeholder: editing && entry.fields.includes("username") ? t("Unchanged") : "" });
+    const secret = el("input", { type: "password", autocomplete: "new-password", required: !editing, placeholder: editing ? t("Unchanged") : "", spellcheck: false });
+    // A long key pasted in is checked by eye before it is sealed for good.
+    const reveal = el("button", { type: "button", class: "icon-button", "aria-label": t("Show the value"), title: t("Show the value"), "aria-pressed": "false" }, HomeswiftCommon.icon("eye"));
+    reveal.addEventListener("click", () => {
+      const shown = secret.type === "password";
+      secret.type = shown ? "text" : "password";
+      reveal.setAttribute("aria-pressed", String(shown));
+      reveal.setAttribute("aria-label", shown ? t("Hide the value") : t("Show the value"));
+      reveal.title = reveal.getAttribute("aria-label");
+      secret.focus();
+    });
+    const expires = el("input", { type: "date", value: entry?.expires ? entry.expires.slice(0, 10) : "" });
+    const mainField = () => kinds.find((k) => k.kind === kind.value)?.mainField ?? "value";
+    const secretTitle = el("span", { class: "field-title" });
+    const userField = el("label", { class: "field" }, el("span", { class: "field-title", text: t("Username") }), username);
+    const sync = () => {
+      secretTitle.textContent = fieldName(mainField());
+      userField.classList.toggle("hidden", kind.value !== "login");
+      // Another kind starts again: its values are all typed anew.
+      secret.required = !editing || kind.value !== entry.kind;
+    };
+    kind.addEventListener("change", sync);
+    const message = el("p", { class: "status-line error", role: "status" });
+    const save = el("button", { class: "primary", actionIcon: "check", text: editing ? t("Replace") : t("Add [entry]"), value: "ok" });
+    const cancel = el("button", { actionIcon: "close", text: t("Cancel"), value: "cancel", type: "button" });
+    const form = el("form", { method: "dialog" },
+      el("h2", { id: "vault-entry-title", text: editing ? t("Replace the value of {name}", { name: entry.name }) : t("Add a secret") }),
+      el("p", { class: "muted", text: t("The value is sealed with this bridge's key and never shown again: keep the original in your password manager.") }),
+      // Replacing a value keeps the name: the title says which entry.
+      editing ? null : el("label", { class: "field" }, el("span", { class: "field-title", text: t("Name") }), name),
+      el("label", { class: "field" }, el("span", { class: "field-title", text: t("Kind") }), kind),
+      userField,
+      el("label", { class: "field" }, secretTitle, el("span", { class: "secret-field" }, secret, reveal)),
+      el("label", { class: "field" }, el("span", { class: "field-title", text: t("Expires") }), expires,
+        el("div", { class: "help", text: t("Optional: the page warns a month before.") })),
+      message,
+      el("div", { class: "actions" }, cancel, save));
+    const dialog = el("dialog", { class: "admin-dialog card", "aria-labelledby": "vault-entry-title" }, form);
+    sync();
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const fields = {};
+      if (secret.value) fields[mainField()] = secret.value;
+      if (kind.value === "login" && username.value) fields.username = username.value;
+      // A save sends a value: the date alone is not a change the server takes.
+      if (!Object.keys(fields).length) { message.textContent = editing ? t("Type a new value to replace it.") : t("Type the value."); return; }
+      const target = editing ? entry.name : name.value.trim();
+      busy(save, async () => {
+        const body = { kind: kind.value, fields, expires: expires.value ? new Date(`${expires.value}T00:00:00`).toISOString() : null };
+        await api(`/api/vault/${encodeURIComponent(target)}`, { method: "PUT", body });
+        dialog.close("ok");
+        app().route();
+      }, (e) => { message.textContent = e.message; });
+    });
+    cancel.addEventListener("click", () => dialog.close("cancel"));
+    dialog.addEventListener("close", () => dialog.remove());
+    document.body.append(dialog);
+    dialog.showModal();
+    (editing ? secret : name).focus();
+  }
+
+  async function removeEntry(entry) {
+    if (entry.usedBy.length) {
+      HomeswiftCommon.showAlert(t("config.json still names {name} in {settings}: give those settings another value first.", { name: entry.name, settings: entry.usedBy.join(", ") }));
+      return;
+    }
+    const ok = await confirmAction({
+      title: t("Delete {name}?", { name: entry.name }), confirmLabel: t("Delete"),
+      text: entry.owner ? t("{plugin} keeps it: it signs in again, or asks you to pair again, without it.", { plugin: entry.owner }) : t("Its value is gone for good: the vault keeps no copy."),
+    });
+    if (!ok) return;
+    await busy(null, async () => { await api(`/api/vault/${encodeURIComponent(entry.name)}`, { method: "DELETE" }); app().route(); });
+  }
+
+  /// What needs attention, most pressing first (VaultHealth): references to entries the vault does not have, references
+  /// that cannot read their entry, entries expired or expiring. Each row has the step that fixes it.
+  function healthCard(problems, vault) {
+    const count = new Set(problems.map((problem) => problem.entry)).size;
+    const says = {
+      missing: () => t("Not in the vault: the bridge does not start until it is added again, or its settings get another value."),
+      failing: () => t("A setting cannot read it: it names a field the entry does not have, or another plugin's entry."),
+      expired: (problem) => t("Expired {date}: replace the value.", { date: when(problem.expires) }),
+      expiring: (problem) => t("Expires {date}: replace the value before then.", { date: when(problem.expires) }),
+    };
+    const fix = (problem) => {
+      const entry = vault.entries.find((item) => item.name === problem.entry);
+      if (problem.state === "missing") return el("button", { actionIcon: "plus", type: "button", text: t("Add it…"), onclick: () => entryDialog(null, vault, problem.entry) });
+      // A plugin's own entry is replaced by the plugin; a setting that names it is changed in that plugin's form.
+      return entry && !entry.owner ? el("button", { actionIcon: "edit", type: "button", text: t("Replace the value…"), onclick: () => entryDialog(entry, vault) }) : null;
+    };
+    return el("div", { class: "card server vault-card" },
+      el("div", { class: "server-head" }, tile("warning", "orange"),
+        el("div", { class: "who" }, el("strong", { text: tn("One entry needs attention", "{n} entries need attention", count) }))),
+      el("div", { class: "rows" }, problems.map((problem) => el("div", { class: "row vault-problem" },
+        el("div", { class: "who" }, el("strong", { class: "mono", text: problem.entry }),
+          el("div", { class: problem.state === "expiring" ? "warning" : "error", text: says[problem.state]?.(problem) ?? problem.state }),
+          problem.usedBy.length ? el("div", { class: "muted mono", text: problem.usedBy.join(", ") }) : null),
+        fix(problem)))));
+  }
+
+  /// config.json's secrets that are not in the vault yet, each with the entry it would become: untick to leave one,
+  /// rename an entry, then move them.
+  function migrationCard(plan, vault) {
+    const names = {};
+    const excluded = new Set(plan.items.filter((item) => item.excluded).map((item) => item.id));
+    const message = el("p", { class: "status-line muted", role: "status" });
+    // The row that names a new entry, by the entry's name: the rows that share it follow its name as it is edited.
+    const namers = {};
+    const followers = [];
+    const rows = plan.items.map((item) => {
+      const setting = `${item.name} · ${item.path}`;
+      const box = el("input", { type: "checkbox", checked: !item.excluded, "aria-label": t("Move {setting}", { setting }) });
+      let target;
+      if (item.shared) {
+        // An entry another row names (or the vault has): its name is set there, so it is shown, not asked.
+        target = el("span", { class: "muted vault-shares" });
+        followers.push({ item, target });
+      } else {
+        target = el("input", { type: "text", value: item.entry, class: "mono", autocomplete: "off", spellcheck: false, disabled: item.excluded,
+          pattern: namePattern(vault), "aria-label": t("Entry for {setting}", { setting }) });
+        namers[item.entry] = target;
+        target.addEventListener("input", () => {
+          const typed = target.value.trim();
+          if (typed && typed !== item.entry) names[item.id] = typed; else delete names[item.id];
+          showShared();
+        });
+      }
+      box.addEventListener("change", () => {
+        if (box.checked) excluded.delete(item.id); else excluded.add(item.id);
+        if (target.tagName === "INPUT") target.disabled = !box.checked;
+        row.classList.toggle("left", !box.checked);
+        count();
+      });
+      const row = el("div", { class: `row vault-move${item.excluded ? " left" : ""}` },
+        box, el("div", { class: "who" }, el("strong", { text: item.name }), el("div", { class: "muted mono", text: item.path, title: item.path })), target);
+      return row;
+    });
+    const showShared = () => {
+      for (const { item, target } of followers) {
+        const namer = namers[item.entry];
+        target.textContent = t("Shares {entry}", { entry: namer?.value.trim() || item.entry });
+      }
+    };
+    const move = el("button", { actionIcon: "key", class: "primary", onclick: (event) => {
+      const button = event.currentTarget;
+      confirmAction({
+        title: t("Move config.json's secrets to the vault?"), confirmLabel: t("Move"), danger: false, confirmIcon: "key",
+        text: [t("Each one becomes an entry, and config.json names it as vault:<name>. config.json is backed up first: restoring that backup undoes it."),
+          t("A copy of config.json no longer works on Homebridge: its secrets stay in this bridge's vault.")],
+      }).then((ok) => ok && busy(button, async () => {
+        const result = await api("/api/vault/migration", { method: "POST", body: { names, exclude: [...excluded] } });
+        message.className = "status-line ok";
+        message.textContent = `${tn("{n} secret moved.", "{n} secrets moved.", result.moved)} ${result.applied ? app().savedText(result.applied) : ""}`;
+        setTimeout(() => app().route(), 1200);
+      }, (e) => { message.className = "status-line error"; message.textContent = e.message; }));
+    } });
+    // The button says how many it moves, and waits while none is ticked.
+    const count = () => {
+      const moving = plan.items.length - excluded.size;
+      move.textContent = tn("Move {n} secret", "Move {n} secrets", moving);
+      move.disabled = moving === 0;
+    };
+    count();
+    showShared();
+    return el("div", { class: "card server vault-card" },
+      el("div", { class: "server-head" }, tile("key", "violet"),
+        el("div", { class: "who" }, el("strong", { text: tn("{n} secret is still in config.json", "{n} secrets are still in config.json", plan.items.length) }),
+          el("div", { class: "muted", text: tn("Move it here: the plugin keeps working with the same value.", "Move them here: identical values share one entry, and each plugin keeps working with the same value.", plan.items.length) }))),
+      el("div", { class: "rows" }, rows),
+      el("div", { class: "actions" }, move),
+      message);
   }
 
   // ---- Audit log -----------------------------------------------------------------------------------------
