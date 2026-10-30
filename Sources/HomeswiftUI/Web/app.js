@@ -1434,7 +1434,9 @@
       if (size === sizeOf(accessory)) return;
       animateLayout(() => {
         layout.sizes[accessory.id] = size;
-        nodes.get(accessory.id)?.replaceWith(widget(accessory));
+        const node = nodes.get(accessory.id), wall = node?.parentElement;
+        node?.replaceWith(widget(accessory));
+        if (wall) { arrange(wall); arrangeObserver.observe(nodes.get(accessory.id)); }
       });
       if (persist) save();
     }
@@ -1461,6 +1463,14 @@
     function step(accessory, delta) {
       const node = nodes.get(accessory.id), wall = node?.parentElement;
       if (!wall) return;
+      // On a wall with cells, a column left or right.
+      const cell = cells.get(node);
+      if (cell) {
+        slide(wall, () => keepCells(wall, arrange(wall, { node, column: Math.max(1, cell[0] + delta), row: cell[1] })), null);
+        save();
+        nodes.get(accessory.id)?.querySelector(`.edit-bar [data-step="${delta}"]`)?.focus();
+        return;
+      }
       const siblings = [...wall.children].filter((child) => child.dataset.id && !child.classList.contains("hidden"));
       const target = siblings[siblings.indexOf(node) + delta];
       if (!target) return;
@@ -1532,6 +1542,77 @@
       wall.addEventListener("lostpointercapture", end);
     }
 
+    // ---- Widgets on cells of their own: `layout.positions[grouping][id]` is a widget's top-left [column, row] ----
+
+    /// The cells a widget spans, [columns, rows]: large and extra large as many rows as widgets.js fitted them to.
+    function spanOf(node) {
+      const rows = Number(node.style.getPropertyValue("--card-rows")) || 0;
+      if (node.classList.contains("size-xlarge")) return [2, rows || 5];
+      if (node.classList.contains("size-large")) return [2, rows || 3];
+      return node.classList.contains("size-medium") ? [1, 2] : [1, 1];
+    }
+    /// The wall's grid: its columns, and a cell's pitch in pixels.
+    function gridOf(wall) {
+      const style = getComputedStyle(wall);
+      const columnGap = parseFloat(style.columnGap) || 12, rowGap = parseFloat(style.rowGap) || columnGap;
+      const unit = parseFloat(style.getPropertyValue("--unit")) || 176, row = parseFloat(style.gridAutoRows) || 64;
+      return { columns: Math.max(1, Math.round((wall.clientWidth + columnGap) / (unit + columnGap))), x: unit + columnGap, y: row + rowGap };
+    }
+    const placesOf = () => layout.positions?.[layout.grouping] ?? {};
+    const cells = new WeakMap();
+    /// Lays out a wall whose widgets have cells of their own (or while one is dragged over it, `pin`: {node, column,
+    /// row}, which goes first): each keeps its cell, moved down past a widget already there and left when the screen
+    /// has fewer columns, and the others fill the first free cells in their order. Gaps stay. A wall with no cell of its
+    /// own flows as the grid packs it. Answers each widget's cell.
+    function arrange(wall, pin = null) {
+      const places = placesOf();
+      const widgets = [...wall.children].filter((child) => (child.dataset.id || child === pin?.node) && !child.classList.contains("lifted"));
+      const result = new Map();
+      if (!pin && !widgets.some((child) => places[child.dataset.id])) {
+        for (const child of widgets) { child.style.gridColumn = ""; child.style.gridRow = ""; cells.delete(child); }
+        return result;
+      }
+      const { columns } = gridOf(wall);
+      const taken = new Set();
+      const fits = (column, row, width, height) => {
+        for (let x = 0; x < width; x++) for (let y = 0; y < height; y++) if (taken.has(`${column + x},${row + y}`)) return false;
+        return true;
+      };
+      const put = (node, column, row) => {
+        const [spanColumns, height] = spanOf(node), width = Math.min(spanColumns, columns);
+        column = Math.max(1, Math.min(column, columns - width + 1));
+        while (!fits(column, row, width, height)) row++;
+        for (let x = 0; x < width; x++) for (let y = 0; y < height; y++) taken.add(`${column + x},${row + y}`);
+        node.style.gridColumn = `${column} / span ${width}`;
+        node.style.gridRow = `${row} / span ${height}`;
+        cells.set(node, [column, row]);
+        result.set(node, [column, row]);
+      };
+      if (pin) put(pin.node, pin.column, pin.row);
+      const rest = widgets.filter((child) => child !== pin?.node && !child.classList.contains("hidden"));
+      const at = (child) => places[child.dataset.id];
+      for (const child of rest.filter(at).sort((a, b) => at(a)[1] - at(b)[1] || at(a)[0] - at(b)[0])) put(child, ...at(child));
+      for (const child of rest.filter((one) => !at(one))) {
+        const [spanColumns, height] = spanOf(child), width = Math.min(spanColumns, columns);
+        let row = 1, column = 1;
+        while (!fits(column, row, width, height)) { column++; if (column > columns - width + 1) { column = 1; row++; } }
+        put(child, column, row);
+      }
+      return result;
+    }
+    /// Keeps the cells `arrange` gave the widgets of `wall` as theirs, so the wall stays as it is drawn.
+    function keepCells(wall, placed) {
+      const places = ((layout.positions ??= {})[layout.grouping] ??= {});
+      for (const [node, cell] of placed) if (node.dataset.id) places[node.dataset.id] = cell;
+    }
+    // A wall is laid out again when its width or a widget's size changes (a large card fitted to more rows).
+    let arranging = 0;
+    const arrangeSoon = () => {
+      cancelAnimationFrame(arranging);
+      arranging = requestAnimationFrame(() => { for (const wall of content.querySelectorAll(".wall")) if (!wall.querySelector(".lifted")) arrange(wall); });
+    };
+    const arrangeObserver = new ResizeObserver(arrangeSoon);
+
     const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
     /// Moves widgets of `wall` by `change` and slides them from where they were seen to where they land (FLIP): taken
     /// from their on-screen place, so a slide already under way turns smoothly.
@@ -1551,9 +1632,10 @@
       }
     }
 
-    /// Dragging in Edit: the widget lifts and follows the pointer, a dashed slot holds its place in the grid and
-    /// moves as it passes over the others, which slide aside; near the window's top or bottom the page scrolls.
-    /// Let go, it lands in the slot, and the wall's order is kept. By room, an accessory dragged into another room's
+    /// Dragging in Edit: the widget lifts and follows the pointer, a dashed slot shows the cell it would land on, free
+    /// or not (the widgets there slide down out of its way); near the window's top or bottom the page scrolls. Let go,
+    /// it lands there and every widget of the wall keeps its cell, gaps included. Over the middle of a widget it can
+    /// join, it groups with it instead. By room, an accessory dragged into another room's
     /// wall (an administrator's) moves to that room, or out of any into No room. A finger drags at once: in Edit the
     /// widgets do not scroll the page.
     function drag(event, node) {
@@ -1569,6 +1651,9 @@
         if (target && target !== origin) target.closest(".accessory-section")?.classList.add("room-drop-target");
       };
       const start = { x: event.clientX, y: event.clientY };
+      const grabbed = node.getBoundingClientRect();
+      // Where in the widget it was taken: its top-left corner is what lands on a cell.
+      const grab = { x: event.clientX - grabbed.left, y: event.clientY - grabbed.top };
       const originalStyle = node.style.cssText, originalNext = node.nextElementSibling;
       let slot = null, pointer = event, scroller = null;
       let groupTarget = null;
@@ -1603,14 +1688,16 @@
         const overWall = acrossRooms && stack.map((element) => element.closest(".wall")).find((candidate) => candidate && candidate.dataset.room !== undefined && content.contains(candidate));
         if (overWall && overWall !== wall) {
           clearGroupTarget();
+          const left = wall;
           wall = overWall;
           markRoom(wall);
-          slide(wall, () => wall.append(slot), node);
+          wall.append(slot);
+          slide(left, () => arrange(left), node);
         }
         const under = stack
           .map((element) => element.closest(".wall > .widget"))
           .find((candidate) => candidate && candidate !== node && candidate !== slot && candidate.parentElement === wall);
-        if (!under || under === slot || under.parentElement !== wall) { clearGroupTarget(); return; }
+        if (!under || under === slot || under.parentElement !== wall) { clearGroupTarget(); placeSlot(); return; }
         const box = under.getBoundingClientRect();
         // On compact/touch layouts leave only a narrow edge for reordering. Otherwise a
         // small tile moves away before the finger can reach its old central drop zone.
@@ -1624,10 +1711,17 @@
           return;
         }
         clearGroupTarget();
-        const after = pointer.clientY > box.top + box.height * .75 ||
-          (pointer.clientY >= box.top + box.height * .25 && pointer.clientX > box.left + box.width / 2);
-        if ((after ? under.nextElementSibling : under.previousElementSibling) === slot) return;
-        slide(wall, () => (after ? under.after(slot) : under.before(slot)), node);
+        placeSlot();
+      };
+      /// The slot on the cell under the widget's top-left corner.
+      let slotCell = null;
+      const placeSlot = () => {
+        const grid = gridOf(wall), box = wall.getBoundingClientRect();
+        const column = Math.max(1, Math.round((pointer.clientX - grab.x - box.left) / grid.x) + 1);
+        const row = Math.max(1, Math.round((pointer.clientY - grab.y - box.top) / grid.y) + 1);
+        if (slotCell?.[0] === column && slotCell?.[1] === row && slot.parentElement === wall) return;
+        slotCell = [column, row];
+        slide(wall, () => arrange(wall, { node: slot, column, row }), node);
       };
       const move = (moved) => {
         pointer = moved;
@@ -1650,15 +1744,22 @@
         clearGroupTarget();
         if (!slot || !slot.isConnected) return;
         markRoom(null);
-        if (ended.type !== "pointerup") {
-          wall = origin;
+        const cancelled = ended.type !== "pointerup";
+        if (cancelled) {
+          if (wall !== origin) { slot.remove(); arrange(wall); wall = origin; }
           if (originalNext?.parentElement === wall) originalNext.before(slot); else wall.append(slot);
         }
         // Lands in the slot from where it was let go.
         const from = node.getBoundingClientRect();
+        const landed = cells.get(slot);
         slot.replaceWith(node);
         node.classList.remove("lifted");
         node.style.cssText = originalStyle;
+        if (joinTarget || cancelled) arrange(wall);
+        else {
+          keepCells(wall, arrange(wall, landed ? { node, column: landed[0], row: landed[1] } : null));
+          if (wall !== origin) arrange(origin);
+        }
         const to = node.getBoundingClientRect();
         node.style.transition = "none";
         node.style.transform = `translate(${from.left - to.left}px, ${from.top - to.top}px)`;
@@ -1796,10 +1897,14 @@
         walls.forEach((wall, index) => wall.prepend(...cardsBySection[index]));
       }
       const widgetRank = new Map(layout.order.map((id, index) => [id, index]));
+      arrangeObserver.disconnect();
       for (const wall of content.querySelectorAll(".wall")) {
         const children = [...wall.children];
         const rankOf = (node) => widgetRank.get(node.dataset.id) ?? (node.classList.contains("accessory-group") ? -1 : layout.order.length + children.indexOf(node));
         wall.append(...[...children].sort((a, b) => rankOf(a) - rankOf(b)));
+        arrange(wall);
+        arrangeObserver.observe(wall);
+        for (const child of wall.children) arrangeObserver.observe(child);
       }
       filter();
     }
@@ -1863,6 +1968,12 @@
       { label: t("Create group"), icon: "group", onSelect: () => groupingControls.edit() },
       { separator: true },
       ...groupings.map(([value, label, icon]) => ({ label, icon, checked: layout.grouping === value, onSelect: () => setGrouping(value) })),
+      // Widgets dropped on cells of their own: back to packing in the order.
+      ...(isAdmin() && Object.keys(placesOf()).length ? [{ separator: true }, { label: t("Pack the widgets together"), icon: "grid", onSelect: () => {
+        delete layout.positions[layout.grouping];
+        save();
+        render();
+      } }] : []),
       ...(canSuggest ? [{ separator: true }, { label: t("Suggest rooms"), icon: "sparkle", onSelect: () => HomeswiftHome.suggestRooms(content, all) }] : [])
     ]);
     more.replaceChildren(HomeswiftCommon.icon("sliders"));

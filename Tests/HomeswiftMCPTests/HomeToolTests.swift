@@ -188,6 +188,48 @@ struct LayoutToolTests {
         #expect(try await reader.tool("get_wall_layout")["isError"] != true)
         #expect(try await reader.tool("set_wall_layout", ["grouping": "none"])["isError"] == true)
     }
+    /// Widgets put on cells of their own keep them for the wall's grouping, gaps and all; null or clearPositions lets
+    /// them flow again, and cells outside the grid are refused.
+    @Test func widgetsKeepTheCellsTheyAreGiven() async throws {
+        let environment = try MCPTestEnvironment(config: """
+            {
+              "bridge": { "name": "Test Bridge", "username": "0E:11:22:33:44:55", "pin": "031-45-154", "port": 0 },
+              "platforms": [{ "platform": "Devices", "name": "Devices", "colourBulbs": 2 }]
+            }
+            """)
+        try await environment.start()
+        defer { Task { await environment.stop() } }
+        let client = DirectClient(server: environment.server)
+        try await client.initialize()
+        func widget(_ result: JSONValue, _ id: String) -> JSONValue? {
+            result["structuredContent"]?["sections"]?[0]?["accessories"]?.arrayValue?.first { $0["id"]?.stringValue == id }
+        }
+
+        let placed = try await client.tool("set_wall_layout", ["positions": ["Devices:bulb1": [1, 1], "Devices:bulb2": ["column": 6, "row": 9]]])
+        #expect(placed["isError"] != true, "\(placed)")
+        #expect(widget(placed, "Devices:bulb1")?["position"] == [1, 1])
+        #expect(widget(placed, "Devices:bulb2")?["position"] == [6, 9])
+        #expect(widget(placed, "Devices:lamp")?["position"] == nil)
+        #expect(environment.catalog.home.wall.load()["positions"] == ["none": ["Devices:bulb1": [1, 1], "Devices:bulb2": [6, 9]]])
+
+        // By room, the cells are another set; back to one wall, those of before.
+        let byRoom = try await client.tool("set_wall_layout", ["grouping": "room", "positions": ["Devices:lamp": [2, 1]]])
+        #expect(byRoom["structuredContent"]?["sections"]?[0]?["accessories"]?.arrayValue?.first { $0["id"] == "Devices:lamp" }?["position"] == [2, 1])
+        #expect(widget(try await client.tool("set_wall_layout", ["grouping": "none"]), "Devices:bulb2")?["position"] == [6, 9])
+
+        // The page sends the whole layout: its cells are kept as they are checked.
+        _ = try environment.catalog.home.wall.save(["grouping": "none", "positions": ["none": ["Devices:lamp": [3, 2]], "room": ["Devices:lamp": [2, 1]]]])
+        #expect(environment.catalog.home.wall.load()["positions"]?["none"] == ["Devices:lamp": [3, 2]])
+        #expect(throws: (any Error).self) { try environment.catalog.home.wall.save(["positions": ["none": ["Devices:lamp": [0, 2]]]]) }
+        #expect(throws: (any Error).self) { try environment.catalog.home.wall.save(["positions": ["sideways": ["Devices:lamp": [1, 2]]]]) }
+
+        #expect(try await client.tool("set_wall_layout", ["positions": ["Devices:lamp": [25, 1]]])["isError"] == true)
+        #expect(try await client.tool("set_wall_layout", ["positions": ["Devices:nothing": [1, 1]]])["isError"] == true)
+        _ = try await client.tool("set_wall_layout", ["positions": ["Devices:lamp": .null]])
+        #expect(environment.catalog.home.wall.load()["positions"]?["none"] == nil)
+        _ = try await client.tool("set_wall_layout", ["grouping": "room", "clearPositions": true])
+        #expect(environment.catalog.home.wall.load()["positions"] == nil)
+    }
 }
 
 @Suite(.timeLimit(.minutes(1)))

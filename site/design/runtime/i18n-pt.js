@@ -206,6 +206,7 @@ HomeswiftI18n.add("pt", {
   "Drag to reorder, choose one to rename it.": "Arraste para reordenar, escolha uma para lhe mudar o nome.",
   "Name of {room}": "Nome de {room}",
   "Rename the room": "Mudar o nome da divisão",
+  "Pack the widgets together": "Juntar os widgets",
   "Rename on the hubs too": "Mudar o nome também nos hubs",
   "A new name for {room}.": "Um novo nome para {room}.",
   "Rooms of this name on your Philips Hue, IKEA and eWeLink hubs are renamed too.": "As divisões com este nome nos seus hubs Philips Hue, IKEA e eWeLink também mudam de nome.",
