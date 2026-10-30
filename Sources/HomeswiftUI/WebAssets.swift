@@ -9651,7 +9651,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     if (!picture && colours.length) button.style.background = colours.length > 1 ? `linear-gradient(135deg, ${colours.join(", ")})` : colours[0];
     button.addEventListener("click", async () => { if (await runScene(scene, button)) app.route(); });
     // Its actions sit on the tile, round over its top corner: Stop while it can be, then the menu (Automate and the rest).
-    const stop = scene.stoppable ? el("button", { type: "button", class: "tile-action", actionIcon: "stop", "aria-label": t("Stop"), title: t("Stop"), onclick: () => stopScene(scene, stop) }) : null;
+    const stop = scene.stoppable ? el("button", { type: "button", actionIcon: "stop", "aria-label": t("Stop"), title: t("Stop"), onclick: () => stopScene(scene, stop) }) : null;
     // A Homeswift scene that recalls it, to give it triggers and conditions.
     const automate = async () => {
       try {
@@ -9659,9 +9659,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         app.navigate(`/scenes/${encodeURIComponent(saved.id)}`);
       } catch (e) { HomeswiftCommon.showAlert(e.message); }
     };
-    const menu = menuButton(t("Actions for {name}", { name: scene.name }), () => [
+    // Everything in it changes scenes or pictures: an administrator's.
+    const menu = !app.isAdmin() ? null : menuButton(t("Actions for {name}", { name: scene.name }), () => [
       runnable ? { label: t("Automate"), icon: "workflow", onSelect: automate } : null,
-      ...(app.isAdmin() ? [...hubSceneMenu(scene), ...pictureMenu(scene, button)] : []),
+      ...hubSceneMenu(scene), ...pictureMenu(scene, button),
     ].filter(Boolean));
     return el("div", { class: "hub-scene-tile" }, button, el("div", { class: "hub-scene-actions" }, stop, menu));
   }
