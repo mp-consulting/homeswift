@@ -230,7 +230,9 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   `accessory-layout.json`). `get_accessory_layout` lists the rooms with their accessories (and `displayName`,
   `hidden`, `favourite`) and those in no room; `set_accessory_layout` puts accessories in rooms (a new name adds
   the room), hides them, names them for the web UI or makes them Quick Controls, and orders (`rooms`), renames
-  (`renameRoom`) or removes (`removeRooms`) rooms. HomeKit is not changed.
+  (`renameRoom`) or removes (`removeRooms`) rooms. HomeKit is not changed. `syncRoomNames: true` (kept with the layout,
+  off by default) makes a later `renameRoom` rename the rooms of the same name on the plugins' hubs too (Philips Hue,
+  IKEA DIRIGERA, eWeLink; case and accents aside); `hubRooms` in the answer says what each hub did.
 - **The wall.** `get_wall_layout` answers the Accessories page's wall as it is drawn (`ui-layout.json`): its grouping,
   the sections in order with their accessories in order and the sizes chosen, the default size of each kind of
   widget, and the accessory groups where they stand. `set_wall_layout` arranges it: `groups` makes accessories that

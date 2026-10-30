@@ -1675,15 +1675,36 @@
       }
       return [...rooms];
     }
-    const roomOrderButton = el("button", { type: "button", class: "hidden", "aria-label": t("Reorder rooms"), "aria-haspopup": "menu",
+    // Whether a room renamed here is renamed on the plugins' hubs too (off unless turned on).
+    let syncRoomNames = home.syncRoomNames === true;
+    async function renameRoom(name) {
+      const answer = await HomeswiftCommon.promptDialog(t("A new name for {room}.", { room: name })
+        + (syncRoomNames ? `\n\n${t("Rooms of this name on your Philips Hue, IKEA and eWeLink hubs are renamed too.")}` : ""), name);
+      const to = answer?.trim();
+      if (!to || to === name) return;
+      try {
+        const result = await api("/api/rooms", { method: "PUT", body: { renameRoom: { from: name, to } } });
+        const failed = (result.hubRooms || []).filter((room) => !room.renamed);
+        if (failed.length) HomeswiftCommon.showAlert(failed.map((room) => t("Not renamed on {hub}: {error}", { hub: room.name, error: room.error })).join("\n"));
+        route();
+      } catch (e) { HomeswiftCommon.showAlert(e.message); }
+    }
+    const roomOrderButton = el("button", { type: "button", class: "hidden", "aria-label": t("Rooms"), "aria-haspopup": "menu",
       onclick: (event) => HomeswiftCommon.menu(roomOrderButton, [
-        ...rooms.map((name) => ({ key: name, label: name, icon: "room", keepOpen: true })),
+        { heading: t("Rooms"), detail: t("Drag to reorder, choose one to rename it.") },
+        ...rooms.map((name) => ({ key: name, label: name, icon: "room", onSelect: () => renameRoom(name) })),
         { separator: true },
         { label: t("Reset room order"), icon: "restore", disabled: () => rooms.every((name, index) => index === 0 || rooms[index - 1].localeCompare(name, HomeswiftI18n.locale) <= 0), onSelect: () => saveRoomOrder([...rooms].sort((a, b) => a.localeCompare(b, HomeswiftI18n.locale))) },
-      ], { keyboard: event.detail === 0, onReorder: saveRoomOrder }) }, HomeswiftCommon.icon("room"), el("span", { text: t("Reorder rooms") }));
+        { label: t("Rename on the hubs too"), icon: "bridge", checked: syncRoomNames, checkbox: true, toggle: true, keepOpen: true, onSelect: async () => {
+          try {
+            syncRoomNames = (await api("/api/rooms", { method: "PUT", body: { syncRoomNames: !syncRoomNames } })).syncRoomNames === true;
+          } catch (e) { HomeswiftCommon.showAlert(e.message); }
+          return syncRoomNames;
+        } },
+      ], { keyboard: event.detail === 0, onReorder: saveRoomOrder }) }, HomeswiftCommon.icon("room"), el("span", { text: t("Rooms") }));
 
     function render() {
-      roomOrderButton.classList.toggle("hidden", !editing || !isAdmin() || layout.grouping !== "room" || rooms.length < 2);
+      roomOrderButton.classList.toggle("hidden", !editing || !isAdmin() || layout.grouping !== "room" || !rooms.length);
       nodes.clear();
       // By plugin or by room: a section each (by plugin in the order of their names, those of no plugin last; by room
       // in the rooms' order, those in none last); else one wall.

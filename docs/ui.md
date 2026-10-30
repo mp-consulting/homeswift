@@ -139,6 +139,13 @@ screenshots, and what a plugin does to get good ones.
   of their own, the **Apple Home** switch (`?from=Apple%20Home`). The layout is the bridge's, shared by every user, in
   `accessory-layout.json` next to config.json (owner-only; `/api/rooms`). The Home app never sees it; the MCP tools do:
   `list_accessories` and `set_accessories` filter by these rooms.
+- **Rooms on the hubs**: in **Edit**, with the wall **By room**, the **Rooms** menu orders the rooms (drag them) and
+  renames one (choose it). Its **Rename on the hubs too** switch, off until turned on (`syncRoomNames` in
+  `accessory-layout.json`), makes a renamed room's new name reach the plugins' hubs: every room of a Philips Hue Bridge,
+  an IKEA DIRIGERA hub or an eWeLink home named as the room was, case and accents aside, is renamed with it, and the
+  log says so (`Room "Salon" renamed "Lounge" on Hue`). It goes one way: a room renamed in the Hue app stays as Homeswift
+  has it. Govee keeps no rooms its API can reach. A hub that refuses says why under the page; the room is renamed in
+  Homeswift all the same.
 - **Suggest rooms**, with the Assistant on, asks it for rooms and clearer names for every accessory
   (`AssistantService.suggestOrganization`; the ids reach the model as aliases) and shows them to review: untick what you
   do not want, then **Apply** saves the rooms and the names as display names. Accessories it finds odd are listed as

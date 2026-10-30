@@ -3307,15 +3307,36 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
       return [...rooms];
     }
-    const roomOrderButton = el("button", { type: "button", class: "hidden", "aria-label": t("Reorder rooms"), "aria-haspopup": "menu",
+    // Whether a room renamed here is renamed on the plugins' hubs too (off unless turned on).
+    let syncRoomNames = home.syncRoomNames === true;
+    async function renameRoom(name) {
+      const answer = await HomeswiftCommon.promptDialog(t("A new name for {room}.", { room: name })
+        + (syncRoomNames ? `\n\n${t("Rooms of this name on your Philips Hue, IKEA and eWeLink hubs are renamed too.")}` : ""), name);
+      const to = answer?.trim();
+      if (!to || to === name) return;
+      try {
+        const result = await api("/api/rooms", { method: "PUT", body: { renameRoom: { from: name, to } } });
+        const failed = (result.hubRooms || []).filter((room) => !room.renamed);
+        if (failed.length) HomeswiftCommon.showAlert(failed.map((room) => t("Not renamed on {hub}: {error}", { hub: room.name, error: room.error })).join("\n"));
+        route();
+      } catch (e) { HomeswiftCommon.showAlert(e.message); }
+    }
+    const roomOrderButton = el("button", { type: "button", class: "hidden", "aria-label": t("Rooms"), "aria-haspopup": "menu",
       onclick: (event) => HomeswiftCommon.menu(roomOrderButton, [
-        ...rooms.map((name) => ({ key: name, label: name, icon: "room", keepOpen: true })),
+        { heading: t("Rooms"), detail: t("Drag to reorder, choose one to rename it.") },
+        ...rooms.map((name) => ({ key: name, label: name, icon: "room", onSelect: () => renameRoom(name) })),
         { separator: true },
         { label: t("Reset room order"), icon: "restore", disabled: () => rooms.every((name, index) => index === 0 || rooms[index - 1].localeCompare(name, HomeswiftI18n.locale) <= 0), onSelect: () => saveRoomOrder([...rooms].sort((a, b) => a.localeCompare(b, HomeswiftI18n.locale))) },
-      ], { keyboard: event.detail === 0, onReorder: saveRoomOrder }) }, HomeswiftCommon.icon("room"), el("span", { text: t("Reorder rooms") }));
+        { label: t("Rename on the hubs too"), icon: "bridge", checked: syncRoomNames, checkbox: true, toggle: true, keepOpen: true, onSelect: async () => {
+          try {
+            syncRoomNames = (await api("/api/rooms", { method: "PUT", body: { syncRoomNames: !syncRoomNames } })).syncRoomNames === true;
+          } catch (e) { HomeswiftCommon.showAlert(e.message); }
+          return syncRoomNames;
+        } },
+      ], { keyboard: event.detail === 0, onReorder: saveRoomOrder }) }, HomeswiftCommon.icon("room"), el("span", { text: t("Rooms") }));
 
     function render() {
-      roomOrderButton.classList.toggle("hidden", !editing || !isAdmin() || layout.grouping !== "room" || rooms.length < 2);
+      roomOrderButton.classList.toggle("hidden", !editing || !isAdmin() || layout.grouping !== "room" || !rooms.length);
       nodes.clear();
       // By plugin or by room: a section each (by plugin in the order of their names, those of no plugin last; by room
       // in the rooms' order, those in none last); else one wall.
@@ -11183,7 +11204,12 @@ HomeswiftI18n.add("es", {
   "Moves the selected accessories in Homeswift only. HomeKit rooms stay unchanged.": "Mueve los accesorios seleccionados solo en Homeswift. Las habitaciones de HomeKit no cambian.",
   "Release to group": "Suelta para agrupar",
   "Reset room order": "Restablecer el orden de las habitaciones",
-  "Reorder rooms": "Reordenar habitaciones",
+  "Rooms": "Habitaciones",
+  "Drag to reorder, choose one to rename it.": "Arrastra para reordenar, elige una para cambiarle el nombre.",
+  "Rename on the hubs too": "Cambiar el nombre también en los hubs",
+  "A new name for {room}.": "Un nombre nuevo para {room}.",
+  "Rooms of this name on your Philips Hue, IKEA and eWeLink hubs are renamed too.": "Las habitaciones con este nombre en tus hubs de Philips Hue, IKEA y eWeLink también cambian de nombre.",
+  "Not renamed on {hub}: {error}": "Sin cambiar el nombre en {hub}: {error}",
   "Show hidden": "Mostrar ocultos",
   "Clear filters": "Borrar filtros",
   "{count} of {total} match": "{count} de {total} coinciden",
@@ -13617,7 +13643,12 @@ HomeswiftI18n.add("fr", {
   "Moves the selected accessories in Homeswift only. HomeKit rooms stay unchanged.": "Déplace les accessoires sélectionnés dans Homeswift uniquement. Les pièces HomeKit restent inchangées.",
   "Release to group": "Relâchez pour grouper",
   "Reset room order": "Réinitialiser l’ordre des pièces",
-  "Reorder rooms": "Réorganiser les pièces",
+  "Rooms": "Pièces",
+  "Drag to reorder, choose one to rename it.": "Faites glisser pour réorganiser, choisissez-en une pour la renommer.",
+  "Rename on the hubs too": "Renommer aussi sur les hubs",
+  "A new name for {room}.": "Un nouveau nom pour {room}.",
+  "Rooms of this name on your Philips Hue, IKEA and eWeLink hubs are renamed too.": "Les pièces de ce nom sur vos hubs Philips Hue, IKEA et eWeLink sont renommées aussi.",
+  "Not renamed on {hub}: {error}": "Non renommée sur {hub} : {error}",
   "Show hidden": "Afficher les accessoires masqués",
   "Clear filters": "Effacer les filtres",
   "{count} of {total} match": "{count} sur {total} correspondent",
@@ -16051,7 +16082,12 @@ HomeswiftI18n.add("pt", {
   "Moves the selected accessories in Homeswift only. HomeKit rooms stay unchanged.": "Move os acessórios selecionados apenas no Homeswift. As divisões do HomeKit não são alteradas.",
   "Release to group": "Solte para agrupar",
   "Reset room order": "Repor a ordem das divisões",
-  "Reorder rooms": "Reordenar divisões",
+  "Rooms": "Divisões",
+  "Drag to reorder, choose one to rename it.": "Arraste para reordenar, escolha uma para lhe mudar o nome.",
+  "Rename on the hubs too": "Mudar o nome também nos hubs",
+  "A new name for {room}.": "Um novo nome para {room}.",
+  "Rooms of this name on your Philips Hue, IKEA and eWeLink hubs are renamed too.": "As divisões com este nome nos seus hubs Philips Hue, IKEA e eWeLink também mudam de nome.",
+  "Not renamed on {hub}: {error}": "Nome não mudado em {hub}: {error}",
   "Show hidden": "Mostrar ocultos",
   "Clear filters": "Limpar filtros",
   "{count} of {total} match": "{count} de {total} correspondem",

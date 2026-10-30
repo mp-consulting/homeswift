@@ -76,6 +76,7 @@ final class FakeHub: HTTPSending, @unchecked Sendable {
         switch (request.method, path) {
         case ("GET", "/v1/devices"): return json(Self.devices)
         case ("GET", "/v1/scenes"): return json(Self.scenes)
+        case ("GET", "/v1/rooms"): return json(Self.rooms)
         case ("POST", "/v1/scenes"): return json(["id": "scene-new"], status: 201)
         default: return json([:], status: 202)
         }
@@ -116,6 +117,11 @@ final class FakeHub: HTTPSending, @unchecked Sendable {
          "attributes": ["customName": "Kitchen Remote", "model": "STYRBAR remote control", "batteryPercentage": 70]],
         ["id": "styrbar-down", "relationId": "styrbar-1", "type": "controller", "deviceType": "lightController", "isReachable": true,
          "attributes": ["customName": "Kitchen Remote", "model": "STYRBAR remote control"]],
+    ]
+
+    static let rooms: JSONValue = [
+        ["id": "r1", "name": "Living Room", "icon": "rooms_sofa", "color": "ikea_green_no_65"],
+        ["id": "r2", "name": "Kitchen", "icon": "rooms_kitchen", "color": "ikea_yellow_no_24"],
     ]
 
     static let scenes: JSONValue = [
@@ -443,6 +449,24 @@ struct DirigeraTests {
 
         try await plugin.deleteScene(id: "scene-1")
         #expect(environment.hub.sent.contains { $0.method == "DELETE" && $0.path == "/v1/scenes/scene-1" })
+        await host.stop()
+    }
+
+    /// Homeswift renames the hub's rooms with `PUT /v1/rooms/<id>`, keeping each room's icon and colour
+    /// (lpgera/dirigera's `rooms.update`).
+    @Test func roomsAreRenamedOnTheHub() async throws {
+        let host = try await environment.start()
+        _ = try await accessory(host, scenesID)
+        let plugin = try #require(environment.plugin)
+        let rooms = await plugin.rooms()
+        #expect(rooms == [PluginRoom(id: "r1@192.0.2.20", name: "Living Room"), PluginRoom(id: "r2@192.0.2.20", name: "Kitchen")])
+
+        try await plugin.renameRoom(id: "r1@192.0.2.20", name: "Lounge")
+        let renamed = try #require(environment.hub.sent.last { $0.method == "PUT" })
+        #expect(renamed.path == "/v1/rooms/r1")
+        #expect(try JSONValue(data: Data(renamed.body.utf8)) == ["name": "Lounge", "icon": "rooms_sofa", "color": "ikea_green_no_65"])
+        await #expect(throws: PluginRoomError.self) { try await plugin.renameRoom(id: "r9@192.0.2.20", name: "Attic") }
+        await #expect(throws: PluginRoomError.self) { try await plugin.renameRoom(id: "r1@192.0.2.99", name: "Attic") }
         await host.stop()
     }
 

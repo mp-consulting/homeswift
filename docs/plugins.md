@@ -332,6 +332,13 @@ scene allows in `PluginScene.capabilities` (`rename`, `update`, `delete`) and it
 can keep them "as they are". Write, then read the hub back: it stays the only keeper. Hue (`HueScenes.swift`) and
 DIRIGERA (`DirigeraScenes.swift`, from lpgera/dirigera) do.
 
+A hub that keeps rooms can follow Homeswift's: with the layout's `syncRoomNames` on (the Accessories page's **Rename
+on the hubs too**), a room renamed in Homeswift is renamed on the hubs. `rooms()` lists the hub's rooms as `PluginRoom`
+(its id, name, and `place` when the instance has several hubs or homes); Homeswift calls it only on a rename, so it may
+ask the hub. `renameRoom(id:name:)` renames one; Homeswift picks those named as the room was, case and accents aside,
+and logs what each did. Hue (`HueRooms.swift`, rooms but not zones), DIRIGERA (`DirigeraRooms.swift`, from
+lpgera/dirigera, the room's icon and colour kept) and eWeLink (`EWeLinkRooms.swift`, `PUT /v2/family/room`) do.
+
 ### What the Assistant can do
 
 `assistantActions` describes routes of `handleWebRequest` for a model, so the Assistant (the web UI's chat,

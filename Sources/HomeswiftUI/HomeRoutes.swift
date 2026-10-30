@@ -49,7 +49,7 @@ extension UIServer {
         case (.GET, ["rooms"]):
             return .json(catalog.layoutJSON())
         case (.PUT, ["rooms"]):
-            let result = try catalog.updateLayout(body)
+            let result = try await catalog.updateLayout(body, by: "web UI \(username)")
             logger.info("Web UI changed the accessory layout", metadata: ["user": "\(username)"])
             return .json(result)
         case (.POST, ["rooms", "suggest"]):

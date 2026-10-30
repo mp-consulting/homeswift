@@ -369,4 +369,4 @@ Group brightness and colour-temperature controls use the same pill sliders as in
 
 ![Accessory group picker with available and selected devices](images/widgets/group-picker.png)
 
-When grouped by room, Edit shows **Reorder rooms**. Drag the handles in its menu to arrange rooms, just like the Status page’s customisation menu. **Reset room order** restores alphabetical order. The order is saved in Homeswift; HomeKit rooms are unchanged.
+When grouped by room, Edit shows **Rooms**. Drag the handles in its menu to arrange rooms, just like the Status page’s customisation menu, or choose a room to rename it. **Reset room order** restores alphabetical order. The order and names are saved in Homeswift; HomeKit rooms are unchanged. **Rename on the hubs too**, off by default, renames the rooms of the same name on Philips Hue, IKEA DIRIGERA and eWeLink as well ([ui.md](ui.md)).

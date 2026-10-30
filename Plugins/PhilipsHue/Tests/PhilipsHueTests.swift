@@ -491,6 +491,22 @@ struct PhilipsHueTests {
         await host.stop()
     }
 
+    /// Homeswift renames the bridge's rooms (not its zones) with `PUT /clip/v2/resource/room/<id>`, the name at most
+    /// 32 characters.
+    @Test func roomsAreRenamedOnTheBridge() async throws {
+        let host = try await environment.start()
+        _ = try await accessory(host, scenesID)
+        let plugin = try #require(environment.plugin)
+        #expect(await plugin.rooms() == [PluginRoom(id: "room-1", name: "Living room")])
+
+        try await plugin.renameRoom(id: "room-1", name: " Lounge ")
+        #expect(environment.bridge.puts.last == .init(method: "PUT", path: "/clip/v2/resource/room/room-1", body: ["metadata": ["name": "Lounge"]]))
+        try await plugin.renameRoom(id: "room-1", name: String(repeating: "x", count: 40))
+        #expect(environment.bridge.puts.last?.body["metadata"]?["name"]?.stringValue?.count == 32)
+        await #expect(throws: PluginRoomError.self) { try await plugin.renameRoom(id: "zone-1", name: "Upstairs too") }
+        await host.stop()
+    }
+
     /// An animated scene's effect plays as the Hue app's on the lights that have it, with its colour, speed and
     /// brightness; a light without it, or a palette, is left to Homeswift; stopping sends no_effect.
     @Test func effectsPlayNatively() async throws {

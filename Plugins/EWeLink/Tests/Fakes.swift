@@ -47,6 +47,8 @@ final class FakeCloud: HTTPSending, @unchecked Sendable {
         var devices: [JSONValue] = []
         var groups: [JSONValue] = []
         var homes: [String] = ["home-1"]
+        /// Each home's rooms, by home id: `(id, name)`.
+        var rooms: [String: [(id: String, name: String)]] = ["home-1": [("room-1", "Salon"), ("room-2", "Kitchen")]]
         /// Answers to the next logins, in order; then success.
         var loginAnswers: [JSONValue] = []
         /// The access token the API accepts; others get `error: 401` (or HTTP 401 with `httpTokenErrors`).
@@ -95,8 +97,16 @@ final class FakeCloud: HTTPSending, @unchecked Sendable {
                 return state.httpTokenErrors ? answer(["error": 401], status: 401) : answer(["error": 401, "msg": "token expired"])
             }
             switch request.url.path {
+            case "/v2/family/room" where request.method == "PUT":
+                let body = (try? JSONValue(data: request.body ?? Data())) ?? .null
+                guard let id = body["id"]?.stringValue, let name = body["name"]?.stringValue,
+                      let home = state.rooms.first(where: { $0.value.contains { $0.id == id } })?.key else { return answer(["error": 400, "msg": "params incomplete"]) }
+                state.rooms[home] = state.rooms[home]?.map { $0.id == id ? (id, name) : $0 }
+                return answer(["error": 0, "data": [:]])
             case "/v2/family":
-                return answer(["error": 0, "data": ["familyList": .array(state.homes.map { ["id": .string($0), "name": "Home"] })]])
+                return answer(["error": 0, "data": ["familyList": .array(state.homes.map { home in
+                    ["id": .string(home), "name": "Home", "roomList": .array((state.rooms[home] ?? []).enumerated().map { ["id": .string($1.id), "name": .string($1.name), "index": .number(Double($0))] })]
+                })]])
             case "/v2/device/thing":
                 let things = state.devices.map { JSONValue.object(["itemType": 1, "itemData": $0]) } + state.groups.map { .object(["itemType": 3, "itemData": $0]) }
                 return answer(["error": 0, "data": ["thingList": .array(things)]])
