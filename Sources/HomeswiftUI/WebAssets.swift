@@ -1928,7 +1928,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           return el("span", { class: `chip${admin ? " removable" : ""}${system ? " system" : ""}`, title: hint },
             system ? HomeswiftCommon.icon("house") : null, el("span", { text: name }),
             admin ? el("button", { type: "button", class: "icon-button", "aria-label": t("Remove {name}", { name }), title: t("Remove {name}", { name }), onclick: async (event) => {
-              const message = own ? t("{name} loses this device, with its room and automations.", { name })
+              const message = system ? t("{vendor}'s hubs and other devices lose their link to this device: it stops responding there until it is added again.", { vendor })
+                : own ? t("{name} loses this device, with its room and automations.", { name })
                 : t("{name} loses the bridge and every device on it, with their rooms and automations.", { name });
               if (!await HomeswiftCommon.confirmDialog(message)) return;
               await HomeswiftCommon.busyButton(event.currentTarget, async () => {
@@ -10462,6 +10463,7 @@ HomeswiftI18n.add("es", {
   "{name} loses the bridge and every device on it, with their rooms and automations.": "{name} pierde el puente y todos sus dispositivos, con sus habitaciones y automatizaciones.",
   "In the ecosystem's app: add a Matter device, then scan this code or type it.": "En la app del ecosistema: añade un dispositivo Matter y escanea este código o introdúcelo.",
   "Add to another ecosystem": "Añadir a otro ecosistema",
+  "{vendor}'s hubs and other devices lose their link to this device: it stops responding there until it is added again.": "Los concentradores y otros dispositivos de {vendor} pierden su enlace con este dispositivo: deja de responder allí hasta que se vuelva a añadir.",
   "{vendor} system": "Sistema de {vendor}",
   "{vendor}'s own link to the device, from your other devices and hubs: keep it.": "El enlace propio de {vendor} con el dispositivo, desde tus otros dispositivos y concentradores: consérvalo.",
   "Matter device of its own, for Apple Home, Google Home, Alexa and Home Assistant": "Dispositivo Matter propio, para Apple Home, Google Home, Alexa y Home Assistant",
@@ -12798,6 +12800,7 @@ HomeswiftI18n.add("fr", {
   "{name} loses the bridge and every device on it, with their rooms and automations.": "{name} perd le pont et tous ses appareils, avec leurs pièces et automatisations.",
   "In the ecosystem's app: add a Matter device, then scan this code or type it.": "Dans l'app de l'écosystème : ajoutez un appareil Matter, puis scannez ce code ou saisissez-le.",
   "Add to another ecosystem": "Ajouter à un autre écosystème",
+  "{vendor}'s hubs and other devices lose their link to this device: it stops responding there until it is added again.": "Les concentrateurs et autres appareils de {vendor} perdent leur lien avec cet appareil : il ne répond plus de ce côté jusqu'à ce qu'il soit ajouté de nouveau.",
   "{vendor} system": "Système {vendor}",
   "{vendor}'s own link to the device, from your other devices and hubs: keep it.": "Le lien de {vendor} avec l'appareil, depuis vos autres appareils et concentrateurs : gardez-le.",
   "Matter device of its own, for Apple Home, Google Home, Alexa and Home Assistant": "Appareil Matter à part entière, pour Apple Home, Google Home, Alexa et Home Assistant",
@@ -15134,6 +15137,7 @@ HomeswiftI18n.add("pt", {
   "{name} loses the bridge and every device on it, with their rooms and automations.": "{name} perde a ponte e todos os seus dispositivos, com as suas divisões e automatizações.",
   "In the ecosystem's app: add a Matter device, then scan this code or type it.": "Na app do ecossistema: adicione um dispositivo Matter e leia este código ou introduza-o.",
   "Add to another ecosystem": "Adicionar a outro ecossistema",
+  "{vendor}'s hubs and other devices lose their link to this device: it stops responding there until it is added again.": "Os concentradores e outros dispositivos do {vendor} perdem a ligação a este dispositivo: deixa de responder aí até ser adicionado de novo.",
   "{vendor} system": "Sistema do {vendor}",
   "{vendor}'s own link to the device, from your other devices and hubs: keep it.": "A ligação própria do {vendor} ao dispositivo, a partir dos seus outros dispositivos e concentradores: mantenha-a.",
   "Matter device of its own, for Apple Home, Google Home, Alexa and Home Assistant": "Dispositivo Matter próprio, para o Apple Home, Google Home, Alexa e Home Assistant",

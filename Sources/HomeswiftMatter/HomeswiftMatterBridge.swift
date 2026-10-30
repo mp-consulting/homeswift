@@ -27,6 +27,9 @@ public actor HomeswiftMatterBridge: MatterControl {
     /// The bridged accessories, by accessory id.
     private var devices: [String: Bridged] = [:]
     private var tasks: [Task<Void, Never>] = []
+    /// Cleaning robots a controller paused: their switch only says off, so they are reported paused, not stopped, until
+    /// they start or stop again, and Resume is accepted (RVC Operational State allows it only while paused).
+    private var pausedRobots: Set<String> = []
     /// The look at the accessories under way: the next one waits for it, so two never add the same device.
     private var syncing: Task<Void, Never>?
     private var observations: [Observation] = []
@@ -265,7 +268,7 @@ public actor HomeswiftMatterBridge: MatterControl {
     /// Reports every state of an accessory: when it is bridged, and when a plugin replaced it.
     private func report(_ accessory: Accessory, mappings: [ServiceMapping], on device: BridgedDevice) async {
         for (index, mapping) in mappings.enumerated() {
-            for state in mapping.states() { await device.update(state, part: index) }
+            for state in mapping.states() { await device.update(robotState(state, id: accessory.id), part: index) }
         }
         if let level = batteryLevel(accessory) { await device.update(.battery(percent: level)) }
         await device.setReachable(!accessory.isUnavailable)
@@ -286,6 +289,23 @@ public actor HomeswiftMatterBridge: MatterControl {
                 throw error
             }
         }
+        guard bridged.mappings[part].role == .cleaningRobot else { return }
+        switch command {
+        case .pauseCleaning:
+            pausedRobots.insert(id)
+            await bridged.device.update(.robot(.paused), part: part)
+        case .startCleaning, .resumeCleaning, .stopCleaning, .returnToDock:
+            pausedRobots.remove(id)
+        default:
+            break
+        }
+    }
+
+    /// A cleaning robot's state, paused rather than stopped while a controller's pause holds.
+    private func robotState(_ state: DeviceState, id: String) -> DeviceState {
+        guard case .robot(let robot) = state else { return state }
+        if robot != .stopped { pausedRobots.remove(id) }
+        return robot == .stopped && pausedRobots.contains(id) ? .robot(.paused) : state
     }
 
     /// The accessory's port: the one it had (unless refused), else the first one after the bridge's that no other
@@ -329,7 +349,7 @@ public actor HomeswiftMatterBridge: MatterControl {
             if let press = ServiceMapping.press(value) { await device.press(press, part: index) }
             return
         }
-        for state in bridged.mappings[index].states(changed: type) { await device.update(state, part: index) }
+        for state in bridged.mappings[index].states(changed: type) { await device.update(robotState(state, id: accessory.id), part: index) }
     }
 
     private func batteryLevel(_ accessory: Accessory) -> UInt8? {

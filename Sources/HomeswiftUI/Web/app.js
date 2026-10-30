@@ -542,7 +542,8 @@
           return el("span", { class: `chip${admin ? " removable" : ""}${system ? " system" : ""}`, title: hint },
             system ? HomeswiftCommon.icon("house") : null, el("span", { text: name }),
             admin ? el("button", { type: "button", class: "icon-button", "aria-label": t("Remove {name}", { name }), title: t("Remove {name}", { name }), onclick: async (event) => {
-              const message = own ? t("{name} loses this device, with its room and automations.", { name })
+              const message = system ? t("{vendor}'s hubs and other devices lose their link to this device: it stops responding there until it is added again.", { vendor })
+                : own ? t("{name} loses this device, with its room and automations.", { name })
                 : t("{name} loses the bridge and every device on it, with their rooms and automations.", { name });
               if (!await HomeswiftCommon.confirmDialog(message)) return;
               await HomeswiftCommon.busyButton(event.currentTarget, async () => {

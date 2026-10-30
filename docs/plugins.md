@@ -168,6 +168,13 @@ pictures a page uploads (`data:` URLs of JPEG, PNG or WebP, checked by their byt
   colour or a white set elsewhere turns it off too. For lights that run transitions themselves, make one with
   `mode: .manual` and `context.configureController(controller, accessoryID:)`: `onUpdate` gets the schedule.
 
+### What a service stands for
+
+HAP has no service type for some devices: a robot vacuum or a pool robot is a Switch in HomeKit. Set
+`Service.standsFor` before `context.add` to say what it is, and the ecosystems that have the type show it as that:
+`.cleaningRobot` makes the switch a Robotic Vacuum Cleaner over Matter (start, stop, pause and go home on the switch,
+docs/matter.md). HomeKit sees the service as it is. The Dolphin Pool Cleaner plugin does it for its robots.
+
 ### The runtime
 
 `PluginHost` (in `HomeswiftPlugin`) owns the bridges and the plugins; `homeswift` is a thin CLI around it.

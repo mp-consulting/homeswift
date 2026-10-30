@@ -112,8 +112,15 @@ struct BridgeFixture {
     /// MRP at a hundredth of its timings: acknowledgements do not hold the exchanges up.
     static let fast = ReliabilityParameters(timeScale: 0.01)
 
+    /// The accessory's device endpoint; throws, without recording an issue, while it is not bridged (an `eventually`
+    /// may wait through a device made again).
     func endpoint(_ id: String) async throws -> EndpointNumber {
-        try #require(await matter.device(for: id)).endpoint
+        guard let device = await matter.device(for: id) else { throw NotBridged(id: id) }
+        return device.endpoint
+    }
+
+    struct NotBridged: Error {
+        let id: String
     }
 
     func read(_ id: String, _ cluster: ClusterID, _ attribute: AttributeID) async throws -> TLVValue {
@@ -360,6 +367,30 @@ struct MatterMappingTests {
         #expect(mapping.writes(for: .resumeCleaning).map(\.1) == [.bool(true)])
         for command in [DeviceCommand.stopCleaning, .pauseCleaning, .returnToDock] { #expect(mapping.writes(for: command).map(\.1) == [.bool(false)]) }
     }
+
+    @Test func reportsAPausedRobotAsPausedUntilItRunsAgain() async throws { try await withFixture { fixture in
+        try await fixture.plugin.addRobot(standsFor: .cleaningRobot)
+        try await eventually {
+            let types = try? await fixture.read("Household:robot", DescriptorCluster.id, DescriptorCluster.Attribute.deviceTypeList)
+            return types?.elements?.first?.value[0]?.uint == UInt64(DeviceTypes.roboticVacuumCleaner.id)
+        }
+        typealias Operational = RvcOperationalStateCluster
+        let state: @Sendable () async throws -> TLVValue = { try await fixture.read("Household:robot", Operational.id, Operational.Attribute.operationalState) }
+        let robot = try await fixture.endpoint("Household:robot")
+        func invoke(_ command: CommandID) async throws {
+            _ = try await fixture.commissioner.client.invoke(CommandPath(endpoint: robot, cluster: Operational.id, command: command),
+                                                             session: fixture.session)
+        }
+        // Start cleaning, then pause: the switch goes off, and the robot is paused, so Resume is accepted.
+        _ = try await fixture.commissioner.client.invoke(
+            CommandPath(endpoint: robot, cluster: RvcRunModeCluster.id, command: RvcRunModeCluster.Command.changeToMode),
+            fields: .structure([.field(0, .unsigned(1))]), session: fixture.session)
+        try await eventually { (try? await state()) == .unsigned(RvcOperationalStateCluster.OperationalStateEnum.running) }
+        try await invoke(Operational.Command.pause)
+        try await eventually { (try? await state()) == .unsigned(RvcOperationalStateCluster.OperationalStateEnum.paused) }
+        try await invoke(Operational.Command.resume)
+        try await eventually { (try? await state()) == .unsigned(RvcOperationalStateCluster.OperationalStateEnum.running) }
+    } }
 
     @Test func makesTheDeviceAgainWhenItsRoleChanges() async throws { try await withFixture { fixture in
         // A plugin replaces its cached switch with one that stands for a cleaning robot: the plug becomes a robot vacuum,
