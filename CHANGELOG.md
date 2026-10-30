@@ -8,6 +8,23 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- A Matter bridge: with a `HomeswiftMatter` block, the plugins' accessories are Matter bridged devices too, both
+  ways, for Google Home, Alexa, SmartThings and Home Assistant (docs/matter.md). Lights, plugs, sensors, blinds,
+  fans, thermostats, buttons, and locks when `exposeSecurity` is on. The Status page's Matter card shows the
+  pairing code and QR code to administrators, adds the bridge to another ecosystem and removes one; the MCP tools
+  `get_matter_status`, `open_matter_commissioning_window` and `remove_matter_fabric` do the same.
+  `homeswift-demo --matter` bridges the demo's accessories over Matter too.
+- An accessory can be a Matter device of its own, with its own pairing code, which Apple Home, Google Home or Alexa
+  add as that device rather than through the bridge: **Make a Matter device** in its ⋯ menu, `set_matter_device`
+  over MCP, or the `HomeswiftMatter` block's `devices` (docs/matter.md). Changes to which accessories are on Matter
+  apply without restarting it.
+- A plugin can say what a service stands for when HomeKit has no type for it (`Service.standsFor`): the Dolphin pool
+  robot's switch is a cleaning robot, a Robotic Vacuum Cleaner over Matter. Apple Home pairs a device of its own
+  (it sends AddNOC's intermediate certificate empty, which swift-matter now takes as none).
+- A Matter device's card on the Status page shows its device type's icon, and each ecosystem by its vendor: Apple
+  Home's unnamed system fabric is a muted chip with a house, to keep. The Accessories graph shows the Matter block's
+  devices (its devices of their own and its bridged ones) under it, with a neutral Matter mark: the Matter logo is for
+  certified products only.
 - Widgets placed freely on the Accessories wall: in Edit, a widget dropped on any cell stays there, gaps included, and
   the others make way; the wall's menu's **Pack the widgets together** lets them flow again. The cells are kept by
   grouping (`positions` in `ui-layout.json`), and `get_wall_layout`/`set_wall_layout` read and write them

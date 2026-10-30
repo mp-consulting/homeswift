@@ -7,9 +7,9 @@ import HomeswiftAI
 /// `check` says what a save would do, `merge` builds the config a save writes.
 ///
 /// Messages are codes with arguments, not sentences, so the web UI words them in its own languages.
-/// The blocks the runtime runs itself (the web UI, the Assistant), not plugins. The catalog and the import share it.
+/// The blocks the runtime runs itself (the web UI, the Assistant, the Matter bridge), not plugins. The catalog and the import share it.
 public enum RuntimePlatforms {
-    public static let all: Set<String> = [AIConfiguration.platform, "HomeswiftUI"]
+    public static let all: Set<String> = [AIConfiguration.platform, "HomeswiftUI", "HomeswiftMatter"]
 }
 
 public enum HomebridgeImport {

@@ -14,6 +14,14 @@ public final class Service: @unchecked Sendable {
     public var iid: Int { iidBox.withLockedValue { $0 } }
 
     private let linkedBox = NIOLockedValueBox<[Service]>([])
+    private let standsForBox = NIOLockedValueBox<ServiceStandsFor?>(nil)
+
+    /// What the service controls when HAP has no service type for it (a switch that runs a pool robot): HomeKit sees
+    /// the service as it is, other ecosystems that have the type (Matter) show it as that. Set before `context.add`.
+    public var standsFor: ServiceStandsFor? {
+        get { standsForBox.withLockedValue { $0 } }
+        set { standsForBox.withLockedValue { $0 = newValue } }
+    }
     /// Services of the same accessory this one groups, listed by iid as `linked`: a Television lists its
     /// input sources and speaker, so the Home app shows them with it.
     public var linked: [Service] {
@@ -118,4 +126,10 @@ public final class Service: @unchecked Sendable {
         }
         return characteristic
     }
+}
+
+/// A device a service stands for, that HAP has no service type for.
+public enum ServiceStandsFor: String, Sendable, Equatable, Codable {
+    /// A cleaning robot (a robot vacuum, a pool robot) on a Switch: On while it cleans.
+    case cleaningRobot
 }

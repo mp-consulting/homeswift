@@ -42,9 +42,13 @@ public struct HomeswiftCatalog: Sendable {
     public let startedAt = Date()
     /// Rooms and hidden accessories, scenes and their automations, notifications: files next to config.json.
     public let home: HomeState
+    /// The Matter bridge, set by the CLI once it runs (the `HomeswiftMatter` block); empty otherwise.
+    public let matter = MatterControlSlot()
     /// The config.schema.json of blocks no plugin provides, by platform: the runtime's own (the web UI's, the
     /// Assistant's), which a save checks as it checks a plugin's.
     let blockSchemas: [String: String]
+    /// The config.schema.json of a block the runtime runs itself, when the catalog was given one.
+    public func blockSchema(for platform: String) -> String? { blockSchemas[platform] }
     let logger: Logger
 
     public init(
@@ -87,7 +91,7 @@ public struct HomeswiftCatalog: Sendable {
     /// log, the cached accessories, the pairings, the child bridges' health, and writing the digest. Hidden from the
     /// principals of users who are not administrators (the web UI's chat, the apps they connect).
     public static let administratorOnly: Set<String> = [
-        "get_config", "list_config_backups", "list_vault", "get_recent_logs", "search_logs", "get_cached_accessories", "get_pairing_info", "get_child_bridge_health",
+        "get_config", "list_config_backups", "list_vault", "get_recent_logs", "search_logs", "get_cached_accessories", "get_pairing_info", "get_matter_status", "get_child_bridge_health",
         "homeswift://logs/recent", "homeswift://child-bridge/{id}", "diagnose-logs", "audit-config", digestRefresh,
     ]
 
@@ -338,6 +342,8 @@ public struct HomeswiftCatalog: Sendable {
             if isInternal(service) { json.field("internal", true) }
             if let name = service[.name]?.value.stringValue { json.field("name", .string(name)) }
             if service.isPrimary { json.field("primary", true) }
+            // What it stands for when HAP has no type for it: the web UI draws a robot vacuum for a cleaning robot.
+            if let standsFor = service.standsFor { json.field("standsFor", .string(standsFor.rawValue)) }
             if let subtype = service.subtype { json.field("subtype", .string(subtype)) }
             json.field("type", .string(service.type.name))
             if !detailed {
@@ -723,10 +729,16 @@ public struct HomeswiftCatalog: Sendable {
         var pending = report.needsRestart
         let services = report.systemBlocksChanged.filter { $0 != AIConfiguration.platform || reloadServices != nil }
         if let reloadServices, !services.isEmpty {
-            // After this reply: the web UI server may be the one answering it.
-            Task {
-                try? await Task.sleep(for: .milliseconds(400))
-                await reloadServices(configuration, services)
+            // The servers that may be answering this request (the web UI, the MCP server) reload after the reply; the
+            // others (Matter) before it, so the reply reflects them.
+            let answering: Set<String> = [AIConfiguration.platform, "HomeswiftUI"]
+            let now = services.filter { !answering.contains($0) }, later = services.filter { answering.contains($0) }
+            if !now.isEmpty { await reloadServices(configuration, now) }
+            if !later.isEmpty {
+                Task {
+                    try? await Task.sleep(for: .milliseconds(400))
+                    await reloadServices(configuration, later)
+                }
             }
         } else {
             pending += services.map { "the \($0) block changed" }
@@ -1165,7 +1177,7 @@ public struct HomeswiftCatalog: Sendable {
                     block[list] = .array(entries)
                 })
             },
-        ] + hostTools + adminTools + layoutTools + wallTools + sceneTools + notificationTools + assistantTools + vaultTools + pluginActionTools
+        ] + hostTools + adminTools + layoutTools + wallTools + sceneTools + notificationTools + assistantTools + vaultTools + matterTools + pluginActionTools
     }
 
     /// `set_accessories` with `ids` or `filter`: one characteristic and value on every target.

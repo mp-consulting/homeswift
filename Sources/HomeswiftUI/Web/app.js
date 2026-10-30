@@ -388,7 +388,13 @@
     const url = new URL(link.href, location.href);
     if (url.origin !== location.origin || url.pathname.startsWith("/api/") || /\.[a-z0-9]+$/i.test(url.pathname) || /^\/plugins\/[^/]+\/?$/.test(url.pathname)) return;
     event.preventDefault();
-    if (url.pathname + url.search !== location.pathname + location.search) navigate(url.pathname + url.search);
+    // Another view, with the place in it to show (/status#matter-<device>); on this view, that place opened and in sight.
+    if (url.pathname + url.search !== location.pathname + location.search) return navigate(url.pathname + url.search + url.hash);
+    const target = url.hash && document.getElementById(decodeURIComponent(url.hash.slice(1)));
+    if (!target) return;
+    history.replaceState(null, "", url.pathname + url.search + url.hash);
+    if (target instanceof HTMLDetailsElement) target.open = true;
+    target.scrollIntoView({ block: "center" });
   });
   // Closing the tab or reloading: the browser asks, when the page has unsaved changes.
   window.addEventListener("beforeunload", (event) => { if (leaveGuard?.quiet && !leaveGuard.quiet()) event.preventDefault(); });
@@ -437,6 +443,18 @@
       }
     });
     stream.addEventListener("log", (event) => appendLogLine(JSON.parse(event.data)));
+    // A Matter node added to an ecosystem, removed from one, or opened for one: its card or row on the Status page is
+    // drawn again, once the burst of changes a pairing makes (the new fabric, the window closing) has settled.
+    const matterChanges = new Map();
+    stream.addEventListener("matter", (message) => {
+      const { device } = JSON.parse(message.data);
+      clearTimeout(matterChanges.get(device));
+      matterChanges.set(device, setTimeout(() => {
+        matterChanges.delete(device);
+        if (location.pathname !== "/status") return;
+        document.getElementById(device ? `matter-${slug(device)}` : "matter")?.refreshMatter?.();
+      }, 500));
+    });
     // The rooms or the wall changed elsewhere (the chat, an MCP client, another page): the Accessories page draws them
     // again, once for a burst, unless the change is the page's own. While it is being edited or a dialog is open over
     // it, the redraw waits for them to end, so a save from Edit does not put back what changed meanwhile.
@@ -476,13 +494,62 @@
     el("div", { class: "who" }, el("h1", { text: title }), subtitle ? el("p", { class: "muted", text: subtitle }) : null),
     tools.filter(Boolean).length ? el("div", { class: "tools" }, ...tools) : null);
 
+  /// A search, an optional filter and an order over a list of cards, on one row; while the search or the filter narrows
+  /// the list, how many it keeps and the way back under it. `entries` are { card, name, text } and more; `orders` are
+  /// [value, label, compare], the first the default, ties by name; `filters` are [value, label, keep], the first keeping
+  /// all. The order and the filter chosen stay in the address under `param` and `filterParam`.
+  const finder = ({ grid, entries, orders, filters = [], param, filterParam, placeholder, sortLabel, filterLabel, empty, counted,
+    emptyClass = "card empty" }) => {
+    const params = new URLSearchParams(location.search);
+    const search = el("input", { type: "search", class: "search", placeholder, "aria-label": placeholder });
+    const choose = (options, label, saved) => {
+      const select = el("select", { class: "popup", "aria-label": label }, options.map(([value, text]) => el("option", { value, text })));
+      select.value = options.some(([value]) => value === saved) ? saved : options[0][0];
+      return select;
+    };
+    const sort = choose(orders, sortLabel, params.get(param));
+    const filter = filters.length ? choose(filters, filterLabel, params.get(filterParam)) : null;
+    const status = el("div", { class: "finder-status", "aria-live": "polite" });
+    const clear = HomeswiftCommon.clearFilters([[search, ""], ...(filter ? [[filter, filters[0][0]]] : [])]);
+    const none = el("p", { class: emptyClass, hidden: true, text: empty });
+    const remember = (name, value) => {
+      const url = new URL(location.href); url.searchParams.set(name, value);
+      history.replaceState(null, "", url.pathname + url.search);
+    };
+    const arrange = () => {
+      const compare = orders.find(([value]) => value === sort.value)[2];
+      const collator = new Intl.Collator(undefined, { numeric: true });
+      grid.append(...[...entries].sort((a, b) => compare(a, b) || collator.compare(a.name, b.name) || a.text.localeCompare(b.text)).map(({ card }) => card));
+    };
+    const narrow = () => {
+      const query = search.value.trim().toLocaleLowerCase();
+      const keep = filter ? filters.find(([value]) => value === filter.value)[2] : () => true;
+      let visible = 0;
+      for (const entry of entries) {
+        entry.card.hidden = !(keep(entry) && entry.text.toLocaleLowerCase().includes(query));
+        if (!entry.card.hidden) visible++;
+      }
+      const narrowed = query || (filter && filter.value !== filters[0][0]);
+      status.replaceChildren(...(narrowed ? [el("span", { text: counted(visible, entries.length) }), clear] : []));
+      none.hidden = visible > 0;
+    };
+    sort.addEventListener("change", () => { arrange(); remember(param, sort.value); });
+    filter?.addEventListener("change", () => { narrow(); remember(filterParam, filter.value); });
+    search.addEventListener("input", narrow);
+    arrange();
+    if (filter && filter.value !== filters[0][0]) narrow();
+    return [el("div", { class: `catalog-toolbar${filter ? " with-filter" : ""}` }, search, filter, sort), status, grid, none];
+  };
+
   // /status?since=24h&bridge=<bridge>&accessory=<accessory>: the activity charts' range and whose durations they show,
   // as on the Logs page.
   views.status = async (main) => {
-    const [status, accessories] = await Promise.all([
+    const [status, accessories, matter] = await Promise.all([
       api("/api/status"),
       api("/api/accessories").then((list) => withSlugs(list, "accessory")).catch(() => []),
+      api("/api/matter").catch(() => null),
     ]);
+    rememberMatterOwn(matter);
     $("#banner").classList.toggle("hidden", !status.restartNeeded || !isAdmin());
     const waiting = status.bridges.filter((bridge) => !bridge.paired);
     const [health, healthKind] = status.restartNeeded ? [t("Running; some changes need a restart"), "away"]
@@ -491,24 +558,175 @@
     const plugins = new Set(status.bridges.filter((bridge) => !bridge.external).flatMap((bridge) => bridge.platforms));
     const main0 = status.bridges.find((bridge) => !bridge.childBridge && !bridge.external);
 
-    const bridges = status.bridges.map((bridge, index) => {
+    // A server's heading (icon, name, role, state) and the rest of its card: a bridge's card shows both; an accessory of
+    // its own is a row of the devices list, its heading the row and the rest unfolded.
+    const bridgeParts = (bridge, index) => {
       const kind = bridge.external ? "accessory" : bridge.childBridge ? "child" : "bridge";
       const tone = { accessory: "blue", child: "violet", bridge: "orange" }[kind];
       const role = bridge.external ? (bridge.platforms.length ? t("Accessory of its own, from {plugins}", { plugins: bridge.platforms.join(", ") }) : t("Accessory of its own, from a plugin")) : bridge.childBridge ? t("Child bridge") : t("Main bridge");
-      return el("div", { class: "card server" },
-        el("div", { class: "server-head" },
-          tile(kind, tone),
+      return {
+        head: [tile(kind, tone),
           el("div", { class: "who" }, el("strong", { text: bridge.name }), el("div", { class: "muted", text: role })),
-          el("span", { class: `pill status ${bridge.paired ? "on" : "away"}`, text: bridge.paired ? t("Paired · {count}", { count: bridge.controllers }) : t("Not paired"), title: bridge.paired ? tn("{n} Home app controller", "{n} Home app controllers", bridge.controllers) : "" })),
-        el("div", { class: "facts lead" },
+          el("span", { class: `pill status ${bridge.paired ? "on" : "away"}`, text: bridge.paired ? t("Paired · {count}", { count: bridge.controllers }) : t("Not paired"), title: bridge.paired ? tn("{n} Home app controller", "{n} Home app controllers", bridge.controllers) : "" })],
+        body: () => [el("div", { class: "facts lead" },
           fact(t("Device ID"), bridge.deviceId, { class: "mono" }), fact(t("Port"), bridge.port ?? "?"), fact(t("Accessories"), bridge.accessories)),
         !bridge.external && bridge.platforms.length ? el("div", { class: "chips" }, bridge.platforms.map((name) => el("span", { class: "chip", text: name }))) : null,
         bridge.setupCode ? el("div", { class: "setup" },
-          el("img", { class: "qr", src: `/api/qr/${index}.svg`, alt: t("Pairing QR code"), width: 148, height: 148 }),
+          el("img", { class: "qr", src: `/api/qr/${index}.svg`, alt: t("Pairing QR code"), width: 148, height: 148, loading: "lazy" }),
           el("div", {},
             el("p", { text: t("In the Home app: Add Accessory, then scan this code, or choose More options and type it.") }),
-            el("div", { class: "code", text: bridge.setupCode }))) : null);
-    });
+            el("div", { class: "code", text: bridge.setupCode }))) : null],
+        waiting: !bridge.paired,
+        search: [bridge.name, ...bridge.platforms, bridge.deviceId].join(" "),
+      };
+    };
+    const serverCard = ({ head, body }, id) => el("div", { class: "card server", id }, el("div", { class: "server-head" }, ...head), ...body());
+    // A device of its own as one line that unfolds; its details are built the first time it opens, so a hundred folded
+    // rows stay a hundred lines.
+    const deviceRow = ({ head, body, search }, id, open) => {
+      const row = el("details", { class: "device-row", id, "data-search": search.toLowerCase() }, el("summary", {}, ...head, HomeswiftCommon.icon("forward")));
+      const unfold = () => { if (row.open && row.childElementCount === 1) row.append(el("div", { class: "device-row-body" }, ...body())); };
+      row.addEventListener("toggle", unfold);
+      row.open = open;
+      unfold();
+      return row;
+    };
+    const bridges = status.bridges.map((bridge, index) => bridge.external ? null : serverCard(bridgeParts(bridge, index)));
+
+    // The Matter bridge, when the HomeswiftMatter block runs one, and each accessory that is a Matter device of its
+    // own: drawn again after an administrator's change.
+    // A device's icon from the role Matter has it in (its first part's): a robot vacuum, a light, a plug...
+    const matterIcons = { cleaningRobot: "vacuum", light: "bulb", plug: "outlet", contact: "door", occupancy: "sensor", temperature: "sensor",
+      humidity: "sensor", illuminance: "sensor", leak: "drop", covering: "blind", fan: "fan", thermostat: "thermo", lock: "lock",
+      button: "switch", airQuality: "wind", alarm: "bell", valve: "drop" };
+    // The ecosystems a fabric's vendor id says it is (Connectivity Standards Alliance vendor ids).
+    const matterVendors = { "0x1349": "Apple Home", "0x1384": "Apple Home", "0x6006": "Google Home", "0x1217": "Alexa" };
+    const matterIcon = (node) => matterIcons[String(node.types?.[0] ?? "").split("(")[0]] ?? "accessory";
+    const matterParts = (node, own, refresh) => {
+      const base = own ? `/api/matter/devices/${encodeURIComponent(node.id)}` : "/api/matter";
+      const fabrics = node.fabrics || [];
+      const admin = isAdmin();
+      // Whose fabric it is, by its vendor id: an unnamed one of Apple Home's is its own system fabric (it reaches the
+      // device from the other Apple devices and hubs), shown muted with a house.
+      const named = fabrics.map((fabric) => {
+        const vendor = matterVendors[fabric.vendorId];
+        const system = Boolean(!fabric.label && vendor);
+        return { fabric, vendor, system, name: fabric.label || (vendor ? t("{vendor} system", { vendor }) : t("Ecosystem {index}", { index: fabric.index })) };
+      });
+      // A device's row says where it was added (the homes people named, not the system links); the bridge's card, what
+      // it is for.
+      const where = named.filter((one) => !one.system).map((one) => one.name).join(" · ") || named.map((one) => one.name).join(" · ");
+      return {
+        // A device's own icon, tagged with Matter's glyph: the list mixes Matter devices with HomeKit accessories.
+        head: [own ? el("span", { class: "tile-tagged", title: t("Matter") }, tile(matterIcon(node), "green"), el("span", { class: "tile-tag", "aria-hidden": "true" }, HomeswiftCommon.icon("matter")))
+          : tile("matter", "green"),
+          el("div", { class: "who" }, el("strong", { text: own ? node.name : t("Matter bridge") }),
+            el("div", { class: "muted", text: !own ? t("For Google Home, Alexa, SmartThings and Home Assistant") : where ? t("Matter · {ecosystems}", { ecosystems: where }) : t("Matter device of its own") })),
+          el("span", { class: `pill status ${fabrics.length ? "on" : "away"}`, text: fabrics.length ? tn("In one ecosystem", "In {n} ecosystems", fabrics.length) : t("Not added yet") })],
+        body: () => [el("div", { class: "facts lead" }, fact(t("Port"), node.port), own ? null : fact(t("Accessories"), (node.devices || []).length)),
+        fabrics.length ? el("div", { class: "chips" }, named.map(({ fabric, vendor, system, name }) => {
+          const hint = system ? t("{vendor}'s own link to the device, from your other devices and hubs: keep it.", { vendor }) : vendor ?? "";
+          return el("span", { class: `chip${admin ? " removable" : ""}${system ? " system" : ""}`, title: hint },
+            system ? HomeswiftCommon.icon("house") : null, el("span", { text: name }),
+            admin ? el("button", { type: "button", class: "icon-button", "aria-label": t("Remove {name}", { name }), title: t("Remove {name}", { name }), onclick: async (event) => {
+              const message = system ? t("{vendor}'s hubs and other devices lose their link to this device: it stops responding there until it is added again.", { vendor })
+                : own ? t("{name} loses this device, with its room and automations.", { name })
+                : t("{name} loses the bridge and every device on it, with their rooms and automations.", { name });
+              if (!await HomeswiftCommon.confirmDialog(message)) return;
+              await HomeswiftCommon.busyButton(event.currentTarget, async () => {
+                await api(`${base}/fabrics/${fabric.index}/remove`, { method: "POST", body: {} });
+                await refresh();
+              });
+            } }, HomeswiftCommon.icon("close")) : null);
+        })) : null,
+        node.pairing ? el("div", { class: "setup" },
+          el("img", { class: "qr", src: `${base}/qr.svg`, alt: t("Pairing QR code"), width: 148, height: 148, loading: "lazy" }),
+          el("div", {},
+            el("p", { text: own ? t("In the Home app (or another ecosystem's): add an accessory, then scan this code or type it.")
+              : t("In the ecosystem's app: add a Matter device, then scan this code or type it.") }),
+            el("div", { class: "code", text: node.pairing.manualCode.replace(/^(\d{4})(\d{3})(\d{4})$/, "$1-$2-$3") })))
+          : admin ? (() => {
+            // What it does, under it (a phone shows no hover text): Matter lets several apps share a device, each
+            // adding it with its own code.
+            const what = own ? t("Shows a new pairing code for 15 minutes, so another app (Google Home, Alexa, Home Assistant or another home in Apple Home) can add this device too. The ecosystems it is in keep it.")
+              : t("Shows a new pairing code for 15 minutes, so another app (Google Home, Alexa, Home Assistant or another home in Apple Home) can add the bridge and its devices too. The ecosystems it is in keep them.");
+            return el("div", { class: "actions add-ecosystem" },
+              el("button", { class: "link", actionIcon: "plus", text: t("Add to another ecosystem"), title: what,
+                onclick: (event) => HomeswiftCommon.busyButton(event.currentTarget, async () => {
+                  await api(`${base}/window`, { method: "POST", body: { minutes: 15 } });
+                  await refresh();
+                }) }),
+              el("p", { class: "muted", text: what }));
+          })() : null],
+        // In no ecosystem yet: its code is what the person needs.
+        waiting: !fabrics.length,
+        search: [node.name ?? "", ...named.map((one) => one.name)].join(" "),
+      };
+    };
+    // The Matter bridge's card, or a device's row: drawn again after an administrator's change, a row kept open and as
+    // the search left it.
+    const matterNode = (node, own, open = false) => {
+      const id = own ? `matter-${slug(node.id)}` : "matter";
+      const refresh = async () => {
+        const next = await api("/api/matter");
+        const fresh = own ? (next.ownDevices || []).find((device) => device.id === node.id) : next;
+        if (!fresh) return element.remove();
+        const replacement = matterNode(fresh, own, own && element.open);
+        replacement.hidden = element.hidden;
+        element.replaceWith(replacement);
+      };
+      const parts = matterParts(node, own, refresh);
+      const element = own ? deviceRow(parts, id, open) : serverCard(parts, id);
+      // Drawn again when the bridge says the node changed (the event stream's "matter").
+      element.refreshMatter = refresh;
+      // Reached from an accessory's menu: brought into view (its row opened by the list).
+      if (location.hash === `#${id}`) requestAnimationFrame(() => element.scrollIntoView({ block: "center" }));
+      return element;
+    };
+
+    // Accessories and Matter devices of their own, one line each, those waiting to be added first: a home may have a
+    // hundred, which cards would bury the bridges under. Built on each draw (Customise draws the section again), with a
+    // search once the list is long.
+    const devicesCard = () => {
+      const external = status.bridges.flatMap((bridge, index) => {
+        if (!bridge.external) return [];
+        const parts = bridgeParts(bridge, index);
+        const id = `accessory-${slug(bridge.deviceId)}`;
+        return [{ name: bridge.name, id, kind: "homekit", ecosystems: bridge.paired ? 1 : 0, waiting: parts.waiting, make: (open) => deviceRow(parts, id, open) }];
+      });
+      const own = !matter?.enabled ? [] : (matter.ownDevices || []).map((device) => ({
+        name: device.name, id: `matter-${slug(device.id)}`, kind: "matter", ecosystems: (device.fabrics || []).length,
+        waiting: !(device.fabrics || []).length, make: (open) => matterNode(device, true, open) }));
+      const entries = [...external, ...own];
+      if (!entries.length) return null;
+      const waiting = entries.filter((entry) => entry.waiting).length;
+      const list = el("div", { class: "device-rows" });
+      // One or two to add come open, their codes in view; more stay folded, their pills saying so. One an accessory's
+      // menu links to opens. A row redrawn after a change replaces its element: the entry finds it by its id.
+      for (const entry of entries) {
+        const row = entry.make((entry.waiting && waiting <= 2) || location.hash === `#${entry.id}`);
+        list.append(row);
+        entry.text = row.dataset.search;
+        Object.defineProperty(entry, "card", { get: () => list.querySelector(`#${CSS.escape(entry.id)}`) });
+      }
+      const head = el("div", { class: "devices-head" },
+        el("div", { class: "who" }, el("strong", { text: t("Devices of their own") }),
+          el("div", { class: "muted", text: waiting ? tn("{count} devices · one waits to be added", "{count} devices · {n} wait to be added", waiting, { count: entries.length })
+            : tn("One device, with its own pairing", "{n} devices, each with its own pairing", entries.length) })));
+      // A short list is read at a glance; a long one is searched, filtered by kind and sorted.
+      if (entries.length <= 8) {
+        const collator = new Intl.Collator(undefined, { numeric: true });
+        list.append(...entries.sort((a, b) => Number(b.waiting) - Number(a.waiting) || collator.compare(a.name, b.name)).map((entry) => entry.card));
+        return el("div", { class: "card devices" }, head, list);
+      }
+      return el("div", { class: "card devices" }, head, ...finder({ grid: list, entries, param: "devices", filterParam: "show",
+        orders: [["waiting", t("Waiting to be added first"), (a, b) => Number(b.waiting) - Number(a.waiting)], ["name", t("Name A–Z"), () => 0],
+          ["ecosystems", t("Most ecosystems"), (a, b) => b.ecosystems - a.ecosystems]],
+        filters: [["all", t("All devices"), () => true], ["matter", t("Matter"), (entry) => entry.kind === "matter"],
+          ["homekit", t("HomeKit"), (entry) => entry.kind === "homekit"], ["waiting", t("Waiting to be added"), (entry) => entry.waiting]],
+        placeholder: t("Search devices"), sortLabel: t("Sort devices"), filterLabel: t("Show devices"), empty: t("No device matches."),
+        emptyClass: "muted", counted: (shown, total) => t("{shown} of {total} devices", { shown, total }) }));
+    };
 
     // The page is widgets the user can hide and order (Customise, at the bottom; Glass UI's dashboard layout),
     // drawn only when shown: the activity charts load nothing while hidden.
@@ -527,7 +745,7 @@
       activity: () => activity(accessories, withSlugs(status.bridges, "bridge")),
       energy: () => energy(),
       bridges: () => [el("h2", { text: status.bridges.length === 1 ? t("Bridge") : t("Bridges and accessories") }),
-      el("div", { class: "servers" }, ...bridges)],
+      el("div", { class: "servers" }, ...bridges, matter?.enabled && matter.bridge !== false ? matterNode(matter, false) : null, devicesCard())],
       system: () => [el("h2", { text: t("System") }),
       el("div", { class: "card server" },
         el("div", { class: "server-head" }, tile("system", "grey"),
@@ -1308,6 +1526,33 @@
     sensor: t("sensor"), camera: t("camera"), inspector: t("other accessory"),
   };
 
+  // The accessories that are Matter devices of their own (/api/matter), for their menus: the pages with accessory
+  // menus (Accessories, Status's quick section) keep it current.
+  let matterOwn = new Set();
+  const rememberMatterOwn = (matter) => { matterOwn = new Set((matter?.ownDevices || []).map((device) => device.id)); };
+  const loadMatterOwn = () => api("/api/matter").then(rememberMatterOwn).catch(() => {});
+
+  /// An accessory as a Matter device of its own, with its own pairing code (the Status page shows it), or back off.
+  function matterActions(accessory) {
+    const card = `/status#matter-${slug(accessory.id)}`;
+    const set = async (own) => {
+      try {
+        await api(`/api/matter/devices/${encodeURIComponent(accessory.id)}`, { method: "PUT", body: { own } });
+        // The reply comes once Matter has the change: the Status page then shows the device's code.
+        if (own) { matterOwn.add(accessory.id); navigate(card); } else { matterOwn.delete(accessory.id); route(); }
+      } catch (e) { HomeswiftCommon.showAlert(e.message); }
+    };
+    if (!matterOwn.has(accessory.id)) {
+      return [{ label: t("Make a Matter device"), icon: "link", onSelect: () => set(true) }];
+    }
+    return [
+      { label: t("Matter pairing code"), icon: "link", href: card },
+      { label: t("Take off Matter"), icon: "close", onSelect: async () => {
+        if (await HomeswiftCommon.confirmDialog(t("{name} leaves Matter: the ecosystems that added it lose it.", { name: accessory.name }))) await set(false);
+      } },
+    ];
+  }
+
   /// What the menu of an accessory's widget offers, after its sizes.
   /// An accessory's ⋯ menu after All controls, in groups as a context menu orders them: what to look at or do with
   /// it, how it sits on the wall (`arrange`, the wall's size choices, first), then the administrator's way to its
@@ -1325,6 +1570,7 @@
         try { await setPaused(accessory.platform, accessory.platformName, false); route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
       } } : null,
       isAdmin() ? { label: t("Show its log"), icon: "logs", href: `/logs/${accessory.slug ?? encodeURIComponent(accessory.id)}` } : null,
+      ...(isAdmin() && !accessory.mirroredFrom ? matterActions(accessory) : []),
       accessory.platform && isAdmin() ? { label: t("Plugin settings"), icon: "gear", href: `/plugins/${slug(accessory.platformName || accessory.platform)}` } : null,
     ];
     return [use, layout, manage].map((group) => group.filter(Boolean)).filter((group) => group.length)
@@ -1338,7 +1584,8 @@
 
   views.accessories = async (main, args = []) => {
     if (args[0] === "graph") return HomeswiftAdmin.graph(main, accessoryTabs("graph"));
-    const [list, saved, home] = await Promise.all([api("/api/accessories"), api("/api/layout").catch(() => null), api("/api/rooms").catch(() => ({ rooms: [] }))]);
+    const [list, saved, home] = await Promise.all([api("/api/accessories"), api("/api/layout").catch(() => null), api("/api/rooms").catch(() => ({ rooms: [] })),
+      isAdmin() ? loadMatterOwn() : null]);
     const all = withSlugs(list, "accessory");
     const params = new URLSearchParams(location.search);
     // Hidden accessories (an accessory's ⋯ menu) only with ?hidden=1.
@@ -2092,41 +2339,6 @@
       }
     }
 
-    /// A search and an order over a grid of cards, on one row; while a search narrows the grid, how many it keeps and
-    /// the way back under it. `entries` are { card, name, text } and more; `orders` are [value, label, compare] after
-    /// Name A–Z, ties by name; the order chosen stays in the address under `param`.
-    const finder = ({ grid, entries, orders: more, param, placeholder, sortLabel, empty }) => {
-      const orders = [["name", t("Name A–Z"), () => 0], ...more];
-      const search = el("input", { type: "search", class: "search", placeholder, "aria-label": placeholder });
-      const status = el("div", { class: "finder-status", "aria-live": "polite" });
-      const clear = HomeswiftCommon.clearFilters([[search, ""]]);
-      const none = el("p", { class: "card empty", hidden: true, text: empty });
-      const sort = el("select", { class: "popup", "aria-label": sortLabel }, orders.map(([value, text]) => el("option", { value, text })));
-      const saved = new URLSearchParams(location.search).get(param);
-      sort.value = orders.some(([value]) => value === saved) ? saved : orders[0][0];
-      const arrange = () => {
-        const compare = orders.find(([value]) => value === sort.value)[2];
-        grid.append(...[...entries].sort((a, b) => compare(a, b) || a.name.localeCompare(b.name) || a.text.localeCompare(b.text)).map(({ card }) => card));
-      };
-      sort.addEventListener("change", () => {
-        arrange();
-        const url = new URL(location.href); url.searchParams.set(param, sort.value);
-        history.replaceState(null, "", url.pathname + url.search);
-      });
-      search.addEventListener("input", () => {
-        const query = search.value.trim().toLocaleLowerCase();
-        let visible = 0;
-        for (const entry of entries) {
-          entry.card.hidden = !entry.text.toLocaleLowerCase().includes(query);
-          if (!entry.card.hidden) visible++;
-        }
-        status.replaceChildren(...(query ? [el("span", { text: t("{shown} of {total} plugins", { shown: visible, total: entries.length }) }), clear] : []));
-        none.hidden = visible > 0;
-      });
-      arrange();
-      return [el("div", { class: "catalog-toolbar" }, search, sort), status, grid, none];
-    };
-
     // Your plugins: by name, those that need a look first (no plugin, not running, paused), or by their accessories.
     const blocks = plugins.blocks.map((block) => {
       const plugin = byPlatform.get(block.platform), instance = running(block);
@@ -2135,13 +2347,15 @@
         text: [block.name, block.platform, plugin?.name, instance?.bridge].filter(Boolean).join(" ") };
     });
     const installed = finder({ grid: el("div", { class: "grid plugin-instances" }), entries: blocks, param: "order",
-      orders: [["attention", t("Needs attention first"), (a, b) => a.attention - b.attention],
+      orders: [["name", t("Name A–Z"), () => 0], ["attention", t("Needs attention first"), (a, b) => a.attention - b.attention],
         ["accessories", t("Most accessories"), (a, b) => b.accessories - a.accessories]],
-      placeholder: t("Search your plugins"), sortLabel: t("Sort your plugins"), empty: t("No plugin of yours matches the search.") });
+      placeholder: t("Search your plugins"), sortLabel: t("Sort your plugins"), empty: t("No plugin of yours matches the search."),
+      counted: (shown, total) => t("{shown} of {total} plugins", { shown, total }) });
     const available = finder({ grid: el("div", { class: "grid plugin-catalog" }), param: "sort", entries: catalogEntries,
-      orders: [["used", t("In use first"), (a, b) => Number(b.used) - Number(a.used)],
+      orders: [["name", t("Name A–Z"), () => 0], ["used", t("In use first"), (a, b) => Number(b.used) - Number(a.used)],
         ["available", t("Available first"), (a, b) => Number(a.used) - Number(b.used)]],
-      placeholder: t("Search plugins"), sortLabel: t("Sort plugins"), empty: t("No plugin matches the search.") });
+      placeholder: t("Search plugins"), sortLabel: t("Sort plugins"), empty: t("No plugin matches the search."),
+      counted: (shown, total) => t("{shown} of {total} plugins", { shown, total }) });
     show(main,
       pageHead(t("Plugins"), t("The blocks of config.json. A save applies at once: the plugin reloads with its accessories kept.")),
       // Blocks no plugin here runs, by the names the cards show (Homebridge's own blocks, from an imported config).

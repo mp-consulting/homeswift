@@ -198,9 +198,9 @@ sends you back.
 
 | Scope | Tools |
 |---|---|
-| `read` | `get_server_status`, `list_accessories`, `get_accessory`, `get_accessory_history`, `list_plugins`, `get_config`, `list_config_backups`, `list_vault`, `get_recent_logs`, `search_logs`, `get_system_info`, `list_child_bridges`, `get_child_bridge_health`, `get_cached_accessories`, `get_pairing_info`, `list_backups`, `get_accessory_layout`, `get_wall_layout`, `list_scenes`, `list_scene_templates`, `get_assistant_usage`, `get_daily_digest` |
+| `read` | `get_server_status`, `list_accessories`, `get_accessory`, `get_accessory_history`, `list_plugins`, `get_config`, `list_config_backups`, `list_vault`, `get_recent_logs`, `search_logs`, `get_system_info`, `list_child_bridges`, `get_child_bridge_health`, `get_cached_accessories`, `get_pairing_info`, `get_matter_status`, `list_backups`, `get_accessory_layout`, `get_wall_layout`, `list_scenes`, `list_scene_templates`, `get_assistant_usage`, `get_daily_digest` |
 | `control` | Plus `set_accessory`, `set_accessories` (with `dryRun`), `set_security_accessory`, `identify_accessory`, `run_scene` (a saved scene, a hub's, or a `plan`), `stop_scene` |
-| `admin` | Plus `update_config`, `patch_config`, `restore_config`, `migrate_to_vault` (with `dryRun`), `put_list_entry`, `restart_bridge`, `restart_child_bridge`, `stop_child_bridge`, `start_child_bridge`, `remove_cached_accessory`, `reset_cached_accessories`, `reset_pairings`, `create_backup`, `get_audit_log`, `update_bridge_settings`, `set_accessory_layout`, `set_wall_layout`, `save_scene` (with `dryRun`), `update_hub_scene` (with `dryRun`), `delete_hub_scene`, `send_test_notification`, `truncate_logs`, `test_assistant_connection` |
+| `admin` | Plus `update_config`, `patch_config`, `restore_config`, `migrate_to_vault` (with `dryRun`), `put_list_entry`, `restart_bridge`, `restart_child_bridge`, `stop_child_bridge`, `start_child_bridge`, `remove_cached_accessory`, `reset_cached_accessories`, `reset_pairings`, `open_matter_commissioning_window`, `remove_matter_fabric`, `set_matter_device`, `create_backup`, `get_audit_log`, `update_bridge_settings`, `set_accessory_layout`, `set_wall_layout`, `save_scene` (with `dryRun`), `update_hub_scene` (with `dryRun`), `delete_hub_scene`, `send_test_notification`, `truncate_logs`, `test_assistant_connection` |
 
 A token sees only the tools its scope allows. Locks, garage doors and alarms (Lock Target State, Target
 Door State, Security System Target State, Lock Control Point) change only through `set_security_accessory`;
@@ -335,7 +335,7 @@ theirs carries `structuredContent`; a client on an older protocol version gets t
 
 `set_security_accessory`, `update_config`, `patch_config`, `restore_config`, `put_list_entry`,
 `restart_bridge`, `restart_child_bridge`, `stop_child_bridge`, `remove_cached_accessory`,
-`reset_cached_accessories`, `reset_pairings`, `update_bridge_settings`, `migrate_to_vault` and `truncate_logs` ask the user before running, as do plugin actions marked
+`reset_cached_accessories`, `reset_pairings`, `remove_matter_fabric`, `update_bridge_settings`, `migrate_to_vault` and `truncate_logs` ask the user before running, as do plugin actions marked
 to confirm. When the client supports MCP elicitation, the server asks
 through it. A tool with a dry run is run as one first: the question lists what would change, each setting
 with its new value, and carries the dry run's answer in `_meta` (`homeswift/preview`) for a client that

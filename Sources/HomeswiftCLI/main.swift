@@ -2,6 +2,7 @@ import Foundation
 import Homeswift
 import HomeswiftAI
 import HomeswiftMCP
+import HomeswiftMatter
 import HomeswiftPlugin
 import HomeswiftUI
 import Logging
@@ -180,6 +181,7 @@ let host: PluginHost
 do {
     var hostOptions = PluginHost.Options(logger: logger)
     hostOptions.systemPlatforms.insert(UIConfiguration.platform)
+    hostOptions.systemPlatforms.insert(MatterConfiguration.platform)
     host = try PluginHost(configuration: configuration, registry: registry, storageDirectory: storagePath, options: hostOptions)
 } catch {
     fail("\(error)")
@@ -203,6 +205,8 @@ let shutdown: @Sendable () async -> Void = { [host, mcpServer, uiServer] in
     await uiServer.withLockedValue { $0 }?.stop()
     logger.info("Shutdown: stopping MCP server")
     await mcpServer.withLockedValue { $0 }?.stop()
+    logger.info("Shutdown: stopping Matter bridge")
+    await homeCatalog.withLockedValue { $0 }?.matter.current?.stop()
     logger.info("Shutdown: stopping plugins and bridges")
     await host.stop()
     logger.info("Shutdown: flushing metrics and logs")
@@ -236,6 +240,11 @@ let main = Task {
                 mcpServer.withLockedValue { $0 = started }
                 logger.info(started == nil ? "MCP server stopped" : "MCP server restarted with the new settings")
             }
+            if platforms.contains(MatterConfiguration.platform) {
+                if let bridge = await MatterCommands.reload(catalog: catalog, configuration: next, logger: logger) {
+                    say(await MatterCommands.bannerLines(bridge))
+                }
+            }
             if platforms.contains(UIConfiguration.platform) {
                 // The old server goes first: the new one usually wants the same port.
                 await uiServer.withLockedValue { $0 }?.stop()
@@ -255,7 +264,8 @@ let main = Task {
                 }
             }
         },
-        blockSchemas: [UIConfiguration.platform: UIConfiguration.schemaJSON, AIConfiguration.platform: AIConfiguration.schemaJSON],
+        blockSchemas: [UIConfiguration.platform: UIConfiguration.schemaJSON, AIConfiguration.platform: AIConfiguration.schemaJSON,
+                       MatterConfiguration.platform: MatterConfiguration.schemaJSON],
         logger: logger)
     catalogBox.withLockedValue { $0 = catalog }
     homeCatalog.withLockedValue { $0 = catalog }
@@ -269,6 +279,9 @@ let main = Task {
     if let started = await UICommands.startServer(catalog: catalog, configuration: configuration, mcp: { mcpServer.withLockedValue { $0 } }, logger: logger) {
         uiServer.withLockedValue { $0 = started }
     }
+    // The Matter switch asks the mapping whether an accessory can be a device, with Matter on or off.
+    catalog.matter.maps = { HomeswiftMatterBridge.maps($0, exposeSecurity: $1) }
+    let startedMatter = await MatterCommands.start(catalog: catalog, configuration: configuration, logger: logger)
     for bridge in host.bridges {
         let server = bridge.server
         let platforms = host.platforms.filter { $0.bridge === bridge }.map(\.name)
@@ -294,11 +307,13 @@ let main = Task {
         }
         return line
     } ?? ""
+    var matterLine = ""
+    if let startedMatter { matterLine = await MatterCommands.bannerLines(startedMatter) }
     say("""
 
         In the Home app: Add Accessory > More options > \(host.mainBridge.name), then enter the code.\(host.bridges.contains(where: \.isExternal) ? " Accessories listed on their own are added the same way, one by one." : "")
         Config: \(configURL.path)
-        \(uiLine)\(mcpLine)
+        \(uiLine)\(mcpLine)\(matterLine)
         """)
     while !Task.isCancelled {
         try? await Task.sleep(for: .seconds(3600))

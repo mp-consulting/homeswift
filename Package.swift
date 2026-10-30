@@ -11,6 +11,7 @@ let package = Package(
         .library(name: "HomeswiftAI", targets: ["HomeswiftAI"]),
         .library(name: "HomeswiftMCP", targets: ["HomeswiftMCP"]),
         .library(name: "HomeswiftUI", targets: ["HomeswiftUI"]),
+        .library(name: "HomeswiftMatter", targets: ["HomeswiftMatter"]),
         .library(name: "HomeswiftNetwork", targets: ["HomeswiftNetwork"]),
         .library(name: "HomeswiftFFmpeg", targets: ["HomeswiftFFmpeg"]),
         .library(name: "HomeswiftElgatoKeyLights", targets: ["HomeswiftElgatoKeyLights"]),
@@ -35,6 +36,8 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-crypto.git", "3.0.0"..<"5.0.0"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.11.0"),
         .package(url: "https://github.com/apple/swift-nio-ssl.git", from: "2.37.0"),
+        // The Matter protocol (HomeswiftMatter).
+        .package(url: "https://github.com/mp-consulting/swift-matter.git", from: "0.4.1"),
     ],
     targets: [
         // Bonjour on Linux goes through Avahi's dns_sd compatibility layer; macOS has dns_sd built in.
@@ -101,6 +104,17 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
             ],
             exclude: ["Web"]
+        ),
+        // The Matter bridge: the plugins' accessories as Matter bridged devices, both ways, for Google Home, Alexa,
+        // SmartThings and Home Assistant. A system platform the CLI starts, like the web UI.
+        .target(
+            name: "HomeswiftMatter",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftMCP",
+                .product(name: "Matter", package: "swift-matter"),
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ]
         ),
         // What plugins need to reach devices and clouds: an HTTP client that can trust a self-signed certificate and
         // pin it, HTTP Digest authentication, Wake-on-LAN, a WebSocket client, an MQTT 3.1.1 client (TCP, TLS with a
@@ -272,7 +286,7 @@ let package = Package(
         .executableTarget(
             name: "HomeswiftCLI",
             dependencies: [
-                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftMCP", "HomeswiftUI", "HomeswiftElgatoKeyLights", "HomeswiftPhilipsAmbilightTV", "HomeswiftDolphinPoolCleaner", "HomeswiftDysonPureCool", "HomeswiftUniFiAccess", "HomeswiftDaikinCloud", "HomeswiftEWeLink", "HomeswiftLGThinQ", "HomeswiftGovee", "HomeswiftUniFiProtect", "HomeswiftWingman", "HomeswiftPhilipsHue", "HomeswiftDirigera", "HomeswiftEcoFlow",
+                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftMCP", "HomeswiftUI", "HomeswiftMatter", "HomeswiftElgatoKeyLights", "HomeswiftPhilipsAmbilightTV", "HomeswiftDolphinPoolCleaner", "HomeswiftDysonPureCool", "HomeswiftUniFiAccess", "HomeswiftDaikinCloud", "HomeswiftEWeLink", "HomeswiftLGThinQ", "HomeswiftGovee", "HomeswiftUniFiProtect", "HomeswiftWingman", "HomeswiftPhilipsHue", "HomeswiftDirigera", "HomeswiftEcoFlow",
                 .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
             ],
@@ -286,7 +300,10 @@ let package = Package(
                     .when(platforms: [.macOS])),
             ]
         ),
-        .executableTarget(name: "homeswift-demo", dependencies: ["Homeswift"]),
+        .executableTarget(
+            name: "homeswift-demo",
+            dependencies: ["Homeswift", "HomeswiftMatter", .product(name: "NIOConcurrencyHelpers", package: "swift-nio")]
+        ),
         .testTarget(
             name: "HomeswiftTests",
             dependencies: ["Homeswift", .product(name: "Logging", package: "swift-log")]
@@ -298,10 +315,18 @@ let package = Package(
         .testTarget(
             name: "HomeswiftUITests",
             dependencies: [
-                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftMCP", "HomeswiftUI", "HomeswiftElgatoKeyLights", "HomeswiftNetwork",
+                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftMCP", "HomeswiftUI", "HomeswiftMatter", "HomeswiftElgatoKeyLights", "HomeswiftNetwork",
                 .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ]
+        ),
+        .testTarget(
+            name: "HomeswiftMatterTests",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftMatter",
+                .product(name: "Matter", package: "swift-matter"),
                 .product(name: "Logging", package: "swift-log"),
             ]
         ),

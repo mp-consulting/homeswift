@@ -987,7 +987,19 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// /api/accessories. A plugin block sits under the bridge its platform entry names; a plugin's accessories are the
   /// ones of its platform on that bridge, given to the first block that has them. A `filter` (see `overviewFilter`)
   /// keeps the accessories it matches, and only the plugins and bridges that still have some.
-  function overviewModel(status, plugins, accessories, filter = null) {
+  /// A plugin's branch, or one of the Matter block's: its accessories by device type, then name.
+  function branchOf(fields, leaves) {
+    leaves.sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
+    const sub = fields.paused ? t("Paused") : leaves.length ? tn("{n} accessory", "{n} accessories", leaves.length, {}) : t("No accessories");
+    return { kind: "plugin", ...fields, leaves, sub };
+  }
+
+  /// The ids of the Matter block's devices, from /api/matter (nothing else of it is kept: it carries pairing codes).
+  const matterIDs = (matter) => matter?.enabled ? {
+    own: new Set((matter.ownDevices ?? []).map((device) => device.id)), bridged: new Set((matter.devices ?? []).map((device) => device.id)),
+  } : null;
+
+  function overviewModel(status, plugins, accessories, filter = null, matter = null) {
     const bridges = status.bridges ?? [];
     const main = bridges.find((bridge) => !bridge.childBridge) ?? bridges[0];
     const tops = bridges.map((bridge) => ({
@@ -998,7 +1010,22 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const claimed = new Set();
     let pluginCount = 0, pausedCount = 0, colorIndex = 0;
     for (const block of plugins?.blocks ?? []) {
-      if (block.system) { tops.push({ kind: "system", name: block.name, children: [], sub: t("Built in") }); continue; }
+      if (block.system) {
+        const top = { kind: "system", name: block.name, children: [], sub: t("Built in") };
+        // The Matter block: its devices of their own and its bridged ones. Each is a copy of the accessory it shows: the
+        // layout places the plugin's dot and this one apart.
+        if (block.platform === "HomeswiftMatter" && matter) {
+          top.icon = "matter";
+          for (const [name, ids] of [[t("Devices of their own"), matter.own], [t("Bridged over Matter"), matter.bridged]]) {
+            let leaves = accessories.filter((accessory) => ids.has(accessory.id));
+            if (filter) leaves = leaves.filter(filter.keeps);
+            if (leaves.length) top.children.push(branchOf({ name, icon: "matter", matter: true, color: "var(--ok)" }, leaves.map((one) => ({ ...one }))));
+          }
+          top.sub = tn("{n} accessory", "{n} accessories", top.children.reduce((sum, branch) => sum + branch.leaves.length, 0), {});
+        }
+        tops.push(top);
+        continue;
+      }
       const entry = entries.find((one) => one.name === block.name);
       const bridgeName = entry?.bridge ?? main?.name;
       const parent = topByName.get(bridgeName);
@@ -1015,9 +1042,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const paused = Boolean(entry?.paused);
       pluginCount += 1;
       pausedCount += paused ? 1 : 0;
-      leaves.sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
-      parent.children.push({ kind: "plugin", name: block.name, platform: block.platform, icon: block.icon ?? "plugin", bridgeName, paused, leaves, color,
-        sub: paused ? t("Paused") : leaves.length ? tn("{n} accessory", "{n} accessories", leaves.length, {}) : t("No accessories") });
+      parent.children.push(branchOf({ name: block.name, platform: block.platform, icon: block.icon ?? "plugin", bridgeName, paused, color }, leaves));
     }
     for (const top of tops) top.color = "var(--muted)";
     if (filter) tops.splice(0, tops.length, ...tops.filter((top) => top.children.length));
@@ -1159,9 +1184,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   /// The model of what homeswift runs, with what it was built from (the graph builds filtered ones from it).
   async function loadOverview() {
-    const [status, plugins, accessories] = await Promise.all([api("/api/status"), api("/api/plugins").catch(() => null), api("/api/accessories").catch(() => [])]);
-    const model = overviewModel(status, plugins, accessories);
-    model.source = { status, plugins, accessories };
+    const [status, plugins, accessories, matter] = await Promise.all([api("/api/status"), api("/api/plugins").catch(() => null),
+      api("/api/accessories").catch(() => []), api("/api/matter").catch(() => null)]);
+    const ids = matterIDs(matter);
+    const model = overviewModel(status, plugins, accessories, null, ids);
+    model.source = { status, plugins, accessories, matter: ids };
     return model;
   }
 
@@ -1212,7 +1239,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function bridgeDetails(top) {
     const bridge = top.raw;
     const type = top.kind === "system" ? t("Built in") : t(top.kind === "child" ? "Child bridge" : "Bridge");
-    return { name: top.name, icon: top.kind === "system" ? "system" : "bridge", warn: top.paired === false,
+    return { name: top.name, icon: top.icon ?? (top.kind === "system" ? "system" : "bridge"), warn: top.paired === false,
       status: top.kind === "system" ? t("Built in") : top.paired ? t("Paired · {count}", { count: bridge.controllers ?? 0 }) : t("Not paired"),
       facts: [factRow("bridgeType", type), factRow("bridgeAccessories", top.count), factRow("port", bridge?.port), factRow("deviceId", bridge?.deviceId),
         factRow("platforms", bridge?.platforms?.join(", "))] };
@@ -1222,7 +1249,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     for (const leaf of plugin.leaves) categories.set(leaf.category, (categories.get(leaf.category) ?? 0) + 1);
     const unavailable = plugin.leaves.filter((one) => one.unavailable).length;
     return { name: plugin.name, icon: plugin.icon, status: plugin.sub, warn: unavailable > 0,
-      facts: [factRow("platform", plugin.platform), factRow("bridge", plugin.bridgeName), factRow("state", plugin.paused ? t("Paused") : t("Running")),
+      facts: [factRow("platform", plugin.platform), factRow("bridge", plugin.bridgeName), plugin.matter ? null : factRow("state", plugin.paused ? t("Paused") : t("Running")),
         factRow("unavailable", unavailable || null), factRow("categories", [...categories].map(([key, count]) => `${categoryName(key)} ${count}`).join(", "))],
       items: accessoryItems(plugin.leaves) };
   }
@@ -1241,7 +1268,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// its readings and its accessories, each of which `open` shows in the card's place.
   function detailNodes(data, close, { back = null, open = null } = {}) {
     const glyph = data.image ? el("img", { src: data.image, alt: "", width: 24, height: 24 }) : HomeswiftCommon.icon(data.icon);
-    const shown = (facts) => facts.filter(([, value]) => value !== undefined && value !== null && value !== "");
+    const shown = (facts) => facts.filter((fact) => fact && fact[1] !== undefined && fact[1] !== null && fact[1] !== "");
     // Rows of a label and a value, and a tooltip on the row when it has one.
     const list = (rows) => (rows.length ? el("dl", { class: "detail-list" }, ...rows.map(([label, value, tip]) =>
       el("div", { title: tip ?? null }, el("dt", { text: label }), el("dd", { text: String(value) })))) : null);
@@ -1267,7 +1294,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function groupDetails(group) {
     const unavailable = group.leaves.filter((one) => one.unavailable).length;
     return { name: group.name, icon: group.icon, status: group.sub, warn: unavailable > 0,
-      facts: [factRow("plugin", group.plugin.name), factRow("bridge", group.plugin.bridgeName), factRow("unavailable", unavailable || null)],
+      facts: [group.plugin.matter ? null : factRow("plugin", group.plugin.name), factRow("bridge", group.plugin.bridgeName), factRow("unavailable", unavailable || null)],
       items: accessoryItems(group.leaves) };
   }
 
@@ -1471,7 +1498,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     svg.addEventListener("focusout", hide);
 
     // Search and filters, as on the Accessories page: the graph is drawn again from what they keep, faded across.
-    const { status, plugins, accessories: all } = model.source;
+    const { status, plugins, accessories: all, matter } = model.source;
     const chosen = { bridges: new Set(), categories: new Set(), unavailable: false };
     const search = el("input", { type: "search", class: "search", placeholder: t("Search accessories"), "aria-label": t("Search accessories") });
     const filters = el("button", { type: "button", "aria-haspopup": "menu" });
@@ -1489,7 +1516,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // Every graph is built from the filter, the first too (a filtered build moves the accessories the builds share).
     const redraw = () => {
       const filter = filterOf();
-      const next = overviewModel(status, plugins, all, filter);
+      const next = overviewModel(status, plugins, all, filter, matter);
       closeDetail();
       tip.hidden = true;
       cancelAnimationFrame(animation);
@@ -1501,7 +1528,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       Object.assign(zoom, home());
       apply();
       svg.animate([{ opacity: 0, scale: 0.97 }, { opacity: 1, scale: 1 }], { duration: matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 260, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
-      const shown = next.tops.reduce((sum, top) => sum + top.children.reduce((total, plugin) => total + plugin.leaves.length, 0), 0);
+      // Each accessory once: the Matter block's branches show again accessories a plugin has.
+      const shown = new Set(next.tops.flatMap((top) => top.children.flatMap((plugin) => plugin.leaves.map((leaf) => leaf.id)))).size;
       svg.hidden = !next.tops.length;
       empty.hidden = Boolean(next.tops.length);
       count.textContent = filter ? tn("{n} accessory", "{n} accessories", shown, {}) : "";
@@ -1575,7 +1603,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     for (const top of model.tops) {
       edges.push(link(root, top, "trunk", top.color));
       nodes.push(node(top, { classes: `node bridge-node${top.kind === "system" ? " built-in" : ""}${top.paired === false ? " unpaired" : ""}`,
-        radius: nodeRadius.top, icon: top.kind === "system" ? "system" : "bridge", size: 20, tip: `${top.name} · ${top.sub}`,
+        radius: nodeRadius.top, icon: top.icon ?? (top.kind === "system" ? "system" : "bridge"), size: 20, tip: `${top.name} · ${top.sub}`,
         card: () => bridgeDetails(top), zoom: { radius: (rings.top + rings.plugin) / 2, k: 1.8 } }));
       for (const branch of top.children) {
         edges.push(link(top, branch, `branch${branch.paused ? " paused" : ""}`, branch.color));

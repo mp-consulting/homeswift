@@ -581,6 +581,9 @@ public final class UIServer: Sendable {
             return .json(response.json, status: response.status)
         }
         if route.first == "preferences", let reply = preferencesRoute(Array(route.dropFirst()), request, body: body, username: username) { return reply }
+        if route.first == "matter", let reply = try await matterRoute(Array(route.dropFirst()), request, body: body, username: username, admin: caller.isAdmin) {
+            return reply
+        }
         if route.first == "assistant", route.count >= 2, route[1] != "chat", route[1] != "chats",
            let reply = try await assistantRoute(Array(route.dropFirst()), request, body: body, username: username) { return reply }
         // Rooms, scenes and notifications (HomeRoutes.swift).
@@ -763,10 +766,10 @@ public final class UIServer: Sendable {
                     return await camera(route[1], route[2], request, username: username)
                 }
                 if route.count == 3, route[0] == "plugins", route[2] == "schema" {
-                    // The runtime's own blocks, the web UI's and the Assistant's, have forms too.
+                    // The runtime's own blocks, the web UI's, the Assistant's and the Matter bridge's, have forms too.
                     let schema = route[1] == UIConfiguration.platform ? UIConfiguration.schemaJSON
                         : route[1] == AIConfiguration.platform ? AIConfiguration.schemaJSON
-                        : catalog.host.registry.entry(for: route[1])?.configurationSchemaJSON
+                        : catalog.blockSchema(for: route[1]) ?? catalog.host.registry.entry(for: route[1])?.configurationSchemaJSON
                     guard let text = schema else { return .error(404, "no schema for \(route[1])") }
                     return .text(text, contentType: "application/json")
                 }
@@ -1472,7 +1475,11 @@ final class EventHub: Sendable {
         }
         // The rooms or the wall changed (a page, the chat, an MCP client): the Accessories page draws them again.
         let layout = catalog.home.observeLayout { [self] in broadcast(event: "layout", payload: [:]) }
-        observations.withLockedValue { $0 = [changes, log, layout] }
+        // A Matter node added to an ecosystem or opened for one: the Status page draws its card or row again.
+        let matter = catalog.matter.observeChanges { [self] device in
+            broadcast(event: "matter", payload: ["device": device.map(JSONValue.string) ?? .null])
+        }
+        observations.withLockedValue { $0 = [changes, log, layout, matter] }
     }
 
     func stream(logs: Bool = true) -> AsyncStream<Data> {

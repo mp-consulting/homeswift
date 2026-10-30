@@ -1,5 +1,6 @@
 import Foundation
 import HomeswiftAI
+import HomeswiftMatter
 import HomeswiftUI
 import Testing
 
@@ -49,7 +50,8 @@ import Testing
     /// what it does, a choice names its values, a list names one entry, and each of those words has a French, Spanish
     /// and Portuguese translation in the schema's own `i18n` that keeps its placeholders.
     @Test func formsAreExplainedAndTranslated() throws {
-        var schemas: [(name: String, text: String)] = [("HomeswiftAiKit", AIConfiguration.schemaJSON), ("HomeswiftUI", UIConfiguration.schemaJSON)]
+        var schemas: [(name: String, text: String)] = [("HomeswiftAiKit", AIConfiguration.schemaJSON), ("HomeswiftUI", UIConfiguration.schemaJSON),
+                                                      ("HomeswiftMatter", MatterConfiguration.schemaJSON)]
         let plugins = Self.root.appendingPathComponent("Plugins")
         for name in try FileManager.default.contentsOfDirectory(atPath: plugins.path).sorted() {
             let file = plugins.appendingPathComponent(name).appendingPathComponent("config.schema.json")
