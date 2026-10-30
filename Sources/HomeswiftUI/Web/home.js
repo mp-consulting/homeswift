@@ -294,7 +294,7 @@
       } catch (e) { HomeswiftCommon.showAlert(e.message); }
     };
     const menu = menuButton(t("Actions for {name}", { name: scene.name }), () => [
-      runnable ? { label: t("Automate"), icon: "film", onSelect: automate } : null,
+      runnable ? { label: t("Automate"), icon: "workflow", onSelect: automate } : null,
       ...(app.isAdmin() ? [...hubSceneMenu(scene), ...pictureMenu(scene, button)] : []),
     ].filter(Boolean));
     return el("div", { class: "hub-scene-tile" }, button, el("div", { class: "hub-scene-actions" }, stop, menu));
