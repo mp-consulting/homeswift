@@ -46,9 +46,11 @@ public actor HomeswiftMatterBridge: MatterControl {
     }
 
     /// The node's state (its fabrics and keys) lives in `storage`: `MatterFileStorage` under `matter/`, or memory in
-    /// tests. `transport` and the advertiser default to UDP on the configured port and the built-in mDNS responder.
+    /// tests. `transport` and the advertiser default to UDP on the configured port and the built-in mDNS responder;
+    /// tests pass memory ones, and MRP timings scaled down (`reliability`).
     public init(configuration: MatterConfiguration, host: PluginHost, storage: any MatterStorage, transport: (any MatterTransport)? = nil,
-                advertise: Bool = true, logger: Logger = Logger(label: "homeswift.matter")) async throws {
+                advertise: Bool = true, reliability: ReliabilityParameters = .init(),
+                logger: Logger = Logger(label: "homeswift.matter")) async throws {
         self.configuration = configuration
         self.host = host
         self.logger = logger
@@ -58,6 +60,8 @@ public actor HomeswiftMatterBridge: MatterControl {
             port: configuration.port)
         // The window stays open until the bridge is commissioned, as a HAP bridge stays pairable.
         nodeConfiguration.initialWindowTimeout = nil
+        nodeConfiguration.reliability = reliability
+        nodeConfiguration.tcp = configuration.tcp
         node = try await MatterNode(configuration: nodeConfiguration, storage: storage, transport: transport,
                                     advertiser: advertise ? MDNSAdvertiser(logger: logger) : nil, logger: logger)
         bridge = try await MatterBridge(node: node)

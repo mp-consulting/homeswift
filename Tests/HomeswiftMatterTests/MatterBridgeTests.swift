@@ -88,12 +88,20 @@ struct BridgeFixture {
 
         let network = MemoryNetwork()
         matter = try await HomeswiftMatterBridge(configuration: configuration, host: host, storage: Matter.MemoryStorage(),
-                                                 transport: await network.transport(named: "bridge"), advertise: false, logger: testLogger)
+                                                 transport: await network.transport(named: "bridge"), advertise: false,
+                                                 reliability: Self.fast, logger: testLogger)
         try await matter.start()
-        let layer = MessageLayer(transport: await network.transport(named: "controller"))
+        let layer = MessageLayer(transport: await network.transport(named: "controller"), reliability: Self.fast)
         commissioner = try Commissioner(layer: layer, fabricID: 0xFAB, nodeID: 0x1122)
         try await commissioner.start()
         session = try await commissioner.commission(.memory("bridge"), passcode: matter.setupPayload.passcode, nodeID: 0x42).localSessionID
+    }
+
+    /// MRP at a hundredth of its timings: acknowledgements do not hold the exchanges up.
+    static var fast: ReliabilityParameters {
+        var parameters = ReliabilityParameters()
+        parameters.timeScale = 0.01
+        return parameters
     }
 
     func endpoint(_ id: String) async throws -> EndpointNumber {
@@ -219,6 +227,8 @@ struct MatterMappingTests {
         #expect(throws: MatterConfigurationError.invalid(key: "port", expected: "a port number")) { try MatterConfiguration(block: ["port": 70000]) }
         #expect(throws: MatterConfigurationError.invalid(key: "include", expected: "a list of names")) { try MatterConfiguration(block: ["include": "Hue"]) }
         #expect(MatterConfiguration().bridges(["anything"]))
+        #expect(try MatterConfiguration(block: ["tcp": true]).tcp)
+        #expect(throws: MatterConfigurationError.invalid(key: "tcp", expected: "true or false")) { try MatterConfiguration(block: ["tcp": "yes"]) }
     }
 
     @Test func convertsValues() {
@@ -275,6 +285,35 @@ struct MatterMappingTests {
         let states = mapping.states(changed: CharacteristicType.targetHeatingCoolingState.uuid)
         #expect(states.contains(.thermostatMode(UInt8(ThermostatCluster.SystemModeEnum.cool))))
         #expect(states.contains(.coolingSetpoint(21)))
+    }
+
+    @Test func mapsAlarmsValvesAndMeters() throws {
+        let smoke = Service(.smokeSensor, name: "Hall")
+        smoke[.smokeDetected]?.value = .int(1)
+        #expect(try #require(ServiceMapping(smoke, exposeSecurity: false)).states() == [.smoke(true)])
+        let carbonMonoxide = Service(.carbonMonoxideSensor, name: "Garage")
+        #expect(try #require(ServiceMapping(carbonMonoxide, exposeSecurity: false)).states() == [.carbonMonoxide(false)])
+        let air = Service(.airQualitySensor, name: "Bedroom")
+        air[.airQuality]?.value = .int(4)
+        #expect(try #require(ServiceMapping(air, exposeSecurity: false)).states() == [.airQuality(4)])
+
+        // A valve opens through Active and reports In Use.
+        let valve = Service(.valve, name: "Garden")
+        valve[.inUse]?.value = .int(1)
+        let valveMapping = try #require(ServiceMapping(valve, exposeSecurity: false))
+        #expect(valveMapping.states() == [.valveOpen(true)])
+        #expect(valveMapping.writes(for: .setValveOpen(false)).map(\.1) == [.int(0)])
+        #expect(valveMapping.writes(for: .setValveOpen(false)).first?.0.type.uuid == CharacteristicType.active.uuid)
+
+        // An outlet with Eve's readings is metered: watts and kWh follow the on state.
+        let outlet = Service(.outlet, name: "Heater", extra: [Characteristic(EveCharacteristic.currentConsumption, value: .int(1200)),
+                                                              Characteristic(EveCharacteristic.totalConsumption, value: .double(3.25))])
+        let outletMapping = try #require(ServiceMapping(outlet, exposeSecurity: false))
+        #expect(outletMapping.isMetered)
+        #expect(outletMapping.kind.deviceTypes.map(\.id) == [DeviceTypes.onOffPlugInUnit.id, DeviceTypes.electricalSensor.id])
+        #expect(outletMapping.states() == [.on(false), .power(watts: 1200), .energy(kilowattHours: 3.25)])
+        #expect(outletMapping.states(changed: EveCharacteristic.currentConsumption.uuid) == [.power(watts: 1200)])
+        #expect(!(try #require(ServiceMapping(Service(.outlet, name: "Lamp"), exposeSecurity: false))).isMetered)
     }
 
     @Test func convertsChromaticity() {

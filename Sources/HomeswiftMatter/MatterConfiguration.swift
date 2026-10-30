@@ -22,6 +22,8 @@ public struct MatterConfiguration: Sendable, Equatable {
     /// Locks, and what a plugin marks as a security control, are left out unless this is on: a Matter controller
     /// writes them without the confirmation the MCP server and the web UI ask for.
     public var exposeSecurity = false
+    /// Also listens for TCP on the port, for controllers that send large messages over it (Core §4.15).
+    public var tcp = false
 
     public init() {}
 
@@ -35,6 +37,10 @@ public struct MatterConfiguration: Sendable, Equatable {
         if let expose = block["exposeSecurity"], !expose.isNull {
             guard let value = expose.boolValue else { throw MatterConfigurationError.invalid(key: "exposeSecurity", expected: "true or false") }
             exposeSecurity = value
+        }
+        if let tcp = block["tcp"], !tcp.isNull {
+            guard let value = tcp.boolValue else { throw MatterConfigurationError.invalid(key: "tcp", expected: "true or false") }
+            self.tcp = value
         }
     }
 
@@ -76,7 +82,8 @@ public struct MatterConfiguration: Sendable, Equatable {
               "port": { "title": "Port", "type": "integer", "default": 5540, "minimum": 1, "maximum": 65535, "description": "The UDP port Matter controllers reach the bridge on. 5540 is Matter's own." },
               "include": { "title": "Only these", "type": "array", "items": { "title": "Plugin or accessory", "type": "string" }, "description": "Bridge only the accessories of these plugins, or with these ids or names; * matches anything. Empty: every accessory." },
               "exclude": { "title": "Leave out", "type": "array", "items": { "title": "Plugin or accessory", "type": "string" }, "description": "Accessories never bridged, named as above. It wins over Only these." },
-              "exposeSecurity": { "title": "Bridge locks", "type": "boolean", "default": false, "description": "Locks, and switches a plugin marks as opening something, are left out unless this is on: a Matter controller changes them without the confirmation the web UI and the MCP server ask for." }
+              "exposeSecurity": { "title": "Bridge locks", "type": "boolean", "default": false, "description": "Locks, and switches a plugin marks as opening something, are left out unless this is on: a Matter controller changes them without the confirmation the web UI and the MCP server ask for." },
+              "tcp": { "title": "TCP", "type": "boolean", "default": false, "description": "Also accept Matter over TCP on the same port, for controllers that send large messages. UDP is always on." }
             }
           },
           "i18n": {
@@ -89,7 +96,9 @@ public struct MatterConfiguration: Sendable, Equatable {
               "Leave out": "Laisser de côté",
               "Accessories never bridged, named as above. It wins over Only these.": "Les accessoires jamais reliés, nommés comme ci-dessus. Prime sur Seulement ceux-ci.",
               "Bridge locks": "Relier les serrures",
-              "Locks, and switches a plugin marks as opening something, are left out unless this is on: a Matter controller changes them without the confirmation the web UI and the MCP server ask for.": "Les serrures, et les interrupteurs qu'un plugin marque comme ouvrant quelque chose, sont laissés de côté sauf si cette option est activée : un contrôleur Matter les change sans la confirmation que demandent l'interface web et le serveur MCP."
+              "Locks, and switches a plugin marks as opening something, are left out unless this is on: a Matter controller changes them without the confirmation the web UI and the MCP server ask for.": "Les serrures, et les interrupteurs qu'un plugin marque comme ouvrant quelque chose, sont laissés de côté sauf si cette option est activée : un contrôleur Matter les change sans la confirmation que demandent l'interface web et le serveur MCP.",
+              "TCP": "TCP",
+              "Also accept Matter over TCP on the same port, for controllers that send large messages. UDP is always on.": "Accepter aussi Matter en TCP sur le même port, pour les contrôleurs qui envoient de gros messages. L'UDP reste toujours actif."
             },
             "es": {
               "Port": "Puerto",
@@ -100,7 +109,9 @@ public struct MatterConfiguration: Sendable, Equatable {
               "Leave out": "Dejar fuera",
               "Accessories never bridged, named as above. It wins over Only these.": "Accesorios que nunca se puentean, nombrados como arriba. Prevalece sobre Solo estos.",
               "Bridge locks": "Puentear cerraduras",
-              "Locks, and switches a plugin marks as opening something, are left out unless this is on: a Matter controller changes them without the confirmation the web UI and the MCP server ask for.": "Las cerraduras, y los interruptores que un plugin marca como que abren algo, quedan fuera salvo que esto esté activado: un controlador Matter los cambia sin la confirmación que piden la interfaz web y el servidor MCP."
+              "Locks, and switches a plugin marks as opening something, are left out unless this is on: a Matter controller changes them without the confirmation the web UI and the MCP server ask for.": "Las cerraduras, y los interruptores que un plugin marca como que abren algo, quedan fuera salvo que esto esté activado: un controlador Matter los cambia sin la confirmación que piden la interfaz web y el servidor MCP.",
+              "TCP": "TCP",
+              "Also accept Matter over TCP on the same port, for controllers that send large messages. UDP is always on.": "Aceptar también Matter por TCP en el mismo puerto, para los controladores que envían mensajes grandes. UDP siempre está activo."
             },
             "pt": {
               "Port": "Porta",
@@ -111,7 +122,9 @@ public struct MatterConfiguration: Sendable, Equatable {
               "Leave out": "Deixar de fora",
               "Accessories never bridged, named as above. It wins over Only these.": "Acessórios nunca ligados, nomeados como acima. Prevalece sobre Apenas estes.",
               "Bridge locks": "Ligar fechaduras",
-              "Locks, and switches a plugin marks as opening something, are left out unless this is on: a Matter controller changes them without the confirmation the web UI and the MCP server ask for.": "As fechaduras, e os interruptores que um plugin marca como abrindo algo, ficam de fora a menos que isto esteja ativado: um controlador Matter altera-os sem a confirmação que a interface web e o servidor MCP pedem."
+              "Locks, and switches a plugin marks as opening something, are left out unless this is on: a Matter controller changes them without the confirmation the web UI and the MCP server ask for.": "As fechaduras, e os interruptores que um plugin marca como abrindo algo, ficam de fora a menos que isto esteja ativado: um controlador Matter altera-os sem a confirmação que a interface web e o servidor MCP pedem.",
+              "TCP": "TCP",
+              "Also accept Matter over TCP on the same port, for controllers that send large messages. UDP is always on.": "Aceitar também Matter por TCP na mesma porta, para os controladores que enviam mensagens grandes. O UDP está sempre ativo."
             }
           }
         }

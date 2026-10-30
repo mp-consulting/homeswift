@@ -22,6 +22,7 @@ A system block in config.json, like the web UI's:
 | `include` | every accessory | Bridge only the accessories matching one of these: a plugin's platform, a plugin instance's name, an accessory id or name; `*` matches any run of characters, case is ignored |
 | `exclude` | none | Accessories never bridged, matched the same way; it wins over `include` |
 | `exposeSecurity` | false | Bridge locks, and what a plugin marks as a security control (a switch that opens a gate) |
+| `tcp` | false | Also accept Matter over TCP on the same port, for controllers that send large messages; UDP is always on |
 
 Saving the block in the web UI or over MCP restarts the Matter bridge in place; the fabrics stay. The passcode,
 the discriminator, the device attestation keys and the fabrics are made on first start and kept under
@@ -64,12 +65,20 @@ Do not add the Matter bridge to Apple Home too: it already has the accessories o
 | Thermostat | Thermostat, heating (and cooling when the target state allows it) | off/heat/cool ↔ SystemMode; the target temperature ↔ the setpoint of the mode in use |
 | Lock Mechanism | Door Lock (only with `exposeSecurity`) | secured ↔ locked; locking and unlocking need a timed interaction |
 | Stateless Programmable Switch | Generic Switch | single, double and long presses ↔ the Switch cluster's events |
+| Air Quality Sensor | Air Quality Sensor | HAP excellent to poor ↔ Matter good to very poor |
+| Smoke Sensor, Carbon Monoxide Sensor | Smoke CO Alarm | detected ↔ SmokeState or COState critical, with the alarm events |
+| Valve | Water Valve | Open/Close ↔ Active; In Use ↔ CurrentState |
+| Eve power and energy readings (on an outlet, a switch, a light) | + Electrical Sensor on the same endpoint | watts ↔ ActivePower in mW; kWh ↔ CumulativeEnergyImported in mWh |
 | Battery (beside the others) | Power Source on the device | percent ↔ BatPercentRemaining |
 
 An accessory with several of these services (a fan with a light, a strip of outlets) becomes one compound device,
 a part per service. Its name, manufacturer, model and serial number fill Bridged Device Basic Information, and a
-paused plugin's accessories show as unreachable. Televisions, cameras, heater-coolers, air purifiers, valves, smoke
-and air quality sensors are not bridged yet.
+paused plugin's accessories show as unreachable. Televisions, cameras, heater-coolers, air purifiers and robot
+vacuums are not bridged yet.
+
+Controllers that group devices (a room's lights at once, as Home Assistant and Google Home can) send one group command:
+the bridge takes group key sets, joins the groups' multicast addresses and runs the command on each member, with the
+trust-first counter policy.
 
 Each device keeps its endpoint numbers across restarts (they are stored by accessory id), and a removed
 accessory's numbers are never given to another, so the ecosystems keep their rooms and automations.

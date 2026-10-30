@@ -1,5 +1,6 @@
 import Foundation
 import Homeswift
+import HomeswiftPlugin
 import Matter
 
 /// One HAP service as one function of a Matter bridged device: the Matter device kind it becomes, the state it
@@ -20,6 +21,10 @@ struct ServiceMapping: Sendable {
         case thermostat(cooling: Bool)
         case lock
         case button
+        case airQuality
+        case smoke
+        case carbonMonoxide
+        case valve
     }
 
     let role: Role
@@ -50,6 +55,10 @@ struct ServiceMapping: Sendable {
             role = .thermostat(cooling: modes.contains(2))
         case ServiceType.lockMechanism.uuid: role = .lock
         case ServiceType.statelessProgrammableSwitch.uuid: role = .button
+        case ServiceType.airQualitySensor.uuid: role = .airQuality
+        case ServiceType.smokeSensor.uuid: role = .smoke
+        case ServiceType.carbonMonoxideSensor.uuid: role = .carbonMonoxide
+        case ServiceType.valve.uuid: role = .valve
         default: return nil
         }
         // A lock, or a service whose write opens something (a switch that unlocks a door), only when asked for.
@@ -58,8 +67,13 @@ struct ServiceMapping: Sendable {
         self.service = service
     }
 
-    /// The Matter device kind.
-    var kind: DeviceKind {
+    /// Whether the service reports Eve's power or energy readings: its device is metered too.
+    var isMetered: Bool { service[EveCharacteristic.currentConsumption] != nil || service[EveCharacteristic.totalConsumption] != nil }
+
+    /// The Matter device kind, metered when the service reports power or energy.
+    var kind: DeviceKind { isMetered ? baseKind.metered() : baseKind }
+
+    private var baseKind: DeviceKind {
         switch role {
         case .light(let dimmable, let colorTemperature, let hueSaturation):
             if hueSaturation { return .extendedColorLight(mireds: miredRange) }
@@ -77,6 +91,10 @@ struct ServiceMapping: Sendable {
         case .thermostat(let cooling): return .thermostat(heating: true, cooling: cooling)
         case .lock: return .doorLock
         case .button: return .genericSwitch
+        case .airQuality: return .airQualitySensor
+        case .smoke: return .smokeCOAlarm(smoke: true, carbonMonoxide: false)
+        case .carbonMonoxide: return .smokeCOAlarm(smoke: false, carbonMonoxide: true)
+        case .valve: return .waterValve
         }
     }
 
@@ -149,6 +167,20 @@ struct ServiceMapping: Sendable {
             }
         case .button:
             break
+        case .airQuality:
+            // HAP excellent 1 to poor 5 are Matter's good 1 to very poor 5; unknown stays 0.
+            if let quality = value(.airQuality)?.intValue { states.append(.airQuality(UInt8(clamping: min(max(quality, 0), 5)))) }
+        case .smoke:
+            if let detected = value(.smokeDetected).flatMap(Self.flag) { states.append(.smoke(detected)) }
+        case .carbonMonoxide:
+            if let detected = value(.carbonMonoxideDetected).flatMap(Self.flag) { states.append(.carbonMonoxide(detected)) }
+        case .valve:
+            // In Use says whether water flows: the valve is open.
+            if let inUse = value(.inUse).flatMap(Self.flag) { states.append(.valveOpen(inUse)) }
+        }
+        if isMetered {
+            if let watts = value(EveCharacteristic.currentConsumption) { states.append(.power(watts: watts.doubleValue)) }
+            if let kilowattHours = value(EveCharacteristic.totalConsumption) { states.append(.energy(kilowattHours: kilowattHours.doubleValue)) }
         }
         return states
     }
@@ -217,6 +249,8 @@ struct ServiceMapping: Sendable {
             if let hap = Self.hapMode(systemMode: mode) { write(.targetHeatingCoolingState, .int(hap)) }
         case .setLocked(let locked):
             write(.lockTargetState, .int(locked ? 1 : 0))
+        case .setValveOpen(let open):
+            write(.active, .int(open ? 1 : 0))
         case .identify:
             break
         }
