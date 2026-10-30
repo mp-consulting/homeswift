@@ -351,7 +351,7 @@
     source?.addEventListener("change", () => filter());
     const node = el("section", { class: "hub-scenes" },
       el("div", { class: "section-head" }, el("h2", { text: t("Scenes from your hubs") }), count, source),
-      el("p", { class: "muted", text: t("Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; change them in their own app.") }),
+      el("p", { class: "muted", text: t("Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; rename, update or delete a Hue or IKEA scene from its ⋯ menu.") }),
       groups.map(({ node }) => node));
     return { node, filter };
   }
@@ -675,7 +675,7 @@
       noMatches.hidden = sceneCards.some(({ node }) => !node.hidden) || hubShown > 0;
     });
     app.show(main,
-      app.pageHead(t("Scenes"), t("Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; the Home app does not see them."),
+      app.pageHead(t("Scenes"), t("Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; one you choose is also a switch in the Home app."),
         data.scenes.length ? el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") }) : null),
       el("div", { class: "section-head" }, el("h2", { text: t("Your scenes") }), sceneCount, data.scenes.length || hubScenes.node ? [search, HomeswiftCommon.clearFilters([[search, ""]])] : null),
       data.scenes.length ? el("div", { class: "grid scene-grid" }, sceneCards.map(({ node }) => node))
@@ -1037,8 +1037,10 @@
 
     const name = el("input", { type: "text", value: scene.name, maxLength: 64, required: true, placeholder: t("Evening") });
     const homeKit = el("input", { type: "checkbox", checked: Boolean(scene.homeKit) });
-    const homeKitRow = el("label", { class: "toggle compact" }, homeKit, el("span", {}, el("span", { text: t("A switch in the Home app") }),
-      el("span", { class: "help", text: t("On the Homeswift Scenes accessory: turning it on runs the scene (without its locks, doors and alarms), turning it off puts the lights back.") })));
+    // The settings pages' toggle: a switch, then its title over its help.
+    const homeKitRow = el("label", { class: "toggle" }, el("span", { class: "switch" }, homeKit, el("span")), el("span", {},
+      el("span", { class: "field-title", text: t("A switch in the Home app") }),
+      el("p", { class: "help", text: t("On the Homeswift Scenes accessory: turning it on runs the scene (without its locks, doors and alarms), turning it off puts the lights back.") })));
     let artworkId = scene.artworkId || null;
     const themes = await loadArtworkThemes();
     const artworkPreview = el("div", { class: "artwork-preview" }, artworkImage(artworkId));

@@ -38,7 +38,7 @@ HomeswiftI18n.add("fr", {
   "All sources": "Toutes les sources",
   "Scene active": "Scène active",
   "Scenes from your hubs": "Scènes de vos hubs",
-  "Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; change them in their own app.": "Gardées par les hubs de vos plugins, comme un pont Hue, un hub IKEA ou des lumières Govee. Lancez-les ici ; modifiez-les dans leur propre app.",
+  "Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; rename, update or delete a Hue or IKEA scene from its ⋯ menu.": "Gardées par les hubs de vos plugins, comme un pont Hue, un hub IKEA ou des lumières Govee. Lancez-les ici ; renommez, mettez à jour ou supprimez une scène Hue ou IKEA depuis son menu ⋯.",
 
   "Start time": "Début",
   "End time": "Fin",
@@ -410,7 +410,7 @@ HomeswiftI18n.add("fr", {
   "Accessory of its own, from {plugins}": "Accessoire autonome, de {plugins}",
   "Accessory of its own, from a plugin": "Accessoire autonome, d'un plugin",
   "Accessory Runtime Information": "Informations d'exécution",
-  "Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; the Home app does not see them.": "Des valeurs d'accessoires réglées ensemble, à la main ou selon un horaire, au lever ou au coucher du soleil, ou quand un accessoire change. Homeswift les conserve ; l'app Maison ne les voit pas.",
+  "Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; one you choose is also a switch in the Home app.": "Des valeurs d'accessoires réglées ensemble, à la main ou selon un horaire, au lever ou au coucher du soleil, ou quand un accessoire change. Homeswift les conserve ; une scène que vous choisissez est aussi un interrupteur dans l’app Maison.",
   "Account": "Compte",
   "Account menu": "Menu du compte",
   "Action {0} must be an object": "L'action {0} doit être un objet",

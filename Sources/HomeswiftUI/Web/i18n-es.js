@@ -38,7 +38,7 @@ HomeswiftI18n.add("es", {
   "All sources": "Todos los orígenes",
   "Scene active": "Escena activa",
   "Scenes from your hubs": "Escenas de tus hubs",
-  "Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; change them in their own app.": "Las guardan los hubs de tus plugins, como un puente Hue, un hub IKEA o luces Govee. Ejecútalas aquí; cámbialas en su propia app.",
+  "Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; rename, update or delete a Hue or IKEA scene from its ⋯ menu.": "Las guardan los hubs de tus plugins, como un puente Hue, un hub IKEA o luces Govee. Ejecútalas aquí; renombra, actualiza o elimina una escena de Hue o IKEA desde su menú ⋯.",
 
   "Start time": "Hora de inicio",
   "End time": "Hora de fin",
@@ -410,7 +410,7 @@ HomeswiftI18n.add("es", {
   "Accessory of its own, from {plugins}": "Accesorio independiente, de {plugins}",
   "Accessory of its own, from a plugin": "Accesorio independiente, de un plugin",
   "Accessory Runtime Information": "Información de ejecución",
-  "Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; the Home app does not see them.": "Valores de accesorios que se aplican juntos, a mano o según un horario, al amanecer o al atardecer, o cuando cambia un accesorio. Homeswift los guarda; la app Casa no los ve.",
+  "Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; one you choose is also a switch in the Home app.": "Valores de accesorios que se aplican juntos, a mano o según un horario, al amanecer o al atardecer, o cuando cambia un accesorio. Homeswift los guarda; una escena que elijas también es un interruptor en la app Casa.",
   "Account": "Cuenta",
   "Account menu": "Menú de la cuenta",
   "Action {0} must be an object": "La acción {0} debe ser un objeto",

@@ -182,7 +182,9 @@ a page to keep on a phone's home screen.
 Scenes are kept in `scenes.json` next to config.json (owner-only), with each one's last run. The editor's **A switch
 in the Home app** makes the scene a switch of one **Homeswift Scenes** accessory on the bridge: turning it on runs the
 scene, leaving out its locks, doors and alarms; turning it off puts the lights back, and it shows whether the scene is
-on. A scene's card says its
+on.
+
+![A scene as a switch in the Home app](images/ui/scene-homekit.png) A scene's card says its
 room when its accessories share one, and **Scene active** while every value it sets is what its accessories show.
 Its ⋯ menu gives it a picture of your own (**Choose a picture…**, shrunk to 640 pixels; JPEG, PNG or WebP up to 1 MB)
 or takes it away; a hub's scene has the same menu, and its picture is the one the Hue or IKEA page shows. The bridge
@@ -190,6 +192,8 @@ keeps them in `scene-pictures/` next to config.json. A hub's scene's menu also r
 as they are now, or deletes it from the hub (after asking: it goes from the hub's own app too). A new scene of lights
 only, without triggers or an animation, can be saved to the Hue room or zone, or the IKEA hub, that has all its lights:
 the editor's save bar offers it beside **Create the scene**.
+
+![Scenes from your hubs, by room, with their pictures and menus](images/plugins/scenes-from-hubs.png)
 
 **Scenes from your hubs**, under them: the scenes plugins' hubs keep (a Hue Bridge's rooms and zones, a DIRIGERA hub,
 the scenes picked for Govee lights), by room, with their pictures or colours and a source filter when there are
@@ -705,7 +709,9 @@ It runs the bridge built at `~/Library/Caches/homeswift-build/debug/homeswift` (
 folder with a new identity: the web UI on `127.0.0.1` without sign-in, plugin blocks with demonstration names, all
 paused, so nothing reaches a device or a cloud, and two generated images as wallpapers. It renders in headless Chrome in
 light mode at 2x, replaces this machine's name and the folder's paths in what the API answers, and removes the folder
-when it ends. The Accessories page's images are [widgets.md](widgets.md#screenshots)'s.
+when it ends. The Accessories page's images are [widgets.md](widgets.md#screenshots)'s. The Scenes page with hubs' scenes
+(`images/plugins/scenes-from-hubs.png`) comes from `node Scripts/plugin-screenshots.mjs`, against its fake Hue Bridge
+and DIRIGERA hub.
 
 ### Quick controls on phones
 

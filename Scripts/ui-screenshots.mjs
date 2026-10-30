@@ -158,6 +158,7 @@ async function shot(name, path, { width = 1280, height = 900, mobile = false, re
 
 try {
   await shot("scene-location", "/scenes", { ready: "details.location", prepare: 'document.querySelector("details.location").open = true;', element: "details.location" });
+  await shot("scene-homekit", "/scenes/new", { ready: ".scene-editor .toggle", element: ".scene-editor .toggle" });
   await shot("scene-artwork", "/scenes/new", { ready: ".artwork-picker", prepare: 'document.querySelector(".artwork-picker").open = true;', tall: 1000 });
   // The bridge as the Home app pairs it: its setup code and QR code.
   await shot("status-bridge", "/status", { ready: ".card.server", element: "main .card.server" });

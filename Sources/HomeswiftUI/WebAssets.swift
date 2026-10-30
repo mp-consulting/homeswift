@@ -9364,7 +9364,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     source?.addEventListener("change", () => filter());
     const node = el("section", { class: "hub-scenes" },
       el("div", { class: "section-head" }, el("h2", { text: t("Scenes from your hubs") }), count, source),
-      el("p", { class: "muted", text: t("Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; change them in their own app.") }),
+      el("p", { class: "muted", text: t("Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; rename, update or delete a Hue or IKEA scene from its ⋯ menu.") }),
       groups.map(({ node }) => node));
     return { node, filter };
   }
@@ -9688,7 +9688,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       noMatches.hidden = sceneCards.some(({ node }) => !node.hidden) || hubShown > 0;
     });
     app.show(main,
-      app.pageHead(t("Scenes"), t("Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; the Home app does not see them."),
+      app.pageHead(t("Scenes"), t("Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; one you choose is also a switch in the Home app."),
         data.scenes.length ? el("a", { class: "button primary", href: "/scenes/new", text: t("New scene") }) : null),
       el("div", { class: "section-head" }, el("h2", { text: t("Your scenes") }), sceneCount, data.scenes.length || hubScenes.node ? [search, HomeswiftCommon.clearFilters([[search, ""]])] : null),
       data.scenes.length ? el("div", { class: "grid scene-grid" }, sceneCards.map(({ node }) => node))
@@ -10050,8 +10050,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     const name = el("input", { type: "text", value: scene.name, maxLength: 64, required: true, placeholder: t("Evening") });
     const homeKit = el("input", { type: "checkbox", checked: Boolean(scene.homeKit) });
-    const homeKitRow = el("label", { class: "toggle compact" }, homeKit, el("span", {}, el("span", { text: t("A switch in the Home app") }),
-      el("span", { class: "help", text: t("On the Homeswift Scenes accessory: turning it on runs the scene (without its locks, doors and alarms), turning it off puts the lights back.") })));
+    // The settings pages' toggle: a switch, then its title over its help.
+    const homeKitRow = el("label", { class: "toggle" }, el("span", { class: "switch" }, homeKit, el("span")), el("span", {},
+      el("span", { class: "field-title", text: t("A switch in the Home app") }),
+      el("p", { class: "help", text: t("On the Homeswift Scenes accessory: turning it on runs the scene (without its locks, doors and alarms), turning it off puts the lights back.") })));
     let artworkId = scene.artworkId || null;
     const themes = await loadArtworkThemes();
     const artworkPreview = el("div", { class: "artwork-preview" }, artworkImage(artworkId));
@@ -10656,7 +10658,7 @@ HomeswiftI18n.add("es", {
   "All sources": "Todos los orígenes",
   "Scene active": "Escena activa",
   "Scenes from your hubs": "Escenas de tus hubs",
-  "Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; change them in their own app.": "Las guardan los hubs de tus plugins, como un puente Hue, un hub IKEA o luces Govee. Ejecútalas aquí; cámbialas en su propia app.",
+  "Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; rename, update or delete a Hue or IKEA scene from its ⋯ menu.": "Las guardan los hubs de tus plugins, como un puente Hue, un hub IKEA o luces Govee. Ejecútalas aquí; renombra, actualiza o elimina una escena de Hue o IKEA desde su menú ⋯.",
 
   "Start time": "Hora de inicio",
   "End time": "Hora de fin",
@@ -11028,7 +11030,7 @@ HomeswiftI18n.add("es", {
   "Accessory of its own, from {plugins}": "Accesorio independiente, de {plugins}",
   "Accessory of its own, from a plugin": "Accesorio independiente, de un plugin",
   "Accessory Runtime Information": "Información de ejecución",
-  "Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; the Home app does not see them.": "Valores de accesorios que se aplican juntos, a mano o según un horario, al amanecer o al atardecer, o cuando cambia un accesorio. Homeswift los guarda; la app Casa no los ve.",
+  "Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; one you choose is also a switch in the Home app.": "Valores de accesorios que se aplican juntos, a mano o según un horario, al amanecer o al atardecer, o cuando cambia un accesorio. Homeswift los guarda; una escena que elijas también es un interruptor en la app Casa.",
   "Account": "Cuenta",
   "Account menu": "Menú de la cuenta",
   "Action {0} must be an object": "La acción {0} debe ser un objeto",
@@ -13016,7 +13018,7 @@ HomeswiftI18n.add("fr", {
   "All sources": "Toutes les sources",
   "Scene active": "Scène active",
   "Scenes from your hubs": "Scènes de vos hubs",
-  "Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; change them in their own app.": "Gardées par les hubs de vos plugins, comme un pont Hue, un hub IKEA ou des lumières Govee. Lancez-les ici ; modifiez-les dans leur propre app.",
+  "Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; rename, update or delete a Hue or IKEA scene from its ⋯ menu.": "Gardées par les hubs de vos plugins, comme un pont Hue, un hub IKEA ou des lumières Govee. Lancez-les ici ; renommez, mettez à jour ou supprimez une scène Hue ou IKEA depuis son menu ⋯.",
 
   "Start time": "Début",
   "End time": "Fin",
@@ -13388,7 +13390,7 @@ HomeswiftI18n.add("fr", {
   "Accessory of its own, from {plugins}": "Accessoire autonome, de {plugins}",
   "Accessory of its own, from a plugin": "Accessoire autonome, d'un plugin",
   "Accessory Runtime Information": "Informations d'exécution",
-  "Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; the Home app does not see them.": "Des valeurs d'accessoires réglées ensemble, à la main ou selon un horaire, au lever ou au coucher du soleil, ou quand un accessoire change. Homeswift les conserve ; l'app Maison ne les voit pas.",
+  "Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; one you choose is also a switch in the Home app.": "Des valeurs d'accessoires réglées ensemble, à la main ou selon un horaire, au lever ou au coucher du soleil, ou quand un accessoire change. Homeswift les conserve ; une scène que vous choisissez est aussi un interrupteur dans l’app Maison.",
   "Account": "Compte",
   "Account menu": "Menu du compte",
   "Action {0} must be an object": "L'action {0} doit être un objet",
@@ -15376,7 +15378,7 @@ HomeswiftI18n.add("pt", {
   "All sources": "Todas as origens",
   "Scene active": "Cena ativa",
   "Scenes from your hubs": "Cenas dos seus hubs",
-  "Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; change them in their own app.": "Guardadas pelos hubs dos seus plugins, como uma ponte Hue, um hub IKEA ou luzes Govee. Execute-as aqui; altere-as na app delas.",
+  "Kept by the hubs of your plugins, such as a Hue Bridge, an IKEA hub or Govee lights. Run them here; rename, update or delete a Hue or IKEA scene from its ⋯ menu.": "Guardadas pelos hubs dos seus plugins, como uma ponte Hue, um hub IKEA ou luzes Govee. Execute-as aqui; renomeie, atualize ou apague uma cena Hue ou IKEA no seu menu ⋯.",
 
   "Start time": "Hora de início",
   "End time": "Hora de fim",
@@ -15748,7 +15750,7 @@ HomeswiftI18n.add("pt", {
   "Accessory of its own, from {plugins}": "Acessório independente, de {plugins}",
   "Accessory of its own, from a plugin": "Acessório independente, de um plugin",
   "Accessory Runtime Information": "Informações de execução",
-  "Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; the Home app does not see them.": "Valores de acessórios definidos em conjunto, manualmente ou num horário, ao nascer ou ao pôr do sol, ou quando um acessório muda. O Homeswift guarda-os; a app Casa não os vê.",
+  "Accessory values set together, by hand or on a schedule, at sunrise or sunset, or when an accessory changes. Homeswift keeps them; one you choose is also a switch in the Home app.": "Valores de acessórios definidos em conjunto, manualmente ou num horário, ao nascer ou ao pôr do sol, ou quando um acessório muda. O Homeswift guarda-os; uma cena que escolher também é um interruptor na app Casa.",
   "Account": "Conta",
   "Account menu": "Menu da conta",
   "Action {0} must be an object": "A ação {0} tem de ser um objeto",

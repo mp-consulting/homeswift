@@ -1,4 +1,4 @@
-// Retakes the Philips Hue and IKEA DIRIGERA pages' screenshots (docs/images/plugins) with headless Chrome: light mode,
+// Retakes the Philips Hue and IKEA DIRIGERA pages' screenshots, and the Scenes page with their scenes, (docs/images/plugins) with headless Chrome: light mode,
 // 2x. A throwaway bridge talks to a fake Hue Bridge and a fake DIRIGERA hub on this machine (HTTPS with a certificate
 // made for the run), which hold demonstration lights, sensors, remotes and scenes; no device is reached.
 //
@@ -216,13 +216,16 @@ async function shot(name, path, { tab, ready, width = 1280, height = 900, mobile
     }
     throw new Error(`${name}: ${selector} did not appear`);
   };
-  // A click before the page's script has wired its tabs does nothing: click until the tab says it is chosen.
-  const chosen = `button[data-tab="${tab}"][aria-selected="true"]`;
-  for (let i = 0; i < 40 && !(await evaluate(`!!document.querySelector('${chosen}')`)); i++) {
-    await evaluate(`document.querySelector('button[data-tab="${tab}"]')?.click()`);
-    await sleep(250);
+  // A click before the page's script has wired its tabs does nothing: click until the tab says it is chosen. A page
+  // without tabs (the Scenes page) has none to choose.
+  if (tab) {
+    const chosen = `button[data-tab="${tab}"][aria-selected="true"]`;
+    for (let i = 0; i < 40 && !(await evaluate(`!!document.querySelector('${chosen}')`)); i++) {
+      await evaluate(`document.querySelector('button[data-tab="${tab}"]')?.click()`);
+      await sleep(250);
+    }
+    await wait(chosen);
   }
-  await wait(chosen);
   await wait(ready);
   await sleep(1200);
   const full = await evaluate("Math.ceil(document.documentElement.scrollHeight)");
@@ -239,6 +242,8 @@ try {
   await shot("hue-scenes-phone", "/plugins/philips-hue", { tab: "scenes", ready: "#scenes .scene", width: 390, height: 844, mobile: true, tall: 1530 });
   await shot("dirigera-devices", "/plugins/ikea-dirigera", { tab: "devices", ready: "#devices .widget" });
   await shot("dirigera-scenes", "/plugins/ikea-dirigera", { tab: "scenes", ready: "#scenes .scene" });
+  // Homeswift's Scenes page: the bridge's and the hub's scenes, by room, with their pictures, colours and menus.
+  await shot("scenes-from-hubs", "/scenes", { ready: ".hub-scene", tall: 1400 });
 } finally {
   socket.close();
   const exited = new Promise((done) => chrome.once("exit", done));
