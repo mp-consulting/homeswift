@@ -2570,6 +2570,10 @@ select:disabled { opacity: .5; cursor: not-allowed; }
 .catalog-toolbar .popup { margin: 0; }
 /* A phone: the search takes the row, the order sits under it at its own width. */
 @media (max-width: 600px) { .catalog-toolbar { grid-template-columns: minmax(0, 1fr); } .catalog-toolbar .popup { justify-self: start; } }
+/* With a filter: the search, the filter and the order on one row; on a phone, the search over the two menus. */
+.catalog-toolbar.with-filter { grid-template-columns: minmax(0, 1fr) auto auto; }
+@media (max-width: 600px) { .catalog-toolbar.with-filter { grid-template-columns: auto auto; justify-content: start; } .catalog-toolbar.with-filter .search { grid-column: 1 / -1; } }
+.devices .catalog-toolbar { margin-bottom: var(--space-4); }
 /* A running plugin's state: a green dot where the other states have a pill. */
 .status-dot { flex: none; align-self: center; width: 9px; height: 9px; margin: 0 var(--space-6); border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 18%, transparent); }
 /* The lighting pages' finder (plugin.js `finder`): one row (the search takes the room left), held under the header

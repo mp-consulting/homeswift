@@ -1885,6 +1885,53 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     el("div", { class: "who" }, el("h1", { text: title }), subtitle ? el("p", { class: "muted", text: subtitle }) : null),
     tools.filter(Boolean).length ? el("div", { class: "tools" }, ...tools) : null);
 
+  /// A search, an optional filter and an order over a list of cards, on one row; while the search or the filter narrows
+  /// the list, how many it keeps and the way back under it. `entries` are { card, name, text } and more; `orders` are
+  /// [value, label, compare], the first the default, ties by name; `filters` are [value, label, keep], the first keeping
+  /// all. The order and the filter chosen stay in the address under `param` and `filterParam`.
+  const finder = ({ grid, entries, orders, filters = [], param, filterParam, placeholder, sortLabel, filterLabel, empty, counted,
+    emptyClass = "card empty" }) => {
+    const params = new URLSearchParams(location.search);
+    const search = el("input", { type: "search", class: "search", placeholder, "aria-label": placeholder });
+    const choose = (options, label, saved) => {
+      const select = el("select", { class: "popup", "aria-label": label }, options.map(([value, text]) => el("option", { value, text })));
+      select.value = options.some(([value]) => value === saved) ? saved : options[0][0];
+      return select;
+    };
+    const sort = choose(orders, sortLabel, params.get(param));
+    const filter = filters.length ? choose(filters, filterLabel, params.get(filterParam)) : null;
+    const status = el("div", { class: "finder-status", "aria-live": "polite" });
+    const clear = HomeswiftCommon.clearFilters([[search, ""], ...(filter ? [[filter, filters[0][0]]] : [])]);
+    const none = el("p", { class: emptyClass, hidden: true, text: empty });
+    const remember = (name, value) => {
+      const url = new URL(location.href); url.searchParams.set(name, value);
+      history.replaceState(null, "", url.pathname + url.search);
+    };
+    const arrange = () => {
+      const compare = orders.find(([value]) => value === sort.value)[2];
+      const collator = new Intl.Collator(undefined, { numeric: true });
+      grid.append(...[...entries].sort((a, b) => compare(a, b) || collator.compare(a.name, b.name) || a.text.localeCompare(b.text)).map(({ card }) => card));
+    };
+    const narrow = () => {
+      const query = search.value.trim().toLocaleLowerCase();
+      const keep = filter ? filters.find(([value]) => value === filter.value)[2] : () => true;
+      let visible = 0;
+      for (const entry of entries) {
+        entry.card.hidden = !(keep(entry) && entry.text.toLocaleLowerCase().includes(query));
+        if (!entry.card.hidden) visible++;
+      }
+      const narrowed = query || (filter && filter.value !== filters[0][0]);
+      status.replaceChildren(...(narrowed ? [el("span", { text: counted(visible, entries.length) }), clear] : []));
+      none.hidden = visible > 0;
+    };
+    sort.addEventListener("change", () => { arrange(); remember(param, sort.value); });
+    filter?.addEventListener("change", () => { narrow(); remember(filterParam, filter.value); });
+    search.addEventListener("input", narrow);
+    arrange();
+    if (filter && filter.value !== filters[0][0]) narrow();
+    return [el("div", { class: `catalog-toolbar${filter ? " with-filter" : ""}` }, search, filter, sort), status, grid, none];
+  };
+
   // /status?since=24h&bridge=<bridge>&accessory=<accessory>: the activity charts' range and whose durations they show,
   // as on the Logs page.
   views.status = async (main) => {
@@ -2008,7 +2055,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const fresh = own ? (next.ownDevices || []).find((device) => device.id === node.id) : next;
         if (!fresh) return element.remove();
         const replacement = matterNode(fresh, own, own && element.open);
-        replacement.classList.toggle("hidden", element.classList.contains("hidden"));
+        replacement.hidden = element.hidden;
         element.replaceWith(replacement);
       };
       const parts = matterParts(node, own, refresh);
@@ -2026,35 +2073,40 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         if (!bridge.external) return [];
         const parts = bridgeParts(bridge, index);
         const id = `accessory-${slug(bridge.deviceId)}`;
-        return [{ name: bridge.name, id, waiting: parts.waiting, make: (open) => deviceRow(parts, id, open) }];
+        return [{ name: bridge.name, id, kind: "homekit", ecosystems: bridge.paired ? 1 : 0, waiting: parts.waiting, make: (open) => deviceRow(parts, id, open) }];
       });
       const own = !matter?.enabled ? [] : (matter.ownDevices || []).map((device) => ({
-        name: device.name, id: `matter-${slug(device.id)}`, waiting: !(device.fabrics || []).length, make: (open) => matterNode(device, true, open) }));
-      const collator = new Intl.Collator(undefined, { numeric: true });
-      const entries = [...external, ...own].sort((a, b) => Number(b.waiting) - Number(a.waiting) || collator.compare(a.name, b.name));
+        name: device.name, id: `matter-${slug(device.id)}`, kind: "matter", ecosystems: (device.fabrics || []).length,
+        waiting: !(device.fabrics || []).length, make: (open) => matterNode(device, true, open) }));
+      const entries = [...external, ...own];
       if (!entries.length) return null;
       const waiting = entries.filter((entry) => entry.waiting).length;
-      // One or two to add come open, their codes in view; more stay folded at the top, their pills saying so. One an
-      // accessory's menu links to opens.
-      const list = el("div", { class: "device-rows" }, entries.map((entry) => entry.make((entry.waiting && waiting <= 2) || location.hash === `#${entry.id}`)));
-      const none = el("p", { class: "muted hidden", text: t("No device matches.") });
-      const search = entries.length > 8 ? el("input", { type: "search", class: "search", placeholder: t("Search devices"), "aria-label": t("Search devices"), oninput: () => {
-        const text = search.value.trim().toLowerCase();
-        let shown = 0;
-        for (const row of list.children) {
-          const match = !text || row.dataset.search.includes(text);
-          row.classList.toggle("hidden", !match);
-          if (match) shown++;
-        }
-        none.classList.toggle("hidden", shown > 0);
-      } }) : null;
-      return el("div", { class: "card devices" },
-        el("div", { class: "devices-head" },
-          el("div", { class: "who" }, el("strong", { text: t("Devices of their own") }),
-            el("div", { class: "muted", text: waiting ? tn("{count} devices · one waits to be added", "{count} devices · {n} wait to be added", waiting, { count: entries.length })
-              : tn("One device, with its own pairing", "{n} devices, each with its own pairing", entries.length) })),
-          search),
-        list, none);
+      const list = el("div", { class: "device-rows" });
+      // One or two to add come open, their codes in view; more stay folded, their pills saying so. One an accessory's
+      // menu links to opens. A row redrawn after a change replaces its element: the entry finds it by its id.
+      for (const entry of entries) {
+        const row = entry.make((entry.waiting && waiting <= 2) || location.hash === `#${entry.id}`);
+        list.append(row);
+        entry.text = row.dataset.search;
+        Object.defineProperty(entry, "card", { get: () => list.querySelector(`#${CSS.escape(entry.id)}`) });
+      }
+      const head = el("div", { class: "devices-head" },
+        el("div", { class: "who" }, el("strong", { text: t("Devices of their own") }),
+          el("div", { class: "muted", text: waiting ? tn("{count} devices · one waits to be added", "{count} devices · {n} wait to be added", waiting, { count: entries.length })
+            : tn("One device, with its own pairing", "{n} devices, each with its own pairing", entries.length) })));
+      // A short list is read at a glance; a long one is searched, filtered by kind and sorted.
+      if (entries.length <= 8) {
+        const collator = new Intl.Collator(undefined, { numeric: true });
+        list.append(...entries.sort((a, b) => Number(b.waiting) - Number(a.waiting) || collator.compare(a.name, b.name)).map((entry) => entry.card));
+        return el("div", { class: "card devices" }, head, list);
+      }
+      return el("div", { class: "card devices" }, head, ...finder({ grid: list, entries, param: "devices", filterParam: "show",
+        orders: [["waiting", t("Waiting to be added first"), (a, b) => Number(b.waiting) - Number(a.waiting)], ["name", t("Name A–Z"), () => 0],
+          ["ecosystems", t("Most ecosystems"), (a, b) => b.ecosystems - a.ecosystems]],
+        filters: [["all", t("All devices"), () => true], ["matter", t("Matter"), (entry) => entry.kind === "matter"],
+          ["homekit", t("HomeKit"), (entry) => entry.kind === "homekit"], ["waiting", t("Waiting to be added"), (entry) => entry.waiting]],
+        placeholder: t("Search devices"), sortLabel: t("Sort devices"), filterLabel: t("Show devices"), empty: t("No device matches."),
+        emptyClass: "muted", counted: (shown, total) => t("{shown} of {total} devices", { shown, total }) }));
     };
 
     // The page is widgets the user can hide and order (Customise, at the bottom; Glass UI's dashboard layout),
@@ -3409,41 +3461,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
     }
 
-    /// A search and an order over a grid of cards, on one row; while a search narrows the grid, how many it keeps and
-    /// the way back under it. `entries` are { card, name, text } and more; `orders` are [value, label, compare] after
-    /// Name A–Z, ties by name; the order chosen stays in the address under `param`.
-    const finder = ({ grid, entries, orders: more, param, placeholder, sortLabel, empty }) => {
-      const orders = [["name", t("Name A–Z"), () => 0], ...more];
-      const search = el("input", { type: "search", class: "search", placeholder, "aria-label": placeholder });
-      const status = el("div", { class: "finder-status", "aria-live": "polite" });
-      const clear = HomeswiftCommon.clearFilters([[search, ""]]);
-      const none = el("p", { class: "card empty", hidden: true, text: empty });
-      const sort = el("select", { class: "popup", "aria-label": sortLabel }, orders.map(([value, text]) => el("option", { value, text })));
-      const saved = new URLSearchParams(location.search).get(param);
-      sort.value = orders.some(([value]) => value === saved) ? saved : orders[0][0];
-      const arrange = () => {
-        const compare = orders.find(([value]) => value === sort.value)[2];
-        grid.append(...[...entries].sort((a, b) => compare(a, b) || a.name.localeCompare(b.name) || a.text.localeCompare(b.text)).map(({ card }) => card));
-      };
-      sort.addEventListener("change", () => {
-        arrange();
-        const url = new URL(location.href); url.searchParams.set(param, sort.value);
-        history.replaceState(null, "", url.pathname + url.search);
-      });
-      search.addEventListener("input", () => {
-        const query = search.value.trim().toLocaleLowerCase();
-        let visible = 0;
-        for (const entry of entries) {
-          entry.card.hidden = !entry.text.toLocaleLowerCase().includes(query);
-          if (!entry.card.hidden) visible++;
-        }
-        status.replaceChildren(...(query ? [el("span", { text: t("{shown} of {total} plugins", { shown: visible, total: entries.length }) }), clear] : []));
-        none.hidden = visible > 0;
-      });
-      arrange();
-      return [el("div", { class: "catalog-toolbar" }, search, sort), status, grid, none];
-    };
-
     // Your plugins: by name, those that need a look first (no plugin, not running, paused), or by their accessories.
     const blocks = plugins.blocks.map((block) => {
       const plugin = byPlatform.get(block.platform), instance = running(block);
@@ -3452,13 +3469,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         text: [block.name, block.platform, plugin?.name, instance?.bridge].filter(Boolean).join(" ") };
     });
     const installed = finder({ grid: el("div", { class: "grid plugin-instances" }), entries: blocks, param: "order",
-      orders: [["attention", t("Needs attention first"), (a, b) => a.attention - b.attention],
+      orders: [["name", t("Name A–Z"), () => 0], ["attention", t("Needs attention first"), (a, b) => a.attention - b.attention],
         ["accessories", t("Most accessories"), (a, b) => b.accessories - a.accessories]],
-      placeholder: t("Search your plugins"), sortLabel: t("Sort your plugins"), empty: t("No plugin of yours matches the search.") });
+      placeholder: t("Search your plugins"), sortLabel: t("Sort your plugins"), empty: t("No plugin of yours matches the search."),
+      counted: (shown, total) => t("{shown} of {total} plugins", { shown, total }) });
     const available = finder({ grid: el("div", { class: "grid plugin-catalog" }), param: "sort", entries: catalogEntries,
-      orders: [["used", t("In use first"), (a, b) => Number(b.used) - Number(a.used)],
+      orders: [["name", t("Name A–Z"), () => 0], ["used", t("In use first"), (a, b) => Number(b.used) - Number(a.used)],
         ["available", t("Available first"), (a, b) => Number(a.used) - Number(b.used)]],
-      placeholder: t("Search plugins"), sortLabel: t("Sort plugins"), empty: t("No plugin matches the search.") });
+      placeholder: t("Search plugins"), sortLabel: t("Sort plugins"), empty: t("No plugin matches the search."),
+      counted: (shown, total) => t("{shown} of {total} plugins", { shown, total }) });
     show(main,
       pageHead(t("Plugins"), t("The blocks of config.json. A save applies at once: the plugin reloads with its accessories kept.")),
       // Blocks no plugin here runs, by the names the cards show (Homebridge's own blocks, from an imported config).
@@ -10572,6 +10591,14 @@ HomeswiftI18n.add("es", {
   "Matter device of its own": "Dispositivo Matter propio",
   "Matter · {ecosystems}": "Matter · {ecosystems}",
   "Matter": "Matter",
+  "Waiting to be added first": "Pendientes de añadir primero",
+  "Most ecosystems": "Más ecosistemas",
+  "All devices": "Todos los dispositivos",
+  "HomeKit": "HomeKit",
+  "Waiting to be added": "Pendientes de añadir",
+  "Sort devices": "Ordenar dispositivos",
+  "Show devices": "Mostrar dispositivos",
+  "{shown} of {total} devices": "{shown} de {total} dispositivos",
   "{count} devices · one waits to be added": "{count} dispositivos · uno espera a ser añadido",
   "{count} devices · {n} wait to be added": "{count} dispositivos · {n} esperan a ser añadidos",
   "One device, with its own pairing": "Un dispositivo, con su propio emparejamiento",
@@ -12919,6 +12946,14 @@ HomeswiftI18n.add("fr", {
   "Matter device of its own": "Appareil Matter à part entière",
   "Matter · {ecosystems}": "Matter · {ecosystems}",
   "Matter": "Matter",
+  "Waiting to be added first": "En attente d'ajout d'abord",
+  "Most ecosystems": "Le plus d'écosystèmes",
+  "All devices": "Tous les appareils",
+  "HomeKit": "HomeKit",
+  "Waiting to be added": "En attente d'ajout",
+  "Sort devices": "Trier les appareils",
+  "Show devices": "Afficher les appareils",
+  "{shown} of {total} devices": "{shown} sur {total} appareils",
   "{count} devices · one waits to be added": "{count} appareils · un attend d'être ajouté",
   "{count} devices · {n} wait to be added": "{count} appareils · {n} attendent d'être ajoutés",
   "One device, with its own pairing": "Un appareil, avec son propre appairage",
@@ -15266,6 +15301,14 @@ HomeswiftI18n.add("pt", {
   "Matter device of its own": "Dispositivo Matter próprio",
   "Matter · {ecosystems}": "Matter · {ecosystems}",
   "Matter": "Matter",
+  "Waiting to be added first": "A aguardar adição primeiro",
+  "Most ecosystems": "Mais ecossistemas",
+  "All devices": "Todos os dispositivos",
+  "HomeKit": "HomeKit",
+  "Waiting to be added": "A aguardar adição",
+  "Sort devices": "Ordenar dispositivos",
+  "Show devices": "Mostrar dispositivos",
+  "{shown} of {total} devices": "{shown} de {total} dispositivos",
   "{count} devices · one waits to be added": "{count} dispositivos · um aguarda ser adicionado",
   "{count} devices · {n} wait to be added": "{count} dispositivos · {n} aguardam ser adicionados",
   "One device, with its own pairing": "Um dispositivo, com o seu próprio emparelhamento",
@@ -22340,6 +22383,10 @@ select:disabled { opacity: .5; cursor: not-allowed; }
 .catalog-toolbar .popup { margin: 0; }
 /* A phone: the search takes the row, the order sits under it at its own width. */
 @media (max-width: 600px) { .catalog-toolbar { grid-template-columns: minmax(0, 1fr); } .catalog-toolbar .popup { justify-self: start; } }
+/* With a filter: the search, the filter and the order on one row; on a phone, the search over the two menus. */
+.catalog-toolbar.with-filter { grid-template-columns: minmax(0, 1fr) auto auto; }
+@media (max-width: 600px) { .catalog-toolbar.with-filter { grid-template-columns: auto auto; justify-content: start; } .catalog-toolbar.with-filter .search { grid-column: 1 / -1; } }
+.devices .catalog-toolbar { margin-bottom: var(--space-4); }
 /* A running plugin's state: a green dot where the other states have a pill. */
 .status-dot { flex: none; align-self: center; width: 9px; height: 9px; margin: 0 var(--space-6); border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 18%, transparent); }
 /* The lighting pages' finder (plugin.js `finder`): one row (the search takes the room left), held under the header
