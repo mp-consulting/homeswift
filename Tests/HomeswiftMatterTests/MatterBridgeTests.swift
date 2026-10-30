@@ -58,6 +58,14 @@ actor HouseholdPlugin: HomeswiftPlugin {
         try context.add(Accessory(id: "Household:robot", name: "Robot", category: .switch, services: [robot]))
     }
 
+    /// A purifier and the filter it links.
+    func addPurifier() throws -> Service {
+        let filter = Service(.filterMaintenance, name: "Filter", optional: [.filterLifeLevel])
+        let purifier = Service(.airPurifier, name: "Purifier", optional: [.rotationSpeed], linked: [filter])
+        try context.add(Accessory(id: "Household:purifier", name: "Purifier", category: .airPurifier, services: [purifier, filter]))
+        return filter
+    }
+
     func stop() async {}
 
     func removeDoor() async throws { try await context.remove(id: "Household:door") }
@@ -332,6 +340,83 @@ struct MatterMappingTests {
         #expect(ServiceMapping(Service(.lockMechanism, name: "Lock"), exposeSecurity: true)?.role == .lock)
     }
 
+    @Test func mapsHeaterCoolersDoorsAndGarageDoors() throws {
+        typealias Mode = ThermostatCluster.SystemModeEnum
+        let air = Service(.heaterCooler, name: "Air conditioner", optional: [.heatingThresholdTemperature, .coolingThresholdTemperature])
+        air[.active]?.value = .int(1)
+        air[.targetHeaterCoolerState]?.value = .int(0)
+        air[.heatingThresholdTemperature]?.value = .double(19)
+        air[.coolingThresholdTemperature]?.value = .double(25)
+        let heaterCooler = try #require(ServiceMapping(air, exposeSecurity: false))
+        // Auto keeps it between its thresholds, Matter's two setpoints.
+        #expect(heaterCooler.role == .heaterCooler(heating: true, cooling: true, auto: true))
+        #expect(heaterCooler.states().contains(.thermostatMode(UInt8(Mode.auto))))
+        #expect(heaterCooler.states().contains(.heatingSetpoint(19)) && heaterCooler.states().contains(.coolingSetpoint(25)))
+        #expect(heaterCooler.writes(for: .setCoolingSetpoint(celsius: 24)).map(\.0.type.uuid) == [CharacteristicType.coolingThresholdTemperature.uuid])
+        // Off is Active off; cool is Active on with the cool target.
+        #expect(heaterCooler.writes(for: .setThermostatMode(UInt8(Mode.off))).map(\.1) == [.int(0)])
+        #expect(heaterCooler.writes(for: .setThermostatMode(UInt8(Mode.cool))).map(\.1) == [.int(1), .int(2)])
+        air[.active]?.value = .int(0)
+        #expect(heaterCooler.states(changed: CharacteristicType.active.uuid) == [.thermostatMode(UInt8(Mode.off))])
+
+        // A door moves as a covering does, with exposeSecurity on: it is an entrance. A window needs no such opt-in.
+        let door = Service(.door, name: "Patio door")
+        door[.currentPosition]?.value = .int(100)
+        #expect(ServiceMapping(door, exposeSecurity: false) == nil)
+        #expect(try #require(ServiceMapping(door, exposeSecurity: true)).states() == [.coveringPosition(percent100ths: 0)])
+        #expect(ServiceMapping(Service(.window, name: "Skylight"), exposeSecurity: false)?.role == .covering)
+
+        // A garage door is a security control, and a Closure: opening asks for its target, and on its way it is partly open.
+        let garage = Service(.garageDoorOpener, name: "Garage")
+        #expect(ServiceMapping(garage, exposeSecurity: false) == nil)
+        let opener = try #require(ServiceMapping(garage, exposeSecurity: true))
+        #expect(opener.kind.deviceTypes.map(\.id) == [DeviceTypes.closure.id])
+        garage[.currentDoorState]?.value = .int(2)
+        #expect(opener.states() == [.closure(.partiallyOpened, moving: true)])
+        garage[.currentDoorState]?.value = .int(1)
+        #expect(opener.states() == [.closure(.fullyClosed, moving: false)])
+        #expect(opener.writes(for: .setClosureOpen(true)).map(\.1) == [.int(0)])
+
+        // A faucet is a water valve whose Active says whether it runs.
+        let faucet = Service(.faucet, name: "Kitchen tap")
+        faucet[.active]?.value = .int(1)
+        #expect(try #require(ServiceMapping(faucet, exposeSecurity: false)).states() == [.valveOpen(true)])
+    }
+
+    @Test func mapsAirPurifiersFansAndAirReadings() throws {
+        let filter = Service(.filterMaintenance, name: "Filter", optional: [.filterLifeLevel, .resetFilterIndication])
+        let purifier = Service(.airPurifier, name: "Purifier", optional: [.rotationSpeed, .swingMode], linked: [filter])
+        purifier[.active]?.value = .int(1)
+        purifier[.rotationSpeed]?.value = .double(40)
+        filter[.filterLifeLevel]?.value = .double(7)
+        // The filter the purifier links is reported with it, not on its own; one it does not link stays out.
+        #expect(ServiceMapping(filter, exposeSecurity: false) == nil)
+        #expect(ServiceMapping(Service(.airPurifier, name: "Other"), exposeSecurity: false)?.role == .airPurifier(filter: false, rocking: false))
+        let mapping = try #require(ServiceMapping(purifier, exposeSecurity: false))
+        #expect(mapping.role == .airPurifier(filter: true, rocking: true))
+        #expect(mapping.characteristics.contains { $0 === filter[.filterLifeLevel] })
+        #expect(mapping.states().contains(.fanSpeed(percent: 40)))
+        #expect(mapping.states(changed: CharacteristicType.filterLifeLevel.uuid) == [.filter(percentLeft: 7, needsChange: false)])
+        #expect(mapping.writes(for: .resetFilter).map { $0.0 === filter[.resetFilterIndication] } == [true])
+        #expect(mapping.writes(for: .setFanRocking(true)).map(\.1) == [.int(1)])
+
+        let fan = Service(.fanv2, name: "Ceiling fan", optional: [.rotationDirection])
+        fan[.rotationDirection]?.value = .int(1)
+        let fanMapping = try #require(ServiceMapping(fan, exposeSecurity: false))
+        #expect(fanMapping.role == .fan(rocking: false, direction: true))
+        #expect(fanMapping.states(changed: CharacteristicType.rotationDirection.uuid) == [.fanAirflowReversed(true)])
+
+        // A carbon dioxide sensor is an air quality sensor measuring it, good until the level is abnormal.
+        let co2 = Service(.carbonDioxideSensor, name: "Office", optional: [.carbonDioxideLevel])
+        co2[.carbonDioxideDetected]?.value = .int(1)
+        co2[.carbonDioxideLevel]?.value = .double(1450)
+        let co2Mapping = try #require(ServiceMapping(co2, exposeSecurity: false))
+        #expect(co2Mapping.role == .airQuality(measuring: [.carbonDioxide]))
+        #expect(co2Mapping.states() == [.airQuality(4), .concentration(.carbonDioxide, 1450)])
+        let quality = Service(.airQualitySensor, name: "Bedroom", optional: [.pm2_5Density, .vocDensity])
+        #expect(ServiceMapping(quality, exposeSecurity: false)?.role == .airQuality(measuring: [.pm25, .totalVolatileOrganicCompounds]))
+    }
+
     @Test func keepsTheNodeStateInOwnerOnlyFiles() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("homeswift-matter-storage-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -396,6 +481,19 @@ struct MatterMappingTests {
         try await eventually { (try? await state()) == .unsigned(RvcOperationalStateCluster.OperationalStateEnum.paused) }
         try await invoke(Operational.Command.resume)
         try await eventually { (try? await state()) == .unsigned(RvcOperationalStateCluster.OperationalStateEnum.running) }
+    } }
+
+    @Test func reportsAFiltersWearOnItsPurifier() async throws { try await withFixture { fixture in
+        let filter = try await fixture.plugin.addPurifier()
+        try await eventually {
+            let types = try? await fixture.read("Household:purifier", DescriptorCluster.id, DescriptorCluster.Attribute.deviceTypeList)
+            return types?.elements?.first?.value[0]?.uint == UInt64(DeviceTypes.airPurifier.id)
+        }
+        // The filter is another service: its change reaches the purifier's HEPA filter all the same.
+        filter[.filterLifeLevel]?.value = .double(12)
+        try await eventually {
+            (try? await fixture.read("Household:purifier", HepaFilterMonitoringCluster.id, HepaFilterMonitoringCluster.Attribute.condition)) == .unsigned(12)
+        }
     } }
 
     @Test func makesTheDeviceAgainWhenItsRoleChanges() async throws { try await withFixture { fixture in
