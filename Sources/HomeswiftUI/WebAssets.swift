@@ -1797,7 +1797,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const url = new URL(link.href, location.href);
     if (url.origin !== location.origin || url.pathname.startsWith("/api/") || /\.[a-z0-9]+$/i.test(url.pathname) || /^\/plugins\/[^/]+\/?$/.test(url.pathname)) return;
     event.preventDefault();
-    if (url.pathname + url.search !== location.pathname + location.search) navigate(url.pathname + url.search);
+    // Another view, with the place in it to show (/status#matter-<device>); on this view, that place opened and in sight.
+    if (url.pathname + url.search !== location.pathname + location.search) return navigate(url.pathname + url.search + url.hash);
+    const target = url.hash && document.getElementById(decodeURIComponent(url.hash.slice(1)));
+    if (!target) return;
+    history.replaceState(null, "", url.pathname + url.search + url.hash);
+    if (target instanceof HTMLDetailsElement) target.open = true;
+    target.scrollIntoView({ block: "center" });
   });
   // Closing the tab or reloading: the browser asks, when the page has unsaved changes.
   window.addEventListener("beforeunload", (event) => { if (leaveGuard?.quiet && !leaveGuard.quiet()) event.preventDefault(); });
