@@ -2024,7 +2024,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           const status = await response.json();
           healthyReplies++;
           const younger = Number.isFinite(status.uptimeSeconds) && status.uptimeSeconds < (Date.now() - started) / 1000 + 5;
-          if (younger || (wasOffline && healthyReplies >= 2)) { await finishRestart(); return; }
+          if (younger || (wasOffline && healthyReplies >= 2)) {
+            if (reloadIfUpdated(status)) return;
+            await finishRestart();
+            return;
+          }
         } else if (response.status === 401) { await finishRestart(); return; }
       } catch { wasOffline = true; healthyReplies = 0; }
       if (Date.now() < deadline) setTimeout(poll, 1000);
@@ -2146,6 +2150,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // ---- Live events ---------------------------------------------------------
 
   let events = null;
+  // The build of the files this page runs (UIServer.build, in its <meta>); /api/status says the bridge's.
+  const pageBuild = document.querySelector('meta[name="homeswift-build"]')?.content || null;
+  /// After an update the bridge serves other files: a page still running the old ones loads again, unless it holds
+  /// unsaved changes (it does on the next check after they are saved or left). True when it reloads.
+  function reloadIfUpdated(status) {
+    if (!pageBuild || !status?.build || status.build === pageBuild) return false;
+    if (leaveGuard && !leaveGuard.quiet?.()) return false;
+    location.reload();
+    return true;
+  }
+
   function openEvents() {
     if (events) return;
     const stream = events = new EventSource("/api/events");
@@ -2160,6 +2175,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // This also reconciles an automatic SSE reconnect without replacing forms or the wall.
     stream.addEventListener("hello", async () => {
       const current = ++generation;
+      // A reconnect: the bridge may have restarted into an update (a schedule, another browser, an MCP client).
+      if (current > 1) api("/api/status").then(reloadIfUpdated).catch(() => {});
       pending = [];
       try {
         const accessories = await api("/api/accessories");
@@ -5902,6 +5919,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   document.addEventListener("visibilitychange", () => {
     if (!(auth && auth.authenticated)) return;
     if (document.hidden) { closeEvents(); return; }
+    // A web app on a phone stays open for days: back in view, it catches up with an update first.
+    api("/api/status").then(reloadIfUpdated).catch(() => {});
     openEvents();
     if (location.pathname === "/accessories" && document.querySelector(".wall.editing")) return;
     if (["/", "/status", "/accessories", "/quick"].includes(location.pathname)) route();

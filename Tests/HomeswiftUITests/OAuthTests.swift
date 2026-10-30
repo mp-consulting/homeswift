@@ -228,7 +228,7 @@ struct OAuthServerTests {
         #expect(page.status == 200)
         // Its files are relative to a <base> of the UI's root (or of `publicURL`'s path, below).
         #expect(page.body.contains(#"<base href="/">"#))
-        #expect(page.body.contains(#"src="authorize.js""#))
+        #expect(page.body.contains(#"src="authorize.js?v="#))
         #expect(page.headers["x-frame-options"] == "DENY")
         #expect(try await browser.get("/api/oauth/request?\(queryString)").status == 401)
         #expect(try await browser.post("/api/auth/login", ["username": "sam", "password": "correct horse battery"]).status == 200)
@@ -366,7 +366,7 @@ struct OAuthServerTests {
         let page = try await browser.get("/homeswift/oauth/authorize?\(queryString)")
         #expect(page.status == 200)
         #expect(page.body.contains(#"<base href="/homeswift/">"#))
-        #expect(page.body.contains(#"src="authorize.js""#))
+        #expect(page.body.contains(#"src="authorize.js?v="#))
         #expect(try await browser.get("/homeswift/authorize.js").status == 200)
         #expect(try await browser.post("/homeswift/api/auth/login", ["username": "rosaly", "password": "correct horse battery"]).status == 200)
         let decision: JSONValue = .object(request.mapValues(JSONValue.string).merging(["approve": true, "scope_granted": "control"]) { _, new in new })

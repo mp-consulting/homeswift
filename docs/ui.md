@@ -612,6 +612,11 @@ On a wide window the chat is a panel beside the page; on a phone, a sheet you dr
   `nosniff`, no referrer, and a permissions policy that leaves the UI the microphone (dictation) and full screen (a
   camera) and nothing else. Search engines are asked to keep away (`X-Robots-Tag: noindex, nofollow` on every reply and
   a `/robots.txt` that disallows everything), for a UI published through a tunnel or a proxy.
+- **Caching.** Pages are never stored. The files a page uses are asked for at an address of their bytes
+  (`/app.js?v=<its ETag>`), which a browser keeps for a year (`immutable`); any other address of a file is revalidated
+  (`no-cache` and its ETag). The page knows its build (`<meta name="homeswift-build">`, `build` in `/api/status`) and
+  loads again when the bridge's differs: after a restart, when it comes back in view (a web app on a phone stays open
+  for days) and when its event stream reconnects, but not while it holds unsaved changes.
 - **The first account** needs the set-up code, so nobody else on the network can claim the bridge before its owner
   does. The code is printed at startup and never logged: the MCP log tools cannot see it.
 - **Passwords** are hashed with PBKDF2-HMAC-SHA256 (210,000 iterations, a random salt) and verified in constant time.

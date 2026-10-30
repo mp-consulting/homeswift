@@ -40,6 +40,11 @@ All notable changes to this project are documented here. The format follows
 - Settings › Child bridges without a plugin drew an empty list and pointed "above" at nothing: it now says so once, with
   **Add a plugin**.
 
+- After an update the web UI kept the scripts and styles of the version before until refreshed, a web app on a phone
+  for longer: the page asks for each file at an address of its bytes (`/app.js?v=…`, kept for good), and reloads by
+  itself when the bridge's files change (after a restart, back in view, or when its event stream reconnects), unless it
+  holds unsaved changes.
+
 ## [0.15.0] - 2026-10-29
 
 ### Added

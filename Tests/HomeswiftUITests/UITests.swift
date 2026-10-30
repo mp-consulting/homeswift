@@ -884,4 +884,26 @@ struct UIServerTests {
         #expect(page.headers["cache-control"] == "no-store")
         #expect(page.headers["etag"] == nil)
     }
+
+    /// After an update a page never runs the files of the version before: it names each at an address of its bytes,
+    /// kept for good, and knows its build, which /api/status says too.
+    @Test func versionsThePagesFiles() async throws {
+        let environment = try UITestEnvironment(auth: .none)
+        let base = try await environment.start()
+        defer { Task { await environment.stop() } }
+        let browser = Browser(base: base)
+        let tag = try #require(try await browser.get("/app.js").headers["etag"])
+        let version = tag.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+        let page = try await browser.get("/").body
+        #expect(page.contains(#"<script src="/app.js?v=\#(version)"></script>"#))
+        #expect(page.contains(#"<link rel="stylesheet" href="/style.css?v="#))
+        #expect(page.contains(#"<meta name="homeswift-build" content="\#(UIServer.build)">"#))
+        // A view's address is not a file: left alone.
+        #expect(!page.contains("/status?v="))
+        let versioned = try await browser.get("/app.js?v=\(version)")
+        #expect(versioned.headers["cache-control"] == "max-age=31536000, immutable")
+        // An older page's version is revalidated, not kept under that address.
+        #expect(try await browser.get("/app.js?v=0123").headers["cache-control"] == "no-cache")
+        #expect(try await browser.get("/api/status").json?["build"]?.stringValue == UIServer.build)
+    }
 }
