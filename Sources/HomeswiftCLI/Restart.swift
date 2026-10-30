@@ -33,7 +33,9 @@ enum Restart {
     }
 
     static func exec() -> Never {
-        let path = Bundle.main.executablePath ?? CommandLine.arguments[0]
+        // After an update, the binary it installed (Homebrew's `opt` link): this one's Cellar may be gone.
+        let installed = UICommands.releases.relaunchExecutable.flatMap { FileManager.default.isExecutableFile(atPath: $0) ? $0 : nil }
+        let path = installed ?? Bundle.main.executablePath ?? CommandLine.arguments[0]
         var arguments: [UnsafeMutablePointer<CChar>?] = CommandLine.arguments.map { strdup($0) }
         arguments.append(nil)
         closeOnExec()

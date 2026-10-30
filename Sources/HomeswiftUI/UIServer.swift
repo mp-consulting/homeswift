@@ -590,6 +590,11 @@ public final class UIServer: Sendable {
             switch route {
             case ["status"]:
                 return .json(status(username: username, admin: caller.isAdmin))
+            case ["updates"]:
+                // The Settings page's Updates: as the last check left it, the version on disk looked at again.
+                guard let releases = options.releases else { return .error(503, "update checking is unavailable") }
+                await releases.noteInstalledVersion()
+                return .json(releases.json(always: true) ?? .null)
             case ["assistant"]:
                 // Whether pages may offer "Explain": the HomeswiftAiKit block's Assistant, when one works.
                 guard let assistant = catalog.host.assistant else { return .json(["enabled": false]) }
@@ -811,6 +816,15 @@ public final class UIServer: Sendable {
                     return .error(409, error.description)
                 }
             }
+            if route == ["updates", "automatic"] {
+                // Settings › Updates' switch: `checkForUpdates` in the HomeswiftUI block (left out when on, its default).
+                // The saved block restarts the web UI, which starts or stops the checks; they change here at once too.
+                guard let on = body["on"]?.boolValue else { return .error(400, "on (true or false) is required") }
+                _ = try await catalog.editBlock(platform: UIConfiguration.platform, name: nil, create: false, dryRun: false) { $0["checkForUpdates"] = on ? nil : .bool(false) }
+                noteConfigChange(by: username)
+                if let releases = options.releases { on ? releases.start() : releases.stop() }
+                return .json(options.releases?.json(always: true) ?? ["automatic": .bool(on)])
+            }
             if route.count == 4, route[0] == "config", route[1] == "block" {
                 // A block by platform and name, for a plugin's own page: its read-modify-write never needs
                 // the whole file, nor an index that may have moved.
@@ -830,6 +844,19 @@ public final class UIServer: Sendable {
                 guard let releases = options.releases else { return .error(503, "update checking is unavailable") }
                 await releases.check()
                 return .json(releases.json() ?? .null)
+            }
+            if route == ["updates", "install"] {
+                // Installs in the background, the page asking GET /api/updates how it goes; then, unless
+                // `relaunch` is false, restarts into the new version.
+                guard let releases = options.releases else { return .error(503, "update checking is unavailable") }
+                guard releases.json()?["canInstall"]?.boolValue == true else { return .error(409, "there is no update this bridge can install") }
+                let relaunch = body["relaunch"]?.boolValue ?? true
+                let catalog = catalog
+                releases.install {
+                    guard relaunch, catalog.scheduleRestart(requestedBy: "web UI user \(username): installing an update") else { return }
+                    releases.noteRelaunch()
+                }
+                return .json(releases.json(always: true) ?? .null)
             }
             if route == ["config", "check-port"] {
                 guard let candidate = body["port"]?.intValue, (1...65535).contains(candidate) else {

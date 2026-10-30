@@ -55,7 +55,11 @@ extension UIServer {
             switch (method, route) {
             // The bridge block, and what this machine runs it with.
             case (.GET, ["settings", "bridge"]):
-                return .json(try catalog.bridgeSettingsJSON())
+                // With the setup code the bridge runs with: config.json keeps the pin sealed (`enc:v1:…`) or as a
+                // reference, and the form shows the code itself, with its QR code (/api/qr/0.svg).
+                var settings = try catalog.bridgeSettingsJSON().objectValue ?? [:]
+                settings["setupCode"] = .string(catalog.host.mainBridge.server.setupCode.rawValue)
+                return .json(.object(settings))
             case (.PUT, ["settings", "bridge"]):
                 guard let settings = body["settings"]?.objectValue else { return .error(400, "settings are required") }
                 return .json(try await catalog.updateBridgeSettings(settings, dryRun: body["dryRun"]?.boolValue == true))

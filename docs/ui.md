@@ -36,7 +36,7 @@ added on the **Users** page ([Users, roles and API tokens](#users-roles-and-api-
 
 ## The pages
 
-The header has the sections (Status, Accessories, Scenes, Plugins, Config, Logs, Settings), the Assistant's sparkle
+The header has the sections (Status, Accessories, Scenes, Plugins, Logs, Settings), the Assistant's sparkle
 when it is on, and the account menu behind your initial: **Account**, **Appearance**, **Users** (administrators) and
 **Sign out**. Every view is an address ([Addresses](#addresses)), so Back and Forward work and a view can be kept or
 shared.
@@ -60,7 +60,7 @@ The start page: a summary (accessories, plugins, Home app controllers, uptime), 
 - **Daily digest**, with the Assistant on: what needs attention today, from the day's warnings and errors and the
   accessories. **Write today's digest** streams it; the bridge keeps it for the day (`ai-digest.json`, owner-only) and
   the card's **⋯** writes it again. Any user reads today's digest; an administrator writes it.
-- **Vault**, for administrators: how many entries the vault keeps, how many config.json uses and how many secrets
+- **Vault**, for administrators, once the vault has an entry or config.json a secret to move: how many entries the vault keeps, how many config.json uses and how many secrets
   config.json still holds, then what needs attention, most pressing first (a reference to an entry that is gone, one
   that cannot read its entry, an entry expired or expiring within 30 days), and **Open the vault**.
 - **Energy**, once a plugin records readings with an energy role (`EnergyTag`, docs/plugins.md). See [Energy](#energy) below.
@@ -70,7 +70,11 @@ The start page: a summary (accessories, plugins, Home app controllers, uptime), 
 When GitHub has a newer release, a card under the summary says so, with its notes and how to upgrade this install: the
 `.spk` to download on a Synology NAS, the image tag to pull in Docker, `brew upgrade` or the tag to check out. The
 bridge asks GitHub's API a minute after it starts and then twice a day, sending only its version (`ReleaseWatcher`);
-`"checkForUpdates": false` turns it off. It never upgrades itself.
+`"checkForUpdates": false` turns it off. On a Homebrew install an administrator's **Install and relaunch** runs
+`brew upgrade homeswift` and restarts into the new binary (Homebrew's `opt/homeswift` link); the footer's button
+follows it (**Install update**, **Installing…**, then **Relaunch to update** when the new version is on disk, from here
+or a `brew upgrade` run by hand). A Synology package, a container and a checkout cannot upgrade themselves: their card
+says how. Settings › Updates has the same card.
 
 **Customise this page**, at the bottom, opens a menu with a switch per section (overview, digest, activity, energy,
 bridges, system) and drag handles to reorder them. Changes apply at once; the layout is each user's own, on every
@@ -346,7 +350,7 @@ chosen). A boolean with
 under a title that turns it on (the web UI's daily backup). A certificate or key field takes a dropped PEM file, which
 the bridge checks and keeps owner-only under `files/` next to config.json.
 
-The JSON view is coloured as you type, like the Config page, and Save takes the view on screen. With the Assistant on,
+The JSON view is coloured as you type, like Settings › Config, and Save takes the view on screen. With the Assistant on,
 **Describe your setup** above the form writes the block from a sentence and the plugin's schema; the change shows as a
 diff, and **Use it** puts it in the form to review and save. Passwords and tokens never reach the provider.
 
@@ -356,23 +360,6 @@ changes against the plugin's schema (a type, a bound, a choice outside the list,
 show under the editor with their lines marked, **Line 12** puts the caret there, and **Save anyway** keeps a value the
 plugin accepts that its schema does not list. Settings left as they were are not checked, so an old mistake never stops
 another change; a plugin's own page and **Pause** write without the check.
-
-### Config
-
-![The Config page: the whole config.json, secrets marked in gold](images/ui/config.png)
-
-The whole file in an editor. Saving validates it, checks each plugin block's changes against its schema as the Expert
-view does, keeps a backup under `backups/` (the last 20), sorts the keys and applies it. A syntax error's line is
-marked as you type.
-
-- **Folding**: a block that spans lines folds from the chevron beside its first line (Option-click folds or opens every
-  block at that indentation; ⌘⌥[ and ⌘⌥] at the caret), and a click on its ⋯ opens it. What is saved, copied or
-  formatted is always the whole text. A plugin's JSON view folds the same way.
-- **Secrets**: a key that holds one (the bridge's redaction rule: passwords, tokens, keys, the setup code, `auth`) is
-  gold with a lock before it, in both editors, and its value shows as `__REDACTED__`. A save that keeps the placeholder
-  keeps the stored value, so the page never needs to show a secret to edit the rest. **Secrets only** (the lock in the
-  bar) folds everything else, leaving the secrets and the way down to each; while it holds, the button is gold and a
-  strip above the text says how many show, with **Show all**. Opening a fold, Format or Revert end it.
 
 ### Logs
 
@@ -415,13 +402,16 @@ as an icon (shown when there is something to clear), and the time range and the 
 For administrators, after the Homebridge UI's settings, child bridges, backups and restart pages. Its tabs:
 
 - **Bridge** (`/settings/bridge`, where `/settings` opens): config.json's `bridge` block as a form (name, port, setup
-  code, manufacturer, model, firmware; saving restarts homeswift; the device ID stays), the network (the addresses, the
+  code, manufacturer, model, firmware; saving restarts homeswift; the device ID stays). The setup code shows as the
+  bridge runs with it, whether config.json keeps it sealed or in the vault, with a copy button and the pairing QR code;
+  it is written back only when it changes. Then the network (the addresses, the
   advertiser), each server's HomeKit pairing with **Reset pairings…** in its ⋯ menu, the cached accessories (stale ones
   first) with **Remove from the cache…** and **Reset every cache…**, and a link to the schedules and proxy settings of
   the HomeswiftUI block. A HomeKit port is checked before it is saved; an empty one picks a free port. Homeswift listens
   and advertises on every interface with the system's mDNS (Bonjour, or Avahi on Linux): there is no interface to bind
   or advertiser to choose, as Homebridge's `bind` and `advertiser` settings do, and no Node-specific setting
   (environment, debug mode, keep orphans).
+- **Config** (`/settings/config`): the whole config.json in an editor; see [Config](#config) below.
 - **Child bridges**: each with its status, uptime, restarts, the plugins that did not start and why, and, until the Home
   app has it, its setup code and QR code. Its ⋯ menu restarts, stops or starts it, shows its log, and resets its
   pairings.
@@ -459,6 +449,12 @@ For administrators, after the Homebridge UI's settings, child bridges, backups a
     page's Vault widget and the daily digest say so too.
   - In a settings form, a secret's field has a key button: its menu searches the vault's entries and puts the one
     chosen as `vault:<name>`, shown as it is.
+- **Updates** (`/settings/updates`): this version, how it was installed, when GitHub was last asked, a switch for the
+  checks twice a day (the HomeswiftUI block's `checkForUpdates`, written at once: `PUT /api/updates/automatic`),
+  **Check now** and **Restart homeswift…**. When a newer
+  release is out, its card: **Install and relaunch** on a Homebrew install (`POST /api/updates/install`, then
+  `GET /api/updates` while it installs; an upgrade that leaves the old version in place, as when the tap has not caught
+  up yet, is an error), **Relaunch now** once it is on disk, how to upgrade elsewhere.
 - **Audit log**: the MCP audit log (`homeswift-mcp-audit.jsonl`): every write of MCP clients and of the Assistant's chat,
   and every change made in this UI (client `web UI`, the user, the route, a small body with its secrets masked), newest
   first, filtered by time, outcome, tool and client (`/settings/audit?since=7d&outcome=failed&tool=…&client=…`).
@@ -469,6 +465,23 @@ For administrators, after the Homebridge UI's settings, child bridges, backups a
   saved or not, and the budgets are saved with the form.
 
 The pages' changes that cannot be undone (pairings, caches, a restore) ask first, some with a word to type.
+
+#### Config
+
+![Settings › Config: the whole config.json, secrets marked in gold](images/ui/config.png)
+
+A tab of Settings (`/settings/config`; `/config`, its address before, leads there). The whole file in an editor. Saving validates it, checks each plugin block's changes against its schema as the Expert
+view does, keeps a backup under `backups/` (the last 20), sorts the keys and applies it. A syntax error's line is
+marked as you type.
+
+- **Folding**: a block that spans lines folds from the chevron beside its first line (Option-click folds or opens every
+  block at that indentation; ⌘⌥[ and ⌘⌥] at the caret), and a click on its ⋯ opens it. What is saved, copied or
+  formatted is always the whole text. A plugin's JSON view folds the same way.
+- **Secrets**: a key that holds one (the bridge's redaction rule: passwords, tokens, keys, the setup code, `auth`) is
+  gold with a lock before it, in both editors, and its value shows as `__REDACTED__`. A save that keeps the placeholder
+  keeps the stored value, so the page never needs to show a secret to edit the rest. **Secrets only** (the lock in the
+  bar) folds everything else, leaving the secrets and the way down to each; while it holds, the button is gold and a
+  strip above the text says how many show, with **Show all**. Opening a fold, Format or Revert end it.
 
 ### Appearance
 
@@ -490,8 +503,8 @@ browser they sign in to; a browser remembers the last ones it saw, so a page ope
 
 Every view is a path: `/status`, `/accessories` (and `/accessories/graph`), `/quick`, `/scenes` (and `/scenes/<id>`,
 `/scenes/new`), `/notifications`, `/plugins`, `/plugins/<slug>` and its `/expert`, `/plugins/add/<platform>`,
-`/config`, `/account`, `/appearance`, `/users`, and `/settings` with `/bridge`, `/child-bridges`, `/backups`,
-`/assistant` and `/audit`. A view's choices go into its address: the web UI block's page with `?section=proxy` or
+`/account`, `/appearance`, `/users`, and `/settings` with `/bridge`, `/config` (`/config` alone leads there),
+`/child-bridges`, `/backups`, `/vault`, `/updates`, `/audit` and `/assistant`. A view's choices go into its address: the web UI block's page with `?section=proxy` or
 `?section=schedules` (`/plugins/web-ui?section=proxy`) opens and scrolls to that part of its settings, and the Logs view is
 `/logs/<accessory>?bridge=<bridge or all>&plugin=<plugin>&since=24h&level=warning&q=text`: the accessory by its name's
 slug or its id, the plugin by its slug (and `/logs/<platform>` from a plugin's page), `bridge` and `plugin` not both

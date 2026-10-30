@@ -19,6 +19,27 @@ All notable changes to this project are documented here. The format follows
   API has no rooms. Plugins list and rename rooms through `rooms()` and `renameRoom(id:name:)` (`PluginRoom`);
   DIRIGERA's from lpgera/dirigera.
 
+- Updates from the web UI: Settings › Updates (this version, the last check, a switch for the automatic checks,
+  **Check now**, **Restart homeswift…**)
+  and, on a Homebrew install, **Install and relaunch** in the update card, on that page and in the Status page
+  footer's sheet: `brew upgrade homeswift`, then a restart into the new binary. The footer says **Relaunch to update**
+  once a newer version is on disk.
+
+### Changed
+
+- config.json's editor is a tab of Settings (`/settings/config`), out of the header; `/config` leads there.
+- The Status page's figures have their icon on a coloured tile at the left; the vault has an icon of its own, a safe.
+- The Status page shows its Vault section once there is something in the vault or to move into it; a page's row of tabs
+  (Settings) fades at the edges where tabs are scrolled out of sight, and opens with the current tab in view.
+
+### Fixed
+
+- Settings › Bridge showed a sealed setup code (`enc:v1:…`) instead of the code: it now shows the code the bridge runs
+  with, a copy button and the pairing QR code, and saving the form leaves a sealed or vault code as it is.
+- Copy buttons copy in a browser that refuses the Clipboard API, through a hidden field as on plain HTTP.
+- Settings › Child bridges without a plugin drew an empty list and pointed "above" at nothing: it now says so once, with
+  **Add a plugin**.
+
 ## [0.15.0] - 2026-10-29
 
 ### Added
