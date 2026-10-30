@@ -30,14 +30,14 @@ leaves fdk-aac out and stays redistributable:
 ## Building
 
 ```bash
-docker build -t ghcr.io/mp-consulting/ffmpeg-for-homeswift:8.1.3-1 FFmpeg
+docker build -t ghcr.io/mp-consulting/ffmpeg-for-homeswift:8.1.3-2 FFmpeg
 ```
 
 The image is `FROM scratch`: `/ffmpeg`, `/licenses` (each part's licence and a README.txt) and `/sources` (the
 tarballs it was built from, which the GPL asks to keep with the binary). To take the binary out:
 
 ```bash
-docker create --name ffmpeg ghcr.io/mp-consulting/ffmpeg-for-homeswift:8.1.3-1 /ffmpeg && docker cp ffmpeg:/ffmpeg . && docker rm ffmpeg
+docker create --name ffmpeg ghcr.io/mp-consulting/ffmpeg-for-homeswift:8.1.3-2 /ffmpeg && docker cp ffmpeg:/ffmpeg . && docker rm ffmpeg
 ```
 
 ## Releasing
