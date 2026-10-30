@@ -19,7 +19,10 @@ let testLogger: Logger = {
 final class TestEnvironment: Sendable {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("homeswift-Wingman-tests-\(UUID().uuidString)")
     let wingman = FakeWingman()
+    let rereadGap: Duration
     private let plugins = NIOLockedValueBox<[WingmanPlugin]>([])
+
+    init(rereadGap: Duration = .zero) { self.rereadGap = rereadGap }
 
     var plugin: WingmanPlugin? { plugins.withLockedValue { $0.last } }
 
@@ -39,6 +42,7 @@ final class TestEnvironment: Sendable {
                 }
             }
             dependencies.retry = Backoff(initial: .milliseconds(50), maximum: .milliseconds(200))
+            dependencies.rereadGap = self.rereadGap
             dependencies.bridgeName = "Homeswift on test"
             let plugin = WingmanPlugin(configuration: configuration, context: context, dependencies: dependencies)
             self.plugins.withLockedValue { $0.append(plugin) }
@@ -219,6 +223,21 @@ struct WingmanTests {
         _ = try await accessory(host, "light-1")
         environment.wingman.remove(accessory: "light-1")
         #expect(await eventually { !host.mainBridge.server.accessories.contains { $0.id == "Wingman:light-1" } })
+        await host.stop()
+    }
+
+    /// "homes" events coming without end read the homes once per gap, not once per event.
+    @Test func aBurstOfHomesEventsReadsTheHomesOncePerGap() async throws {
+        let environment = TestEnvironment(rereadGap: .milliseconds(400))
+        let host = try await environment.start()
+        _ = try await accessory(host, "light-1")
+        let reads = environment.wingman.requests.filter { $0 == "homes" }.count
+        for _ in 0..<40 {
+            environment.wingman.changeHomes()
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        let burst = environment.wingman.requests.filter { $0 == "homes" }.count - reads
+        #expect(burst >= 1 && burst <= 4, "\(burst) reads for 40 events over 1 s")
         await host.stop()
     }
 

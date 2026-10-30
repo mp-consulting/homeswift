@@ -57,6 +57,8 @@ public actor WingmanPlugin: HomeswiftPlugin {
         var transports: any WingmanTransportFactory = NetworkTransportFactory()
         var browse: @Sendable (Logger) -> AsyncStream<BonjourBrowser.Event> = { BonjourBrowser.browse(type: WingmanPlugin.serviceType, logger: $0) }
         var retry = Backoff(initial: .seconds(2), maximum: .seconds(60), jitter: .proportional(0.2))
+        /// The least time between two reads of the homes that events ask for.
+        var rereadGap: Duration = .seconds(10)
         /// The name a bridge pairs under, shown in Wingman's Paired Bridges.
         var bridgeName: String = "Homeswift on \(ProcessInfo.processInfo.hostName.split(separator: ".").first.map(String.init) ?? "this machine")"
     }
@@ -315,11 +317,16 @@ actor Link {
         var failures = 0
         while !Task.isCancelled {
             do {
+                let readAt = ContinuousClock.now
                 try await refresh()
                 failures = 0
-                var nextRefresh = ContinuousClock.now + refreshInterval
+                var nextRefresh = readAt + refreshInterval
                 while !Task.isCancelled, ContinuousClock.now < nextRefresh {
-                    if try await follow() { nextRefresh = .now }
+                    guard try await follow() else { continue }
+                    // A burst of "homes" events, or Apple Home changing in answer to a read (nothing does: mirrors
+                    // stay out of HomeKit and Matter), reads the homes once per gap, not back to back.
+                    try? await Task.sleep(until: readAt + dependencies.rereadGap, clock: .continuous)
+                    nextRefresh = .now
                 }
             } catch {
                 guard !Task.isCancelled else { return }

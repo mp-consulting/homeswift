@@ -46,7 +46,7 @@ All notable changes to this project are documented here. The format follows
 
 - Wingman: an accessory added or removed in the Home app, a room or a name changed, or a change of reachability
   reaches Homeswift within a couple of seconds (with a Wingman that sends `homes` events), not at the next
-  `refreshMinutes` read.
+  `refreshMinutes` read. A burst of such changes reads the homes at most once every 10 seconds.
 - config.json's editor is a tab of Settings (`/settings/config`), out of the header; `/config` leads there.
 - The Status page's figures have their icon on a coloured tile at the left; the vault has an icon of its own, a safe.
 - The Status page shows its Vault section once there is something in the vault or to move into it; a page's row of tabs
