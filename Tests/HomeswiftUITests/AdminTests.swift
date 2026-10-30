@@ -102,6 +102,8 @@ struct AdminPageTests {
         let settings = try #require(try await browser.get("/api/settings/bridge").json)
         #expect(settings["bridge"]?["name"] == "UI Bridge")
         #expect(settings["deviceId"] == "0E:11:22:33:44:66")
+        // The code itself, for the form and its copy button, whatever config.json keeps.
+        #expect(settings["setupCode"] == "031-45-154")
         #expect(settings["advertiser"]?.stringValue != nil)
         #expect(try await browser.put("/api/settings/bridge", ["settings": ["username": "0E:00:00:00:00:01"]]).status == 400)
         let renamed = try await browser.put("/api/settings/bridge", ["settings": ["name": "Renamed", "port": .null]])
