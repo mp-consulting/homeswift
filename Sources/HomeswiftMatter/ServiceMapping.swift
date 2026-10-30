@@ -103,14 +103,13 @@ struct ServiceMapping: Sendable {
             if let mireds = value(.colorTemperature)?.intValue {
                 states.append(.colorTemperature(mireds: UInt16(clamping: mireds)))
             }
-            // Hue and saturation travel together: either one changing reports both.
-            if changedType == nil || changedType == CharacteristicType.hue.uuid || changedType == CharacteristicType.saturation.uuid,
-               case .light(_, _, true) = role,
+            // Hue and saturation travel together: either one changing reports both. At start a light with a color
+            // temperature reports that, not its color.
+            let colorChanged = [CharacteristicType.hue.uuid, CharacteristicType.saturation.uuid].contains(changedType)
+                || changedType == nil && service[.colorTemperature] == nil
+            if colorChanged, case .light(_, _, true) = role,
                let hue = service[.hue]?.value.doubleValue, let saturation = service[.saturation]?.value.doubleValue {
-                // A light showing a color temperature keeps reporting it at start; a change of color reports the color.
-                if changedType != nil || service[.colorTemperature] == nil {
-                    states.append(.hueSaturation(hue: Self.scale(hue, from: 360), saturation: Self.scale(saturation, from: 100)))
-                }
+                states.append(.hueSaturation(hue: Self.scale(hue, from: 360), saturation: Self.scale(saturation, from: 100)))
             }
         case .contact:
             // HAP's 0 is "contact detected", a closed door: Matter's StateValue true.
@@ -137,7 +136,7 @@ struct ServiceMapping: Sendable {
         case .thermostat:
             if let celsius = value(.currentTemperature) { states.append(.localTemperature(celsius.doubleValue)) }
             let mode = service[.targetHeatingCoolingState]?.value.intValue ?? 1
-            if let modeValue = value(.targetHeatingCoolingState)?.intValue { states.append(.thermostatMode(Self.systemMode(hap: modeValue))) }
+            if value(.targetHeatingCoolingState) != nil { states.append(.thermostatMode(Self.systemMode(hap: mode))) }
             if let target = value(.targetTemperature)?.doubleValue {
                 // HAP has one target; Matter a setpoint per mode: the one of the mode in use.
                 states.append(mode == 2 ? .coolingSetpoint(target) : .heatingSetpoint(target))

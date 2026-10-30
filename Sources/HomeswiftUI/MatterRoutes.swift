@@ -18,7 +18,9 @@ extension UIServer {
         case (.GET, ["qr.svg"]):
             // The pairing code is in it: for administrators, as the status's setup codes are.
             guard admin else { return .error(403, "only an administrator sees the pairing code") }
-            guard let payload = await matter.qrCodePayload() else { return .error(404, "the commissioning window is closed") }
+            guard let payload = await matter.statusJSON(includePairing: true)["pairing"]?["qrCode"]?.stringValue else {
+                return .error(404, "the commissioning window is closed")
+            }
             return .text(try QRCode(payload).svg(), contentType: "image/svg+xml")
         case (.POST, ["window"]):
             guard admin else { return .error(403, "only an administrator can open the commissioning window") }

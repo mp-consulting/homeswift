@@ -7,8 +7,8 @@ public protocol MatterControl: Sendable {
     /// Whether it is commissioned, the commissioning window, the fabrics and the bridged devices. The pairing codes
     /// (the QR code's text, the manual code) only with `includePairing`, and only while the window is open.
     func statusJSON(includePairing: Bool) async -> JSONValue
-    /// The QR code's text while the commissioning window is open, for the web UI to draw.
-    func qrCodePayload() async -> String?
+    /// Stops the bridge: the CLI's shutdown, and a saved block that starts a new one.
+    func stop() async
     /// Opens the commissioning window for another ecosystem (Google Home, Alexa, Home Assistant) to add the bridge.
     func openCommissioningWindow(minutes: Int) async throws -> JSONValue
     /// Removes a fabric: that ecosystem loses the bridge and its devices.

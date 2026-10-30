@@ -1895,6 +1895,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // The Matter bridge, when the HomeswiftMatter block runs one: drawn again after an administrator's change.
     const matterCard = (matter) => {
       const fabrics = matter.fabrics || [];
+      const admin = isAdmin();
       const refresh = async () => card.replaceWith(matterCard(await api("/api/matter")));
       const card = el("div", { class: "card server" },
         el("div", { class: "server-head" },
@@ -1904,8 +1905,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("div", { class: "facts lead" }, fact(t("Port"), matter.port), fact(t("Accessories"), (matter.devices || []).length)),
         fabrics.length ? el("div", { class: "chips" }, fabrics.map((fabric) => {
           const name = fabric.label || t("Ecosystem {index}", { index: fabric.index });
-          return el("span", { class: isAdmin() ? "chip removable" : "chip" }, el("span", { text: name }),
-            isAdmin() ? el("button", { type: "button", class: "icon-button", "aria-label": t("Remove {name}", { name }), title: t("Remove {name}", { name }), onclick: async (event) => {
+          return el("span", { class: admin ? "chip removable" : "chip" }, el("span", { text: name }),
+            admin ? el("button", { type: "button", class: "icon-button", "aria-label": t("Remove {name}", { name }), title: t("Remove {name}", { name }), onclick: async (event) => {
               if (!await HomeswiftCommon.confirmDialog(t("{name} loses the bridge and every device on it, with their rooms and automations.", { name }))) return;
               await HomeswiftCommon.busyButton(event.currentTarget, async () => {
                 await api(`/api/matter/fabrics/${fabric.index}/remove`, { method: "POST", body: {} });
@@ -1914,11 +1915,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             } }, HomeswiftCommon.icon("close")) : null);
         })) : null,
         matter.pairing ? el("div", { class: "setup" },
-          el("img", { class: "qr", src: `/api/matter/qr.svg?${Date.now()}`, alt: t("Pairing QR code"), width: 148, height: 148 }),
+          el("img", { class: "qr", src: "/api/matter/qr.svg", alt: t("Pairing QR code"), width: 148, height: 148 }),
           el("div", {},
             el("p", { text: t("In the ecosystem's app: add a Matter device, then scan this code or type it.") }),
             el("div", { class: "code", text: matter.pairing.manualCode.replace(/^(\d{4})(\d{3})(\d{4})$/, "$1-$2-$3") })))
-          : isAdmin() ? el("div", { class: "actions" },
+          : admin ? el("div", { class: "actions" },
             el("button", { class: "link", actionIcon: "plus", text: t("Add to another ecosystem"), onclick: (event) => HomeswiftCommon.busyButton(event.currentTarget, async () => {
               await api("/api/matter/window", { method: "POST", body: { minutes: 15 } });
               await refresh();

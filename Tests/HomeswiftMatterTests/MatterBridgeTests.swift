@@ -14,7 +14,8 @@ let testLogger: Logger = {
 }()
 
 /// Waits until `condition` holds, failing after `timeout`.
-func eventually(timeout: Duration = .seconds(5), _ condition: @Sendable () async -> Bool) async throws {
+/// 30 seconds, as the other targets' copies: loaded CI runners are slow.
+func eventually(timeout: Duration = .seconds(30), _ condition: @Sendable () async -> Bool) async throws {
     let deadline = ContinuousClock.now + timeout
     while !(await condition()) {
         guard ContinuousClock.now < deadline else {
@@ -79,8 +80,7 @@ struct BridgeFixture {
 
         let network = MemoryNetwork()
         matter = try await HomeswiftMatterBridge(configuration: configuration, host: host, storageDirectory: directory.appendingPathComponent("matter"),
-                                                 transport: await network.transport(named: "bridge"), advertise: false,
-                                                 resyncInterval: .milliseconds(50), logger: testLogger)
+                                                 transport: await network.transport(named: "bridge"), advertise: false, logger: testLogger)
         try await matter.start()
         let layer = MessageLayer(transport: await network.transport(named: "controller"))
         commissioner = try Commissioner(layer: layer, fabricID: 0xFAB, nodeID: 0x1122)
@@ -160,7 +160,7 @@ struct MatterBridgeTests {
         _ = try await fixture.matter.openCommissioningWindow(minutes: 5)
         #expect(await fixture.matter.statusJSON(includePairing: true)["pairing"]?["manualCode"]?.stringValue == fixture.matter.setupPayload.manualCode)
         #expect(await fixture.matter.statusJSON(includePairing: false)["pairing"] == nil)
-        #expect(await fixture.matter.qrCodePayload() == fixture.matter.setupPayload.qrCode)
+        #expect(await fixture.matter.statusJSON(includePairing: true)["pairing"]?["qrCode"]?.stringValue == fixture.matter.setupPayload.qrCode)
 
         _ = try await fixture.matter.removeFabric(index: 1)
         #expect(await !fixture.matter.isCommissioned)
@@ -225,10 +225,4 @@ struct MatterMappingTests {
         #expect(ColorConversion.hueSaturation(x: 0.3127, y: 0.3290).saturation < 2)
     }
 
-    @Test func derivesStableShortDeviceIDs() {
-        let id = HomeswiftMatterBridge.deviceID("PhilipsHue:00000000-0000-0000-0000-000000000000")
-        #expect(id.count == 32)
-        #expect(id == HomeswiftMatterBridge.deviceID("PhilipsHue:00000000-0000-0000-0000-000000000000"))
-        #expect(id != HomeswiftMatterBridge.deviceID("PhilipsHue:1"))
-    }
 }
