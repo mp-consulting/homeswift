@@ -12,7 +12,7 @@ const polling = {Date:{now:()=>now}, AbortSignal, restartPolling:false,restartOv
   closeEvents(){}, showRestartOverlay:()=>overlay, closeRestartOverlay(){}, t:x=>x, el:(_tag,attrs)=>attrs,
   setTimeout:(fn,ms)=>{timers.push({fn,ms});return 1},clearTimeout(){},
   fetch:async()=>({ok:healthy,status:healthy?200:503,json:async()=>({uptimeSeconds:1})}),
-  finishRestart:async()=>{finished++}};
+  finishRestart:async()=>{finished++}, reloadIfUpdated:()=>false};
 vm.createContext(polling);
 vm.runInContext(app.slice(app.indexOf('  function waitForRestart('),app.indexOf('  $("#restart").addEventListener')),polling);
 const run = async ms => { const i=timers.findIndex(t=>t.ms===ms);assert.notEqual(i,-1);await timers.splice(i,1)[0].fn(); };
