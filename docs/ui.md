@@ -46,7 +46,11 @@ shared.
 The start page: a summary (accessories, plugins, Home app controllers, uptime), then sections you arrange.
 
 - **Bridges**: each bridge with its device ID, port, plugins and pairing state. A bridge the Home app has not paired
-  yet shows its setup code and a QR code for the Home app's camera.
+  yet shows its setup code and a QR code for the Home app's camera. Accessories and Matter devices of their own (a
+  television, a camera, an accessory made a Matter device) are one line each in **Devices of their own**: its name,
+  where it was added and its state, unfolding to its port, its ecosystems, its pairing code and its actions. Those
+  waiting to be added come first (open when there are one or two), and a search finds a device by its name or an
+  ecosystem's once the list is long, so a home of a hundred stays one screen to scan.
 
   ![A bridge waiting to be paired: its QR code and setup code](images/ui/status-bridge.png)
 

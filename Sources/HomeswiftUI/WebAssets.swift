@@ -1902,23 +1902,37 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const plugins = new Set(status.bridges.filter((bridge) => !bridge.external).flatMap((bridge) => bridge.platforms));
     const main0 = status.bridges.find((bridge) => !bridge.childBridge && !bridge.external);
 
-    const bridges = status.bridges.map((bridge, index) => {
+    // A server's heading (icon, name, role, state) and the rest of its card: a bridge's card shows both; an accessory of
+    // its own is a row of the devices list, its heading the row and the rest unfolded.
+    const bridgeParts = (bridge, index) => {
       const kind = bridge.external ? "accessory" : bridge.childBridge ? "child" : "bridge";
       const tone = { accessory: "blue", child: "violet", bridge: "orange" }[kind];
       const role = bridge.external ? (bridge.platforms.length ? t("Accessory of its own, from {plugins}", { plugins: bridge.platforms.join(", ") }) : t("Accessory of its own, from a plugin")) : bridge.childBridge ? t("Child bridge") : t("Main bridge");
-      return el("div", { class: "card server" },
-        el("div", { class: "server-head" },
-          tile(kind, tone),
+      return {
+        head: [tile(kind, tone),
           el("div", { class: "who" }, el("strong", { text: bridge.name }), el("div", { class: "muted", text: role })),
-          el("span", { class: `pill status ${bridge.paired ? "on" : "away"}`, text: bridge.paired ? t("Paired · {count}", { count: bridge.controllers }) : t("Not paired"), title: bridge.paired ? tn("{n} Home app controller", "{n} Home app controllers", bridge.controllers) : "" })),
-        el("div", { class: "facts lead" },
+          el("span", { class: `pill status ${bridge.paired ? "on" : "away"}`, text: bridge.paired ? t("Paired · {count}", { count: bridge.controllers }) : t("Not paired"), title: bridge.paired ? tn("{n} Home app controller", "{n} Home app controllers", bridge.controllers) : "" })],
+        body: [el("div", { class: "facts lead" },
           fact(t("Device ID"), bridge.deviceId, { class: "mono" }), fact(t("Port"), bridge.port ?? "?"), fact(t("Accessories"), bridge.accessories)),
         !bridge.external && bridge.platforms.length ? el("div", { class: "chips" }, bridge.platforms.map((name) => el("span", { class: "chip", text: name }))) : null,
         bridge.setupCode ? el("div", { class: "setup" },
-          el("img", { class: "qr", src: `/api/qr/${index}.svg`, alt: t("Pairing QR code"), width: 148, height: 148 }),
+          el("img", { class: "qr", src: `/api/qr/${index}.svg`, alt: t("Pairing QR code"), width: 148, height: 148, loading: "lazy" }),
           el("div", {},
             el("p", { text: t("In the Home app: Add Accessory, then scan this code, or choose More options and type it.") }),
-            el("div", { class: "code", text: bridge.setupCode }))) : null);
+            el("div", { class: "code", text: bridge.setupCode }))) : null],
+        waiting: !bridge.paired,
+        search: [bridge.name, ...bridge.platforms, bridge.deviceId].join(" "),
+      };
+    };
+    const serverCard = ({ head, body }, id) => el("div", { class: "card server", id }, el("div", { class: "server-head" }, ...head), ...body);
+    // A device of its own as one line that unfolds: one waiting to be added comes open, its pairing code in view.
+    const deviceRow = ({ head, body, waiting, search }, id) => el("details", { class: "device-row", id, open: waiting, "data-search": search.toLowerCase() },
+      el("summary", {}, ...head, HomeswiftCommon.icon("forward")), el("div", { class: "device-row-body" }, ...body));
+    const bridges = status.bridges.map((bridge, index) => bridge.external ? null : serverCard(bridgeParts(bridge, index)));
+    const externalRows = status.bridges.flatMap((bridge, index) => {
+      if (!bridge.external) return [];
+      const parts = bridgeParts(bridge, index);
+      return [{ name: bridge.name, waiting: parts.waiting, node: deviceRow(parts, `accessory-${slug(bridge.deviceId)}`) }];
     });
 
     // The Matter bridge, when the HomeswiftMatter block runs one, and each accessory that is a Matter device of its
@@ -1928,30 +1942,29 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       humidity: "sensor", illuminance: "sensor", leak: "drop", covering: "blind", fan: "fan", thermostat: "thermo", lock: "lock",
       button: "switch", airQuality: "wind", alarm: "bell", valve: "drop" };
     // The ecosystems a fabric's vendor id says it is (Connectivity Standards Alliance vendor ids).
-    const matterVendors = { "0x1349": "Apple Home", "0x6006": "Google Home", "0x1217": "Alexa" };
+    const matterVendors = { "0x1349": "Apple Home", "0x1384": "Apple Home", "0x6006": "Google Home", "0x1217": "Alexa" };
     const matterIcon = (node) => matterIcons[String(node.types?.[0] ?? "").split("(")[0]] ?? "accessory";
-    const matterCard = (node, own) => {
+    const matterParts = (node, own, refresh) => {
       const base = own ? `/api/matter/devices/${encodeURIComponent(node.id)}` : "/api/matter";
       const fabrics = node.fabrics || [];
       const admin = isAdmin();
-      const refresh = async () => {
-        const next = await api("/api/matter");
-        const fresh = own ? (next.ownDevices || []).find((device) => device.id === node.id) : next;
-        if (fresh) card.replaceWith(matterCard(fresh, own)); else card.remove();
-      };
-      const card = el("div", { class: "card server", id: own ? `matter-${slug(node.id)}` : "matter" },
-        el("div", { class: "server-head" },
-          tile(own ? matterIcon(node) : "matter", "green"),
+      // Whose fabric it is, by its vendor id: an unnamed one of Apple Home's is its own system fabric (it reaches the
+      // device from the other Apple devices and hubs), shown muted with a house.
+      const named = fabrics.map((fabric) => {
+        const vendor = matterVendors[fabric.vendorId];
+        const system = Boolean(!fabric.label && vendor);
+        return { fabric, vendor, system, name: fabric.label || (vendor ? t("{vendor} system", { vendor }) : t("Ecosystem {index}", { index: fabric.index })) };
+      });
+      // A device's row says where it was added (the homes people named, not the system links); the bridge's card, what
+      // it is for.
+      const where = named.filter((one) => !one.system).map((one) => one.name).join(" · ") || named.map((one) => one.name).join(" · ");
+      return {
+        head: [tile(own ? matterIcon(node) : "matter", "green"),
           el("div", { class: "who" }, el("strong", { text: own ? node.name : t("Matter bridge") }),
-            el("div", { class: "muted", text: own ? t("Matter device of its own, for Apple Home, Google Home, Alexa and Home Assistant") : t("For Google Home, Alexa, SmartThings and Home Assistant") })),
-          el("span", { class: `pill status ${fabrics.length ? "on" : "away"}`, text: fabrics.length ? tn("In one ecosystem", "In {n} ecosystems", fabrics.length) : t("Not added yet") })),
-        el("div", { class: "facts lead" }, fact(t("Port"), node.port), own ? null : fact(t("Accessories"), (node.devices || []).length)),
-        fabrics.length ? el("div", { class: "chips" }, fabrics.map((fabric) => {
-          // Whose fabric it is, by its vendor id: an unnamed one of Apple Home's is its own system fabric (it reaches the
-          // device from the other Apple devices and hubs), shown muted with a house.
-          const vendor = matterVendors[fabric.vendorId];
-          const system = !fabric.label && vendor;
-          const name = fabric.label || (vendor ? t("{vendor} system", { vendor }) : t("Ecosystem {index}", { index: fabric.index }));
+            el("div", { class: "muted", text: !own ? t("For Google Home, Alexa, SmartThings and Home Assistant") : where ? t("Matter · {ecosystems}", { ecosystems: where }) : t("Matter device of its own") })),
+          el("span", { class: `pill status ${fabrics.length ? "on" : "away"}`, text: fabrics.length ? tn("In one ecosystem", "In {n} ecosystems", fabrics.length) : t("Not added yet") })],
+        body: [el("div", { class: "facts lead" }, fact(t("Port"), node.port), own ? null : fact(t("Accessories"), (node.devices || []).length)),
+        fabrics.length ? el("div", { class: "chips" }, named.map(({ fabric, vendor, system, name }) => {
           const hint = system ? t("{vendor}'s own link to the device, from your other devices and hubs: keep it.", { vendor }) : vendor ?? "";
           return el("span", { class: `chip${admin ? " removable" : ""}${system ? " system" : ""}`, title: hint },
             system ? HomeswiftCommon.icon("house") : null, el("span", { text: name }),
@@ -1967,7 +1980,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             } }, HomeswiftCommon.icon("close")) : null);
         })) : null,
         node.pairing ? el("div", { class: "setup" },
-          el("img", { class: "qr", src: `${base}/qr.svg`, alt: t("Pairing QR code"), width: 148, height: 148 }),
+          el("img", { class: "qr", src: `${base}/qr.svg`, alt: t("Pairing QR code"), width: 148, height: 148, loading: "lazy" }),
           el("div", {},
             el("p", { text: own ? t("In the Home app (or another ecosystem's): add an accessory, then scan this code or type it.")
               : t("In the ecosystem's app: add a Matter device, then scan this code or type it.") }),
@@ -1976,15 +1989,65 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             el("button", { class: "link", actionIcon: "plus", text: t("Add to another ecosystem"), onclick: (event) => HomeswiftCommon.busyButton(event.currentTarget, async () => {
               await api(`${base}/window`, { method: "POST", body: { minutes: 15 } });
               await refresh();
-            }) })) : null);
-      // Reached from an accessory's menu: brought into view.
-      if (location.hash === `#${card.id}`) requestAnimationFrame(() => card.scrollIntoView({ block: "center" }));
-      return card;
+            }) })) : null],
+        // Not in any ecosystem yet, or open for one more: its code is what the person needs.
+        waiting: !fabrics.length || Boolean(node.pairing),
+        search: [node.name ?? "", ...named.map((one) => one.name)].join(" "),
+      };
     };
-    const matterCards = (matter) => !matter?.enabled ? [] : [
-      matter.bridge !== false ? matterCard(matter, false) : null,
-      ...(matter.ownDevices || []).map((device) => matterCard(device, true)),
-    ];
+    // The Matter bridge's card, or a device's row: drawn again after an administrator's change, a row kept open.
+    const matterNode = (node, own) => {
+      const id = own ? `matter-${slug(node.id)}` : "matter";
+      const refresh = async () => {
+        const next = await api("/api/matter");
+        const fresh = own ? (next.ownDevices || []).find((device) => device.id === node.id) : next;
+        if (!fresh) return element.remove();
+        const replacement = matterNode(fresh, own);
+        if (own && element.open) replacement.open = true;
+        element.replaceWith(replacement);
+      };
+      const parts = matterParts(node, own, refresh);
+      const element = own ? deviceRow(parts, id) : serverCard(parts, id);
+      // Reached from an accessory's menu: opened and brought into view.
+      if (location.hash === `#${id}`) {
+        if (own) element.open = true;
+        requestAnimationFrame(() => element.scrollIntoView({ block: "center" }));
+      }
+      return element;
+    };
+    const matterRows = !matter?.enabled ? [] : (matter.ownDevices || []).map((device) => {
+      const node = matterNode(device, true);
+      return { name: device.name, waiting: node.open, node };
+    });
+
+    // Accessories and Matter devices of their own, one line each, those waiting to be added first: a home may have a
+    // hundred, which cards would bury the bridges under. A search once the list is long.
+    const devicesCard = () => {
+      const rows = [...externalRows, ...matterRows].sort((a, b) => Number(b.waiting) - Number(a.waiting) || a.name.localeCompare(b.name, undefined, { numeric: true }));
+      if (!rows.length) return null;
+      const waiting = rows.filter((row) => row.waiting).length;
+      // One or two to add come open; more stay folded at the top, their pills saying so (one linked to stays open).
+      if (waiting > 2) for (const row of rows) if (location.hash !== `#${row.node.id}`) row.node.open = false;
+      const list = el("div", { class: "device-rows" }, rows.map((row) => row.node));
+      const none = el("p", { class: "muted hidden", text: t("No device matches.") });
+      const search = rows.length > 8 ? el("input", { type: "search", class: "search", placeholder: t("Search devices"), "aria-label": t("Search devices"), oninput: () => {
+        const text = search.value.trim().toLowerCase();
+        let shown = 0;
+        for (const row of list.children) {
+          const match = !text || row.dataset.search.includes(text);
+          row.classList.toggle("hidden", !match);
+          if (match) shown++;
+        }
+        none.classList.toggle("hidden", shown > 0);
+      } }) : null;
+      return el("div", { class: "card devices" },
+        el("div", { class: "devices-head" },
+          el("div", { class: "who" }, el("strong", { text: t("Devices of their own") }),
+            el("div", { class: "muted", text: waiting ? tn("{count} devices · one waits to be added", "{count} devices · {n} wait to be added", waiting, { count: rows.length })
+              : tn("One device, with its own pairing", "{n} devices, each with its own pairing", rows.length) })),
+          search),
+        list, none);
+    };
 
     // The page is widgets the user can hide and order (Customise, at the bottom; Glass UI's dashboard layout),
     // drawn only when shown: the activity charts load nothing while hidden.
@@ -2002,7 +2065,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       activity: () => activity(accessories, withSlugs(status.bridges, "bridge")),
       energy: () => energy(),
       bridges: () => [el("h2", { text: status.bridges.length === 1 ? t("Bridge") : t("Bridges and accessories") }),
-      el("div", { class: "servers" }, ...bridges, ...matterCards(matter))],
+      el("div", { class: "servers" }, ...bridges, matter?.enabled && matter.bridge !== false ? matterNode(matter, false) : null, devicesCard())],
       system: () => [el("h2", { text: t("System") }),
       el("div", { class: "card server" },
         el("div", { class: "server-head" }, tile("system", "grey"),
@@ -10498,7 +10561,14 @@ HomeswiftI18n.add("es", {
   "{vendor}'s hubs and other devices lose their link to this device: it stops responding there until it is added again.": "Los concentradores y otros dispositivos de {vendor} pierden su enlace con este dispositivo: deja de responder allí hasta que se vuelva a añadir.",
   "{vendor} system": "Sistema de {vendor}",
   "{vendor}'s own link to the device, from your other devices and hubs: keep it.": "El enlace propio de {vendor} con el dispositivo, desde tus otros dispositivos y concentradores: consérvalo.",
-  "Matter device of its own, for Apple Home, Google Home, Alexa and Home Assistant": "Dispositivo Matter propio, para Apple Home, Google Home, Alexa y Home Assistant",
+  "Matter device of its own": "Dispositivo Matter propio",
+  "Matter · {ecosystems}": "Matter · {ecosystems}",
+  "{count} devices · one waits to be added": "{count} dispositivos · uno espera a ser añadido",
+  "{count} devices · {n} wait to be added": "{count} dispositivos · {n} esperan a ser añadidos",
+  "One device, with its own pairing": "Un dispositivo, con su propio emparejamiento",
+  "{n} devices, each with its own pairing": "{n} dispositivos, cada uno con su propio emparejamiento",
+  "Search devices": "Buscar dispositivos",
+  "No device matches.": "Ningún dispositivo coincide.",
   "{name} loses this device, with its room and automations.": "{name} pierde este dispositivo, con su habitación y sus automatizaciones.",
   "In the Home app (or another ecosystem's): add an accessory, then scan this code or type it.": "En la app Casa (o la de otro ecosistema): añade un accesorio y escanea este código o escríbelo.",
   "Make a Matter device": "Convertir en dispositivo Matter",
@@ -12837,7 +12907,14 @@ HomeswiftI18n.add("fr", {
   "{vendor}'s hubs and other devices lose their link to this device: it stops responding there until it is added again.": "Les concentrateurs et autres appareils de {vendor} perdent leur lien avec cet appareil : il ne répond plus de ce côté jusqu'à ce qu'il soit ajouté de nouveau.",
   "{vendor} system": "Système {vendor}",
   "{vendor}'s own link to the device, from your other devices and hubs: keep it.": "Le lien de {vendor} avec l'appareil, depuis vos autres appareils et concentrateurs : gardez-le.",
-  "Matter device of its own, for Apple Home, Google Home, Alexa and Home Assistant": "Appareil Matter à part entière, pour Apple Home, Google Home, Alexa et Home Assistant",
+  "Matter device of its own": "Appareil Matter à part entière",
+  "Matter · {ecosystems}": "Matter · {ecosystems}",
+  "{count} devices · one waits to be added": "{count} appareils · un attend d'être ajouté",
+  "{count} devices · {n} wait to be added": "{count} appareils · {n} attendent d'être ajoutés",
+  "One device, with its own pairing": "Un appareil, avec son propre appairage",
+  "{n} devices, each with its own pairing": "{n} appareils, chacun avec son propre appairage",
+  "Search devices": "Rechercher des appareils",
+  "No device matches.": "Aucun appareil ne correspond.",
   "{name} loses this device, with its room and automations.": "{name} perd cet appareil, avec sa pièce et ses automatisations.",
   "In the Home app (or another ecosystem's): add an accessory, then scan this code or type it.": "Dans l'app Maison (ou celle d'un autre écosystème) : ajoutez un accessoire, puis scannez ce code ou saisissez-le.",
   "Make a Matter device": "En faire un appareil Matter",
@@ -15176,7 +15253,14 @@ HomeswiftI18n.add("pt", {
   "{vendor}'s hubs and other devices lose their link to this device: it stops responding there until it is added again.": "Os concentradores e outros dispositivos do {vendor} perdem a ligação a este dispositivo: deixa de responder aí até ser adicionado de novo.",
   "{vendor} system": "Sistema do {vendor}",
   "{vendor}'s own link to the device, from your other devices and hubs: keep it.": "A ligação própria do {vendor} ao dispositivo, a partir dos seus outros dispositivos e concentradores: mantenha-a.",
-  "Matter device of its own, for Apple Home, Google Home, Alexa and Home Assistant": "Dispositivo Matter próprio, para o Apple Home, Google Home, Alexa e Home Assistant",
+  "Matter device of its own": "Dispositivo Matter próprio",
+  "Matter · {ecosystems}": "Matter · {ecosystems}",
+  "{count} devices · one waits to be added": "{count} dispositivos · um aguarda ser adicionado",
+  "{count} devices · {n} wait to be added": "{count} dispositivos · {n} aguardam ser adicionados",
+  "One device, with its own pairing": "Um dispositivo, com o seu próprio emparelhamento",
+  "{n} devices, each with its own pairing": "{n} dispositivos, cada um com o seu próprio emparelhamento",
+  "Search devices": "Pesquisar dispositivos",
+  "No device matches.": "Nenhum dispositivo corresponde.",
   "{name} loses this device, with its room and automations.": "{name} perde este dispositivo, com a sua divisão e automatizações.",
   "In the Home app (or another ecosystem's): add an accessory, then scan this code or type it.": "Na app Casa (ou na de outro ecossistema): adicione um acessório e depois digitalize este código ou escreva-o.",
   "Make a Matter device": "Tornar um dispositivo Matter",
@@ -21115,6 +21199,29 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .setup p { margin: 0 0 var(--space-6); }
 .setup .code { margin: 0; }
 .server .actions { margin-top: 0; }
+/* Accessories and Matter devices of their own: one line each across the section, unfolding to what a card shows. A
+   home of a hundred stays one screen to scan; only the chevron moves, as the row opens. */
+.devices { grid-column: 1 / -1; margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-6); align-content: start; animation: materialize var(--normal) var(--ease-out); }
+.devices-head { display: flex; align-items: center; gap: var(--space-12); flex-wrap: wrap; padding-bottom: var(--space-6); }
+.devices-head .who { flex: 1 1 200px; min-width: 0; }
+.devices-head strong { display: block; font-size: var(--text-xl); letter-spacing: -0.01em; }
+.devices-head .muted { font-size: var(--text-sm); }
+.device-rows { display: grid; grid-template-columns: minmax(0, 1fr); }
+.device-row { border-top: 1px solid var(--line); }
+.device-row > summary { list-style: none; display: flex; align-items: center; gap: var(--space-12); min-height: 44px; padding: var(--space-8) var(--space-8); margin: 0 calc(-1 * var(--space-8)); cursor: pointer; border-radius: var(--radius-sm); }
+.device-row > summary::-webkit-details-marker { display: none; }
+.device-row > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.device-row > summary .tile { width: 32px; height: 32px; }
+.device-row > summary .tile svg { width: 18px; height: 18px; }
+.device-row > summary .who { flex: 1; min-width: 0; }
+.device-row > summary strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.device-row > summary .muted { font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.device-row > summary .pill { flex: none; }
+.device-row > summary > svg:last-child { flex: none; width: 16px; height: 16px; color: var(--muted); transition: transform var(--normal) var(--ease-out); }
+.device-row[open] > summary > svg:last-child { transform: rotate(90deg); }
+.device-row-body { display: grid; gap: var(--space-14); padding: var(--space-4) 0 var(--space-16) 44px; }
+.device-row-body .setup { border-top: 0; padding-top: 0; }
+@media (hover: hover) and (pointer: fine) { .device-row > summary { transition: background-color var(--fast) ease; } .device-row > summary:hover { background: var(--material-thin); } }
 .banner { margin: var(--space-14) auto 0; max-width: 1100px; width: calc(100% - 24px); padding: var(--space-10) var(--space-20); text-align: center; color: var(--warn); font-weight: var(--weight-semibold); animation: materialize var(--normal) var(--ease-out); }
 .auth { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; padding: var(--space-20); }
 .auth .card { width: min(400px, 100%); padding: 26px 26px 22px; animation: materialize 320ms var(--ease-out); }
@@ -21244,6 +21351,7 @@ dd { margin: 0; }
   .log-line .text { grid-column: 1 / -1; }
   .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .setup { flex-direction: column; align-items: flex-start; }
+  .device-row-body { padding-left: 0; }
 }
 @media (prefers-reduced-motion: reduce) { .servers .server, .card.server { animation: fade var(--normal) ease; } }
 @media (max-width: 640px) { header { gap: var(--space-6); padding: var(--space-6) var(--space-8); } nav a { padding: var(--space-6) var(--space-10); white-space: nowrap; } main { padding: var(--space-14) var(--space-10) 30px; } input[type=range] { width: 110px; } }
