@@ -92,7 +92,7 @@ enum TokenResponse {
         do {
             return try JSONValue(data: response.body)
         } catch {
-            let snippet = String(response.text.trimmingCharacters(in: .whitespacesAndNewlines).split(whereSeparator: \.isWhitespace).joined(separator: " ").prefix(200))
+            let snippet = logExcerpt(response.text) ?? ""
             throw DaikinError("\(context): \(url.host ?? "") returned a non-JSON response (HTTP \(response.status))"
                 + (snippet.isEmpty ? " with an empty body" : ": \(snippet)"))
         }

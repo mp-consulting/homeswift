@@ -396,7 +396,7 @@ final class ScriptedTransport: HTTPSending, @unchecked Sendable {
     @Test func describesAnHTTPErrorOnOneLine() {
         let page = "\n\n\n\n<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <title>\n    Not Found\n  </title>\n</head><body></body></html>"
         #expect(ThinQError.http(status: 404, body: .string(page)).description == "Request failed with status code 404: an HTML page, Not Found")
-        #expect(ThinQError.http(status: 404, body: .string("<html><body>gone</body></html>")).description == "Request failed with status code 404: an HTML page")
+        #expect(ThinQError.http(status: 404, body: .string("<html><body>gone</body></html>")).description == "Request failed with status code 404: an HTML page, gone")
         #expect(ThinQError.http(status: 500, body: .string("  busy\n\n  later ")).description == "Request failed with status code 500: busy later")
         #expect(ThinQError.http(status: 502, body: .string(" \n ")).description == "Request failed with status code 502")
     }

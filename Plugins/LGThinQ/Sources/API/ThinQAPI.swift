@@ -1,6 +1,7 @@
 import Crypto
 import Foundation
 import Homeswift
+import HomeswiftNetwork
 import HomeswiftPlugin
 import Logging
 
@@ -156,7 +157,7 @@ final class ThinQAPI {
                     markRateLimited()
                     return [:]
                 }
-                log(quiet, "request error: HTTP \(status) \(body.text().prefix(500)) \(data.map { "\($0.text().prefix(500))" } ?? "")")
+                log(quiet, "request error: HTTP \(status) \(logExcerpt(body.stringValue ?? body.text(), limit: 500) ?? "") \(data.flatMap { logExcerpt($0.text(), limit: 500) } ?? "")")
             case .notConnected:
                 break
             default:
