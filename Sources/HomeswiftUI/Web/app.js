@@ -1715,10 +1715,21 @@
       };
       /// The slot on the cell under the widget's top-left corner.
       let slotCell = null;
+      const roomRows = new Map();
       const placeSlot = () => {
         const grid = gridOf(wall), box = wall.getBoundingClientRect();
+        // By room, the widget stays within the rows the room had when it reached it; its empty row in Edit counts only
+        // while the pointer is over the room as it was then. A room that grew under the pointer would push the next one
+        // away; past its old bottom it shrinks back, and the next room is under the pointer again.
+        if (acrossRooms && !roomRows.has(wall)) {
+          const padding = parseFloat(getComputedStyle(wall).paddingBottom) || 0;
+          roomRows.set(wall, { rows: Math.max(1, Math.round((box.height - padding) / grid.y)), bottom: box.bottom + scrollY });
+        }
+        const entered = roomRows.get(wall);
         const column = Math.max(1, Math.round((pointer.clientX - grab.x - box.left) / grid.x) + 1);
-        const row = Math.max(1, Math.round((pointer.clientY - grab.y - box.top) / grid.y) + 1);
+        const rows = entered ? entered.rows + (pointer.clientY + scrollY <= entered.bottom ? 1 : 0) : Infinity;
+        const lastRow = rows - spanOf(slot)[1] + 1;
+        const row = Math.max(1, Math.min(Math.round((pointer.clientY - grab.y - box.top) / grid.y) + 1, lastRow));
         if (slotCell?.[0] === column && slotCell?.[1] === row && slot.parentElement === wall) return;
         slotCell = [column, row];
         slide(wall, () => arrange(wall, { node: slot, column, row }), node);
