@@ -285,6 +285,8 @@ public struct HomeswiftCatalog: Sendable {
             if isInternal(service) { json.field("internal", true) }
             if let name = service[.name]?.value.stringValue { json.field("name", .string(name)) }
             if service.isPrimary { json.field("primary", true) }
+            // What it stands for when HAP has no type for it: the web UI draws a robot vacuum for a cleaning robot.
+            if let standsFor = service.standsFor { json.field("standsFor", .string(standsFor.rawValue)) }
             if let subtype = service.subtype { json.field("subtype", .string(subtype)) }
             json.field("type", .string(service.type.name))
             if !detailed {
