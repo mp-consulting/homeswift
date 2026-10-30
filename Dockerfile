@@ -5,7 +5,7 @@
 
 ARG SWIFT_VERSION=6.2
 # ffmpeg-for-homeswift (FFmpeg/), for the camera plugins: a static FFmpeg of 30 MB where Ubuntu's takes 450.
-ARG FFMPEG_IMAGE=ghcr.io/mp-consulting/ffmpeg-for-homeswift:8.1.3-1
+ARG FFMPEG_IMAGE=ghcr.io/mp-consulting/ffmpeg-for-homeswift:8.1.3-2
 
 FROM ${FFMPEG_IMAGE} AS ffmpeg
 

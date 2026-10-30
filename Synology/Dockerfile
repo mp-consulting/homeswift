@@ -7,7 +7,7 @@
 ARG SWIFT_VERSION=6.2
 # ffmpeg-for-homeswift (FFmpeg/), as in the container image: DSM's own FFmpeg (4.1) has no libx264, which every
 # HomeKit Secure Video recording needs. Static, so it runs on DSM as it is.
-ARG FFMPEG_IMAGE=ghcr.io/mp-consulting/ffmpeg-for-homeswift:8.1.3-1
+ARG FFMPEG_IMAGE=ghcr.io/mp-consulting/ffmpeg-for-homeswift:8.1.3-2
 
 FROM ${FFMPEG_IMAGE} AS ffmpeg
 
