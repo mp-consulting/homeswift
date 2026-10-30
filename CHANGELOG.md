@@ -9,7 +9,7 @@ All notable changes to this project are documented here. The format follows
 ### Added
 
 - Room names synced to the hubs, opt-in: with **Rename on the hubs too** on (the Accessories page's **Rooms** menu in
-  Edit, which now renames rooms too, as do the room headings, editable in place in Edit; `set_accessory_layout`'s `syncRoomNames`), a room renamed in Homeswift renames the
+  Edit, which now renames rooms too, as do the room headings, editable in place in Edit, where a tile dragged to another room's wall moves the accessory there; `set_accessory_layout`'s `syncRoomNames`), a room renamed in Homeswift renames the
   rooms of the same name, case and accents aside, on Philips Hue Bridges, IKEA DIRIGERA hubs and eWeLink homes. Govee's
   API has no rooms. Plugins list and rename rooms through `rooms()` and `renameRoom(id:name:)` (`PluginRoom`);
   DIRIGERA's from lpgera/dirigera.

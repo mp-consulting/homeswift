@@ -1553,14 +1553,21 @@
 
     /// Dragging in Edit: the widget lifts and follows the pointer, a dashed slot holds its place in the grid and
     /// moves as it passes over the others, which slide aside; near the window's top or bottom the page scrolls.
-    /// Let go, it lands in the slot, and the wall's order is kept. A finger drags at once: in Edit the widgets do not
-    /// scroll the page.
+    /// Let go, it lands in the slot, and the wall's order is kept. By room, an accessory dragged into another room's
+    /// wall (an administrator's) moves to that room, or out of any into No room. A finger drags at once: in Edit the
+    /// widgets do not scroll the page.
     function drag(event, node) {
       if (event.button !== 0 || event.target.closest(".edit-bar, .resize-handle, .menu-button")) return;
       // A press that drags selects no text.
       event.preventDefault();
       getSelection()?.removeAllRanges();
-      const wall = node.parentElement;
+      const origin = node.parentElement;
+      let wall = origin;
+      const acrossRooms = layout.grouping === "room" && isAdmin() && origin.dataset.room !== undefined && !node.classList.contains("accessory-group");
+      const markRoom = (target) => {
+        for (const section of content.querySelectorAll(".room-drop-target")) section.classList.remove("room-drop-target");
+        if (target && target !== origin) target.closest(".accessory-section")?.classList.add("room-drop-target");
+      };
       const start = { x: event.clientX, y: event.clientY };
       const originalStyle = node.style.cssText, originalNext = node.nextElementSibling;
       let slot = null, pointer = event, scroller = null;
@@ -1591,7 +1598,16 @@
       // The widget under the pointer: the slot goes before it, or after it past its middle.
       const hover = () => {
         // Ignore the lifted card and its controls when locating the actual drop target.
-        const under = document.elementsFromPoint(pointer.clientX, pointer.clientY)
+        const stack = document.elementsFromPoint(pointer.clientX, pointer.clientY);
+        // Over another room's wall, the slot moves there.
+        const overWall = acrossRooms && stack.map((element) => element.closest(".wall")).find((candidate) => candidate && candidate.dataset.room !== undefined && content.contains(candidate));
+        if (overWall && overWall !== wall) {
+          clearGroupTarget();
+          wall = overWall;
+          markRoom(wall);
+          slide(wall, () => wall.append(slot), node);
+        }
+        const under = stack
           .map((element) => element.closest(".wall > .widget"))
           .find((candidate) => candidate && candidate !== node && candidate !== slot && candidate.parentElement === wall);
         if (!under || under === slot || under.parentElement !== wall) { clearGroupTarget(); return; }
@@ -1633,7 +1649,9 @@
         const joinTarget = ended.type === "pointerup" && groupTarget ? groupTarget.dataset.id : null;
         clearGroupTarget();
         if (!slot || !slot.isConnected) return;
+        markRoom(null);
         if (ended.type !== "pointerup") {
+          wall = origin;
           if (originalNext?.parentElement === wall) originalNext.before(slot); else wall.append(slot);
         }
         // Lands in the slot from where it was let go.
@@ -1653,12 +1671,24 @@
         const byID = new Map(ordered.map((accessory) => [accessory.id, accessory]));
         ids.forEach((id, index) => { ordered[places[index]] = byID.get(id); });
         save();
-        if (joinTarget) groupingControls.join(node.dataset.id, joinTarget);
+        if (wall !== origin) moveToRoom(node.dataset.id, wall.dataset.room);
+        else if (joinTarget) groupingControls.join(node.dataset.id, joinTarget);
       };
       node.addEventListener("pointermove", move);
       node.addEventListener("pointerup", end);
       node.addEventListener("pointercancel", end);
       node.addEventListener("lostpointercapture", end);
+    }
+
+    /// Puts an accessory dropped on another room's wall in that room ("" for none), then draws the wall again; a refusal
+    /// puts it back.
+    async function moveToRoom(id, room) {
+      try {
+        await api("/api/rooms", { method: "PUT", body: { accessories: { [id]: { room: room || null } } } });
+        const accessory = all.find((candidate) => candidate.id === id);
+        if (accessory) accessory.room = room || null;
+      } catch (e) { HomeswiftCommon.showAlert(e.message); }
+      render();
     }
 
     const content = el("div", { class: "accessory-walls" });
@@ -1741,13 +1771,20 @@
       nodes.clear();
       // By plugin or by room: a section each (by plugin in the order of their names, those of no plugin last; by room
       // in the rooms' order, those in none last); else one wall.
-      const sections = layout.grouping === "plugin" ? groupByPlugin(accessories)
+      let sections = layout.grouping === "plugin" ? groupByPlugin(accessories)
         : layout.grouping === "room" && rooms.length ? HomeswiftHome.groupByRoom(accessories, rooms) : null;
+      const byRoom = layout.grouping === "room" && rooms.length;
+      // In Edit, every room has its wall, empty ones too, and so has No room: places to drop an accessory.
+      if (byRoom && editing && isAdmin()) {
+        const found = new Map(sections);
+        const rest = sections.find(([name]) => !rooms.includes(name))?.[1] ?? [];
+        sections = [...rooms.map((room) => [room, found.get(room) ?? []]), [t("No room"), rest]];
+      }
       const groups = sections ? sections.map(([name, group]) => [name, ordered.filter((accessory) => group.includes(accessory))]) : [["", ordered]];
       const memberIDs = new Set(layout.groups.flatMap((g) => g.members));
       content.replaceChildren(...groups.map(([name, group]) => el("section", { class: "accessory-section" },
         name ? el("div", { class: "section-head" }, editing && isAdmin() && layout.grouping === "room" && rooms.includes(name) ? roomNameField(name) : el("h2", { text: name }), el("span", { class: "muted", text: tn("{n} accessory", "{n} accessories", group.length) })) : null,
-        el("div", { class: `wall${editing ? " editing" : ""}` }, group.filter((a) => !memberIDs.has(a.id) || noResponse).map(widget)))));
+        el("div", { class: `wall${editing ? " editing" : ""}`, "data-room": byRoom ? (rooms.includes(name) ? name : "") : null }, group.filter((a) => !memberIDs.has(a.id) || noResponse).map(widget)))));
       if (!noResponse) {
         const walls = [...content.querySelectorAll(".wall")];
         const cardsBySection = groups.map(() => []);
@@ -1778,7 +1815,8 @@
           card.classList.toggle("hidden", !match);
           if (match) inSection++;
         }
-        section.classList.toggle("hidden", inSection === 0);
+        // An empty room stays in Edit, by room, to take a drop, unless a search is on.
+        section.classList.toggle("hidden", inSection === 0 && !(!text && section.querySelector(".wall.editing[data-room]")));
         shown += inSection;
       }
       none.classList.toggle("hidden", shown > 0);

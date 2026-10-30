@@ -140,7 +140,8 @@ screenshots, and what a plugin does to get good ones.
   `accessory-layout.json` next to config.json (owner-only; `/api/rooms`). The Home app never sees it; the MCP tools do:
   `list_accessories` and `set_accessories` filter by these rooms.
 - **Rooms on the hubs**: in **Edit**, with the wall **By room**, each room's heading is a field: type a new name, then
-  Enter (or click away) renames the room, Escape keeps it. The **Rooms** menu orders the rooms (drag them) and renames
+  Enter (or click away) renames the room, Escape keeps it. A tile dragged into another room's wall moves the accessory to
+  that room, or out of any into **No room**; every room shows there, empty ones too, to take a drop. The **Rooms** menu orders the rooms (drag them) and renames
   one too (choose it). Its **Rename on the hubs too** switch, off until turned on (`syncRoomNames` in
   `accessory-layout.json`), makes a renamed room's new name reach the plugins' hubs: every room of a Philips Hue Bridge,
   an IKEA DIRIGERA hub or an eWeLink home named as the room was, case and accents aside, is renamed with it, and the
