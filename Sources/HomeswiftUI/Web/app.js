@@ -188,17 +188,17 @@
 
   // ---- Restart -------------------------------------------------------------
 
-  function confirmRestart() {
+  function confirmRestart({ title = t("Restart Homeswift?"), text = t("Your accessories will disconnect briefly. This page will reconnect automatically when Homeswift is ready."), confirm = t("Restart"), icon = "power" } = {}) {
     return new Promise((resolve) => {
       const dialog = el("dialog", { class: "restart-overlay restart-confirm", "aria-labelledby": "restart-confirm-title", "aria-describedby": "restart-confirm-description" });
       const finish = (accepted) => { dialog.close(); dialog.remove(); resolve(accepted); };
       const cancel = el("button", { actionIcon: "close", text: t("Cancel"), onclick: () => finish(false) });
       dialog.append(
-        el("div", { class: "restart-confirm-icon", "aria-hidden": "true" }, HomeswiftCommon.icon("power")),
-        el("h2", { id: "restart-confirm-title", text: t("Restart Homeswift?") }),
-        el("p", { id: "restart-confirm-description", text: t("Your accessories will disconnect briefly. This page will reconnect automatically when Homeswift is ready.") }),
+        el("div", { class: "restart-confirm-icon", "aria-hidden": "true" }, HomeswiftCommon.icon(icon)),
+        el("h2", { id: "restart-confirm-title", text: title }),
+        el("p", { id: "restart-confirm-description", text }),
         el("div", { class: "restart-confirm-actions" }, cancel,
-          el("button", { actionIcon: "power", class: "primary", text: t("Restart"), onclick: () => finish(true) })));
+          el("button", { actionIcon: icon, class: "primary", text: confirm, onclick: () => finish(true) })));
       dialog.addEventListener("cancel", (event) => { event.preventDefault(); finish(false); });
       document.body.append(dialog); dialog.showModal(); cancel.focus();
     });
@@ -279,7 +279,11 @@
           const status = await response.json();
           healthyReplies++;
           const younger = Number.isFinite(status.uptimeSeconds) && status.uptimeSeconds < (Date.now() - started) / 1000 + 5;
-          if (younger || (wasOffline && healthyReplies >= 2)) { await finishRestart(); return; }
+          if (younger || (wasOffline && healthyReplies >= 2)) {
+            if (reloadIfUpdated(status)) return;
+            await finishRestart();
+            return;
+          }
         } else if (response.status === 401) { await finishRestart(); return; }
       } catch { wasOffline = true; healthyReplies = 0; }
       if (Date.now() < deadline) setTimeout(poll, 1000);
@@ -345,6 +349,11 @@
     for (const dialog of document.querySelectorAll("dialog[open]")) if (dialog !== restartOverlay) dialog.close();
     const decode = (part) => { try { return decodeURIComponent(part); } catch { return part; } };
     let [name = "status", ...args] = location.pathname.split("/").filter(Boolean).map(decode);
+    // config.json's editor moved into Settings: an old link or bookmark lands there.
+    if (name === "config") {
+      history.replaceState(null, "", `/settings/config${location.search}${location.hash}`);
+      [name, args] = ["settings", ["config"]];
+    }
     if (adminSections.has(name) && !isAdmin()) {
       // An administrator's view, from a link or a bookmark: Status instead.
       history.replaceState(null, "", "/status");
@@ -402,6 +411,17 @@
   // ---- Live events ---------------------------------------------------------
 
   let events = null;
+  // The build of the files this page runs (UIServer.build, in its <meta>); /api/status says the bridge's.
+  const pageBuild = document.querySelector('meta[name="homeswift-build"]')?.content || null;
+  /// After an update the bridge serves other files: a page still running the old ones loads again, unless it holds
+  /// unsaved changes (it does on the next check after they are saved or left). True when it reloads.
+  function reloadIfUpdated(status) {
+    if (!pageBuild || !status?.build || status.build === pageBuild) return false;
+    if (leaveGuard && !leaveGuard.quiet?.()) return false;
+    location.reload();
+    return true;
+  }
+
   function openEvents() {
     if (events) return;
     const stream = events = new EventSource("/api/events");
@@ -416,6 +436,8 @@
     // This also reconciles an automatic SSE reconnect without replacing forms or the wall.
     stream.addEventListener("hello", async () => {
       const current = ++generation;
+      // A reconnect: the bridge may have restarted into an update (a schedule, another browser, an MCP client).
+      if (current > 1) api("/api/status").then(reloadIfUpdated).catch(() => {});
       pending = [];
       try {
         const accessories = await api("/api/accessories");
@@ -731,17 +753,18 @@
     // The page is widgets the user can hide and order (Customise, at the bottom; Glass UI's dashboard layout),
     // drawn only when shown: the activity charts load nothing while hidden.
     const widgets = {
-      overview: () => [updateCard(status.update),
+      overview: () => [updateCard(status.update, { changed: (next) => updateChanged(next) }),
       // Each figure with its glyph; on a phone the four share one row, "Home app controllers" shortened.
       el("div", { class: "stats" },
-        el("a", { class: "stat", href: "/accessories" }, HomeswiftCommon.icon("bulb"), el("b", { text: status.bridges.reduce((sum, bridge) => sum + bridge.accessories, 0) }), el("span", { text: t("Accessories") })),
-        el(isAdmin() ? "a" : "div", { class: "stat", href: isAdmin() ? "/plugins" : null }, HomeswiftCommon.icon("plugin"), el("b", { text: plugins.size }), el("span", { text: plugins.size === 1 ? t("Plugin") : t("Plugins") })),
-        el("div", { class: "stat", title: t("Home app controllers") }, HomeswiftCommon.icon("users"), el("b", { text: main0 ? main0.controllers : 0 }),
+        el("a", { class: "stat", href: "/accessories" }, tile("bulb", "yellow"), el("b", { text: status.bridges.reduce((sum, bridge) => sum + bridge.accessories, 0) }), el("span", { text: t("Accessories") })),
+        el(isAdmin() ? "a" : "div", { class: "stat", href: isAdmin() ? "/plugins" : null }, tile("plugin", "blue"), el("b", { text: plugins.size }), el("span", { text: plugins.size === 1 ? t("Plugin") : t("Plugins") })),
+        el("div", { class: "stat", title: t("Home app controllers") }, tile("users", "teal"), el("b", { text: main0 ? main0.controllers : 0 }),
           el("span", { class: "long", text: t("Home app controllers") }), el("span", { class: "short", "aria-hidden": "true", text: t("Controllers") })),
-        el("div", { class: "stat" }, HomeswiftCommon.icon("history"), el("b", { text: formatDuration(status.uptimeSeconds) }), el("span", { text: t("Up [uptime]") })))],
+        el("div", { class: "stat" }, tile("history", "violet"), el("b", { text: formatDuration(status.uptimeSeconds) }), el("span", { text: t("Up [uptime]") })))],
       quick: () => window.HomeswiftHome?.quickSection(accessories),
       digest: () => status.assistant ? digestWidget() : null,
-      vault: () => isAdmin() && status.vault ? vaultCard(status.vault) : null,
+      // Nothing in the vault and nothing to move into it: no section until there is.
+      vault: () => isAdmin() && status.vault && (status.vault.entries || status.vault.inConfig || status.vault.problems?.length) ? vaultCard(status.vault) : null,
       activity: () => activity(accessories, withSlugs(status.bridges, "bridge")),
       energy: () => energy(),
       bridges: () => [el("h2", { text: status.bridges.length === 1 ? t("Bridge") : t("Bridges and accessories") }),
@@ -763,19 +786,29 @@
     };
     const sections = new Map();
     let footerUpdate = status.update;
-    const updateState = () => footerUpdate?.error ? "error" : footerUpdate?.available ? "available" : footerUpdate?.checkedAt ? "current" : "idle";
-    const updateLabel = () => footerUpdate?.error ? t("Try again") : footerUpdate?.available ? t("Update available") : footerUpdate?.checkedAt ? t("Up to date") : t("Check for updates");
-    const updateLabels = [t("Check for updates"), t("Checking…"), t("Up to date"), t("Update available"), t("Try again")];
+    // Installed but not running yet: Homebrew upgraded it, a relaunch starts it.
+    const relaunchPending = () => Boolean(footerUpdate?.installed && !footerUpdate.canInstall);
+    const updateState = () => footerUpdate?.error ? "error" : footerUpdate?.installing || footerUpdate?.relaunching ? "checking"
+      : relaunchPending() ? "installed" : footerUpdate?.available ? "available" : footerUpdate?.checkedAt ? "current" : "idle";
+    const updateLabel = () => footerUpdate?.error ? t("Try again") : footerUpdate?.installing ? t("Installing…") : footerUpdate?.relaunching ? t("Relaunching…")
+      : relaunchPending() ? t("Relaunch to update") : footerUpdate?.canInstall ? t("Install update") : footerUpdate?.available ? t("Update available")
+      : footerUpdate?.checkedAt ? t("Up to date") : t("Check for updates");
     const updateContent = (state, label) => [
-      HomeswiftCommon.icon(({ current: "check", available: "download", error: "warning" })[state] || "restore"),
-      el("span", { class: "footer-update-label" },
-        el("span", { text: label }),
-        ...updateLabels.map((text) => el("span", { class: "footer-update-sizer", "aria-hidden": "true", text }))),
+      HomeswiftCommon.icon(({ current: "check", available: "download", installed: "power", error: "warning" })[state] || "restore"),
+      el("span", { class: "footer-update-label", text: label }),
     ];
+    // The overview's card and the sheet both tell the footer what an install is doing.
+    const updateChanged = (next) => {
+      footerUpdate = next;
+      checkUpdates.disabled = Boolean(next.installing || next.relaunching);
+      checkUpdates.replaceChildren(...updateContent(updateState(), updateLabel()));
+      checkUpdates.dataset.updateState = updateState();
+    };
     const showUpdate = () => openSheet((done) => el("div", {},
-      el("h2", { id: "update-check-title", text: t("Updates") }), updateCard(footerUpdate),
+      el("h2", { id: "update-check-title", text: t("Updates") }), updateCard(footerUpdate, { changed: updateChanged }),
       el("button", { actionIcon: "close", type: "button", text: t("Close"), onclick: () => done() })), "update-check-title", { returnFocus: checkUpdates });
-    const checkUpdates = el("button", { type: "button", class: "link footer-update-check", "data-update-state": updateState(), "aria-live": "polite", text: updateLabel(), onclick: async () => {
+    const checkUpdates = el("button", { type: "button", class: "link footer-update-check", "data-update-state": updateState(), "aria-live": "polite", text: updateLabel(), onclick: async (event) => {
+      if (relaunchPending()) { restartBridge(event); return; }
       if (footerUpdate?.available && !footerUpdate.error) { showUpdate(); return; }
       checkUpdates.disabled = true;
       checkUpdates.dataset.updateState = "checking";
@@ -979,14 +1012,28 @@
     return [el("h2", { text: t("Vault") }),
       el("div", { class: "card server vault-status", "data-state": urgent ? "bad" : count ? "warn" : "ok" },
         el("div", { class: "server-head" },
-          tile(urgent ? "warning" : "key", urgent ? "heat" : count ? "yellow" : "green"),
+          tile(urgent ? "warning" : "vault", urgent ? "heat" : count ? "yellow" : "green"),
           el("div", { class: "who" }, el("strong", { text: headline }), el("div", { class: "muted", text: detail })),
-          el("a", { class: `button${urgent ? " primary" : ""}`, href: "/settings/vault", actionIcon: "key", text: t("Open the vault") })),
+          el("a", { class: `button${urgent ? " primary" : ""}`, href: "/settings/vault", actionIcon: "vault", text: t("Open the vault") })),
         rows.length ? el("div", { class: "vault-status-rows" }, rows) : null)];
   }
 
-  function updateCard(update) {
+  /// `changed` hears each new state of the update (installing, installed, failed), for what shows it elsewhere (the
+  /// Status page's footer). An install the bridge can do itself (Homebrew's) is a button; it then restarts into it.
+  /// `embedded` leaves out the card and its heading, for a page whose own heading says it (Settings › Updates).
+  function updateCard(update, { changed = () => {}, embedded = false } = {}) {
     if (!update?.available) return null;
+    const card = el("div", { class: embedded ? "update-card update-details" : "card update-card" });
+    const draw = (next) => {
+      update = next;
+      changed(update);
+      card.replaceChildren(...updateCardContent(update, draw, embedded).filter(Boolean));
+    };
+    card.replaceChildren(...updateCardContent(update, draw, embedded).filter(Boolean));
+    return card;
+  }
+
+  function updateCardContent(update, draw, embedded = false) {
     const released = update.publishedAt ? new Date(update.publishedAt).toLocaleDateString(HomeswiftI18n.locale) : null;
     let command = null;
     if (update.command) {
@@ -996,18 +1043,63 @@
       } });
       command = el("div", { class: "update-command" }, el("code", { text: update.command }), copy);
     }
-    return el("div", { class: "card update-card" },
-      el("div", { class: "server-head" },
+    // On disk but not running: `brew upgrade` done, here or by hand.
+    const pending = update.installed && !update.canInstall && !update.installing;
+    const status = update.installing
+      ? el("p", { class: "update-progress", role: "status" }, el("span", { class: "spinner", "aria-hidden": "true" }), el("span", { text: t("Installing Homeswift {version}… The bridge restarts when it is done.", { version: update.installing }) }))
+      : update.relaunching ? el("p", { class: "update-progress", role: "status" }, el("span", { class: "spinner", "aria-hidden": "true" }), el("span", { text: t("Restarting into Homeswift {version}…", { version: update.installed }) }))
+      : pending ? el("p", { class: "update-progress", role: "status" }, HomeswiftCommon.icon("check"), el("span", { text: t("Homeswift {version} is installed. Relaunch to start it.", { version: update.installed }) }))
+      : null;
+    return [
+      embedded ? null : el("div", { class: "server-head" },
         tile("update", "green"),
         el("div", { class: "who" },
           el("strong", { text: t("Homeswift {version} is available", { version: update.latest }) }),
           el("div", { class: "muted", text: released ? t("This is {version} · released {date}", { version: update.current, date: released }) : t("This is {version}", { version: update.current }) }))),
-      el("p", { text: HomeswiftI18n.message(update.how) }),
-      command,
+      pending || update.installing || update.relaunching ? null : el("p", { text: HomeswiftI18n.message(update.how) }),
+      status,
+      update.installError ? el("p", { class: "error", role: "alert", text: t("Could not install the update: {error}", { error: update.installError }) }) : null,
+      pending || update.installing || update.relaunching ? null : command,
       el("div", { class: "actions" },
-        update.download ? el("a", { class: "button primary", href: update.download.url, rel: "noopener", title: update.download.name, text: t("Download the package") }) : null,
-        el("a", { class: "button", href: update.url, target: "_blank", rel: "noopener", text: t("On GitHub") })),
-      update.notes ? el("details", { class: "more-options" }, el("summary", { text: t("What's new") }), markdown(update.notes)) : null);
+        update.canInstall && !update.installing && !update.relaunching && isAdmin()
+          ? el("button", { class: "primary", type: "button", actionIcon: "download", text: t("Install and relaunch"), onclick: (event) => installUpdate(event.currentTarget, update, draw) }) : null,
+        pending && isAdmin() ? el("button", { class: "primary", type: "button", actionIcon: "power", text: t("Relaunch now"), onclick: restartBridge }) : null,
+        update.download ? el("a", { class: "button primary", href: update.download.url, rel: "noopener", title: update.download.name, actionIcon: "download", text: t("Download the package") }) : null,
+        el("a", { class: "button", href: update.url, target: "_blank", rel: "noopener", actionIcon: "open", text: t("On GitHub") })),
+      update.notes ? el("details", { class: "more-options" }, el("summary", { text: t("What's new") }), markdown(update.notes)) : null,
+    ];
+  }
+
+  /// Asks the bridge to install the latest release and relaunch, then follows it: the card shows the install, and the
+  /// restart's overlay takes over once the bridge goes down to start the new version.
+  async function installUpdate(button, update, draw) {
+    if (!await confirmRestart({ title: t("Install Homeswift {version}?", { version: update.latest }), confirm: t("Install and relaunch"), icon: "download",
+      text: t("Homeswift installs the update, then restarts. Your accessories will disconnect briefly; this page reconnects when the new version is ready.") })) return;
+    button.disabled = true;
+    const started = Date.now();
+    let state;
+    try {
+      state = await api("/api/updates/install", { method: "POST", body: {} });
+    } catch (e) {
+      button.disabled = false;
+      HomeswiftCommon.showAlert(e.message);
+      return;
+    }
+    draw(state);
+    // An upgrade fetches and may build: minutes, at most the installer's half hour.
+    while (state.installing) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      try {
+        state = await api("/api/updates");
+      } catch (e) {
+        // Gone: the restart began between two questions.
+        if (!(e instanceof ApiError)) { waitForRestart(started); return; }
+        HomeswiftCommon.showAlert(e.message);
+        return;
+      }
+      draw(state);
+    }
+    if (state.relaunching) waitForRestart(started);
   }
 
   /// The Status page's charts: the process's memory and CPU, and how long the Home app's requests and the plugins'
@@ -2432,7 +2524,7 @@
         { type: "fieldset", title: t("Connection"), icon: "system", items: ["port", "host", "allowedHosts"] },
         { type: "fieldset", title: t("Sign-in"), icon: "user", items: ["auth", "sessionDays"] },
         { type: "fieldset", title: "HTTPS", icon: "lock", expandable: true, expanded: Boolean(current.https), items: ["https", { items: ["certificate", "privateKey"] }] },
-        { type: "fieldset", title: t("Updates"), icon: "download", expandable: true, expanded: false, items: ["checkForUpdates"] },
+        { type: "fieldset", title: t("Updates"), section: "updates", icon: "download", expandable: true, expanded: false, items: ["checkForUpdates"] },
         ...advanced
       ];
     }
@@ -2634,7 +2726,7 @@
     update();
     if (platform === "HomeswiftUI") {
       const section = new URLSearchParams(location.search).get("section");
-      if (["proxy", "schedules"].includes(section)) {
+      if (["proxy", "schedules", "updates"].includes(section)) {
         const target = body.querySelector(`[data-section="${section}"]`);
         if (target) {
           target.open = true;
@@ -3147,7 +3239,7 @@
     const secretField = (wrap, input) => {
       const masked = input.type === "password";
       const reveal = () => { input.type = masked && !isReference(input.value) ? "password" : "text"; };
-      const pick = el("button", { type: "button", class: "icon-button", "aria-label": t("Choose from the vault"), title: t("Choose from the vault") }, HomeswiftCommon.icon("key"));
+      const pick = el("button", { type: "button", class: "icon-button", "aria-label": t("Choose from the vault"), title: t("Choose from the vault") }, HomeswiftCommon.icon("vault"));
       pick.addEventListener("click", async (event) => {
         event.preventDefault();
         const keyboard = event.detail === 0;
@@ -3853,7 +3945,8 @@
   /// A save's schema problems, `{ text, line?, offset? }`, each with its line when the editor shows it.
   const problemList = (items, editor) => el("ul", { class: "schema-problems" }, items.map((item) => el("li", {}, ...lineLink(item, editor), item.text)));
 
-  views.config = async (main) => {
+  /// The whole config.json, a tab of Settings (`/settings/config`; `/config` leads there).
+  async function configPage(main, subnav) {
     let saved;
     // The plugins' list for the secret rule only; an older bridge without it leaves the keys unmarked.
     [saved, secretRule] = await Promise.all([api("/api/config", { raw: true }), api("/api/plugins").then(readSecretRule, () => null)]);
@@ -3928,11 +4021,12 @@
     format.addEventListener("click", () => { try { textarea.value = JSON.stringify(JSON.parse(textarea.value), null, 2); editor.repaint(); update(); } catch {} });
     update();
     show(main,
-      pageHead(t("Configuration"), t("The whole config.json. Saving validates it, keeps a backup of the previous file (the last 20 under backups/), and applies it at once.")),
+      pageHead(t("Settings"), t("The whole config.json. Saving validates it, keeps a backup of the previous file (the last 20 under backups/), and applies it at once.")),
+      subnav,
       el("div", { class: "card editor-card" },
         el("div", { class: "editor-bar" }, el("span", { class: "mono muted file-name", text: "config.json" }), check, el("span", { class: "spacer" }), secretsOnly, format, revert, force, save),
         secretsBanner, editor, message));
-  };
+  }
 
   // ---- Logs ----------------------------------------------------------------
 
@@ -4294,6 +4388,8 @@
   document.addEventListener("visibilitychange", () => {
     if (!(auth && auth.authenticated)) return;
     if (document.hidden) { closeEvents(); return; }
+    // A web app on a phone stays open for days: back in view, it catches up with an update first.
+    api("/api/status").then(reloadIfUpdated).catch(() => {});
     openEvents();
     if (location.pathname === "/accessories" && document.querySelector(".wall.editing")) return;
     if (["/", "/status", "/accessories", "/quick"].includes(location.pathname)) route();
@@ -4310,7 +4406,7 @@
     enumLabels: HomeswiftWidgets.enumLabels, labelFor: HomeswiftWidgets.labelFor, withSlugs,
   });
   // The Settings pages (admin.js) draw with the same helpers.
-  window.HomeswiftApp = { api, navigate, route, pageHead, breadcrumb, show, savedText, waitForRestart, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, assistantPage };
+  window.HomeswiftApp = { api, navigate, route, pageHead, breadcrumb, show, savedText, waitForRestart, updateCard, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, assistantPage, configPage };
 
   loadAuth().catch((e) => { $("#auth").classList.remove("hidden"); $("#auth-error").textContent = e.message; });
 })();

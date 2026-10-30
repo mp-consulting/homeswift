@@ -295,10 +295,13 @@ public final class UIServer: Sendable {
             // Scripts, styles and images are revalidated rather than downloaded again on every visit: an ETag of
             // their bytes, a 304 while it still matches. Pages keep no-store, like the API.
             let (body, tag) = asset(file, name: name, platform: platform, live: live != nil)
+            // An address the page versioned with these bytes (`/app.js?v=<tag>`) never changes: kept for a year,
+            // never asked again. Any other (an older page's version, or none) is revalidated.
+            let cache = request.query["v"] == Self.version(of: tag) ? "max-age=31536000, immutable" : "no-cache"
             if request.headers["if-none-match"] == tag {
-                return .data(status: 304, contentType: file.contentType, body: Data(), headers: ["ETag": tag, "Cache-Control": "no-cache"])
+                return .data(status: 304, contentType: file.contentType, body: Data(), headers: ["ETag": tag, "Cache-Control": cache])
             }
-            return .data(status: 200, contentType: file.contentType, body: body, headers: ["ETag": tag, "Cache-Control": "no-cache"])
+            return .data(status: 200, contentType: file.contentType, body: body, headers: ["ETag": tag, "Cache-Control": cache])
         }
         var body = file.body
         if platform == nil, name == "index.html", tls.withLockedValue({ $0 }) != nil {
@@ -322,7 +325,42 @@ public final class UIServer: Sendable {
             let head = #"<base href="/plugins/\#(Self.attribute(instance.slug))/"><meta name="homeswift-plugin" data-platform="\#(Self.attribute(platform))" data-name="\#(Self.attribute(instance.name))"><script src="/i18n.js"></script>"#
             body = body.range(of: "<head>").map { body.replacingCharacters(in: $0, with: "<head>" + head) } ?? head + body
         }
+        if live == nil {
+            // After an update, a page must not run with the scripts of the version before: each of its files is asked
+            // for at an address of its bytes, and the page knows its build, which /api/status says too (app.js reloads
+            // when they differ).
+            body = versioned(body, files: files, platform: platform)
+            if platform == nil, name == "index.html", let head = body.range(of: "<head>") {
+                body.replaceSubrange(head, with: #"<head><meta name="homeswift-build" content="\#(Self.build)">"#)
+            }
+        }
         return .data(status: 200, contentType: file.contentType, body: Data(body.utf8))
+    }
+
+    /// The compiled-in pages' files, as one value: it changes with any of them, so a page tells an update from its
+    /// own version. Stable across restarts.
+    public static let build: String = {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for name in WebAssets.files.keys.sorted() {
+            for byte in Data(name.utf8) + WebAssets.files[name]!.data { hash = (hash ^ UInt64(byte)) &* 0x100_0000_01b3 }
+        }
+        return String(hash, radix: 16)
+    }()
+
+    /// An ETag as the `v` of an address: its hex digits.
+    static func version(of tag: String) -> String { tag.trimmingCharacters(in: CharacterSet(charactersIn: "\"")) }
+
+    /// The page with `src` and `href` of its files given their version: the UI's at `/name`, a plugin page's beside it
+    /// (`name`). Addresses that are not files served here (a view, another site, a data: URL) stay as they are.
+    private func versioned(_ html: String, files: [String: WebFile], platform: String?) -> String {
+        let pattern = #/(src|href)="(/?)([A-Za-z0-9._\-/]+\.(?:js|css|svg|png|webp|webmanifest|json))"/#
+        return html.replacing(pattern) { match in
+            let (attribute, slash, path) = (String(match.output.1), String(match.output.2), String(match.output.3))
+            let own = slash.isEmpty && platform != nil
+            guard let file = own ? files[path] : WebAssets.files[path] else { return String(match.output.0) }
+            let (_, tag) = asset(file, name: path, platform: own ? platform : nil, live: false)
+            return #"\#(attribute)="\#(slash)\#(path)?v=\#(Self.version(of: tag))""#
+        }
     }
 
     /// A file's bytes and ETag; those of the compiled-in files, which never change, are kept.
@@ -593,6 +631,11 @@ public final class UIServer: Sendable {
             switch route {
             case ["status"]:
                 return .json(status(username: username, admin: caller.isAdmin))
+            case ["updates"]:
+                // The Settings page's Updates: as the last check left it, the version on disk looked at again.
+                guard let releases = options.releases else { return .error(503, "update checking is unavailable") }
+                await releases.noteInstalledVersion()
+                return .json(releases.json(always: true) ?? .null)
             case ["assistant"]:
                 // Whether pages may offer "Explain": the HomeswiftAiKit block's Assistant, when one works.
                 guard let assistant = catalog.host.assistant else { return .json(["enabled": false]) }
@@ -814,6 +857,15 @@ public final class UIServer: Sendable {
                     return .error(409, error.description)
                 }
             }
+            if route == ["updates", "automatic"] {
+                // Settings › Updates' switch: `checkForUpdates` in the HomeswiftUI block (left out when on, its default).
+                // The saved block restarts the web UI, which starts or stops the checks; they change here at once too.
+                guard let on = body["on"]?.boolValue else { return .error(400, "on (true or false) is required") }
+                _ = try await catalog.editBlock(platform: UIConfiguration.platform, name: nil, create: false, dryRun: false) { $0["checkForUpdates"] = on ? nil : .bool(false) }
+                noteConfigChange(by: username)
+                if let releases = options.releases { on ? releases.start() : releases.stop() }
+                return .json(options.releases?.json(always: true) ?? ["automatic": .bool(on)])
+            }
             if route.count == 4, route[0] == "config", route[1] == "block" {
                 // A block by platform and name, for a plugin's own page: its read-modify-write never needs
                 // the whole file, nor an index that may have moved.
@@ -833,6 +885,19 @@ public final class UIServer: Sendable {
                 guard let releases = options.releases else { return .error(503, "update checking is unavailable") }
                 await releases.check()
                 return .json(releases.json() ?? .null)
+            }
+            if route == ["updates", "install"] {
+                // Installs in the background, the page asking GET /api/updates how it goes; then, unless
+                // `relaunch` is false, restarts into the new version.
+                guard let releases = options.releases else { return .error(503, "update checking is unavailable") }
+                guard releases.json()?["canInstall"]?.boolValue == true else { return .error(409, "there is no update this bridge can install") }
+                let relaunch = body["relaunch"]?.boolValue ?? true
+                let catalog = catalog
+                releases.install {
+                    guard relaunch, catalog.scheduleRestart(requestedBy: "web UI user \(username): installing an update") else { return }
+                    releases.noteRelaunch()
+                }
+                return .json(releases.json(always: true) ?? .null)
             }
             if route == ["config", "check-port"] {
                 guard let candidate = body["port"]?.intValue, (1...65535).contains(candidate) else {
@@ -1160,6 +1225,8 @@ public final class UIServer: Sendable {
         status["username"] = .string(username)
         status["system"] = HomeswiftCatalog.systemJSON()
         if let update = options.releases?.json() { status["update"] = update }
+        // The pages' build: one open since an update reloads (app.js).
+        if live == nil { status["build"] = .string(Self.build) }
         // The vault's widget, for the administrators who can act on it.
         if admin, let vault = catalog.vaultSummary() { status["vault"] = vault }
         return .object(status)

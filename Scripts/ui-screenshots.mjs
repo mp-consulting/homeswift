@@ -165,7 +165,7 @@ try {
   await shot("status-bridge", "/status", { ready: ".card.server", element: "main .card.server" });
   await shot("plugins", "/plugins", { ready: ".card", tall: 1000 });
   await shot("plugin-form", "/plugins/desk-lights/expert", { ready: "form, .group-box, .field", tall: 1000 });
-  await shot("config", "/config", { ready: ".code-editor", tall: 900 });
+  await shot("config", "/settings/config", { ready: ".code-editor", tall: 900 });
   await shot("logs", "/logs?level=trace", { ready: ".log-filter-panel", tall: 900 });
   await shot("logs-phone", "/logs?level=trace", { width: 390, height: 844, mobile: true, ready: ".log-filter-panel" });
   await shot("appearance", "/appearance", { ready: ".wallpapers", tall: 1300 });

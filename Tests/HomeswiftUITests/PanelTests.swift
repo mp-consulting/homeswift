@@ -273,8 +273,8 @@ struct PanelTests {
         #expect(touch.headers["content-type"] == "image/png")
         #expect(touch.body.utf8.starts(with: [0xEF, 0xBF, 0xBD, 0x50, 0x4E, 0x47]))   // \u{89}PNG, decoded as UTF-8
         let page = try await browser.get("/status")
-        #expect(page.body.contains(#"<link rel="manifest" href="/manifest.webmanifest">"#))
-        #expect(page.body.contains(#"<link rel="apple-touch-icon" href="/apple-touch-icon.png">"#))
+        #expect(page.body.contains(#"<link rel="manifest" href="/manifest.webmanifest?v="#))
+        #expect(page.body.contains(#"<link rel="apple-touch-icon" href="/apple-touch-icon.png?v="#))
     }
 
     /// The new routes follow the roles: a user who is not an administrator reads today's digest, keeps their own
