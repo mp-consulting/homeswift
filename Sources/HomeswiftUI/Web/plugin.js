@@ -438,8 +438,9 @@
       const search = el("input", { type: "search", placeholder: t("Search images…"), "aria-label": t("Search images…"), oninput: () => {
         for (const item of grid.children) item.hidden = !normalize(item.textContent).includes(normalize(search.value));
       } });
-      const dialog = el("dialog", { class: "artwork-dialog" }, el("h2", { text: t("Scene image") }), search, grid,
-        el("button", { actionIcon: "close", text: t("Close"), onclick: () => dialog.close() }));
+      // The design system's dialog (common.js's messageDialog, admin.js's): a card over a dimmed page, wide for the grid.
+      const dialog = el("dialog", { class: "admin-dialog card wide artwork-dialog", "aria-label": t("Scene image") }, el("h2", { text: t("Scene image") }), search, grid,
+        el("div", { class: "actions" }, el("button", { type: "button", actionIcon: "close", text: t("Close"), onclick: () => dialog.close() })));
       for (const artwork of artworks) grid.append(el("button", { class: "scene pictured artwork-choice", actionIcon: "image", onclick: async () => {
         try {
           const response = await fetch(`/artwork-${artwork.id}.webp`);

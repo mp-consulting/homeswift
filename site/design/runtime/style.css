@@ -3692,7 +3692,8 @@ select option:disabled { color: var(--muted); }
 .location-map-controls { position: absolute; top: 10px; left: 10px; display: flex; gap: var(--space-8); }
 .location-map-credit { position: absolute; right: 0; bottom: 0; padding: var(--space-4) var(--space-8); background: #fff; color: #222; font-size: var(--text-xs); }
 
-.artwork-dialog { width: min(850px, calc(100vw - 32px)); max-height: 85vh; overflow: auto; }
+.artwork-dialog { max-height: 85vh; }
+.artwork-dialog input[type="search"] { width: 100%; }
 .artwork-dialog .artwork-grid { margin-block: var(--space-12); }
 
 .appearance-card-title { display: flex; align-items: center; gap: var(--space-10); }

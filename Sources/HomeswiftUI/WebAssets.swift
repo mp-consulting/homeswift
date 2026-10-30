@@ -19584,8 +19584,9 @@ HomeswiftI18n.add("pt", {
       const search = el("input", { type: "search", placeholder: t("Search images…"), "aria-label": t("Search images…"), oninput: () => {
         for (const item of grid.children) item.hidden = !normalize(item.textContent).includes(normalize(search.value));
       } });
-      const dialog = el("dialog", { class: "artwork-dialog" }, el("h2", { text: t("Scene image") }), search, grid,
-        el("button", { actionIcon: "close", text: t("Close"), onclick: () => dialog.close() }));
+      // The design system's dialog (common.js's messageDialog, admin.js's): a card over a dimmed page, wide for the grid.
+      const dialog = el("dialog", { class: "admin-dialog card wide artwork-dialog", "aria-label": t("Scene image") }, el("h2", { text: t("Scene image") }), search, grid,
+        el("div", { class: "actions" }, el("button", { type: "button", actionIcon: "close", text: t("Close"), onclick: () => dialog.close() })));
       for (const artwork of artworks) grid.append(el("button", { class: "scene pictured artwork-choice", actionIcon: "image", onclick: async () => {
         try {
           const response = await fetch(`/artwork-${artwork.id}.webp`);
@@ -24140,7 +24141,8 @@ select option:disabled { color: var(--muted); }
 .location-map-controls { position: absolute; top: 10px; left: 10px; display: flex; gap: var(--space-8); }
 .location-map-credit { position: absolute; right: 0; bottom: 0; padding: var(--space-4) var(--space-8); background: #fff; color: #222; font-size: var(--text-xs); }
 
-.artwork-dialog { width: min(850px, calc(100vw - 32px)); max-height: 85vh; overflow: auto; }
+.artwork-dialog { max-height: 85vh; }
+.artwork-dialog input[type="search"] { width: 100%; }
 .artwork-dialog .artwork-grid { margin-block: var(--space-12); }
 
 .appearance-card-title { display: flex; align-items: center; gap: var(--space-10); }
