@@ -498,7 +498,7 @@
         head: [tile(kind, tone),
           el("div", { class: "who" }, el("strong", { text: bridge.name }), el("div", { class: "muted", text: role })),
           el("span", { class: `pill status ${bridge.paired ? "on" : "away"}`, text: bridge.paired ? t("Paired · {count}", { count: bridge.controllers }) : t("Not paired"), title: bridge.paired ? tn("{n} Home app controller", "{n} Home app controllers", bridge.controllers) : "" })],
-        body: [el("div", { class: "facts lead" },
+        body: () => [el("div", { class: "facts lead" },
           fact(t("Device ID"), bridge.deviceId, { class: "mono" }), fact(t("Port"), bridge.port ?? "?"), fact(t("Accessories"), bridge.accessories)),
         !bridge.external && bridge.platforms.length ? el("div", { class: "chips" }, bridge.platforms.map((name) => el("span", { class: "chip", text: name }))) : null,
         bridge.setupCode ? el("div", { class: "setup" },
@@ -510,16 +510,18 @@
         search: [bridge.name, ...bridge.platforms, bridge.deviceId].join(" "),
       };
     };
-    const serverCard = ({ head, body }, id) => el("div", { class: "card server", id }, el("div", { class: "server-head" }, ...head), ...body);
-    // A device of its own as one line that unfolds: one waiting to be added comes open, its pairing code in view.
-    const deviceRow = ({ head, body, waiting, search }, id) => el("details", { class: "device-row", id, open: waiting, "data-search": search.toLowerCase() },
-      el("summary", {}, ...head, HomeswiftCommon.icon("forward")), el("div", { class: "device-row-body" }, ...body));
+    const serverCard = ({ head, body }, id) => el("div", { class: "card server", id }, el("div", { class: "server-head" }, ...head), ...body());
+    // A device of its own as one line that unfolds; its details are built the first time it opens, so a hundred folded
+    // rows stay a hundred lines.
+    const deviceRow = ({ head, body, search }, id, open) => {
+      const row = el("details", { class: "device-row", id, "data-search": search.toLowerCase() }, el("summary", {}, ...head, HomeswiftCommon.icon("forward")));
+      const unfold = () => { if (row.open && row.childElementCount === 1) row.append(el("div", { class: "device-row-body" }, ...body())); };
+      row.addEventListener("toggle", unfold);
+      row.open = open;
+      unfold();
+      return row;
+    };
     const bridges = status.bridges.map((bridge, index) => bridge.external ? null : serverCard(bridgeParts(bridge, index)));
-    const externalRows = status.bridges.flatMap((bridge, index) => {
-      if (!bridge.external) return [];
-      const parts = bridgeParts(bridge, index);
-      return [{ name: bridge.name, waiting: parts.waiting, node: deviceRow(parts, `accessory-${slug(bridge.deviceId)}`) }];
-    });
 
     // The Matter bridge, when the HomeswiftMatter block runs one, and each accessory that is a Matter device of its
     // own: drawn again after an administrator's change.
@@ -549,7 +551,7 @@
           el("div", { class: "who" }, el("strong", { text: own ? node.name : t("Matter bridge") }),
             el("div", { class: "muted", text: !own ? t("For Google Home, Alexa, SmartThings and Home Assistant") : where ? t("Matter · {ecosystems}", { ecosystems: where }) : t("Matter device of its own") })),
           el("span", { class: `pill status ${fabrics.length ? "on" : "away"}`, text: fabrics.length ? tn("In one ecosystem", "In {n} ecosystems", fabrics.length) : t("Not added yet") })],
-        body: [el("div", { class: "facts lead" }, fact(t("Port"), node.port), own ? null : fact(t("Accessories"), (node.devices || []).length)),
+        body: () => [el("div", { class: "facts lead" }, fact(t("Port"), node.port), own ? null : fact(t("Accessories"), (node.devices || []).length)),
         fabrics.length ? el("div", { class: "chips" }, named.map(({ fabric, vendor, system, name }) => {
           const hint = system ? t("{vendor}'s own link to the device, from your other devices and hubs: keep it.", { vendor }) : vendor ?? "";
           return el("span", { class: `chip${admin ? " removable" : ""}${system ? " system" : ""}`, title: hint },
@@ -582,47 +584,45 @@
       };
     };
     // The Matter bridge's card, or a device's row: drawn again after an administrator's change, a row kept open and as
-    // the search left it; `replaced` hears of the new element.
-    const matterNode = (node, own, replaced) => {
+    // the search left it.
+    const matterNode = (node, own, open = false) => {
       const id = own ? `matter-${slug(node.id)}` : "matter";
       const refresh = async () => {
         const next = await api("/api/matter");
         const fresh = own ? (next.ownDevices || []).find((device) => device.id === node.id) : next;
         if (!fresh) return element.remove();
-        const replacement = matterNode(fresh, own, replaced);
-        if (own && element.open) replacement.open = true;
+        const replacement = matterNode(fresh, own, own && element.open);
         replacement.classList.toggle("hidden", element.classList.contains("hidden"));
         element.replaceWith(replacement);
-        replaced?.(replacement);
       };
       const parts = matterParts(node, own, refresh);
-      const element = own ? deviceRow(parts, id) : serverCard(parts, id);
-      // Reached from an accessory's menu: opened and brought into view.
-      if (location.hash === `#${id}`) {
-        if (own) element.open = true;
-        requestAnimationFrame(() => element.scrollIntoView({ block: "center" }));
-      }
+      const element = own ? deviceRow(parts, id, open) : serverCard(parts, id);
+      // Reached from an accessory's menu: brought into view (its row opened by the list).
+      if (location.hash === `#${id}`) requestAnimationFrame(() => element.scrollIntoView({ block: "center" }));
       return element;
     };
-    // Kept up to date as rows are redrawn, so the widget drawn again (Customise) shows the latest.
-    const matterRows = !matter?.enabled ? [] : (matter.ownDevices || []).map((device) => {
-      const row = { name: device.name };
-      row.node = matterNode(device, true, (next) => { row.node = next; });
-      row.waiting = !(device.fabrics || []).length;
-      return row;
-    });
 
     // Accessories and Matter devices of their own, one line each, those waiting to be added first: a home may have a
-    // hundred, which cards would bury the bridges under. A search once the list is long.
+    // hundred, which cards would bury the bridges under. Built on each draw (Customise draws the section again), with a
+    // search once the list is long.
     const devicesCard = () => {
-      const rows = [...externalRows, ...matterRows].sort((a, b) => Number(b.waiting) - Number(a.waiting) || a.name.localeCompare(b.name, undefined, { numeric: true }));
-      if (!rows.length) return null;
-      const waiting = rows.filter((row) => row.waiting).length;
-      // One or two to add come open; more stay folded at the top, their pills saying so (one linked to stays open).
-      if (waiting > 2) for (const row of rows) if (location.hash !== `#${row.node.id}`) row.node.open = false;
-      const list = el("div", { class: "device-rows" }, rows.map((row) => row.node));
+      const external = status.bridges.flatMap((bridge, index) => {
+        if (!bridge.external) return [];
+        const parts = bridgeParts(bridge, index);
+        const id = `accessory-${slug(bridge.deviceId)}`;
+        return [{ name: bridge.name, id, waiting: parts.waiting, make: (open) => deviceRow(parts, id, open) }];
+      });
+      const own = !matter?.enabled ? [] : (matter.ownDevices || []).map((device) => ({
+        name: device.name, id: `matter-${slug(device.id)}`, waiting: !(device.fabrics || []).length, make: (open) => matterNode(device, true, open) }));
+      const collator = new Intl.Collator(undefined, { numeric: true });
+      const entries = [...external, ...own].sort((a, b) => Number(b.waiting) - Number(a.waiting) || collator.compare(a.name, b.name));
+      if (!entries.length) return null;
+      const waiting = entries.filter((entry) => entry.waiting).length;
+      // One or two to add come open, their codes in view; more stay folded at the top, their pills saying so. One an
+      // accessory's menu links to opens.
+      const list = el("div", { class: "device-rows" }, entries.map((entry) => entry.make((entry.waiting && waiting <= 2) || location.hash === `#${entry.id}`)));
       const none = el("p", { class: "muted hidden", text: t("No device matches.") });
-      const search = rows.length > 8 ? el("input", { type: "search", class: "search", placeholder: t("Search devices"), "aria-label": t("Search devices"), oninput: () => {
+      const search = entries.length > 8 ? el("input", { type: "search", class: "search", placeholder: t("Search devices"), "aria-label": t("Search devices"), oninput: () => {
         const text = search.value.trim().toLowerCase();
         let shown = 0;
         for (const row of list.children) {
@@ -635,8 +635,8 @@
       return el("div", { class: "card devices" },
         el("div", { class: "devices-head" },
           el("div", { class: "who" }, el("strong", { text: t("Devices of their own") }),
-            el("div", { class: "muted", text: waiting ? tn("{count} devices · one waits to be added", "{count} devices · {n} wait to be added", waiting, { count: rows.length })
-              : tn("One device, with its own pairing", "{n} devices, each with its own pairing", rows.length) })),
+            el("div", { class: "muted", text: waiting ? tn("{count} devices · one waits to be added", "{count} devices · {n} wait to be added", waiting, { count: entries.length })
+              : tn("One device, with its own pairing", "{n} devices, each with its own pairing", entries.length) })),
           search),
         list, none);
     };
