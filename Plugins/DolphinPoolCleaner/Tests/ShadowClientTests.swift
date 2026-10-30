@@ -14,10 +14,10 @@ struct ShadowClientTests {
     static let throttled: JSONValue = ["code": 429, "message": "TOO_MANY_REQUESTS"]
     static let shadow: JSONValue = ["state": ["reported": [:]], "version": 7]
 
-    func client(credentials: CredentialsBox = .testCredentials) -> ShadowClient {
+    func client(credentials: CredentialsBox = .testCredentials, timing: DolphinTiming = .fast) -> ShadowClient {
         ShadowClient(
             serialNumber: "E3086OFG2M", endpoint: "mock-iot-endpoint.iot.eu-west-1.amazonaws.com", region: "eu-west-1", mqtt: broker.factory,
-            timing: .fast, logger: log.logger, credentials: { credentials.value })
+            timing: timing, logger: log.logger, credentials: { credentials.value })
     }
 
     /// `payload` with the request's token, for a broker that echoes it.
@@ -27,8 +27,8 @@ struct ShadowClientTests {
         return .object(object)
     }
 
-    func connected() async throws -> ShadowClient {
-        let client = client()
+    func connected(timing: DolphinTiming = .fast) async throws -> ShadowClient {
+        let client = client(timing: timing)
         try await client.connect()
         return client
     }
@@ -64,7 +64,7 @@ struct ShadowClientTests {
 
     @Test func aBrokerThatNeverAnswersTimesOut() async {
         broker.behavior = .hang
-        let client = client()
+        let client = client(timing: .timesOut)
         await #expect(throws: DolphinError.mqttConnectionFailed("Timed out connecting to AWS IoT")) { try await client.connect() }
         #expect(await !client.isConnected)
     }
@@ -228,7 +228,7 @@ struct ShadowClientTests {
     @Test func untaggedRejectionIsNobodys() async throws {
         let thing = thing
         broker.respond { _, _ in ("$aws/things/\(thing)/shadow/get/rejected", ["code": 403, "message": "Forbidden"]) }
-        let client = try await connected()
+        let client = try await connected(timing: .timesOut)
         await #expect(throws: DolphinError.shadowTimeout) { try await client.getShadow() }
     }
 
