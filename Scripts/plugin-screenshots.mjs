@@ -231,8 +231,8 @@ async function shot(name, path, { tab, ready, width = 1280, height = 900, mobile
   // without tabs (the Scenes page) has none to choose.
   if (tab) {
     const chosen = `button[data-tab="${tab}"][aria-selected="true"]`;
-    for (let i = 0; i < 40 && !(await evaluate(`!!document.querySelector('${chosen}')`)); i++) {
-      await evaluate(`document.querySelector('button[data-tab="${tab}"]')?.click()`);
+    for (let i = 0; i < 40 && !(await evaluate(`!!document.querySelector(${JSON.stringify(chosen)})`)); i++) {
+      await evaluate(`document.querySelector(${JSON.stringify(`button[data-tab="${tab}"]`)})?.click()`);
       await sleep(250);
     }
     await wait(chosen);
@@ -274,7 +274,7 @@ try {
   const kind = ".templates .template-group:has(> .template-buttons)";
   await shotUI("template-photographs", { element: kind, tall: 900 });
   await shotUI("template-row-phone", { width: 390, height: 844, mobile: true, element: kind, tall: 700 });
-  await shotUI("template-playing", { element: kind, prepare: `document.querySelector("${kind} .template-button")?.click();`, tall: 900 });
+  await shotUI("template-playing", { element: kind, prepare: `document.querySelector(${JSON.stringify(`${kind} .template-button`)})?.click();`, tall: 900 });
   await shotUI("scene-gallery-phone", { width: 390, height: 844, mobile: true, element: ".templates .template-group:has(.artwork-themes)", tall: 900 });
   // A saved scene's card, its actions open; and once it ran, with Stop.
   await shotUI("scene-card-details", { ready: ".scene-card", element: ".scene-card", prepare: 'document.querySelector(".scene-card details").open = true;' });

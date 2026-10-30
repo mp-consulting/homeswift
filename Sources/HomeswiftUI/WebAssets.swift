@@ -21771,6 +21771,10 @@ textarea.short { min-height: 220px; }
 .update-command code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; font: 0.8125rem/1.5 var(--mono); scrollbar-width: none; }
 .update-command button { flex: none; padding: 5px var(--space-12); font-size: var(--text-sm); }
 .update-card details.more-options { margin: 0; }
+.update-progress { display: flex; align-items: center; gap: var(--space-8); margin: 0; }
+.update-progress svg { width: 16px; height: 16px; flex: none; color: var(--ok); }
+.update-progress .spinner { flex: none; }
+.updates-settings .actions { flex-wrap: wrap; }
 .who { flex: 1; min-width: 0; }
 .health { font-weight: var(--weight-medium); display: flex; align-items: flex-start; gap: var(--space-8); }
 /* The dot on the first line's middle, when the text wraps. */
@@ -22014,6 +22018,11 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .setup { display: flex; gap: var(--space-16); align-items: center; padding-top: var(--space-14); border-top: 1px solid var(--line); }
 .setup p { margin: 0 0 var(--space-6); }
 .setup .code { margin: 0; }
+.setup-code-field { display: flex; align-items: center; gap: var(--space-8); }
+.setup-code-field input { flex: 1; min-width: 0; }
+.setup-in-form { margin-top: var(--space-8); padding-top: var(--space-12); }
+.setup-in-form .qr { width: 120px; height: 120px; flex: none; }
+.setup-in-form p.help { margin: 0; }
 .server .actions { margin-top: 0; }
 .banner { margin: var(--space-14) auto 0; max-width: 1100px; width: calc(100% - 24px); padding: var(--space-10) var(--space-20); text-align: center; color: var(--warn); font-weight: var(--weight-semibold); animation: materialize var(--normal) var(--ease-out); }
 .auth { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; padding: var(--space-20); }
@@ -22682,6 +22691,12 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
 .hub-scene-actions > button svg { width: 16px; height: 16px; }
 .hub-scene-actions > button.action-with-icon::before { width: 14px; height: 14px; }
 .hub-scene-tile:has(> .hub-scene:not(.pictured):not(.coloured)) .hub-scene-actions > button { background: rgba(255, 255, 255, 0.55); color: #1d1d1f; }
+/* On a touch screen each takes a 44-point-tall tap around its 30-point disc, so a near miss opens it rather than the
+   scene; only 2 points wider, so Stop and the menu, 4 apart, do not take each other's taps. */
+@media (pointer: coarse) {
+  .hub-scene-actions > button { position: relative; }
+  .hub-scene-actions > button::after { content: ""; position: absolute; inset: -7px -2px; }
+}
 .animation-settings { display: grid; gap: var(--space-10); margin-top: var(--space-10); }
 .animation-colours { display: flex; gap: var(--space-10); }
 .animation-lights { display: grid; gap: var(--space-6); }
@@ -23644,6 +23659,7 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
 
 .status-footer .footer-update-check[data-update-state="current"] { --update-tone: var(--ok); }
 .status-footer .footer-update-check[data-update-state="available"] { --update-tone: var(--warn); }
+.status-footer .footer-update-check[data-update-state="installed"] { --update-tone: var(--ok); }
 .status-footer .footer-update-check[data-update-state="error"] { --update-tone: var(--error); }
 .status-footer .footer-update-check {
   color: var(--update-tone, var(--text));
