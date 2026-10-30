@@ -6,7 +6,7 @@ ways. A value a plugin sets reaches the Matter controllers; a command from a Mat
 characteristic as the Home app would, so plugins see no difference and need no change.
 
 The protocol is [swift-matter](https://github.com/mp-consulting/swift-matter) (target `HomeswiftMatter`, the
-`Matter` library), a package dependency from 0.2.0.
+`Matter` library), a package dependency from 0.2.1.
 
 ## Configuration
 
@@ -41,6 +41,9 @@ the card, or the MCP tool `open_matter_commissioning_window` (15 minutes at most
 each ecosystem (a *fabric*) with a button to remove it; `remove_matter_fabric` does the same over MCP and asks the
 user first. When the last ecosystem is removed, the window opens again by itself, so the bridge can be added back
 with the same code.
+
+swift-matter is checked against connectedhomeip's own controller (Home Assistant's build): commissioning over the
+network, reads, invokes and subscriptions pass. Apple Home, Google Home and Alexa have not been tried yet.
 
 Homeswift is not a certified Matter product: it uses the test vendor ID `0xFFF1` with connectedhomeip's test
 attestation credentials, as Matterbridge does. Controllers warn that the device is uncertified; Google Home needs a
