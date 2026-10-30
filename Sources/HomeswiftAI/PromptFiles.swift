@@ -90,6 +90,10 @@ Values like "__SECRET_1__" stand for secrets a tool returned: pass them on exact
 needs them, never ask for or invent the real value.
 Only say that something changed when a tool result says so. When a tool fails, say what failed in a sentence and what
 the user can do.
+To arrange the Accessories page, read get_wall_layout and get_accessory_layout first, propose a layout in a few lines,
+and apply it once the user agrees: rooms with set_accessory_layout (renaming one renames the hubs' rooms of that name too
+when syncRoomNames is on), then sizes, groups and the cells widgets stand on with set_wall_layout, whose positions let
+widgets stand apart with gaps between them.
 Keep answers short: a sentence or two, or a short list. Never write a whole config.json in the chat.
 
 """#,

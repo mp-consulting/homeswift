@@ -20,6 +20,28 @@ struct PlatformTests {
         await host.stop()
     }
 
+    /// The account's rooms, listed through the platform's session and renamed with `PUT /v2/family/room`; a second
+    /// home names the room's home.
+    @Test func roomsAreRenamedInTheCloud() async throws {
+        let host = try await environment.start(devices: [device("1000aaaaaa", uiid: 1, name: "Lamp")], settings: ["mode": "wan"])
+        let plugin = try #require(environment.plugin)
+        #expect(await plugin.rooms() == [PluginRoom(id: "room-1", name: "Salon"), PluginRoom(id: "room-2", name: "Kitchen")])
+
+        try await plugin.renameRoom(id: "room-1", name: "Lounge")
+        let sent = try #require(environment.cloud.requests(path: "/v2/family/room").last)
+        #expect(sent.method == "PUT")
+        #expect(try JSONValue(data: sent.body ?? Data()) == ["id": "room-1", "name": "Lounge"])
+        #expect(await plugin.rooms().first?.name == "Lounge")
+        await #expect(throws: EWeLinkError.self) { try await plugin.renameRoom(id: "room-9", name: "Attic") }
+
+        environment.cloud.update {
+            $0.homes = ["home-1", "home-2"]
+            $0.rooms["home-2"] = [("room-3", "Garage")]
+        }
+        #expect(await plugin.rooms().last == PluginRoom(id: "room-3", name: "Garage", place: "Home"))
+        await host.stop()
+    }
+
     @Test func discoversDevicesAndConnectsTheWebSocket() async throws {
         let host = try await environment.start(devices: [device("1000aaaaaa", uiid: 1, name: "Lamp", params: ["switch": "on", "fwVersion": "3.5.0"])], settings: ["mode": "wan"])
         let accessory = try #require(environment.accessory(host, "1000aaaaaa"))

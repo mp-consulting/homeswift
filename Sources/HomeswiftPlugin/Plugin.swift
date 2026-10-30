@@ -120,6 +120,13 @@ public protocol HomeswiftPlugin: Sendable {
 
     /// Removes a scene from the hub (`delete` capability). Homeswift asks the person first. Defaults to throwing.
     func deleteScene(id: String) async throws
+
+    /// The rooms the plugin's hub or cloud keeps (`PluginRoom`), for Homeswift to rename the one named like a room
+    /// renamed in Homeswift, when `syncRoomNames` is on. Asked only then, so it may ask the hub. Defaults to none.
+    func rooms() async -> [PluginRoom]
+
+    /// Renames one of `rooms()` by its `PluginRoom.id` on the hub. Defaults to throwing.
+    func renameRoom(id: String, name: String) async throws
 }
 
 extension HomeswiftPlugin {

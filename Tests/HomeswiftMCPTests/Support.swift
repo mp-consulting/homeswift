@@ -42,11 +42,13 @@ actor DevicesPlugin: HomeswiftPlugin {
     }
 
     init(configuration: Configuration, context: PluginContext, writes: NIOLockedValueBox<[(String, HAPValue)]>,
-         hubScenes: NIOLockedValueBox<[String: (name: String, lights: [PluginSceneLight])]> = NIOLockedValueBox([:])) {
+         hubScenes: NIOLockedValueBox<[String: (name: String, lights: [PluginSceneLight])]> = NIOLockedValueBox([:]),
+         hubRooms: NIOLockedValueBox<[String: String]> = NIOLockedValueBox([:])) {
         self.configuration = configuration
         self.context = context
         self.writes = writes
         self.hubScenes = hubScenes
+        self.hubRooms = hubRooms
     }
 
     func start() async throws {
@@ -145,6 +147,22 @@ actor DevicesPlugin: HomeswiftPlugin {
         return [PluginScene(id: "magenta", name: "Magenta", room: "salon", active: false, colours: ["#ff00ff"])] + written
     }
 
+    /// The devices' hub's rooms, by id.
+    let hubRooms: NIOLockedValueBox<[String: String]>
+
+    func rooms() async -> [PluginRoom] {
+        hubRooms.withLockedValue { $0 }.sorted { $0.key < $1.key }.map { PluginRoom(id: $0.key, name: $0.value) }
+    }
+
+    /// The hub refuses a room named "Attic".
+    func renameRoom(id: String, name: String) async throws {
+        guard name != "Attic" else { throw PluginRoomError("that name is taken") }
+        try hubRooms.withLockedValue { rooms in
+            guard rooms[id] != nil else { throw PluginRoomError("no such room") }
+            rooms[id] = name
+        }
+    }
+
     /// The scenes Homeswift wrote to the devices' hub, by id.
     let hubScenes: NIOLockedValueBox<[String: (name: String, lights: [PluginSceneLight])]>
 
@@ -237,6 +255,8 @@ final class MCPTestEnvironment: @unchecked Sendable {
     let writes = NIOLockedValueBox<[(String, HAPValue)]>([])
     /// The scenes Homeswift wrote to the devices' hub.
     let hubScenes = NIOLockedValueBox<[String: (name: String, lights: [PluginSceneLight])]>([:])
+    /// The devices' hub's rooms, by id.
+    let hubRooms = NIOLockedValueBox<[String: String]>(["r1": "Séjour", "r2": "Kitchen", "r3": "Bedroom"])
     let host: PluginHost
     let catalog: HomeswiftCatalog
     let server: MCPServer
@@ -262,9 +282,9 @@ final class MCPTestEnvironment: @unchecked Sendable {
             """
         try Data(config.utf8).write(to: configURL)
         var registry = PluginRegistry()
-        let writes = self.writes, hubScenes = self.hubScenes
+        let writes = self.writes, hubScenes = self.hubScenes, hubRooms = self.hubRooms
         registry.register(platform: DevicesPlugin.platform, name: DevicesPlugin.name, configurationSchemaJSON: schema, assistantActions: DevicesPlugin.assistantActions) { json, context in
-            DevicesPlugin(configuration: try JSONDecoder().decode(DevicesPlugin.Configuration.self, from: json), context: context, writes: writes, hubScenes: hubScenes)
+            DevicesPlugin(configuration: try JSONDecoder().decode(DevicesPlugin.Configuration.self, from: json), context: context, writes: writes, hubScenes: hubScenes, hubRooms: hubRooms)
         }
         var hostOptions = PluginHost.Options(advertise: false, logger: testLogger) { _ in MemoryStorage() }
         hostOptions.aiTransport = aiTransport

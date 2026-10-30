@@ -120,7 +120,9 @@ screenshots, and what a plugin does to get good ones.
   the rest under More), Identify, its log, ask the Assistant about it, its plugin's settings (administrators), resume a
   paused plugin, a room, a name for these pages, add to the Quick Controls or hide it, and **History** for an accessory
   whose plugin records an Eve history (temperature, humidity, power…): a day, a week or four weeks.
-- **Edit** shows grid guides, size controls and corner handles, and lets tiles be dragged into place. The wall is
+- **Edit** shows grid guides, size controls and corner handles, and lets tiles be dragged onto any cell of the grid,
+  gaps included: the others make way, and the wall keeps every widget's cell until **Pack the widgets together** (the
+  wall's menu) lets them flow again ([widgets.md](widgets.md)). The wall is
   **One wall** (the default), **By room** (once there are rooms) or **By plugin**. The bridge keeps the layout in
   `ui-layout.json` next to config.json (`/api/layout`), the same for every user.
 - **States**: a paused plugin's accessories are drawn striped, their controls out of reach; an accessory whose device
@@ -139,6 +141,15 @@ screenshots, and what a plugin does to get good ones.
   of their own, the **Apple Home** switch (`?from=Apple%20Home`). The layout is the bridge's, shared by every user, in
   `accessory-layout.json` next to config.json (owner-only; `/api/rooms`). The Home app never sees it; the MCP tools do:
   `list_accessories` and `set_accessories` filter by these rooms.
+- **Rooms on the hubs**: in **Edit**, with the wall **By room**, each room's heading is a field: type a new name, then
+  Enter (or click away) renames the room, Escape keeps it. A tile dragged into another room's wall moves the accessory to
+  that room, or out of any into **No room**; every room shows there, empty ones too, to take a drop. The **Rooms** menu orders the rooms (drag them) and renames
+  one too (choose it). Its **Rename on the hubs too** switch, off until turned on (`syncRoomNames` in
+  `accessory-layout.json`), makes a renamed room's new name reach the plugins' hubs: every room of a Philips Hue Bridge,
+  an IKEA DIRIGERA hub or an eWeLink home named as the room was, case and accents aside, is renamed with it, and the
+  log says so (`Room "Salon" renamed "Lounge" on Hue`). It goes one way: a room renamed in the Hue app stays as Homeswift
+  has it. Govee keeps no rooms its API can reach. A hub that refuses says why under the page; the room is renamed in
+  Homeswift all the same.
 - **Suggest rooms**, with the Assistant on, asks it for rooms and clearer names for every accessory
   (`AssistantService.suggestOrganization`; the ids reach the model as aliases) and shows them to review: untick what you
   do not want, then **Apply** saves the rooms and the names as display names. Accessories it finds odd are listed as

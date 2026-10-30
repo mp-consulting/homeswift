@@ -230,7 +230,9 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   `accessory-layout.json`). `get_accessory_layout` lists the rooms with their accessories (and `displayName`,
   `hidden`, `favourite`) and those in no room; `set_accessory_layout` puts accessories in rooms (a new name adds
   the room), hides them, names them for the web UI or makes them Quick Controls, and orders (`rooms`), renames
-  (`renameRoom`) or removes (`removeRooms`) rooms. HomeKit is not changed.
+  (`renameRoom`) or removes (`removeRooms`) rooms. HomeKit is not changed. `syncRoomNames: true` (kept with the layout,
+  off by default) makes a later `renameRoom` rename the rooms of the same name on the plugins' hubs too (Philips Hue,
+  IKEA DIRIGERA, eWeLink; case and accents aside); `hubRooms` in the answer says what each hub did.
 - **The wall.** `get_wall_layout` answers the Accessories page's wall as it is drawn (`ui-layout.json`): its grouping,
   the sections in order with their accessories in order and the sizes chosen, the default size of each kind of
   widget, and the accessory groups where they stand. `set_wall_layout` arranges it: `groups` makes accessories that
@@ -238,7 +240,10 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   accessory joining one leaves any other), `ungroup` dissolves groups; `order` puts the ids it lists (accessories and
   groups) in that order in the places they hold together, so one room's ids sort that room and leave the rest;
   `sizes` by accessory or group, `defaults` by kind of widget (null goes back to the kind's own), `grouping` `none`,
-  `room` or `plugin`. A group needs a control its members share (on and off, or a position) and never takes a
+  `room` or `plugin`; `positions` puts widgets on cells of their own (`[column, row]` from 1 for the top-left corner,
+  null to let one flow, for the wall's grouping; `clearPositions` lets the whole wall flow), so a layout can leave gaps
+  between widgets; `get_wall_layout` gives each widget's `position`. The tool's description tells the model the
+  grid: as many 176-px columns as fit, rows of about 64 px, and each size's span. A group needs a control its members share (on and off, or a position) and never takes a
   security control. With `set_accessory_layout`'s rooms,
   that is what the Assistant needs to compose a wall ("arrange my wall by room"). An open Accessories page draws
   the wall again when it or the rooms change, whoever changed them (a `layout` event on the web UI's event stream).

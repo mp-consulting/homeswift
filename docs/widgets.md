@@ -43,8 +43,12 @@ At a 393-pixel phone width and 16-pixel page margins, a compact tile is about 17
 A widget's **⋯** menu (an ellipsis in a tinted circle at the corner of every widget; also a right click) offers S, M, L and XL as one segmented control,
 makes its size the one of every accessory
 of the kind ("Medium for every light"), and opens **All controls**. **Edit** shows the sizes and ‹ › arrows on
-every widget, and lets them be dragged: the widget lifts and follows the pointer or the finger, the others make
-room as it passes, and it lands where it is let go. A subtle background grid shows the actual cell spacing and
+every widget, and lets them be dragged: the widget lifts and follows the pointer or the finger, and it lands on the
+cell under its top-left corner, wherever that is: top left, bottom right, with empty cells between it and the others.
+Widgets already there slide down out of its way. Once one is dropped, every widget of that wall keeps its cell (by
+grouping: `positions` in `ui-layout.json`), the gaps too; the ‹ › arrows then move a widget a column, and the wall's
+menu's **Pack the widgets together** lets it flow in the order again. On a narrower screen, a widget past the last
+column moves left and those it meets move down. A subtle background grid shows the actual cell spacing and
 empty space. Drag the bottom-right corner to snap between Small, Medium, Large and Extra large; neighbouring
 widgets slide into their new places. Focus the corner handle and use arrow keys to resize with a keyboard. Near the window's top or bottom the page scrolls. **One wall**
 (the default) puts every accessory on one wall; **By plugin** gives each plugin a wall of its own.
@@ -369,4 +373,4 @@ Group brightness and colour-temperature controls use the same pill sliders as in
 
 ![Accessory group picker with available and selected devices](images/widgets/group-picker.png)
 
-When grouped by room, Edit shows **Reorder rooms**. Drag the handles in its menu to arrange rooms, just like the Status page’s customisation menu. **Reset room order** restores alphabetical order. The order is saved in Homeswift; HomeKit rooms are unchanged.
+When grouped by room, Edit shows **Rooms**. Drag the handles in its menu to arrange rooms, just like the Status page’s customisation menu, or choose a room to rename it; each room's heading is also a field to rename it in place. Dragging a widget into another room's wall moves the accessory to that room (or to No room); empty rooms show in Edit to take a drop. **Reset room order** restores alphabetical order. The order and names are saved in Homeswift; HomeKit rooms are unchanged. **Rename on the hubs too**, off by default, renames the rooms of the same name on Philips Hue, IKEA DIRIGERA and eWeLink as well ([ui.md](ui.md)).

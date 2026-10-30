@@ -526,6 +526,15 @@ label > input, label > select { margin-top: 5px; }
 .page-head > .who { flex: 1 1 280px; }
 .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-12); margin: 26px 0 var(--space-10); }
 .section-head h2 { margin: 0; }
+/* A room's name on the Accessories wall in Edit: a field that reads as the heading, outlined to say it can be typed in. */
+.room-name-input {
+  font: inherit; letter-spacing: inherit; color: inherit; min-width: 4ch; max-width: 70vw;
+  margin: -3px calc(-1 * var(--space-8)); padding: 2px var(--space-8); border: 1px dashed var(--line); border-radius: var(--radius-xs);
+  background: transparent; transition: border-color var(--fast) var(--ease-out), background-color var(--fast) var(--ease-out);
+}
+.room-name-input:hover { border-color: var(--muted); }
+.room-name-input:focus { outline: none; border-style: solid; border-color: var(--accent); background: var(--field); }
+.room-name-input:disabled { opacity: .6; }
 .section-head .muted { font-size: var(--text-sm); }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: var(--space-14); }
 .grid > .card { margin: 0; min-width: 0; }
@@ -944,6 +953,10 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget.lifted::after { display: none; }
 .wall > .drag-slot::after { display: none; }
 .wall > .drag-slot { border: 2px dashed color-mix(in srgb, var(--accent) 55%, transparent); border-radius: var(--radius); background: color-mix(in srgb, var(--accent) 6%, transparent); box-shadow: none; }
+/* By room, in Edit: an empty room's wall still takes a drop, and the room a widget is dragged into is outlined. */
+.wall.editing[data-room]:empty { min-height: 96px; border: 2px dashed var(--line); border-radius: var(--radius); }
+.accessory-section.room-drop-target > .wall { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 6px; border-radius: var(--radius); }
+.accessory-section.room-drop-target > .section-head h2 { color: var(--accent); }
 
 /* Segmented: equal columns, a thumb sliding to the one chosen. */
 .seg { position: relative; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; padding: 3px; border-radius: var(--radius-md); background: var(--track); }
