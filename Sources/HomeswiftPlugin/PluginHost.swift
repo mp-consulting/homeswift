@@ -16,7 +16,7 @@ import NIOConcurrencyHelpers
 /// | `plugins/<platform>-<name>/` | Each plugin's own files |
 /// | `ai-usage.json` | The Assistant's usage per day, month, model and user, for its budgets |
 public final class PluginHost: @unchecked Sendable {
-    public static let version = "0.15.0"
+    public static let version = "0.16.0"
 
     public struct Options: Sendable {
         /// Advertise the bridges over Bonjour. Turn off in tests.

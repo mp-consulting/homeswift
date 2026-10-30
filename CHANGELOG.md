@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-10-30
+
 ### Added
 
 - More HomeKit services on Matter (docs/matter.md): a Heater Cooler is a thermostat with heat, cool and auto between
@@ -13,6 +15,10 @@ All notable changes to this project are documented here. The format follows
   garage door Closure with `exposeSecurity` on; a faucet is a water valve; an Air Purifier is one, with its Filter Maintenance's life and reset;
   a Carbon Dioxide Sensor, and an Air Quality Sensor's PM2.5, PM10 and VOC densities, report their concentrations;
   fans rock and reverse their airflow both ways.
+- A HomeKit Thermostat with heating and cooling thresholds offers auto on Matter, its thresholds being the two
+  setpoints; one without them still shows its auto as heat. Such a thermostat is made again on Matter once, with the
+  new mode, so an ecosystem may ask to place it again. A cooling setpoint no longer moves a thermostat's heat target,
+  and a setpoint past HAP's range is the nearest one it takes.
 - A Matter bridge: with a `HomeswiftMatter` block, the plugins' accessories are Matter bridged devices too, both
   ways, for Google Home, Alexa, SmartThings and Home Assistant (docs/matter.md). Lights, plugs, sensors, blinds,
   fans, thermostats, buttons, and locks when `exposeSecurity` is on. The Status page's Matter card shows the
@@ -1362,7 +1368,8 @@ All notable changes to this project are documented here. The format follows
   SIGTERM; Homebrew formula `mp-consulting/tap/homeswift` with a `brew services` entry.
 - CI on macOS and Linux for every push and pull request.
 
-[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/mp-consulting/homeswift/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/mp-consulting/homeswift/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/mp-consulting/homeswift/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/mp-consulting/homeswift/compare/v0.12.0...v0.13.0
