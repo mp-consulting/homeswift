@@ -343,9 +343,7 @@
     let shown = "";
     // The headline is the state: up to date, a release out, installing, waiting for a relaunch, or a failed check.
     const drawHead = () => {
-      const pending = update.installed && !update.canInstall && !update.installing;
-      const state = update.installing ? "installing" : update.relaunching ? "relaunching" : pending ? "installed"
-        : update.available ? "available" : update.error ? "error" : update.checkedAt ? "current" : "idle";
+      const state = app().updatePhase(update);
       const [icon, tone] = { current: ["check", "green"], available: ["download", "orange"], installed: ["power", "green"], installing: ["update", "blue"],
         relaunching: ["power", "blue"], error: ["warning", "heat"], idle: ["update", "grey"] }[state];
       const title = {
@@ -370,7 +368,8 @@
       automatic.checked = Boolean(update.automatic);
       drawHead();
       // The release's details, its install button among them; they keep the headline current while it installs.
-      details.replaceChildren(...[app().updateCard(update, { embedded: true, changed: (state) => { Object.assign(update, state); drawHead(); } })].filter(Boolean));
+      const card = app().updateCard(update, { embedded: true, changed: (state) => { Object.assign(update, state); drawHead(); } });
+      details.replaceChildren(...(card ? [card] : []));
     };
     // `checkForUpdates` of the HomeswiftUI block, written as soon as it changes.
     const automatic = el("input", { type: "checkbox", role: "switch", onchange: async () => {

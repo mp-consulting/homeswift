@@ -55,7 +55,7 @@ final class FakeInstaller: UpdateInstalling, Sendable {
         #expect(after.json?["canInstall"] == false)
         #expect(after.json?["installing"] == nil)
         #expect(after.json?["relaunching"] == nil)
-        #expect(releases.relaunchExecutable == "/opt/homebrew/opt/homeswift/bin/homeswift")
+        #expect(releases.options.installer?.executable == "/opt/homebrew/opt/homeswift/bin/homeswift")
     }
 
     @Test func theSwitchWritesCheckForUpdates() async throws {
@@ -98,6 +98,27 @@ final class FakeInstaller: UpdateInstalling, Sendable {
         await docker.check()
         #expect(docker.json()?["canInstall"] == false)
         #expect(!docker.install())
+    }
+
+    @Test func anOlderVersionOnDiskIsNoRelaunch() async throws {
+        let releases = watcher(CannedGitHub(json: Self.release), install: .homebrew, installer: FakeInstaller(onDisk: "0.2.0", installs: nil))
+        await releases.check()
+        #expect(releases.json()?["installed"] == nil)
+        #expect(releases.json()?["canInstall"] == true)
+    }
+
+    @Test func readsTheInstalledVersionFromTheCellar() async throws {
+        let prefix = FileManager.default.temporaryDirectory.appendingPathComponent("brew-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: prefix) }
+        let bin = prefix.appendingPathComponent("Cellar/homeswift/0.4.0_1/bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        // A link resolves only to a file that exists.
+        FileManager.default.createFile(atPath: bin.appendingPathComponent("homeswift").path, contents: Data())
+        let opt = prefix.appendingPathComponent("opt")
+        try FileManager.default.createDirectory(at: opt, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(atPath: opt.appendingPathComponent("homeswift").path, withDestinationPath: "../Cellar/homeswift/0.4.0_1")
+        let installer = try #require(HomebrewInstaller(executable: bin.appendingPathComponent("homeswift").path))
+        #expect(await installer.installedVersion() == "0.4.0")
     }
 
     @Test func findsHomebrewFromTheCellar() {

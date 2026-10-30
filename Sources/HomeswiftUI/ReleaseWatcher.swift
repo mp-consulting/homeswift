@@ -1,4 +1,9 @@
 import Foundation
+#if canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#endif
 import HomeswiftAI
 import HomeswiftNetwork
 import HomeswiftPlugin
@@ -20,7 +25,7 @@ public final class ReleaseWatcher: Sendable {
         /// `HOMESWIFT_INSTALL` (the Synology package and the container image set it), else what the file
         /// system says.
         public static func detect(
-            environment: [String: String] = ProcessInfo.processInfo.environment, executable: String = CommandLine.arguments.first ?? "",
+            environment: [String: String] = ProcessInfo.processInfo.environment, executable: String = ReleaseWatcher.runningExecutable,
             fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
         ) -> Install {
             if let value = environment["HOMESWIFT_INSTALL"], let install = Install(rawValue: value) { return install }
@@ -63,6 +68,10 @@ public final class ReleaseWatcher: Sendable {
             if install == .homebrew { installer = HomebrewInstaller() }
         }
     }
+
+    /// This process's binary: the kernel's path where Foundation knows it, since a shell passes a bare `homeswift`
+    /// as the first argument.
+    public static var runningExecutable: String { Bundle.main.executablePath ?? CommandLine.arguments.first ?? "" }
 
     #if arch(x86_64)
     public static let architecture = "x86_64"
@@ -130,7 +139,7 @@ public final class ReleaseWatcher: Sendable {
                 state.withLockedValue { $0.checkedAt = Date(); $0.error = nil }
                 return
             }
-            guard response.isSuccess else { throw CheckError(message: "GitHub answered HTTP \(response.status)") }
+            guard response.isSuccess else { throw UpdateError(message: "GitHub answered HTTP \(response.status)") }
             let release = try Self.release(from: JSONValue(data: response.body))
             let announce = state.withLockedValue { state -> Bool in
                 state.latest = release
@@ -150,22 +159,29 @@ public final class ReleaseWatcher: Sendable {
         }
     }
 
-    /// The version on disk, when the installer knows it and it is not the one running (`brew upgrade` run by hand,
-    /// or by `install`): the Status page then offers a relaunch.
+    /// The version on disk, when the installer knows it and it is newer than the one running (`brew upgrade` run by
+    /// hand, or by `install`): the Status page then offers a relaunch. An older one is no update to relaunch into.
     public func noteInstalledVersion() async {
         guard let installer = options.installer, state.withLockedValue({ $0.installing == nil }), let version = await installer.installedVersion() else { return }
         let current = options.current
-        state.withLockedValue { $0.installed = version == current ? nil : version }
+        state.withLockedValue { $0.installed = Self.isNewer(version, than: current) ? version : nil }
     }
 
-    /// Starts installing the latest release in the background (GET /api/updates says how it goes); `installed` runs
-    /// once it is on disk, to restart into it. False while one installs, or with nothing newer to install.
+    /// Whether `install` would start: an installer, nothing installing, and a release newer than both this version
+    /// and the one on disk.
+    private func canInstall(_ state: State) -> Bool {
+        guard options.installer != nil, state.installing == nil, let latest = state.latest, Self.isNewer(latest.version, than: options.current) else { return false }
+        return state.installed.map { Self.isNewer(latest.version, than: $0) } ?? true
+    }
+
+    /// Starts installing the latest release in the background (GET /api/updates says how it goes). Once it is on disk,
+    /// `relaunch` asks for the restart into it and says whether one is coming. False when `canInstall` is.
     @discardableResult
-    public func install(then installed: @escaping @Sendable () -> Void = {}) -> Bool {
+    public func install(relaunch: @escaping @Sendable () -> Bool = { false }) -> Bool {
         guard let installer = options.installer else { return false }
         let current = options.current
         guard let version = state.withLockedValue({ state -> String? in
-            guard state.installing == nil, let latest = state.latest, Self.isNewer(latest.version, than: current) else { return nil }
+            guard canInstall(state), let latest = state.latest else { return nil }
             state.installing = latest.version
             state.installError = nil
             return latest.version
@@ -175,12 +191,13 @@ public final class ReleaseWatcher: Sendable {
             do {
                 try await installer.install(version: version)
                 let found = await installer.installedVersion()
-                guard let found, found != current else {
-                    throw InstallError(message: "the installer finished, but Homeswift \(found ?? current) is still the one installed; Homebrew's tap may not have \(version) yet (it catches up within 6 hours)")
+                guard let found, Self.isNewer(found, than: current) else {
+                    throw UpdateError(message: "the installer finished, but Homeswift \(found ?? current) is still the one installed; Homebrew's tap may not have \(version) yet (it catches up within 6 hours)")
                 }
-                state.withLockedValue { $0.installing = nil; $0.installed = found }
                 options.logger.info("Homeswift \(found) is installed; a restart starts it")
-                installed()
+                // Asked before the state says installed, so a page that sees the install done also sees the relaunch.
+                let relaunching = relaunch()
+                state.withLockedValue { $0.installing = nil; $0.installed = found; $0.relaunching = relaunching }
             } catch {
                 state.withLockedValue { $0.installing = nil; $0.installError = "\(error)" }
                 options.logger.error("Could not install Homeswift \(version): \(error)")
@@ -189,23 +206,9 @@ public final class ReleaseWatcher: Sendable {
         return true
     }
 
-    /// The restart into the installed version is on its way: the page waits for it rather than offering it again.
-    public func noteRelaunch() {
-        state.withLockedValue { $0.relaunching = true }
-    }
-
-    /// The binary a restart runs: the installer's (Homebrew's `opt` link, which follows an upgrade), else nil for
-    /// this one.
-    public var relaunchExecutable: String? { options.installer?.executable }
-
-    struct CheckError: Error, CustomStringConvertible {
-        var message: String
-        var description: String { message }
-    }
-
     static func release(from json: JSONValue) throws -> Release {
         guard let tag = json["tag_name"]?.stringValue, let url = json["html_url"]?.stringValue, isWeb(url) else {
-            throw CheckError(message: "GitHub's answer has no release")
+            throw UpdateError(message: "GitHub's answer has no release")
         }
         let assets = (json["assets"]?.arrayValue ?? []).compactMap { asset -> Asset? in
             guard let name = asset["name"]?.stringValue, let url = asset["browser_download_url"]?.stringValue, isWeb(url) else { return nil }
@@ -214,7 +217,7 @@ public final class ReleaseWatcher: Sendable {
         let version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
         // The version goes into a command the Status page offers to copy: digits, letters, dots and dashes only.
         guard !version.isEmpty, version.count <= 40, version.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || ".-+".contains($0)) }) else {
-            throw CheckError(message: "GitHub's latest release has an unexpected tag")
+            throw UpdateError(message: "GitHub's latest release has an unexpected tag")
         }
         return Release(version: version, url: url, notes: String((json["body"]?.stringValue ?? "").prefix(4000)), publishedAt: json["published_at"]?.stringValue, assets: assets)
     }
@@ -258,8 +261,7 @@ public final class ReleaseWatcher: Sendable {
         }
         let available = Self.isNewer(latest.version, than: options.current)
         object["available"] = .bool(available)
-        // Installing is offered until the latest is the one on disk.
-        object["canInstall"] = .bool(available && options.installer != nil && state.installed.map { Self.isNewer(latest.version, than: $0) } ?? true)
+        object["canInstall"] = .bool(canInstall(state))
         object["latest"] = .string(latest.version)
         object["url"] = .string(latest.url)
         object["notes"] = .string(latest.notes)
@@ -302,7 +304,7 @@ public struct HomebrewInstaller: UpdateInstalling {
     /// How long an upgrade may take: fetching the tap, the bottle or the source and building it.
     public var timeout: Duration = .seconds(30 * 60)
 
-    public init?(executable: String = CommandLine.arguments.first ?? "") {
+    public init?(executable: String = ReleaseWatcher.runningExecutable) {
         let path = URL(fileURLWithPath: executable).resolvingSymlinksInPath().path
         guard let range = path.range(of: "/Cellar/") else { return nil }
         prefix = String(path[..<range.lowerBound])
@@ -318,18 +320,22 @@ public struct HomebrewInstaller: UpdateInstalling {
         ]) { $1 }
         let result = try await SubprocessRunner.run("\(prefix)/bin/brew", ["upgrade", "homeswift"], environment: environment, timeout: timeout)
         guard result.status == 0 else {
-            throw InstallError(message: "brew upgrade failed (exit \(result.status)): \(result.tail)")
+            throw UpdateError(message: "brew upgrade failed (exit \(result.status)): \(result.tail)")
         }
     }
 
+    /// The Cellar version the `opt` link leads to (`Cellar/homeswift/0.4.0_1/bin/homeswift`, without the formula's
+    /// revision): no process to start on each look.
     public func installedVersion() async -> String? {
-        guard let executable, let result = try? await SubprocessRunner.run(executable, ["--version"], timeout: .seconds(20)), result.status == 0 else { return nil }
-        let version = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let executable else { return nil }
+        let parts = URL(fileURLWithPath: executable).resolvingSymlinksInPath().pathComponents
+        guard let index = parts.lastIndex(of: "Cellar"), index + 2 < parts.count, parts[index + 1] == "homeswift" else { return nil }
+        let version = parts[index + 2].split(separator: "_").first.map(String.init) ?? ""
         return version.isEmpty || version.count > 40 ? nil : version
     }
 }
 
-struct InstallError: Error, CustomStringConvertible {
+struct UpdateError: Error, CustomStringConvertible {
     var message: String
     var description: String { message }
 }
@@ -348,7 +354,7 @@ enum SubprocessRunner {
 
     static func run(_ path: String, _ arguments: [String], environment: [String: String]? = nil, timeout: Duration) async throws -> Result {
         let log = FileManager.default.temporaryDirectory.appendingPathComponent("homeswift-\(UUID().uuidString).log")
-        guard FileManager.default.createFile(atPath: log.path, contents: nil) else { throw InstallError(message: "cannot write \(log.path)") }
+        guard FileManager.default.createFile(atPath: log.path, contents: nil) else { throw UpdateError(message: "cannot write \(log.path)") }
         defer { try? FileManager.default.removeItem(at: log) }
         let handle = try FileHandle(forWritingTo: log)
         defer { try? handle.close() }
@@ -359,11 +365,21 @@ enum SubprocessRunner {
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = handle
         process.standardError = handle
+        // Past the timeout, SIGTERM, then SIGKILL for a tool that ignores it: an install must end for another to start.
+        // Cancelled as the process ends; DispatchWorkItem is thread-safe, though not marked Sendable.
+        nonisolated(unsafe) let deadline = DispatchWorkItem { [process] in
+            guard process.isRunning else { return }
+            process.terminate()
+            DispatchQueue.global().asyncAfter(deadline: .now() + .seconds(10)) { if process.isRunning { kill(process.processIdentifier, SIGKILL) } }
+        }
         let status: Int32 = try await withCheckedThrowingContinuation { continuation in
-            process.terminationHandler = { continuation.resume(returning: $0.terminationStatus) }
-            do { try process.run() } catch { continuation.resume(throwing: InstallError(message: "cannot run \(path): \(error)")) }
-            let deadline = DispatchTime.now() + .seconds(Int(timeout.components.seconds))
-            DispatchQueue.global().asyncAfter(deadline: deadline) { [process] in if process.isRunning { process.terminate() } }
+            process.terminationHandler = { deadline.cancel(); continuation.resume(returning: $0.terminationStatus) }
+            do { try process.run() } catch {
+                deadline.cancel()
+                continuation.resume(throwing: UpdateError(message: "cannot run \(path): \(error)"))
+                return
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + .seconds(Int(timeout.components.seconds)), execute: deadline)
         }
         let output = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
         return Result(status: status, output: output)

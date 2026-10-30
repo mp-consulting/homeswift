@@ -1246,7 +1246,6 @@ textarea.short { min-height: 220px; }
 a.stat { touch-action: manipulation; transition: transform var(--fast) var(--ease-out), background-color var(--fast) ease; }
 a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 @media (hover: hover) and (pointer: fine) { a.stat:hover { background-color: color-mix(in srgb, var(--text) 4%, var(--material)); } }
-.stat > svg { position: absolute; top: 14px; right: 14px; width: 20px; height: 20px; fill: none; stroke: var(--muted); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; opacity: 0.7; }
 /* The Status page's figures: the icon on a tile at the left, the figure and its name beside it. */
 .stat:has(> .tile) { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--space-12); align-items: center; }
 .stat > .tile { grid-column: 1; grid-row: 1 / span 2; }
@@ -2032,7 +2031,6 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
   .filter-bar > .count:empty { display: none; }
   .dash-widget .stats { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-8); }
   .dash-widget .stat { padding: var(--space-10) var(--space-6) 9px; border-radius: var(--radius-lg); text-align: center; }
-  .dash-widget .stat > svg { position: static; display: block; margin: 0 auto var(--space-4); width: 18px; height: 18px; }
   /* Four across a phone: the tile smaller, above the figure. */
   .dash-widget .stat:has(> .tile) { display: block; }
   .dash-widget .stat > .tile { width: 30px; height: 30px; margin: 0 auto var(--space-6); border-radius: var(--radius-sm); }
@@ -3194,8 +3192,6 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
 @media (prefers-reduced-motion: reduce) {
   .status-footer .footer-update-check[data-update-state="checking"] svg { animation: none; }
 }
-
-/* Reserve the widest translated status without exposing sizing text to assistive technology. */
 
 .group-box > summary > svg { width: 18px; height: 18px; margin-right: var(--space-8); vertical-align: -3px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 

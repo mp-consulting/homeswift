@@ -322,7 +322,7 @@
   // As Glass UI's: a user who is not an administrator sees Status and Accessories (and controls accessories); the
   // plugins, config.json, the log and the users are an administrator's. The server refuses the rest anyway.
 
-  const adminSections = new Set(["plugins", "config", "logs", "settings", "users", "import", "welcome"]);
+  const adminSections = new Set(["plugins", "logs", "settings", "users", "import", "welcome"]);
   const isAdmin = () => Boolean(auth && auth.admin);
 
   /// Shows the header's and the tab bar's sections the user may open.
@@ -434,10 +434,10 @@
     });
     // Subscribe first, then read a snapshot: replay anything received during the read last.
     // This also reconciles an automatic SSE reconnect without replacing forms or the wall.
-    stream.addEventListener("hello", async () => {
+    stream.addEventListener("hello", async (event) => {
       const current = ++generation;
-      // A reconnect: the bridge may have restarted into an update (a schedule, another browser, an MCP client).
-      if (current > 1) api("/api/status").then(reloadIfUpdated).catch(() => {});
+      // The bridge's build: it may have restarted into an update while this page was away or disconnected.
+      try { if (reloadIfUpdated(JSON.parse(event.data))) return; } catch {}
       pending = [];
       try {
         const accessories = await api("/api/accessories");
@@ -787,32 +787,30 @@
     const sections = new Map();
     let footerUpdate = status.update;
     // Installed but not running yet: Homebrew upgraded it, a relaunch starts it.
-    const relaunchPending = () => Boolean(footerUpdate?.installed && !footerUpdate.canInstall);
-    const updateState = () => footerUpdate?.error ? "error" : footerUpdate?.installing || footerUpdate?.relaunching ? "checking"
-      : relaunchPending() ? "installed" : footerUpdate?.available ? "available" : footerUpdate?.checkedAt ? "current" : "idle";
-    const updateLabel = () => footerUpdate?.error ? t("Try again") : footerUpdate?.installing ? t("Installing…") : footerUpdate?.relaunching ? t("Relaunching…")
-      : relaunchPending() ? t("Relaunch to update") : footerUpdate?.canInstall ? t("Install update") : footerUpdate?.available ? t("Update available")
-      : footerUpdate?.checkedAt ? t("Up to date") : t("Check for updates");
-    const updateContent = (state, label) => [
-      HomeswiftCommon.icon(({ current: "check", available: "download", installed: "power", error: "warning" })[state] || "restore"),
-      el("span", { class: "footer-update-label", text: label }),
-    ];
+    const relaunchPending = () => updatePhase(footerUpdate) === "installed";
+    const footerLabels = { error: () => t("Try again"), installing: () => t("Installing…"), relaunching: () => t("Relaunching…"), installed: () => t("Relaunch to update"),
+      available: () => footerUpdate.canInstall ? t("Install update") : t("Update available"), current: () => t("Up to date"), idle: () => t("Check for updates") };
+    /// The footer's button as `phase` says (a failed check first), or `label` while it checks.
+    const renderUpdate = (phase = footerUpdate?.error ? "error" : updatePhase(footerUpdate), label = footerLabels[phase]()) => {
+      const state = phase === "installing" || phase === "relaunching" ? "checking" : phase;
+      checkUpdates.dataset.updateState = state;
+      checkUpdates.replaceChildren(HomeswiftCommon.icon(({ current: "check", available: "download", installed: "power", error: "warning" })[state] || "restore"),
+        el("span", { class: "footer-update-label", text: label }));
+    };
     // The overview's card and the sheet both tell the footer what an install is doing.
     const updateChanged = (next) => {
       footerUpdate = next;
       checkUpdates.disabled = Boolean(next.installing || next.relaunching);
-      checkUpdates.replaceChildren(...updateContent(updateState(), updateLabel()));
-      checkUpdates.dataset.updateState = updateState();
+      renderUpdate();
     };
     const showUpdate = () => openSheet((done) => el("div", {},
       el("h2", { id: "update-check-title", text: t("Updates") }), updateCard(footerUpdate, { changed: updateChanged }),
       el("button", { actionIcon: "close", type: "button", text: t("Close"), onclick: () => done() })), "update-check-title", { returnFocus: checkUpdates });
-    const checkUpdates = el("button", { type: "button", class: "link footer-update-check", "data-update-state": updateState(), "aria-live": "polite", text: updateLabel(), onclick: async (event) => {
+    const checkUpdates = el("button", { type: "button", class: "link footer-update-check", "aria-live": "polite", onclick: async (event) => {
       if (relaunchPending()) { restartBridge(event); return; }
       if (footerUpdate?.available && !footerUpdate.error) { showUpdate(); return; }
       checkUpdates.disabled = true;
-      checkUpdates.dataset.updateState = "checking";
-      checkUpdates.replaceChildren(...updateContent("checking", t("Checking…")));
+      renderUpdate("checking", t("Checking…"));
       try {
         footerUpdate = await api("/api/updates/check", { method: "POST", body: {} });
         if (!footerUpdate || footerUpdate.error) throw new Error();
@@ -823,11 +821,10 @@
         checkUpdates.title = t("Could not check for updates. Try again.");
       } finally {
         checkUpdates.disabled = false;
-        checkUpdates.replaceChildren(...updateContent(updateState(), updateLabel()));
-        checkUpdates.dataset.updateState = updateState();
+        renderUpdate();
       }
     } });
-    checkUpdates.replaceChildren(...updateContent(updateState(), updateLabel()));
+    renderUpdate();
     const footer = el("footer", { class: "actions page-foot status-footer" },
       el("div", { class: "status-footer-summary" },
         el("p", { class: `health ${healthKind}` }, el("strong", { text: health })),
@@ -1024,13 +1021,25 @@
   function updateCard(update, { changed = () => {}, embedded = false } = {}) {
     if (!update?.available) return null;
     const card = el("div", { class: embedded ? "update-card update-details" : "card update-card" });
+    const fill = () => card.replaceChildren(...updateCardContent(update, draw, embedded).filter(Boolean));
     const draw = (next) => {
       update = next;
       changed(update);
-      card.replaceChildren(...updateCardContent(update, draw, embedded).filter(Boolean));
+      fill();
     };
-    card.replaceChildren(...updateCardContent(update, draw, embedded).filter(Boolean));
+    fill();
     return card;
+  }
+
+  /// What an update is doing, one word for each page that shows it: installing, relaunching, installed (on disk, a
+  /// relaunch starts it), available, error (the last check failed), current or idle (not checked yet).
+  function updatePhase(update) {
+    if (update?.installing) return "installing";
+    if (update?.relaunching) return "relaunching";
+    if (update?.installed && !update.canInstall) return "installed";
+    if (update?.available) return "available";
+    if (update?.error) return "error";
+    return update?.checkedAt ? "current" : "idle";
   }
 
   function updateCardContent(update, draw, embedded = false) {
@@ -1043,27 +1052,30 @@
       } });
       command = el("div", { class: "update-command" }, el("code", { text: update.command }), copy);
     }
-    // On disk but not running: `brew upgrade` done, here or by hand.
-    const pending = update.installed && !update.canInstall && !update.installing;
-    const status = update.installing
-      ? el("p", { class: "update-progress", role: "status" }, el("span", { class: "spinner", "aria-hidden": "true" }), el("span", { text: t("Installing Homeswift {version}… The bridge restarts when it is done.", { version: update.installing }) }))
-      : update.relaunching ? el("p", { class: "update-progress", role: "status" }, el("span", { class: "spinner", "aria-hidden": "true" }), el("span", { text: t("Restarting into Homeswift {version}…", { version: update.installed }) }))
-      : pending ? el("p", { class: "update-progress", role: "status" }, HomeswiftCommon.icon("check"), el("span", { text: t("Homeswift {version} is installed. Relaunch to start it.", { version: update.installed }) }))
-      : null;
+    const phase = updatePhase(update);
+    // Installing, relaunching, or on disk but not running (`brew upgrade` done, here or by hand): no how-to.
+    const underway = ["installing", "relaunching", "installed"].includes(phase);
+    const spinner = () => el("span", { class: "spinner", "aria-hidden": "true" });
+    const progress = (glyph, text) => el("p", { class: "update-progress", role: "status" }, glyph, el("span", { text }));
+    const status = {
+      installing: () => progress(spinner(), t("Installing Homeswift {version}… The bridge restarts when it is done.", { version: update.installing })),
+      relaunching: () => progress(spinner(), t("Restarting into Homeswift {version}…", { version: update.installed })),
+      installed: () => progress(HomeswiftCommon.icon("check"), t("Homeswift {version} is installed. Relaunch to start it.", { version: update.installed })),
+    }[phase]?.() ?? null;
     return [
       embedded ? null : el("div", { class: "server-head" },
         tile("update", "green"),
         el("div", { class: "who" },
           el("strong", { text: t("Homeswift {version} is available", { version: update.latest }) }),
           el("div", { class: "muted", text: released ? t("This is {version} · released {date}", { version: update.current, date: released }) : t("This is {version}", { version: update.current }) }))),
-      pending || update.installing || update.relaunching ? null : el("p", { text: HomeswiftI18n.message(update.how) }),
+      underway ? null : el("p", { text: HomeswiftI18n.message(update.how) }),
       status,
       update.installError ? el("p", { class: "error", role: "alert", text: t("Could not install the update: {error}", { error: update.installError }) }) : null,
-      pending || update.installing || update.relaunching ? null : command,
+      underway ? null : command,
       el("div", { class: "actions" },
-        update.canInstall && !update.installing && !update.relaunching && isAdmin()
+        update.canInstall && !underway && isAdmin()
           ? el("button", { class: "primary", type: "button", actionIcon: "download", text: t("Install and relaunch"), onclick: (event) => installUpdate(event.currentTarget, update, draw) }) : null,
-        pending && isAdmin() ? el("button", { class: "primary", type: "button", actionIcon: "power", text: t("Relaunch now"), onclick: restartBridge }) : null,
+        phase === "installed" && isAdmin() ? el("button", { class: "primary", type: "button", actionIcon: "power", text: t("Relaunch now"), onclick: restartBridge }) : null,
         update.download ? el("a", { class: "button primary", href: update.download.url, rel: "noopener", title: update.download.name, actionIcon: "download", text: t("Download the package") }) : null,
         el("a", { class: "button", href: update.url, target: "_blank", rel: "noopener", actionIcon: "open", text: t("On GitHub") })),
       update.notes ? el("details", { class: "more-options" }, el("summary", { text: t("What's new") }), markdown(update.notes)) : null,
@@ -1086,6 +1098,8 @@
       return;
     }
     draw(state);
+    // Redrawn only when the state says something new: the card keeps its open "What's new".
+    let shown = JSON.stringify(state);
     // An upgrade fetches and may build: minutes, at most the installer's half hour.
     while (state.installing) {
       await new Promise((resolve) => setTimeout(resolve, 1500));
@@ -1097,7 +1111,7 @@
         HomeswiftCommon.showAlert(e.message);
         return;
       }
-      draw(state);
+      if (JSON.stringify(state) !== shown) { shown = JSON.stringify(state); draw(state); }
     }
     if (state.relaunching) waitForRestart(started);
   }
@@ -4388,8 +4402,6 @@
   document.addEventListener("visibilitychange", () => {
     if (!(auth && auth.authenticated)) return;
     if (document.hidden) { closeEvents(); return; }
-    // A web app on a phone stays open for days: back in view, it catches up with an update first.
-    api("/api/status").then(reloadIfUpdated).catch(() => {});
     openEvents();
     if (location.pathname === "/accessories" && document.querySelector(".wall.editing")) return;
     if (["/", "/status", "/accessories", "/quick"].includes(location.pathname)) route();
@@ -4406,7 +4418,7 @@
     enumLabels: HomeswiftWidgets.enumLabels, labelFor: HomeswiftWidgets.labelFor, withSlugs,
   });
   // The Settings pages (admin.js) draw with the same helpers.
-  window.HomeswiftApp = { api, navigate, route, pageHead, breadcrumb, show, savedText, waitForRestart, updateCard, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, assistantPage, configPage };
+  window.HomeswiftApp = { api, navigate, route, pageHead, breadcrumb, show, savedText, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, assistantPage, configPage };
 
   loadAuth().catch((e) => { $("#auth").classList.remove("hidden"); $("#auth-error").textContent = e.message; });
 })();

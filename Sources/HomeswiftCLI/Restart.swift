@@ -6,6 +6,7 @@ import Musl
 #elseif canImport(Darwin)
 import Darwin
 #endif
+import HomeswiftUI
 
 /// Replaces this process with a fresh copy of itself: same binary, same arguments, same PID, so launchd,
 /// systemd and `brew services` see a bridge that never went away. Everything must be stopped first.
@@ -33,9 +34,10 @@ enum Restart {
     }
 
     static func exec() -> Never {
-        // After an update, the binary it installed (Homebrew's `opt` link): this one's Cellar may be gone.
-        let installed = UICommands.releases.relaunchExecutable.flatMap { FileManager.default.isExecutableFile(atPath: $0) ? $0 : nil }
-        let path = installed ?? Bundle.main.executablePath ?? CommandLine.arguments[0]
+        let running = ReleaseWatcher.runningExecutable
+        // On a Homebrew install, its `opt` link, which an update moves to the new version: this one's Cellar may be gone.
+        let installed = HomebrewInstaller(executable: running)?.executable.flatMap { FileManager.default.isExecutableFile(atPath: $0) ? $0 : nil }
+        let path = installed ?? running
         var arguments: [UnsafeMutablePointer<CChar>?] = CommandLine.arguments.map { strdup($0) }
         arguments.append(nil)
         closeOnExec()
