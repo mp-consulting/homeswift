@@ -403,7 +403,10 @@ is not set up yet (a hub not paired, a cloud not signed in) leads with that row:
 **Set up** opens one sheet, the same for every plugin, that draws what the plugin asks
 ([Setup](plugins.md#setup)): the link button to press with a countdown while it retries, a PIN the TV shows, an email
 then the code sent to it, keys, or a sign-in page to open while the sheet waits for its redirect (or for its address,
-pasted). An answer that did not work is asked again; Cancel ends the Setup. What it gives goes in the vault, and the
+pasted). An answer that did not work is asked again; Cancel ends the Setup.
+
+![The sheet pairing a Hue Bridge: its link button, and the time left](images/ui/setup-pair.png)
+ What it gives goes in the vault, and the
 plugin reloads with it.
 
 A device's ⋯ **Exclude**s it (its Accessory Settings' `excluded`: the plugin makes no accessory of it, in the Home app or
