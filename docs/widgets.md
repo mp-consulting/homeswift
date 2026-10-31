@@ -80,6 +80,10 @@ widget shows. An accessory no widget knows gets those rows, so nothing a plugin 
 
   ![A shutter slid halfway](images/widgets/slide.png)
 
+- **A light that is on takes its colour.** Its widget's background is the light's own colour, pale (its hue, or
+  the white of its colour temperature): a full wash on a small or medium tile, a tint over the glass on a large or
+  extra large one. Off, it goes back to glass.
+
 - **Adaptive Lighting.** A light with Adaptive Lighting has a sun swatch first among its colours (a round button
   beside the white slider for a light without colours). HomeKit starts Adaptive Lighting: when you turn it on in
   the Home app, the Home app sends a day's schedule of whites, which a home hub renews. The bridge keeps the last

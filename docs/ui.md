@@ -2,8 +2,10 @@
 
 A `HomeswiftUI` block gives the bridge a web interface, inside the same process: its status and pairing codes, the
 accessories with live control, each plugin's settings and own page, the raw `config.json`, the log as it happens, and
-the Assistant's chat. It is the Config UI of a Homebridge, in Swift, with a liquid glass look that follows the system's
-light or dark appearance and its reduced-motion, reduced-transparency and increased-contrast settings. The pages are
+the Assistant's chat. It is the Config UI of a Homebridge, in Swift, in Apricot frost: frosted glass over an apricot
+backdrop (Ember, a warm charcoal, in dark mode), white for what is current, and one dark card for what needs attention
+([The look](#the-look)). It follows the system's light or dark appearance and its reduced-motion, reduced-transparency
+and increased-contrast settings. The pages are
 plain HTML, CSS and JavaScript compiled into the binary: nothing to install beside it.
 
 ![The Accessories page: each accessory drawn by the widget of its kind](images/widgets/wall.png)
@@ -37,8 +39,11 @@ added on the **Users** page ([Users, roles and API tokens](#users-roles-and-api-
 ## The pages
 
 The header has the sections (Status, Accessories, Scenes, Plugins, Logs, Settings), the Assistant's sparkle
-when it is on, and the account menu behind your initial: **Account**, **Appearance**, **Users** (administrators) and
-**Sign out**. Every view is an address ([Addresses](#addresses)), so Back and Forward work and a view can be kept or
+when it is on, and the account menu behind your initial: **Account**, **Appearance**, **Users** (administrators),
+**Language**, then apart and in orange **Restart homeswift…** (administrators), and **Sign out**. In a window 1180 px
+wide or more the app sits in one frame of glass and the header becomes the menu down its
+left: the sections under **Home**, **Account** and **Appearance** under **You**, each with its icon, and the account menu
+at its foot. Every view is an address ([Addresses](#addresses)), so Back and Forward work and a view can be kept or
 shared.
 
 ### Status
@@ -371,7 +376,8 @@ another change; a plugin's own page and **Pause** write without the check.
 
 ![The Logs page: levels with their counts, the search, the time range and what the lines are about](images/ui/logs.png)
 
-The live log, filtered by:
+The live log, filtered by the following; in a window 1180 px wide or more they sit in a column down the log's left, the
+levels and time ranges as lists, and the log takes the window's height:
 
 - **Level**: All; Info (info and above); Warnings or Errors alone, each with how many lines it has.
 - **Text**, which looks inside a line's JSON payload too.
@@ -412,7 +418,7 @@ For administrators, after the Homebridge UI's settings, child bridges, backups a
   bridge runs with it, whether config.json keeps it sealed or in the vault, with a copy button and the pairing QR code;
   it is written back only when it changes. Then the network (the addresses, the
   advertiser), each server's HomeKit pairing with **Reset pairings…** in its ⋯ menu, the cached accessories (stale ones
-  first) with **Remove from the cache…** and **Reset every cache…**, and a link to the schedules and proxy settings of
+  first, ten in view and the rest scrolling in their card) with **Remove from the cache…** and **Reset every cache…**, and a link to the schedules and proxy settings of
   the HomeswiftUI block. A HomeKit port is checked before it is saved; an empty one picks a free port. Homeswift listens
   and advertises on every interface with the system's mDNS (Bonjour, or Avahi on Linux): there is no interface to bind
   or advertiser to choose, as Homebridge's `bind` and `advertiser` settings do, and no Node-specific setting
@@ -581,8 +587,12 @@ do and when it last came, and **⋯ › Disconnect** ends one at once.
 
 ## The Assistant's chat
 
-With a `HomeswiftAiKit` block that names a provider, a sparkle button in the header opens a chat on every page, plugin
-pages included; **Cmd+K** (Ctrl+K elsewhere) opens and closes it. Ask it what the bridge runs or why an accessory does
+With a `HomeswiftAiKit` block that names a provider, a sparkle button opens a chat on every page, plugin pages included:
+in the header, or floating at the bottom right of a window 1180 px wide or more, where the chat opens above it. Its head
+has Copy, Earlier chats, New chat and a cog whose menu opens Settings › Assistant (the provider, for an administrator)
+and sets the voice's language (A to Z, the browser's first); the field is at the very bottom, under the provider's
+note. With a mouse, drag the head to move the panel anywhere in the window (the browser remembers where; a double click
+puts it back); **Cmd+K** (Ctrl+K elsewhere) opens and closes it. Ask it what the bridge runs or why an accessory does
 not answer, or tell it what to do: "add the Elgato light at 192.168.1.50", "pair my Philips TV", "turn off every light".
 It looks at the setup and acts through the MCP server's tools, the plugins' own actions included (find TVs, pair one,
 check a light's address, recall a Hue scene; [plugins.md](plugins.md)).
@@ -682,6 +692,26 @@ page carries the touch icon inline: iOS fetches a home screen icon without the e
 certificate, and would show a letter instead. In Safari, Share › Add to Home Screen; in Chrome, Install app. It opens full
 screen; `/quick` makes a good first page to keep there (a manifest shortcut opens it). The service worker (`/sw.js`) only
 shows notifications and keeps nothing offline: the bridge must be reachable.
+
+## The look
+
+Apricot frost, the design system of `style.css` ([design-system.md](design-system.md#tokens) lists the tokens):
+
+- **Backdrop.** A 140° gradient from apricot to stone (`--backdrop`); in dark mode, Ember: warm charcoal with an apricot
+  glow in the top left corner. A wallpaper chosen on Appearance replaces it.
+- **Glass.** Cards are frosted glass (`--material`); a wide window's frame is a thinner one (`--material-frame`). Details
+  set on a card (figures, rows) take white (`--surface`).
+- **What is current is white.** The current section, a segmented control's choice and the Settings tab are a white pill
+  (`--control`) with their icon in the accent, not an orange fill. Orange stays for the one primary action of a view
+  (Save, Open the vault, Add a secret), switches and focus rings.
+- **One dark card.** `.card.attention` (`--attention`, its apricot glow `--attention-glow`) is for what needs attention or
+  an important action: the Vault's entries that expired or expire soon, and the Status page's Vault summary while one
+  does. It redefines the text, state and control tokens for its children, so rows and buttons inside need no rules of
+  their own.
+- **Charts.** A chart of one series (the Status page's memory and CPU) draws it in the accent; charts of several keep
+  the palette's series colours.
+- **Type.** A page's title is large and light (`--text-display`, medium weight, tight tracking); the rest keeps the
+  system font and the type ramp.
 
 ## For plugin authors
 

@@ -32,11 +32,13 @@
   let auth = null;
   // The server's secret-key rule (see the settings page): set with the plugin list, read by the JSON secret note.
   let secretRule = null;
-  /// The server's rule (Redaction): whether a key holds a secret.
-  const isSecretKey = (key) => Boolean(secretRule) && secretRule.keys.test(key) && !secretRule.except.test(key);
+  /// The server's rule (Redaction): whether a key holds a secret; with its value, an `auth` that is a sign-in mode
+  /// ("form", "none") does not.
+  const isSecretKey = (key, value) => Boolean(secretRule) && secretRule.keys.test(key) && !secretRule.except.test(key)
+    && !(/^auth$/i.test(key) && secretRule.signInModes.includes(value));
   const readSecretRule = (plugins) => plugins.secretRule ? {
     keys: new RegExp(plugins.secretRule.keys, "i"), except: new RegExp(plugins.secretRule.except, "i"), placeholder: plugins.secretRule.placeholder,
-    reference: new RegExp(plugins.secretRule.reference),
+    reference: new RegExp(plugins.secretRule.reference), signInModes: plugins.secretRule.signInModes || [],
   } : null;
   /// The server's rule (Redaction.referencePattern): whether a value names a secret kept elsewhere (`vault:<name>`).
   const isReference = (value) => Boolean(secretRule) && secretRule.reference.test(value);
@@ -147,6 +149,9 @@
       // A phone's tab bar has no room for Settings: it is here, as the header holds it on a wider window.
       isAdmin() && matchMedia("(max-width: 640px)").matches ? { label: t("Settings"), icon: "gear", href: "/settings" } : null,
       { label: t("Language"), icon: flag(HomeswiftI18n.language), onSelect: () => setTimeout(() => languageMenu(trigger)) },
+      // Restarting, apart and in the accent: an administrator's, and not a page like the rest.
+      isAdmin() ? { separator: true } : null,
+      isAdmin() ? { label: t("Restart homeswift…"), icon: "power", accent: true, onSelect: () => restartBridge() } : null,
       form ? { separator: true } : null,
       form ? { label: t("Sign out"), icon: "logout", onSelect: signOut } : null,
     ], { keyboard });
@@ -204,10 +209,11 @@
     });
   }
 
+  /// From a button (disabled while it asks the bridge) or a menu item, which passes no event.
   async function restartBridge(event) {
-    const button = event.currentTarget;
+    const button = event?.currentTarget instanceof HTMLButtonElement ? event.currentTarget : null;
     if (!await confirmRestart()) return;
-    button.disabled = true;
+    if (button) button.disabled = true;
     showRestartOverlay();
     const started = Date.now();
     try {
@@ -217,7 +223,7 @@
     } catch (e) {
       if (e instanceof ApiError) {
         closeRestartOverlay();
-        HomeswiftCommon.showAlert(e.message); button.disabled = false; return;
+        HomeswiftCommon.showAlert(e.message); if (button) button.disabled = false; return;
       }
       // A disconnected or aborted request can mean the restart already began.
     }
@@ -307,6 +313,12 @@
     $("#app").classList.remove("hidden");
     drawUser();
     HomeswiftCommon.tabBar({ parent: $("#app") });
+    // The header's sections take their icons, shown beside their names when a wide window makes the header a side menu.
+    for (const link of document.querySelectorAll("header nav a")) {
+      const glyph = HomeswiftCommon.sections.find(([path]) => path === link.getAttribute("href"))?.[2]
+        ?? { "/account": "user", "/appearance": "sun" }[link.getAttribute("href")];
+      if (glyph && !link.querySelector("svg")) link.prepend(HomeswiftCommon.icon(glyph));
+    }
     showSections();
     HomeswiftChat.mount();
     openEvents();
@@ -1033,7 +1045,7 @@
     const detail = vault.entries ? tn("{n} entry · {used} used by config.json", "{n} entries · {used} used by config.json", vault.entries, { used: vault.inUse })
       : t("Passwords, keys and tokens, sealed on disk");
     return [el("h2", { text: t("Vault") }),
-      el("div", { class: "card server vault-status", "data-state": urgent ? "bad" : count ? "warn" : "ok" },
+      el("div", { class: `card server vault-status${count ? " attention" : ""}`, "data-state": urgent ? "bad" : count ? "warn" : "ok" },
         el("div", { class: "server-head" },
           tile(urgent ? "warning" : "vault", urgent ? "heat" : count ? "yellow" : "green"),
           el("div", { class: "who" }, el("strong", { text: headline }), el("div", { class: "muted", text: detail })),
@@ -1157,9 +1169,9 @@
       { label: t("Longest"), tone: 2, value: (point) => point[key]?.longest ?? null },
     ];
     const charts = [
-      { id: "memory", title: t("Memory"), note: t("The homeswift process, at its highest in each point"), series: [{ label: t("Memory"), tone: 1, value: (point) => point.memory }], format: formatBytes,
+      { id: "memory", title: t("Memory"), note: t("The homeswift process, at its highest in each point"), series: [{ label: t("Memory"), tone: "accent", value: (point) => point.memory }], format: formatBytes,
         unit: (max) => 1024 ** (max >= 1024 ** 3 ? 3 : 2) },
-      { id: "cpu", title: t("CPU"), note: t("The homeswift process; 100% is one core busy"), series: [{ label: t("CPU"), tone: 1, value: (point) => point.cpu }], format: formatPercent },
+      { id: "cpu", title: t("CPU"), note: t("The homeswift process; 100% is one core busy"), series: [{ label: t("CPU"), tone: "accent", value: (point) => point.cpu }], format: formatPercent },
       { title: t("Home app requests"), note: t("How long the bridge takes to answer reads and writes"), series: durations("requests"), format: formatMilliseconds, key: "requests" },
       { title: t("Plugin device calls"), note: t("How long plugins take to reach their devices or clouds"), series: durations("handlers"), format: formatMilliseconds, key: "handlers" },
     ].map((chart) => {
@@ -2453,9 +2465,10 @@
           used ? el("span", { class: "pill status standby", text: t("In use [used]") }) : null),
         el("div", { class: "actions" }, plugin.hasPages
           // A plugin with its own page sets itself up there (pairing a TV, finding lights), as Homebridge's
-          // custom UIs do: Add writes an empty block and opens the page.
-          ? el("button", { class: used ? "" : "primary", actionIcon: "plus", text: used ? t("Add another") : t("Add"), onclick: (event) => addWithPage(plugin, event.currentTarget) })
-          : el("a", { class: `button ${used ? "" : "primary"}`, actionIcon: "plus", href: `/plugins/add/${encodeURIComponent(plugin.platform)}`, text: used ? t("Add another") : t("Add") })));
+          // custom UIs do: Add writes an empty block and opens the page. Plain buttons: a list of them, all orange,
+          // would leave the page no primary action.
+          ? el("button", { actionIcon: "plus", text: used ? t("Add another") : t("Add"), onclick: (event) => addWithPage(plugin, event.currentTarget) })
+          : el("a", { class: "button", actionIcon: "plus", href: `/plugins/add/${encodeURIComponent(plugin.platform)}`, text: used ? t("Add another") : t("Add") })));
       return { card, name: plugin.name, text: `${plugin.name} ${plugin.platform}`, used };
     });
 
@@ -2580,7 +2593,7 @@
     const holdsSecret = (value, underSecret = false) => {
       if (typeof value === "string") return underSecret && value !== "" && value !== secretRule?.placeholder;
       if (Array.isArray(value)) return value.some((item) => holdsSecret(item, underSecret));
-      if (value && typeof value === "object") return Object.entries(value).some(([key, child]) => holdsSecret(child, underSecret || isSecretKey(key)));
+      if (value && typeof value === "object") return Object.entries(value).some(([key, child]) => holdsSecret(child, underSecret || isSecretKey(key, child)));
       return false;
     };
     const secretNote = el("p", { class: "secret-note", role: "note", text: t("A secret set in JSON is encrypted in config.json when you save. Set it in Form or on the plugin's own page, where it is easier to get right.") });
@@ -4444,7 +4457,7 @@
     enumLabels: HomeswiftWidgets.enumLabels, labelFor: HomeswiftWidgets.labelFor, withSlugs,
   });
   // The Settings pages (admin.js) draw with the same helpers.
-  window.HomeswiftApp = { api, navigate, route, pageHead, breadcrumb, show, savedText, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, assistantPage, configPage };
+  window.HomeswiftApp = { api, navigate, route, finder, pageHead, breadcrumb, show, savedText, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, assistantPage, configPage };
 
   loadAuth().catch((e) => { $("#auth").classList.remove("hidden"); $("#auth-error").textContent = e.message; });
 })();

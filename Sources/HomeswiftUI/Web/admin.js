@@ -471,7 +471,7 @@
       el("label", { class: "child-bridge-toggle" }, enabled, el("span", { text: t("Run on its own HomeKit bridge") })), fields,
       el("p", { class: "muted", text: t("Moving a plugin between bridges changes where its accessories appear in Apple Home. You may need to pair the new bridge and recreate room assignments or automations. Saving reloads the plugin.") }),
       result, el("div", { class: "actions" }, cancel, save));
-    const dialog = el("dialog", { class: "admin-dialog", "aria-label": entry.name }, form);
+    const dialog = el("dialog", { class: "admin-dialog card", "aria-label": entry.name }, form);
     form.addEventListener("submit", async (event) => {
       event.preventDefault(); save.disabled = true; cancel.disabled = true;
       const next = { ...block };
@@ -650,6 +650,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // ---- Vault: the bridge's credentials by name, their values never shown ---------------------------------------
 
   const kindNames = { login: t("Login"), apiKey: t("API key"), token: t("Token"), secret: t("Secret [vault]") };
+  const kindPlurals = { login: t("Logins"), apiKey: t("API keys"), token: t("Tokens [vault]"), secret: t("Secrets [vault]") };
   const fieldNames = { password: t("Password"), username: t("Username"), key: t("Key"), token: t("Token"), value: t("Value") };
   const fieldName = (field) => fieldNames[field] ?? field;
 
@@ -662,9 +663,31 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       vault.problems.length ? healthCard(vault.problems, vault) : null,
       plan.items.length ? migrationCard(plan, vault) : null,
       sectionHead(t("Entries"), vault.entries.length ? tn("{n} entry", "{n} entries", vault.entries.length) : "", add),
-      vault.entries.length ? el("div", { class: "card rows" }, vault.entries.map((entry) => entryRow(entry, vault)))
+      vault.entries.length ? entriesFinder(vault)
         : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("vault")),
           el("p", { class: "muted", text: t("None yet: add one, or move config.json's secrets here.") })));
+  }
+
+  /// The entries as rows under a search (names, kinds, the settings and plugins that use them), a filter by what needs
+  /// attention, what nothing uses yet or a kind, and an order: the same toolbar as the Plugins page's.
+  function entriesFinder(vault) {
+    // Missing and failing first, then expired, then expiring; healthy last.
+    const attention = (entry) => ({ missing: 0, failing: 0, expired: 1, expiring: 2 })[entry.health] ?? 3;
+    const unused = (entry) => !entry.usedBy.length && !entry.owner;
+    const lastUsed = (entry) => entry.used ? new Date(entry.used).getTime() : 0;
+    const entries = vault.entries.map((entry) => ({ entry, card: entryRow(entry, vault), name: entry.name,
+      text: [entry.name, kindNames[entry.kind], entry.owner, ...entry.usedBy].filter(Boolean).join(" ") }));
+    const kinds = Object.entries(kindPlurals).filter(([kind]) => vault.entries.some((entry) => entry.kind === kind));
+    return app().finder({ grid: el("div", { class: "card rows" }), entries, param: "order", filterParam: "show",
+      orders: [["name", t("Name A–Z"), () => 0], ["attention", t("Needs attention first"), (a, b) => attention(a.entry) - attention(b.entry)],
+        ["used", t("Recently used"), (a, b) => lastUsed(b.entry) - lastUsed(a.entry)],
+        ["users", t("Most used"), (a, b) => b.entry.usedBy.length - a.entry.usedBy.length]],
+      filters: [["all", t("All entries"), () => true],
+        ["attention", t("Needs attention"), ({ entry }) => attention(entry) < 3],
+        ["unused", t("Not used yet"), ({ entry }) => unused(entry)],
+        ...kinds.map(([kind, label]) => [kind, label, ({ entry }) => entry.kind === kind])],
+      placeholder: t("Search the vault"), sortLabel: t("Sort entries"), filterLabel: t("Show entries"), empty: t("No entry matches."),
+      counted: (shown, total) => t("{shown} of {total} entries", { shown, total }) });
   }
 
   /// When an entry expires, as a warning from 30 days before.
@@ -692,7 +715,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // A login names its fields; the other kinds hold one value, which the kind already says.
     const kind = entry.kind === "login" ? `${kindNames.login} · ${entry.fields.map(fieldName).join(", ")}` : kindNames[entry.kind] ?? entry.kind;
     return el("div", { class: "row-block" },
-      el("div", { class: "row" },
+      el("div", { class: "row vault-row" },
         tile(glyph, tone),
         el("div", { class: "who" }, el("strong", { class: "mono", text: entry.name, title: entry.name }),
           el("div", { class: "muted vault-detail" }, el("span", { text: kind }), el("span", { "aria-hidden": "true", text: "·" }), users)),
@@ -810,7 +833,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       // A plugin's own entry is replaced by the plugin; a setting that names it is changed in that plugin's form.
       return entry && !entry.owner ? el("button", { actionIcon: "edit", type: "button", text: t("Replace the value…"), onclick: () => entryDialog(entry, vault) }) : null;
     };
-    return el("div", { class: "card server vault-card" },
+    return el("div", { class: "card server vault-card attention" },
       el("div", { class: "server-head" }, tile("warning", "orange"),
         el("div", { class: "who" }, el("strong", { text: tn("One entry needs attention", "{n} entries need attention", count) }))),
       el("div", { class: "rows" }, problems.map((problem) => el("div", { class: "row vault-problem" },

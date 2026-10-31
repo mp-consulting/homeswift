@@ -9,7 +9,7 @@
 // and closes when a flick would carry it past half its height. Reduced motion cross-fades instead.
 (() => {
   "use strict";
-  const { $, el, icon, markdown, sparkle, api, jsonView, copyText } = HomeswiftCommon;
+  const { $, el, icon, markdown, sparkle, api, jsonView, copyText, menu } = HomeswiftCommon;
   const { t, tn } = HomeswiftI18n;
 
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
@@ -71,6 +71,13 @@
   let trigger = null;
   let session = 0;      // a sign-out moves it on: a stream read before it stops drawing
 
+  /// The language spoken to the mic and answers are read out in ("" for the browser's), kept by this browser.
+  let voiceChoice = "";
+  try { voiceChoice = localStorage.getItem("homeswift.voiceLanguage") || ""; } catch {}
+
+  /// The providers by their names, as people know them; the configuration says them in lowercase.
+  const providerNames = { anthropic: "Anthropic", openai: "OpenAI", gemini: "Gemini", apple: "Apple" };
+
   function build() {
     const log = el("div", { class: "chat-log", "aria-live": "polite", "aria-relevant": "additions" });
     const input = el("textarea", { rows: 1, placeholder: t("Ask, or tell it what to set up…"), "aria-label": t("Message to the Assistant"), maxLength: 4000 });
@@ -79,17 +86,20 @@
     const send = el("button", { type: "submit", class: "chat-send", "aria-label": t("Send") });
     send.innerHTML = '<svg class="send-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>'
       + '<svg class="stop-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>';
-    const foot = el("p", { class: "chat-foot" });
+    // Over the field, one line: who answers, and that changes ask first.
+    const note = el("span", { class: "chat-note" });
+    const foot = el("div", { class: "chat-foot" }, note);
     // The language spoken to the mic and in which answers are read out; this browser remembers it.
     const languages = [["", t("Browser's language")], ["en-US", "English (US)"], ["en-GB", "English (UK)"], ["fr-FR", "Français"], ["de-DE", "Deutsch"],
       ["es-ES", "Español"], ["it-IT", "Italiano"], ["nl-NL", "Nederlands"], ["pt-PT", "Português"], ["pt-BR", "Português (Brasil)"],
-      ["sv-SE", "Svenska"], ["da-DK", "Dansk"], ["nb-NO", "Norsk"], ["fi-FI", "Suomi"], ["pl-PL", "Polski"], ["ja-JP", "日本語"], ["zh-CN", "中文"]];
-    let stored = "";
-    try { stored = localStorage.getItem("homeswift.voiceLanguage") || ""; } catch {}
-    const languagePicker = el("select", { class: "popup", "aria-label": t("Voice language") },
-      languages.map(([value, text]) => el("option", { value, text, selected: value === stored })));
-    languagePicker.addEventListener("change", () => { try { localStorage.setItem("homeswift.voiceLanguage", languagePicker.value); } catch {} });
-    const voice = Recognition ? el("div", { class: "chat-voice" }, el("span", { text: t("Voice") }), languagePicker) : null;
+      ["sv-SE", "Svenska"], ["da-DK", "Dansk"], ["nb-NO", "Norsk"], ["fi-FI", "Suomi"], ["pl-PL", "Polski"], ["ja-JP", "日本語"], ["zh-CN", "中文"]]
+      // A to Z by their own names, the browser's first.
+      .sort(([a, x], [b, y]) => a === "" ? -1 : b === "" ? 1 : x.localeCompare(y, HomeswiftI18n.locale));
+    /// The voice's language from the cog's menu, ticked; this browser remembers it.
+    const chooseVoice = (trigger) => menu(trigger, languages.map(([value, text]) => ({ label: text, checked: value === voiceChoice, onSelect: () => {
+      voiceChoice = value;
+      try { localStorage.setItem("homeswift.voiceLanguage", value); } catch {}
+    } })));
     const form = el("form", { class: "chat-composer", onsubmit: (event) => { event.preventDefault(); running ? stop() : submit(); } },
       input, Recognition ? mic : null, send);
     const close = el("button", { type: "button", class: "chat-icon", "aria-label": t("Close"), title: t("Close (Esc)"), text: "×", onclick: () => toggle(false) });
@@ -97,16 +107,28 @@
     fresh.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h8M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
     const copy = el("button", { type: "button", class: "chat-icon", title: t("Copy the conversation"), onclick: copyConversation });
     const earlier = el("button", { type: "button", class: "chat-icon", "aria-label": t("Earlier chats"), title: t("Earlier chats"), "aria-expanded": "false", onclick: () => showHistory() }, icon("history"));
+    // The cog's menu: the provider's settings (Settings › Assistant) for an administrator, who alone may open Settings,
+    // and the voice's language where the browser can listen.
+    const canSettle = !document.querySelector('header nav a[href="/settings"]')?.classList.contains("hidden");
+    const voiceName = () => languages.find(([value]) => value === voiceChoice)?.[1] ?? languages[0][1];
+    const settings = canSettle || Recognition ? el("button", { type: "button", class: "chat-icon", "aria-label": t("Settings"), title: t("Settings"), "aria-haspopup": "menu",
+      onclick: (event) => menu(event.currentTarget, [
+        canSettle ? { label: t("Assistant settings"), icon: "gear", onSelect: () => { toggle(false); HomeswiftApp.navigate("/settings/assistant"); } } : null,
+        Recognition ? { label: t("Voice language"), icon: "globe", count: voiceName(), onSelect: () => setTimeout(() => chooseVoice(settings)) } : null,
+      ], { keyboard: event.detail === 0 }) }, icon("gear")) : null;
     const head = el("div", { class: "chat-head" },
       el("span", { class: "chat-grabber", "aria-hidden": "true" }),
-      sparkle(), el("strong", { id: "chat-title", text: t("Assistant") }), el("span", { class: "chat-model", text: info.model || "" }),
-      el("span", { class: "spacer" }), copy, earlier, fresh, close);
+      el("span", { class: "chat-badge", "aria-hidden": "true" }, sparkle()),
+      el("div", { class: "chat-who" }, el("strong", { id: "chat-title", text: t("Assistant") }), el("span", { class: "chat-model", text: info.model || "" })),
+      el("span", { class: "spacer" }),
+      el("div", { class: "chat-tools" }, copy, earlier, fresh, settings), close);
     const sheet = el("section", { class: "chat", role: "dialog", "aria-labelledby": "chat-title", hidden: true },
       el("div", { class: "chat-glow", "aria-hidden": "true" }),
-      el("div", { class: "chat-surface" }, head, log, form, voice, foot));
+      // The field last, at the very bottom, the note and the voice's language over it.
+      el("div", { class: "chat-surface" }, head, log, foot, form));
     const scrim = el("div", { class: "chat-scrim", hidden: true, onclick: () => toggle(false) });
     document.body.append(scrim, sheet);
-    panel = { sheet, scrim, log, input, mic, send, foot, head, languagePicker, earlier, copy };
+    panel = { sheet, scrim, log, input, mic, send, foot, note, head, earlier, copy };
     showCopied(false);
 
     input.addEventListener("input", grow);
@@ -224,6 +246,57 @@
       head.addEventListener("pointerup", end);
       head.addEventListener("pointercancel", end);
     });
+    setUpMove();
+  }
+
+  /// A wider window with a mouse: the panel moves where its head is dragged, kept inside the window, and stays there
+  /// (this browser remembers it); a double click on the head puts it back by the button.
+  let place = { x: 0, y: 0 };
+  try { place = { x: 0, y: 0, ...JSON.parse(localStorage.getItem("homeswift.chatPlace") || "{}") }; } catch {}
+  function setUpMove() {
+    const { head, sheet } = panel;
+    const movable = () => !phone.matches && !touch.matches;
+    const put = (x, y) => {
+      place = { x: Math.round(x), y: Math.round(y) };
+      sheet.style.translate = place.x || place.y ? `${place.x}px ${place.y}px` : "";
+    };
+    /// Back inside the window, after it was resized or the panel opened somewhere else.
+    const keepInside = () => {
+      if (!movable()) { sheet.style.translate = ""; return; }
+      put(place.x, place.y);
+      const box = sheet.getBoundingClientRect(), margin = 8;
+      put(place.x + Math.max(0, margin - box.left) - Math.max(0, box.right - (innerWidth - margin)),
+        place.y + Math.max(0, margin - box.top) - Math.max(0, box.bottom - (innerHeight - margin)));
+    };
+    const save = () => { try { localStorage.setItem("homeswift.chatPlace", JSON.stringify(place)); } catch {} };
+    head.addEventListener("pointerdown", (event) => {
+      if (!movable() || event.button !== 0 || event.target.closest("button, a")) return;
+      event.preventDefault();
+      head.setPointerCapture(event.pointerId);
+      sheet.classList.add("moving");
+      const start = { x: event.clientX, y: event.clientY, place: { ...place } };
+      const move = (moveEvent) => {
+        put(start.place.x + moveEvent.clientX - start.x, start.place.y + moveEvent.clientY - start.y);
+        keepInside();
+      };
+      const end = () => {
+        sheet.classList.remove("moving");
+        head.removeEventListener("pointermove", move);
+        head.removeEventListener("pointerup", end);
+        head.removeEventListener("pointercancel", end);
+        save();
+      };
+      head.addEventListener("pointermove", move);
+      head.addEventListener("pointerup", end);
+      head.addEventListener("pointercancel", end);
+    });
+    head.addEventListener("dblclick", (event) => {
+      if (!movable() || event.target.closest("button, a")) return;
+      put(0, 0);
+      save();
+    });
+    addEventListener("resize", () => { if (!sheet.hidden) keepInside(); });
+    keepInside();
   }
 
   // ---- The conversation ---------------------------------------------------------------------------------
@@ -565,7 +638,7 @@
   /// The send button turns into stop while the Assistant works; the glow turns around the panel meanwhile.
   function renderControls() {
     if (!panel) return;
-    const { sheet, send, foot, log } = panel;
+    const { sheet, send, note, log } = panel;
     sheet.classList.toggle("working", running);
     log.setAttribute("aria-busy", String(running));
     send.classList.toggle("stop", running);
@@ -576,10 +649,10 @@
     if (waiting && !thinking) log.append(thinking = el("p", { class: "chat-thinking", text: t("Thinking…") }));
     if (waiting) log.append(thinking);   // stays last
     if (!waiting) thinking?.remove();
-    const provider = info.provider || t("Assistant");
+    const provider = providerNames[info.provider] || info.provider || t("Assistant");
     const cost = usage && usage.cost != null && usage.cost > 0
       ? new Intl.NumberFormat(HomeswiftI18n.locale, { style: "currency", currency: "USD", minimumFractionDigits: usage.cost < 0.01 ? 4 : 2, maximumFractionDigits: usage.cost < 0.01 ? 4 : 2 }).format(usage.cost) : null;
-    foot.textContent = listening ? t("Listening… tap the mic again when you are done.") : voiceNote
+    note.textContent = listening ? t("Listening… tap the mic again when you are done.") : voiceNote
       || (cost ? t("{provider} · {cost} so far. Changes always ask first.", { provider, cost }) : t("{provider}. Changes always ask first.", { provider }));
   }
 
@@ -747,7 +820,7 @@
   }
 
   /// The language chosen for voice, else the page's.
-  const voiceLanguage = () => panel?.languagePicker.value || HomeswiftI18n.locale || "en-US";
+  const voiceLanguage = () => voiceChoice || HomeswiftI18n.locale || "en-US";
 
   window.HomeswiftChat = { mount, ask, signedOut, open: () => toggle(true), available: () => Boolean(info?.enabled) };
   // The UI's own page mounts it once signed in; a plugin page is signed in already.

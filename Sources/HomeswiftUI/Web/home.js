@@ -140,7 +140,7 @@
       const rooms = [...new Set(favourites.map((a) => a.room).filter(Boolean))];
       // `append` is the DOM's: it writes null and arrays as text, so the parts go in flat and without the empty ones.
       section.append(...[
-        standalone ? null : el("div", { class: "section-head" }, el("h2", { text: t("Quick controls") }), el("a", { href: "/quick", class: "muted", text: t("Open on its own") })),
+        standalone ? null : el("div", { class: "section-head" }, el("h2", { text: t("Quick controls") }), el("a", { href: "/quick", class: "button small", actionIcon: "open", text: t("Open on its own") })),
         scenes.length ? el("div", { class: "quick-scenes" }, scenes.map((scene) => sceneButton(scene))) : null,
         groupByRoom(favourites, rooms).map(([room, members]) => [
           rooms.length ? el("div", { class: "service-name", text: room }) : null,
