@@ -45,6 +45,10 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
     /// What the plugin uses to reach its devices; tests swap it for a fake.
     struct Dependencies: Sendable {
         var api: (any EcoFlowAPI)?
+        /// The developer API for keys Setup is given, to check them before they are kept; tests answer for the cloud.
+        var developerAPI: @Sendable (_ accessKey: String, _ secretKey: String, _ region: String?) -> any EcoFlowAPI = { accessKey, secretKey, region in
+            EcoFlowCloud(accessKey: accessKey, secretKey: secretKey, baseURL: region?.lowercased() == "eu" ? EcoFlowCloud.euBaseURL : EcoFlowCloud.usBaseURL, transport: HTTPClient())
+        }
         /// The cloud's energy history, with the app's sign-in; nil without it or with `importHistory` false.
         var history: EcoFlowHistory? = nil
     }
@@ -89,16 +93,16 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
     /// Each device's services, by device id.
     private var devices: [String: DeviceServices] = [:]
     /// The devices as the last read reported them, for the plugin's page.
-    private var latest: [EcoFlowDevice] = []
+    private(set) var latest: [EcoFlowDevice] = []
     /// The page's order, each serial number's place, read from `orderFile` once and kept as it is saved.
     private var orderPlaces: [String: Int]?
     /// Each device's `recorded` series, with the name and route they were made for.
     private var recordedSeries: [String: (name: String, route: EcoFlowModel.Route, keys: [String: (series: RecordedSeries, tag: EnergyTag?)])] = [:]
-    private var logger: Logger { context.logger }
+    var logger: Logger { context.logger }
 
     public init(configuration: Configuration, context: PluginContext) {
         self.init(configuration: configuration, context: context,
-                  dependencies: Self.dependencies(for: configuration, clientSuffix: Self.clientSuffix(context)))
+                  dependencies: Self.dependencies(for: Self.withStoredKeys(configuration, context), clientSuffix: Self.clientSuffix(context)))
     }
 
     init(configuration: Configuration, context: PluginContext, dependencies: Dependencies) {

@@ -214,7 +214,10 @@ extension HomeswiftCatalog {
                         settings = AccessorySettings(json: .object((settings.json.objectValue ?? [:]).merging(outcome.settings) { $1 }))
                     }
                 } else {
-                    block.merge(outcome.settings) { $1 }
+                    // A null setting goes: what the Setup moved into the vault leaves the block.
+                    for (key, value) in outcome.settings {
+                        if value.isNull { block.removeValue(forKey: key) } else { block[key] = value }
+                    }
                 }
             }
         }

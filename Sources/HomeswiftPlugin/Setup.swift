@@ -106,7 +106,7 @@ public struct SetupOutcome: Sendable {
     /// the vault, in the instance's namespace, and hands it back with `PluginContext.credentials`. Never in config.json.
     public var credentials: JSONValue?
     /// Settings that are not secret, merged into the plugin's block for an account (a hub's host), or into the device's
-    /// Accessory Settings for a device.
+    /// Accessory Settings for a device. A null takes the key out of the block: a key the credentials now hold.
     public var settings: [String: JSONValue]
     /// The device's Device Id when the Authorization is what tells it (a TV's MAC, read once paired): the credentials and
     /// the settings go under it rather than under the one discovery gave.

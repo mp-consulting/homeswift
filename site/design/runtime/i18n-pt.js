@@ -2611,4 +2611,8 @@ HomeswiftI18n.add("pt", {
   "Client Secret": "Client Secret",
   "Sign in with Daikin on the page that opens. If it does not come back here by itself, paste the address the browser ends on.": "Inicie sessão na Daikin na página que se abre. Se não voltar aqui sozinha, cole o endereço em que o navegador termina.",
   "Address the browser ended on": "Endereço em que o navegador terminou",
+  "Enter the keys of your EcoFlow developer account, from developer.ecoflow.com.": "Introduza as chaves da sua conta de programador EcoFlow, de developer.ecoflow.com.",
+  "Access key": "Chave de acesso",
+  "Secret key": "Chave secreta",
+  "Region (us or eu)": "Região (us ou eu)",
 });

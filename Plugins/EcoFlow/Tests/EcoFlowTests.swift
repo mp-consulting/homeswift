@@ -56,11 +56,13 @@ final class TestEnvironment: Sendable {
 
     var plugin: EcoFlowPlugin? { plugins.withLockedValue { $0.last } }
 
-    func start(settings: [String: Any] = [:]) async throws -> PluginHost {
+    func start(settings: [String: Any] = [:], developerAPI: (@Sendable (String, String, String?) -> any EcoFlowAPI)? = nil) async throws -> PluginHost {
         var registry = PluginRegistry()
         registry.register(platform: EcoFlowPlugin.platform, name: EcoFlowPlugin.name) { json, context in
             let configuration = try JSONDecoder().decode(EcoFlowPlugin.Configuration.self, from: json)
-            let plugin = EcoFlowPlugin(configuration: configuration, context: context, dependencies: .init(api: self.api))
+            var dependencies = EcoFlowPlugin.Dependencies(api: self.api)
+            if let developerAPI { dependencies.developerAPI = developerAPI }
+            let plugin = EcoFlowPlugin(configuration: configuration, context: context, dependencies: dependencies)
             self.plugins.withLockedValue { $0.append(plugin) }
             return plugin
         }

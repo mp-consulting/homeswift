@@ -14886,6 +14886,10 @@ HomeswiftI18n.add("es", {
   "Client Secret": "Client Secret",
   "Sign in with Daikin on the page that opens. If it does not come back here by itself, paste the address the browser ends on.": "Inicia sesión en Daikin en la página que se abre. Si no vuelve aquí por sí sola, pega la dirección en la que termina el navegador.",
   "Address the browser ended on": "Dirección en la que terminó el navegador",
+  "Enter the keys of your EcoFlow developer account, from developer.ecoflow.com.": "Introduce las claves de tu cuenta de desarrollador de EcoFlow, de developer.ecoflow.com.",
+  "Access key": "Clave de acceso",
+  "Secret key": "Clave secreta",
+  "Region (us or eu)": "Región (us o eu)",
 });
 
 """#),
@@ -17503,6 +17507,10 @@ HomeswiftI18n.add("fr", {
   "Client Secret": "Client Secret",
   "Sign in with Daikin on the page that opens. If it does not come back here by itself, paste the address the browser ends on.": "Connectez-vous à Daikin dans la page qui s’ouvre. Si elle ne revient pas ici d’elle-même, collez l’adresse sur laquelle le navigateur s’arrête.",
   "Address the browser ended on": "Adresse où le navigateur s’est arrêté",
+  "Enter the keys of your EcoFlow developer account, from developer.ecoflow.com.": "Saisissez les clés de votre compte développeur EcoFlow, depuis developer.ecoflow.com.",
+  "Access key": "Clé d’accès",
+  "Secret key": "Clé secrète",
+  "Region (us or eu)": "Région (us ou eu)",
 });
 
 """#),
@@ -20120,6 +20128,10 @@ HomeswiftI18n.add("pt", {
   "Client Secret": "Client Secret",
   "Sign in with Daikin on the page that opens. If it does not come back here by itself, paste the address the browser ends on.": "Inicie sessão na Daikin na página que se abre. Se não voltar aqui sozinha, cole o endereço em que o navegador termina.",
   "Address the browser ended on": "Endereço em que o navegador terminou",
+  "Enter the keys of your EcoFlow developer account, from developer.ecoflow.com.": "Introduza as chaves da sua conta de programador EcoFlow, de developer.ecoflow.com.",
+  "Access key": "Chave de acesso",
+  "Secret key": "Chave secreta",
+  "Region (us or eu)": "Região (us ou eu)",
 });
 
 """#),

@@ -38,7 +38,7 @@ actor PairablePlugin: HomeswiftPlugin {
                 return .ask(SetupPrompt(message: "Sign in", fields: [SetupField("email", label: "Email"), SetupField("password", label: "Password", kind: .secret)]))
             }
             guard request.answer("password") == "account-pass" else { throw SetupError("Wrong password") }
-            return .done(SetupOutcome(credentials: ["token": "account-token"], settings: ["email": .string(request.answer("email") ?? "")]))
+            return .done(SetupOutcome(credentials: ["token": "account-token"], settings: ["email": .string(request.answer("email") ?? ""), "apiKey": .null]))
         case .device(let device) where device.deviceID == "tv":
             guard !request.isFirst else { return .ask(SetupPrompt(message: "Enter the PIN", fields: [SetupField("pin", label: "PIN", kind: .code)])) }
             guard request.answer("pin") == "1234" else { throw SetupError("Wrong PIN") }
@@ -147,13 +147,15 @@ struct SetupTests {
     @Test func anAccountSetUpForABlockNotSavedYetAddsTheBlock() async throws {
         let setup = try SetupTests(config: #"{ "bridge": { "name": "Test", "port": 0 }, "platforms": [] }"#)
         try await setup.host.start()
-        let draft: JSONValue = ["platform": "Pairable", "name": "Pairable"]
+        // A key the account's credentials now hold leaves the block.
+        let draft: JSONValue = ["platform": "Pairable", "name": "Pairable", "apiKey": "old-key"]
         let first = try await setup.catalog.startSetup(platform: "Pairable", name: nil, deviceID: nil, block: draft)
         let session = try #require(first["session"]?.stringValue)
         #expect(try setup.block() == nil)
         let done = try await setup.catalog.continueSetup(session, answers: ["email": "me@example.com", "password": "account-pass"])
         #expect(done["status"] == "done")
         #expect(try setup.block()?["email"] == "me@example.com")
+        #expect(try setup.block()?["apiKey"] == nil)
         #expect(setup.host.context(platform: "Pairable", name: nil)?.credentials()?["token"] == "account-token")
         #expect(await eventually { setup.accessoryIDs().contains("Pairable:lamp") })
         await setup.host.stop()
