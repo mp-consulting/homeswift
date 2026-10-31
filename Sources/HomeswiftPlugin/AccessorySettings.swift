@@ -77,16 +77,28 @@ extension PluginContext {
     }
 
     /// The device an accessory id belongs to among those with Accessory Settings: `<platform>:<deviceID>`, or one of the
-    /// device's accessories `<platform>:<deviceID>:<more>`. nil for an id of another form or a device with none.
+    /// device's accessories `<platform>:<deviceID>:<more>` or `<platform>:<deviceID>.<more>`. nil for an id of another
+    /// form or a device with none.
     public func deviceID(ofAccessory id: String) -> String? {
         let prefix = "\(platform):"
         guard id.hasPrefix(prefix) else { return nil }
         let rest = id.dropFirst(prefix.count)
         return accessorySettingsBox.withLockedValue { settings in
             if settings[String(rest)] != nil { return String(rest) }
-            // The longest Device Id the rest starts with, a colon after it: Device Ids may hold colons (a MAC).
-            return settings.keys.filter { rest.hasPrefix("\($0):") }.max { $0.count < $1.count }
+            // The longest Device Id the rest starts with, a colon or a dot after it: Device Ids may hold colons (a MAC).
+            return settings.keys.filter { Self.isChild(rest, of: $0) }.max { $0.count < $1.count }
         }
+    }
+
+    /// Whether an accessory id's part after `<platform>:` is a device's own accessory or one of its others.
+    static func isChild(_ rest: Substring, of deviceID: String) -> Bool {
+        rest == deviceID || rest.hasPrefix("\(deviceID):") || rest.hasPrefix("\(deviceID).")
+    }
+
+    /// Whether `id` is the accessory of the device `deviceID`, or one of its others (`deviceID(ofAccessory:)`'s forms).
+    public func isAccessory(_ id: String, of deviceID: String) -> Bool {
+        let prefix = "\(platform):"
+        return id.hasPrefix(prefix) && Self.isChild(id.dropFirst(prefix.count), of: deviceID)
     }
 
     /// The accessory id of a device: `<platform>:<deviceID>`.

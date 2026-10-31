@@ -236,6 +236,7 @@ extension HomeswiftCatalog {
         var answer: [String: JSONValue] = [
             "status": "asking", "session": .string(session.id), "platform": .string(session.platform), "name": .string(session.name),
             "method": .string(session.method.rawValue), "prompt": (try? JSONValue(data: JSONEncoder().encode(session.prompt))) ?? .null,
+            "message": .string(session.prompt.text),
         ]
         if let deviceID = session.deviceID { answer["deviceID"] = .string(deviceID) }
         if let error { answer["error"] = .string(error) }

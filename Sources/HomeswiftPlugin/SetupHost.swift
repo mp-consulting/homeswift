@@ -68,8 +68,7 @@ extension PluginHost {
             let authorizedIDs = context.haveCredentials(devices.filter { $0.authorization != .none }.map(\.deviceID))
             return devices.map { device in
                 var device = device
-                let id = context.accessoryID(of: device.deviceID)
-                let published = accessoryIDs.contains(id) || accessoryIDs.contains { $0.hasPrefix("\(id):") }
+                let published = accessoryIDs.contains { context.isAccessory($0, of: device.deviceID) }
                 let authorized = authorizedIDs.contains(device.deviceID)
                 device.isSetUp = !context.isExcluded(device.deviceID) && !device.excludedBySettings && (device.isSetUp || published || authorized)
                 return device

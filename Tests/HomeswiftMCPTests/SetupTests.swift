@@ -21,6 +21,8 @@ actor PairablePlugin: HomeswiftPlugin {
             let service = Service(.switch, name: device.name, isPrimary: true)
             try context.add(Accessory(id: context.accessoryID(of: device.deviceID), name: device.name, category: .switch, services: [service]))
         }
+        // The lamp's night light: an accessory of the same device, as UniFi's `<MAC>.PackageCamera`.
+        try context.add(Accessory(id: "Pairable:lamp.night", name: "Night light", category: .switch, services: [Service(.switch, name: "Night light", isPrimary: true)]))
     }
 
     func discover() async throws -> [DiscoveredDevice] {
@@ -79,7 +81,7 @@ struct SetupTests {
 
     @Test func aDeviceCodeIsAskedAgainUntilItWorksThenTheDeviceIsPublished() async throws {
         try await host.start()
-        #expect(accessoryIDs() == ["Pairable:lamp"])
+        #expect(accessoryIDs() == ["Pairable:lamp", "Pairable:lamp.night"])
         #expect(try await status("lamp") == "setUp")
         #expect(try await status("tv") == "needsAuthorization")
 
@@ -120,7 +122,7 @@ struct SetupTests {
         try await host.start()
         #expect(accessoryIDs().contains("Pairable:lamp"))
         _ = try await catalog.editBlock(platform: "Pairable", name: nil, dryRun: false) { $0["_accessories"] = ["lamp": ["excluded": true]] }
-        #expect(await eventually { !accessoryIDs().contains("Pairable:lamp") })
+        #expect(await eventually { !accessoryIDs().contains("Pairable:lamp") && !accessoryIDs().contains("Pairable:lamp.night") })
         #expect(try await status("lamp") == "excluded")
         _ = try await catalog.editBlock(platform: "Pairable", name: nil, dryRun: false) { $0["_accessories"] = nil }
         #expect(await eventually { accessoryIDs().contains("Pairable:lamp") })

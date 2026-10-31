@@ -81,8 +81,11 @@ public struct SetupField: Sendable, Codable, Equatable {
 
 /// What a step of Setup asks: a message, the answers it wants, a page to open, or a wait.
 public struct SetupPrompt: Sendable, Codable, Equatable {
-    /// For people, one or two sentences: "Press the link button on the Hue Bridge."
+    /// For people, one or two sentences: "Press the link button on the Hue Bridge." In English, translated by the web UI's
+    /// catalogs; what changes from one Setup to the next (a certificate's start) goes in `values`, as `{name}` here.
     public var message: String
+    /// The values of `message`'s `{name}` placeholders.
+    public var values: [String: String]
     public var fields: [SetupField]
     /// A Browser Redirect's page to open.
     public var url: String?
@@ -91,12 +94,18 @@ public struct SetupPrompt: Sendable, Codable, Equatable {
     public var waitSeconds: Int?
     public var retryAfter: Int?
 
-    public init(message: String, fields: [SetupField] = [], url: String? = nil, waitSeconds: Int? = nil, retryAfter: Int? = nil) {
+    public init(message: String, values: [String: String] = [:], fields: [SetupField] = [], url: String? = nil, waitSeconds: Int? = nil, retryAfter: Int? = nil) {
         self.message = message
+        self.values = values
         self.fields = fields
         self.url = url
         self.waitSeconds = waitSeconds
         self.retryAfter = retryAfter
+    }
+
+    /// The message with its values in place, as a model or a log reads it.
+    public var text: String {
+        values.reduce(message) { text, value in text.replacingOccurrences(of: "{\(value.key)}", with: value.value) }
     }
 }
 

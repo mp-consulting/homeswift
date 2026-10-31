@@ -197,7 +197,7 @@
         if (pressing(prompt)) {
           fill(
             el("div", { class: "pair-prompt pairing" }, el("span", { class: "link-button", "aria-hidden": "true" }, HomeswiftCommon.icon("pair")),
-              el("div", {}, el("p", {}, el("strong", { text: t(prompt.message) })), left)),
+              el("div", {}, el("p", {}, el("strong", { text: t(prompt.message, prompt.values ?? {}) })), left)),
             error,
             el("div", { class: "actions" }, cancel));
           return;
@@ -223,7 +223,7 @@
         const link = /^https?:\/\//i.test(prompt.url ?? "")
           ? el("a", { class: `button ${inputs.length ? "" : "primary"}`, href: prompt.url, target: "_blank", rel: "noopener noreferrer", actionIcon: "open", text: t("Open the sign-in page") }) : null;
         fill(
-          el("p", { text: t(prompt.message) }),
+          el("p", { text: t(prompt.message, prompt.values ?? {}) }),
           link,
           ...inputs.map(([field, input]) => el("label", { class: "field", htmlFor: input.id }, el("span", { class: "field-title", text: t(field.label) }), input)),
           left,
