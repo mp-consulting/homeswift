@@ -365,7 +365,7 @@ public enum HomebridgeImport {
         mutating func record(_ value: JSONValue, key: String, path: String, group: String, schema: JSONValue?, depth: Int, underSecret: Bool = false) throws -> JSONValue? {
             let secret = schema?["x-schema-form"]?["type"]?.stringValue == "password"
             // A password-type field, a secret name, or anything under one: sealed, and its children are too.
-            let sealedHere = underSecret || secret || Redaction.isSecretKey(key)
+            let sealedHere = underSecret || secret || Redaction.isSecret(key: key, value: value)
             switch value {
             case .string(let text):
                 if !text.isEmpty, sealedHere || Redaction.isCredentialURL(text) {

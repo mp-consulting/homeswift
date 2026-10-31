@@ -101,7 +101,7 @@ public final class SecretVault: @unchecked Sendable {
             return .array(items.map { reveal($0, underSecretKey: underSecretKey) })
         case .object(let object):
             return .object(object.reduce(into: [:]) { result, entry in
-                result[entry.key] = reveal(entry.value, underSecretKey: underSecretKey || Redaction.isSecretKey(entry.key))
+                result[entry.key] = reveal(entry.value, underSecretKey: underSecretKey || Redaction.isSecret(key: entry.key, value: entry.value))
             })
         case .string(let string) where underSecretKey && Self.isHandle(string):
             return lock.withLock { byHandle[string] } ?? value

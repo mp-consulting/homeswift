@@ -130,6 +130,16 @@ import Testing
         #expect(restored["nested"]?["list"]?[0]?["token"] == "t")
     }
 
+    @Test func keepsTheWebUISignInModeButNotAnAuthToken() {
+        let config: JSONValue = ["platforms": [["platform": "HomeswiftUI", "auth": "form"], ["platform": "HomeswiftUI", "auth": "none"], ["platform": "X", "auth": "Bearer abcdef"]]]
+        let redacted = Redaction.redactSecrets(config)
+        #expect(redacted["platforms"]?[0]?["auth"] == "form")
+        #expect(redacted["platforms"]?[1]?["auth"] == "none")
+        #expect(redacted["platforms"]?[2]?["auth"] == "__REDACTED__")
+        #expect(!Redaction.isSecret(key: "auth", value: "none"))
+        #expect(Redaction.isSecret(key: "password", value: "none"))
+    }
+
     @Test func restoresByIdentityNotPosition() throws {
         let current: JSONValue = ["platforms": [["platform": "A", "name": "one", "token": "ta"], ["platform": "B", "name": "two", "token": "tb"]]]
         let reordered: JSONValue = ["platforms": [["platform": "B", "name": "two", "token": "__REDACTED__"], ["platform": "A", "name": "one", "token": "__REDACTED__"]]]

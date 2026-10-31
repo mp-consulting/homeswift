@@ -31,7 +31,7 @@ public enum SecretWalk {
                 for (index, item) in items.enumerated() { walk(item, path + [.index(index)], key) }
             case .object(let object):
                 for (name, item) in object.sorted(by: { $0.key < $1.key }) where !skipping.contains(name) {
-                    walk(item, path + [.key(name)], key ?? (Redaction.isSecretKey(name) ? name : nil))
+                    walk(item, path + [.key(name)], key ?? (Redaction.isSecret(key: name, value: item) ? name : nil))
                 }
             default:
                 break
