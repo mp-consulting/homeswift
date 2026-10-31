@@ -104,7 +104,7 @@ actor SetupWizard {
         }
     }
 
-    private struct Tokens {
+    struct Tokens {
         var idToken: String
         var refreshToken: String?
 
@@ -117,7 +117,7 @@ actor SetupWizard {
 
     /// MyDolphin's `authenticate-user` for the robot, then its details for the picture. Only the refresh token
     /// leaves: the short-lived ID and access tokens never need to.
-    private func completeAuthentication(_ tokens: Tokens) async -> JSONValue {
+    func completeAuthentication(_ tokens: Tokens) async -> JSONValue {
         let envelope: MyDolphinClient.Envelope
         do {
             envelope = try await backend.post("/mobapi/user/authenticate-user/", form: nil, bearer: tokens.idToken)
