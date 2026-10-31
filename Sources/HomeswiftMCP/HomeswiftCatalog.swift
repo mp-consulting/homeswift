@@ -44,6 +44,8 @@ public struct HomeswiftCatalog: Sendable {
     public let home: HomeState
     /// The Matter bridge, set by the CLI once it runs (the `HomeswiftMatter` block); empty otherwise.
     public let matter = MatterControlSlot()
+    /// The Setups in progress (`SetupTools.swift`), shared by the web UI and the MCP sessions.
+    public let setupSessions = SetupSessions()
     /// The config.schema.json of blocks no plugin provides, by platform: the runtime's own (the web UI's, the
     /// Assistant's), which a save checks as it checks a plugin's.
     let blockSchemas: [String: String]
@@ -1270,7 +1272,7 @@ public struct HomeswiftCatalog: Sendable {
                     block[list] = .array(entries)
                 })
             },
-        ] + hostTools + adminTools + layoutTools + wallTools + sceneTools + notificationTools + assistantTools + vaultTools + matterTools + pluginActionTools
+        ] + hostTools + adminTools + layoutTools + wallTools + sceneTools + notificationTools + assistantTools + vaultTools + matterTools + setupTools + pluginActionTools
     }
 
     /// `set_accessories` with `ids` or `filter`: one characteristic and value on every target.

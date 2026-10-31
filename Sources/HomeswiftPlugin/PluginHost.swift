@@ -177,7 +177,7 @@ public final class PluginHost: @unchecked Sendable {
     let logger: Logger
     private let configurationBox: NIOLockedValueBox<HomeswiftConfiguration>
     private let instanceList = NIOLockedValueBox<[Instance]>([])
-    private let assistantBox = NIOLockedValueBox<AssistantService?>(nil)
+    let assistantBox = NIOLockedValueBox<AssistantService?>(nil)
     // Characteristic changes of every server the host runs, for the web UI and the MCP server.
     private let changes: ChangeFeed
     // Accessories coming and going on every server the host runs, for the Matter bridge.
@@ -617,6 +617,7 @@ public final class PluginHost: @unchecked Sendable {
             logger.info("Renamed in HomeKit: \(id) is now \(name)")
             Task { await handler(id, name) }
         }
+        context.accessorySettingsBox.withLockedValue { $0 = block.accessorySettings }
         return Instance(entry: entry, block: block, context: context)
     }
 
@@ -628,7 +629,7 @@ public final class PluginHost: @unchecked Sendable {
         timings.follow(bridge)
     }
 
-    private static func uniqueKey(for block: HomeswiftConfiguration.Platform, taken: Set<String>) -> String {
+    static func uniqueKey(for block: HomeswiftConfiguration.Platform, taken: Set<String>) -> String {
         let base = slug("\(block.platform)-\(block.name)")
         var key = base
         var suffix = 2
@@ -639,7 +640,7 @@ public final class PluginHost: @unchecked Sendable {
         return key
     }
 
-    private static func makeContext(
+    static func makeContext(
         block: HomeswiftConfiguration.Platform, key: String, bridge: Bridge, storageDirectory: URL, logLevel: Logger.Level,
         assistant: NIOLockedValueBox<AssistantService?>, externals: ExternalAccessories, values: ValueFeed, energyImports: EnergyImportFeed,
         energyProgress: NIOLockedValueBox<[String: EnergyImportProgress]>, assistantBackground: String?
@@ -659,6 +660,13 @@ public final class PluginHost: @unchecked Sendable {
     func launch(_ instance: Instance, as verb: String = "Started") async {
         let context = instance.context
         instance.failure.withLockedValue { $0 = nil }
+        context.accessorySettingsBox.withLockedValue { $0 = instance.block.accessorySettings }
+        // What a change of `_accessories` Excluded leaves on the bridge goes now; the plugin no longer adds it.
+        for accessory in context.accessories {
+            guard let deviceID = context.deviceID(ofAccessory: accessory.id), context.isExcluded(deviceID) else { continue }
+            try? await context.remove(id: accessory.id)
+            context.logger.info("Removed \(accessory.name): its device is Excluded")
+        }
         // A child bridge someone stopped: its plugins wait for start_child_bridge.
         if context.bridge.lifecycle.withLockedValue({ $0.stoppedManually }) { return }
         // A paused block: no plugin, so nothing reaches the devices; its accessories stay in HomeKit, answering
