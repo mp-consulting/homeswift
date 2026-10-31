@@ -2065,6 +2065,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function openUserMenu(trigger, keyboard = false) {
     const form = auth.mode === "form";
     const phone = matchMedia("(max-width: 640px)").matches;
+    // Without the wide window's side menu, Homeswift's section is in this menu.
+    const noSideMenu = matchMedia("(max-width: 1179.98px)").matches;
     HomeswiftCommon.menu(trigger, [
       form ? { heading: shownName(), detail: isAdmin() ? t("{username} · Administrator", { username: auth.username }) : auth.username } : { heading: t("No sign-in"), detail: t("Anyone who opens this web UI uses it") },
       { label: form ? t("Your account") : t("Account"), icon: "user", href: "/account" },
@@ -2073,9 +2075,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       // A phone's tab bar has no room for Settings: it is here, as the header holds it on a wider window.
       phone && isAdmin() ? { label: t("Settings"), icon: "gear", href: "/settings" } : null,
       { label: t("Language"), icon: flag(HomeswiftI18n.language), onSelect: () => setTimeout(() => languageMenu(trigger)) },
-      // On a phone this is the page's menu: Homeswift's health, version and updates are here too (the side menu
-      // holds them on a wide window).
-      ...(phone && aboutStatus ? [{ separator: true },
+      // Homeswift's health, version and updates, which the side menu holds on a wide window.
+      ...(noSideMenu && aboutStatus ? [{ separator: true },
         { heading: t("Homeswift {version}", { version: aboutStatus.version }), detail: healthOf(aboutStatus)[0] },
         isAdmin() ? { label: updateLabels[aboutUpdate?.error ? "error" : updatePhase(aboutUpdate)](), icon: aboutUpdate?.available ? "download" : "update", href: "/settings/updates" } : null,
         { label: t("Send feedback"), icon: "bug", onSelect: () => window.open("https://github.com/mp-consulting/homeswift/issues", "_blank", "noopener") }] : []),
@@ -20828,8 +20829,8 @@ HomeswiftI18n.add("pt", {
         { label: form ? t("Your account") : t("Account"), icon: "user", href: "/account" },
         { label: t("Appearance"), icon: "sliders", href: "/appearance" },
         form && auth.admin ? { label: t("Users and tokens"), icon: "users", href: "/users" } : null,
-        // On a phone this is the page's menu: Homeswift's health, version and updates are here too.
-        ...(matchMedia("(max-width: 640px)").matches && aboutStatus ? [{ separator: true },
+        // Homeswift's health, version and updates, which the side menu holds on a wide window.
+        ...(matchMedia("(max-width: 1179.98px)").matches && aboutStatus ? [{ separator: true },
           { heading: t("Homeswift {version}", { version: aboutStatus.version }), detail: healthOf(aboutStatus)[0] },
           auth.admin ? { label: aboutStatus.update?.available ? t("Update available") : t("Updates"), icon: "download", href: "/settings/updates" } : null,
           { label: t("Send feedback"), icon: "bug", onSelect: () => window.open("https://github.com/mp-consulting/homeswift/issues", "_blank", "noopener") }] : []),
