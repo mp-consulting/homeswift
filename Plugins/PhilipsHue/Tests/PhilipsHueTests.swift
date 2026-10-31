@@ -235,7 +235,7 @@ struct PhilipsHueTests {
         #expect(configuration.transitionMs == nil)
     }
 
-    /// The plugin asks for a key until the link button is pressed, and keeps it in its own file, not config.json.
+    /// The plugin asks for a key until the link button is pressed, and keeps it in the vault, not config.json.
     @Test func pairsWhenTheLinkButtonIsPressed() async throws {
         let host = try await environment.start(paired: false)
         #expect(await eventually { environment.bridge.sent.contains { $0.method == "POST" && $0.path == "/api" } })
@@ -244,13 +244,30 @@ struct PhilipsHueTests {
         let pairing = try #require(environment.bridge.sent.first { $0.path == "/api" })
         #expect(pairing.body["generateclientkey"] == true)
         #expect(pairing.body["devicetype"]?.stringValue?.hasPrefix("homeswift#") == true)
-        let directory = environment.directory
+        let vault = CredentialVault(storage: environment.directory)
         #expect(await eventually(timeout: .seconds(10)) {
-            let files = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: nil)?.compactMap { $0 as? URL } ?? []
-            guard let file = files.first(where: { $0.lastPathComponent == "bridge.json" }) else { return false }
-            return (try? String(contentsOf: file, encoding: .utf8))?.contains("app-key-1") == true
+            (try? vault.entries())?.contains { $0.key.hasSuffix(".account") && $0.value.fields.values.contains { $0.contains("app-key-1") } } == true
         })
         _ = try await accessory(host, stripID)
+        await host.stop()
+    }
+
+    /// Setup asks for the link button while it is not pressed, then hands the key to the bridge's vault, and lists the
+    /// lights and sensors as devices that need nothing more.
+    @Test func setUpAsksForTheLinkButtonThenListsTheLights() async throws {
+        let host = try await environment.start(paired: false)
+        let plugin = try #require(await environment.plugin)
+        let first = try await plugin.authorize(SetupRequest(target: .account))
+        guard case .ask(let prompt, let state) = first else { Issue.record("expected the link button"); return }
+        #expect(prompt.waitSeconds == 60)
+        environment.bridge.pressLinkButton()
+        let done = try await plugin.authorize(SetupRequest(target: .account, state: state))
+        guard case .done(let outcome) = done else { Issue.record("expected done"); return }
+        #expect(outcome.credentials?["applicationKey"]?.stringValue?.isEmpty == false)
+        #expect(outcome.settings.isEmpty)
+        try host.context(platform: PhilipsHuePlugin.platform, name: PhilipsHuePlugin.name)?.saveCredentials(outcome.credentials ?? .null)
+        let devices = try await plugin.discover()
+        #expect(devices.contains { $0.deviceID == "light-1" && $0.isSetUp })
         await host.stop()
     }
 

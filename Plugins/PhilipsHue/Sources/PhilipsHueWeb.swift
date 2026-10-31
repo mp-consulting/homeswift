@@ -21,7 +21,7 @@ extension PhilipsHuePlugin {
                 "sensors": .number(Double(snapshot.sensors.count)), "sensorsOn": .bool(configuration.sensors ?? true),
             ])
         case ("GET", "discover"):
-            return PluginWebResponse(["hosts": .array(await discover().map(JSONValue.string))])
+            return PluginWebResponse(["hosts": .array(await discoverHosts().map(JSONValue.string))])
         case ("POST", "host"):
             guard let host = request.body["host"]?.stringValue?.trimmingCharacters(in: .whitespaces), !host.isEmpty else { return .error(400, "an address is required") }
             await use(host: host)

@@ -12,8 +12,9 @@ import Logging
 /// Off switches the room off. A light's changes of one moment go in one command with the transition of
 /// `transitionMs`, so moods and the Home app change colour and brightness together, as fast as the bridge allows.
 ///
-/// The first start pairs with the bridge: the plugin's page, or the log, asks for the link button, and the
-/// application key is kept in the plugin's directory (`bridge.json`), never in config.json. Changes made elsewhere (the
+/// The bridge is the instance's account (Setup, `HueSetup.swift`): a Button Press on its link button, from the
+/// Add accessories page, the plugin's page or the log at first start; its application key is kept in the vault, never
+/// in config.json. Changes made elsewhere (the
 /// Hue app, a dimmer switch) are read every `pollingInterval` seconds in one request. See README.md in this directory.
 public actor PhilipsHuePlugin: HomeswiftPlugin {
     public struct Configuration: Decodable, Sendable {
@@ -47,7 +48,7 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         public var transitionMs: Int
     }
 
-    /// What the plugin keeps of its bridge in `bridge.json`.
+    /// What the plugin keeps of its bridge: the account's credentials in the vault (`bridge.json` before).
     struct StoredBridge: Codable, Sendable, Equatable {
         var host: String?
         var bridgeID: String?
@@ -94,11 +95,10 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     let dependencies: Dependencies
     private let tasks = TaskBag()
     var logger: Logger { context.logger }
-    private let store: JSONFile<StoredBridge>
     /// The pictures people gave scenes on the page, by scene id.
     let pictures: PluginPictures
     var stored: StoredBridge
-    private let trust: HTTPClient.TrustOnFirstUse
+    let trust: HTTPClient.TrustOnFirstUse
     private(set) var client: HueClient?
     var snapshot = HueSnapshot()
     private(set) var lastError: String?
@@ -159,15 +159,14 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         excludedSensors = Set((configuration.excludeSensors ?? []).map { $0.lowercased() })
         self.context = context
         self.dependencies = dependencies
-        store = context.jsonFile("bridge.json")
         pictures = context.scenePictures()
-        let stored = store.load() ?? StoredBridge()
+        let stored = context.credentials(as: StoredBridge.self, legacyFile: "bridge.json") ?? StoredBridge()
         self.stored = stored
-        let store = store
-        trust = HTTPClient.TrustOnFirstUse(pinned: stored.fingerprint) { fingerprint in
-            var updated = store.load() ?? StoredBridge()
+        trust = HTTPClient.TrustOnFirstUse(pinned: stored.fingerprint) { [context] fingerprint in
+            // Kept with the key: a bridge not paired yet has no credentials (Setup reads that as not set up).
+            guard var updated = context.credentials(as: StoredBridge.self) else { return }
             updated.fingerprint = fingerprint
-            try? store.save(updated)
+            try? context.saveCredentials(updated)
         }
     }
 
@@ -230,7 +229,7 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         }
     }
 
-    private func bridgeHost() async -> String? {
+    func bridgeHost() async -> String? {
         if let host = configuration.host?.trimmingCharacters(in: .whitespaces), !host.isEmpty { return host }
         if let host = stored.host { return host }
         return await dependencies.discover().first
@@ -253,8 +252,16 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         client = HueClient(host: host, applicationKey: stored.applicationKey, transport: dependencies.transport(trust))
     }
 
-    private func save() {
-        do { try store.save(stored) } catch { logger.warning("Could not save bridge.json: \(error)") }
+    func save() {
+        // Credentials only once paired: without a key, the bridge Needs Authorization and nothing is kept.
+        guard stored.applicationKey != nil else {
+            context.removeCredentials()
+            return
+        }
+        // The fingerprint is the trust's: pinned on first use, it saves it itself.
+        var current = stored
+        current.fingerprint = context.credentials(as: StoredBridge.self)?.fingerprint ?? stored.fingerprint
+        do { try context.saveCredentials(current) } catch { logger.warning("Could not save the Hue Bridge's key: \(error)") }
     }
 
     // MARK: Pairing
@@ -725,7 +732,7 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         return paired
     }
 
-    func discover() async -> [String] { await dependencies.discover() }
+    func discoverHosts() async -> [String] { await dependencies.discover() }
 
     /// Makes a light or a sensor show itself (a light blinks, a sensor's LED flashes): its device's identify. `id` is
     /// a light's id or a sensor device's.
