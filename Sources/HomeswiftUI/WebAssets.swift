@@ -1929,7 +1929,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // Under the name in the side menu: what the account is; without sign-in, that alone, never a bare avatar.
     $("#user .user-role").textContent = auth.mode !== "form" ? t("No sign-in") : isAdmin() ? t("Administrator") : t("User");
     $("#user .user-chevron").replaceChildren(HomeswiftCommon.icon("selector"));
-    $("#user .user-burger").replaceChildren(HomeswiftCommon.icon("menu"));
     // A wide window's side menu has no account button: its menu's entries are You's, under Home's sections.
     const form = auth.mode === "form";
     const item = (glyph, text, onclick) => el("button", { type: "button", class: "side-action", onclick }, glyph, el("span", { text }));
@@ -1981,7 +1980,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       button.replaceChildren(HomeswiftCommon.icon(({ current: "check", available: "download", installed: "power", error: "warning" })[state] || "restore"),
         el("span", { class: "footer-update-label", text: label }));
     }
-    if (!only) $("#side-about").classList.toggle("has-update", ["available", "installed"].includes(state));
+    if (!only) for (const details of document.querySelectorAll(".side-about")) details.classList.toggle("has-update", ["available", "installed"].includes(state));
   }
 
   // The overview's card, the sheet and the buttons all say what an install is doing.
@@ -2035,18 +2034,20 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   function drawSideAbout(status) {
     aboutStatus = status;
     if (status.update) aboutUpdate = status.update;
-    const about = aboutParts(status);
-    const details = $("#side-about");
-    details.replaceChildren(
-      el("summary", {},
-        el("span", { class: `side-about-dot ${healthOf(status)[1]}`, "aria-hidden": "true" }),
-        el("span", { class: "side-about-title", text: t("Homeswift {version}", { version: status.version }) }),
-        el("span", { class: "side-about-badge", role: "img", "aria-label": t("Update available"), title: t("Update available") }),
-        HomeswiftCommon.icon("up")),
-      el("div", { class: "side-about-body" }, about.health, about.meta, about.feedback,
-        // Restarting, in the accent: an administrator's, and not a page like the rest.
-        isAdmin() ? el("button", { type: "button", class: "link side-about-restart", onclick: restartBridge }, HomeswiftCommon.icon("power"), el("span", { text: t("Restart homeswift…") })) : null));
-    details.hidden = false;
+    // The side menu's, and a phone's ☰ panel's.
+    for (const details of document.querySelectorAll(".side-about")) {
+      const about = aboutParts(status);
+      details.replaceChildren(
+        el("summary", {},
+          el("span", { class: `side-about-dot ${healthOf(status)[1]}`, "aria-hidden": "true" }),
+          el("span", { class: "side-about-title", text: t("Homeswift {version}", { version: status.version }) }),
+          el("span", { class: "side-about-badge", role: "img", "aria-label": t("Update available"), title: t("Update available") }),
+          HomeswiftCommon.icon(details.closest("header") ? "up" : "down")),
+        el("div", { class: "side-about-body" }, about.health, about.meta, about.feedback,
+          // Restarting, in the accent: an administrator's, and not a page like the rest.
+          isAdmin() ? el("button", { type: "button", class: "link side-about-restart", onclick: restartBridge }, HomeswiftCommon.icon("power"), el("span", { text: t("Restart homeswift…") })) : null));
+      details.hidden = false;
+    }
     renderUpdateButtons();
   }
   HomeswiftCommon.foldOnLeave($("#side-about"));
@@ -2061,7 +2062,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const form = auth.mode === "form";
     const phone = matchMedia("(max-width: 640px)").matches;
     // Without the wide window's side menu, Homeswift's section is in this menu.
-    const noSideMenu = matchMedia("(max-width: 1179.98px)").matches;
+    // (A phone's ☰ panel has its own.)
+    const noSideMenu = matchMedia("(min-width: 641px) and (max-width: 1179.98px)").matches;
     HomeswiftCommon.menu(trigger, [
       form ? { heading: shownName(), detail: isAdmin() ? t("{username} · Administrator", { username: auth.username }) : auth.username } : { heading: t("No sign-in"), detail: t("Anyone who opens this web UI uses it") },
       { label: form ? t("Your account") : t("Account"), icon: "user", href: "/account" },
@@ -8506,7 +8508,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // The web UI: a browser window with a page of tiles in it.
     browser: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 8.5h18M6 6.25h0M8.5 6.25h0"/><rect x="6.5" y="11.5" width="4.5" height="5" rx="1"/><path d="M14 12.5h3.5M14 15.5h3.5"/>',
     selector: '<path d="M8 9.5l4-4 4 4M8 14.5l4 4 4-4"/>',
-    menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
     sparkle: '<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z"/><path d="M18.5 15.5l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z"/>',
     ungroup: '<rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><path d="M3 9V3h6M3 3l5 5M15 21h6v-6M21 21l-5-5"/>',
     group: '<rect x="3" y="8" width="13" height="13" rx="3"/><path d="M8 8V6a3 3 0 0 1 3-3h7a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3h-2M7 14.5h5M9.5 12v5"/>',
@@ -9671,6 +9672,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       setOpen(false);
       document.dispatchEvent(new CustomEvent("homeswift-account-menu", { detail: { trigger: toggle, keyboard: event.detail === 0 } }));
     } }, icon("user"), el("span", { text: t("Account") })));
+    // Homeswift's section under Account, as at the side menu's foot; the page draws it (`.side-about`).
+    panel.append(el("details", { class: "side-about mobile-nav-about", hidden: true }));
     toggle.addEventListener("click", () => setOpen(panel.hidden));
     panel.addEventListener("click", (event) => { if (event.target.closest("a")) setOpen(false); });
     const bar = el("nav", { class: "tabbar", "aria-label": t("Sections") }, panel, toggle);
@@ -20572,7 +20575,7 @@ HomeswiftI18n.add("pt", {
     </nav>
     <span class="spacer"></span>
     <details id="side-about" class="side-about" hidden></details>
-    <button id="user" type="button" class="user-button" aria-haspopup="menu" aria-expanded="false" aria-label="Account menu" data-i18n><span class="user-avatar" aria-hidden="true"></span><span class="user-text"><span class="user-name"></span><span class="user-role"></span></span><span class="user-chevron" aria-hidden="true"></span><span class="user-burger" aria-hidden="true"></span></button>
+    <button id="user" type="button" class="user-button" aria-haspopup="menu" aria-expanded="false" aria-label="Account menu" data-i18n><span class="user-avatar" aria-hidden="true"></span><span class="user-text"><span class="user-name"></span><span class="user-role"></span></span><span class="user-chevron" aria-hidden="true"></span></button>
   </header>
   <div id="banner" class="banner hidden" data-i18n>Some changes need a restart of homeswift. <button id="restart" class="link" data-i18n data-action-icon="power">Restart now</button></div>
   <main id="view"></main>
@@ -20822,8 +20825,7 @@ HomeswiftI18n.add("pt", {
     const userName = el("span", { class: "user-name" });
     const userRole = el("span", { class: "user-role", text: t("No sign-in") });
     const user = el("button", { id: "user", type: "button", class: "user-button", "aria-haspopup": "menu", "aria-expanded": "false", "aria-label": t("Account menu") },
-      avatar, el("span", { class: "user-text" }, userName, userRole), el("span", { class: "user-chevron", "aria-hidden": "true" }, HomeswiftCommon.icon("selector")),
-      el("span", { class: "user-burger", "aria-hidden": "true" }, HomeswiftCommon.icon("menu")));
+      avatar, el("span", { class: "user-text" }, userName, userRole), el("span", { class: "user-chevron", "aria-hidden": "true" }, HomeswiftCommon.icon("selector")));
     const shownName = () => (auth.mode === "form" ? (auth.name && auth.name !== auth.username ? auth.name : auth.username || "") : "");
     user.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -20834,7 +20836,7 @@ HomeswiftI18n.add("pt", {
         { label: t("Appearance"), icon: "sliders", href: "/appearance" },
         form && auth.admin ? { label: t("Users and tokens"), icon: "users", href: "/users" } : null,
         // Homeswift's health, version and updates, which the side menu holds on a wide window.
-        ...(matchMedia("(max-width: 1179.98px)").matches && aboutStatus ? [{ separator: true },
+        ...(matchMedia("(min-width: 641px) and (max-width: 1179.98px)").matches && aboutStatus ? [{ separator: true },
           { heading: t("Homeswift {version}", { version: aboutStatus.version }), detail: healthOf(aboutStatus)[0] },
           auth.admin ? { label: aboutStatus.update?.available ? t("Update available") : t("Updates"), icon: "download", href: "/settings/updates" } : null,
           { label: t("Send feedback"), icon: "bug", onSelect: () => window.open("https://github.com/mp-consulting/homeswift/issues", "_blank", "noopener") }] : []),
@@ -20865,17 +20867,20 @@ HomeswiftI18n.add("pt", {
       const status = aboutStatus;
       if (!status) return;
       const [health, kind] = healthOf(status);
-      about.classList.toggle("has-update", Boolean(status.update?.available));
-      about.replaceChildren(
-        el("summary", {}, el("span", { class: `side-about-dot ${kind}`, "aria-hidden": "true" }),
-          el("span", { class: "side-about-title", text: t("Homeswift {version}", { version: status.version }) }),
-          el("span", { class: "side-about-badge", role: "img", "aria-label": t("Update available"), title: t("Update available") }), HomeswiftCommon.icon("up")),
-        el("div", { class: "side-about-body" },
-          el("p", { class: `health ${kind}` }, el("strong", { text: health })),
-          el("p", { class: "muted", text: t("Version {version} · {host}", { version: status.version, host: status.system.hostname }) }),
-          auth.admin ? el("a", { class: "link", href: "/settings/updates" }, HomeswiftCommon.icon("download"), el("span", { text: status.update?.available ? t("Update available") : t("Updates") })) : null,
-          el("a", { class: "link", href: "https://github.com/mp-consulting/homeswift/issues", target: "_blank", rel: "noopener" }, HomeswiftCommon.icon("bug"), el("span", { text: t("Send feedback") }))));
-      about.hidden = false;
+      // The side menu's, and a phone's ☰ panel's.
+      for (const about of document.querySelectorAll(".side-about")) {
+        about.classList.toggle("has-update", Boolean(status.update?.available));
+        about.replaceChildren(
+          el("summary", {}, el("span", { class: `side-about-dot ${kind}`, "aria-hidden": "true" }),
+            el("span", { class: "side-about-title", text: t("Homeswift {version}", { version: status.version }) }),
+            el("span", { class: "side-about-badge", role: "img", "aria-label": t("Update available"), title: t("Update available") }), HomeswiftCommon.icon(about.closest("header") ? "up" : "down")),
+          el("div", { class: "side-about-body" },
+            el("p", { class: `health ${kind}` }, el("strong", { text: health })),
+            el("p", { class: "muted", text: t("Version {version} · {host}", { version: status.version, host: status.system.hostname }) }),
+            auth.admin ? el("a", { class: "link", href: "/settings/updates" }, HomeswiftCommon.icon("download"), el("span", { text: status.update?.available ? t("Update available") : t("Updates") })) : null,
+            el("a", { class: "link", href: "https://github.com/mp-consulting/homeswift/issues", target: "_blank", rel: "noopener" }, HomeswiftCommon.icon("bug"), el("span", { text: t("Send feedback") }))));
+        about.hidden = false;
+      }
     };
     api("/api/status").then((status) => { aboutStatus = status; drawAbout(); }).catch(() => {});
     // The header as index.html has it: in a wide window it is the frame's side menu, with the brand's name, Home's
@@ -22339,14 +22344,7 @@ header nav a svg { display: none; }
 .user-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The role and the selector glyph show in the wide window's side menu only; elsewhere the name sits beside the avatar. */
 .user-text { display: contents; }
-.user-role, .user-chevron, .user-burger { display: none; }
-/* On a phone the account button is the page's menu (the account, Homeswift's health and updates): a hamburger. */
-@media (max-width: 640px) {
-  header .user-button, header .user-button:has(.user-name:empty) { padding: 0; }
-  header .user-button .user-avatar, header .user-button .user-name { display: none; }
-  header .user-burger { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; color: var(--text); }
-  header .user-burger svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
-}
+.user-role, .user-chevron { display: none; }
 /* Without sign-in there is no name: the avatar alone, round. */
 .user-name:empty { display: none; }
 .user-button:has(.user-name:empty) { padding: 3px; }
@@ -25490,7 +25488,46 @@ fieldset > .help { margin-bottom: var(--space-10); }
 
 /* Homeswift at the side menu's foot (a wide window): one quiet line, the health's dot and the version, a dot when an
    update waits; it unfolds into the health, the host, the update button and Send feedback. */
+/* Homeswift: at the side menu's foot (a wide window), opening upward over it; in a phone's ☰ panel, under Account,
+   opening in place. One quiet line, the health's dot and the version, a dot when an update waits. */
 .side-about { display: none; }
+.side-about[hidden] { display: none !important; }
+.side-about > summary {
+  display: flex; align-items: center; gap: var(--space-10); min-height: 40px; padding: 0 var(--space-12); border-radius: var(--radius-md);
+  list-style: none; cursor: pointer; color: var(--muted); font-size: var(--text-sm); font-weight: var(--weight-medium);
+  transition: background-color var(--fast) var(--ease-out), color var(--fast) var(--ease-out);
+}
+.side-about > summary::-webkit-details-marker { display: none; }
+.side-about > summary:hover, .side-about[open] > summary { color: var(--text); background-color: var(--material-thin); }
+.side-about > summary:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+.side-about-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 18%, transparent); }
+.side-about-dot.away { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 18%, transparent); }
+.side-about-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.side-about-badge { display: none; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.side-about.has-update .side-about-badge { display: block; }
+.side-about > summary svg { flex: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+  transition: transform var(--fast) var(--ease-out); }
+.side-about[open] > summary svg { transform: rotate(180deg); }
+.side-about-body { display: grid; gap: var(--space-10); padding: var(--space-10) var(--space-12) var(--space-4); font-size: var(--text-xs); line-height: 1.5; }
+.side-about[open] .side-about-body { animation: side-about-in 180ms var(--ease-out); }
+.side-about-body p { margin: 0; }
+.side-about-body .health { gap: var(--space-8); }
+.side-about-body .health::before { width: 6px; height: 6px; margin-top: calc(.75em - 3px); }
+.side-about-body .health strong { font-weight: var(--weight-medium); }
+.side-about-body .status-footer-meta { display: grid; justify-items: start; gap: var(--space-8); }
+.side-about-body .status-footer-meta > .muted { white-space: normal; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.side-about-body > a.link, .tabbar .mobile-nav-panel .side-about-body > a.link {
+  display: inline-flex; align-items: center; gap: var(--space-8); justify-self: start; min-height: 0; margin: 0; padding: 0;
+  color: var(--muted); font-size: inherit; text-decoration: none;
+}
+.side-about-body > .side-about-restart { display: inline-flex; align-items: center; gap: var(--space-8); justify-self: start; margin: 0; padding: 0; min-height: 0;
+  color: var(--accent-ink); font-size: inherit; font-weight: var(--weight-medium); text-decoration: none; }
+.side-about-body > .side-about-restart:hover { text-decoration: underline; text-underline-offset: 3px; }
+.side-about-body > a.link:hover { color: var(--text); }
+.side-about-body > .side-about-restart svg,
+.side-about-body > a.link svg, .tabbar .mobile-nav-panel .side-about-body > a.link svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.mobile-nav-panel .side-about { display: block; }
+.mobile-nav-panel .side-about > summary { min-height: 44px; font-size: var(--text-md); }
 @media (min-width: 1180px) {
   /* Customise floats at the window's bottom right while the page scrolls, its middle on the Assistant's button's, to its
      left (that button sits 24 px into the frame's 28 px padding and is 56 px wide). */
@@ -25499,46 +25536,14 @@ fieldset > .help { margin-bottom: var(--space-10); }
 
   header .side-about { display: block; position: relative; margin-top: var(--space-16); }
   header .side-about::before { content: ""; position: absolute; top: calc(-1 * var(--space-8)); left: var(--space-8); right: var(--space-8); border-top: 1px solid var(--line); }
-  header .side-about[hidden] { display: none; }
-  .side-about > summary {
-    display: flex; align-items: center; gap: var(--space-10); min-height: 40px; padding: 0 var(--space-12); border-radius: var(--radius-md);
-    list-style: none; cursor: pointer; color: var(--muted); font-size: var(--text-sm); font-weight: var(--weight-medium);
-    transition: background-color var(--fast) var(--ease-out), color var(--fast) var(--ease-out);
-  }
-  .side-about > summary::-webkit-details-marker { display: none; }
-  .side-about > summary:hover, .side-about[open] > summary { color: var(--text); background-color: var(--material-thin); }
-  .side-about > summary:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
-  .side-about-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 18%, transparent); }
-  .side-about-dot.away { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 18%, transparent); }
-  .side-about-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
-  .side-about-badge { display: none; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
-  .side-about.has-update .side-about-badge { display: block; }
-  .side-about > summary svg { flex: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
-    transition: transform var(--fast) var(--ease-out); }
-  .side-about[open] > summary svg { transform: rotate(180deg); }
   /* It opens upward, a card of glass over the menu as a menu is, so the side menu keeps the window's height. */
-  .side-about-body {
-    position: absolute; left: 0; right: 0; bottom: calc(100% + var(--space-8)); z-index: var(--layer-menu);
-    display: grid; gap: var(--space-10); padding: var(--space-14); font-size: var(--text-xs); line-height: 1.5;
+  header .side-about-body {
+    position: absolute; left: 0; right: 0; bottom: calc(100% + var(--space-8)); z-index: var(--layer-menu); padding: var(--space-14);
     border-radius: calc(var(--radius-sm) + 6px); background-color: var(--material-thick); background-image: var(--sheen);
     -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
     border: 1px solid var(--edge); box-shadow: 0 18px 44px rgba(25, 34, 56, 0.24), inset 0 1px 0 var(--edge-light);
     transform-origin: bottom center;
   }
-  .side-about[open] .side-about-body { animation: side-about-in 180ms var(--ease-out); }
-  .side-about-body p { margin: 0; }
-  .side-about-body .health { gap: var(--space-8); }
-  .side-about-body .health::before { width: 6px; height: 6px; margin-top: calc(.75em - 3px); }
-  .side-about-body .health strong { font-weight: var(--weight-medium); }
-  .side-about-body .status-footer-meta { display: grid; justify-items: start; gap: var(--space-8); }
-  .side-about-body .status-footer-meta > .muted { white-space: normal; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
-  .side-about-body > a.link { display: inline-flex; align-items: center; gap: var(--space-8); justify-self: start; color: var(--muted); text-decoration: none; }
-  .side-about-body > .side-about-restart { display: inline-flex; align-items: center; gap: var(--space-8); justify-self: start; margin: 0; padding: 0; min-height: 0;
-    color: var(--accent-ink); font-size: inherit; font-weight: var(--weight-medium); text-decoration: none; }
-  .side-about-body > .side-about-restart:hover { text-decoration: underline; text-underline-offset: 3px; }
-  .side-about-body > a.link:hover { color: var(--text); }
-  .side-about-body > .side-about-restart svg,
-  .side-about-body > a.link svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 }
 @keyframes side-about-in { from { opacity: 0; transform: translateY(4px) scale(0.97); } }
 @media (prefers-reduced-motion: reduce) { .side-about[open] .side-about-body { animation: none; } .side-about > summary svg { transition: none; } }

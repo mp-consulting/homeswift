@@ -109,8 +109,7 @@
     const userName = el("span", { class: "user-name" });
     const userRole = el("span", { class: "user-role", text: t("No sign-in") });
     const user = el("button", { id: "user", type: "button", class: "user-button", "aria-haspopup": "menu", "aria-expanded": "false", "aria-label": t("Account menu") },
-      avatar, el("span", { class: "user-text" }, userName, userRole), el("span", { class: "user-chevron", "aria-hidden": "true" }, HomeswiftCommon.icon("selector")),
-      el("span", { class: "user-burger", "aria-hidden": "true" }, HomeswiftCommon.icon("menu")));
+      avatar, el("span", { class: "user-text" }, userName, userRole), el("span", { class: "user-chevron", "aria-hidden": "true" }, HomeswiftCommon.icon("selector")));
     const shownName = () => (auth.mode === "form" ? (auth.name && auth.name !== auth.username ? auth.name : auth.username || "") : "");
     user.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -121,7 +120,7 @@
         { label: t("Appearance"), icon: "sliders", href: "/appearance" },
         form && auth.admin ? { label: t("Users and tokens"), icon: "users", href: "/users" } : null,
         // Homeswift's health, version and updates, which the side menu holds on a wide window.
-        ...(matchMedia("(max-width: 1179.98px)").matches && aboutStatus ? [{ separator: true },
+        ...(matchMedia("(min-width: 641px) and (max-width: 1179.98px)").matches && aboutStatus ? [{ separator: true },
           { heading: t("Homeswift {version}", { version: aboutStatus.version }), detail: healthOf(aboutStatus)[0] },
           auth.admin ? { label: aboutStatus.update?.available ? t("Update available") : t("Updates"), icon: "download", href: "/settings/updates" } : null,
           { label: t("Send feedback"), icon: "bug", onSelect: () => window.open("https://github.com/mp-consulting/homeswift/issues", "_blank", "noopener") }] : []),
@@ -152,17 +151,20 @@
       const status = aboutStatus;
       if (!status) return;
       const [health, kind] = healthOf(status);
-      about.classList.toggle("has-update", Boolean(status.update?.available));
-      about.replaceChildren(
-        el("summary", {}, el("span", { class: `side-about-dot ${kind}`, "aria-hidden": "true" }),
-          el("span", { class: "side-about-title", text: t("Homeswift {version}", { version: status.version }) }),
-          el("span", { class: "side-about-badge", role: "img", "aria-label": t("Update available"), title: t("Update available") }), HomeswiftCommon.icon("up")),
-        el("div", { class: "side-about-body" },
-          el("p", { class: `health ${kind}` }, el("strong", { text: health })),
-          el("p", { class: "muted", text: t("Version {version} · {host}", { version: status.version, host: status.system.hostname }) }),
-          auth.admin ? el("a", { class: "link", href: "/settings/updates" }, HomeswiftCommon.icon("download"), el("span", { text: status.update?.available ? t("Update available") : t("Updates") })) : null,
-          el("a", { class: "link", href: "https://github.com/mp-consulting/homeswift/issues", target: "_blank", rel: "noopener" }, HomeswiftCommon.icon("bug"), el("span", { text: t("Send feedback") }))));
-      about.hidden = false;
+      // The side menu's, and a phone's ☰ panel's.
+      for (const about of document.querySelectorAll(".side-about")) {
+        about.classList.toggle("has-update", Boolean(status.update?.available));
+        about.replaceChildren(
+          el("summary", {}, el("span", { class: `side-about-dot ${kind}`, "aria-hidden": "true" }),
+            el("span", { class: "side-about-title", text: t("Homeswift {version}", { version: status.version }) }),
+            el("span", { class: "side-about-badge", role: "img", "aria-label": t("Update available"), title: t("Update available") }), HomeswiftCommon.icon(about.closest("header") ? "up" : "down")),
+          el("div", { class: "side-about-body" },
+            el("p", { class: `health ${kind}` }, el("strong", { text: health })),
+            el("p", { class: "muted", text: t("Version {version} · {host}", { version: status.version, host: status.system.hostname }) }),
+            auth.admin ? el("a", { class: "link", href: "/settings/updates" }, HomeswiftCommon.icon("download"), el("span", { text: status.update?.available ? t("Update available") : t("Updates") })) : null,
+            el("a", { class: "link", href: "https://github.com/mp-consulting/homeswift/issues", target: "_blank", rel: "noopener" }, HomeswiftCommon.icon("bug"), el("span", { text: t("Send feedback") }))));
+        about.hidden = false;
+      }
     };
     api("/api/status").then((status) => { aboutStatus = status; drawAbout(); }).catch(() => {});
     // The header as index.html has it: in a wide window it is the frame's side menu, with the brand's name, Home's

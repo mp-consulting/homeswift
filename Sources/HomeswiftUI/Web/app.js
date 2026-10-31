@@ -134,7 +134,6 @@
     // Under the name in the side menu: what the account is; without sign-in, that alone, never a bare avatar.
     $("#user .user-role").textContent = auth.mode !== "form" ? t("No sign-in") : isAdmin() ? t("Administrator") : t("User");
     $("#user .user-chevron").replaceChildren(HomeswiftCommon.icon("selector"));
-    $("#user .user-burger").replaceChildren(HomeswiftCommon.icon("menu"));
     // A wide window's side menu has no account button: its menu's entries are You's, under Home's sections.
     const form = auth.mode === "form";
     const item = (glyph, text, onclick) => el("button", { type: "button", class: "side-action", onclick }, glyph, el("span", { text }));
@@ -186,7 +185,7 @@
       button.replaceChildren(HomeswiftCommon.icon(({ current: "check", available: "download", installed: "power", error: "warning" })[state] || "restore"),
         el("span", { class: "footer-update-label", text: label }));
     }
-    if (!only) $("#side-about").classList.toggle("has-update", ["available", "installed"].includes(state));
+    if (!only) for (const details of document.querySelectorAll(".side-about")) details.classList.toggle("has-update", ["available", "installed"].includes(state));
   }
 
   // The overview's card, the sheet and the buttons all say what an install is doing.
@@ -240,18 +239,20 @@
   function drawSideAbout(status) {
     aboutStatus = status;
     if (status.update) aboutUpdate = status.update;
-    const about = aboutParts(status);
-    const details = $("#side-about");
-    details.replaceChildren(
-      el("summary", {},
-        el("span", { class: `side-about-dot ${healthOf(status)[1]}`, "aria-hidden": "true" }),
-        el("span", { class: "side-about-title", text: t("Homeswift {version}", { version: status.version }) }),
-        el("span", { class: "side-about-badge", role: "img", "aria-label": t("Update available"), title: t("Update available") }),
-        HomeswiftCommon.icon("up")),
-      el("div", { class: "side-about-body" }, about.health, about.meta, about.feedback,
-        // Restarting, in the accent: an administrator's, and not a page like the rest.
-        isAdmin() ? el("button", { type: "button", class: "link side-about-restart", onclick: restartBridge }, HomeswiftCommon.icon("power"), el("span", { text: t("Restart homeswift…") })) : null));
-    details.hidden = false;
+    // The side menu's, and a phone's ☰ panel's.
+    for (const details of document.querySelectorAll(".side-about")) {
+      const about = aboutParts(status);
+      details.replaceChildren(
+        el("summary", {},
+          el("span", { class: `side-about-dot ${healthOf(status)[1]}`, "aria-hidden": "true" }),
+          el("span", { class: "side-about-title", text: t("Homeswift {version}", { version: status.version }) }),
+          el("span", { class: "side-about-badge", role: "img", "aria-label": t("Update available"), title: t("Update available") }),
+          HomeswiftCommon.icon(details.closest("header") ? "up" : "down")),
+        el("div", { class: "side-about-body" }, about.health, about.meta, about.feedback,
+          // Restarting, in the accent: an administrator's, and not a page like the rest.
+          isAdmin() ? el("button", { type: "button", class: "link side-about-restart", onclick: restartBridge }, HomeswiftCommon.icon("power"), el("span", { text: t("Restart homeswift…") })) : null));
+      details.hidden = false;
+    }
     renderUpdateButtons();
   }
   HomeswiftCommon.foldOnLeave($("#side-about"));
@@ -266,7 +267,8 @@
     const form = auth.mode === "form";
     const phone = matchMedia("(max-width: 640px)").matches;
     // Without the wide window's side menu, Homeswift's section is in this menu.
-    const noSideMenu = matchMedia("(max-width: 1179.98px)").matches;
+    // (A phone's ☰ panel has its own.)
+    const noSideMenu = matchMedia("(min-width: 641px) and (max-width: 1179.98px)").matches;
     HomeswiftCommon.menu(trigger, [
       form ? { heading: shownName(), detail: isAdmin() ? t("{username} · Administrator", { username: auth.username }) : auth.username } : { heading: t("No sign-in"), detail: t("Anyone who opens this web UI uses it") },
       { label: form ? t("Your account") : t("Account"), icon: "user", href: "/account" },

@@ -24,7 +24,7 @@ All notable changes to this project are documented here. The format follows
 - Web UI: the Status page's dark footer is gone. In a wide window its contents are Homeswift's section at the foot of the side menu, folded
   under its version; it unfolds into the health, the machine, the update button, Send feedback and Restart homeswift….
   The account button is gone there, its entries listed under You. In a narrower window the account menu holds the same,
-  its button a ☰ on a phone. Customise this page… floats at the Status page's bottom right. Plugin pages have the same side menu.
+  and on a phone the ☰ panel, under Account. Customise this page… floats at the Status page's bottom right. Plugin pages have the same side menu.
 - Icons and names on the Plugins page: the Dolphin plugin is a pool robot (on its page, card, widget and Matter row), the
   Matter block reads Homeswift Matter with Matter's mark and the web UI's block a browser window; under its name in Add a plugin,
   each plugin says what it brings (`HomeswiftPlugin.summary`, translated), which the search also reads.
