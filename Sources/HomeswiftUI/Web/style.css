@@ -820,7 +820,10 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
    menus of cards side by side line up whatever each card holds. */
 .server:has(> .card-foot), .accessory-card, .server.catalog { display: flex; flex-direction: column; }
 .card > .card-foot, .server.catalog > .actions { margin-top: auto; }
-.accessory-section + .accessory-section { margin-top: var(--space-8); }
+/* Rooms as the Home app's: 36 between one room's tiles and the next room's name, the name a bold title, 10 above
+   its tiles. */
+.accessory-section + .accessory-section { margin-top: 36px; }
+.accessory-section > .section-head h2 { font-size: var(--text-3xl); font-weight: var(--weight-bold); letter-spacing: -0.02em; }
 
 /* Apple Home proportions: compact rows and taller tiles in the same column width. A medium tile spans two
    compact rows; large and extra large keep two columns and fit their controls into as many rows as they need. */
@@ -4197,7 +4200,6 @@ html.wall-full #view {
 }
 html.wall-full #view > :not(.accessory-walls):not(.wall-full-chrome) { display: none; }
 html.wall-full .accessory-section > .section-head { padding-right: 56px; }
-html.wall-full .accessory-section > .section-head h2 { font-size: var(--text-2xl); }
 /* The graph full screen (/accessories/graph?full=1): the graph alone filling the window, its zoom at the foot and the
    options button in the corner, both faded while nothing happens; the inspector a card over it (a sheet on a phone). */
 html.wall-full.graph-full #view > .overview-card.graph-full-card { display: flex; }

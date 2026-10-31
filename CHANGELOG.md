@@ -16,6 +16,8 @@ All notable changes to this project are documented here. The format follows
   its zoom and options buttons.
 - Web UI: on a phone, the header's Assistant button was 36px wide and 40px tall, an oval off centre in the bar: it is
   round again, 40px both ways.
+- Web UI: the Accessories page's rooms are spaced as the Home app's: 36px between one room's tiles and the next room's
+  name, the name a bold 22px title. The widget screenshots draw rooms with the page's own markup.
 
 ## [0.18.0] - 2026-10-31
 
