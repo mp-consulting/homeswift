@@ -69,11 +69,11 @@ extension DirigeraPlugin {
         if host == nil {
             // A hub the block names that has no token yet, else one on the network not paired yet, else the first one found
             // (pairing it again).
-            if let named = hubHosts.first(where: { token(for: $0) == nil }) {
+            if let named = hubHosts.first(where: { self.token(for: $0) == nil }) {
                 host = named
             } else {
                 let hosts = await dependencies.discover()
-                host = hosts.first { token(for: $0) == nil } ?? hosts.first
+                host = hosts.first { self.token(for: $0) == nil } ?? hosts.first
             }
         }
         guard let host else {
