@@ -4221,11 +4221,12 @@ html.graph-full #view { animation: none; }
   flex-direction: column; flex-wrap: nowrap; gap: var(--space-8); margin: 0; transition: opacity 400ms ease;
 }
 .graph-full-card .overview-zoom button {
-  display: grid; place-items: center; width: 44px; height: 44px; min-width: 0; min-height: 0; padding: 0; gap: 0; font-size: 0; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; min-width: 0; min-height: 0; padding: 0; gap: 0; font-size: 0; border-radius: 50%;
   border: 1px solid var(--edge); background: var(--material-thick); box-shadow: var(--shadow-control); color: var(--text);
   -webkit-backdrop-filter: blur(var(--blur)); backdrop-filter: blur(var(--blur));
 }
-.graph-full-card .overview-zoom button svg { width: 20px; height: 20px; }
+/* Its glyph (the button's ::before) alone in the middle: in a flex row the label's text, at no size, takes no room. */
+.graph-full-card .overview-zoom button::before { width: 20px; height: 20px; margin: 0; }
 .graph-full-card .overview-zoom button:active { transform: scale(0.94); }
 html.graph-full:not(.wall-awake) .overview-zoom { opacity: 0.32; }
 @media (max-width: 640px) {
