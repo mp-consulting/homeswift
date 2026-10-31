@@ -44,7 +44,7 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
     let configuration: Configuration
     let context: PluginContext
     let dependencies: Dependencies
-    private var logger: Logger { context.logger }
+    var logger: Logger { context.logger }
     private(set) var devices: [String: TVDevice] = [:]
     private var pairings: [String: JointSpacePairing.Session] = [:]
 
@@ -60,7 +60,7 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
 
     public func start() async throws {
         var settings: [TVSettings] = []
-        for (index, device) in (configuration.devices ?? []).enumerated() {
+        for (index, device) in configuredDevices().enumerated() {
             do {
                 let checked = try TVSettings(device)
                 for warning in checked.warnings { logger.warning("TV \"\(checked.name)\": \(warning)") }
@@ -293,7 +293,7 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
 
     /// The TV's own `network/devices` first, preferring the interface that answers on `ip`; then this machine's
     /// ARP table, which has the TV since pairing just talked to it (what the Homebridge plugin reads).
-    private func lookUpMAC(ip: String, client: JointSpaceClient) async -> String? {
+    func lookUpMAC(ip: String, client: JointSpaceClient) async -> String? {
         do {
             let devices = try await client.networkDevices().filter { $0.mac.flatMap(MACAddress.canonical) != nil }
             let wireless = devices.first { $0.type?.lowercased().contains("wifi") == true || $0.type?.lowercased().contains("wireless") == true }

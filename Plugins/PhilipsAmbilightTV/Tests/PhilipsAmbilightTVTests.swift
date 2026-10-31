@@ -177,6 +177,38 @@ struct PairingTests {
         #expect(found.json["tvs"]?[0]?["host"] == "192.168.1.20")
     }
 
+    /// Setup: the TV found on the network asks for its PIN, a wrong one is asked again, and the paired TV goes under its
+    /// MAC with its keys in the vault; once there, the plugin runs it from its Accessory Settings.
+    @Test func setsUpATVFoundOnTheNetwork() async throws {
+        let host = try await environment.start(settings: ["devices": []])
+        let plugin = try #require(environment.plugin)
+        let found = try await plugin.discover()
+        let tv = try #require(found.first)
+        #expect(tv.deviceID == "ip:192.168.1.20" && tv.authorization == .deviceCode && !tv.isSetUp)
+        guard case .ask(let prompt, let state) = try await plugin.authorize(SetupRequest(target: .device(tv))) else { Issue.record("expected the PIN"); return }
+        #expect(prompt.fields.map(\.key) == ["pin"])
+        await environment.tv.set(wrongPINStatus: 401)
+        await #expect(throws: SetupError.self) { try await plugin.authorize(SetupRequest(target: .device(tv), answers: ["pin": "9999"], state: state)) }
+        await environment.tv.set(wrongPINStatus: nil)
+        guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .device(tv), answers: ["pin": "1234"], state: state)) else {
+            Issue.record("expected done"); return
+        }
+        #expect(outcome.deviceID == "AA:BB:CC:DD:EE:FF")
+        #expect(outcome.credentials?["password"] == "key-from-tv")
+        #expect(outcome.settings["ip"] == "192.168.1.20")
+
+        // What the bridge keeps of it: the keys in the vault, the address in the block's Accessory Settings.
+        let context = try #require(host.context(platform: PhilipsAmbilightTVPlugin.platform, name: "Philips TVs"))
+        try context.saveCredentials(outcome.credentials ?? .null, for: "AA:BB:CC:DD:EE:FF")
+        let block = try HomeswiftConfiguration.Platform(
+            platform: PhilipsAmbilightTVPlugin.platform, name: "Philips TVs",
+            settings: ["devices": [], "_accessories": ["AA:BB:CC:DD:EE:FF": ["name": "Living Room TV", "ip": "192.168.1.20", "pollingInterval": 1000, "wakeOnLanEnabled": false]]])
+        await host.apply(HomeswiftConfiguration(bridge: .init(port: 0), platforms: [block]))
+        #expect(await eventually { host.platforms.first?.accessoryIDs.contains(tvID) == true })
+        #expect(try await environment.plugin?.discover().first { $0.deviceID == "AA:BB:CC:DD:EE:FF" }?.isSetUp == true)
+        await host.stop()
+    }
+
     /// Pairs from the web page and returns the MAC address the entry carries.
     private func pairedMAC() async throws -> JSONValue? {
         _ = try await environment.start(settings: ["devices": []])

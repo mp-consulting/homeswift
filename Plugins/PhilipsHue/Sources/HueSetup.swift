@@ -36,7 +36,10 @@ extension PhilipsHuePlugin {
                                     fields: [SetupField("host", label: "Address", kind: .text)]))
         }
         // The certificate the bridge shows while pairing is the one the key is kept with: pinned from the first step on.
-        let pinned = PinnedFingerprint(typed == nil ? request.state["fingerprint"]?.stringValue : nil)
+        // Pairing again with the same bridge keeps the certificate it was paired with; a typed address starts afresh.
+        let saved = context.credentials(as: StoredBridge.self)
+        let known = saved?.host == host ? saved?.fingerprint : nil
+        let pinned = PinnedFingerprint(typed == nil ? request.state["fingerprint"]?.stringValue ?? known : nil)
         let trust = HTTPClient.TrustOnFirstUse(pinned: pinned.value) { pinned.value = $0 }
         let client = HueClient(host: host, applicationKey: nil, transport: dependencies.transport(trust))
         let waiting = SetupPrompt(message: "Press the link button on the Hue Bridge.", waitSeconds: Int(Self.pairingWindow.components.seconds), retryAfter: 2)

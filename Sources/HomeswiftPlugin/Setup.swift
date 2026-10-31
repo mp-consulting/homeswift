@@ -108,10 +108,14 @@ public struct SetupOutcome: Sendable {
     /// Settings that are not secret, merged into the plugin's block for an account (a hub's host), or into the device's
     /// Accessory Settings for a device.
     public var settings: [String: JSONValue]
+    /// The device's Device Id when the Authorization is what tells it (a TV's MAC, read once paired): the credentials and
+    /// the settings go under it rather than under the one discovery gave.
+    public var deviceID: String?
 
-    public init(credentials: JSONValue? = nil, settings: [String: JSONValue] = [:]) {
+    public init(credentials: JSONValue? = nil, settings: [String: JSONValue] = [:], deviceID: String? = nil) {
         self.credentials = credentials
         self.settings = settings
+        self.deviceID = deviceID
     }
 }
 

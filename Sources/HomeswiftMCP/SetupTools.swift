@@ -177,7 +177,7 @@ extension HomeswiftCatalog {
             step = try await host.withSetupPlugin(platform: session.platform, name: session.name, block: session.draft) { plugin, context in
                 let step = try await plugin.authorize(request)
                 if case .done(let outcome) = step, let credentials = outcome.credentials {
-                    try context.saveCredentials(credentials, for: deviceID)
+                    try context.saveCredentials(credentials, for: deviceID == nil ? nil : outcome.deviceID ?? deviceID)
                 }
                 return step
             }
@@ -202,7 +202,7 @@ extension HomeswiftCatalog {
     /// Writes what a finished Setup brings (the draft block, the account's settings, the device's Accessory Settings)
     /// and starts the plugin afresh when the write did not, so it uses the credentials now in the vault.
     private func finish(_ session: SetupSession, outcome: SetupOutcome) async throws -> JSONValue {
-        let deviceID = session.deviceID
+        let deviceID = session.deviceID.map { outcome.deviceID ?? $0 }
         var applied: JSONValue?
         if session.draft != nil || !outcome.settings.isEmpty {
             applied = try await editBlock(platform: session.platform, name: session.name, dryRun: false, checkSchemas: false) { block in
