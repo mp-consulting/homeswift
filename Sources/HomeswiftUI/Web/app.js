@@ -893,7 +893,7 @@
     // hundred, which cards would bury the bridges under. Built on each draw (Customise draws the section again, and a
     // Matter change, with the rows that were open), with a search once the list is long.
     const waitingFirst = (a, b) => Number(b.waiting) - Number(a.waiting);
-    const devicesCard = (opened) => {
+    const devicesCard = (chosen) => {
       const external = status.bridges.flatMap((bridge, index) => {
         if (!bridge.external) return [];
         const parts = bridgeParts(bridge, index);
@@ -906,15 +906,19 @@
       });
       // Not started: first, so the reason is in view.
       const failed = !matter?.enabled ? [] : (matter.failedDevices || []).map((device) =>
-        ({ name: device.name, id: `matter-${slug(device.id)}`, kind: "matter", ecosystems: 0, waiting: true, make: (open) => failedMatterRow(device, open) }));
+        ({ name: device.name, id: `matter-${slug(device.id)}`, kind: "matter", ecosystems: 0, waiting: true, failed: true, make: (open) => failedMatterRow(device, open) }));
       const entries = [...failed, ...external, ...own];
       if (!entries.length) return null;
       const waiting = entries.filter((entry) => entry.waiting).length;
       const list = el("div", { class: "device-rows" });
-      // One or two to add come open, their codes in view; more stay folded, their pills saying so. Drawn again, the
-      // rows open that were.
+      // A device not added yet comes open, its code in view; the others stay folded, their pills saying how they are.
+      // One the viewer opened or folded stays so when the list is drawn again (an added device folds by itself).
       for (const entry of entries) {
-        entry.card = entry.make(opened ? opened.has(entry.id) : entry.waiting && waiting <= 2);
+        const choice = chosen?.get(entry.id);
+        entry.card = entry.make(choice ?? (entry.waiting && !entry.failed));
+        if (choice !== undefined) entry.card.dataset.chosen = choice ? "open" : "folded";
+        const row = entry.card;
+        row.querySelector(":scope > summary")?.addEventListener("click", () => requestAnimationFrame(() => { row.dataset.chosen = row.open ? "open" : "folded"; }));
         entry.text = entry.card.dataset.search;
         list.append(entry.card);
       }
@@ -953,8 +957,8 @@
       vault: () => isAdmin() && status.vault && (status.vault.entries || status.vault.inConfig || status.vault.problems?.length) ? vaultCard(status.vault) : null,
       activity: () => activity(accessories, withSlugs(status.bridges, "bridge")),
       energy: () => energy(),
-      bridges: (opened) => [el("h2", { text: status.bridges.length === 1 ? t("Bridge") : t("Bridges and accessories") }),
-      el("div", { class: "servers" }, ...bridges, matter?.enabled && matter.bridge !== false ? matterNode(matter, false) : null, devicesCard(opened))],
+      bridges: (chosen) => [el("h2", { text: status.bridges.length === 1 ? t("Bridge") : t("Bridges and accessories") }),
+      el("div", { class: "servers" }, ...bridges, matter?.enabled && matter.bridge !== false ? matterNode(matter, false) : null, devicesCard(chosen))],
       system: () => [el("h2", { text: t("System") }),
       el("div", { class: "card server" },
         el("div", { class: "server-head" }, tile("system", "grey"),
@@ -996,16 +1000,16 @@
       scrollTo({ ...position, behavior: "instant" });
     }
     // The bridge said a Matter node changed, or an administrator changed one: the Bridges section is drawn again, its
-    // rows as open as they were, its search as typed and the page where it was.
+    // rows as the viewer left them, its search as typed and the page where it was.
     redrawMatter = async () => {
       matter = await api("/api/matter").catch(() => matter);
       rememberMatterOwn(matter);
       const section = sections.get("bridges");
       if (!section?.isConnected) return;
-      const opened = new Set([...section.querySelectorAll("details[open]")].map((row) => row.id));
+      const chosen = new Map([...section.querySelectorAll(".device-row[data-chosen]")].map((row) => [row.id, row.dataset.chosen === "open"]));
       const query = section.querySelector(".devices .search")?.value ?? "";
       const position = { left: scrollX, top: scrollY };
-      section.replaceChildren(...[widgets.bridges(opened)].flat().filter(Boolean));
+      section.replaceChildren(...[widgets.bridges(chosen)].flat().filter(Boolean));
       const search = section.querySelector(".devices .search");
       if (search && query) { search.value = query; search.dispatchEvent(new Event("input")); }
       scrollTo({ ...position, behavior: "instant" });
