@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-10-31
+
 ### Added
 
 - The Accessories graph in full screen (`/accessories/graph?full=1`, or its toolbar's button), as the wall's: the graph
@@ -1429,7 +1431,8 @@ All notable changes to this project are documented here. The format follows
   SIGTERM; Homebrew formula `mp-consulting/tap/homeswift` with a `brew services` entry.
 - CI on macOS and Linux for every push and pull request.
 
-[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.17.0...HEAD
+[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.18.0...HEAD
+[0.18.0]: https://github.com/mp-consulting/homeswift/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/mp-consulting/homeswift/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/mp-consulting/homeswift/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/mp-consulting/homeswift/compare/v0.14.0...v0.15.0
