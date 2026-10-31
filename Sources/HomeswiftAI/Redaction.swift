@@ -74,6 +74,17 @@ public enum Redaction {
         matches(secretKey, key) && !matches(notSecretKey, key)
     }
 
+    /// The values of an `auth` key that say how to sign in rather than with what: the web UI's sign-in mode.
+    public static let signInModes: Set<String> = ["form", "none"]
+
+    /// Whether `value`, under `key`, is a secret: a secret-named key's, except an `auth` that is a sign-in mode
+    /// (`"auth": "form"` is shown and kept as it is; `"auth": "Bearer …"` is a secret).
+    public static func isSecret(key: String, value: JSONValue) -> Bool {
+        guard isSecretKey(key) else { return false }
+        guard key.caseInsensitiveCompare("auth") == .orderedSame, let mode = value.stringValue else { return true }
+        return !signInModes.contains(mode)
+    }
+
     private static func isSecretValue(_ value: JSONValue) -> Bool {
         switch value {
         case .string(let string): !string.isEmpty && !isConcealed(string)
@@ -133,7 +144,7 @@ public enum Redaction {
             return .array(items.map { redactSecrets($0, underSecretKey: underSecretKey, replacing: replacing) })
         case .object(let object):
             return .object(object.reduce(into: [:]) { result, entry in
-                result[entry.key] = redactSecrets(entry.value, underSecretKey: underSecretKey || isSecretKey(entry.key), replacing: replacing)
+                result[entry.key] = redactSecrets(entry.value, underSecretKey: underSecretKey || isSecret(key: entry.key, value: entry.value), replacing: replacing)
             })
         case .string(let text) where (isCredentialURL(text) || text.hasPrefix(sealedPrefix)) && !isConcealed(text):
             return replacing(value)

@@ -577,7 +577,14 @@ public struct HomeswiftCatalog: Sendable {
     }
 
     public func readConfig() throws -> JSONValue {
-        try JSONValue(data: Data(contentsOf: configURL))
+        let config = try JSONValue(data: Data(contentsOf: configURL))
+        // The web UI's sign-in mode, sealed by an earlier version as if it were a secret, reads as itself.
+        var box: SecretBox?
+        return SecretBox.openingSignInModes(config) { sealed in
+            let opener = try box ?? SecretBox.load(storage: storageDirectory, create: false)
+            box = opener
+            return try opener.open(sealed)
+        }
     }
 
     /// The folder config.json, its backups, and the bridge's state (and key for sealed secrets) live in.

@@ -774,7 +774,9 @@
       reportedTemperature: () => ctx.accessory.mirroredFrom === "Apple Home" &&
         typeof temperature?.value === "number" && Number.isFinite(temperature.value) && temperature.value > 0
         ? `${num(Math.round(1e6 / temperature.value))} K` : "",
-      color: () => { const c = color(); return c && { tile: `linear-gradient(160deg, ${css(c, 74)}, ${css(c, 52)})`, glow: css(c, 55) }; },
+      // The tile's colour and glow, and the light's own colour as a pale wash for the widget behind it.
+      color: () => { const c = color(); return c && { tile: `linear-gradient(160deg, ${css(c, 74)}, ${css(c, 52)})`, glow: css(c, 55),
+        wash: `linear-gradient(160deg, ${css(c, 92)}, ${css(c, 80)})`, tint: css(c, 78) }; },
     };
   }
 
@@ -1827,6 +1829,13 @@
       glyph.className = `tile tone-${color ? "light" : pick(built.tone, pick(widget.tone, fallbackTone))}${on ? "" : " is-off"}`;
       glyph.style.setProperty("--light", color?.tile ?? "");
       glyph.style.setProperty("--glow", color?.glow ?? "");
+      // A light that is on takes its colour on the whole widget, not only on its tile.
+      const host = glyph.closest(".widget");
+      if (host) {
+        host.classList.toggle("lit", Boolean(color?.wash));
+        host.style.setProperty("--wash", color?.wash ?? "");
+        host.style.setProperty("--wash-tint", color?.tint ?? "");
+      }
     }];
   }
   /// Another controller's accessory (`mirroredFrom`, Apple Home's through Wingman): a small house badge on its tile's

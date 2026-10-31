@@ -680,7 +680,7 @@ public final class UIServer: Sendable {
                 // The key rule the server seals and redacts by; the settings page reads it from here.
                 plugins["secretRule"] = [
                     "keys": .string(Redaction.secretKeyPattern), "except": .string(Redaction.notSecretKeyPattern), "placeholder": .string(Redaction.placeholder),
-                    "reference": .string(Redaction.referencePattern),
+                    "reference": .string(Redaction.referencePattern), "signInModes": .array(Redaction.signInModes.sorted().map(JSONValue.string)),
                 ]
                 return .json(.object(plugins))
             case ["config"]:

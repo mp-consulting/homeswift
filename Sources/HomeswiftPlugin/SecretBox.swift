@@ -69,6 +69,27 @@ public struct SecretBox: Sendable {
 
     public static func isSealed(_ value: String) -> Bool { value.hasPrefix(prefix) }
 
+    /// `value` with each sealed `auth` that holds a sign-in mode (`Redaction.signInModes`) opened: one sealed before
+    /// modes were told apart from secrets reads as itself, and the next save keeps it plain. `open` is called only for
+    /// such a value; one it cannot open stays sealed.
+    public static func openingSignInModes(_ value: JSONValue, open: (String) throws -> String) -> JSONValue {
+        switch value {
+        case .array(let items):
+            return .array(items.map { openingSignInModes($0, open: open) })
+        case .object(let object):
+            return .object(object.reduce(into: [:]) { result, entry in
+                if entry.key.caseInsensitiveCompare("auth") == .orderedSame, let sealed = entry.value.stringValue, isSealed(sealed),
+                   let text = try? open(sealed), Redaction.signInModes.contains(text) {
+                    result[entry.key] = .string(text)
+                } else {
+                    result[entry.key] = openingSignInModes(entry.value, open: open)
+                }
+            })
+        default:
+            return value
+        }
+    }
+
     /// `value` with every plain string under a secret-named key sealed by `seal` (a key's whole subtree counts). A
     /// string already sealed, the redaction placeholder, or a reference (`vault:…`, `env:…`, `file:…`) is kept as it is.
     /// A number under a secret's name is sealed as its text. Nothing is sealed, and `seal` is never called, when no
@@ -85,7 +106,7 @@ public struct SecretBox: Sendable {
             return .array(try items.map { try sealingSecrets($0, underSecret: underSecret, seal: seal) })
         case .object(let object):
             return .object(try object.reduce(into: [:]) { result, entry in
-                result[entry.key] = try sealingSecrets(entry.value, underSecret: underSecret || Redaction.isSecretKey(entry.key), seal: seal)
+                result[entry.key] = try sealingSecrets(entry.value, underSecret: underSecret || Redaction.isSecret(key: entry.key, value: entry.value), seal: seal)
             })
         default:
             return value

@@ -158,6 +158,21 @@ struct VaultTests {
         #expect(sealed["platforms"]?[0]?["token"]?.stringValue == "sealed(plain-token)")
     }
 
+    @Test func sealingLeavesTheWebUISignInMode() {
+        let config: JSONValue = ["platforms": [["platform": "HomeswiftUI", "auth": "form"], ["platform": "X", "auth": "Bearer abcdef"]]]
+        let sealed = SecretBox.sealingSecrets(config) { "sealed(\($0))" }
+        #expect(sealed["platforms"]?[0]?["auth"]?.stringValue == "form")
+        #expect(sealed["platforms"]?[1]?["auth"]?.stringValue == "sealed(Bearer abcdef)")
+    }
+
+    @Test func aSealedSignInModeOpens() throws {
+        let box = try SecretBox.load(storage: storage(), create: true)
+        let config: JSONValue = ["platforms": [["platform": "HomeswiftUI", "auth": .string(try box.seal("form"))], ["platform": "X", "auth": .string(try box.seal("Bearer abcdef"))]]]
+        let opened = SecretBox.openingSignInModes(config, open: box.open)
+        #expect(opened["platforms"]?[0]?["auth"]?.stringValue == "form")
+        #expect(SecretBox.isSealed(opened["platforms"]?[1]?["auth"]?.stringValue ?? ""))
+    }
+
     @Test func redactionShowsReferencesAndMasksWhatWasOpened() throws {
         let config: JSONValue = ["platforms": [["platform": "Govee", "password": "vault:govee", "token": "plain-token"]]]
         let redacted = Redaction.redactSecrets(config)

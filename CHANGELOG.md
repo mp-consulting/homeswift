@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The web UI's look is Apricot frost (docs/ui.md, "The look"): frosted glass over an apricot-to-stone backdrop, and
+  Ember, a warm charcoal, in dark mode. In a wide window the app sits in one frame of glass with a menu down its left
+  (Home's sections, then Account and Appearance under You); the current section, tab or choice is a white pill rather
+  than an orange one; a page's title is set large and light; the Vault's entries that need attention, and the Status
+  page's Vault summary while one does, are a dark card. A light that is on takes its colour, pale, as its widget's
+  background (docs/widgets.md). The account menu has Restart homeswift…, apart and in orange; the plugin
+  catalogue's Add buttons are plain, the Status page's memory and CPU charts are in the
+  accent, a phone's header shows the name beside the icon, and in a wide window the Logs page's filters are a column
+  beside the log, and the Assistant's sparkle floats at the bottom right with its chat opening above it. The chat's head
+  groups its tools with a cog whose menu has the provider's settings and the voice's language, its field sits at the
+  very bottom, and with a mouse its head drags it anywhere in the window.
+
 ### Fixed
 
 - Wingman: an accessory Apple Home says is not reachable still takes writes, as the Home app still tries it. HomeKit's

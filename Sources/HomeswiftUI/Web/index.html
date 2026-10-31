@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#e9edf6" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0f1218" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#e2bba5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#231c19" media="(prefers-color-scheme: dark)">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Homeswift">
@@ -32,7 +32,8 @@
 </div>
 <div id="app" class="hidden">
   <header>
-    <a class="brand" href="/" aria-label="Homeswift" title="Homeswift"><img src="/icon.svg" class="logo" alt=""></a>
+    <a class="brand" href="/" aria-label="Homeswift" title="Homeswift"><img src="/icon.svg" class="logo" alt=""><span class="brand-name" aria-hidden="true">Homeswift</span></a>
+    <span class="side-caption" aria-hidden="true" data-i18n>Home</span>
     <nav>
       <a href="/status" data-i18n>Status</a>
       <a href="/accessories" data-i18n>Accessories</a>
@@ -40,6 +41,11 @@
       <a href="/plugins" data-i18n>Plugins</a>
       <a href="/logs" data-i18n>Logs</a>
       <a href="/settings" data-i18n>Settings</a>
+    </nav>
+    <span class="side-caption" aria-hidden="true" data-i18n>You</span>
+    <nav class="side-you">
+      <a href="/account" data-i18n>Account</a>
+      <a href="/appearance" data-i18n>Appearance</a>
     </nav>
     <span class="spacer"></span>
     <button id="user" type="button" class="user-button" aria-haspopup="menu" aria-expanded="false" aria-label="Account menu" data-i18n><span class="user-avatar" aria-hidden="true"></span><span class="user-name"></span></button>
