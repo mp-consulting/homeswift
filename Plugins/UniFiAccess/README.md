@@ -97,6 +97,16 @@ ring ends), `lock` (`true` locked), `dps`, `rel`, `ren`, `rex` (`true` open), fo
 `lock/set` and `sidedoor/lock/set` locks or unlocks. Anyone who can publish to the broker can therefore open the
 doors: use a broker that requires a login (and `mqtts://` off the local network).
 
+## Setup
+
+The **Add accessories** page lists each controller as a device, by its MAC: the configured ones, and the UniFi
+consoles discovery finds on the network. A console not set up asks for an **Account Login**, a local account of
+the console that can use UniFi Access; the login is checked before it is kept, in the vault under the controller's
+MAC, and its address goes in its Accessory Settings. A controller of `controllers` keeps its password there,
+sealed in config.json; a login Setup kept for the same address replaces it. The controller's hubs and readers need
+nothing more. Excluding one there is the same as `Disable.Device.<MAC>` in `options`, which Setup shows as
+left out by the plugin's own settings.
+
 ## The web page
 
 With the web UI on, the Plugins page has an **Open** button for this plugin, with the screens of the
