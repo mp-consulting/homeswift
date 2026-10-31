@@ -23,6 +23,7 @@ import Testing
         #expect(found.status == 200)
         #expect(found.json?["devices"] == [])
         #expect(found.json?["accountAuthorization"] == "none")
+        #expect(found.json?["accountSetUp"] == true)
         #expect(try await browser.post("/api/setup/discover", [:]).status == 400)
         let missing = try await browser.post("/api/setup/start", ["platform": "Lamps", "name": "Lamps", "deviceID": "nowhere"])
         #expect(missing.status == 400)

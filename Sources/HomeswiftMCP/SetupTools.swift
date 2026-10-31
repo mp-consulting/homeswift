@@ -68,10 +68,12 @@ extension HomeswiftCatalog {
         let found = try await host.discover(platform: platform, name: name, block: block)
         setupSessions.remember(found.devices, for: "\(platform)/\(name)")
         let accessories = Dictionary(host.context(platform: platform, name: name)?.accessories.map { ($0.id, $0) } ?? [], uniquingKeysWith: { first, _ in first })
+        let method = host.registry.entry(for: platform)?.accountAuthorization ?? AuthorizationMethod.none
         return [
             "platform": .string(platform), "name": .string(name),
-            "accountAuthorization": .string(host.registry.entry(for: platform)?.accountAuthorization.rawValue ?? "none"),
-            "accountSetUp": .bool(found.accountAuthorized),
+            "accountAuthorization": .string(method.rawValue),
+            // An instance without an account has nothing to set up for it.
+            "accountSetUp": .bool(method == .none || found.accountAuthorized),
             "devices": .array(found.devices.map { device in
                 let accessoryID = "\(platform):\(device.deviceID)"
                 var json: [String: JSONValue] = [

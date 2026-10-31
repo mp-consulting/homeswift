@@ -67,9 +67,14 @@ extension DirigeraPlugin {
         let typed = request.answer("host")
         var host = typed ?? request.state["host"]?.stringValue
         if host == nil {
-            // A hub on the network not paired yet, else the first one (pairing it again).
-            let hosts = await dependencies.discover()
-            host = hosts.first { token(for: $0) == nil } ?? hosts.first
+            // A hub the block names that has no token yet, else one on the network not paired yet, else the first one found
+            // (pairing it again).
+            if let named = hubHosts.first(where: { token(for: $0) == nil }) {
+                host = named
+            } else {
+                let hosts = await dependencies.discover()
+                host = hosts.first { token(for: $0) == nil } ?? hosts.first
+            }
         }
         guard let host else {
             return .ask(SetupPrompt(message: "No DIRIGERA hub answered on the network. Enter its address, from your router or the IKEA Home smart app.",
