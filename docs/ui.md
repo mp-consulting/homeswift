@@ -45,8 +45,8 @@ wide or more the app sits in one frame of glass and the header becomes the menu 
 left: the sections under **Home**; under **You** the account menu's entries (**Account**, **Appearance**, **Users** for
 administrators, **Language**, **Sign out**), each with its icon, in place of the account button; and at its foot
 **Homeswift** and its version, folded, which opens upward over the menu (a click outside closes it) into its health, the machine, the update button, **Send feedback**
-and **Restart homeswift…** (administrators). Narrower, the account menu has them too (on a phone the account button
-is a ☰), and so does the Status page's footer between a phone and the wide window. Every view is an address ([Addresses](#addresses)), so Back and Forward work and a view can be kept or
+and **Restart homeswift…** (administrators). Narrower, the account menu has them (on a phone the account button
+is a ☰). The Status page keeps only **Customise this page…**, floating at the window's bottom right. Every view is an address ([Addresses](#addresses)), so Back and Forward work and a view can be kept or
 shared.
 
 ### Status

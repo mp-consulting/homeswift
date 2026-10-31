@@ -152,8 +152,7 @@
   }
 
   // ---- Homeswift itself: its health, version, update and Send feedback -------------------------------------------
-  // At the side menu's foot on a wide window, folded under one line; on a narrower one, in the Status page's footer.
-  // One state, drawn in each place that shows it.
+  // At the side menu's foot on a wide window, folded under one line; on a narrower one, in the account menu.
 
   let aboutStatus = null, aboutUpdate = null;
   // The Status page's update card, which an install from another control redraws.
@@ -222,8 +221,7 @@
     return button;
   }
 
-  /// The health, the version and host with an administrator's update button, and Send feedback: drawn anew for each
-  /// place that shows them.
+  /// The health, the version and host with an administrator's update button, and Send feedback.
   function aboutParts(status) {
     const [health, kind] = healthOf(status);
     return {
@@ -233,7 +231,7 @@
         isAdmin() ? updateButton() : null),
       feedback: el("a", { class: "link", href: "https://github.com/mp-consulting/homeswift/issues", target: "_blank", rel: "noopener", title: t("Send feedback"), "aria-label": t("Send feedback"),
         onclick: (event) => { event.preventDefault(); window.open(event.currentTarget.href, "homeswift-feedback", "popup,noopener,width=1100,height=800"); } },
-        HomeswiftCommon.icon("bug"), el("span", { class: "status-footer-action-label", text: t("Send feedback") })),
+        HomeswiftCommon.icon("bug"), el("span", { text: t("Send feedback") })),
     };
   }
 
@@ -972,14 +970,12 @@
           el("a", { class: "link", href: "/notifications" }, HomeswiftCommon.icon("bell"), el("span", { text: t("Notifications") }))) : null)],
     };
     const sections = new Map();
-    // Homeswift's health, version, update and feedback: in the side menu on a wide window, here on a narrower one
-    // (style.css hides one or the other); Customise stays with the page.
+    // Homeswift's health, version, update and feedback are the side menu's (the account menu's, narrower); the page
+    // keeps Customise, floating at its bottom right.
     drawSideAbout(status);
-    const about = aboutParts(status);
-    const footer = el("footer", { class: "actions page-foot status-footer" },
-      el("div", { class: "status-footer-summary" }, about.health, about.meta), about.feedback,
+    const footer = el("footer", { class: "page-foot status-footer" },
       el("button", { type: "button", class: "link", "aria-label": t("Customise the Status page"), "aria-haspopup": "menu", "aria-expanded": "false",
-        onclick: (event) => customiseDashboard(event.currentTarget, renderDashboard, event.detail === 0) }, HomeswiftCommon.icon("sliders"), el("span", { class: "status-footer-action-label", text: t("Customise this page…") })));
+        onclick: (event) => customiseDashboard(event.currentTarget, renderDashboard, event.detail === 0) }, HomeswiftCommon.icon("sliders"), el("span", { text: t("Customise this page…") })));
     function renderDashboard(layout) {
       const position = { left: scrollX, top: scrollY };
       for (const id of layout.order) {

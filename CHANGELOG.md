@@ -21,7 +21,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
-- Web UI: in a wide window the Status page's footer is now Homeswift's section at the foot of the side menu, folded
+- Web UI: the Status page's dark footer is gone. In a wide window its contents are Homeswift's section at the foot of the side menu, folded
   under its version; it unfolds into the health, the machine, the update button, Send feedback and Restart homeswift….
   The account button is gone there, its entries listed under You. In a narrower window the account menu holds the same,
   its button a ☰ on a phone. Customise this page… floats at the Status page's bottom right. Plugin pages have the same side menu.

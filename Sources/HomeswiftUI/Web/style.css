@@ -3350,129 +3350,76 @@ fieldset > .help { margin-bottom: var(--space-10); }
   .mobile-nav-toggle, .mobile-nav-toggle[aria-expanded="true"] { background: var(--accent-fill); backdrop-filter: none; -webkit-backdrop-filter: none; }
 }
 
-/* Keep dashboard content constrained while the footer spans the page. */
-#app:has(> main > .status-footer) { min-height: 100dvh; display: flex; flex-direction: column; }
-#app:has(> main > .status-footer) > header,
-#app:has(> main > .status-footer) > .banner { flex-shrink: 0; }
-main:has(> .status-footer) { flex: 1; display: flex; flex-direction: column; width: 100%; max-width: none; margin: 0; padding-inline: 0; padding-bottom: 0; }
-main:has(> .status-footer) > .dash-widget { flex-shrink: 0; }
-main:has(> .status-footer) > .dash-widget:last-of-type { margin-bottom: var(--space-20); }
-main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% - 24px); margin-inline: auto; }
-/* Status details remain visible even when the Overview widget is hidden. */
-/* A quiet utility bar: status first, metadata second, one compact action. */
-/* Dark between a phone and the wide window; the side menu (wide) or the hamburger menu (a phone) holds all but
-   Customise, which then sits quietly at the page's end. */
-@media (min-width: 641px) and (max-width: 1179.98px) {
-  .status-footer { --text: #edf0f5; --muted: #adb6c4; --accent-ink: #f4c49e; --warn: #f1c084; --ok: #75d5a0; --error: #ff9999; }
-}
+/* The Status page's Customise this page…: floating at the window's bottom right while the page scrolls; on a phone,
+   at the page's end, clear of the menu button. */
 .status-footer {
-  display: flex; justify-content: space-between; align-items: center; flex-wrap: nowrap; gap: var(--space-20);
-  width: 100%; flex-shrink: 0; margin: auto 0 0;
-  padding: var(--space-12) max(var(--space-16), calc((100% - 1076px) / 2));
-  border: 0; border-top: 1px solid rgba(255,255,255,.08); border-radius: 0;
-  background: #222833; color: var(--text);
+  position: sticky; bottom: var(--space-16); z-index: 2; display: flex; justify-content: flex-end;
+  margin: var(--space-16) 0 0; padding: 0; border: 0; background: none; pointer-events: none;
 }
-.status-footer-summary { min-width: 0; flex: 1; display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-4) var(--space-24); font-size: var(--text-xs); line-height: 1.5; }
-.status-footer-summary p { margin: 0; overflow-wrap: anywhere; }
-.status-footer-summary .health { gap: var(--space-8); }
-.status-footer-summary .health strong { font-weight: var(--weight-medium); }
-.status-footer-summary .health::before { width: 6px; height: 6px; margin-top: calc(.75em - 3px); }
-.status-footer-summary .muted { font-variant-numeric: tabular-nums; }
 .status-footer > .link {
-  flex: none; display: inline-flex; align-items: center; justify-content: center; gap: var(--space-8);
-  min-height: 36px; margin: 0; padding: var(--space-8) var(--space-10); font-size: var(--text-xs); line-height: 1.5;
-  color: var(--text); border: 1px solid rgba(255,255,255,.14); border-radius: var(--radius-xs);
-  background: rgba(255,255,255,.04); white-space: nowrap;
+  pointer-events: auto; display: inline-flex; align-items: center; gap: var(--space-8); min-height: 36px; margin: 0;
+  padding: var(--space-8) var(--space-14); font-size: var(--text-xs); font-weight: var(--weight-medium); line-height: 1.5; white-space: nowrap;
+  color: var(--muted); text-decoration: none; border: 1px solid var(--edge); border-radius: var(--radius-pill); background: var(--material-thick);
+  -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%); box-shadow: var(--shadow-control);
 }
-.status-footer > .link:hover, .status-footer > .link[aria-expanded="true"] { background: rgba(255,255,255,.1); border-color: rgba(255,255,255,.28); }
+.status-footer > .link:hover, .status-footer > .link[aria-expanded="true"] { color: var(--text); background: var(--control); }
 .status-footer > .link:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 3px; }
-.status-footer > a.link:hover { text-decoration: none; }
-@media (max-width: 640px) {
-  .status-footer { gap: var(--space-12); padding: var(--space-12) 88px var(--space-12) var(--space-16); }
-  .status-footer-summary { display: block; }
-  .status-footer-summary .muted { margin-top: var(--space-4); padding-left: var(--space-14); }
-  .status-footer > .link { width: 40px; min-height: 40px; padding: var(--space-10); }
-  .status-footer-action-label { display: none; }
-}
+.status-footer > .link svg { width: 17px; height: 17px; }
+@media (max-width: 640px) { .status-footer { position: static; justify-content: flex-start; } }
 
 .status-footer-meta { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--space-4) var(--space-12); }
-:is(.status-footer, .side-about) .footer-update-check { margin: 0; padding: 0; min-height: 24px; font-size: inherit; line-height: inherit; color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; }
-@media (max-width: 640px) {
-  .status-footer-meta { margin-top: var(--space-4); padding-left: var(--space-14); }
-  .status-footer-summary .status-footer-meta .muted { margin: 0; padding: 0; }
-}
+.side-about .footer-update-check { margin: 0; padding: 0; min-height: 24px; font-size: inherit; line-height: inherit; color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; }
 
 /* Keep the version and its update action on one row, even on narrow screens. */
 .status-footer-meta > .muted { flex: 0 1 auto; max-width: calc(100% - 125px); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-:is(.status-footer, .side-about) .footer-update-check { flex: none; white-space: nowrap; }
-@media (max-width: 640px) {
-  .status-footer { display: grid; grid-template-columns: minmax(0, 1fr) 40px; gap: var(--space-4) var(--space-12); }
-  .status-footer-summary { display: contents; }
-  .status-footer-summary .health { grid-column: 1; grid-row: 1; }
-  .status-footer { grid-template-columns: minmax(0, 1fr) 40px 40px; }
-  .status-footer > .link { grid-row: 1; }
-  .status-footer-meta { grid-column: 1 / -1; grid-row: 2; min-width: 0; }
-}
+.side-about .footer-update-check { flex: none; white-space: nowrap; }
 
 /* The update pill keeps to its label, and goes under the version when the row is narrow. */
 .status-footer-meta { flex-wrap: wrap; }
 .status-footer-meta > .muted { max-width: none; }
-:is(.status-footer, .side-about) .footer-update-check {
+.side-about .footer-update-check {
   padding: 3px var(--space-8); min-height: 28px; border: 1px solid rgba(255,255,255,.2); border-radius: 5px;
   background: rgba(255,255,255,.05); text-decoration: none;
 }
-:is(.status-footer, .side-about) .footer-update-check:hover { background: rgba(255,255,255,.12); }
-:is(.status-footer, .side-about) .footer-update-check:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 3px; }
+.side-about .footer-update-check:hover { background: rgba(255,255,255,.12); }
+.side-about .footer-update-check:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 3px; }
 
-:is(.status-footer, .side-about) .footer-update-check[data-update-state="current"] { --update-tone: var(--ok); }
-:is(.status-footer, .side-about) .footer-update-check[data-update-state="available"] { --update-tone: var(--warn); }
-:is(.status-footer, .side-about) .footer-update-check[data-update-state="installed"] { --update-tone: var(--ok); }
-:is(.status-footer, .side-about) .footer-update-check[data-update-state="error"] { --update-tone: var(--error); }
-:is(.status-footer, .side-about) .footer-update-check {
+.side-about .footer-update-check[data-update-state="current"] { --update-tone: var(--ok); }
+.side-about .footer-update-check[data-update-state="available"] { --update-tone: var(--warn); }
+.side-about .footer-update-check[data-update-state="installed"] { --update-tone: var(--ok); }
+.side-about .footer-update-check[data-update-state="error"] { --update-tone: var(--error); }
+.side-about .footer-update-check {
   color: var(--update-tone, var(--text));
   border-color: color-mix(in srgb, var(--update-tone, var(--muted)) 45%, transparent);
   background: color-mix(in srgb, var(--update-tone, var(--muted)) 10%, transparent);
 }
-:is(.status-footer, .side-about) .footer-update-check:hover:not(:disabled) {
+.side-about .footer-update-check:hover:not(:disabled) {
   background: color-mix(in srgb, var(--update-tone, var(--muted)) 20%, transparent);
 }
 
-:is(.status-footer, .side-about) .footer-update-check { display: inline-flex; align-items: center; gap: 5px; }
-:is(.status-footer, .side-about) .footer-update-check svg { width: 14px; height: 14px; flex: none; }
+.side-about .footer-update-check { display: inline-flex; align-items: center; gap: 5px; }
+.side-about .footer-update-check svg { width: 14px; height: 14px; flex: none; }
 /* Downloading: the button fills from the left with the share done. */
-:is(.status-footer, .side-about) .footer-update-check[style*="--update-progress"] {
+.side-about .footer-update-check[style*="--update-progress"] {
   background-image: linear-gradient(90deg, color-mix(in srgb, var(--accent) 38%, transparent) var(--update-progress), transparent var(--update-progress));
   font-variant-numeric: tabular-nums;
 }
-:is(.status-footer, .side-about) .footer-update-check[data-update-state="checking"] svg {
+.side-about .footer-update-check[data-update-state="checking"] svg {
   transform-origin: center;
   animation: spin .8s linear infinite;
 }
 @media (prefers-reduced-motion: reduce) {
-  :is(.status-footer, .side-about) .footer-update-check[data-update-state="checking"] svg { animation: none; }
+  .side-about .footer-update-check[data-update-state="checking"] svg { animation: none; }
 }
 
 /* Homeswift at the side menu's foot (a wide window): one quiet line, the health's dot and the version, a dot when an
    update waits; it unfolds into the health, the host, the update button and Send feedback. */
 .side-about { display: none; }
-@media (max-width: 640px) {
-  .status-footer { display: flex; justify-content: flex-start; padding: var(--space-8) var(--space-16) var(--space-16); border: 0; background: none; color: var(--text); }
-  .status-footer > .status-footer-summary, .status-footer > a.link { display: none; }
-  .status-footer > .link { color: var(--muted); border-color: var(--edge); border-radius: var(--radius-pill); background: var(--material-thin); }
-}
 @media (min-width: 1180px) {
   /* Customise floats at the window's bottom right while the page scrolls, its middle on the Assistant's button's, to its
      left (that button sits 24 px into the frame's 28 px padding and is 56 px wide). */
-  .status-footer {
-    position: sticky; bottom: calc(var(--space-24) + var(--space-24) + 10px); z-index: 2; justify-content: flex-end;
-    padding: var(--space-8) 0 0; border: 0; background: none; color: var(--text); pointer-events: none;
-  }
+  .status-footer { bottom: calc(var(--space-24) + var(--space-24) + 10px); }
   #app:has(.chat-open) .status-footer { padding-right: calc(56px - var(--space-4) + var(--space-16)); }
-  .status-footer > .link { pointer-events: auto; box-shadow: var(--shadow-control); }
-  .status-footer > .status-footer-summary, .status-footer > a.link { display: none; }
-  .status-footer > .link { color: var(--muted); border-color: var(--edge); border-radius: var(--radius-pill); background: var(--material-thick); padding-inline: var(--space-14);
-    -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%); }
-  .status-footer > .link:hover, .status-footer > .link[aria-expanded="true"] { color: var(--text); border-color: var(--edge); background: var(--control); }
 
   header .side-about { display: block; position: relative; margin-top: var(--space-16); }
   header .side-about::before { content: ""; position: absolute; top: calc(-1 * var(--space-8)); left: var(--space-8); right: var(--space-8); border-top: 1px solid var(--line); }
