@@ -3446,7 +3446,11 @@ fieldset > .help { margin-bottom: var(--space-10); }
 .side-about-body > .side-about-restart svg,
 .side-about-body > a.link svg, .tabbar .mobile-nav-panel .side-about-body > a.link svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .mobile-nav-panel .side-about { display: block; }
-.mobile-nav-panel .side-about > summary { min-height: 44px; font-size: var(--text-md); }
+/* In the ☰ panel its line reads as the items above it: the dot in their 21 px icon's place, the text where theirs
+   starts, as Account is set; what it unfolds starts there too. */
+.mobile-nav-panel .side-about > summary { min-height: 44px; gap: var(--space-12); font-size: var(--text-md); font-weight: var(--weight-semibold); }
+.mobile-nav-panel .side-about-dot { margin-inline: calc((21px - 8px) / 2); }
+.mobile-nav-panel .side-about-body { padding-left: calc(var(--space-12) + 21px + var(--space-12)); }
 @media (min-width: 1180px) {
   /* Customise floats at the window's bottom right while the page scrolls, its middle on the Assistant's button's, to its
      left (that button sits 24 px into the frame's 28 px padding and is 56 px wide). */
