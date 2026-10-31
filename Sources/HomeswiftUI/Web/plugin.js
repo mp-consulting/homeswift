@@ -159,10 +159,12 @@
             el("span", { class: "side-about-title", text: t("Homeswift {version}", { version: status.version }) }),
             el("span", { class: "side-about-badge", role: "img", "aria-label": t("Update available"), title: t("Update available") }), HomeswiftCommon.icon(about.closest("header") ? "up" : "down")),
           el("div", { class: "side-about-body" },
-            el("p", { class: `health ${kind}` }, el("strong", { text: health })),
-            el("p", { class: "muted", text: t("Version {version} · {host}", { version: status.version, host: status.system.hostname }) }),
-            auth.admin ? el("a", { class: "link", href: "/settings/updates" }, HomeswiftCommon.icon("download"), el("span", { text: status.update?.available ? t("Update available") : t("Updates") })) : null,
-            el("a", { class: "link", href: "https://github.com/mp-consulting/homeswift/issues", target: "_blank", rel: "noopener" }, HomeswiftCommon.icon("bug"), el("span", { text: t("Send feedback") }))));
+            el("div", { class: "side-about-info" },
+              el("p", { class: `side-about-health ${kind}`, text: health }),
+              el("p", { class: "side-about-version", text: t("Version {version} · {host}", { version: status.version, host: status.system.hostname }) })),
+            el("div", { class: "side-about-actions" },
+              auth.admin ? el("a", { class: "side-about-action", href: "/settings/updates" }, HomeswiftCommon.icon("download"), el("span", { text: status.update?.available ? t("Update available") : t("Updates") })) : null,
+              el("a", { class: "side-about-action", href: "https://github.com/mp-consulting/homeswift/issues", target: "_blank", rel: "noopener" }, HomeswiftCommon.icon("bug"), el("span", { text: t("Send feedback") })))));
         about.hidden = false;
       }
     };

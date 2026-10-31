@@ -1993,7 +1993,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// An update button: checks for one, shows what is new, installs an update the bridge can install itself (its
   /// progress in the button, then the restart), or relaunches into one Homebrew installed.
   function updateButton() {
-    const button = el("button", { type: "button", class: "link footer-update-check", "aria-live": "polite", onclick: async (event) => {
+    const button = el("button", { type: "button", class: "side-about-action footer-update-check", "aria-live": "polite", onclick: async (event) => {
       const showUpdate = () => openSheet((done) => el("div", {},
         el("h2", { id: "update-check-title", text: t("Updates") }), updateCard(aboutUpdate, { changed: updateChanged }),
         el("button", { actionIcon: "close", type: "button", text: t("Close"), onclick: () => done() })), "update-check-title", { returnFocus: button });
@@ -2015,18 +2015,20 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return button;
   }
 
-  /// The health, the version and host with an administrator's update button, and Send feedback.
-  function aboutParts(status) {
+  /// What the section unfolds into: the health and the version as a caption, then its actions as rows (the update
+  /// button for an administrator, Send feedback, Restart homeswift… in the accent for an administrator).
+  function aboutBody(status) {
     const [health, kind] = healthOf(status);
-    return {
-      health: el("p", { class: `health ${kind}` }, el("strong", { text: health })),
-      meta: el("div", { class: "status-footer-meta" },
-        el("p", { class: "muted", text: t("Version {version} · {host}", { version: status.version, host: status.system.hostname }) }),
-        isAdmin() ? updateButton() : null),
-      feedback: el("a", { class: "link", href: "https://github.com/mp-consulting/homeswift/issues", target: "_blank", rel: "noopener", title: t("Send feedback"), "aria-label": t("Send feedback"),
-        onclick: (event) => { event.preventDefault(); window.open(event.currentTarget.href, "homeswift-feedback", "popup,noopener,width=1100,height=800"); } },
-        HomeswiftCommon.icon("bug"), el("span", { text: t("Send feedback") })),
-    };
+    return el("div", { class: "side-about-body" },
+      el("div", { class: "side-about-info" },
+        el("p", { class: `side-about-health ${kind}`, text: health }),
+        el("p", { class: "side-about-version", text: t("Version {version} · {host}", { version: status.version, host: status.system.hostname }) })),
+      el("div", { class: "side-about-actions" },
+        isAdmin() ? updateButton() : null,
+        el("a", { class: "side-about-action", href: "https://github.com/mp-consulting/homeswift/issues", target: "_blank", rel: "noopener",
+          onclick: (event) => { event.preventDefault(); window.open(event.currentTarget.href, "homeswift-feedback", "popup,noopener,width=1100,height=800"); } },
+          HomeswiftCommon.icon("bug"), el("span", { text: t("Send feedback") })),
+        isAdmin() ? el("button", { type: "button", class: "side-about-action accent", onclick: restartBridge }, HomeswiftCommon.icon("power"), el("span", { text: t("Restart homeswift…") })) : null));
   }
 
   /// The side menu's foot: one line (the health's dot, the version, a mark when an update waits) that unfolds upward
@@ -2036,16 +2038,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     if (status.update) aboutUpdate = status.update;
     // The side menu's, and a phone's ☰ panel's.
     for (const details of document.querySelectorAll(".side-about")) {
-      const about = aboutParts(status);
       details.replaceChildren(
         el("summary", {},
           el("span", { class: `side-about-dot ${healthOf(status)[1]}`, "aria-hidden": "true" }),
           el("span", { class: "side-about-title", text: t("Homeswift {version}", { version: status.version }) }),
           el("span", { class: "side-about-badge", role: "img", "aria-label": t("Update available"), title: t("Update available") }),
           HomeswiftCommon.icon(details.closest("header") ? "up" : "down")),
-        el("div", { class: "side-about-body" }, about.health, about.meta, about.feedback,
-          // Restarting, in the accent: an administrator's, and not a page like the rest.
-          isAdmin() ? el("button", { type: "button", class: "link side-about-restart", onclick: restartBridge }, HomeswiftCommon.icon("power"), el("span", { text: t("Restart homeswift…") })) : null));
+        aboutBody(status));
       details.hidden = false;
     }
     renderUpdateButtons();
@@ -20875,10 +20874,12 @@ HomeswiftI18n.add("pt", {
             el("span", { class: "side-about-title", text: t("Homeswift {version}", { version: status.version }) }),
             el("span", { class: "side-about-badge", role: "img", "aria-label": t("Update available"), title: t("Update available") }), HomeswiftCommon.icon(about.closest("header") ? "up" : "down")),
           el("div", { class: "side-about-body" },
-            el("p", { class: `health ${kind}` }, el("strong", { text: health })),
-            el("p", { class: "muted", text: t("Version {version} · {host}", { version: status.version, host: status.system.hostname }) }),
-            auth.admin ? el("a", { class: "link", href: "/settings/updates" }, HomeswiftCommon.icon("download"), el("span", { text: status.update?.available ? t("Update available") : t("Updates") })) : null,
-            el("a", { class: "link", href: "https://github.com/mp-consulting/homeswift/issues", target: "_blank", rel: "noopener" }, HomeswiftCommon.icon("bug"), el("span", { text: t("Send feedback") }))));
+            el("div", { class: "side-about-info" },
+              el("p", { class: `side-about-health ${kind}`, text: health }),
+              el("p", { class: "side-about-version", text: t("Version {version} · {host}", { version: status.version, host: status.system.hostname }) })),
+            el("div", { class: "side-about-actions" },
+              auth.admin ? el("a", { class: "side-about-action", href: "/settings/updates" }, HomeswiftCommon.icon("download"), el("span", { text: status.update?.available ? t("Update available") : t("Updates") })) : null,
+              el("a", { class: "side-about-action", href: "https://github.com/mp-consulting/homeswift/issues", target: "_blank", rel: "noopener" }, HomeswiftCommon.icon("bug"), el("span", { text: t("Send feedback") })))));
         about.hidden = false;
       }
     };
@@ -25441,53 +25442,6 @@ fieldset > .help { margin-bottom: var(--space-10); }
 .status-footer > .link svg { width: 17px; height: 17px; }
 @media (max-width: 640px) { .status-footer { position: static; justify-content: flex-start; } }
 
-.status-footer-meta { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--space-4) var(--space-12); }
-.side-about .footer-update-check { margin: 0; padding: 0; min-height: 24px; font-size: inherit; line-height: inherit; color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; }
-
-/* Keep the version and its update action on one row, even on narrow screens. */
-.status-footer-meta > .muted { flex: 0 1 auto; max-width: calc(100% - 125px); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.side-about .footer-update-check { flex: none; white-space: nowrap; }
-
-/* The update pill keeps to its label, and goes under the version when the row is narrow. */
-.status-footer-meta { flex-wrap: wrap; }
-.status-footer-meta > .muted { max-width: none; }
-.side-about .footer-update-check {
-  padding: 3px var(--space-8); min-height: 28px; border: 1px solid rgba(255,255,255,.2); border-radius: 5px;
-  background: rgba(255,255,255,.05); text-decoration: none;
-}
-.side-about .footer-update-check:hover { background: rgba(255,255,255,.12); }
-.side-about .footer-update-check:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 3px; }
-
-.side-about .footer-update-check[data-update-state="current"] { --update-tone: var(--ok); }
-.side-about .footer-update-check[data-update-state="available"] { --update-tone: var(--warn); }
-.side-about .footer-update-check[data-update-state="installed"] { --update-tone: var(--ok); }
-.side-about .footer-update-check[data-update-state="error"] { --update-tone: var(--error); }
-.side-about .footer-update-check {
-  color: var(--update-tone, var(--text));
-  border-color: color-mix(in srgb, var(--update-tone, var(--muted)) 45%, transparent);
-  background: color-mix(in srgb, var(--update-tone, var(--muted)) 10%, transparent);
-}
-.side-about .footer-update-check:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--update-tone, var(--muted)) 20%, transparent);
-}
-
-.side-about .footer-update-check { display: inline-flex; align-items: center; gap: 5px; }
-.side-about .footer-update-check svg { width: 14px; height: 14px; flex: none; }
-/* Downloading: the button fills from the left with the share done. */
-.side-about .footer-update-check[style*="--update-progress"] {
-  background-image: linear-gradient(90deg, color-mix(in srgb, var(--accent) 38%, transparent) var(--update-progress), transparent var(--update-progress));
-  font-variant-numeric: tabular-nums;
-}
-.side-about .footer-update-check[data-update-state="checking"] svg {
-  transform-origin: center;
-  animation: spin .8s linear infinite;
-}
-@media (prefers-reduced-motion: reduce) {
-  .side-about .footer-update-check[data-update-state="checking"] svg { animation: none; }
-}
-
-/* Homeswift at the side menu's foot (a wide window): one quiet line, the health's dot and the version, a dot when an
-   update waits; it unfolds into the health, the host, the update button and Send feedback. */
 /* Homeswift: at the side menu's foot (a wide window), opening upward over it; in a phone's ☰ panel, under Account,
    opening in place. One quiet line, the health's dot and the version, a dot when an update waits. */
 .side-about { display: none; }
@@ -25508,30 +25462,53 @@ fieldset > .help { margin-bottom: var(--space-10); }
 .side-about > summary svg { flex: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
   transition: transform var(--fast) var(--ease-out); }
 .side-about[open] > summary svg { transform: rotate(180deg); }
-.side-about-body { display: grid; gap: var(--space-10); padding: var(--space-10) var(--space-12) var(--space-4); font-size: var(--text-xs); line-height: 1.5; }
+/* Unfolded: a caption (the health in its tone, the version) and, under a hairline, the actions as rows, their glyphs in
+   one column, as a menu's items are. */
+.side-about-body { display: grid; padding: var(--space-6); }
 .side-about[open] .side-about-body { animation: side-about-in 180ms var(--ease-out); }
-.side-about-body p { margin: 0; }
-.side-about-body .health { gap: var(--space-8); }
-.side-about-body .health::before { width: 6px; height: 6px; margin-top: calc(.75em - 3px); }
-.side-about-body .health strong { font-weight: var(--weight-medium); }
-.side-about-body .status-footer-meta { display: grid; justify-items: start; gap: var(--space-8); }
-.side-about-body .status-footer-meta > .muted { white-space: normal; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
-.side-about-body > a.link, .tabbar .mobile-nav-panel .side-about-body > a.link {
-  display: inline-flex; align-items: center; gap: var(--space-8); justify-self: start; min-height: 0; margin: 0; padding: 0;
-  color: var(--muted); font-size: inherit; text-decoration: none;
+.side-about-info { display: grid; gap: 2px; padding: var(--space-6) var(--space-10) var(--space-10); font-size: var(--text-xs); line-height: 1.45; }
+.side-about-info p { margin: 0; overflow-wrap: anywhere; }
+.side-about-health { font-weight: var(--weight-semibold); color: var(--ok); }
+.side-about-health.away { color: var(--warn); }
+.side-about-version { color: var(--muted); font-variant-numeric: tabular-nums; }
+.side-about-actions { display: grid; gap: 2px; padding-top: var(--space-6); border-top: 1px solid var(--line); }
+.side-about .side-about-action {
+  display: flex; align-items: center; gap: var(--space-10); width: 100%; min-height: 40px; margin: 0; padding: 0 var(--space-10);
+  border: 0; border-radius: var(--radius-sm); background: none; box-shadow: none; color: var(--text); font: inherit;
+  font-size: var(--text-sm); font-weight: var(--weight-medium); line-height: 1.3; text-align: start; text-decoration: none; cursor: pointer;
+  transition: background-color var(--fast) var(--ease-out), transform 120ms var(--ease-out);
 }
-.side-about-body > .side-about-restart { display: inline-flex; align-items: center; gap: var(--space-8); justify-self: start; margin: 0; padding: 0; min-height: 0;
-  color: var(--accent-ink); font-size: inherit; font-weight: var(--weight-medium); text-decoration: none; }
-.side-about-body > .side-about-restart:hover { text-decoration: underline; text-underline-offset: 3px; }
-.side-about-body > a.link:hover { color: var(--text); }
-.side-about-body > .side-about-restart svg,
-.side-about-body > a.link svg, .tabbar .mobile-nav-panel .side-about-body > a.link svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.side-about .side-about-action:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 6%, transparent); }
+.side-about .side-about-action:active:not(:disabled) { transform: scale(0.98); }
+.side-about .side-about-action:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -2px; }
+.side-about .side-about-action:disabled { cursor: default; }
+.side-about .side-about-action svg { flex: none; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; color: var(--muted); }
+.side-about .side-about-action.accent, .side-about .side-about-action.accent svg { color: var(--accent-ink); }
+/* The update row: its glyph in the state's tone, filling from the left as the download goes, the glyph turning while it
+   checks or installs. */
+.side-about .footer-update-check[data-update-state="current"], .side-about .footer-update-check[data-update-state="installed"] { --update-tone: var(--ok); }
+.side-about .footer-update-check[data-update-state="available"] { --update-tone: var(--warn); }
+.side-about .footer-update-check[data-update-state="error"] { --update-tone: var(--error); }
+.side-about .footer-update-check svg { color: var(--update-tone, var(--muted)); }
+.side-about .footer-update-check[style*="--update-progress"] {
+  background-image: linear-gradient(90deg, color-mix(in srgb, var(--accent) 22%, transparent) var(--update-progress), transparent var(--update-progress));
+  font-variant-numeric: tabular-nums;
+}
+.side-about .footer-update-check[data-update-state="checking"] svg { animation: spin .8s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .side-about .footer-update-check[data-update-state="checking"] svg { animation: none; }
+  .side-about .side-about-action:active:not(:disabled) { transform: none; }
+}
 .mobile-nav-panel .side-about { display: block; }
 /* In the ☰ panel its line reads as the items above it: the dot in their 21 px icon's place, the text where theirs
    starts, as Account is set; what it unfolds starts there too. */
 .mobile-nav-panel .side-about > summary { min-height: 44px; gap: var(--space-12); font-size: var(--text-md); font-weight: var(--weight-semibold); }
 .mobile-nav-panel .side-about-dot { margin-inline: calc((21px - 8px) / 2); }
-.mobile-nav-panel .side-about-body { padding-left: calc(var(--space-12) + 21px + var(--space-12)); }
+.mobile-nav-panel .side-about-body { margin-top: var(--space-4); padding: var(--space-4); border-radius: var(--radius-md); background: color-mix(in srgb, var(--text) 4%, transparent); }
+.mobile-nav-panel .side-about-info { padding: var(--space-8); }
+.mobile-nav-panel .side-about .side-about-action { justify-content: flex-start; min-height: 44px; padding: 0 var(--space-8); gap: var(--space-12); color: var(--text); font-size: var(--text-md); font-weight: var(--weight-medium); letter-spacing: normal; }
+.mobile-nav-panel .side-about .side-about-action.accent { color: var(--accent-ink); }
+.mobile-nav-panel .side-about .side-about-action svg { width: 21px; height: 21px; }
 @media (min-width: 1180px) {
   /* Customise floats at the window's bottom right while the page scrolls, its middle on the Assistant's button's, to its
      left (that button sits 24 px into the frame's 28 px padding and is 56 px wide). */
@@ -25542,7 +25519,7 @@ fieldset > .help { margin-bottom: var(--space-10); }
   header .side-about::before { content: ""; position: absolute; top: calc(-1 * var(--space-8)); left: var(--space-8); right: var(--space-8); border-top: 1px solid var(--line); }
   /* It opens upward, a card of glass over the menu as a menu is, so the side menu keeps the window's height. */
   header .side-about-body {
-    position: absolute; left: 0; right: 0; bottom: calc(100% + var(--space-8)); z-index: var(--layer-menu); padding: var(--space-14);
+    position: absolute; left: 0; right: 0; bottom: calc(100% + var(--space-8)); z-index: var(--layer-menu); padding: var(--space-6);
     border-radius: calc(var(--radius-sm) + 6px); background-color: var(--material-thick); background-image: var(--sheen);
     -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
     border: 1px solid var(--edge); box-shadow: 0 18px 44px rgba(25, 34, 56, 0.24), inset 0 1px 0 var(--edge-light);

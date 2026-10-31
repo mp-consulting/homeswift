@@ -198,7 +198,7 @@
   /// An update button: checks for one, shows what is new, installs an update the bridge can install itself (its
   /// progress in the button, then the restart), or relaunches into one Homebrew installed.
   function updateButton() {
-    const button = el("button", { type: "button", class: "link footer-update-check", "aria-live": "polite", onclick: async (event) => {
+    const button = el("button", { type: "button", class: "side-about-action footer-update-check", "aria-live": "polite", onclick: async (event) => {
       const showUpdate = () => openSheet((done) => el("div", {},
         el("h2", { id: "update-check-title", text: t("Updates") }), updateCard(aboutUpdate, { changed: updateChanged }),
         el("button", { actionIcon: "close", type: "button", text: t("Close"), onclick: () => done() })), "update-check-title", { returnFocus: button });
@@ -220,18 +220,20 @@
     return button;
   }
 
-  /// The health, the version and host with an administrator's update button, and Send feedback.
-  function aboutParts(status) {
+  /// What the section unfolds into: the health and the version as a caption, then its actions as rows (the update
+  /// button for an administrator, Send feedback, Restart homeswift… in the accent for an administrator).
+  function aboutBody(status) {
     const [health, kind] = healthOf(status);
-    return {
-      health: el("p", { class: `health ${kind}` }, el("strong", { text: health })),
-      meta: el("div", { class: "status-footer-meta" },
-        el("p", { class: "muted", text: t("Version {version} · {host}", { version: status.version, host: status.system.hostname }) }),
-        isAdmin() ? updateButton() : null),
-      feedback: el("a", { class: "link", href: "https://github.com/mp-consulting/homeswift/issues", target: "_blank", rel: "noopener", title: t("Send feedback"), "aria-label": t("Send feedback"),
-        onclick: (event) => { event.preventDefault(); window.open(event.currentTarget.href, "homeswift-feedback", "popup,noopener,width=1100,height=800"); } },
-        HomeswiftCommon.icon("bug"), el("span", { text: t("Send feedback") })),
-    };
+    return el("div", { class: "side-about-body" },
+      el("div", { class: "side-about-info" },
+        el("p", { class: `side-about-health ${kind}`, text: health }),
+        el("p", { class: "side-about-version", text: t("Version {version} · {host}", { version: status.version, host: status.system.hostname }) })),
+      el("div", { class: "side-about-actions" },
+        isAdmin() ? updateButton() : null,
+        el("a", { class: "side-about-action", href: "https://github.com/mp-consulting/homeswift/issues", target: "_blank", rel: "noopener",
+          onclick: (event) => { event.preventDefault(); window.open(event.currentTarget.href, "homeswift-feedback", "popup,noopener,width=1100,height=800"); } },
+          HomeswiftCommon.icon("bug"), el("span", { text: t("Send feedback") })),
+        isAdmin() ? el("button", { type: "button", class: "side-about-action accent", onclick: restartBridge }, HomeswiftCommon.icon("power"), el("span", { text: t("Restart homeswift…") })) : null));
   }
 
   /// The side menu's foot: one line (the health's dot, the version, a mark when an update waits) that unfolds upward
@@ -241,16 +243,13 @@
     if (status.update) aboutUpdate = status.update;
     // The side menu's, and a phone's ☰ panel's.
     for (const details of document.querySelectorAll(".side-about")) {
-      const about = aboutParts(status);
       details.replaceChildren(
         el("summary", {},
           el("span", { class: `side-about-dot ${healthOf(status)[1]}`, "aria-hidden": "true" }),
           el("span", { class: "side-about-title", text: t("Homeswift {version}", { version: status.version }) }),
           el("span", { class: "side-about-badge", role: "img", "aria-label": t("Update available"), title: t("Update available") }),
           HomeswiftCommon.icon(details.closest("header") ? "up" : "down")),
-        el("div", { class: "side-about-body" }, about.health, about.meta, about.feedback,
-          // Restarting, in the accent: an administrator's, and not a page like the rest.
-          isAdmin() ? el("button", { type: "button", class: "link side-about-restart", onclick: restartBridge }, HomeswiftCommon.icon("power"), el("span", { text: t("Restart homeswift…") })) : null));
+        aboutBody(status));
       details.hidden = false;
     }
     renderUpdateButtons();
