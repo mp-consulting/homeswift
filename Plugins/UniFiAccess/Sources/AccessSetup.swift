@@ -28,14 +28,9 @@ extension UniFiAccessPlugin {
     /// Excluded.
     func controllerEntries() -> [Configuration.Controller] {
         var setUp: [(address: String, controller: Configuration.Controller)] = []
-        for (mac, settings) in context.allAccessorySettings.sorted(by: { $0.key < $1.key }) {
+        for (_, settings, login) in context.setUpDevices(credentials: ControllerLogin.self) {
             guard let address = settings.plugin["address"]?.stringValue?.trimmingCharacters(in: .whitespaces), !address.isEmpty,
-                  let login = context.credentials(for: mac, as: ControllerLogin.self) else { continue }
-            var fields = settings.plugin
-            fields["username"] = .string(login.username)
-            fields["password"] = .string(login.password)
-            guard !settings.excluded, let data = try? JSONValue.object(fields).encoded() as Data,
-                  let controller = try? JSONDecoder().decode(Configuration.Controller.self, from: data) else { continue }
+                  let controller = settings.decode(Configuration.Controller.self, adding: ["username": .string(login.username), "password": .string(login.password)]) else { continue }
             setUp.append((address.lowercased(), controller))
         }
         var entries = configuration.controllers.map { entry -> Configuration.Controller in
@@ -114,7 +109,7 @@ extension UniFiAccessPlugin {
         let device = try request.device()
         guard device.authorization == .accountLogin else { return .done(SetupOutcome()) }
         guard let address = device.address, AccessSettings.isValidAddress(address) else { throw SetupError("The controller has no address: find it again") }
-        guard let username = request.answer("username"), let password = request.answers["password"], !password.isEmpty else {
+        guard let username = request.answer("username"), let password = request.secret("password") else {
             return .ask(SetupPrompt(message: "Sign in to the UniFi console with a local account that can use UniFi Access.", fields: [
                 SetupField("username", label: "User name"), SetupField("password", label: "Password", kind: .secret),
             ]))
@@ -126,7 +121,7 @@ extension UniFiAccessPlugin {
         }
         let mac = info?.hostMAC.map(AccessSettings.normalizeMac) ?? device.deviceID
         logger.info("Signed in to the controller at \(address) through Setup.")
-        let login = try JSONValue(data: JSONEncoder().encode(ControllerLogin(username: username, password: password)))
+        let login = try JSONValue(encoding: ControllerLogin(username: username, password: password))
         return .done(SetupOutcome(credentials: login, settings: ["address": .string(address)], deviceID: mac))
     }
 }

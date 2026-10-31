@@ -17,18 +17,21 @@ extension PhilipsAmbilightTVPlugin {
     /// The TVs to run: those of `devices`, then those set up through Setup (Accessory Settings with keys in the vault),
     /// a MAC in both counting once, `devices`' first.
     func configuredDevices() -> [Configuration.Device] {
-        let listed = configuration.devices ?? []
+        // A TV the page paired keeps its keys in the vault under its MAC: they take the place of the entry's.
+        let listed = (configuration.devices ?? []).map { device -> Configuration.Device in
+            guard let mac = device.mac.flatMap(MACAddress.canonical), let keys = context.credentials(for: mac, as: TVCredentials.self) else { return device }
+            var device = device
+            device.username = keys.username
+            device.password = keys.password
+            device.certFingerprint = keys.certFingerprint ?? device.certFingerprint
+            return device
+        }
         let listedMACs = Set(listed.compactMap { $0.mac.flatMap(MACAddress.canonical) })
-        let setUp = context.allAccessorySettings.sorted { $0.key < $1.key }.compactMap { mac, settings -> Configuration.Device? in
-            guard !settings.excluded, !listedMACs.contains(mac), let credentials = context.credentials(for: mac, as: TVCredentials.self) else { return nil }
-            var fields = settings.plugin
-            fields["mac"] = .string(mac)
-            fields["username"] = .string(credentials.username)
-            fields["password"] = .string(credentials.password)
-            if let fingerprint = credentials.certFingerprint { fields["certFingerprint"] = .string(fingerprint) }
-            if let name = settings.name { fields["name"] = .string(name) }
-            guard let data = try? JSONValue.object(fields).encoded() as Data else { return nil }
-            return try? JSONDecoder().decode(Configuration.Device.self, from: data)
+        let setUp = context.setUpDevices(credentials: TVCredentials.self).filter { !listedMACs.contains($0.deviceID) }.compactMap { mac, settings, keys in
+            settings.decode(Configuration.Device.self, adding: [
+                "mac": .string(mac), "username": .string(keys.username), "password": .string(keys.password),
+                "certFingerprint": keys.certFingerprint.map(JSONValue.string) ?? .null,
+            ])
         }
         return listed + setUp
     }
@@ -68,7 +71,7 @@ extension PhilipsAmbilightTVPlugin {
             }
             logger.info("Pairing started", metadata: ["ip": "\(ip)"])
             return .ask(SetupPrompt(message: "Enter the PIN the TV shows.", fields: [SetupField("pin", label: "PIN", kind: .code)]),
-                        state: ["session": try JSONValue(data: JSONEncoder().encode(session))])
+                        state: ["session": try JSONValue(encoding: session)])
         }
         guard pin.count == 4, pin.allSatisfy(\.isNumber) else { throw SetupError("The PIN has four digits") }
         let credentials: JointSpacePairing.Credentials
@@ -81,7 +84,7 @@ extension PhilipsAmbilightTVPlugin {
             throw SetupError("\(error)")
         }
         logger.info("Paired", metadata: ["ip": "\(ip)"])
-        let keys = try JSONValue(data: JSONEncoder().encode(TVCredentials(username: credentials.username, password: credentials.password, certFingerprint: credentials.certFingerprint)))
+        let keys = try JSONValue(encoding: TVCredentials(username: credentials.username, password: credentials.password, certFingerprint: credentials.certFingerprint))
         let client = JointSpaceClient(ip: ip, username: credentials.username, password: credentials.password, certificateFingerprint: credentials.certFingerprint,
                                       transports: dependencies.transports, logger: logger)
         guard let mac = await lookUpMAC(ip: ip, client: client) else {

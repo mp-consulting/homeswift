@@ -63,7 +63,7 @@ extension DirigeraPlugin {
     /// The hub's address (asked when none is found on the network), then its action button, tried every two seconds by
     /// the page for a minute. The token and the certificate it was paired over go in the vault (`hubs.json`).
     public func authorize(_ request: SetupRequest) async throws -> SetupStep {
-        guard request.target == .account else { throw SetupError("IKEA devices need no setup of their own") }
+        try request.requireAccount("IKEA devices need no setup of their own")
         let typed = request.answer("host")
         var host = typed ?? request.state["host"]?.stringValue
         if host == nil {
@@ -78,8 +78,8 @@ extension DirigeraPlugin {
         // A pairing starts from no pin, as the page's does; the certificate the hub showed then is pinned from there on. A
         // typed address starts afresh.
         let fresh = typed != nil
-        let pinned = PinnedFingerprint(fresh ? nil : request.state["fingerprint"]?.stringValue)
-        let trust = HTTPClient.TrustOnFirstUse(pinned: pinned.value) { pinned.value = $0 }
+        // The trust keeps the certificate it pins on the first connection: `trust.fingerprint`.
+        let trust = HTTPClient.TrustOnFirstUse(pinned: fresh ? nil : request.state["fingerprint"]?.stringValue)
         let client = DirigeraClient(host: host, token: nil, transport: dependencies.transport(trust))
         // The code the hub gave for the verifier, asked once per pairing.
         let code: String, verifier: String
@@ -99,25 +99,14 @@ extension DirigeraPlugin {
         } catch DirigeraClient.Failure.buttonNotPressed {
             let waiting = SetupPrompt(message: "Press the action button on the back of the DIRIGERA hub.", waitSeconds: Int(Self.pairingWindow.components.seconds), retryAfter: 2)
             return .ask(waiting, state: [
-                "host": .string(host), "code": .string(code), "verifier": .string(verifier), "fingerprint": pinned.value.map(JSONValue.string) ?? .null,
+                "host": .string(host), "code": .string(code), "verifier": .string(verifier), "fingerprint": trust.fingerprint.map(JSONValue.string) ?? .null,
             ])
         } catch {
             throw SetupError("The DIRIGERA hub at \(host) did not answer: \(error)")
         }
-        keep(token: token, fingerprint: pinned.value, for: host)
+        keep(token: token, fingerprint: trust.fingerprint, for: host)
         logger.info("Paired with the DIRIGERA hub at \(host)")
         // Nothing for the bridge to keep: the token is in the plugin's own vault entry, which `accountAuthorized` reads.
         return .done(SetupOutcome())
-    }
-}
-
-/// The certificate a pairing saw, set from the connection's callback.
-private final class PinnedFingerprint: @unchecked Sendable {
-    private let lock = NSLock()
-    private var stored: String?
-    init(_ value: String?) { stored = value }
-    var value: String? {
-        get { lock.withLock { stored } }
-        set { lock.withLock { stored = newValue } }
     }
 }

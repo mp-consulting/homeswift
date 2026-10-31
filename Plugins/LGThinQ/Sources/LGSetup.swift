@@ -56,7 +56,7 @@ extension LGThinQPlugin {
     /// The region when the block has none, then LG's page (or the account's email and password); the refresh token
     /// goes in the vault once LG lists the account's appliances with it.
     public func authorize(_ request: SetupRequest) async throws -> SetupStep {
-        guard request.target == .account else { throw SetupError("LG appliances come with the account: they need no setup of their own") }
+        try request.requireAccount("LG appliances come with the account: they need no setup of their own")
         var region: [String: JSONValue] = request.state["region"]?.objectValue ?? [:]
         if region.isEmpty, let country = request.answer("country"), let language = request.answer("language") {
             guard country.count == 2, country.allSatisfy({ $0.isASCII && $0.isLetter }) else { throw SetupError("The country has two letters, such as US or FR") }
@@ -75,7 +75,7 @@ extension LGThinQPlugin {
         let token: String
         var settings = region
         if configuration.auth_mode == "account" {
-            guard let username = request.answer("username"), let password = request.answer("password") else {
+            guard let username = request.answer("username"), let password = request.secret("password") else {
                 return .ask(SetupPrompt(message: "Sign in with your LG account.", fields: [
                     SetupField("username", label: "Email"), SetupField("password", label: "Password", kind: .secret),
                 ]), state: ["region": .object(region)])
@@ -111,7 +111,7 @@ extension LGThinQPlugin {
         }
         logger.info("Signed in to LG ThinQ through Setup", metadata: ["country": "\(country)", "devices": "\(devices.count)"])
         settings["refresh_token"] = .null
-        return .done(SetupOutcome(credentials: try JSONValue(data: JSONEncoder().encode(StoredToken(refreshToken: token))), settings: settings))
+        return .done(SetupOutcome(credentials: try JSONValue(encoding: StoredToken(refreshToken: token)), settings: settings))
     }
 
     private func redirectPrompt(_ url: String) -> SetupPrompt {

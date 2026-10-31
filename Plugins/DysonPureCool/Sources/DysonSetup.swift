@@ -40,15 +40,9 @@ extension DysonPureCoolPlugin {
             return entry
         }
         let listedSerials = Set(listed.compactMap { $0.serial?.trimmingCharacters(in: .whitespaces) })
-        let setUp = context.allAccessorySettings.sorted { $0.key < $1.key }.compactMap { serial, settings -> Configuration.Device? in
-            guard !settings.excluded, !listedSerials.contains(serial), let credentials = storedLocalCredentials(serial: serial) else { return nil }
-            var fields = settings.plugin
-            fields["serial"] = .string(serial)
-            fields["localCredentials"] = .string(credentials)
-            fields.removeValue(forKey: "credentials")
-            if let name = settings.name { fields["name"] = .string(name) }
-            guard let data = try? JSONValue.object(fields).encoded() as Data else { return nil }
-            return try? JSONDecoder().decode(Configuration.Device.self, from: data)
+        let setUp = context.setUpDevices(credentials: DeviceCredentials.self).filter { !listedSerials.contains($0.deviceID) }.compactMap { serial, settings, stored -> Configuration.Device? in
+            guard let credentials = stored.localCredentials.nonEmpty else { return nil }
+            return settings.decode(Configuration.Device.self, adding: ["serial": .string(serial), "localCredentials": .string(credentials), "credentials": .null])
         }
         return listed + setUp
     }
@@ -88,7 +82,7 @@ extension DysonPureCoolPlugin {
                 return step
             case .signedIn(let token, let countryCode):
                 logger.info("Signed in to the Dyson account through Setup")
-                return .done(SetupOutcome(credentials: try JSONValue(data: JSONEncoder().encode(AccountToken(token: token))), settings: ["countryCode": .string(countryCode)]))
+                return .done(SetupOutcome(credentials: try JSONValue(encoding: AccountToken(token: token)), settings: ["countryCode": .string(countryCode)]))
             }
         }
         if request.isFirst, let token = storedToken {
@@ -133,7 +127,7 @@ extension DysonPureCoolPlugin {
         var settings: [String: JSONValue] = ["productType": .string(device.productType)]
         if let name = device.name { settings["name"] = .string(name) }
         if !device.version.isEmpty { settings["firmwareVersion"] = .string(device.version) }
-        return .done(SetupOutcome(credentials: try JSONValue(data: JSONEncoder().encode(DeviceCredentials(localCredentials: device.localCredentials))), settings: settings))
+        return .done(SetupOutcome(credentials: try JSONValue(encoding: DeviceCredentials(localCredentials: device.localCredentials)), settings: settings))
     }
 
     private enum SignInStep {
@@ -146,7 +140,7 @@ extension DysonPureCoolPlugin {
     private func signIn(_ request: SetupRequest, message: String) async throws -> SignInStep {
         if let challengeID = request.state["challengeId"]?.stringValue, let email = request.state["email"]?.stringValue,
            let countryCode = request.state["countryCode"]?.stringValue {
-            guard let password = request.answer("password") else { throw SetupError("Enter the password") }
+            guard let password = request.secret("password") else { throw SetupError("Enter the password") }
             do {
                 let code = try CloudInput.code(request.answer("code").map(JSONValue.string))
                 let token = try await cloud.verify(email: email, password: password, challengeID: challengeID, code: code, countryCode: countryCode)

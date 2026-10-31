@@ -33,8 +33,7 @@ extension WingmanPlugin {
             }
             devices.append(device)
         }
-        for (id, settings) in context.allAccessorySettings.sorted(by: { $0.key < $1.key }) where !seen.contains(id) {
-            guard let saved = context.credentials(for: id, as: Credentials.self) else { continue }
+        for (id, settings, saved) in context.setUpDevices(credentials: Credentials.self) where !seen.contains(id) {
             let address = settings.decode(SetUpSettings.self)
             devices.append(Configuration.Device(id: id, name: settings.name, host: address?.host, port: address?.port, token: saved.token, fingerprint: saved.fingerprint))
         }
@@ -108,7 +107,7 @@ extension WingmanPlugin {
             }
             var settings: [String: JSONValue] = ["host": .string(host), "name": .string(device.name)]
             if port != Self.defaultPort { settings["port"] = .number(Double(port)) }
-            let credentials = try JSONValue(data: JSONEncoder().encode(Credentials(token: paired.token, fingerprint: fingerprint)))
+            let credentials = try JSONValue(encoding: Credentials(token: paired.token, fingerprint: fingerprint))
             return .done(SetupOutcome(credentials: credentials, settings: settings, deviceID: paired.id == device.deviceID ? nil : paired.id))
         }
         // The first step: the certificate this bridge sees, for the person to compare with Wingman's window.

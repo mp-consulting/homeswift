@@ -68,13 +68,14 @@ struct SetupTests {
         let found = try await #require(environment.plugin).discover()
         #expect(found.map(\.deviceID) == ["1000aaaaaa", "1000bbbbbb", "1000cccccc", "group-1"])
         #expect(found.map(\.excludedBySettings) == [false, true, false, false])
+        #expect(EWeLinkPlugin.deviceID(ofAccessory: "1000ccccccSW1") == "1000cccccc" && EWeLinkPlugin.deviceID(ofAccessory: "1000cccccc") == nil)
         #expect(found.allSatisfy { $0.isSetUp && $0.authorization == AuthorizationMethod.none })
         #expect(found.last?.name == "Downstairs" && found.last?.model == "Group")
 
         // A plugin made only for Setup logs in for the question.
         var block: [String: JSONValue] = ["platform": "eWeLink", "name": "Draft"]
         for (key, value) in EWeLinkTestEnvironment.account { block[key] = .string("\(value)") }
-        let discovered = try await host.discoverDevices(platform: EWeLinkPlugin.platform, name: "Draft", block: .object(block))
+        let discovered = try await host.discover(platform: EWeLinkPlugin.platform, name: "Draft", block: .object(block)).devices
         #expect(discovered.count == 4)
     }
 }

@@ -11,6 +11,12 @@ import HomeswiftPlugin
 extension EWeLinkPlugin {
     public static let accountAuthorization = AuthorizationMethod.accountLogin
 
+    /// A channel's or an RF sub-device's accessory (`<deviceid>SW<n>`) is its device's: Excluded reaches it.
+    public static func deviceID(ofAccessory suffix: String) -> String? {
+        let parent = DeviceLimits.parentDeviceID(suffix)
+        return parent == suffix ? nil : parent
+    }
+
     /// What Setup keeps in the vault.
     struct StoredPassword: Codable, Sendable {
         var password: String
@@ -58,8 +64,8 @@ extension EWeLinkPlugin {
     /// The account's email or phone number and its password, checked with a login: the password goes in the vault,
     /// the session in the plugin's own entry.
     public func authorize(_ request: SetupRequest) async throws -> SetupStep {
-        guard request.target == .account else { throw SetupError("eWeLink devices come with the account: they need no setup of their own") }
-        guard let username = request.answer("username"), let password = request.answer("password") else {
+        try request.requireAccount("eWeLink devices come with the account: they need no setup of their own")
+        guard let username = request.answer("username"), let password = request.secret("password") else {
             return .ask(SetupPrompt(message: "Sign in with your eWeLink account.", fields: [
                 SetupField("username", label: "Email or phone number"), SetupField("password", label: "Password", kind: .secret),
                 SetupField("countryCode", label: "Country calling code (such as +1 or +44)", optional: true),
@@ -84,6 +90,6 @@ extension EWeLinkPlugin {
         logger.info("Signed in to eWeLink through Setup", metadata: ["region": "\(region)"])
         var settings: [String: JSONValue] = ["username": .string(username), "password": .null]
         if let typedCountry { settings["countryCode"] = .string(typedCountry.hasPrefix("+") ? typedCountry : "+\(typedCountry)") }
-        return .done(SetupOutcome(credentials: try JSONValue(data: JSONEncoder().encode(StoredPassword(password: password))), settings: settings))
+        return .done(SetupOutcome(credentials: try JSONValue(encoding: StoredPassword(password: password)), settings: settings))
     }
 }

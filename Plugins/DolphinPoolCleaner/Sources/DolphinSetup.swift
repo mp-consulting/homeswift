@@ -12,13 +12,17 @@ extension DolphinPoolCleanerPlugin {
     /// The refresh token Setup keeps in the vault; preferred over the block's `refreshToken`.
     var storedRefreshToken: String? { context.credentials()?["refreshToken"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } }
 
+    /// Signed in: a refresh token Setup kept, or the block's (a Homebridge block pasted in: a refresh token, or an email
+    /// and a password).
+    public func accountAuthorized() async -> Bool? { storedRefreshToken != nil || configuration.hasCredentials }
+
     public func discover() async throws -> [DiscoveredDevice] {
         robots.map { DiscoveredDevice(deviceID: $0.serialNumber, name: $0.name, model: "Dolphin", isSetUp: true) }
     }
 
     /// The email, then each code Cognito asks for; the Cognito session between the steps is in the Setup's state.
     public func authorize(_ request: SetupRequest) async throws -> SetupStep {
-        guard request.target == .account else { throw SetupError("Dolphin robots come with the account: they need no setup of their own") }
+        try request.requireAccount("Dolphin robots come with the account: they need no setup of their own")
         let cognito = CognitoClient(transport: dependencies.transport, timeout: Maytronics.setupRequestTimeout)
         let response: JSONValue
         let email: String

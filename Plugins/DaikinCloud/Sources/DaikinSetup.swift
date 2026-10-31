@@ -22,12 +22,12 @@ extension DaikinCloudPlugin {
     }
 
     public func authorize(_ request: SetupRequest) async throws -> SetupStep {
-        guard request.target == .account else { throw SetupError("Daikin devices come with the account: they need no setup of their own") }
+        try request.requireAccount("Daikin devices come with the account: they need no setup of their own")
         return settings.authMode == .mobileApp ? try await authorizeMobile(request) : try await authorizeDeveloperPortal(request)
     }
 
     private func authorizeMobile(_ request: SetupRequest) async throws -> SetupStep {
-        guard let email = request.answer("email"), let password = request.answer("password") else {
+        guard let email = request.answer("email"), let password = request.secret("password") else {
             return .ask(SetupPrompt(message: "Sign in with the account of the Daikin Onecta app.",
                                     fields: [SetupField("email", label: "Email"), SetupField("password", label: "Password", kind: .secret)]))
         }

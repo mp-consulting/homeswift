@@ -70,7 +70,7 @@ extension GoveePlugin {
             guard let typed = request.answer("code") else { throw SetupError("Enter the code") }
             (username, password, code) = (asked, kept, typed)
         } else {
-            guard let typed = request.answer("username"), let secret = request.answers["password"], !secret.isEmpty else {
+            guard let typed = request.answer("username"), let secret = request.secret("password") else {
                 return .ask(SetupPrompt(message: "Sign in with your Govee account.", fields: [
                     SetupField("username", label: "Email"), SetupField("password", label: "Password", kind: .secret),
                 ]))
@@ -95,6 +95,6 @@ extension GoveePlugin {
         context.logger.info("[HTTP] Signed in through Setup")
         let login = StoredLogin(username: username, password: password, credentials: result.credentials, iot: result.iot)
         return .done(SetupOutcome(
-            credentials: try JSONValue(data: JSONEncoder().encode(login)), settings: ["username": .string(username), "password": .null, "code": .null]))
+            credentials: try JSONValue(encoding: login), settings: ["username": .string(username), "password": .null, "code": .null]))
     }
 }

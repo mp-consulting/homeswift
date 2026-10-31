@@ -402,7 +402,7 @@ struct WingmanTests {
         let host = try await environment.start(settings: [:])
         let plugin = try #require(environment.plugin)
         #expect(await eventually { await !plugin.announced.isEmpty })
-        let devices = try await host.discoverDevices(platform: WingmanPlugin.platform, name: WingmanPlugin.name)
+        let devices = try await host.discover(platform: WingmanPlugin.platform, name: WingmanPlugin.name).devices
         let found = try #require(devices.first)
         #expect(devices.count == 1)
         #expect(found == DiscoveredDevice(deviceID: "wm-1", name: "Mac mini", model: "Homeswift Wingman", address: "10.0.0.5", authorization: .deviceCode))
@@ -435,7 +435,7 @@ struct WingmanTests {
         try context.saveCredentials(WingmanPlugin.Credentials(token: FakeWingman.token, fingerprint: FakeWingman.fingerprint), for: "wm-1")
         await host.relaunch(platform: WingmanPlugin.platform, name: WingmanPlugin.name)
         _ = try await accessory(host, "light-1")
-        let devices = try await host.discoverDevices(platform: WingmanPlugin.platform, name: WingmanPlugin.name)
+        let devices = try await host.discover(platform: WingmanPlugin.platform, name: WingmanPlugin.name).devices
         #expect(devices.map(\.deviceID) == ["wm-1"])
         #expect(devices.first?.isSetUp == true && devices.first?.name == "Mac mini")
         await host.stop()
@@ -457,7 +457,7 @@ struct WingmanTests {
         let host = try await environment.start(settings: ["devices": [TestEnvironment.paired], "_accessories": ["wm-1": ["excluded": true]]])
         #expect(await environment.plugin?.links.isEmpty == true)
         #expect(!environment.wingman.requests.contains("homes"))
-        let devices = try await host.discoverDevices(platform: WingmanPlugin.platform, name: WingmanPlugin.name)
+        let devices = try await host.discover(platform: WingmanPlugin.platform, name: WingmanPlugin.name).devices
         #expect(devices.first { $0.deviceID == "wm-1" }?.isSetUp == false)
         await host.stop()
     }
@@ -466,7 +466,7 @@ struct WingmanTests {
     @Test func setUpLooksForWingmenFromAnInstanceThatIsNotRunning() async throws {
         let host = try await environment.start(settings: [:])
         let block: JSONValue = ["platform": "Wingman", "name": "Another Wingman"]
-        let devices = try await host.discoverDevices(platform: WingmanPlugin.platform, name: "Another Wingman", block: block)
+        let devices = try await host.discover(platform: WingmanPlugin.platform, name: "Another Wingman", block: block).devices
         #expect(devices.map(\.deviceID) == ["wm-1"])
         await host.stop()
     }

@@ -158,7 +158,7 @@ struct PairingTests {
     }
 
     @Test func pairsFromTheWebPage() async throws {
-        _ = try await environment.start(settings: ["devices": []])
+        let host = try await environment.start(settings: ["devices": []])
         let plugin = try #require(environment.plugin)
         let started = try await plugin.handleWebRequest(.init(method: "POST", path: "pair", body: ["ip": "192.168.1.20"], user: "admin"))
         #expect(started.status == 200 && started.json["certificateSeen"] == true)
@@ -170,9 +170,12 @@ struct PairingTests {
         await environment.tv.set(wrongPINStatus: nil)
         let granted = try await plugin.handleWebRequest(.init(method: "POST", path: "pair/grant", body: ["ip": "192.168.1.20", "pin": "1234"], user: "admin"))
         #expect(granted.status == 200)
-        #expect(granted.json["device"]?["password"] == "key-from-tv")
-        #expect(granted.json["device"]?["certFingerprint"]?.stringValue == FakeTV.fingerprint)
         #expect(granted.json["device"]?["mac"] == "AA:BB:CC:DD:EE:FF")
+        // The keys are in the vault under the TV's MAC, not in the entry the page writes into config.json.
+        #expect(granted.json["device"]?["password"] == nil && granted.json["device"]?["username"] == nil)
+        let keys = host.context(platform: PhilipsAmbilightTVPlugin.platform, name: "Philips TVs")?.credentials(for: "AA:BB:CC:DD:EE:FF")
+        #expect(keys?["password"] == "key-from-tv")
+        #expect(keys?["certFingerprint"]?.stringValue == FakeTV.fingerprint)
         let found = try await plugin.handleWebRequest(.init(method: "GET", path: "discover", user: "admin"))
         #expect(found.json["tvs"]?[0]?["host"] == "192.168.1.20")
     }

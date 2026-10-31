@@ -34,7 +34,7 @@ extension EcoFlowPlugin {
 
     /// The keys, checked with a read of the devices before they are kept.
     public func authorize(_ request: SetupRequest) async throws -> SetupStep {
-        guard request.target == .account else { throw SetupError("EcoFlow devices come with the account: they need no setup of their own") }
+        try request.requireAccount("EcoFlow devices come with the account: they need no setup of their own")
         guard let accessKey = request.answer("accessKey"), let secretKey = request.answer("secretKey") else {
             return .ask(SetupPrompt(message: "Enter the keys of your EcoFlow developer account, from developer.ecoflow.com.", fields: [
                 SetupField("accessKey", label: "Access key", kind: .secret), SetupField("secretKey", label: "Secret key", kind: .secret),
@@ -55,6 +55,6 @@ extension EcoFlowPlugin {
         logger.info("Developer keys checked through Setup", metadata: ["devices": "\(found.count)"])
         var settings: [String: JSONValue] = ["accessKey": .null, "secretKey": .null]
         if let region { settings["region"] = .string(region) }
-        return .done(SetupOutcome(credentials: try JSONValue(data: JSONEncoder().encode(DeveloperKeys(accessKey: accessKey, secretKey: secretKey))), settings: settings))
+        return .done(SetupOutcome(credentials: try JSONValue(encoding: DeveloperKeys(accessKey: accessKey, secretKey: secretKey)), settings: settings))
     }
 }

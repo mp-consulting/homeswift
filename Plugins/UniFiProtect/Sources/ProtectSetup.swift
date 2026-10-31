@@ -29,13 +29,9 @@ extension UniFiProtectPlugin {
     /// Excluded.
     func controllerEntries() -> [Configuration.Controller] {
         var setUp: [Configuration.Controller] = []
-        for (mac, settings) in context.allAccessorySettings.sorted(by: { $0.key < $1.key }) {
-            guard !settings.excluded, let address = settings.plugin["address"]?.stringValue?.trimmingCharacters(in: .whitespaces), !address.isEmpty,
-                  let login = context.credentials(for: mac, as: ControllerLogin.self) else { continue }
-            var fields = settings.plugin
-            fields["username"] = .string(login.username)
-            fields["password"] = .string(login.password)
-            guard let data = try? JSONValue.object(fields).encoded() as Data, let controller = try? JSONDecoder().decode(Configuration.Controller.self, from: data) else { continue }
+        for (_, settings, login) in context.setUpDevices(credentials: ControllerLogin.self) {
+            guard settings.plugin["address"]?.stringValue?.trimmingCharacters(in: .whitespaces).isEmpty == false,
+                  let controller = settings.decode(Configuration.Controller.self, adding: ["username": .string(login.username), "password": .string(login.password)]) else { continue }
             setUp.append(controller)
         }
         func key(_ controller: Configuration.Controller) -> String { controller.address.trimmingCharacters(in: .whitespaces).lowercased() }
@@ -126,7 +122,7 @@ extension UniFiProtectPlugin {
         let device = try request.device()
         guard device.authorization == .accountLogin else { return .done(SetupOutcome()) }
         guard let address = device.address?.nonEmpty else { throw SetupError("The controller has no address: find it again") }
-        guard let username = request.answer("username"), let password = request.answers["password"], !password.isEmpty else {
+        guard let username = request.answer("username"), let password = request.secret("password") else {
             return .ask(SetupPrompt(message: "Sign in to the UniFi console with a local account that can use UniFi Protect.", fields: [
                 SetupField("username", label: "User name"), SetupField("password", label: "Password", kind: .secret),
             ]))
@@ -138,7 +134,7 @@ extension UniFiProtectPlugin {
         }
         let mac = bootstrap.at("nvr")?.string("mac")?.nonEmpty ?? device.deviceID
         logger.info("Signed in to the controller at \(address) through Setup.")
-        let login = try JSONValue(data: JSONEncoder().encode(ControllerLogin(username: username, password: password)))
+        let login = try JSONValue(encoding: ControllerLogin(username: username, password: password))
         return .done(SetupOutcome(credentials: login, settings: ["address": .string(address)], deviceID: mac))
     }
 }

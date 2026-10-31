@@ -47,7 +47,7 @@ final class EWeLinkPlatform {
     var hasPendingRetry: Bool { retryTask != nil }
 
     /// Left out: in `ignoredDevices`, or Excluded in its Accessory Settings (GLOSSARY.md), its channels and RF sub-devices
-    /// with it (their accessory ids, `<deviceid>SW<n>`, are not ones the runtime tells apart).
+    /// with it (the runtime refuses their accessories too: `EWeLinkPlugin.deviceID(ofAccessory:)`).
     func isLeftOut(_ deviceID: String) -> Bool { configuration.isIgnored(deviceID) || context.isExcluded(deviceID) }
     var tokenStorage: TokenStorage { TokenStorage(context: context) }
 

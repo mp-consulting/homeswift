@@ -38,6 +38,7 @@ extension PluginHost {
                 block: draft, key: key, bridge: mainBridge, storageDirectory: storageDirectory, logLevel: logger.logLevel, assistant: assistantBox,
                 externals: externals, values: ValueFeed(), energyImports: EnergyImportFeed(), energyProgress: .init([:]), assistantBackground: entry.assistantBackground)
             context.accessorySettingsBox.withLockedValue { $0 = draft.accessorySettings }
+            context.ownDeviceIDBox.withLockedValue { $0 = entry.deviceIDOfAccessory }
         }
         let plugin = try await entry.make(json, context)
         do {
@@ -50,29 +51,26 @@ extension PluginHost {
         }
     }
 
-    /// Whether the block's account is Authorized: the plugin's answer, else whether the account has credentials.
-    public func accountAuthorized(platform: String, name: String?, block: JSONValue? = nil) async throws -> Bool {
+    /// What the plugin of the block finds now, and whether its account is Authorized, from one plugin: each device set up
+    /// when the plugin says so, when it has credentials of its own, or when its accessory is on the bridge, and Excluded
+    /// when its Accessory Settings say so.
+    public func discover(platform: String, name: String?, block: JSONValue? = nil) async throws -> Discovery {
         try await withSetupPlugin(platform: platform, name: name, block: block) { plugin, context in
-            if let answer = await plugin.accountAuthorized() { return answer }
-            return !context.haveCredentials([nil]).isEmpty
-        }
-    }
-
-    /// What the plugin of the block finds now, each device marked set up when the plugin says so, when it has
-    /// credentials of its own, or when its accessory is on the bridge; never when it is Excluded.
-    public func discoverDevices(platform: String, name: String?, block: JSONValue? = nil) async throws -> [DiscoveredDevice] {
-        try await withSetupPlugin(platform: platform, name: name, block: block) { plugin, context in
-            let accessoryIDs = Set(context.accessories.map(\.id))
+            async let found = plugin.discover()
+            async let pluginAnswer = plugin.accountAuthorized()
             var seen = Set<String>()
-            let devices = try await plugin.discover().filter { seen.insert($0.deviceID).inserted }
-            let authorizedIDs = context.haveCredentials(devices.filter { $0.authorization != .none }.map(\.deviceID))
-            return devices.map { device in
+            let devices = try await found.filter { seen.insert($0.deviceID).inserted }
+            // One read of the vault's names for the account and every device.
+            let authorized = context.haveCredentials([nil] + devices.filter { $0.authorization != .none }.map(\.deviceID))
+            let accessoryIDs = context.accessories.map(\.id)
+            let marked = devices.map { device in
                 var device = device
+                device.isExcluded = context.isExcluded(device.deviceID)
                 let published = accessoryIDs.contains { context.isAccessory($0, of: device.deviceID) }
-                let authorized = authorizedIDs.contains(device.deviceID)
-                device.isSetUp = !context.isExcluded(device.deviceID) && !device.excludedBySettings && (device.isSetUp || published || authorized)
+                device.isSetUp = !device.isExcluded && !device.excludedBySettings && (device.isSetUp || published || authorized.contains(device.deviceID))
                 return device
             }
+            return Discovery(devices: marked, accountAuthorized: await pluginAnswer ?? authorized.contains(nil))
         }
     }
 

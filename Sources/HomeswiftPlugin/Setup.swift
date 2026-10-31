@@ -34,6 +34,8 @@ public struct DiscoveredDevice: Sendable, Codable, Equatable {
     public var authorization: AuthorizationMethod
     /// The plugin talks to it already: Authorized, or needing none, and not Excluded.
     public var isSetUp: Bool
+    /// Excluded by its Accessory Settings; the bridge sets it.
+    public var isExcluded = false
     /// Left out by one of the plugin's own settings (a Homebridge-shaped exclude list), not by its Accessory Settings: the
     /// person includes it again there.
     public var excludedBySettings: Bool
@@ -50,6 +52,23 @@ public struct DiscoveredDevice: Sendable, Codable, Equatable {
         self.isSetUp = isSetUp
         self.excludedBySettings = excludedBySettings
     }
+}
+
+extension DiscoveredDevice {
+    /// Where it stands, as the Add accessories page and MCP clients show it.
+    public enum Status: String, Sendable {
+        case setUp, needsAuthorization, discovered, excluded
+    }
+
+    public var status: Status {
+        isExcluded || excludedBySettings ? .excluded : isSetUp ? .setUp : authorization == .none ? .discovered : .needsAuthorization
+    }
+}
+
+/// What a plugin finds, and whether its account is Authorized.
+public struct Discovery: Sendable {
+    public var devices: [DiscoveredDevice]
+    public var accountAuthorized: Bool
 }
 
 /// One answer a step of Setup asks for.
@@ -126,6 +145,12 @@ public struct SetupOutcome: Sendable {
         self.settings = settings
         self.deviceID = deviceID
     }
+
+    /// With the plugin's own credentials type, encoded.
+    public init(encoding credentials: some Encodable, settings: [String: JSONValue] = [:], deviceID: String? = nil) throws {
+        let json = try JSONValue(encoding: credentials)
+        self.init(credentials: json, settings: settings, deviceID: deviceID)
+    }
 }
 
 /// A plugin's answer to a step of Setup.
@@ -163,6 +188,17 @@ public struct SetupRequest: Sendable {
     public func answer(_ key: String) -> String? {
         guard let text = answers[key]?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
         return text
+    }
+
+    /// A secret answer (a password, a key) as typed: never trimmed, only nil when missing or empty.
+    public func secret(_ key: String) -> String? {
+        guard let text = answers[key], !text.isEmpty else { return nil }
+        return text
+    }
+
+    /// Throws for a device step, for a plugin whose devices come with its account.
+    public func requireAccount(_ reason: String = "Its devices come with the account: they need no setup of their own") throws {
+        guard target == .account else { throw SetupError(reason) }
     }
 
     /// The device this step is for; throws for an account step.

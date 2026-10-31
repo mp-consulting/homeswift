@@ -65,29 +65,23 @@ extension HomeswiftCatalog {
     /// (needs nothing, the plugin publishes it) or `excluded`. `block` is a block not saved yet.
     public func discoverDevices(platform: String, name: String?, block: JSONValue? = nil) async throws -> JSONValue {
         let name = name ?? platform
-        let devices = try await host.discoverDevices(platform: platform, name: name, block: block)
-        let accountSetUp = host.registry.entry(for: platform)?.accountAuthorization == AuthorizationMethod.none
-            ? true : (try? await host.accountAuthorized(platform: platform, name: name, block: block)) ?? false
-        setupSessions.remember(devices, for: "\(platform)/\(name)")
-        let saved = (try? readConfig())?["platforms"]?.arrayValue?.first { $0["platform"]?.stringValue == platform && ($0["name"]?.stringValue ?? platform) == name }
-        let settings = AccessorySettings.all(in: block ?? saved ?? .null)
-        let context = host.context(platform: platform, name: name)
-        let accessories = Dictionary(context?.accessories.map { ($0.id, $0) } ?? [], uniquingKeysWith: { first, _ in first })
+        let found = try await host.discover(platform: platform, name: name, block: block)
+        setupSessions.remember(found.devices, for: "\(platform)/\(name)")
+        let accessories = Dictionary(host.context(platform: platform, name: name)?.accessories.map { ($0.id, $0) } ?? [], uniquingKeysWith: { first, _ in first })
         return [
             "platform": .string(platform), "name": .string(name),
             "accountAuthorization": .string(host.registry.entry(for: platform)?.accountAuthorization.rawValue ?? "none"),
-            "accountSetUp": .bool(accountSetUp),
-            "devices": .array(devices.map { device in
-                let status = settings[device.deviceID]?.excluded == true || device.excludedBySettings ? "excluded"
-                    : device.isSetUp ? "setUp" : device.authorization == .none ? "discovered" : "needsAuthorization"
+            "accountSetUp": .bool(found.accountAuthorized),
+            "devices": .array(found.devices.map { device in
+                let accessoryID = "\(platform):\(device.deviceID)"
                 var json: [String: JSONValue] = [
-                    "deviceID": .string(device.deviceID), "accessoryID": .string("\(platform):\(device.deviceID)"), "name": .string(device.name),
-                    "authorization": .string(device.authorization.rawValue), "status": .string(status),
+                    "deviceID": .string(device.deviceID), "accessoryID": .string(accessoryID), "name": .string(device.name),
+                    "authorization": .string(device.authorization.rawValue), "status": .string(device.status.rawValue),
                 ]
                 if let model = device.model { json["model"] = .string(model) }
                 if device.excludedBySettings { json["excludedBySettings"] = true }
                 // What kind of accessory it is on the bridge, for its glyph.
-                if let accessory = accessories["\(platform):\(device.deviceID)"] { json["category"] = .string("\(accessory.category)") }
+                if let accessory = accessories[accessoryID] { json["category"] = .string("\(accessory.category)") }
                 if let address = device.address { json["address"] = .string(address) }
                 return .object(json)
             }),
@@ -96,7 +90,7 @@ extension HomeswiftCatalog {
 
     /// Starts the Setup of the instance's account (no `deviceID`) or of one of the devices its last discovery found, and
     /// runs its first step. `block` is the block of an instance not saved yet, which the Setup adds when done.
-    public func startSetup(platform: String, name: String?, deviceID: String?, block: JSONValue? = nil, by writer: ConfigWriter = .person) async throws -> JSONValue {
+    public func startSetup(platform: String, name: String?, deviceID: String?, block: JSONValue? = nil) async throws -> JSONValue {
         let name = name ?? platform
         guard let entry = host.registry.entry(for: platform) else { throw CatalogError("No plugin for platform \(platform)") }
         let target: SetupRequest.Target
@@ -104,8 +98,9 @@ extension HomeswiftCatalog {
         if let deviceID {
             var device = setupSessions.device(deviceID, of: "\(platform)/\(name)")
             if device == nil {
-                _ = try await discoverDevices(platform: platform, name: name, block: block)
-                device = setupSessions.device(deviceID, of: "\(platform)/\(name)")
+                let found = try await host.discover(platform: platform, name: name, block: block).devices
+                setupSessions.remember(found, for: "\(platform)/\(name)")
+                device = found.first { $0.deviceID == deviceID }
             }
             guard let device else { throw CatalogError("\(entry.name) did not find the device \(deviceID); discover_devices lists those it finds") }
             target = .device(device)
@@ -131,7 +126,8 @@ extension HomeswiftCatalog {
                 continue
             }
             if field.kind == .secret, let reference = SecretReference(text) {
-                if writer == .client, case .vault = reference {} else if writer == .client {
+                // A client names the bridge's own secrets only: env: and file: read what is on its machine.
+                if writer == .client, !reference.isVault {
                     return asking(session, error: "\(field.label): only a vault: reference is accepted here")
                 }
                 do {
@@ -235,7 +231,7 @@ extension HomeswiftCatalog {
     private func asking(_ session: SetupSession, error: String?) -> JSONValue {
         var answer: [String: JSONValue] = [
             "status": "asking", "session": .string(session.id), "platform": .string(session.platform), "name": .string(session.name),
-            "method": .string(session.method.rawValue), "prompt": (try? JSONValue(data: JSONEncoder().encode(session.prompt))) ?? .null,
+            "method": .string(session.method.rawValue), "prompt": (try? JSONValue(encoding: session.prompt)) ?? .null,
             "message": .string(session.prompt.text),
         ]
         if let deviceID = session.deviceID { answer["deviceID"] = .string(deviceID) }
@@ -276,7 +272,7 @@ extension HomeswiftCatalog {
                 inputSchema: ["type": "object", "required": ["platform"], "properties": .object(instance.merging(["deviceID": ["type": "string"]]) { $1 })],
                 scope: .admin
             ) { call in
-                Self.untrusted(try await catalog.startSetup(platform: try call.string("platform"), name: call.optionalString("name"), deviceID: call.optionalString("deviceID"), by: .client))
+                Self.untrusted(try await catalog.startSetup(platform: try call.string("platform"), name: call.optionalString("name"), deviceID: call.optionalString("deviceID")))
             },
             MCPTool(
                 name: "continue_setup", title: "Answer a Setup step",

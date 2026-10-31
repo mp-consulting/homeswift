@@ -27,7 +27,7 @@ extension PhilipsHuePlugin {
     /// The bridge's address (asked when none is set or found), then its link button, tried every two seconds by the page
     /// for a minute. The key, the bridge ID and the address go in the vault.
     public func authorize(_ request: SetupRequest) async throws -> SetupStep {
-        guard request.target == .account else { throw SetupError("Hue lights and sensors need no setup of their own") }
+        try request.requireAccount("Hue lights and sensors need no setup of their own")
         let typed = request.answer("host")
         var host = typed ?? request.state["host"]?.stringValue
         if host == nil { host = await bridgeHost() }
@@ -39,32 +39,21 @@ extension PhilipsHuePlugin {
         // Pairing again with the same bridge keeps the certificate it was paired with; a typed address starts afresh.
         let saved = context.credentials(as: StoredBridge.self)
         let known = saved?.host == host ? saved?.fingerprint : nil
-        let pinned = PinnedFingerprint(typed == nil ? request.state["fingerprint"]?.stringValue ?? known : nil)
-        let trust = HTTPClient.TrustOnFirstUse(pinned: pinned.value) { pinned.value = $0 }
+        // The trust keeps the certificate it pins on the first connection: `trust.fingerprint`.
+        let trust = HTTPClient.TrustOnFirstUse(pinned: typed == nil ? request.state["fingerprint"]?.stringValue ?? known : nil)
         let client = HueClient(host: host, applicationKey: nil, transport: dependencies.transport(trust))
         let waiting = SetupPrompt(message: "Press the link button on the Hue Bridge.", waitSeconds: Int(Self.pairingWindow.components.seconds), retryAfter: 2)
         let key: String, bridgeID: String?
         do {
             (key, bridgeID) = try await Self.requestKey(client)
         } catch HueClient.Failure.linkButtonNotPressed {
-            return .ask(waiting, state: ["host": .string(host), "fingerprint": pinned.value.map(JSONValue.string) ?? .null])
+            return .ask(waiting, state: ["host": .string(host), "fingerprint": trust.fingerprint.map(JSONValue.string) ?? .null])
         } catch {
             throw SetupError("The Hue Bridge at \(host) did not answer: \(error)")
         }
-        let fingerprint = pinned.value
+        let fingerprint = trust.fingerprint
         logger.info("Paired with the Hue Bridge at \(host)")
         let credentials = StoredBridge(host: host, bridgeID: bridgeID, applicationKey: key, fingerprint: fingerprint)
-        return .done(SetupOutcome(credentials: try JSONValue(data: JSONEncoder().encode(credentials)), settings: typed.map { ["host": .string($0)] } ?? [:]))
-    }
-}
-
-/// The certificate a pairing saw, set from the connection's callback.
-private final class PinnedFingerprint: @unchecked Sendable {
-    private let lock = NSLock()
-    private var stored: String?
-    init(_ value: String?) { stored = value }
-    var value: String? {
-        get { lock.withLock { stored } }
-        set { lock.withLock { stored = newValue } }
+        return .done(SetupOutcome(credentials: try JSONValue(encoding: credentials), settings: typed.map { ["host": .string($0)] } ?? [:]))
     }
 }

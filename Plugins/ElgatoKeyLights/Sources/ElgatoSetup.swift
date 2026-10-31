@@ -34,24 +34,7 @@ extension ElgatoKeyLightsPlugin {
 
     /// What Bonjour announces within `discoveryWindow`, for an instance that is not browsing all the time.
     func browseOnce() async -> [DiscoveredLight] {
-        let stream = dependencies.discover(context.logger)
-        let window = dependencies.discoveryWindow
-        return await withTaskGroup(of: [DiscoveredLight]?.self) { group in
-            group.addTask {
-                var found: [DiscoveredLight] = []
-                for await light in stream { found.append(light) }
-                return found
-            }
-            group.addTask {
-                try? await Task.sleep(for: window)
-                return nil
-            }
-            // The window's end, or a browse that finished first: either way the browse stops and says what it found.
-            var lights = await group.next().flatMap { $0 } ?? []
-            group.cancelAll()
-            while let result = await group.next() { lights += result ?? [] }
-            return lights
-        }
+        await dependencies.discover(context.logger).collect(for: dependencies.discoveryWindow)
     }
 }
 

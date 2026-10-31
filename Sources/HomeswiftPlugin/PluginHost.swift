@@ -618,6 +618,7 @@ public final class PluginHost: @unchecked Sendable {
             Task { await handler(id, name) }
         }
         context.accessorySettingsBox.withLockedValue { $0 = block.accessorySettings }
+        context.ownDeviceIDBox.withLockedValue { $0 = entry.deviceIDOfAccessory }
         return Instance(entry: entry, block: block, context: context)
     }
 
@@ -663,7 +664,7 @@ public final class PluginHost: @unchecked Sendable {
         context.accessorySettingsBox.withLockedValue { $0 = instance.block.accessorySettings }
         // What a change of `_accessories` Excluded leaves on the bridge goes now; the plugin no longer adds it.
         for accessory in context.accessories {
-            guard let deviceID = context.deviceID(ofAccessory: accessory.id), context.isExcluded(deviceID) else { continue }
+            guard context.isExcluded(accessoryID: accessory.id) else { continue }
             try? await context.remove(id: accessory.id)
             context.logger.info("Removed \(accessory.name): its device is Excluded")
         }

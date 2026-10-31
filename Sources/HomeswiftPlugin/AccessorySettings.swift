@@ -42,8 +42,16 @@ public struct AccessorySettings: Sendable, Equatable {
 
     /// The plugin's settings as its own type; nil when they do not decode.
     public func decode<T: Decodable>(_ type: T.Type = T.self) -> T? {
-        guard let data = try? JSONValue.object(plugin).encoded() else { return nil }
-        return try? JSONDecoder().decode(T.self, from: data)
+        try? JSONValue.object(plugin).decode(T.self)
+    }
+
+    /// An entry of the plugin's own configuration type for the device: its plugin settings, its name under `name`, and
+    /// `fields` on top (its Device Id under the plugin's key, what its credentials hold). nil when it does not decode.
+    public func decode<T: Decodable>(_ type: T.Type, adding fields: [String: JSONValue]) -> T? {
+        var all = plugin
+        if let name { all["name"] = .string(name) }
+        all.merge(fields) { $1 }
+        return try? JSONValue.object(all).decode(T.self)
     }
 
     /// A block's `_accessories`, by Device Id; entries that are not objects are left out.
@@ -71,6 +79,18 @@ extension PluginContext {
         accessorySettingsBox.withLockedValue { $0[deviceID]?.excluded } ?? false
     }
 
+    /// Whether the accessory `id` belongs to an Excluded device (`deviceID(ofAccessory:)`), with one look at the settings and
+    /// none when no device is Excluded: the runtime asks on every `add`.
+    public func isExcluded(accessoryID id: String) -> Bool {
+        let prefix = "\(platform):"
+        guard id.hasPrefix(prefix) else { return false }
+        let rest = id.dropFirst(prefix.count)
+        let own = ownDeviceID?(String(rest))
+        return accessorySettingsBox.withLockedValue { settings in
+            settings.contains { $0.value.excluded && ($0.key == own || Self.isChild(rest, of: $0.key)) }
+        }
+    }
+
     /// The Device Ids of the Excluded devices.
     public var excludedDeviceIDs: Set<String> {
         Set(accessorySettingsBox.withLockedValue { $0.filter(\.value.excluded).keys })
@@ -78,13 +98,16 @@ extension PluginContext {
 
     /// The device an accessory id belongs to among those with Accessory Settings: `<platform>:<deviceID>`, or one of the
     /// device's accessories `<platform>:<deviceID>:<more>` or `<platform>:<deviceID>.<more>`. nil for an id of another
-    /// form or a device with none.
+    /// form or a device with none. A plugin whose accessories take other forms names their device itself
+    /// (`HomeswiftPlugin.deviceID(ofAccessory:)`).
     public func deviceID(ofAccessory id: String) -> String? {
         let prefix = "\(platform):"
         guard id.hasPrefix(prefix) else { return nil }
         let rest = id.dropFirst(prefix.count)
+        let own = ownDeviceID?(String(rest))
         return accessorySettingsBox.withLockedValue { settings in
             if settings[String(rest)] != nil { return String(rest) }
+            if let own, settings[own] != nil { return own }
             // The longest Device Id the rest starts with, a colon or a dot after it: Device Ids may hold colons (a MAC).
             return settings.keys.filter { Self.isChild(rest, of: $0) }.max { $0.count < $1.count }
         }
@@ -98,7 +121,9 @@ extension PluginContext {
     /// Whether `id` is the accessory of the device `deviceID`, or one of its others (`deviceID(ofAccessory:)`'s forms).
     public func isAccessory(_ id: String, of deviceID: String) -> Bool {
         let prefix = "\(platform):"
-        return id.hasPrefix(prefix) && Self.isChild(id.dropFirst(prefix.count), of: deviceID)
+        guard id.hasPrefix(prefix) else { return false }
+        let rest = id.dropFirst(prefix.count)
+        return Self.isChild(rest, of: deviceID) || ownDeviceID?(String(rest)) == deviceID
     }
 
     /// The accessory id of a device: `<platform>:<deviceID>`.
@@ -113,15 +138,27 @@ extension PluginContext {
 
     /// The credentials as the plugin's own type.
     public func credentials<T: Decodable>(for deviceID: String? = nil, as type: T.Type, legacyFile: String? = nil) -> T? {
-        guard let json = credentials(for: deviceID, legacyFile: legacyFile), let data = try? json.encoded() else { return nil }
-        return try? JSONDecoder().decode(T.self, from: data)
+        try? credentials(for: deviceID, legacyFile: legacyFile)?.decode(T.self)
     }
 
     /// Which of these devices (nil for the account) have credentials, from one read of the vault that does not count as
     /// a use: what Setup shows as Authorized.
     public func haveCredentials(_ deviceIDs: [String?]) -> Set<String?> {
-        let names = Set(((try? CredentialVault(storage: vaultStorage).entries()) ?? [:]).keys)
+        // The names only: nothing is opened.
+        let names = Set((try? CredentialVault(storage: vaultStorage).names()) ?? [])
         return Set(deviceIDs.filter { names.contains(credentialsFile(for: $0).entryName) })
+    }
+
+    /// The devices set up through Setup: those with Accessory Settings and credentials in the vault, by Device Id, Excluded
+    /// ones left out. A plugin that runs them beside a Homebridge-shaped list (`devices`) makes its entries from these
+    /// (`AccessorySettings.decode(_:adding:)`).
+    public func setUpDevices<Credentials: Decodable>(credentials type: Credentials.Type) -> [(deviceID: String, settings: AccessorySettings, credentials: Credentials)] {
+        let candidates = allAccessorySettings.filter { !$0.value.excluded }.sorted { $0.key < $1.key }
+        let authorized = haveCredentials(candidates.map(\.key))
+        return candidates.compactMap { deviceID, settings in
+            guard authorized.contains(deviceID), let credentials = credentials(for: deviceID, as: Credentials.self) else { return nil }
+            return (deviceID, settings, credentials)
+        }
     }
 
     /// Replaces them: a refreshed token. The bridge saves an Authorization's own when it is done.
@@ -130,7 +167,7 @@ extension PluginContext {
     }
 
     public func saveCredentials<T: Encodable>(_ credentials: T, for deviceID: String? = nil) throws {
-        try saveCredentials(JSONValue(data: JSONEncoder().encode(credentials)), for: deviceID)
+        try saveCredentials(JSONValue(encoding: credentials), for: deviceID)
     }
 
     /// Drops them: the device or the account Needs Authorization again.

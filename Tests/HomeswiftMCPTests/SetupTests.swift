@@ -132,7 +132,7 @@ struct SetupTests {
     @Test func aClientAnswersASecretWithAVaultReferenceOnly() async throws {
         try await host.start()
         try catalog.vault.set("pairable-login", VaultEntry(kind: .login, fields: ["password": "account-pass"]))
-        let first = try await catalog.startSetup(platform: "Pairable", name: nil, deviceID: nil, by: .client)
+        let first = try await catalog.startSetup(platform: "Pairable", name: nil, deviceID: nil)
         #expect(first["method"] == "accountLogin")
         let session = try #require(first["session"]?.stringValue)
         let plain = try await catalog.continueSetup(session, answers: ["email": "a@b.c", "password": "account-pass"], by: .client)

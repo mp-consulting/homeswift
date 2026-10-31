@@ -92,6 +92,9 @@ public actor WingmanPlugin: HomeswiftPlugin {
         self.init(configuration: configuration, context: context, dependencies: Dependencies())
     }
 
+    /// The Wingmen the plugin runs, from `devices` and Setup (`configuredDevices`), read at start and after a pairing.
+    private var running: [Configuration.Device] = []
+
     init(configuration: Configuration, context: PluginContext, dependencies: Dependencies) {
         self.configuration = configuration
         self.context = context
@@ -99,8 +102,12 @@ public actor WingmanPlugin: HomeswiftPlugin {
         Self.moveLegacyCredentials(configuration, context)
     }
 
+    /// The Wingmen with a token, by id: those the page shows as paired.
+    nonisolated func pairedIDs() -> Set<String> { Set(configuredDevices().filter { $0.token != nil }.map(\.id)) }
+
     public func start() async throws {
-        for device in configuredDevices() {
+        running = configuredDevices()
+        for device in running {
             // Excluded in its Accessory Settings: not reached, its accessories not mirrored.
             if context.isExcluded(device.id) { continue }
             // The token goes only to the certificate pairing pinned: never over a connection that accepts any.
@@ -162,27 +169,12 @@ public actor WingmanPlugin: HomeswiftPlugin {
 
     /// What Bonjour announces within `discoveryDuration`, by Wingman's id.
     func browseOnce() async -> [Announced] {
-        let events = dependencies.browse(logger)
-        let duration = dependencies.discoveryDuration
-        return await withTaskGroup(of: [Announced]?.self) { group in
-            group.addTask {
-                var found: [String: Announced] = [:]
-                for await event in events {
-                    guard case .found(let service) = event, let id = service.txt["id"], !id.isEmpty else { continue }
-                    found[id] = Announced(id: id, name: service.name, host: service.preferredAddress, port: service.port)
-                }
-                return Array(found.values)
-            }
-            group.addTask {
-                try? await Task.sleep(for: duration)
-                return nil
-            }
-            // The time's end, or a browse that finished first: either way the browse stops and says what it found.
-            var found = await group.next().flatMap { $0 } ?? []
-            group.cancelAll()
-            while let result = await group.next() { found += result ?? [] }
-            return found
+        var found: [String: Announced] = [:]
+        for event in await dependencies.browse(logger).collect(for: dependencies.discoveryDuration) {
+            guard case .found(let service) = event, let id = service.txt["id"], !id.isEmpty else { continue }
+            found[id] = Announced(id: id, name: service.name, host: service.preferredAddress, port: service.port)
         }
+        return Array(found.values)
     }
 
     // MARK: Accessories
@@ -226,7 +218,7 @@ public actor WingmanPlugin: HomeswiftPlugin {
 
     /// A Wingman as the page lists it, asked who it is: its version, whether pairing is open, and its certificate as
     /// this machine sees it, to compare with Wingman's menu before typing the code.
-    private nonisolated func describe(_ wingman: Announced) async -> JSONValue {
+    private nonisolated func describe(_ wingman: Announced, paired: Set<String>) async -> JSONValue {
         let client = WingmanClient(host: wingman.host, port: wingman.port, token: nil, fingerprint: nil, transports: dependencies.transports)
         var entry: [String: JSONValue] = ["name": .string(wingman.name), "host": .string(wingman.host), "port": .number(Double(wingman.port))]
         var id = wingman.id
@@ -240,7 +232,7 @@ public actor WingmanPlugin: HomeswiftPlugin {
             entry["error"] = .string("\(error)")
         }
         entry["id"] = .string(id)
-        entry["paired"] = .bool(configuredDevices().contains { $0.id == id && $0.token != nil })
+        entry["paired"] = .bool(paired.contains(id))
         return .object(entry)
     }
 
@@ -250,8 +242,9 @@ public actor WingmanPlugin: HomeswiftPlugin {
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
         switch (request.method, request.path) {
         case ("GET", "wingmen"):
+            // Polled every few seconds by the page: the devices read from the vault once, at start, not at each poll.
             var list: [JSONValue] = []
-            for device in configuredDevices() where !context.isExcluded(device.id) {
+            for device in running where !context.isExcluded(device.id) {
                 if let link = links[device.id] {
                     list.append(await link.status())
                 } else {
@@ -263,8 +256,9 @@ public actor WingmanPlugin: HomeswiftPlugin {
         case ("GET", "discover"):
             // Asked all at once: one that does not answer costs its timeout, not everyone's.
             let wingmen = await discovered()
+            let paired = pairedIDs()
             let found = await withTaskGroup(of: (Int, JSONValue).self) { group in
-                for (index, wingman) in wingmen.enumerated() { group.addTask { (index, await self.describe(wingman)) } }
+                for (index, wingman) in wingmen.enumerated() { group.addTask { (index, await self.describe(wingman, paired: paired)) } }
                 var found: [(Int, JSONValue)] = []
                 for await answer in group { found.append(answer) }
                 return found.sorted { $0.0 < $1.0 }.map(\.1)
@@ -274,7 +268,7 @@ public actor WingmanPlugin: HomeswiftPlugin {
             // A Wingman Bonjour does not reach (another network, a container without multicast), by its address.
             guard let host = request.query["host"]?.trimmingCharacters(in: .whitespaces), !host.isEmpty else { return .error(400, "an address is required") }
             let port = request.query["port"].flatMap(Int.init) ?? Self.defaultPort
-            let wingman = await describe(Announced(id: "", name: host, host: host, port: port))
+            let wingman = await describe(Announced(id: "", name: host, host: host, port: port), paired: pairedIDs())
             if let error = wingman["error"]?.stringValue { return .error(502, error) }
             return PluginWebResponse(["wingman": wingman])
         case ("POST", "pair"):
@@ -290,7 +284,8 @@ public actor WingmanPlugin: HomeswiftPlugin {
                 // The token and the certificate in the vault, under Wingman's id; config.json gets the rest.
                 try context.saveCredentials(Credentials(token: paired.token, fingerprint: fingerprint), for: paired.id)
                 // Paired again: an entry config.json already has may not change, so the link takes the new token now.
-                if isBrowsing, let device = configuredDevices().first(where: { $0.id == paired.id }), !context.isExcluded(paired.id) {
+                running = configuredDevices()
+                if isBrowsing, let device = running.first(where: { $0.id == paired.id }), !context.isExcluded(paired.id) {
                     run(device, token: paired.token)
                 }
                 var entry: [String: JSONValue] = ["id": .string(paired.id), "host": .string(host)]

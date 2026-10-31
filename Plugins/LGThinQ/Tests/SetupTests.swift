@@ -111,9 +111,9 @@ struct SetupTests {
         #expect(byName["Oven"]?.excludedBySettings == true && byName["Old hood"]?.excludedBySettings == true)
 
         // A plugin made only for Setup signs in for the question.
-        let discovered = try await host.discoverDevices(platform: LGThinQPlugin.platform, name: "Draft", block: [
+        let discovered = try await host.discover(platform: LGThinQPlugin.platform, name: "Draft", block: [
             "platform": "LGThinQ", "name": "Draft", "refresh_token": "refresh-1", "country": "US", "language": "en-US",
-        ])
+        ]).devices
         #expect(discovered.count == 4)
     }
 }

@@ -467,7 +467,7 @@ struct ElgatoKeyLightsTests {
         ])
         environment.discover.yield(.init(name: "Elgato Key Light Air 1234", mac: "aa:bb:cc:dd:ee:ff", host: "10.0.0.5", port: 9123, model: "Elgato Key Light Air"))
         #expect(await eventually { host.mainBridge.server.accessories.count == 2 })
-        let devices = try await host.discoverDevices(platform: ElgatoKeyLightsPlugin.platform, name: "Elgato Key Lights")
+        let devices = try await host.discover(platform: ElgatoKeyLightsPlugin.platform, name: "Elgato Key Lights").devices
         let light = try #require(devices.first { $0.deviceID == "AA:BB:CC:DD:EE:FF" })
         #expect(light.isSetUp && !light.excludedBySettings && light.authorization == .none)
         #expect(light.name == "Studio Light" && light.address == "10.0.0.5")
@@ -483,7 +483,7 @@ struct ElgatoKeyLightsTests {
     @Test func setUpBrowsesOnAnInstanceThatIsNotRunning() async throws {
         let host = try environment.host(settings: [:])
         environment.discover.yield(.init(name: "Elgato Ring Light", mac: "aa:bb:cc:00:11:22", host: "ring.local", port: 9123, addresses: ["10.0.0.9"], model: "Elgato Ring Light"))
-        let devices = try await host.discoverDevices(platform: ElgatoKeyLightsPlugin.platform, name: "Elgato Key Lights")
+        let devices = try await host.discover(platform: ElgatoKeyLightsPlugin.platform, name: "Elgato Key Lights").devices
         #expect(devices == [DiscoveredDevice(deviceID: "AA:BB:CC:00:11:22", name: "Elgato Ring Light", model: "Elgato Ring Light", address: "10.0.0.9", isSetUp: true)])
         #expect(await environment.light.requestCount == 0)
     }
@@ -495,7 +495,7 @@ struct ElgatoKeyLightsTests {
         ])
         #expect(host.mainBridge.server.accessories.map(\.id) == ["bridge"])
         #expect(await environment.light.requestCount == 0)
-        let devices = try await host.discoverDevices(platform: ElgatoKeyLightsPlugin.platform, name: "Elgato Key Lights")
+        let devices = try await host.discover(platform: ElgatoKeyLightsPlugin.platform, name: "Elgato Key Lights").devices
         #expect(devices.first { $0.deviceID == "3C:6A:9D:04:0A:0B" }?.isSetUp == false)
         await host.stop()
     }

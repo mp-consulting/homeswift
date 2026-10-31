@@ -262,9 +262,18 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
                     ip: ip, username: credentials.username, password: credentials.password, certificateFingerprint: credentials.certFingerprint,
                     transports: dependencies.transports, logger: logger)
                 let mac = await lookUpMAC(ip: ip, client: client)
-                var block: [String: JSONValue] = ["ip": .string(ip), "username": .string(credentials.username), "password": .string(credentials.password)]
-                if let fingerprint = credentials.certFingerprint { block["certFingerprint"] = .string(fingerprint) }
-                if let mac { block["mac"] = .string(mac) }
+                var block: [String: JSONValue] = ["ip": .string(ip)]
+                let keys = TVCredentials(username: credentials.username, password: credentials.password, certFingerprint: credentials.certFingerprint)
+                if let mac, (try? context.saveCredentials(keys, for: mac)) != nil {
+                    // The keys in the vault under the TV's MAC, as Setup keeps them; the entry for `devices` gets the rest.
+                    block["mac"] = .string(mac)
+                } else {
+                    // No MAC to keep them under: the entry carries them (the runtime seals them in config.json).
+                    block["username"] = .string(credentials.username)
+                    block["password"] = .string(credentials.password)
+                    if let fingerprint = credentials.certFingerprint { block["certFingerprint"] = .string(fingerprint) }
+                    if let mac { block["mac"] = .string(mac) }
+                }
                 return PluginWebResponse(["device": .object(block), "certificatePinned": .bool(credentials.certFingerprint != nil)])
             } catch let error as JointSpaceError {
                 if case .certificateMismatch = error { pairings[ip] = nil }

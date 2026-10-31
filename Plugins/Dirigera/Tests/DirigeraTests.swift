@@ -620,7 +620,7 @@ struct DirigeraSetupTests {
     /// (nothing for the bridge to keep), then says the account is Authorized and lists the hub's devices and scenes.
     @Test func setUpPairsTheHubWithItsButtonThenListsItsDevices() async throws {
         let host = try await environment.start(settings: ["hubs": [["host": "192.0.2.20"]]])
-        #expect(try await host.accountAuthorized(platform: DirigeraPlugin.platform, name: DirigeraPlugin.name) == false)
+        #expect(try await host.discover(platform: DirigeraPlugin.platform, name: DirigeraPlugin.name).accountAuthorized == false)
         let plugin = try #require(environment.plugin)
         guard case .ask(let prompt, let state) = try await plugin.authorize(SetupRequest(target: .account)) else { Issue.record("expected the button"); return }
         #expect(prompt.waitSeconds == 60 && prompt.retryAfter == 2 && prompt.fields.isEmpty)
@@ -635,9 +635,9 @@ struct DirigeraSetupTests {
         let vault = CredentialVault(storage: environment.directory)
         let entry = try #require(try vault.names().first { $0.hasPrefix("plugin.") && $0.hasSuffix(".hubs.json") })
         #expect(try vault.entry(named: entry)?.fields["token"]?.contains(FakeHub.token) == true)
-        #expect(try await host.accountAuthorized(platform: DirigeraPlugin.platform, name: DirigeraPlugin.name) == true)
+        #expect(try await host.discover(platform: DirigeraPlugin.platform, name: DirigeraPlugin.name).accountAuthorized == true)
         // The running plugin had not read the hub: discovery reads it with the token Setup kept.
-        let devices = try await host.discoverDevices(platform: DirigeraPlugin.platform, name: DirigeraPlugin.name)
+        let devices = try await host.discover(platform: DirigeraPlugin.platform, name: DirigeraPlugin.name).devices
         #expect(devices.contains { $0.deviceID == "bulb-1" && $0.name == "Sofa Lamp" && $0.isSetUp && $0.authorization == .none })
         #expect(devices.contains { $0.deviceID == "vallhorn-1" && $0.model == "VALLHORN Wireless Motion Sensor" })
         #expect(devices.contains { $0.deviceID == "scenes:192.0.2.20" && $0.name == "IKEA Scenes" && $0.isSetUp })
@@ -655,7 +655,7 @@ struct DirigeraSetupTests {
         await #expect(throws: SetupError.self) { _ = try await plugin.authorize(SetupRequest(target: .account, state: wrong)) }
         let device = DiscoveredDevice(deviceID: "bulb-1", name: "Sofa Lamp")
         await #expect(throws: SetupError.self) { _ = try await plugin.authorize(SetupRequest(target: .device(device))) }
-        #expect(try await host.accountAuthorized(platform: DirigeraPlugin.platform, name: DirigeraPlugin.name) == false)
+        #expect(try await host.discover(platform: DirigeraPlugin.platform, name: DirigeraPlugin.name).accountAuthorized == false)
         await host.stop()
     }
 
@@ -665,7 +665,7 @@ struct DirigeraSetupTests {
             "hubs": [["host": "192.0.2.20", "token": FakeHub.token, "name": "Home"]], "excludeDevices": ["Hallway", "Kitchen Remote"], "excludeScenes": ["Movie night"],
         ])
         _ = try await accessory(host, sofaID)
-        let devices = try await host.discoverDevices(platform: DirigeraPlugin.platform, name: DirigeraPlugin.name)
+        let devices = try await host.discover(platform: DirigeraPlugin.platform, name: DirigeraPlugin.name).devices
         let hallway = try #require(devices.first { $0.deviceID == "bulb-2" })
         #expect(hallway.excludedBySettings && !hallway.isSetUp)
         #expect(devices.first { $0.deviceID == "styrbar-1" }?.excludedBySettings == true)
@@ -685,7 +685,7 @@ struct DirigeraSetupTests {
         _ = try await accessory(host, DirigeraPlugin.accessoryID(deviceID: "vallhorn-1"))
         let ids = Set(host.mainBridge.server.accessories.map(\.id))
         #expect(!ids.contains(sofaID) && !ids.contains(scenesID) && !ids.contains(DirigeraPlugin.accessoryID(deviceID: "styrbar-1")))
-        let devices = try await host.discoverDevices(platform: DirigeraPlugin.platform, name: DirigeraPlugin.name)
+        let devices = try await host.discover(platform: DirigeraPlugin.platform, name: DirigeraPlugin.name).devices
         #expect(devices.first { $0.deviceID == "bulb-1" }?.isSetUp == false)
         #expect(devices.first { $0.deviceID == "bulb-1" }?.excludedBySettings == false)
         await host.stop()
