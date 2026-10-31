@@ -14,6 +14,8 @@ All notable changes to this project are documented here. The format follows
 - Web UI: the graph's full-screen zoom buttons had their glyph off centre, pushed up by the hidden label's line.
 - Web UI: the graph in full screen stopped 72px short of each side, cut off on a phone: it now fills the window, under
   its zoom and options buttons.
+- Web UI: on a phone, the header's Assistant button was 36px wide and 40px tall, an oval off centre in the bar: it is
+  round again, 40px both ways.
 
 ## [0.18.0] - 2026-10-31
 

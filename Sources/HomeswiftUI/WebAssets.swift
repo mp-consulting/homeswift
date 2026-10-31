@@ -24331,7 +24331,7 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
   input, select, textarea, .code-editor > .code-layer, .code-editor > .code-input, .code-editor > .code-gutter { font-size: 16px; }
   /* Comfortable targets, near Apple's 44pt: every button at least 40px tall, a text button too (its hit area
      grows, not its look). */
-  .menu-button, .chat-icon { width: 40px; height: 40px; }
+  .menu-button, .chat-icon, .chat-open { width: 40px; height: 40px; }
   button, a.button { min-height: 40px; }
   /* A round button with only a glyph grows both ways, so it stays round. */
   button:is(.icon-button, .menu-button) { min-width: 40px; }
