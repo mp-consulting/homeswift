@@ -9053,13 +9053,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     if (scrim) host.append(scrim);
     host.append(list);
     if (!sheet) {
-      // Under the button, its right edges aligned, inside the window; above it when there is no room below.
+      // Under the button, its right edges aligned, inside the window, or inside the dialog it opened in (a sheet clips
+      // what passes its edges); above it when there is no room below.
       const box = trigger.getBoundingClientRect();
       const width = list.offsetWidth, height = list.offsetHeight;
       const below = box.bottom + 6 + height < innerHeight;
-      list.style.left = `${Math.max(8, Math.min(innerWidth - width - 8, box.right - width))}px`;
-      list.style.top = `${Math.max(8, below ? box.bottom + 6 : box.top - 6 - height)}px`;
-      list.style.transformOrigin = `${box.right - parseFloat(list.style.left) - box.width / 2}px ${below ? "0" : "100%"}`;
+      const bounds = host === document.body ? { left: 0, right: innerWidth } : host.getBoundingClientRect();
+      const left = Math.max(bounds.left + 8, Math.min(bounds.right - width - 8, box.right - width));
+      placeFixed(list, left, Math.max(8, below ? box.bottom + 6 : box.top - 6 - height));
+      list.style.transformOrigin = `${box.right - left - box.width / 2}px ${below ? "0" : "100%"}`;
     }
     trigger.setAttribute("aria-expanded", "true");
     const focusAt = (index) => entries()[(index + entries().length) % entries().length]?.focus();
@@ -9192,6 +9194,21 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// Where floating UI opened from `anchor` goes: the open modal dialog it is in (an accessory's sheet), which is in the
   /// top layer over the rest of the page, else the page.
   const layerHost = (anchor) => anchor?.closest?.("dialog[open]") ?? document.body;
+
+  /// Places a fixed `node` at `left`, `top` in the window. A dialog drawn with a filter or a transform (a glass sheet)
+  /// is the box its fixed children are placed in, not the window: where the node lands is measured and set right.
+  function placeFixed(node, left, top) {
+    node.style.left = `${left}px`;
+    node.style.top = `${top}px`;
+    // Measured without its entrance (a scale would move its edges), which then plays from the start.
+    node.style.animation = "none";
+    const landed = node.getBoundingClientRect();
+    node.style.animation = "";
+    if (Math.abs(landed.left - left) > 0.5 || Math.abs(landed.top - top) > 0.5) {
+      node.style.left = `${2 * left - landed.left}px`;
+      node.style.top = `${2 * top - landed.top}px`;
+    }
+  }
 
   /// Puts `text` on the clipboard. The Clipboard API exists only over HTTPS or on localhost; a page on the
   /// network over plain HTTP, or a browser that refuses the API (an embedded one without the permission), copies
@@ -10123,8 +10140,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const box = anchor.getBoundingClientRect(), width = popover.offsetWidth, height = popover.offsetHeight;
       const left = Math.min(Math.max(8, box.left + box.width / 2 - width / 2), innerWidth - width - 8);
       const below = box.bottom + 8 + height <= innerHeight - 8;
-      popover.style.left = `${left}px`;
-      popover.style.top = `${below ? box.bottom + 8 : Math.max(8, box.top - 8 - height)}px`;
+      placeFixed(popover, left, below ? box.bottom + 8 : Math.max(8, box.top - 8 - height));
       popover.style.transformOrigin = `${box.left + box.width / 2 - left}px ${below ? "0" : "100%"}`;
       customButton.setAttribute("aria-expanded", "true");
       document.addEventListener("pointerdown", outside, true);
