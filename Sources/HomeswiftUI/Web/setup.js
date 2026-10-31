@@ -131,6 +131,9 @@
       menuButton(t("Actions for {name}", { name: device.name }), () => items));
   }
 
+  /// A wait with nothing to type or open: a button to press on the device.
+  const pressing = (prompt) => Boolean(prompt.waitSeconds) && !prompt.fields.length && !prompt.url;
+
   /// The sheet of one Setup: it starts the session, then draws each prompt the plugin sends until it is done.
   function open(block, device, title, trigger, after, subtitle = "") {
     let session = null, poll = 0, ticker = 0, done = false, closed = false;
@@ -165,27 +168,38 @@
         const prompt = answer.prompt;
         if (!prompt.waitSeconds) until = 0;
         const error = answer.error ? el("p", { class: "error", role: "alert", text: answer.error }) : null;
+        const cancel = el("button", { type: "button", actionIcon: "close", text: t("Cancel"), onclick: () => dismiss() });
+        // A wait (a Button Press, a sign-in in another tab): a countdown, and the step sent again every few seconds until
+        // the plugin is done. A retry that brings the same prompt back leaves the sheet as it is, and what is typed in it.
+        let left = null;
         if (prompt.waitSeconds) {
-          // A Button Press: the countdown runs here, and the step is sent again every few seconds until the plugin is done.
           if (!until) until = Date.now() + prompt.waitSeconds * 1000;
-          const left = el("p", { class: "muted" });
+          left = el("p", { class: "muted setup-countdown" });
           const tick = () => {
             const seconds = Math.max(0, Math.ceil((until - Date.now()) / 1000));
-            left.textContent = seconds ? t("Waiting for the button… {seconds} s left.", { seconds }) : t("Time is up. Try again when you are ready.");
+            left.textContent = seconds ? (pressing(prompt) ? t("Waiting for the button… {seconds} s left.", { seconds }) : t("Waiting… {seconds} s left.", { seconds }))
+              : t("Time is up. Try again when you are ready.");
             if (!seconds) stop();
           };
           tick();
-          if (Date.now() < until) {
-            ticker = setInterval(tick, 1000);
+          const retry = () => {
+            if (closed || Date.now() >= until) return;
             poll = setTimeout(async () => {
-              try { draw(await step({})); } catch (e) { draw({ ...answer, error: e.message }); }
+              let next;
+              try { next = await step({}); } catch (e) { next = { ...answer, error: e.message }; }
+              if (closed) return;
+              if (next.status === "asking" && !next.error && next.prompt.message === prompt.message) retry(); else draw(next);
             }, (prompt.retryAfter ?? 2) * 1000);
-          }
+          };
+          ticker = setInterval(tick, 1000);
+          retry();
+        }
+        if (pressing(prompt)) {
           fill(
             el("div", { class: "pair-prompt pairing" }, el("span", { class: "link-button", "aria-hidden": "true" }, HomeswiftCommon.icon("pair")),
               el("div", {}, el("p", {}, el("strong", { text: t(prompt.message) })), left)),
             error,
-            el("div", { class: "actions" }, el("button", { type: "button", actionIcon: "close", text: t("Cancel"), onclick: () => dismiss() })));
+            el("div", { class: "actions" }, cancel));
           return;
         }
         const inputs = prompt.fields.map((field) => {
@@ -197,20 +211,25 @@
           });
           return [field, input];
         });
-        const submit = el("button", { class: "primary", type: "submit", actionIcon: "forward", text: t("Continue") });
+        const submit = inputs.length ? el("button", { class: "primary", type: "submit", actionIcon: "forward", text: t("Continue") }) : null;
         form.onsubmit = (event) => {
           event.preventDefault();
+          if (!submit) return;
           const missing = inputs.find(([field, input]) => !field.optional && !input.value.trim());
           if (missing) { missing[1].focus(); return; }
+          stop();
           HomeswiftCommon.busyButton(submit, async () => draw(await step(Object.fromEntries(inputs.map(([field, input]) => [field.key, input.value])))));
         };
+        const link = /^https?:\/\//i.test(prompt.url ?? "")
+          ? el("a", { class: `button ${inputs.length ? "" : "primary"}`, href: prompt.url, target: "_blank", rel: "noopener noreferrer", actionIcon: "open", text: t("Open the sign-in page") }) : null;
         fill(
           el("p", { text: t(prompt.message) }),
-          /^https?:\/\//i.test(prompt.url ?? "") ? el("a", { class: "button", href: prompt.url, target: "_blank", rel: "noopener noreferrer", actionIcon: "open", text: t("Open the sign-in page") }) : null,
+          link,
           ...inputs.map(([field, input]) => el("label", { class: "field", htmlFor: input.id }, el("span", { class: "field-title", text: t(field.label) }), input)),
+          left,
           error,
-          el("div", { class: "actions" }, el("button", { type: "button", actionIcon: "close", text: t("Cancel"), onclick: () => dismiss() }), submit));
-        (inputs.find(([, input]) => !input.value)?.[1] ?? submit).focus();
+          el("div", { class: "actions" }, cancel, submit));
+        (inputs.find(([, input]) => !input.value)?.[1] ?? submit ?? link ?? cancel).focus();
       }
 
       const step = (answers) => post(session, { answers });

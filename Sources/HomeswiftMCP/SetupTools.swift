@@ -66,6 +66,8 @@ extension HomeswiftCatalog {
     public func discoverDevices(platform: String, name: String?, block: JSONValue? = nil) async throws -> JSONValue {
         let name = name ?? platform
         let devices = try await host.discoverDevices(platform: platform, name: name, block: block)
+        let accountSetUp = host.registry.entry(for: platform)?.accountAuthorization == AuthorizationMethod.none
+            ? true : (try? await host.accountAuthorized(platform: platform, name: name, block: block)) ?? false
         setupSessions.remember(devices, for: "\(platform)/\(name)")
         let saved = (try? readConfig())?["platforms"]?.arrayValue?.first { $0["platform"]?.stringValue == platform && ($0["name"]?.stringValue ?? platform) == name }
         let settings = AccessorySettings.all(in: block ?? saved ?? .null)
@@ -74,7 +76,7 @@ extension HomeswiftCatalog {
         return [
             "platform": .string(platform), "name": .string(name),
             "accountAuthorization": .string(host.registry.entry(for: platform)?.accountAuthorization.rawValue ?? "none"),
-            "accountSetUp": .bool(context?.haveCredentials([nil]).isEmpty == false),
+            "accountSetUp": .bool(accountSetUp),
             "devices": .array(devices.map { device in
                 let status = settings[device.deviceID]?.excluded == true || device.excludedBySettings ? "excluded"
                     : device.isSetUp ? "setUp" : device.authorization == .none ? "discovered" : "needsAuthorization"

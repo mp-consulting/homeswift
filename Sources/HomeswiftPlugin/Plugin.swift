@@ -147,6 +147,10 @@ public protocol HomeswiftPlugin: Sendable {
     /// the step before: keep what the next step needs in `SetupStep.ask`'s state. Throw `SetupError` for an answer that
     /// did not work. Defaults to done, with nothing to keep.
     func authorize(_ request: SetupRequest) async throws -> SetupStep
+
+    /// Whether the account is Authorized, for a plugin that keeps what its Authorization gave itself (tokens it refreshes
+    /// in its own vault entries). Defaults to nil: the bridge looks for the account's credentials (`context.credentials()`).
+    func accountAuthorized() async -> Bool?
 }
 
 extension HomeswiftPlugin {
@@ -163,6 +167,7 @@ extension HomeswiftPlugin {
     public static var accountAuthorization: AuthorizationMethod { .none }
     public func discover() async throws -> [DiscoveredDevice] { [] }
     public func authorize(_ request: SetupRequest) async throws -> SetupStep { .done(SetupOutcome()) }
+    public func accountAuthorized() async -> Bool? { nil }
 }
 
 /// One route of a plugin's `handleWebRequest` that the Assistant may call, as the tool

@@ -459,6 +459,29 @@ struct PluginTests {
         #expect(try await environment.request("POST", "auth/stop-server", body: [:]).json["success"] == true)
     }
 
+    /// Setup: the Developer Portal login is a Browser Redirect whose page and paste field come with a wait; the callback
+    /// server's catch ends it on the next retry, with the tokens where the plugin keeps them.
+    @Test func setsUpTheDeveloperPortalLoginThroughSetup() async throws {
+        let environment = DaikinEnvironment()
+        let port = try await freePort()
+        var block = developerBlock
+        block["callbackServerPort"] = port
+        block["oidcCallbackServerBindAddr"] = "127.0.0.1"
+        let host = try await environment.start(block)
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        guard case .ask(let prompt, let state) = try await plugin.authorize(SetupRequest(target: .account)) else { Issue.record("expected the sign-in page"); return }
+        let url = try #require(prompt.url)
+        #expect(prompt.waitSeconds == 600 && prompt.fields.map(\.key) == ["callbackUrl"] && prompt.fields.first?.optional == true)
+        // Not signed in yet: the same prompt again.
+        guard case .ask = try await plugin.authorize(SetupRequest(target: .account, state: state)) else { Issue.record("expected the wait"); return }
+        let code = try #require(URLQuery.parameter("state", in: url))
+        #expect(await plugin.callbackRequest("/?code=good-code&state=\(code)").status == 200)
+        guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .account, state: state)) else { Issue.record("expected done"); return }
+        #expect(outcome.credentials == nil && outcome.settings.isEmpty)
+        #expect(await plugin.accountAuthorized() == true)
+    }
+
     /// Two requests with the pending state at once (a browser retry, the URL pasted as well): one exchange.
     @Test func theSameCallbackTwiceExchangesTheCodeOnce() async throws {
         let environment = DaikinEnvironment()

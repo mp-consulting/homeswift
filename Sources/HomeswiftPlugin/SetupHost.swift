@@ -50,6 +50,14 @@ extension PluginHost {
         }
     }
 
+    /// Whether the block's account is Authorized: the plugin's answer, else whether the account has credentials.
+    public func accountAuthorized(platform: String, name: String?, block: JSONValue? = nil) async throws -> Bool {
+        try await withSetupPlugin(platform: platform, name: name, block: block) { plugin, context in
+            if let answer = await plugin.accountAuthorized() { return answer }
+            return !context.haveCredentials([nil]).isEmpty
+        }
+    }
+
     /// What the plugin of the block finds now, each device marked set up when the plugin says so, when it has
     /// credentials of its own, or when its accessory is on the bridge; never when it is Excluded.
     public func discoverDevices(platform: String, name: String?, block: JSONValue? = nil) async throws -> [DiscoveredDevice] {

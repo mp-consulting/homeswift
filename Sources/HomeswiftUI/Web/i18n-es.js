@@ -2604,4 +2604,11 @@ HomeswiftI18n.add("es", {
   "Enter the code sent to your phone.": "Introduce el código enviado a tu teléfono.",
   "Enter the code from your authenticator app.": "Introduce el código de tu app de autenticación.",
   "Enter the code sent to your email.": "Introduce el código enviado a tu correo.",
+  "Waiting… {seconds} s left.": "Esperando… quedan {seconds} s.",
+  "Sign in with the account of the Daikin Onecta app.": "Inicia sesión con la cuenta de la app Daikin Onecta.",
+  "Enter the app you made on the Daikin Developer Portal.": "Introduce la app que creaste en el Daikin Developer Portal.",
+  "Client ID": "Client ID",
+  "Client Secret": "Client Secret",
+  "Sign in with Daikin on the page that opens. If it does not come back here by itself, paste the address the browser ends on.": "Inicia sesión en Daikin en la página que se abre. Si no vuelve aquí por sí sola, pega la dirección en la que termina el navegador.",
+  "Address the browser ended on": "Dirección en la que terminó el navegador",
 });
