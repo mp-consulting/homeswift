@@ -13,7 +13,8 @@ import Logging
 /// Homebridge setup wizard does. See README.md in this directory.
 public actor DolphinPoolCleanerPlugin: HomeswiftPlugin {
     public static let platform = "DolphinPoolCleaner"
-    public static let icon: String? = "drop"
+    public static let icon: String? = "poolRobot"
+    public static let summary: String? = "Pool robots: start and stop cleaning, water temperature and filter"
     public static let name = "Dolphin Pool Cleaner"
     // `configurationSchemaJSON` is in ConfigurationSchema.swift, generated from ../config.schema.json;
     // `webFiles` in WebFiles.swift, generated from ../Web.

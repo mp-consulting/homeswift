@@ -13,6 +13,7 @@ import Logging
 public actor DysonPureCoolPlugin: HomeswiftPlugin {
     public static let platform = "DysonPureCool"
     public static let icon: String? = "wind"
+    public static let summary: String? = "Purifiers and fans: speed, oscillation, heat, humidity and air quality"
     public static let name = "Dyson Pure Cool"
     // `configurationSchemaJSON` is in ConfigurationSchema.swift, generated from ../config.schema.json;
     // `webFiles` in WebFiles.swift, generated from ../Web.

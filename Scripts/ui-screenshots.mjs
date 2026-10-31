@@ -12,6 +12,10 @@ import { homedir, hostname, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { deflateSync } from "node:zlib";
 
+/// A value as a JavaScript literal for code run in the page: JSON, with the characters that could end a script or a
+/// line early (<, >, /, U+2028, U+2029) escaped.
+const literal = (value) => JSON.stringify(value).replace(/[<>\/\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
+
 const root = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 const binary = process.argv[2] || join(homedir(), "Library/Caches/homeswift-build/debug/homeswift");
 const out = resolve(process.argv[3] || join(root, "docs/images/ui"));
@@ -84,7 +88,7 @@ await api("/api/backups", "POST", {});
 // Runs in the page before its own scripts: the machine's name and the folder's paths become demonstration ones.
 const replacements = [[storage, "/Users/demo/.homeswift"], [hostname(), "homeswift-mac"], [hostname().replace(/\.local$/, ""), "homeswift-mac"]];
 const pageScript = `(() => {
-  const pairs = ${JSON.stringify(replacements)};
+  const pairs = ${literal(replacements)};
   const clean = (text) => pairs.reduce((s, [real, shown]) => s.split(real).join(shown), text);
   const original = window.fetch;
   window.fetch = async (input, init) => {
@@ -137,14 +141,14 @@ async function shot(name, path, { width = 1280, height = 900, mobile = false, re
   await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 2, mobile });
   await send("Page.navigate", { url: base + path });
   for (let i = 0; i < 60; i++) {
-    if (await evaluate(`!!document.querySelector(${JSON.stringify(ready)})`)) break;
+    if (await evaluate(`!!document.querySelector(${literal(ready)})`)) break;
     await sleep(250);
   }
   await sleep(700);
   if (prepare) { await evaluate(`(async () => { ${prepare} })()`); await sleep(400); }
   let clip;
   if (element) {
-    const box = await evaluate(`(() => { const r = document.querySelector(${JSON.stringify(element)}).getBoundingClientRect();
+    const box = await evaluate(`(() => { const r = document.querySelector(${literal(element)}).getBoundingClientRect();
       return { x: r.left + scrollX, y: r.top + scrollY, width: r.width, height: r.height }; })()`);
     const margin = 12;
     clip = { x: Math.max(0, box.x - margin), y: Math.max(0, box.y - margin), width: box.width + margin * 2, height: box.height + margin * 2, scale: 1 };

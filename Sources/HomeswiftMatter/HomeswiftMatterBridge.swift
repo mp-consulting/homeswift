@@ -6,6 +6,7 @@ import HomeswiftPlugin
 import Logging
 import Matter
 import NIOConcurrencyHelpers
+import NIOCore
 
 /// The Matter bridge: every accessory the plugins publish (that the `HomeswiftMatter` block bridges) as a Matter
 /// bridged device, both ways (or a single HAP server's, `ServerAccessories`). An accessory in the block's `devices` is a
@@ -27,6 +28,9 @@ public actor HomeswiftMatterBridge: MatterControl {
     private let logger: Logger
     /// The bridged accessories, by accessory id.
     private var devices: [String: Bridged] = [:]
+    /// The devices of their own whose node did not start, by accessory id: their name and why, for the pages. Tried
+    /// again when the settings change, not on every look at the accessories.
+    private var failed: [String: (name: String, reason: String, noIPv6: Bool)] = [:]
     private var tasks: [Task<Void, Never>] = []
     /// Cleaning robots a controller paused: their switch only says off, so they are reported paused, not stopped, until
     /// they start or stop again, and Resume is accepted (RVC Operational State allows it only while paused).
@@ -134,6 +138,7 @@ public actor HomeswiftMatterBridge: MatterControl {
     public func apply(_ next: MatterConfiguration) async -> Bool {
         guard next.port == configuration.port, next.tcp == configuration.tcp, next.bridge == configuration.bridge else { return false }
         configuration = next
+        failed = [:]
         await sync()
         return true
     }
@@ -228,9 +233,15 @@ public actor HomeswiftMatterBridge: MatterControl {
                 }
                 await remove(accessory.id)
             }
+            // A node that did not start would fail the same way: it waits for new settings.
+            if own, failed[accessory.id] != nil {
+                failed[accessory.id]?.name = accessory.name
+                continue
+            }
             await add(accessory, mappings: mappings, own: own)
         }
         for id in devices.keys where !seen.contains(id) { await remove(id) }
+        failed = failed.filter { ownIDs.contains($0.key) && seen.contains($0.key) }
     }
 
     private func add(_ accessory: Accessory, mappings: [ServiceMapping], own: Bool) async {
@@ -263,8 +274,10 @@ public actor HomeswiftMatterBridge: MatterControl {
                     await watch(ownNode, device: accessory.id)
                     do {
                         try await ownNode.start()
-                    } catch where refused.count < 4 {
+                    } catch {
                         await ownNode.stop()
+                        // Only a port in use is worth another: no IPv6, say, fails on every one.
+                        guard Self.portInUse(error), refused.count < 4 else { throw error }
                         refused.insert(port)
                         logger.warning("Matter: port \(port) is taken, trying another for \(accessory.name)")
                         continue
@@ -279,9 +292,30 @@ public actor HomeswiftMatterBridge: MatterControl {
             devices[accessory.id] = Bridged(device: device, accessory: accessory, mappings: mappings)
             await report(accessory, mappings: mappings, on: device)
         } catch {
-            logger.error("Matter: could not bridge \(accessory.name): \(error)")
+            let noIPv6 = Self.noIPv6(error)
+            let reason = noIPv6 ? Self.noIPv6Reason : "\(error)"
+            logger.error("Matter: could not bridge \(accessory.name): \(reason)")
+            if own {
+                failed[accessory.id] = (accessory.name, reason, noIPv6)
+                changed.withLockedValue { $0 }?(accessory.id)
+            }
         }
     }
+
+    /// Whether a node did not start because another program holds its port.
+    static func portInUse(_ error: any Error) -> Bool {
+        (error as? IOError)?.errnoCode == EADDRINUSE
+    }
+
+    /// Whether a node did not start for want of IPv6. Its sockets are IPv6 (dual-stack): a host with IPv6 off cannot
+    /// even resolve `::`, or refuses the address family.
+    static func noIPv6(_ error: any Error) -> Bool {
+        (error as? SocketAddressError.UnknownHost)?.host.contains(":") == true
+            || [EAFNOSUPPORT, EADDRNOTAVAIL, EPROTONOSUPPORT].contains((error as? IOError)?.errnoCode ?? 0)
+    }
+
+    static let noIPv6Reason = "this machine has no IPv6, which Matter needs (on a Synology, turn IPv6 on in Control Panel > "
+        + "Network > Network Interface; in Docker, use host networking with IPv6), then restart homeswift"
 
     /// Reports every state of an accessory: when it is bridged, and when a plugin replaced it.
     private func report(_ accessory: Accessory, mappings: [ServiceMapping], on device: BridgedDevice) async {
@@ -401,6 +435,10 @@ public actor HomeswiftMatterBridge: MatterControl {
         }
         status["devices"] = .array(bridged)
         status["ownDevices"] = .array(own)
+        // Asked for, but not running: why, so the pages and the tools say so rather than show nothing.
+        status["failedDevices"] = .array(failed.sorted { $0.value.name < $1.value.name }.map { id, failure in
+            ["id": .string(id), "name": .string(failure.name), "error": .string(failure.reason), "noIPv6": .bool(failure.noIPv6)]
+        })
         return .object(status)
     }
 

@@ -1,4 +1,6 @@
-// Retakes the Philips Hue and IKEA DIRIGERA pages' screenshots, and the Scenes page with their scenes, (docs/images/plugins) with headless Chrome: light mode,
+// Retakes the Philips Hue and IKEA DIRIGERA pages' screenshots, and the Scenes page with their scenes, (docs/images/plugins),
+// the scene editor's and the Quick controls' (docs/images/ui) and the Status page's Energy section (docs/images/status,
+// on demonstration energy figures the page is given) with headless Chrome: light mode,
 // 2x. A throwaway bridge talks to a fake Hue Bridge and a fake DIRIGERA hub on this machine (HTTPS with a certificate
 // made for the run), which hold demonstration lights, sensors, remotes and scenes; no device is reached.
 //
@@ -12,6 +14,10 @@ import { createServer } from "node:https";
 import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, hostname, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+
+/// A value as a JavaScript literal for code run in the page: JSON, with the characters that could end a script or a
+/// line early (<, >, /, U+2028, U+2029) escaped.
+const literal = (value) => JSON.stringify(value).replace(/[<>\/\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
 
 const root = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 const binary = process.argv[2] || join(homedir(), "Library/Caches/homeswift-build/debug/homeswift");
@@ -148,7 +154,7 @@ const action = (light, characteristic, value) => ({ id: `PhilipsHue:${light}`, s
 writeFileSync(join(storage, "scenes.json"), JSON.stringify({ version: 1, scenes: [
   { id: "5ce0e0000000a001", name: "Movie night", artworkId: "mood-cinema", homeKit: true, triggers: [], conditions: [],
     actions: [action("l2", "On", false), action("l3", "On", true), action("l3", "Brightness", 20), action("l6", "On", true), action("l6", "Hue", 230), action("l6", "Saturation", 80)] },
-  { id: "5ce0e0000000a002", name: "Evening", artworkId: "rolling-hills", conditions: [],
+  { id: "5ce0e0000000a002", name: "Evening", artworkId: "rolling-hills", conditions: [{ type: "time", after: "sunset", before: "23:00" }],
     triggers: [{ type: "schedule", time: "19:30", days: [1, 2, 3, 4, 5], enabled: true }],
     actions: [action("l2", "On", true), action("l2", "Brightness", 60), action("l3", "On", true), action("l3", "Brightness", 45)] },
 ] }));
@@ -169,11 +175,64 @@ for (let i = 0; i < 80 && !up; i++) {
 }
 if (!up) { await stop(); throw new Error(`the bridge did not start (${binary})`); }
 
+// The Energy section's demonstration figures: the page asks /api/metrics/energy and its history, and is answered with a
+// day of fifteen-minute power (solar following the sun, the home's evening peak, the batteries charging on the surplus
+// and covering the evening, the grid the rest), two batteries' charge, and a week of days, all consistent.
+const energyDemo = `(() => {
+  const solarAt = (t) => { const d = new Date(t), h = d.getHours() + d.getMinutes() / 60; return Math.max(0, Math.sin((h - 6.5) / 13 * Math.PI)) * 2800; };
+  const homeAt = (t) => { const d = new Date(t), h = d.getHours() + d.getMinutes() / 60; return 420 + (h >= 18 && h < 22.5 ? 1100 : 0) + (h >= 6.5 && h < 8 ? 700 : 0) + 160 * Math.sin(t / 2.7e6) + (h >= 12 && h < 13 ? 900 : 0); };
+  const day = (date) => date.toLocaleDateString("en-CA");
+  const report = (from, to) => {
+    const step = 900, power = [], garage = [], office = [];
+    let level = 34;
+    for (let t = Math.floor(from / 9e5) * 9e5; t <= to; t += 9e5) {
+      const solar = solarAt(t), home = homeAt(t), surplus = solar - home, h = new Date(t).getHours();
+      let battery = surplus > 0 ? Math.min(surplus, level < 100 ? 1400 : 0) : (h >= 17 || h < 1) && level > 15 ? -Math.min(-surplus, 650) : 0;
+      level = Math.max(10, Math.min(100, level + battery * 0.25 / 2560 * 100));
+      const grid = home - solar + battery;
+      power.push({ t: t / 1000, solar: Math.round(solar), home: Math.round(home), battery: Math.round(battery), grid: Math.round(grid) });
+      garage.push([t / 1000, Math.round(level * 10) / 10]);
+      office.push([t / 1000, Math.round(Math.min(100, level * 0.8 + 18) * 10) / 10]);
+    }
+    const days = [];
+    for (let back = 7; back >= 0; back--) {
+      const start = new Date(); start.setHours(0, 0, 0, 0); start.setDate(start.getDate() - back);
+      const k = back === 0 ? Math.min(1, (Date.now() - start) / 864e5) : 1, wave = 1 + 0.18 * Math.sin(back * 1.7);
+      const solar = 13.2 * wave * k, home = 15.4 * (2 - wave) * 0.55 * k + 6.8 * k, fromSolar = Math.min(solar * 0.62, home), charge = solar * 0.24, discharge = charge * 0.9;
+      const gridImport = Math.max(0, home - fromSolar - discharge), gridExport = Math.max(0, solar - fromSolar - charge);
+      days.push({ date: day(start), minutes: Math.round(1440 * k), solar, home, gridImport, gridExport, batteryCharge: charge, batteryDischarge: discharge, homeFromSolar: fromSolar, solarShare: fromSolar / home });
+    }
+    return { roles: ["solar", "home", "battery", "grid"], step, power,
+      levels: [{ series: "energy:garage", device: "Garage battery", points: garage }, { series: "energy:office", device: "Office battery", points: office }], days };
+  };
+  const history = () => {
+    const bars = [];
+    for (let back = 7; back >= 0; back--) {
+      const start = new Date(); start.setHours(0, 0, 0, 0); start.setDate(start.getDate() - back);
+      const k = back === 0 ? Math.min(1, (Date.now() - start) / 864e5) : 1, wave = 1 + 0.18 * Math.sin(back * 1.7);
+      const solar = 13.2 * wave * k, home = 15.4 * (2 - wave) * 0.55 * k + 6.8 * k, fromSolar = Math.min(solar * 0.62, home), charge = solar * 0.24, discharge = charge * 0.9;
+      const fromGrid = Math.max(0, home - fromSolar - discharge), exported = Math.max(0, solar - fromSolar - charge), round = (x) => Math.round(x * 100) / 100;
+      bars.push({ date: day(start), solar: round(solar), home: round(home), homeFromSolar: round(fromSolar), homeFromBattery: round(discharge), homeFromGrid: round(fromGrid), homeNotSplit: 0,
+        gridImport: round(fromGrid), gridExport: round(exported), batteryCharge: round(charge), batteryDischarge: round(discharge), solarShare: Math.round(fromSolar / home * 1000) / 1000,
+        recordedHours: Math.round(24 * k), importedHours: 0 });
+    }
+    return { period: "week", earliest: bars[0].date, imports: [], bars };
+  };
+  const original = window.fetch;
+  window.fetch = (input, init) => {
+    const url = new URL(String(input), location.href);
+    const answer = (body) => Promise.resolve(new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } }));
+    if (url.pathname === "/api/metrics/energy") return answer(report(Date.parse(url.searchParams.get("from")) || Date.now() - 864e5, Date.parse(url.searchParams.get("to")) || Date.now()));
+    if (url.pathname === "/api/metrics/energy/history") return answer(history());
+    return original(input, init);
+  };
+})();`;
+
 // MARK: Headless Chrome
 
 const replacements = [[`127.0.0.1:${huePort}`, "192.168.1.20"], ["127.0.0.1", "192.168.1.30"], [storage, "/Users/demo/.homeswift"], [hostname(), "homeswift-mac"], [hostname().replace(/\.local$/, ""), "homeswift-mac"]];
 const pageScript = `(() => {
-  const pairs = ${JSON.stringify(replacements)};
+  const pairs = ${literal(replacements)};
   const clean = (text) => pairs.reduce((s, [real, shown]) => s.split(real).join(shown), text);
   const original = window.fetch;
   window.fetch = async (input, init) => {
@@ -216,13 +275,15 @@ await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-sch
 await send("Page.addScriptToEvaluateOnNewDocument", { source: pageScript });
 
 /// Opens a plugin page at the size given, chooses its tab, waits for `ready`, and saves the page down to `tall` at most.
-async function shot(name, path, { tab, ready, width = 1280, height = 900, mobile = false, tall = 2800, prepare = "", element }) {
+/// `before` runs in the page ahead of its own scripts (demonstration answers for the Energy section).
+async function shot(name, path, { tab, ready, width = 1280, height = 900, mobile = false, tall = 2800, prepare = "", element, before, viewport = false }) {
   if (process.env.PLUGIN_SHOTS_ONLY && !process.env.PLUGIN_SHOTS_ONLY.split(",").includes(name)) return;
   await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 2, mobile });
+  const early = before ? (await send("Page.addScriptToEvaluateOnNewDocument", { source: before })).identifier : null;
   await send("Page.navigate", { url: base + path });
   const wait = async (selector) => {
     for (let i = 0; i < 80; i++) {
-      if (await evaluate(`!!document.querySelector(${JSON.stringify(selector)})`)) return;
+      if (await evaluate(`!!document.querySelector(${literal(selector)})`)) return;
       await sleep(250);
     }
     throw new Error(`${name}: ${selector} did not appear`);
@@ -231,19 +292,23 @@ async function shot(name, path, { tab, ready, width = 1280, height = 900, mobile
   // without tabs (the Scenes page) has none to choose.
   if (tab) {
     const chosen = `button[data-tab="${tab}"][aria-selected="true"]`;
-    for (let i = 0; i < 40 && !(await evaluate(`!!document.querySelector(${JSON.stringify(chosen)})`)); i++) {
-      await evaluate(`document.querySelector(${JSON.stringify(`button[data-tab="${tab}"]`)})?.click()`);
+    for (let i = 0; i < 40 && !(await evaluate(`!!document.querySelector(${literal(chosen)})`)); i++) {
+      await evaluate(`document.querySelector(${literal(`button[data-tab="${tab}"]`)})?.click()`);
       await sleep(250);
     }
     await wait(chosen);
   }
-  await wait(ready);
+  try { await wait(ready); } finally { if (early) await send("Page.removeScriptToEvaluateOnNewDocument", { identifier: early }); }
   await sleep(1200);
   // `prepare` acts on the page first (a template tried); `element` saves only that part of the page, with a margin.
   if (prepare) { await evaluate(`(async () => { ${prepare} })()`); await sleep(1500); }
   let clip;
-  if (element) {
-    const box = await evaluate(`(() => { const r = document.querySelector(${JSON.stringify(element)}).getBoundingClientRect();
+  if (viewport) {
+    // What the screen shows where the page is scrolled to (a dialog over it).
+    const top = await evaluate("scrollY");
+    clip = { x: 0, y: top, width, height, scale: 1 };
+  } else if (element) {
+    const box = await evaluate(`(() => { const r = document.querySelector(${literal(element)}).getBoundingClientRect();
       return { x: r.left + scrollX, y: r.top + scrollY, width: r.width, height: r.height }; })()`);
     clip = { x: Math.max(0, box.x - 12), y: Math.max(0, box.y - 12), width: box.width + 24, height: Math.min(box.height + 24, tall), scale: 1 };
   } else {
@@ -274,12 +339,52 @@ try {
   const kind = ".templates .template-group:has(> .template-buttons)";
   await shotUI("template-photographs", { element: kind, tall: 900 });
   await shotUI("template-row-phone", { width: 390, height: 844, mobile: true, element: kind, tall: 700 });
-  await shotUI("template-playing", { element: kind, prepare: `document.querySelector(${JSON.stringify(`${kind} .template-button`)})?.click();`, tall: 900 });
+  await shotUI("template-playing", { element: kind, prepare: `document.querySelector(${literal(`${kind} .template-button`)})?.click();`, tall: 900 });
   await shotUI("scene-gallery-phone", { width: 390, height: 844, mobile: true, element: ".templates .template-group:has(.artwork-themes)", tall: 900 });
   // A saved scene's card, its actions open; and once it ran, with Stop.
   await shotUI("scene-card-details", { ready: ".scene-card", element: ".scene-card", prepare: 'document.querySelector(".scene-card details").open = true;' });
   await shotUI("scene-stop", { ready: ".scene-card", element: ".scene-card",
     prepare: 'document.querySelector(".scene-card .scene-run-actions button.primary").click(); await new Promise((done) => setTimeout(done, 1500)); history.go(0);' });
+
+  // The scene editor (docs/ui.md, "Scenes"): its workflow on Movie night's actions; Evening's weekday trigger and its
+  // time window; on a phone, the workflow, the condition and deleting the scene.
+  const into = (folder) => (name) => {
+    if (!process.env.PLUGIN_SHOTS_ONLY || process.env.PLUGIN_SHOTS_ONLY.split(",").includes(name)) {
+      mkdirSync(folder, { recursive: true });
+      renameSync(join(out, `${name}.png`), join(folder, `${name}.png`));
+    }
+  };
+  const toUI = into(templates), toStatus = into(join(root, "docs/images/status"));
+  const step = (title) => `[...document.querySelectorAll(".scene-flow-nav")].find((b) => b.textContent.includes(${literal(title)}))?.click();`;
+  // A phone's fixed save bar and menu button would land mid-picture in a capture taller than the screen.
+  const unpinned = `const style = document.createElement("style"); style.textContent = ".save-bar, nav.tabbar { display: none !important; }"; document.head.append(style);`;
+  const movie = "/scenes/5ce0e0000000a001", evening = "/scenes/5ce0e0000000a002";
+  await shot("scene-controls", movie, { ready: ".scene-flow-nav", height: 720, element: ".scene-flow", prepare: step("Actions") }).then(() => toUI("scene-controls"));
+  await shot("scene-trigger-controls", evening, { ready: ".scene-flow-nav", element: ".scene-flow-panel:not([hidden]) .editor-row", prepare: step("Triggers") })
+    .then(() => toUI("scene-trigger-controls"));
+  await shot("scene-workflow-phone", movie, { ready: ".scene-flow-nav", width: 390, height: 844, mobile: true, element: ".scene-flow", tall: 844, prepare: unpinned + step("Actions") })
+    .then(() => toUI("scene-workflow-phone"));
+  await shot("scene-condition-phone", evening, { ready: ".scene-flow-nav", width: 390, height: 844, mobile: true, element: ".scene-flow-panel:not([hidden])", tall: 900, prepare: unpinned + step("Conditions") })
+    .then(() => toUI("scene-condition-phone"));
+  await shot("scene-delete", movie, { ready: ".scene-flow-nav", width: 390, height: 844, mobile: true, viewport: true,
+    prepare: '[...document.querySelectorAll(".scene-editor button")].find((b) => b.textContent.trim() === "Delete")?.click();' }).then(() => toUI("scene-delete"));
+  // The Scenes page's location: an address search, its answers the page is given (no request leaves for Photon).
+  await shot("scene-address-search", "/scenes", { ready: "details.location", element: "#shot-address", width: 560,
+    prepare: `
+      const answers = [["Coimbra", "Portugal", 40.2033, -8.4103], ["Coimbra", "Minas Gerais, Brazil", -20.8556, -42.8017], ["Coimbra-B", "3000-312 Coimbra, Portugal", 40.2226, -8.4436]];
+      const fetched = window.fetch;
+      window.fetch = (input, init) => String(input).startsWith("https://photon.komoot.io/") ? Promise.resolve(new Response(JSON.stringify({ features: answers.map(([name, place, lat, lon]) => ({
+        geometry: { coordinates: [lon, lat] }, properties: { name, city: name === "Coimbra-B" ? "Coimbra" : undefined, state: place.split(", ").slice(-2, -1)[0], country: place.split(", ").at(-1) } })) }), { headers: { "Content-Type": "application/json" } })) : fetched(input, init);
+      document.querySelector("details.location").open = true;
+      const form = document.querySelector(".location-search");
+      form.id = "shot-address";
+      form.querySelector("input").value = "Coimbra";
+      form.requestSubmit();` }).then(() => toUI("scene-address-search"));
+  // The Status page on a phone: the overview and the Quick controls with the scenes.
+  await shot("quick-controls-phone", "/status", { ready: ".quick .scene-button, .quick-scenes", width: 390, height: 844, mobile: true, tall: 430 }).then(() => toUI("quick-controls-phone"));
+  // The Energy section, on a day and a week of demonstration figures.
+  await shot("energy", "/status", { ready: '[data-widget="energy"] .chart-card svg', width: 1100, height: 900, element: '[data-widget="energy"]', before: energyDemo })
+    .then(() => toStatus("energy"));
 } finally {
   socket.close();
   const exited = new Promise((done) => chrome.once("exit", done));

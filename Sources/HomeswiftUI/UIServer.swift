@@ -839,6 +839,14 @@ public final class UIServer: Sendable {
                 logger.info(save ? "Log payloads are saved on disk from now on, secrets masked" : "Log payloads are no longer saved on disk", metadata: ["user": "\(username)"])
                 return .json(["saveDetails": .bool(save), "available": true])
             }
+            if route.count == 3, route[0] == "accessories", route[2] == "homekit" {
+                guard let found = catalog.find(id: route[1]) else { return .error(404, "no accessory \(route[1])") }
+                guard let visible = body["visible"]?.boolValue else { return .error(400, "visible (true or false) is required") }
+                logger.info("Web UI user \(username) \(visible ? "showed" : "hid") \(found.accessory.name) in the Home app")
+                let result = try await catalog.setVisibleInHomeKit(found, visible: visible)
+                noteConfigChange(by: username)
+                return .json(result)
+            }
             if route == ["config"] {
                 guard body.objectValue != nil else { return .error(400, "the config must be a JSON object") }
                 let result = try await catalog.applyConfig(body, dryRun: false, checkSchemas: request.query["force"] != "true")

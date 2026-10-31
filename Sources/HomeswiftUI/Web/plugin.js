@@ -11,7 +11,7 @@
   const prefix = `/api/plugins/${encodeURIComponent(platform)}/${encodeURIComponent(name)}/`;
 
   const { $, el, icon, tile, fact, markdown, sparkle, api, assistantRequest, formatTemperature, temperature } = HomeswiftCommon;
-  const { t } = HomeswiftI18n;
+  const { t, tn } = HomeswiftI18n;
 
   /// This plugin instance's own routes (its handleWebRequest).
   const request = (path, options) => api(prefix + String(path).replace(/^\//, ""), options);
@@ -107,7 +107,9 @@
     let auth = { mode: "none" };
     const avatar = el("span", { class: "user-avatar", "aria-hidden": "true" }, HomeswiftCommon.icon("user"));
     const userName = el("span", { class: "user-name" });
-    const user = el("button", { id: "user", type: "button", class: "user-button", "aria-haspopup": "menu", "aria-expanded": "false", "aria-label": t("Account menu") }, avatar, userName);
+    const userRole = el("span", { class: "user-role", text: t("No sign-in") });
+    const user = el("button", { id: "user", type: "button", class: "user-button", "aria-haspopup": "menu", "aria-expanded": "false", "aria-label": t("Account menu") },
+      avatar, el("span", { class: "user-text" }, userName, userRole), el("span", { class: "user-chevron", "aria-hidden": "true" }, HomeswiftCommon.icon("selector")));
     const shownName = () => (auth.mode === "form" ? (auth.name && auth.name !== auth.username ? auth.name : auth.username || "") : "");
     user.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -117,20 +119,76 @@
         { label: form ? t("Your account") : t("Account"), icon: "user", href: "/account" },
         { label: t("Appearance"), icon: "sliders", href: "/appearance" },
         form && auth.admin ? { label: t("Users and tokens"), icon: "users", href: "/users" } : null,
+        // Homeswift's health, version and updates, which the side menu holds on a wide window.
+        ...(matchMedia("(min-width: 641px) and (max-width: 1179.98px)").matches && aboutStatus ? [{ separator: true },
+          { heading: t("Homeswift {version}", { version: aboutStatus.version }), detail: healthOf(aboutStatus)[0] },
+          auth.admin ? { label: aboutStatus.update?.available ? t("Update available") : t("Updates"), icon: "download", href: "/settings/updates" } : null,
+          { label: t("Send feedback"), icon: "bug", onSelect: () => window.open("https://github.com/mp-consulting/homeswift/issues", "_blank", "noopener") }] : []),
         form ? { separator: true } : null,
-        form ? { label: t("Sign out"), icon: "logout", onSelect: async () => {
-          try { await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }); } catch {}
-          location.href = "/";
-        } } : null,
+        form ? { label: t("Sign out"), icon: "logout", onSelect: signOut } : null,
       ], { keyboard: event.detail === 0 });
     });
+    const link = (path, text, glyph) => el("a", { href: path, class: path === "/plugins" ? "active" : "" }, HomeswiftCommon.icon(glyph), el("span", { text }));
+    // You's pages, and the account menu's other entries once the account is known (a wide window's side menu has no
+    // account button).
+    const you = el("nav", { class: "side-you" }, link("/account", t("Account"), "user"), link("/appearance", t("Appearance"), "sun"));
+    const signOut = async () => {
+      try { await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }); } catch {}
+      location.href = "/";
+    };
+    // Homeswift at the side menu's foot, folded under one line, as on the UI's own pages; its updates are on
+    // Settings › Updates.
+    let aboutStatus = null;
+    const healthOf = (status) => {
+      const waiting = status.bridges.filter((bridge) => !bridge.paired).length;
+      return status.restartNeeded ? [t("Running; some changes need a restart"), "away"]
+        : waiting ? [tn("Running; one server waits to be added in the Home app", "Running; {n} servers wait to be added in the Home app", waiting), "away"]
+        : [t("Running, and everything is in the Home app"), "on"];
+    };
+    const about = el("details", { id: "side-about", class: "side-about", hidden: true });
+    HomeswiftCommon.foldOnLeave(about);
+    const drawAbout = () => {
+      const status = aboutStatus;
+      if (!status) return;
+      const [health, kind] = healthOf(status);
+      // The side menu's, and a phone's ☰ panel's.
+      for (const about of document.querySelectorAll(".side-about")) {
+        about.classList.toggle("has-update", Boolean(status.update?.available));
+        about.replaceChildren(
+          el("summary", {}, el("span", { class: `side-about-dot ${kind}`, "aria-hidden": "true" }),
+            el("span", { class: "side-about-title", text: t("Homeswift {version}", { version: status.version }) }),
+            el("span", { class: "side-about-badge", role: "img", "aria-label": t("Update available"), title: t("Update available") }), HomeswiftCommon.icon(about.closest("header") ? "up" : "down")),
+          el("div", { class: "side-about-body" },
+            el("div", { class: "side-about-info" },
+              el("p", { class: `side-about-health ${kind}`, text: health }),
+              el("p", { class: "side-about-version", text: t("Version {version} · {host}", { version: status.version, host: status.system.hostname }) })),
+            el("div", { class: "side-about-actions" },
+              auth.admin ? el("a", { class: "side-about-action", href: "/settings/updates" }, HomeswiftCommon.icon("download"), el("span", { text: status.update?.available ? t("Update available") : t("Updates") })) : null,
+              el("a", { class: "side-about-action", href: "https://github.com/mp-consulting/homeswift/issues", target: "_blank", rel: "noopener" }, HomeswiftCommon.icon("bug"), el("span", { text: t("Send feedback") })))));
+        about.hidden = false;
+      }
+    };
+    api("/api/status").then((status) => { aboutStatus = status; drawAbout(); }).catch(() => {});
+    // The header as index.html has it: in a wide window it is the frame's side menu, with the brand's name, Home's
+    // sections and You's pages, each with its icon.
     header.replaceChildren(
-      el("a", { class: "brand", href: "/", "aria-label": "Homeswift", title: "Homeswift" }, el("img", { src: "/icon.svg", class: "logo", alt: "" })),
-      el("nav", { "aria-label": t("Sections") }, sections.map(([path, text]) => el("a", { href: path, text, class: path === "/plugins" ? "active" : "" }))),
-      el("span", { class: "spacer" }), user);
+      el("a", { class: "brand", href: "/", "aria-label": "Homeswift", title: "Homeswift" }, el("img", { src: "/icon.svg", class: "logo", alt: "" }),
+        el("span", { class: "brand-name", "aria-hidden": "true", text: "Homeswift" })),
+      el("span", { class: "side-caption", "aria-hidden": "true", text: t("Home") }),
+      el("nav", { "aria-label": t("Sections") }, sections.map(([path, text, glyph]) => link(path, text, glyph))),
+      el("span", { class: "side-caption", "aria-hidden": "true", text: t("You") }),
+      you,
+      el("span", { class: "spacer" }), about, user);
+    // The page in the app's frame (#app, which the wide layout draws), as the UI's own pages are.
+    let app = $("#app");
+    if (!app) {
+      app = el("div", { id: "app" });
+      header.before(app);
+      app.append(header, ...[$("main")].filter(Boolean));
+    }
     // On a phone the sections sit in a tab bar at the bottom, as on the UI's own pages; the page also extends
     // under the notch and the home indicator, which the layout pads around.
-    HomeswiftCommon.tabBar({ active: "/plugins" });
+    HomeswiftCommon.tabBar({ active: "/plugins", parent: app });
     const viewport = document.querySelector('meta[name="viewport"]');
     if (viewport && !viewport.content.includes("viewport-fit")) viewport.content += ", viewport-fit=cover";
     // The Assistant's chat, as on the UI's own pages.
@@ -142,6 +200,12 @@
       const name = shownName();
       avatar.replaceChildren(auth.mode === "form" && name ? name.slice(0, 1).toUpperCase() : HomeswiftCommon.icon("user"));
       userName.textContent = name;
+      userRole.textContent = auth.mode !== "form" ? t("No sign-in") : auth.admin ? t("Administrator") : t("User");
+      const form = auth.mode === "form";
+      you.replaceChildren(...[link("/account", form ? t("Your account") : t("Account"), "user"), link("/appearance", t("Appearance"), "sun"),
+        form && auth.admin ? link("/users", t("Users and tokens"), "users") : null,
+        form ? el("button", { type: "button", class: "side-action", onclick: signOut }, HomeswiftCommon.icon("logout"), el("span", { text: t("Sign out") })) : null].filter(Boolean));
+      drawAbout();
       if (state.liveWebFiles) followWebFiles();
     }).catch(() => {});
   }

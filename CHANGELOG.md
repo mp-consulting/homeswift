@@ -6,6 +6,44 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The Accessories graph in full screen (`/accessories/graph?full=1`, or its toolbar's button), as the wall's: the graph
+  alone, its zoom in the corner as a map's, the search and filters behind one button. An accessory's card in the graph
+  holds its widget, live (a tap toggles it), then All controls and Identify.
+- Updates in place on a Synology package too, and with their progress: the bridge downloads the release (the .spk for
+  this NAS, Homebrew's upgrade on a Mac), says how far it has got, checks the new binary, puts it in place and restarts;
+  the Status page's card (a new dark hero with the version) and the footer's button show the download's share as it
+  goes. Package Center keeps showing the version it installed.
+- Full screen for the Accessories wall (`/accessories?full=1`, the toolbar's Full screen): the widgets alone, for a
+  wall tablet; grouped by room or plugin, one group a page, swiped left and right (arrow keys, dots, side arrows with a
+  mouse); the toolbar waits in a panel from the right edge, Esc leaves.
+- Visible in Home app, in an accessory's menu (and `set_homekit_visibility` over MCP): off, the accessory leaves the
+  Home app while Homeswift, its tools and Matter keep it, so a Matter device of its own can be in Apple Home through
+  Matter only. Kept in its plugin's block as `_hiddenFromHomeKit`; the plugin is not reloaded.
+
+### Changed
+
+- Web UI: the Status page's dark footer is gone. In a wide window its contents are Homeswift's section at the foot of the side menu, folded
+  under its version; it unfolds into the health, the machine, the update button, Send feedback and Restart homeswift….
+  The account button is gone there, its entries listed under You. In a narrower window the account menu holds the same,
+  and on a phone the ☰ panel, under Account. Customise this page… floats at the Status page's bottom right. Plugin pages have the same side menu.
+- Icons and names on the Plugins page: the Dolphin plugin is a pool robot (on its page, card, widget and Matter row), the
+  Matter block reads Homeswift Matter with Matter's mark and the web UI's block a browser window; under its name in Add a plugin,
+  each plugin says what it brings (`HomeswiftPlugin.summary`, translated), which the search also reads.
+- The account at the foot of the wide window's side menu is a row of its own: under a hairline, the name with the
+  account's role under it (or No sign-in) and a selector glyph saying it opens a menu, rather than an avatar left alone.
+
+### Fixed
+
+- A Matter device of its own that does not start (a host with IPv6 off, such as a Synology) is no longer silent: its
+  Status row says Not started and why, its accessory menu leads there and can take it off Matter, and Make a Matter
+  device no longer lands on a row that is not there. Only a port in use is retried on another port.
+- The Status page explains what Matter needs of the network, folded under each pairing code and under a device that
+  did not start: IPv6 on, a firewall that lets UDP in from IPv6 addresses (the Matter ports and 5353), and a home hub.
+- A plugin's own page (`/plugins/<slug>`) sits in the app's frame again in a wide window, with the side menu's brand,
+  Home's sections and You's pages, rather than a full-width menu above a page pushed to the bottom.
+
 ## [0.17.0] - 2026-10-31
 
 ### Changed

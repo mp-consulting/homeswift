@@ -74,6 +74,8 @@ public final class HAPServer: @unchecked Sendable {
     struct State {
         var persisted: PersistedState
         var accessories: [Int: Accessory] = [:]
+        /// The ids of accessories kept out of HomeKit by choice (`setHiddenFromHomeKit`), as mirrored ones are.
+        var hiddenFromHomeKit: Set<String> = []
         var connections: [ObjectIdentifier: HAPConnection] = [:]
         var changeObservers: [ChangeObserver] = []
         var structureObservers: [@Sendable () -> Void] = []
@@ -263,6 +265,31 @@ public final class HAPServer: @unchecked Sendable {
         guard state.serverChannel != nil else { return false }
         refreshConfigurationNumber(in: &state)
         return true
+    }
+
+    /// Keeps the accessories with these ids out of HomeKit, as mirrored ones are (`Accessory.mirroredFrom`): they keep
+    /// their aids and iids for the web UI, the MCP server and Matter, but leave `GET /accessories` and controllers
+    /// cannot read, write or subscribe to them. A change bumps the configuration number, so the Home app drops them,
+    /// or adds them back as new accessories. Never the primary accessory.
+    public func setHiddenFromHomeKit(_ ids: Set<String>) throws {
+        let primaryID = primary.id
+        let ids = ids.subtracting([primaryID])
+        let running = state.withLockedValue { state -> Bool? in
+            guard state.hiddenFromHomeKit != ids else { return nil }
+            state.hiddenFromHomeKit = ids
+            return refreshIfRunning(&state)
+        }
+        guard let running else { return }
+        if running {
+            try persist()
+            updateAdvertisement()
+        }
+        structureChanged()
+    }
+
+    /// Whether the accessory with this id is kept out of HomeKit by `setHiddenFromHomeKit`.
+    public func isHiddenFromHomeKit(_ id: String) -> Bool {
+        state.withLockedValue { $0.hiddenFromHomeKit.contains(id) }
     }
 
     /// Registers an observer called after an accessory is added, replaced or removed, whether or not it runs.
@@ -457,7 +484,7 @@ public final class HAPServer: @unchecked Sendable {
     }
 
     private func databaseHash(_ state: State) -> String {
-        let structure = database(accessories: state.accessories, includeValues: false)
+        let structure = database(accessories: state.accessories, hidden: state.hiddenFromHomeKit, includeValues: false)
         var json = JSONWriter(capacity: 64 * 1024)
         structure.write(to: &json)
         return Secrets.hex(SHA256.hash(data: json.bytes))
@@ -492,18 +519,18 @@ public final class HAPServer: @unchecked Sendable {
     /// One accessory's part of the hashed database: its aid, services, characteristics and their metadata.
     private func structure(of accessory: Accessory) -> [UInt8] {
         var json = JSONWriter(capacity: 2048)
-        database(accessories: [accessory.aid: accessory], includeValues: false).write(to: &json)
+        database(accessories: [accessory.aid: accessory], hidden: [], includeValues: false).write(to: &json)
         return json.bytes
     }
 
     func database(includeValues: Bool) -> AccessoryDatabase {
-        let accessories = state.withLockedValue { $0.accessories }
-        return database(accessories: accessories, includeValues: includeValues)
+        let (accessories, hidden) = state.withLockedValue { ($0.accessories, $0.hiddenFromHomeKit) }
+        return database(accessories: accessories, hidden: hidden, includeValues: includeValues)
     }
 
-    /// Mirrored accessories (`Accessory.mirroredFrom`) stay out: HomeKit has them already.
-    private func database(accessories: [Int: Accessory], includeValues: Bool) -> AccessoryDatabase {
-        AccessoryDatabase(accessories: accessories.filter { $0.value.mirroredFrom == nil }.sorted { $0.key < $1.key }.map { aid, accessory in
+    /// Mirrored accessories (`Accessory.mirroredFrom`) stay out, HomeKit has them already, and those `hidden` from it.
+    private func database(accessories: [Int: Accessory], hidden: Set<String>, includeValues: Bool) -> AccessoryDatabase {
+        AccessoryDatabase(accessories: accessories.filter { $0.value.mirroredFrom == nil && !hidden.contains($0.value.id) }.sorted { $0.key < $1.key }.map { aid, accessory in
             AccessoryDatabase.AccessoryJSON(aid: aid, services: accessory.services.map { service in
                 AccessoryDatabase.ServiceJSON(
                     iid: service.iid,
@@ -519,9 +546,11 @@ public final class HAPServer: @unchecked Sendable {
         })
     }
 
-    /// The accessory a controller names; never a mirrored one, which HomeKit does not see.
+    /// The accessory a controller names; never a mirrored or hidden one, which HomeKit does not see.
     func accessory(aid: Int) -> Accessory? {
-        state.withLockedValue { $0.accessories[aid] }.flatMap { $0.mirroredFrom == nil ? $0 : nil }
+        state.withLockedValue { state in
+            state.accessories[aid].flatMap { $0.mirroredFrom == nil && !state.hiddenFromHomeKit.contains($0.id) ? $0 : nil }
+        }
     }
 
     func characteristic(aid: Int, iid: Int) -> Characteristic? {
@@ -602,10 +631,15 @@ public final class HAPServer: @unchecked Sendable {
 extension HAPServer {
     func characteristicDidChange(_ characteristic: Characteristic, value: HAPValue, origin: ObjectIdentifier?) {
         let key = CharacteristicKey(aid: characteristic.aid, iid: characteristic.iid)
-        let (connections, observers, accessory) = state.withLockedValue { (Array($0.connections.values), $0.changeObservers, $0.accessories[key.aid]) }
+        let (connections, observers, accessory, hidden) = state.withLockedValue { state in
+            let accessory = state.accessories[key.aid]
+            return (Array(state.connections.values), state.changeObservers, accessory, accessory.map { state.hiddenFromHomeKit.contains($0.id) } ?? false)
+        }
         if let accessory {
             for observer in observers { observer(accessory, characteristic, value) }
         }
+        // A subscription made before it was hidden hears nothing more: HomeKit no longer has it.
+        guard !hidden else { return }
         let targets = connections.filter { $0.id != origin && $0.isSubscribed(to: key) }
         guard !targets.isEmpty else { return }
         let event = CharacteristicsJSON(characteristics: [CharacteristicJSON(aid: key.aid, iid: key.iid, value: value)])

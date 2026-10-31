@@ -39,6 +39,11 @@
   const icons = {
     wingman: '<g transform="translate(0 4.32) scale(.048)"><g fill="currentColor" stroke="none"><path d="M8 12C65 48 155 88 180 110C198 121 204 136 195 148L165 177C180 144 170 131 149 121C47 95 6 88 8 12Z M36 112L150 152L132 177C64 163 42 161 36 112Z M58 177L121 193L109 221C77 220 63 203 58 177Z"/><g transform="translate(500 0) scale(-1 1)"><path d="M8 12C65 48 155 88 180 110C198 121 204 136 195 148L165 177C180 144 170 131 149 121C47 95 6 88 8 12Z M36 112L150 152L132 177C64 163 42 161 36 112Z M58 177L121 193L109 221C77 220 63 203 58 177Z"/></g></g><path d="M136 220L250 104L364 220M153 205V305H347V205" fill="none" stroke="currentColor" stroke-width="29" stroke-linecap="round" stroke-linejoin="round"/></g>',
     power: '<path d="M12 3v9M6.3 5.8a8 8 0 1 0 11.4 0"/>',
+    // Full screen: a frame with its corners pulled out, top right and bottom left.
+    expand: '<rect x="3.5" y="3.5" width="17" height="17" rx="2.5"/><path d="M13.5 7.5h3v3M10.5 16.5h-3v-3"/>',
+    // The web UI: a browser window with a page of tiles in it.
+    browser: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 8.5h18M6 6.25h0M8.5 6.25h0"/><rect x="6.5" y="11.5" width="4.5" height="5" rx="1"/><path d="M14 12.5h3.5M14 15.5h3.5"/>',
+    selector: '<path d="M8 9.5l4-4 4 4M8 14.5l4 4 4-4"/>',
     sparkle: '<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z"/><path d="M18.5 15.5l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z"/>',
     ungroup: '<rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><path d="M3 9V3h6M3 3l5 5M15 21h6v-6M21 21l-5-5"/>',
     group: '<rect x="3" y="8" width="13" height="13" rx="3"/><path d="M8 8V6a3 3 0 0 1 3-3h7a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3h-2M7 14.5h5M9.5 12v5"/>',
@@ -59,7 +64,10 @@
     outlet: '<rect x="4" y="4" width="16" height="16" rx="4"/><path d="M10 9v2M14 9v2M10 15h4"/>',
     // Matter, as a neutral mark (three linked nodes): its logo is for certified products only.
     matter: '<circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="18" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="m10.8 7.3-4.6 8.4M13.2 7.3l4.6 8.4M7.5 18h9"/>',
-    vacuum: '<circle cx="12" cy="12" r="8.5"/><path d="M6.5 9.5a6.5 6.5 0 0 1 11 0"/><circle cx="12" cy="13.5" r="2"/>',
+    // A pool robot from the side, level: its handle and cover, the track running from a roller at the front round a wheel at the back.
+    poolRobot: '<path d="M10 6.5h4.5a2 2 0 0 1 2 2"/><path d="M3.6 14.2C4.2 11 7 9.3 10.5 9.3H15a3.5 3.5 0 0 1 3.3 2.4"/><path d="M5.5 15 16.4 12.05M5.5 19H17M5.5 15a2 2 0 0 0 0 4"/><circle cx="17" cy="15.5" r="3.5"/><circle cx="17" cy="15.5" r="1"/>',
+    // A robot cleaner from three quarters: its round body, the sensor on top, a row of lights and the brushes under it.
+    vacuum: '<ellipse cx="12" cy="8.5" rx="9" ry="4"/><path d="M3 8.5V12c0 2.2 4 4 9 4s9-1.8 9-4V8.5"/><ellipse cx="12" cy="7.2" rx="2" ry=".8"/><path d="M9.5 10.2h0M12 10.4h0M14.5 10.2h0M12 16l-4.5 4M12 16l4.5 4"/>',
     sensor: '<circle cx="12" cy="12" r="2"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8"/>',
     fan: '<circle cx="12" cy="12" r="2"/><path d="M12 10c0-4 1-7 4-7 2 0 3 2 2 4l-4 4M14 12c4 0 7 1 7 4 0 2-2 3-4 2l-4-4M12 14c0 4-1 7-4 7-2 0-3-2-2-4l4-4M10 12c-4 0-7-1-7-4 0-2 2-3 4-2l4 4"/>',
     speaker: '<rect x="6" y="3" width="12" height="18" rx="2"/><circle cx="12" cy="14" r="3"/><path d="M12 7h.01"/>',
@@ -1200,6 +1208,8 @@
       setOpen(false);
       document.dispatchEvent(new CustomEvent("homeswift-account-menu", { detail: { trigger: toggle, keyboard: event.detail === 0 } }));
     } }, icon("user"), el("span", { text: t("Account") })));
+    // Homeswift's section under Account, as at the side menu's foot; the page draws it (`.side-about`).
+    panel.append(el("details", { class: "side-about mobile-nav-about", hidden: true }));
     toggle.addEventListener("click", () => setOpen(panel.hidden));
     panel.addEventListener("click", (event) => { if (event.target.closest("a")) setOpen(false); });
     const bar = el("nav", { class: "tabbar", "aria-label": t("Sections") }, panel, toggle);
@@ -1738,8 +1748,19 @@
   const confirmDialog = (message) => messageDialog(message, { kind: "confirm" });
   const promptDialog = (message, value = "") => messageDialog(message, { kind: "prompt", value });
 
+  /// A `<details>` that opens as a popover (the side menu's Homeswift section): a click outside it or Escape folds it,
+  /// Escape giving the focus back to its summary.
+  function foldOnLeave(details) {
+    document.addEventListener("click", (event) => { if (details.open && !details.contains(event.target)) details.open = false; });
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || !details.open) return;
+      details.open = false;
+      details.querySelector("summary")?.focus();
+    });
+  }
+
   window.HomeswiftCommon = {
-    showAlert, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, lastChange: () => lastChange,
+    foldOnLeave, showAlert, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, lastChange: () => lastChange,
     $, el, icon, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };

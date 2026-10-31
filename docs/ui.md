@@ -42,8 +42,11 @@ The header has the sections (Status, Accessories, Scenes, Plugins, Logs, Setting
 when it is on, and the account menu behind your initial: **Account**, **Appearance**, **Users** (administrators),
 **Language**, then apart and in orange **Restart homeswift…** (administrators), and **Sign out**. In a window 1180 px
 wide or more the app sits in one frame of glass and the header becomes the menu down its
-left: the sections under **Home**, **Account** and **Appearance** under **You**, each with its icon, and the account menu
-at its foot. Every view is an address ([Addresses](#addresses)), so Back and Forward work and a view can be kept or
+left: the sections under **Home**; under **You** the account menu's entries (**Account**, **Appearance**, **Users** for
+administrators, **Language**, **Sign out**), each with its icon, in place of the account button; and at its foot
+**Homeswift** and its version, folded, which opens upward over the menu (a click outside closes it) into its health, the machine, the update button, **Send feedback**
+and **Restart homeswift…** (administrators). Narrower, the account menu has them; on a phone, the ☰ panel, under
+Account. The Status page keeps only **Customise this page…**, floating at the window's bottom right. Every view is an address ([Addresses](#addresses)), so Back and Forward work and a view can be kept or
 shared.
 
 ### Status
@@ -54,7 +57,7 @@ The start page: a summary (accessories, plugins, Home app controllers, uptime), 
   yet shows its setup code and a QR code for the Home app's camera. Accessories and Matter devices of their own (a
   television, a camera, an accessory made a Matter device) are one line each in **Devices of their own**: its name,
   where it was added and its state, unfolding to its port, its ecosystems, its pairing code and its actions. A Matter
-  device's icon carries Matter's tag. Those waiting to be added come first (open when there are one or two); past
+  device's icon carries Matter's tag. Those waiting to be added come first, open with their code; the others are folded, and a row you open or fold stays so while the page shows; past
   eight devices a search (by name or ecosystem), a filter (Matter, HomeKit, waiting to be added) and an order (waiting
   first, name, most ecosystems) narrow the list, kept in the address (`/status?show=matter&devices=name`), so a home of
   a hundred stays one screen to scan.
@@ -82,8 +85,8 @@ When GitHub has a newer release, a card under the summary says so, with its note
 `.spk` to download on a Synology NAS, the image tag to pull in Docker, `brew upgrade` or the tag to check out. The
 bridge asks GitHub's API a minute after it starts and then twice a day, sending only its version (`ReleaseWatcher`);
 `"checkForUpdates": false` turns it off. On a Homebrew install an administrator's **Install and relaunch** runs
-`brew upgrade homeswift` and restarts into the new binary (Homebrew's `opt/homeswift` link); the footer's button
-follows it (**Install update**, **Installing…**, then **Relaunch to update** when the new version is on disk, from here
+`brew upgrade homeswift` and restarts into the new binary (Homebrew's `opt/homeswift` link); the update button (the
+side menu's, or the footer's) follows it (**Install update**, **Installing…**, then **Relaunch to update** when the new version is on disk, from here
 or a `brew upgrade` run by hand). A Synology package, a container and a checkout cannot upgrade themselves: their card
 says how. Settings › Updates has the same card.
 
@@ -135,6 +138,12 @@ screenshots, and what a plugin does to get good ones.
   the rest under More), Identify, its log, ask the Assistant about it, its plugin's settings (administrators), resume a
   paused plugin, a room, a name for these pages, add to the Quick Controls or hide it, and **History** for an accessory
   whose plugin records an Eve history (temperature, humidity, power…): a day, a week or four weeks.
+- **Full screen** (the toolbar's last button, or `/accessories?full=1` for a wall tablet's bookmark): the widgets alone,
+  in the browser's own full screen where it has one. Grouped by room or by plugin, one group fills the screen at a time
+  and the next is a swipe away (the arrow keys, the dots, the side arrows with a mouse); one button opens the toolbar
+  (search, grouping, filters, Leave full screen) as a panel from the right edge, and Esc leaves.
+- **Visible in Home app** (a widget's ⋯ menu, administrators): off, the accessory leaves the Home app, with its room,
+  scenes and automations, while Homeswift and Matter keep it (`_hiddenFromHomeKit` in its plugin's block).
 - **Edit** shows grid guides, size controls and corner handles, and lets tiles be dragged onto any cell of the grid,
   gaps included: the others make way, and the wall keeps every widget's cell until **Pack the widgets together** (the
   wall's menu) lets them flow again ([widgets.md](widgets.md)). The wall is
@@ -184,8 +193,12 @@ accessory a disc on the outer ring, each plugin's branch in a colour of its own.
 and the icons of a ring never overlap. Click a bridge or plugin to zoom into its branch; Ctrl-scroll, a trackpad or
 touch pinch, dragging and the zoom buttons move the view. Click any node for a card with its facts and readings
 (grouped by service, each with a tooltip saying what it is) and its accessories, each a click from its own card; on a
-phone the card sits under the graph. A search field and a Filters menu (unavailable, bridges, device types) redraw the
-graph with what matches, and a table shows the same rows.
+phone the card sits under the graph. An accessory's card holds its widget, live as on the wall (a tap toggles it, its main
+control in reach), then **All controls** (the widget's sheet) and **Identify** when the accessory can. A search field and a Filters menu
+(unavailable, bridges, device types) redraw the graph with what matches, and a table shows the same rows. **Full
+screen** (the toolbar's last button, or `/accessories/graph?full=1`): the graph alone filling the window, its zoom at
+the bottom right as a map's and one button in the top corner for the search, the filters and Leave full screen, both
+fading while nothing happens; the cards and their actions work as on the page, a sheet from the bottom on a phone, and Esc leaves.
 
 ### Quick controls
 

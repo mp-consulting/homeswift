@@ -48,9 +48,12 @@ chosen), and DSM's firewall
 entries name them. The bridge generates and keeps its device ID and setup code. An upgrade or a reinstall
 leaves the shared folder as it is.
 
-When a new release is out, the web UI's **Status** page says so, with a **Download the package** button for
-the NAS's architecture: install it with **Package Center > Manual Install**, which upgrades in place. Package
-Center itself does not watch GitHub, and the bridge cannot upgrade itself (DSM runs it as its own user).
+When a new release is out, the web UI's **Status** page says so. **Update and restart** installs it from there,
+its progress on the page: the bridge downloads the package for the NAS's architecture, checks that its binary runs
+and is that release, puts its files in place in the package's folder (which belongs to the package's user) and
+restarts; nothing changes if any step fails. Package Center goes on showing the version it installed until its next
+install, as it keeps its own records. **Package Center > Manual Install** with the downloaded package (the card's
+**Download the package**, on GitHub) still upgrades in place too, and Package Center itself does not watch GitHub.
 
 When the web UI moves (another `port`, or `"https": true` in its block), the page you are on cannot follow it:
 open the new address yourself. DSM's menu entry follows at the package's next start

@@ -216,10 +216,12 @@ import Testing
             "(1234-5678)", "12345-6789", "-031-45-154-", "0314-5154.", "١٢٣-٤٥-٦٧٨",
         ]
         var generator = SystemRandomNumberGenerator()
-        // Random pieces each run, so runs add up; every expression on each text is slow in a debug build.
+        // Random pieces each run, so runs add up; every expression on each text is slow in a debug build. The shortcut
+        // is compared with the expressions alone: `redactText(_:)` also masks the values `rememberSecrets` holds, which
+        // another test in this process may have added (a vault opened) and which would mask a piece on one side only.
         for _ in 0..<500 {
             let text = (0..<Int.random(in: 1...4, using: &generator)).map { _ in pieces.randomElement(using: &generator)! }.joined(separator: [" ", "\n", ", ", ""].randomElement(using: &generator)!)
-            #expect(Redaction.redactText(text) == Redaction.redactText(text, prefilter: false), "\(text)")
+            #expect(Redaction.redactText(text, prefilter: true) == Redaction.redactText(text, prefilter: false), "\(text)")
         }
     }
 

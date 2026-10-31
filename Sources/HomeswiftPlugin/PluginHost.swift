@@ -259,6 +259,7 @@ public final class PluginHost: @unchecked Sendable {
     /// returned, or after `pluginStartWait` with the slow ones still starting; a plugin that throws is logged
     /// and left out.
     public func start() async throws {
+        applyHomeKitVisibility(configuration)
         for bridge in bridges {
             try await bridge.server.start()
             bridge.lifecycle.withLockedValue { $0.startedAt = Date() }
@@ -461,8 +462,26 @@ public final class PluginHost: @unchecked Sendable {
                 report.started.append(block.name)
             }
         }
+        applyHomeKitVisibility(next)
         logApplied(report)
         return report
+    }
+
+    /// Keeps the accessories each block lists in `_hiddenFromHomeKit` out of HomeKit, on its plugin's bridge; they stay
+    /// on the bridge for the web UI, the MCP server and Matter. A block's list changes without reloading its plugin.
+    private func applyHomeKitVisibility(_ configuration: HomeswiftConfiguration) {
+        var hidden: [ObjectIdentifier: Set<String>] = [:]
+        for instance in instances {
+            let block = configuration.platforms.first { $0.platform == instance.block.platform && $0.name == instance.block.name }
+            hidden[ObjectIdentifier(instance.context.bridge), default: []].formUnion(block?.hiddenFromHomeKit ?? [])
+        }
+        for bridge in bridges {
+            do {
+                try bridge.server.setHiddenFromHomeKit(hidden[ObjectIdentifier(bridge)] ?? [])
+            } catch {
+                logger.error("Could not save which accessories HomeKit sees on \(bridge.name): \(error)")
+            }
+        }
     }
 
     /// One line per applied configuration, so the log shows what a save did without a restart.

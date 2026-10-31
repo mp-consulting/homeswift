@@ -1815,8 +1815,10 @@
     return dialog;
   }
 
-  /// The icon of what a service stands for when HomeKit has no type for it (`Service.standsFor`): a robot vacuum.
-  const standsForIcon = (accessory) => accessory.services?.some((service) => service.standsFor === "cleaningRobot") ? "vacuum" : null;
+  /// The icon of what a service stands for when HomeKit has no type for it (`Service.standsFor`): a robot vacuum, or a
+  /// pool robot for the Dolphin plugin's.
+  const standsForIcon = (accessory) => !accessory.services?.some((service) => service.standsFor === "cleaningRobot") ? null
+    : accessory.platform === "DolphinPoolCleaner" ? "poolRobot" : "vacuum";
 
   /// The tile's glyph, and a painter for its colour and state.
   function glyphFor(ctx, widget, built, primary) {
