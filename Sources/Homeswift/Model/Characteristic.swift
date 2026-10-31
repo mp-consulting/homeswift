@@ -80,6 +80,8 @@ public final class Characteristic: @unchecked Sendable {
         var writesChangesOnly = false
         /// Reads and writes fail with "No Response" without reaching the handlers (`Accessory.isUnavailable`).
         var unavailable = false
+        /// "No Response" as its source reports it, writes still tried (`Accessory.isUnreachable`).
+        var unreachable = false
         var observers: [Int: Observer] = [:]
         var nextObserver = 0
         var isSecurityControl: Bool
@@ -219,6 +221,15 @@ public final class Characteristic: @unchecked Sendable {
         get { state.withLockedValue { $0.unavailable } }
         set { state.withLockedValue { $0.unavailable = newValue } }
     }
+
+    /// No Response that writes still pass (`Accessory.isUnreachable`).
+    var isUnreachable: Bool {
+        get { state.withLockedValue { $0.unreachable } }
+        set { state.withLockedValue { $0.unreachable = newValue } }
+    }
+
+    /// Whether reads answer No Response: unavailable or unreachable.
+    var showsNoResponse: Bool { state.withLockedValue { $0.unavailable || $0.unreachable } }
 
     /// Writes a value the way a controller does: checks the permissions and the format, calls the write
     /// handler, stores the value and notifies subscribed controllers. For writes that come from outside

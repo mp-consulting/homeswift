@@ -164,7 +164,7 @@ struct WingmanTests {
         #expect(bulb[.colorTemperature]?.type.maxValue == 454)
 
         let sensor = try await accessory(host, "sensor-1")
-        #expect(sensor.isUnavailable)
+        #expect(sensor.isUnreachable && sensor.showsNoResponse)
         #expect(sensor.service(.temperatureSensor)?[.currentTemperature]?.value == .double(12.5))
         // A lock target is a security control: the web UI and the MCP server ask first.
         let lock = try await accessory(host, "lock-1")
@@ -290,6 +290,20 @@ struct WingmanTests {
         await host.stop()
     }
 
+    /// Apple Home's No Response shows, but a write still goes to Wingman, as the Home app still tries; once HomeKit
+    /// takes it the accessory answers.
+    @Test func anAccessoryAppleHomeCallsUnreachableStillTakesWrites() async throws {
+        environment.wingman.markUnreachable("light-1")
+        let host = try await environment.start()
+        let light = try await accessory(host, "light-1")
+        #expect(light.showsNoResponse && !light.isUnavailable)
+        let brightness = try #require(light.service(.lightbulb)?[.brightness])
+        try await brightness.write(.int(75))
+        #expect(environment.wingman.writes == [.init(accessory: "light-1", characteristic: "light-brightness", value: "75")])
+        #expect(await eventually { !light.showsNoResponse })
+        await host.stop()
+    }
+
     @Test func aRefusedWriteIsNoResponse() async throws {
         let host = try await environment.start()
         let lock = try await accessory(host, "lock-1")
@@ -327,7 +341,7 @@ struct WingmanTests {
         // A sensor that reports again answers again.
         let sensor = try await accessory(host, "sensor-1")
         environment.wingman.push(accessory: "sensor-1", characteristic: "temp", type: "00000011-0000-1000-8000-0026BB765291", value: 13)
-        #expect(await eventually { !sensor.isUnavailable })
+        #expect(await eventually { !sensor.showsNoResponse })
         await host.stop()
     }
 

@@ -505,7 +505,7 @@ extension HomeswiftCatalog {
     func checkNotificationSources(now: Date, calendar: Calendar = .current) async {
         let settings = home.notifications.value
         // Accessories answering No Response, their plugin not paused, for 5 minutes.
-        let unavailable = located().filter { $0.accessory.isUnavailable && $0.platform?.paused != true }
+        let unavailable = located().filter { $0.accessory.showsNoResponse && $0.platform?.paused != true }
         let due = home.dispatch.withLockedValue { state -> [Located] in
             let ids = Set(unavailable.map(\.accessory.id))
             state.offline = state.offline.filter { ids.contains($0.key) }

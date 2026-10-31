@@ -250,7 +250,9 @@ own types from a UUID another controller reports, so the widgets and scenes, whi
 bridges, external accessories), so a plugin reading the Home app's view leaves Homeswift's own out. Renaming or removing a
 room the other controller suggests makes it the layout's own; a removed one leaves its accessories with no room.
 `accessory.isUnavailable` set for a device that does not answer shows No Response in the web UI, which follows its
-changes as they happen (a change is announced with an event of an unchanged value).
+changes as they happen (a change is announced with an event of an unchanged value). A mirror whose controller reports
+reachability sets `accessory.isUnreachable` instead: No Response shows the same (`showsNoResponse` is either), but
+writes still reach the plugin, as the Home app still tries an accessory it shows so, and the other controller answers.
 
 **Confidential values.** A characteristic whose value is for HomeKit only (`isConfidential`) is read and
 written by controllers as usual, but the MCP server, the web UI and its event stream show it as null, the
