@@ -36,23 +36,27 @@ actor DevicesPlugin: HomeswiftPlugin {
     let context: PluginContext
     /// What HomeKit (or a tool) wrote, per test environment.
     let writes: NIOLockedValueBox<[(String, HAPValue)]>
+    /// Slow bulbs' writes under way, and the most there were at once: whether writes went together or one by one.
+    let slowWrites: NIOLockedValueBox<(now: Int, most: Int)>
 
     init(configuration: Configuration, context: PluginContext) {
-        self.init(configuration: configuration, context: context, writes: NIOLockedValueBox([]))
+        self.init(configuration: configuration, context: context, writes: NIOLockedValueBox([]), slowWrites: NIOLockedValueBox((0, 0)))
     }
 
     init(configuration: Configuration, context: PluginContext, writes: NIOLockedValueBox<[(String, HAPValue)]>,
+         slowWrites: NIOLockedValueBox<(now: Int, most: Int)>,
          hubScenes: NIOLockedValueBox<[String: (name: String, lights: [PluginSceneLight])]> = NIOLockedValueBox([:]),
          hubRooms: NIOLockedValueBox<[String: String]> = NIOLockedValueBox([:])) {
         self.configuration = configuration
         self.context = context
         self.writes = writes
+        self.slowWrites = slowWrites
         self.hubScenes = hubScenes
         self.hubRooms = hubRooms
     }
 
     func start() async throws {
-        let writes = self.writes
+        let writes = self.writes, slowWrites = self.slowWrites
         let lightbulb = Service(.lightbulb, name: "Desk Lamp", optional: [.brightness], isPrimary: true)
         lightbulb.characteristic(.brightness).value = .int(40)
         lightbulb.characteristic(.on).onWrite { value in writes.withLockedValue { $0.append(("lamp.on", value)) } }
@@ -83,7 +87,11 @@ actor DevicesPlugin: HomeswiftPlugin {
             for (type, key) in [(CharacteristicType.on, "on"), (.brightness, "brightness"), (.hue, "hue"), (.saturation, "saturation"), (.colorTemperature, "colorTemperature")] {
                 light.characteristic(type).onWrite { value in
                     if fails { throw HAPStatusError(.serviceCommunicationFailure) }
-                    if slow { try await Task.sleep(for: .milliseconds(300)) }
+                    if slow {
+                        slowWrites.withLockedValue { $0.now += 1; $0.most = max($0.most, $0.now) }
+                        defer { slowWrites.withLockedValue { $0.now -= 1 } }
+                        try await Task.sleep(for: .milliseconds(300))
+                    }
                     writes.withLockedValue { $0.append(("\(name).\(key)", value)) }
                 }
             }
@@ -253,6 +261,7 @@ final class MCPTestEnvironment: @unchecked Sendable {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("homeswift-mcp-tests-\(UUID().uuidString)")
     let logs = LogBuffer()
     let writes = NIOLockedValueBox<[(String, HAPValue)]>([])
+    let slowWrites = NIOLockedValueBox<(now: Int, most: Int)>((0, 0))
     /// The scenes Homeswift wrote to the devices' hub.
     let hubScenes = NIOLockedValueBox<[String: (name: String, lights: [PluginSceneLight])]>([:])
     /// The devices' hub's rooms, by id.
@@ -282,9 +291,9 @@ final class MCPTestEnvironment: @unchecked Sendable {
             """
         try Data(config.utf8).write(to: configURL)
         var registry = PluginRegistry()
-        let writes = self.writes, hubScenes = self.hubScenes, hubRooms = self.hubRooms
+        let writes = self.writes, slowWrites = self.slowWrites, hubScenes = self.hubScenes, hubRooms = self.hubRooms
         registry.register(platform: DevicesPlugin.platform, name: DevicesPlugin.name, configurationSchemaJSON: schema, assistantActions: DevicesPlugin.assistantActions) { json, context in
-            DevicesPlugin(configuration: try JSONDecoder().decode(DevicesPlugin.Configuration.self, from: json), context: context, writes: writes, hubScenes: hubScenes, hubRooms: hubRooms)
+            DevicesPlugin(configuration: try JSONDecoder().decode(DevicesPlugin.Configuration.self, from: json), context: context, writes: writes, slowWrites: slowWrites, hubScenes: hubScenes, hubRooms: hubRooms)
         }
         var hostOptions = PluginHost.Options(advertise: false, logger: testLogger) { _ in MemoryStorage() }
         hostOptions.aiTransport = aiTransport
@@ -307,6 +316,8 @@ final class MCPTestEnvironment: @unchecked Sendable {
     }
 
     var written: [(String, HAPValue)] { writes.withLockedValue { $0 } }
+    /// The most slow bulb writes there were under way at once.
+    var mostSlowWritesAtOnce: Int { slowWrites.withLockedValue { $0.most } }
 
     var auditEntries: [JSONValue] {
         guard let text = try? String(contentsOf: auditURL, encoding: .utf8) else { return [] }
