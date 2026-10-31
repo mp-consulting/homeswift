@@ -13,6 +13,10 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+/// A value as a JavaScript literal for code run in the page: JSON, with the characters that could end a script or a
+/// line early (<, >, /, U+2028, U+2029) escaped.
+const literal = (value) => JSON.stringify(value).replace(/[<>\/\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
+
 const [base, mapFile, out = "docs/images/widgets"] = process.argv.slice(2);
 if (!base || !mapFile) {
   console.error("usage: node Scripts/docs-screenshots.mjs <bridge UI url> <names.json> [<out dir>]");
@@ -22,7 +26,7 @@ const { names = {}, values = {} } = JSON.parse(readFileSync(mapFile, "utf8"));
 
 // Runs in the page before its own scripts.
 const pageScript = (keepPaused) => `(() => {
-  const names = ${JSON.stringify(names)}, values = ${JSON.stringify(values)};
+  const names = ${literal(names)}, values = ${literal(values)};
   const keys = Object.keys(names).sort((a, b) => b.length - a.length);
   const rename = (s) => { if (names[s]) return names[s]; for (const k of keys) if (s.includes(k)) s = s.split(k).join(names[k]); return s; };
   const walk = (v) => Array.isArray(v) ? v.map(walk) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x)])) : typeof v === "string" ? rename(v) : v;

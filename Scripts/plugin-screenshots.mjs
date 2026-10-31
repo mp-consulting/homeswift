@@ -15,6 +15,10 @@ import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync
 import { homedir, hostname, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
+/// A value as a JavaScript literal for code run in the page: JSON, with the characters that could end a script or a
+/// line early (<, >, /, U+2028, U+2029) escaped.
+const literal = (value) => JSON.stringify(value).replace(/[<>\/\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
+
 const root = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 const binary = process.argv[2] || join(homedir(), "Library/Caches/homeswift-build/debug/homeswift");
 const out = resolve(process.argv[3] || join(root, "docs/images/plugins"));
@@ -228,7 +232,7 @@ const energyDemo = `(() => {
 
 const replacements = [[`127.0.0.1:${huePort}`, "192.168.1.20"], ["127.0.0.1", "192.168.1.30"], [storage, "/Users/demo/.homeswift"], [hostname(), "homeswift-mac"], [hostname().replace(/\.local$/, ""), "homeswift-mac"]];
 const pageScript = `(() => {
-  const pairs = ${JSON.stringify(replacements)};
+  const pairs = ${literal(replacements)};
   const clean = (text) => pairs.reduce((s, [real, shown]) => s.split(real).join(shown), text);
   const original = window.fetch;
   window.fetch = async (input, init) => {
@@ -279,7 +283,7 @@ async function shot(name, path, { tab, ready, width = 1280, height = 900, mobile
   await send("Page.navigate", { url: base + path });
   const wait = async (selector) => {
     for (let i = 0; i < 80; i++) {
-      if (await evaluate(`!!document.querySelector(${JSON.stringify(selector)})`)) return;
+      if (await evaluate(`!!document.querySelector(${literal(selector)})`)) return;
       await sleep(250);
     }
     throw new Error(`${name}: ${selector} did not appear`);
@@ -288,8 +292,8 @@ async function shot(name, path, { tab, ready, width = 1280, height = 900, mobile
   // without tabs (the Scenes page) has none to choose.
   if (tab) {
     const chosen = `button[data-tab="${tab}"][aria-selected="true"]`;
-    for (let i = 0; i < 40 && !(await evaluate(`!!document.querySelector(${JSON.stringify(chosen)})`)); i++) {
-      await evaluate(`document.querySelector(${JSON.stringify(`button[data-tab="${tab}"]`)})?.click()`);
+    for (let i = 0; i < 40 && !(await evaluate(`!!document.querySelector(${literal(chosen)})`)); i++) {
+      await evaluate(`document.querySelector(${literal(`button[data-tab="${tab}"]`)})?.click()`);
       await sleep(250);
     }
     await wait(chosen);
@@ -304,7 +308,7 @@ async function shot(name, path, { tab, ready, width = 1280, height = 900, mobile
     const top = await evaluate("scrollY");
     clip = { x: 0, y: top, width, height, scale: 1 };
   } else if (element) {
-    const box = await evaluate(`(() => { const r = document.querySelector(${JSON.stringify(element)}).getBoundingClientRect();
+    const box = await evaluate(`(() => { const r = document.querySelector(${literal(element)}).getBoundingClientRect();
       return { x: r.left + scrollX, y: r.top + scrollY, width: r.width, height: r.height }; })()`);
     clip = { x: Math.max(0, box.x - 12), y: Math.max(0, box.y - 12), width: box.width + 24, height: Math.min(box.height + 24, tall), scale: 1 };
   } else {
@@ -335,7 +339,7 @@ try {
   const kind = ".templates .template-group:has(> .template-buttons)";
   await shotUI("template-photographs", { element: kind, tall: 900 });
   await shotUI("template-row-phone", { width: 390, height: 844, mobile: true, element: kind, tall: 700 });
-  await shotUI("template-playing", { element: kind, prepare: `document.querySelector(${JSON.stringify(`${kind} .template-button`)})?.click();`, tall: 900 });
+  await shotUI("template-playing", { element: kind, prepare: `document.querySelector(${literal(`${kind} .template-button`)})?.click();`, tall: 900 });
   await shotUI("scene-gallery-phone", { width: 390, height: 844, mobile: true, element: ".templates .template-group:has(.artwork-themes)", tall: 900 });
   // A saved scene's card, its actions open; and once it ran, with Stop.
   await shotUI("scene-card-details", { ready: ".scene-card", element: ".scene-card", prepare: 'document.querySelector(".scene-card details").open = true;' });
@@ -351,7 +355,7 @@ try {
     }
   };
   const toUI = into(templates), toStatus = into(join(root, "docs/images/status"));
-  const step = (title) => `[...document.querySelectorAll(".scene-flow-nav")].find((b) => b.textContent.includes(${JSON.stringify(title)}))?.click();`;
+  const step = (title) => `[...document.querySelectorAll(".scene-flow-nav")].find((b) => b.textContent.includes(${literal(title)}))?.click();`;
   // A phone's fixed save bar and menu button would land mid-picture in a capture taller than the screen.
   const unpinned = `const style = document.createElement("style"); style.textContent = ".save-bar, nav.tabbar { display: none !important; }"; document.head.append(style);`;
   const movie = "/scenes/5ce0e0000000a001", evening = "/scenes/5ce0e0000000a002";
