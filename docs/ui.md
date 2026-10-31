@@ -135,6 +135,12 @@ screenshots, and what a plugin does to get good ones.
   the rest under More), Identify, its log, ask the Assistant about it, its plugin's settings (administrators), resume a
   paused plugin, a room, a name for these pages, add to the Quick Controls or hide it, and **History** for an accessory
   whose plugin records an Eve history (temperature, humidity, power…): a day, a week or four weeks.
+- **Full screen** (the toolbar's last button, or `/accessories?full=1` for a wall tablet's bookmark): the widgets alone,
+  in the browser's own full screen where it has one. Grouped by room or by plugin, one group fills the screen at a time
+  and the next is a swipe away (the arrow keys, the dots, the side arrows with a mouse); one button opens the toolbar
+  (search, grouping, filters, Leave full screen) as a panel from the right edge, and Esc leaves.
+- **Visible in Home app** (a widget's ⋯ menu, administrators): off, the accessory leaves the Home app, with its room,
+  scenes and automations, while Homeswift and Matter keep it (`_hiddenFromHomeKit` in its plugin's block).
 - **Edit** shows grid guides, size controls and corner handles, and lets tiles be dragged onto any cell of the grid,
   gaps included: the others make way, and the wall keeps every widget's cell until **Pack the widgets together** (the
   wall's menu) lets them flow again ([widgets.md](widgets.md)). The wall is

@@ -126,6 +126,15 @@ accessory's numbers are never given to another, so the ecosystems keep their roo
 Matter runs over UDP on IPv6 (and IPv4), and is found over mDNS (`_matterc._udp` while the window is open,
 `_matter._tcp` for each fabric). In Docker, use host networking; on Synology and other hosts, keep IPv6 on.
 
+Without IPv6 a device of its own does not start: the Status page shows its row as Not started with the reason
+(`failedDevices` in `/api/matter` and `get_matter_status`), and the log says so once. It is tried again when the
+`HomeswiftMatter` block changes, or at the next start.
+
+A firewall on the host must let UDP in from IPv6 addresses too, link-local (`fe80::/10`) and the LAN's: the bridge's
+port, the next ones (a device of its own takes the first free one after it) and 5353 for mDNS. On a Synology with
+the firewall on, a rule for the IPv4 subnet alone leaves Apple Home's Setting Up… spinning: add one for UDP 5540-5550
+and 5353 from All.
+
 ## Trying it
 
 `homeswift-demo --matter` runs the demo bridge (a lamp, a switch, a temperature sensor) over HAP and Matter at once and

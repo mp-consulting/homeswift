@@ -107,7 +107,9 @@
     let auth = { mode: "none" };
     const avatar = el("span", { class: "user-avatar", "aria-hidden": "true" }, HomeswiftCommon.icon("user"));
     const userName = el("span", { class: "user-name" });
-    const user = el("button", { id: "user", type: "button", class: "user-button", "aria-haspopup": "menu", "aria-expanded": "false", "aria-label": t("Account menu") }, avatar, userName);
+    const userRole = el("span", { class: "user-role", text: t("No sign-in") });
+    const user = el("button", { id: "user", type: "button", class: "user-button", "aria-haspopup": "menu", "aria-expanded": "false", "aria-label": t("Account menu") },
+      avatar, el("span", { class: "user-text" }, userName, userRole), el("span", { class: "user-chevron", "aria-hidden": "true" }, HomeswiftCommon.icon("selector")));
     const shownName = () => (auth.mode === "form" ? (auth.name && auth.name !== auth.username ? auth.name : auth.username || "") : "");
     user.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -124,13 +126,27 @@
         } } : null,
       ], { keyboard: event.detail === 0 });
     });
+    // The header as index.html has it: in a wide window it is the frame's side menu, with the brand's name, Home's
+    // sections and You's pages, each with its icon.
+    const link = (path, text, glyph) => el("a", { href: path, class: path === "/plugins" ? "active" : "" }, HomeswiftCommon.icon(glyph), el("span", { text }));
     header.replaceChildren(
-      el("a", { class: "brand", href: "/", "aria-label": "Homeswift", title: "Homeswift" }, el("img", { src: "/icon.svg", class: "logo", alt: "" })),
-      el("nav", { "aria-label": t("Sections") }, sections.map(([path, text]) => el("a", { href: path, text, class: path === "/plugins" ? "active" : "" }))),
+      el("a", { class: "brand", href: "/", "aria-label": "Homeswift", title: "Homeswift" }, el("img", { src: "/icon.svg", class: "logo", alt: "" }),
+        el("span", { class: "brand-name", "aria-hidden": "true", text: "Homeswift" })),
+      el("span", { class: "side-caption", "aria-hidden": "true", text: t("Home") }),
+      el("nav", { "aria-label": t("Sections") }, sections.map(([path, text, glyph]) => link(path, text, glyph))),
+      el("span", { class: "side-caption", "aria-hidden": "true", text: t("You") }),
+      el("nav", { class: "side-you" }, link("/account", t("Account"), "user"), link("/appearance", t("Appearance"), "sun")),
       el("span", { class: "spacer" }), user);
+    // The page in the app's frame (#app, which the wide layout draws), as the UI's own pages are.
+    let app = $("#app");
+    if (!app) {
+      app = el("div", { id: "app" });
+      header.before(app);
+      app.append(header, ...[$("main")].filter(Boolean));
+    }
     // On a phone the sections sit in a tab bar at the bottom, as on the UI's own pages; the page also extends
     // under the notch and the home indicator, which the layout pads around.
-    HomeswiftCommon.tabBar({ active: "/plugins" });
+    HomeswiftCommon.tabBar({ active: "/plugins", parent: app });
     const viewport = document.querySelector('meta[name="viewport"]');
     if (viewport && !viewport.content.includes("viewport-fit")) viewport.content += ", viewport-fit=cover";
     // The Assistant's chat, as on the UI's own pages.
@@ -142,6 +158,7 @@
       const name = shownName();
       avatar.replaceChildren(auth.mode === "form" && name ? name.slice(0, 1).toUpperCase() : HomeswiftCommon.icon("user"));
       userName.textContent = name;
+      userRole.textContent = auth.mode !== "form" ? t("No sign-in") : auth.admin ? t("Administrator") : t("User");
       if (state.liveWebFiles) followWebFiles();
     }).catch(() => {});
   }

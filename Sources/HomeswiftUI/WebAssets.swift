@@ -1926,6 +1926,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const name = shownName();
     $("#user .user-avatar").replaceChildren(auth.mode === "form" && name ? name.slice(0, 1).toUpperCase() : HomeswiftCommon.icon("user"));
     $("#user .user-name").textContent = name;
+    // Under the name in the side menu: what the account is; without sign-in, that alone, never a bare avatar.
+    $("#user .user-role").textContent = auth.mode !== "form" ? t("No sign-in") : isAdmin() ? t("Administrator") : t("User");
+    $("#user .user-chevron").replaceChildren(HomeswiftCommon.icon("selector"));
   }
 
   // Its menu: who is signed in and as what, their account and appearance, the users for an administrator, signing out.
@@ -2175,6 +2178,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // A dialog belongs to the view it opened on (an accessory's sheet, whose menu links to its log): a new view closes
     // it, or it would stay over the next one. The restart overlay outlives views.
     for (const dialog of document.querySelectorAll("dialog[open]")) if (dialog !== restartOverlay) dialog.close();
+    // The Accessories wall's full screen belongs to it: the view draws it again when its address asks (?full=1).
+    document.documentElement.classList.remove("wall-full", "wall-paged", "wall-awake");
     const decode = (part) => { try { return decodeURIComponent(part); } catch { return part; } };
     let [name = "status", ...args] = location.pathname.split("/").filter(Boolean).map(decode);
     // config.json's editor moved into Settings: an old link or bookmark lands there.
@@ -2445,7 +2450,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       button: "switch", airQuality: "wind", alarm: "bell", valve: "drop", heaterCooler: "thermo", garageDoor: "gate", airPurifier: "wind" };
     // The ecosystems a fabric's vendor id says it is (Connectivity Standards Alliance vendor ids).
     const matterVendors = { "0x1349": "Apple Home", "0x1384": "Apple Home", "0x6006": "Google Home", "0x1217": "Alexa" };
-    const matterIcon = (node) => matterIcons[node.types?.[0]] ?? "accessory";
+    // A Dolphin is a pool robot, as on its plugin's page and its widget.
+    const matterIcon = (node) => node.id?.startsWith("DolphinPoolCleaner:") ? "poolRobot" : matterIcons[node.types?.[0]] ?? "accessory";
+    // What Matter needs of the network, folded: under a code waiting to be scanned, and under a device that did not
+    // start. The ports are the bridge's and the next ones, which devices of their own take.
+    const matterNetworkHelp = () => {
+      const port = matter?.port ?? 5540;
+      return el("details", { class: "matter-help" }, el("summary", { text: t("Stuck on Setting Up?") }),
+        el("p", { class: "muted", text: t("Matter controllers reach devices over IPv6: this machine needs IPv6 on (on a Synology: Control Panel, Network, Network Interface), and host networking in Docker.") }),
+        el("p", { class: "muted", text: t("A firewall on this machine must let UDP in from IPv6 addresses too: ports {ports} and 5353 (mDNS), from All. A rule for the IPv4 subnet alone leaves the Home app on Setting Up…", { ports: `${port}–${port + 10}` }) }),
+        el("p", { class: "muted", text: t("Apple Home also needs a home hub (an Apple TV or a HomePod) on the same network.") }));
+    };
     const matterParts = (node, own, refresh) => {
       const base = own ? `/api/matter/devices/${encodeURIComponent(node.id)}` : "/api/matter";
       const fabrics = node.fabrics || [];
@@ -2499,6 +2514,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             el("p", { text: own ? t("In the Home app (or another ecosystem's): add an accessory, then scan this code or type it.")
               : t("In the ecosystem's app: add a Matter device, then scan this code or type it.") }),
             el("div", { class: "code", text: node.pairing.manualCode.replace(/^(\d{4})(\d{3})(\d{4})$/, "$1-$2-$3") })))
+          : null,
+        node.pairing ? matterNetworkHelp()
           : admin ? (() => {
             // What it does, under it (a phone shows no hover text): Matter lets several apps share a device, each
             // adding it with its own code.
@@ -2521,6 +2538,24 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const parts = matterParts(node, own, () => redrawMatter?.());
       return own ? deviceRow(parts, `matter-${slug(node.id)}`, open) : serverCard(parts, "matter");
     };
+    // A device of its own whose node did not start (no IPv6, most often): its row says why, and offers to take it off.
+    const failedMatterRow = (device, open) => deviceRow({
+      head: [tile("warning", "heat"),
+        el("div", { class: "who" }, el("strong", { text: device.name }), el("div", { class: "muted", text: t("Matter device of its own") })),
+        el("span", { class: "pill status bad", text: t("Not started") })],
+      body: () => [
+        el("p", { class: "error", text: device.noIPv6
+          ? t("Matter needs IPv6, and this machine has none. Turn IPv6 on (on a Synology: Control Panel, Network, Network Interface), then restart homeswift.")
+          : t("Matter could not start this device: {error}", { error: device.error }) }),
+        matterNetworkHelp(),
+        isAdmin() ? el("div", { class: "actions" },
+          el("button", { type: "button", class: "link danger", actionIcon: "close", text: t("Take off Matter"), onclick: (event) => HomeswiftCommon.busyButton(event.currentTarget, async () => {
+            await api(`/api/matter/devices/${encodeURIComponent(device.id)}`, { method: "PUT", body: { own: false } });
+            matterOwn.delete(device.id);
+            await redrawMatter?.();
+          }) })) : null],
+      search: device.name,
+    }, `matter-${slug(device.id)}`, open);
 
     // Accessories and Matter devices of their own, one line each, those waiting to be added first: a home may have a
     // hundred, which cards would bury the bridges under. Built on each draw (Customise draws the section again, and a
@@ -2537,7 +2572,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const ecosystems = (device.fabrics || []).length;
         return { name: device.name, id: `matter-${slug(device.id)}`, kind: "matter", ecosystems, waiting: !ecosystems, make: (open) => matterNode(device, true, open) };
       });
-      const entries = [...external, ...own];
+      // Not started: first, so the reason is in view.
+      const failed = !matter?.enabled ? [] : (matter.failedDevices || []).map((device) =>
+        ({ name: device.name, id: `matter-${slug(device.id)}`, kind: "matter", ecosystems: 0, waiting: true, make: (open) => failedMatterRow(device, open) }));
+      const entries = [...failed, ...external, ...own];
       if (!entries.length) return null;
       const waiting = entries.filter((entry) => entry.waiting).length;
       const list = el("div", { class: "device-rows" });
@@ -2568,8 +2606,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     // The page is widgets the user can hide and order (Customise, at the bottom; Glass UI's dashboard layout),
     // drawn only when shown: the activity charts load nothing while hidden.
+    // The overview's update card, which an install from the footer redraws.
+    let overviewUpdate = null;
     const widgets = {
-      overview: () => [updateCard(status.update, { changed: (next) => updateChanged(next) }),
+      overview: () => [overviewUpdate = updateCard(status.update, { changed: (next) => updateChanged(next) }),
       // Each figure with its glyph; on a phone the four share one row, "Home app controllers" shortened.
       el("div", { class: "stats" },
         el("a", { class: "stat", href: "/accessories" }, tile("bulb", "yellow"), el("b", { text: status.bridges.reduce((sum, bridge) => sum + bridge.accessories, 0) }), el("span", { text: t("Accessories") })),
@@ -2604,18 +2644,24 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     let footerUpdate = status.update;
     // Installed but not running yet: Homebrew upgraded it, a relaunch starts it.
     const relaunchPending = () => updatePhase(footerUpdate) === "installed";
-    const footerLabels = { error: () => t("Try again"), installing: () => t("Installing…"), relaunching: () => t("Relaunching…"), installed: () => t("Relaunch to update"),
+    const footerLabels = { error: () => t("Try again"), installing: () => updateProgressLabel(footerUpdate), relaunching: () => t("Relaunching…"), installed: () => t("Relaunch to update"),
       available: () => footerUpdate.canInstall ? t("Install update") : t("Update available"), current: () => t("Up to date"), idle: () => t("Check for updates") };
     /// The footer's button as `phase` says (a failed check first), or `label` while it checks.
     const renderUpdate = (phase = footerUpdate?.error ? "error" : updatePhase(footerUpdate), label = footerLabels[phase]()) => {
       const state = phase === "installing" || phase === "relaunching" ? "checking" : phase;
       checkUpdates.dataset.updateState = state;
+      // The button fills as the download goes, when the bridge knows how far.
+      const fraction = phase === "installing" && footerUpdate?.progress?.phase === "downloading" ? footerUpdate.progress.fraction : null;
+      if (fraction == null) checkUpdates.style.removeProperty("--update-progress");
+      else checkUpdates.style.setProperty("--update-progress", `${Math.round(fraction * 100)}%`);
       checkUpdates.replaceChildren(HomeswiftCommon.icon(({ current: "check", available: "download", installed: "power", error: "warning" })[state] || "restore"),
         el("span", { class: "footer-update-label", text: label }));
     };
     // The overview's card and the sheet both tell the footer what an install is doing.
     const updateChanged = (next) => {
       footerUpdate = next;
+      // The overview's card follows an install the footer started.
+      if (overviewUpdate?.isConnected && next?.available) overviewUpdate.show?.(next);
       checkUpdates.disabled = Boolean(next.installing || next.relaunching);
       renderUpdate();
     };
@@ -2624,6 +2670,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("button", { actionIcon: "close", type: "button", text: t("Close"), onclick: () => done() })), "update-check-title", { returnFocus: checkUpdates });
     const checkUpdates = el("button", { type: "button", class: "link footer-update-check", "aria-live": "polite", onclick: async (event) => {
       if (relaunchPending()) { restartBridge(event); return; }
+      // An update this bridge installs itself: here, its progress in this button, then the restart.
+      if (footerUpdate?.available && footerUpdate.canInstall && isAdmin() && !footerUpdate.error) { installUpdate(checkUpdates, footerUpdate, updateChanged); return; }
       if (footerUpdate?.available && !footerUpdate.error) { showUpdate(); return; }
       checkUpdates.disabled = true;
       renderUpdate("checking", t("Checking…"));
@@ -2853,7 +2901,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// `embedded` leaves out the card and its heading, for a page whose own heading says it (Settings › Updates).
   function updateCard(update, { changed = () => {}, embedded = false } = {}) {
     if (!update?.available) return null;
-    const card = el("div", { class: embedded ? "update-card update-details" : "card update-card" });
+    const card = el("div", { class: embedded ? "update-card update-details" : "card update-card update-hero-card" });
     const fill = () => card.replaceChildren(...updateCardContent(update, draw, embedded).filter(Boolean));
     const draw = (next) => {
       update = next;
@@ -2861,6 +2909,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       fill();
     };
     fill();
+    // Another control installing it (the footer's button) shows its progress here too, without calling `changed` back.
+    card.show = (next) => { if (next !== update) { update = next; fill(); } };
     return card;
   }
 
@@ -2891,10 +2941,35 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const spinner = () => el("span", { class: "spinner", "aria-hidden": "true" });
     const progress = (glyph, text) => el("p", { class: "update-progress", role: "status" }, glyph, el("span", { text }));
     const status = {
-      installing: () => progress(spinner(), t("Installing Homeswift {version}… The bridge restarts when it is done.", { version: update.installing })),
+      installing: () => installProgress(update),
       relaunching: () => progress(spinner(), t("Restarting into Homeswift {version}…", { version: update.installed })),
       installed: () => progress(HomeswiftCommon.icon("check"), t("Homeswift {version} is installed. Relaunch to start it.", { version: update.installed })),
     }[phase]?.() ?? null;
+    // The Status page's card as a hero: the new version large, what this one is, one line, and its action at the right.
+    if (!embedded) {
+      const days = update.publishedAt ? Math.max(0, Math.round((Date.now() - new Date(update.publishedAt)) / 86400000)) : null;
+      const when = days == null ? null : new Intl.RelativeTimeFormat(HomeswiftI18n.locale, { numeric: "auto" }).format(-days, "day");
+      const installable = update.canInstall && isAdmin();
+      const action = phase === "installed" && isAdmin() ? el("button", { class: "primary", type: "button", actionIcon: "power", text: t("Relaunch now"), onclick: restartBridge })
+        : installable ? el("button", { class: "primary", type: "button", actionIcon: "download", text: t("Update and restart"), onclick: (event) => installUpdate(event.currentTarget, update, draw) })
+        : update.download ? el("a", { class: "button primary", href: update.download.url, rel: "noopener", title: update.download.name, actionIcon: "download", text: t("Download the package") })
+        : null;
+      return [
+        el("div", { class: "update-hero" },
+          el("div", { class: "update-hero-text" },
+            el("span", { class: "update-hero-kicker", text: t("A new version") }),
+            el("strong", { class: "update-hero-version", text: update.latest }),
+            el("span", { class: "update-hero-meta", text: when ? t("You run {version} · released {when}", { version: update.current, when }) : t("You run {version}", { version: update.current }) }),
+            underway ? null : el("p", { text: installable ? t("Pairings, scenes and the vault are kept; the bridge restarts on its own.") : HomeswiftI18n.message(update.how) })),
+          underway || !action ? null : el("div", { class: "update-hero-action" }, action)),
+        status,
+        update.installError ? el("p", { class: "error", role: "alert", text: t("Could not install the update: {error}", { error: update.installError }) }) : null,
+        underway || installable ? null : command,
+        el("div", { class: "update-hero-links" },
+          update.notes ? el("details", { class: "more-options" }, el("summary", { text: t("What's new") }), markdown(update.notes)) : null,
+          el("a", { class: "update-hero-link", href: update.url, target: "_blank", rel: "noopener" }, HomeswiftCommon.icon("open"), el("span", { text: t("On GitHub") }))),
+      ];
+    }
     return [
       embedded ? null : el("div", { class: "server-head" },
         tile("update", "green"),
@@ -2915,10 +2990,31 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     ];
   }
 
+  /// What an install is doing, from the bridge's `progress`: downloading (the share done when the size is known),
+  /// then installing; the words "Downloading 42 %" for the footer's button.
+  function updateProgressLabel(update) {
+    const fraction = update?.progress?.fraction;
+    if (update?.progress?.phase === "installing") return t("Installing…");
+    return fraction == null ? t("Downloading…") : t("Downloading {percent} %", { percent: Math.round(fraction * 100) });
+  }
+  /// The card's line while an update installs: what it does, how far, and a bar (a pulse while the share is unknown).
+  function installProgress(update) {
+    const installing = update.progress?.phase === "installing";
+    const fraction = installing ? null : update.progress?.fraction;
+    const percent = fraction == null ? null : Math.round(fraction * 100);
+    const text = installing ? t("Installing Homeswift {version}… The bridge restarts when it is done.", { version: update.installing })
+      : t("Downloading Homeswift {version}…", { version: update.installing });
+    return el("div", { class: "update-install", role: "status" },
+      el("div", { class: "update-install-head" }, el("span", { text }), percent == null ? null : el("b", { text: `${percent} %` })),
+      el("div", { class: `progress-bar${percent == null ? " indeterminate" : ""}`, role: "progressbar", "aria-label": text,
+        "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": percent == null ? null : String(percent) },
+        el("span", { style: percent == null ? null : `width: ${percent}%` })));
+  }
+
   /// Asks the bridge to install the latest release and relaunch, then follows it: the card shows the install, and the
   /// restart's overlay takes over once the bridge goes down to start the new version.
   async function installUpdate(button, update, draw) {
-    if (!await confirmRestart({ title: t("Install Homeswift {version}?", { version: update.latest }), confirm: t("Install and relaunch"), icon: "download",
+    if (!await confirmRestart({ title: t("Update to Homeswift {version}?", { version: update.latest }), confirm: t("Update and restart"), icon: "download",
       text: t("Homeswift installs the update, then restarts. Your accessories will disconnect briefly; this page reconnects when the new version is ready.") })) return;
     button.disabled = true;
     const started = Date.now();
@@ -2935,7 +3031,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     let shown = JSON.stringify(state);
     // An upgrade fetches and may build: minutes, at most the installer's half hour.
     while (state.installing) {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
       try {
         state = await api("/api/updates");
       } catch (e) {
@@ -3468,7 +3564,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // The accessories that are Matter devices of their own (/api/matter), for their menus: the pages with accessory
   // menus (Accessories, Status's quick section) keep it current.
   let matterOwn = new Set();
-  const rememberMatterOwn = (matter) => { matterOwn = new Set((matter?.ownDevices || []).map((device) => device.id)); };
+  // One that did not start counts: its menu leads to the row that says why, and takes it off.
+  const rememberMatterOwn = (matter) => { matterOwn = new Set([...(matter?.ownDevices || []), ...(matter?.failedDevices || [])].map((device) => device.id)); };
   const loadMatterOwn = () => api("/api/matter").then(rememberMatterOwn).catch(() => {});
 
   /// An accessory as a Matter device of its own, with its own pairing code (the Status page shows it), or back off.
@@ -3492,6 +3589,19 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     ];
   }
 
+  /// Whether the Home app has the accessory: off, HomeKit loses it (and its room, scenes and automations) while
+  /// Homeswift and Matter keep it, so a Matter device of its own can be in Apple Home through Matter alone.
+  function homeKitToggle(accessory) {
+    const visible = !accessory.hiddenFromHomeKit;
+    return { label: t("Visible in Home app"), icon: "house", checked: visible, checkbox: true, toggle: true, onSelect: async () => {
+      if (visible && !await HomeswiftCommon.confirmDialog(t("{name} leaves the Home app, with its room, scenes and automations. Homeswift and Matter keep it; shown again, the Home app adds it as a new accessory.", { name: accessory.name }))) return;
+      try {
+        await api(`/api/accessories/${encodeURIComponent(accessory.id)}/homekit`, { method: "PUT", body: { visible: !visible } });
+        route();
+      } catch (e) { HomeswiftCommon.showAlert(e.message); }
+    } };
+  }
+
   /// What the menu of an accessory's widget offers, after its sizes.
   /// An accessory's ⋯ menu after All controls, in groups as a context menu orders them: what to look at or do with
   /// it, how it sits on the wall (`arrange`, the wall's size choices, first), then the administrator's way to its
@@ -3509,6 +3619,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         try { await setPaused(accessory.platform, accessory.platformName, false); route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
       } } : null,
       isAdmin() ? { label: t("Show its log"), icon: "logs", href: `/logs/${accessory.slug ?? encodeURIComponent(accessory.id)}` } : null,
+      isAdmin() && !accessory.mirroredFrom && accessory.platform ? homeKitToggle(accessory) : null,
       ...(isAdmin() && !accessory.mirroredFrom ? matterActions(accessory) : []),
       accessory.platform && isAdmin() ? { label: t("Plugin settings"), icon: "gear", href: `/plugins/${slug(accessory.platformName || accessory.platform)}` } : null,
     ];
@@ -3530,6 +3641,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // Hidden accessories (an accessory's ⋯ menu) only with ?hidden=1.
     const showHidden = params.get("hidden") === "1";
     const noResponse = params.get("unavailable") === "1";
+    // Full screen (?full=1): the widgets alone, a room or plugin a page when grouped; an address a wall tablet can open.
+    const fullScreen = params.get("full") === "1";
     // The controllers some accessories mirror (Apple Home, through Wingman): each gets a filter.
     const sources = [...new Set(all.map((accessory) => accessory.mirroredFrom).filter(Boolean))];
     const from = sources.includes(params.get("from")) ? params.get("from") : null;
@@ -4065,6 +4178,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       ], { keyboard: event.detail === 0, onReorder: saveRoomOrder }) }, HomeswiftCommon.icon("room"), el("span", { text: t("Rooms") }));
 
     function render() {
+      if (fullScreen) editing = false;
       roomOrderButton.classList.toggle("hidden", !editing || !isAdmin() || layout.grouping !== "room" || !rooms.length);
       nodes.clear();
       // By plugin or by room: a section each (by plugin in the order of their names, those of no plugin last; by room
@@ -4104,6 +4218,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         for (const child of wall.children) arrangeObserver.observe(child);
       }
       filter();
+      if (fullScreen) fullScreenChrome();
     }
 
     const search = el("input", { type: "search", class: "search", placeholder: t("Search accessories"), "aria-label": t("Search accessories") });
@@ -4175,15 +4290,111 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     ]);
     more.replaceChildren(HomeswiftCommon.icon("sliders"));
     more.classList.add("accessory-options-button");
+
+    // Full screen: the address says it, so a reload or a tablet's bookmark keeps it; the browser's own full screen too
+    // where it has one (not an iPhone), asked from the click, which it needs.
+    const setFullScreen = (on) => {
+      const next = new URLSearchParams(location.search);
+      if (on) next.set("full", "1"); else next.delete("full");
+      if (on) document.documentElement.requestFullscreen?.().catch(() => {});
+      else if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+      navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
+    };
+    const fullScreenButton = el("button", { type: "button", class: "icon-button accessory-options-button", "aria-label": t("Full screen"), title: t("Full screen"),
+      onclick: () => setFullScreen(true) }, HomeswiftCommon.icon("expand"));
+    // The chrome over the full-screen wall: Close, and when grouped the dots and, with a mouse, the side arrows.
+    const chrome = el("div", { class: "wall-full-chrome" });
+    let page = 0;
+    function fullScreenChrome() {
+      const pages = [...content.children].filter((section) => !section.classList.contains("hidden"));
+      const paged = layout.grouping !== "none" && pages.length > 1;
+      content.classList.toggle("wall-pages", paged);
+      document.documentElement.classList.add("wall-full");
+      document.documentElement.classList.toggle("wall-paged", paged);
+      page = Math.min(page, Math.max(0, pages.length - 1));
+      const go = (index) => {
+        page = Math.max(0, Math.min(pages.length - 1, index));
+        content.scrollTo({ left: page * content.clientWidth });
+      };
+      const dots = pages.map((section, index) => el("button", { type: "button", "aria-label": section.querySelector("h2")?.textContent || t("Page {n}", { n: index + 1 }),
+        onclick: () => go(index) }));
+      const previous = el("button", { type: "button", class: "wall-step previous", "aria-label": t("Previous"), onclick: () => go(page - 1) }, HomeswiftCommon.icon("back"));
+      const next = el("button", { type: "button", class: "wall-step next", "aria-label": t("Next"), onclick: () => go(page + 1) }, HomeswiftCommon.icon("forward"));
+      const mark = () => {
+        dots.forEach((dot, index) => dot.setAttribute("aria-current", String(index === page)));
+        previous.disabled = page === 0;
+        next.disabled = page === pages.length - 1;
+      };
+      content.onscroll = paged ? () => {
+        const now = Math.round(content.scrollLeft / Math.max(1, content.clientWidth));
+        if (now !== page) { page = now; mark(); }
+      } : null;
+      chrome.replaceChildren(optionsButton,
+        ...(paged ? [previous, next, el("div", { class: "wall-dots", role: "group", "aria-label": t("Pages") }, dots)] : []));
+      mark();
+      if (paged) requestAnimationFrame(() => content.scrollTo({ left: page * content.clientWidth, behavior: "instant" }));
+      wake();
+      chrome.go = go;
+    }
+    // The toolbar, out of the way: a panel from the right edge (the bottom on a phone) with the search, the grouping, the
+    // filters and Leave full screen, opened by the one button left on the wall.
+    const openToolbar = () => openSheet((done) => el("div", { class: "wall-full-panel" },
+      el("h2", { id: "wall-full-panel-title", text: t("Accessories") }),
+      search,
+      el("div", { class: "wall-full-groupings", role: "group", "aria-label": t("Group the widgets") }, groupings.map(([value, label, icon]) =>
+        el("button", { type: "button", actionIcon: icon, class: layout.grouping === value ? "primary" : "", "aria-pressed": String(layout.grouping === value), text: label,
+          onclick: () => { page = 0; setGrouping(value); done(); } }))),
+      filters,
+      el("div", { class: "actions" },
+        el("button", { type: "button", actionIcon: "close", text: t("Leave full screen"), onclick: () => { done(); setFullScreen(false); } }),
+        el("button", { type: "button", actionIcon: "check", class: "primary", text: t("Done"), onclick: () => done() }))),
+    "wall-full-panel-title", { returnFocus: optionsButton });
+    const optionsButton = el("button", { type: "button", class: "wall-full-button wall-full-options", "aria-label": t("Accessory options"), "aria-haspopup": "dialog",
+      title: t("Accessory options"), onclick: openToolbar }, HomeswiftCommon.icon("sliders"));
+    // A search from the panel changes which pages there are.
+    search.addEventListener("input", () => { if (fullScreen) fullScreenChrome(); });
+    // The chrome wakes on a touch, the mouse or a key, and fades after a few quiet seconds.
+    let sleepTimer = null;
+    const wake = () => {
+      document.documentElement.classList.add("wall-awake");
+      clearTimeout(sleepTimer);
+      sleepTimer = setTimeout(() => document.documentElement.classList.remove("wall-awake"), 3000);
+    };
+    if (fullScreen) {
+      // Listeners on the window for this view only: each goes once the view has gone.
+      const gone = () => !content.isConnected;
+      const onKey = (event) => {
+        if (gone()) { removeEventListener("keydown", onKey); return; }
+        wake();
+        // A menu or a sheet open has the keys.
+        if (document.querySelector("dialog[open], .menu:not(.closing)") || event.target.closest?.("input, textarea, select")) return;
+        if (event.key === "Escape") { event.preventDefault(); setFullScreen(false); }
+        else if (event.key === "ArrowRight") { event.preventDefault(); chrome.go?.(page + 1); }
+        else if (event.key === "ArrowLeft") { event.preventDefault(); chrome.go?.(page - 1); }
+      };
+      const onPointer = () => { if (gone()) { removeEventListener("pointermove", onPointer); removeEventListener("pointerdown", onPointer); return; } wake(); };
+      // The browser's full screen left with its own Esc: the wall leaves too.
+      const onFullScreen = () => {
+        if (gone()) { document.removeEventListener("fullscreenchange", onFullScreen); return; }
+        if (!document.fullscreenElement) setFullScreen(false);
+      };
+      addEventListener("keydown", onKey);
+      addEventListener("pointermove", onPointer, { passive: true });
+      addEventListener("pointerdown", onPointer, { passive: true });
+      if (document.fullscreenElement) document.addEventListener("fullscreenchange", onFullScreen);
+      // Pages follow the window's width (a tablet turned).
+      const onResize = () => { if (gone()) { removeEventListener("resize", onResize); return; } if (content.classList.contains("wall-pages")) content.scrollTo({ left: page * content.clientWidth, behavior: "instant" }); };
+      addEventListener("resize", onResize);
+    }
     render();
     show(main,
       pageHead(t("Accessories"), !accessories.length ? "" : from ? t("{count} from {source}, which HomeKit has already. Changes here reach your devices.", { count: accessories.length, source: t(from) })
         : servers === 1 ? t("{count} on one server, as the Home app sees them. Changes here reach your devices.", { count: accessories.length })
         : t("{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.", { count: accessories.length, servers }),
-        el("div", { class: "accessories-toolbar" }, search, filters, accessories.length ? edit : null, roomOrderButton, more)),
+        el("div", { class: "accessories-toolbar" }, search, filters, accessories.length ? edit : null, roomOrderButton, more, accessories.length ? fullScreenButton : null)),
       accessoryTabs(""),
       note,
-      accessories.length ? [content, none] : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("bulb")), el("p", { class: "muted", text: all.length ? t("Every accessory is hidden.") : t("No accessories yet. Plugins add them once they reach their devices.") })));
+      accessories.length ? [content, none, fullScreen ? chrome : null] : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("bulb")), el("p", { class: "muted", text: all.length ? t("Every accessory is hidden.") : t("No accessories yet. Plugins add them once they reach their devices.") })));
   };
 
   /// Accessories by plugin: [name, accessories] pairs by the plugin's name, each list by name; those of no
@@ -4219,7 +4430,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       return el("div", { class: "card server plugin-instance" },
         el("div", { class: "server-head" },
           tile(block.icon ?? (block.system ? "gear" : "plugin"), block.system ? "grey" : "orange"),
-          el("div", { class: "who" }, el("a", { class: "card-title", href: opens }, el("strong", { text: block.platform === "HomeswiftUI" && block.name === "HomeswiftUI" ? "Homeswift UI" : block.name })),
+          el("div", { class: "who" }, el("a", { class: "card-title", href: opens }, el("strong", { text: blockTitle(block) })),
             el("div", { class: "muted", text: [kindName, block.childBridge ? t("child bridge") : null].filter(Boolean).join(" · ") })),
           // In this dense list, running is the usual state: a quiet dot; the others (paused, no plugin, built in) say so
           // in words, as the plugin's own page and the bridges do for every state.
@@ -4231,7 +4442,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("div", { class: "card-foot" },
           el("span", { class: "muted", text: instance?.paused ? t("No calls to its devices; they show No Response in the Home app.")
             : instance ? "" : block.system ? t("A block of the runtime itself.") : plugin ? t("It did not start: the log says why.") : t("No plugin compiled into this homeswift provides this platform.") }),
-          el("div", { class: "plugin-card-actions" }, el("a", { class: "button", href: opens, actionIcon: plugin?.hasPages && instance && !instance.paused ? "open" : "gear", text: plugin?.hasPages && instance && !instance.paused ? t("Open its page") : t("Settings") }), menuButton(t("Actions for {name}", { name: block.name }), () => blockActions(block, plugin, instance)))));
+          el("div", { class: "plugin-card-actions" }, el("a", { class: "button", href: opens, actionIcon: plugin?.hasPages && instance && !instance.paused ? "open" : "gear", text: plugin?.hasPages && instance && !instance.paused ? t("Open its page") : t("Settings") }), menuButton(t("Actions for {name}", { name: blockTitle(block) }), () => blockActions(block, plugin, instance)))));
     };
 
     /// What the menu of a plugin's card offers: its page, the block as a form or as JSON (Expert), pause or
@@ -4256,7 +4467,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const used = plugins.blocks.some((block) => block.platform === plugin.platform);
       const card = el("div", { class: "card server catalog" },
         el("div", { class: "server-head" }, tile(plugin.icon ?? "plugin", "orange"),
-          el("div", { class: "who" }, el("strong", { text: plugin.name }), el("div", { class: "muted", text: plugin.platform })),
+          // Under its name, what it brings (`HomeswiftPlugin.summary`, in the catalogs).
+          el("div", { class: "who" }, el("strong", { text: plugin.name }), plugin.summary ? el("div", { class: "muted", text: t(plugin.summary) }) : null),
           used ? el("span", { class: "pill status standby", text: t("In use [used]") }) : null),
         el("div", { class: "actions" }, plugin.hasPages
           // A plugin with its own page sets itself up there (pairing a TV, finding lights), as Homebridge's
@@ -4264,7 +4476,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           // would leave the page no primary action.
           ? el("button", { actionIcon: "plus", text: used ? t("Add another") : t("Add"), onclick: (event) => addWithPage(plugin, event.currentTarget) })
           : el("a", { class: "button", actionIcon: "plus", href: `/plugins/add/${encodeURIComponent(plugin.platform)}`, text: used ? t("Add another") : t("Add") })));
-      return { card, name: plugin.name, text: `${plugin.name} ${plugin.platform}`, used };
+      return { card, name: plugin.name, text: [plugin.name, plugin.platform, plugin.summary, plugin.summary && t(plugin.summary)].filter(Boolean).join(" "), used };
     });
 
     async function addWithPage(plugin, button) {
@@ -4308,6 +4520,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   };
 
   /// A block's state pill: its label and tone.
+  /// A block as the pages name it: a built-in block still under its platform's name reads as words ("HomeswiftMatter" is
+  /// Homeswift Matter); any other, its own name.
+  const builtInTitles = { HomeswiftUI: "Homeswift UI", HomeswiftMatter: "Homeswift Matter" };
+  const blockTitle = (block) => (block.name === block.platform && builtInTitles[block.platform]) || block.name;
   const blockState = (block, plugin, instance) => block.system ? [t("Built in"), "standby"] : instance?.paused ? [t("Paused"), "paused"]
     : instance ? [t("Running"), "on"] : plugin ? [t("Not running"), "away"] : [t("No plugin"), "away"];
 
@@ -4552,11 +4768,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     leaveGuard = async () => !dirty() || isNew || await HomeswiftCommon.confirmDialog(t("Leave without saving your changes?"));
     leaveGuard.quiet = () => isNew || !dirty();
     show(main,
-      breadcrumb([t("Plugins"), "/plugins"], [block.name, isNew ? "/plugins" : settingsLink(block)], [isNew ? t("Add") : hasPage ? t("Expert") : t("Settings")]),
+      breadcrumb([t("Plugins"), "/plugins"], [blockTitle(block), isNew ? "/plugins" : settingsLink(block)], [isNew ? t("Add") : hasPage ? t("Expert") : t("Settings")]),
       el("div", { class: "page-head settings-head" },
         tile(block.icon ?? (block.system ? "gear" : "plugin"), block.system ? "grey" : "orange"),
         el("div", { class: "who" },
-          el("h1", { text: isNew ? t("Add {name}", { name: plugin.name }) : block.name }),
+          el("h1", { text: isNew ? t("Add {name}", { name: plugin.name }) : blockTitle(block) }),
           el("p", { class: "muted", text: [...new Set([plugin ? plugin.name : platform, platform])].filter((part) => part !== block.name).concat(
             instance ? [tn("{n} accessory on {bridge}", "{n} accessories on {bridge}", instance.accessories, { bridge: instance.bridge })] : []).join(" · ") })),
         el("div", { class: "tools" }, el("span", { class: `pill status ${kind}`, text: state }))),
@@ -8214,6 +8430,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const icons = {
     wingman: '<g transform="translate(0 4.32) scale(.048)"><g fill="currentColor" stroke="none"><path d="M8 12C65 48 155 88 180 110C198 121 204 136 195 148L165 177C180 144 170 131 149 121C47 95 6 88 8 12Z M36 112L150 152L132 177C64 163 42 161 36 112Z M58 177L121 193L109 221C77 220 63 203 58 177Z"/><g transform="translate(500 0) scale(-1 1)"><path d="M8 12C65 48 155 88 180 110C198 121 204 136 195 148L165 177C180 144 170 131 149 121C47 95 6 88 8 12Z M36 112L150 152L132 177C64 163 42 161 36 112Z M58 177L121 193L109 221C77 220 63 203 58 177Z"/></g></g><path d="M136 220L250 104L364 220M153 205V305H347V205" fill="none" stroke="currentColor" stroke-width="29" stroke-linecap="round" stroke-linejoin="round"/></g>',
     power: '<path d="M12 3v9M6.3 5.8a8 8 0 1 0 11.4 0"/>',
+    // Full screen: a frame with its corners pulled out, top right and bottom left.
+    expand: '<rect x="3.5" y="3.5" width="17" height="17" rx="2.5"/><path d="M13.5 7.5h3v3M10.5 16.5h-3v-3"/>',
+    // The web UI: a browser window with a page of tiles in it.
+    browser: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 8.5h18M6 6.25h0M8.5 6.25h0"/><rect x="6.5" y="11.5" width="4.5" height="5" rx="1"/><path d="M14 12.5h3.5M14 15.5h3.5"/>',
+    selector: '<path d="M8 9.5l4-4 4 4M8 14.5l4 4 4-4"/>',
     sparkle: '<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z"/><path d="M18.5 15.5l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z"/>',
     ungroup: '<rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><path d="M3 9V3h6M3 3l5 5M15 21h6v-6M21 21l-5-5"/>',
     group: '<rect x="3" y="8" width="13" height="13" rx="3"/><path d="M8 8V6a3 3 0 0 1 3-3h7a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3h-2M7 14.5h5M9.5 12v5"/>',
@@ -8234,7 +8455,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     outlet: '<rect x="4" y="4" width="16" height="16" rx="4"/><path d="M10 9v2M14 9v2M10 15h4"/>',
     // Matter, as a neutral mark (three linked nodes): its logo is for certified products only.
     matter: '<circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="18" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="m10.8 7.3-4.6 8.4M13.2 7.3l4.6 8.4M7.5 18h9"/>',
-    vacuum: '<circle cx="12" cy="12" r="8.5"/><path d="M6.5 9.5a6.5 6.5 0 0 1 11 0"/><circle cx="12" cy="13.5" r="2"/>',
+    // A pool robot from the side, level: its handle and cover, the track running from a roller at the front round a wheel at the back.
+    poolRobot: '<path d="M10 6.5h4.5a2 2 0 0 1 2 2"/><path d="M3.6 14.2C4.2 11 7 9.3 10.5 9.3H15a3.5 3.5 0 0 1 3.3 2.4"/><path d="M5.5 15 16.4 12.05M5.5 19H17M5.5 15a2 2 0 0 0 0 4"/><circle cx="17" cy="15.5" r="3.5"/><circle cx="17" cy="15.5" r="1"/>',
+    // A robot cleaner from three quarters: its round body, the sensor on top, a row of lights and the brushes under it.
+    vacuum: '<ellipse cx="12" cy="8.5" rx="9" ry="4"/><path d="M3 8.5V12c0 2.2 4 4 9 4s9-1.8 9-4V8.5"/><ellipse cx="12" cy="7.2" rx="2" ry=".8"/><path d="M9.5 10.2h0M12 10.4h0M14.5 10.2h0M12 16l-4.5 4M12 16l4.5 4"/>',
     sensor: '<circle cx="12" cy="12" r="2"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8"/>',
     fan: '<circle cx="12" cy="12" r="2"/><path d="M12 10c0-4 1-7 4-7 2 0 3 2 2 4l-4 4M14 12c4 0 7 1 7 4 0 2-2 3-4 2l-4-4M12 14c0 4-1 7-4 7-2 0-3-2-2-4l4-4M10 12c-4 0-7-1-7-4 0-2 2-3 4-2l4 4"/>',
     speaker: '<rect x="6" y="3" width="12" height="18" rx="2"/><circle cx="12" cy="14" r="3"/><path d="M12 7h.01"/>',
@@ -11878,6 +12102,45 @@ HomeswiftI18n.add("es", {
   "Make a Matter device": "Convertir en dispositivo Matter",
   "Matter pairing code": "Código de vinculación Matter",
   "Take off Matter": "Quitar de Matter",
+  "Update to Homeswift {version}?": "¿Actualizar a Homeswift {version}?",
+  "A new version": "Una nueva versión",
+  "Update and restart": "Actualizar y reiniciar",
+  "You run {version} · released {when}": "Usas {version} · publicada {when}",
+  "You run {version}": "Usas {version}",
+  "Pairings, scenes and the vault are kept; the bridge restarts on its own.": "Los emparejamientos, las escenas y la bóveda se conservan; el puente se reinicia solo.",
+  "Downloading…": "Descargando…",
+  "Downloading {percent} %": "Descargando {percent} %",
+  "Downloading Homeswift {version}…": "Descargando Homeswift {version}…",
+  "Leave full screen": "Salir de pantalla completa",
+  "Previous": "Anterior",
+  "Next": "Siguiente",
+  "Pages": "Páginas",
+  "Page {n}": "Página {n}",
+  "Group the widgets": "Agrupar los widgets",
+  "Answers questions, explains errors and writes a daily digest": "Responde a preguntas, explica los errores y redacta un resumen diario",
+  "Air conditioners and Altherma heat pumps through the Onecta cloud": "Aires acondicionados y bombas de calor Altherma a través de la nube Onecta",
+  "Lights, outlets, sensors, blinds, purifiers and scenes, locally": "Luces, enchufes, sensores, persianas, purificadores y escenas, en local",
+  "Pool robots: start and stop cleaning, water temperature and filter": "Robots de piscina: iniciar y detener la limpieza, temperatura del agua y filtro",
+  "Purifiers and fans: speed, oscillation, heat, humidity and air quality": "Purificadores y ventiladores: velocidad, oscilación, calor, humedad y calidad del aire",
+  "Sonoff and other eWeLink switches, outlets, lights, curtains and sensors": "Interruptores, enchufes, luces, cortinas y sensores Sonoff y otros eWeLink",
+  "Power stations and home batteries: charge, and their power live": "Estaciones de energía y baterías domésticas: carga, y su potencia en directo",
+  "Key Light and Ring Light: power, brightness and colour temperature": "Key Light y Ring Light: encendido, brillo y temperatura de color",
+  "Lights with scenes and effects, plugs and sensors": "Luces con escenas y efectos, enchufes y sensores",
+  "Air conditioners, washers, fridges and other appliances through LG's cloud": "Aires acondicionados, lavadoras, frigoríficos y otros electrodomésticos a través de la nube de LG",
+  "Power, inputs, volume, the remote and Ambilight of Philips Android TVs": "Encendido, entradas, volumen, mando y Ambilight de los televisores Philips Android",
+  "Lights, scenes, effects and sensors from a Hue Bridge, locally": "Luces, escenas, efectos y sensores de un puente Hue, en local",
+  "Door locks, hubs and readers, followed in real time": "Cerraduras, hubs y lectores de puerta, seguidos en tiempo real",
+  "Cameras and doorbells with HomeKit Secure Video, sensors and lights": "Cámaras y timbres con HomeKit Secure Video, sensores y luces",
+  "Apple Home's accessories in Homeswift, through a Mac": "Los accesorios de la app Casa en Homeswift, a través de un Mac",
+  "Visible in Home app": "Visible en la app Casa",
+  "{name} leaves the Home app, with its room, scenes and automations. Homeswift and Matter keep it; shown again, the Home app adds it as a new accessory.": "{name} sale de la app Casa, con su habitación, sus escenas y sus automatizaciones. Homeswift y Matter lo conservan; si se vuelve a mostrar, la app Casa lo añade como un accesorio nuevo.",
+  "Not started": "Sin iniciar",
+  "Matter needs IPv6, and this machine has none. Turn IPv6 on (on a Synology: Control Panel, Network, Network Interface), then restart homeswift.": "Matter necesita IPv6 y esta máquina no lo tiene. Activa IPv6 (en un Synology: Panel de control, Red, Interfaz de red) y reinicia homeswift.",
+  "Matter could not start this device: {error}": "Matter no pudo iniciar este dispositivo: {error}",
+  "Stuck on Setting Up?": "¿Se queda en Configurando…?",
+  "Matter controllers reach devices over IPv6: this machine needs IPv6 on (on a Synology: Control Panel, Network, Network Interface), and host networking in Docker.": "Los controladores Matter llegan a los dispositivos por IPv6: esta máquina necesita IPv6 activado (en un Synology: Panel de control, Red, Interfaz de red) y la red del host en Docker.",
+  "A firewall on this machine must let UDP in from IPv6 addresses too: ports {ports} and 5353 (mDNS), from All. A rule for the IPv4 subnet alone leaves the Home app on Setting Up…": "Un cortafuegos en esta máquina debe dejar entrar también UDP desde direcciones IPv6: los puertos {ports} y 5353 (mDNS), desde Todas. Una regla solo para la subred IPv4 deja la app Casa en Configurando…",
+  "Apple Home also needs a home hub (an Apple TV or a HomePod) on the same network.": "Apple Home también necesita un centro de la casa (un Apple TV o un HomePod) en la misma red.",
   "{name} leaves Matter: the ecosystems that added it lose it.": "{name} sale de Matter: los ecosistemas que lo añadieron lo pierden.",
   "A room's scenes, then templates to try on its lights; save one as a scene when you like it.": "Las escenas de una habitación y, después, plantillas para probar en sus luces; guarda una como escena si te gusta.",
   "From a template": "A partir de una plantilla",
@@ -14404,6 +14667,45 @@ HomeswiftI18n.add("fr", {
   "Make a Matter device": "En faire un appareil Matter",
   "Matter pairing code": "Code d'appairage Matter",
   "Take off Matter": "Retirer de Matter",
+  "Update to Homeswift {version}?": "Mettre à jour vers Homeswift {version} ?",
+  "A new version": "Une nouvelle version",
+  "Update and restart": "Mettre à jour et redémarrer",
+  "You run {version} · released {when}": "Vous utilisez {version} · publiée {when}",
+  "You run {version}": "Vous utilisez {version}",
+  "Pairings, scenes and the vault are kept; the bridge restarts on its own.": "Les jumelages, les scènes et le coffre sont conservés ; le pont redémarre de lui-même.",
+  "Downloading…": "Téléchargement…",
+  "Downloading {percent} %": "Téléchargement {percent} %",
+  "Downloading Homeswift {version}…": "Téléchargement de Homeswift {version}…",
+  "Leave full screen": "Quitter le plein écran",
+  "Previous": "Précédent",
+  "Next": "Suivant",
+  "Pages": "Pages",
+  "Page {n}": "Page {n}",
+  "Group the widgets": "Grouper les widgets",
+  "Answers questions, explains errors and writes a daily digest": "Répond aux questions, explique les erreurs et rédige un résumé quotidien",
+  "Air conditioners and Altherma heat pumps through the Onecta cloud": "Climatiseurs et pompes à chaleur Altherma via le cloud Onecta",
+  "Lights, outlets, sensors, blinds, purifiers and scenes, locally": "Lumières, prises, capteurs, stores, purificateurs et scènes, en local",
+  "Pool robots: start and stop cleaning, water temperature and filter": "Robots de piscine : lancer et arrêter le nettoyage, température de l'eau et filtre",
+  "Purifiers and fans: speed, oscillation, heat, humidity and air quality": "Purificateurs et ventilateurs : vitesse, oscillation, chauffage, humidité et qualité de l'air",
+  "Sonoff and other eWeLink switches, outlets, lights, curtains and sensors": "Interrupteurs, prises, lumières, rideaux et capteurs Sonoff et autres eWeLink",
+  "Power stations and home batteries: charge, and their power live": "Stations électriques et batteries domestiques : charge, et leur puissance en direct",
+  "Key Light and Ring Light: power, brightness and colour temperature": "Key Light et Ring Light : alimentation, luminosité et température de couleur",
+  "Lights with scenes and effects, plugs and sensors": "Lumières avec scènes et effets, prises et capteurs",
+  "Air conditioners, washers, fridges and other appliances through LG's cloud": "Climatiseurs, lave-linge, réfrigérateurs et autres appareils via le cloud de LG",
+  "Power, inputs, volume, the remote and Ambilight of Philips Android TVs": "Alimentation, entrées, volume, télécommande et Ambilight des téléviseurs Philips Android",
+  "Lights, scenes, effects and sensors from a Hue Bridge, locally": "Lumières, scènes, effets et capteurs d'un pont Hue, en local",
+  "Door locks, hubs and readers, followed in real time": "Serrures, hubs et lecteurs de porte, suivis en temps réel",
+  "Cameras and doorbells with HomeKit Secure Video, sensors and lights": "Caméras et sonnettes avec HomeKit Secure Video, capteurs et éclairages",
+  "Apple Home's accessories in Homeswift, through a Mac": "Les accessoires de l'app Maison dans Homeswift, via un Mac",
+  "Visible in Home app": "Visible dans l'app Maison",
+  "{name} leaves the Home app, with its room, scenes and automations. Homeswift and Matter keep it; shown again, the Home app adds it as a new accessory.": "{name} quitte l'app Maison, avec sa pièce, ses scènes et ses automatisations. Homeswift et Matter le gardent ; affiché de nouveau, l'app Maison l'ajoute comme un nouvel accessoire.",
+  "Not started": "Non démarré",
+  "Matter needs IPv6, and this machine has none. Turn IPv6 on (on a Synology: Control Panel, Network, Network Interface), then restart homeswift.": "Matter a besoin d'IPv6, et cette machine n'en a pas. Activez IPv6 (sur un Synology : Panneau de configuration, Réseau, Interface réseau), puis redémarrez homeswift.",
+  "Matter could not start this device: {error}": "Matter n'a pas pu démarrer cet appareil : {error}",
+  "Stuck on Setting Up?": "Bloqué sur Configuration… ?",
+  "Matter controllers reach devices over IPv6: this machine needs IPv6 on (on a Synology: Control Panel, Network, Network Interface), and host networking in Docker.": "Les contrôleurs Matter joignent les appareils en IPv6 : cette machine doit avoir IPv6 activé (sur un Synology : Panneau de configuration, Réseau, Interface réseau), et le réseau de l'hôte dans Docker.",
+  "A firewall on this machine must let UDP in from IPv6 addresses too: ports {ports} and 5353 (mDNS), from All. A rule for the IPv4 subnet alone leaves the Home app on Setting Up…": "Un pare-feu sur cette machine doit aussi laisser entrer l'UDP venant d'adresses IPv6 : les ports {ports} et 5353 (mDNS), depuis Tous. Une règle pour le seul sous-réseau IPv4 laisse l'app Maison sur Configuration…",
+  "Apple Home also needs a home hub (an Apple TV or a HomePod) on the same network.": "Apple Home a aussi besoin d'un concentrateur domestique (une Apple TV ou un HomePod) sur le même réseau.",
   "{name} leaves Matter: the ecosystems that added it lose it.": "{name} quitte Matter : les écosystèmes qui l'avaient ajouté le perdent.",
   "A room's scenes, then templates to try on its lights; save one as a scene when you like it.": "Les scènes d’une pièce, puis des modèles à essayer sur ses lumières ; enregistrez-en un comme scène s’il vous plaît.",
   "From a template": "À partir d’un modèle",
@@ -16930,6 +17232,45 @@ HomeswiftI18n.add("pt", {
   "Make a Matter device": "Tornar um dispositivo Matter",
   "Matter pairing code": "Código de emparelhamento Matter",
   "Take off Matter": "Retirar do Matter",
+  "Update to Homeswift {version}?": "Atualizar para o Homeswift {version}?",
+  "A new version": "Uma nova versão",
+  "Update and restart": "Atualizar e reiniciar",
+  "You run {version} · released {when}": "Usa a {version} · publicada {when}",
+  "You run {version}": "Usa a {version}",
+  "Pairings, scenes and the vault are kept; the bridge restarts on its own.": "Os emparelhamentos, as cenas e o cofre mantêm-se; a ponte reinicia sozinha.",
+  "Downloading…": "A transferir…",
+  "Downloading {percent} %": "A transferir {percent} %",
+  "Downloading Homeswift {version}…": "A transferir o Homeswift {version}…",
+  "Leave full screen": "Sair do ecrã inteiro",
+  "Previous": "Anterior",
+  "Next": "Seguinte",
+  "Pages": "Páginas",
+  "Page {n}": "Página {n}",
+  "Group the widgets": "Agrupar os widgets",
+  "Answers questions, explains errors and writes a daily digest": "Responde a perguntas, explica os erros e escreve um resumo diário",
+  "Air conditioners and Altherma heat pumps through the Onecta cloud": "Ares condicionados e bombas de calor Altherma através da nuvem Onecta",
+  "Lights, outlets, sensors, blinds, purifiers and scenes, locally": "Luzes, tomadas, sensores, estores, purificadores e cenas, localmente",
+  "Pool robots: start and stop cleaning, water temperature and filter": "Robôs de piscina: iniciar e parar a limpeza, temperatura da água e filtro",
+  "Purifiers and fans: speed, oscillation, heat, humidity and air quality": "Purificadores e ventoinhas: velocidade, oscilação, aquecimento, humidade e qualidade do ar",
+  "Sonoff and other eWeLink switches, outlets, lights, curtains and sensors": "Interruptores, tomadas, luzes, cortinas e sensores Sonoff e outros eWeLink",
+  "Power stations and home batteries: charge, and their power live": "Estações de energia e baterias domésticas: carga, e a sua potência em direto",
+  "Key Light and Ring Light: power, brightness and colour temperature": "Key Light e Ring Light: ligar, brilho e temperatura de cor",
+  "Lights with scenes and effects, plugs and sensors": "Luzes com cenas e efeitos, tomadas e sensores",
+  "Air conditioners, washers, fridges and other appliances through LG's cloud": "Ares condicionados, máquinas de lavar, frigoríficos e outros eletrodomésticos através da nuvem da LG",
+  "Power, inputs, volume, the remote and Ambilight of Philips Android TVs": "Ligar, entradas, volume, comando e Ambilight dos televisores Philips Android",
+  "Lights, scenes, effects and sensors from a Hue Bridge, locally": "Luzes, cenas, efeitos e sensores de uma ponte Hue, localmente",
+  "Door locks, hubs and readers, followed in real time": "Fechaduras, hubs e leitores de porta, acompanhados em tempo real",
+  "Cameras and doorbells with HomeKit Secure Video, sensors and lights": "Câmaras e campainhas com HomeKit Secure Video, sensores e luzes",
+  "Apple Home's accessories in Homeswift, through a Mac": "Os acessórios da app Casa no Homeswift, através de um Mac",
+  "Visible in Home app": "Visível na app Casa",
+  "{name} leaves the Home app, with its room, scenes and automations. Homeswift and Matter keep it; shown again, the Home app adds it as a new accessory.": "{name} sai da app Casa, com a sua divisão, cenas e automatizações. O Homeswift e o Matter mantêm-no; mostrado de novo, a app Casa adiciona-o como um acessório novo.",
+  "Not started": "Não iniciado",
+  "Matter needs IPv6, and this machine has none. Turn IPv6 on (on a Synology: Control Panel, Network, Network Interface), then restart homeswift.": "O Matter precisa de IPv6 e esta máquina não o tem. Ative o IPv6 (num Synology: Painel de controlo, Rede, Interface de rede) e reinicie o homeswift.",
+  "Matter could not start this device: {error}": "O Matter não conseguiu iniciar este dispositivo: {error}",
+  "Stuck on Setting Up?": "Fica em A configurar…?",
+  "Matter controllers reach devices over IPv6: this machine needs IPv6 on (on a Synology: Control Panel, Network, Network Interface), and host networking in Docker.": "Os controladores Matter chegam aos dispositivos por IPv6: esta máquina precisa do IPv6 ativado (num Synology: Painel de controlo, Rede, Interface de rede) e da rede do anfitrião no Docker.",
+  "A firewall on this machine must let UDP in from IPv6 addresses too: ports {ports} and 5353 (mDNS), from All. A rule for the IPv4 subnet alone leaves the Home app on Setting Up…": "Uma firewall nesta máquina tem de deixar entrar também UDP de endereços IPv6: as portas {ports} e 5353 (mDNS), de Todos. Uma regra só para a sub-rede IPv4 deixa a app Casa em A configurar…",
+  "Apple Home also needs a home hub (an Apple TV or a HomePod) on the same network.": "O Apple Home também precisa de uma central da casa (uma Apple TV ou um HomePod) na mesma rede.",
   "{name} leaves Matter: the ecosystems that added it lose it.": "{name} sai do Matter: os ecossistemas que o adicionaram perdem-no.",
   "A room's scenes, then templates to try on its lights; save one as a scene when you like it.": "As cenas de uma divisão e, depois, modelos para experimentar nas suas luzes; guarde um como cena se gostar.",
   "From a template": "A partir de um modelo",
@@ -20144,7 +20485,7 @@ HomeswiftI18n.add("pt", {
       <a href="/appearance" data-i18n>Appearance</a>
     </nav>
     <span class="spacer"></span>
-    <button id="user" type="button" class="user-button" aria-haspopup="menu" aria-expanded="false" aria-label="Account menu" data-i18n><span class="user-avatar" aria-hidden="true"></span><span class="user-name"></span></button>
+    <button id="user" type="button" class="user-button" aria-haspopup="menu" aria-expanded="false" aria-label="Account menu" data-i18n><span class="user-avatar" aria-hidden="true"></span><span class="user-text"><span class="user-name"></span><span class="user-role"></span></span><span class="user-chevron" aria-hidden="true"></span></button>
   </header>
   <div id="banner" class="banner hidden" data-i18n>Some changes need a restart of homeswift. <button id="restart" class="link" data-i18n data-action-icon="power">Restart now</button></div>
   <main id="view"></main>
@@ -20392,7 +20733,9 @@ HomeswiftI18n.add("pt", {
     let auth = { mode: "none" };
     const avatar = el("span", { class: "user-avatar", "aria-hidden": "true" }, HomeswiftCommon.icon("user"));
     const userName = el("span", { class: "user-name" });
-    const user = el("button", { id: "user", type: "button", class: "user-button", "aria-haspopup": "menu", "aria-expanded": "false", "aria-label": t("Account menu") }, avatar, userName);
+    const userRole = el("span", { class: "user-role", text: t("No sign-in") });
+    const user = el("button", { id: "user", type: "button", class: "user-button", "aria-haspopup": "menu", "aria-expanded": "false", "aria-label": t("Account menu") },
+      avatar, el("span", { class: "user-text" }, userName, userRole), el("span", { class: "user-chevron", "aria-hidden": "true" }, HomeswiftCommon.icon("selector")));
     const shownName = () => (auth.mode === "form" ? (auth.name && auth.name !== auth.username ? auth.name : auth.username || "") : "");
     user.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -20409,13 +20752,27 @@ HomeswiftI18n.add("pt", {
         } } : null,
       ], { keyboard: event.detail === 0 });
     });
+    // The header as index.html has it: in a wide window it is the frame's side menu, with the brand's name, Home's
+    // sections and You's pages, each with its icon.
+    const link = (path, text, glyph) => el("a", { href: path, class: path === "/plugins" ? "active" : "" }, HomeswiftCommon.icon(glyph), el("span", { text }));
     header.replaceChildren(
-      el("a", { class: "brand", href: "/", "aria-label": "Homeswift", title: "Homeswift" }, el("img", { src: "/icon.svg", class: "logo", alt: "" })),
-      el("nav", { "aria-label": t("Sections") }, sections.map(([path, text]) => el("a", { href: path, text, class: path === "/plugins" ? "active" : "" }))),
+      el("a", { class: "brand", href: "/", "aria-label": "Homeswift", title: "Homeswift" }, el("img", { src: "/icon.svg", class: "logo", alt: "" }),
+        el("span", { class: "brand-name", "aria-hidden": "true", text: "Homeswift" })),
+      el("span", { class: "side-caption", "aria-hidden": "true", text: t("Home") }),
+      el("nav", { "aria-label": t("Sections") }, sections.map(([path, text, glyph]) => link(path, text, glyph))),
+      el("span", { class: "side-caption", "aria-hidden": "true", text: t("You") }),
+      el("nav", { class: "side-you" }, link("/account", t("Account"), "user"), link("/appearance", t("Appearance"), "sun")),
       el("span", { class: "spacer" }), user);
+    // The page in the app's frame (#app, which the wide layout draws), as the UI's own pages are.
+    let app = $("#app");
+    if (!app) {
+      app = el("div", { id: "app" });
+      header.before(app);
+      app.append(header, ...[$("main")].filter(Boolean));
+    }
     // On a phone the sections sit in a tab bar at the bottom, as on the UI's own pages; the page also extends
     // under the notch and the home indicator, which the layout pads around.
-    HomeswiftCommon.tabBar({ active: "/plugins" });
+    HomeswiftCommon.tabBar({ active: "/plugins", parent: app });
     const viewport = document.querySelector('meta[name="viewport"]');
     if (viewport && !viewport.content.includes("viewport-fit")) viewport.content += ", viewport-fit=cover";
     // The Assistant's chat, as on the UI's own pages.
@@ -20427,6 +20784,7 @@ HomeswiftI18n.add("pt", {
       const name = shownName();
       avatar.replaceChildren(auth.mode === "form" && name ? name.slice(0, 1).toUpperCase() : HomeswiftCommon.icon("user"));
       userName.textContent = name;
+      userRole.textContent = auth.mode !== "form" ? t("No sign-in") : auth.admin ? t("Administrator") : t("User");
       if (state.liveWebFiles) followWebFiles();
     }).catch(() => {});
   }
@@ -21813,7 +22171,20 @@ header nav a svg { display: none; }
   header nav a svg { display: block; width: 20px; height: 20px; flex: none; }
   header nav a.active svg { color: var(--accent-ink); }
   header .spacer { flex: 1; }
-  header .user-button { width: 100%; max-width: none; padding: var(--space-6); border-radius: var(--radius-md); }
+  /* The account at the menu's foot: a row of its own under a hairline, as a sidebar's account switcher is, with its
+     role under the name and the selector glyph saying it opens a menu; without sign-in, the role alone. */
+  header .user-button, header .user-button:has(.user-name:empty) {
+    position: relative; width: 100%; max-width: none; margin-top: var(--space-16); padding: var(--space-8); gap: var(--space-10);
+    border-radius: var(--radius-md); text-align: left; transition: background-color var(--fast) var(--ease-out), transform var(--fast) var(--ease-out);
+  }
+  header .user-button::before { content: ""; position: absolute; top: calc(-1 * var(--space-8)); left: var(--space-8); right: var(--space-8); border-top: 1px solid var(--line); }
+  header .user-button:active { transform: scale(0.98); }
+  header .user-avatar { width: 34px; height: 34px; }
+  header .user-text { display: grid; gap: 1px; min-width: 0; flex: 1; }
+  header .user-name { font-weight: var(--weight-semibold); }
+  header .user-role { display: block; font-size: var(--text-xs); font-weight: var(--weight-medium); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  header .user-chevron { display: grid; flex: none; color: var(--muted); }
+  header .user-chevron svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   /* The Assistant floats at the window's bottom right, in reach on every page, and its chat opens above it; a save bar
      stops short of it. */
   header .chat-open {
@@ -21825,8 +22196,6 @@ header nav a svg { display: none; }
   header .chat-open .sparkle { width: 36px; height: 36px; }
   html .chat { top: auto; bottom: 120px; right: calc(max(var(--space-24), (100vw - 1360px) / 2) + var(--space-24)); height: min(740px, calc(100dvh - 160px)); transform-origin: bottom right; }
   #app:has(.chat-open) .settings-bar { margin-right: 76px; }
-  /* Without sign-in there is no name: the avatar alone, not an empty bar. */
-  header .user-button:has(.user-name:empty) { width: auto; align-self: flex-start; border-radius: var(--radius-pill); }
 }
 .spacer { flex: 1; }
 /* The account button at the header's right end: the user's initial on the accent and their name, opening its menu. */
@@ -21842,6 +22211,9 @@ header nav a svg { display: none; }
 }
 .user-avatar svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .user-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The role and the selector glyph show in the wide window's side menu only; elsewhere the name sits beside the avatar. */
+.user-text { display: contents; }
+.user-role, .user-chevron { display: none; }
 /* Without sign-in there is no name: the avatar alone, round. */
 .user-name:empty { display: none; }
 .user-button:has(.user-name:empty) { padding: 3px; }
@@ -22913,9 +23285,45 @@ textarea.short { min-height: 220px; }
 .update-command code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; font: 0.8125rem/1.5 var(--mono); scrollbar-width: none; }
 .update-command button { flex: none; padding: 5px var(--space-12); font-size: var(--text-sm); }
 .update-card details.more-options { margin: 0; }
+/* The Status page's update card, a hero: dark glass lit by a warm glow from its corner, the new version large, its
+   action at the right (under the words on a narrow card). The same in both themes: it is the page's one dark card. */
+.update-hero-card {
+  position: relative; overflow: hidden; gap: var(--space-14); color: #f6f2ee; border-color: rgba(255, 255, 255, 0.08);
+  background: radial-gradient(90% 160% at 100% 0%, color-mix(in srgb, var(--accent) 40%, transparent), transparent 42%), linear-gradient(160deg, #282420, #171615);
+  box-shadow: var(--shadow-thick);
+}
+.update-hero { display: flex; align-items: center; justify-content: space-between; gap: var(--space-20); flex-wrap: wrap; }
+.update-hero-text { display: grid; gap: var(--space-4); min-width: 0; }
+.update-hero-kicker { font-size: var(--text-sm); color: rgba(255, 255, 255, 0.68); }
+.update-hero-version { font-size: var(--text-display); font-weight: var(--weight-semibold); line-height: 1.05; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.update-hero-meta { color: rgba(255, 255, 255, 0.72); }
+.update-hero-text p { margin: var(--space-12) 0 0; color: rgba(255, 255, 255, 0.86); }
+.update-hero-action { flex: none; }
+.update-hero-links { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-16); flex-wrap: wrap; }
+.update-hero-links:empty { display: none; }
+.update-hero-card a:not(.button), .update-hero-card details.more-options > summary { color: rgba(255, 255, 255, 0.78); }
+/* On GitHub, opposite What's new and as quiet: its glyph, the same size and white, underlined only under the pointer. */
+.update-hero-link { display: inline-flex; align-items: center; gap: var(--space-6); font-size: var(--text-sm); font-weight: var(--weight-medium); text-decoration: none; }
+.update-hero-link svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.update-hero-card .update-hero-link:hover { color: #fff; text-decoration: underline; text-underline-offset: 3px; }
+.update-hero-card details.more-options > summary { font-size: var(--text-sm); font-weight: var(--weight-medium); }
+.update-hero-card .update-command code { background: rgba(255, 255, 255, 0.08); color: #fff; }
+.update-hero-card .update-command button { background: rgba(255, 255, 255, 0.1); color: #fff; border-color: rgba(255, 255, 255, 0.16); }
+.update-hero-card .progress-bar { background: rgba(255, 255, 255, 0.12); box-shadow: none; }
+.update-hero-card .error { color: #ffb4a8; }
 .update-progress { display: flex; align-items: center; gap: var(--space-8); margin: 0; }
 .update-progress svg { width: 16px; height: 16px; flex: none; color: var(--ok); }
 .update-progress .spinner { flex: none; }
+/* An update installing: what it does and how far, over a bar that fills with the share done, or pulses while the
+   bridge cannot tell. */
+.update-install { display: grid; gap: var(--space-8); margin: 0; }
+.update-install-head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-12); }
+.update-install-head b { font-variant-numeric: tabular-nums; }
+.progress-bar { position: relative; height: 6px; border-radius: var(--radius-pill); overflow: hidden; background: var(--material-thin); box-shadow: inset 0 0 0 1px var(--line); }
+.progress-bar > span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--accent-fill-top), var(--accent-fill)); transition: width 400ms var(--ease-out); }
+.progress-bar.indeterminate > span { width: 35%; animation: progress-pulse 1.2s ease-in-out infinite; }
+@keyframes progress-pulse { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+@media (prefers-reduced-motion: reduce) { .progress-bar.indeterminate > span { width: 100%; opacity: 0.45; animation: none; } }
 .updates-settings .actions { flex-wrap: wrap; }
 /* Settings › Updates: the headline is the state; it fades when it changes. */
 .update-head .who { min-width: 0; }
@@ -23202,6 +23610,12 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .devices-head strong { display: block; font-size: var(--text-xl); letter-spacing: -0.01em; }
 .devices-head .muted { font-size: var(--text-sm); }
 .device-rows { display: grid; grid-template-columns: minmax(0, 1fr); }
+/* Ten rows in view (57 px each, closed), the rest a scroll away inside the card; the side padding keeps the rows' hover,
+   drawn 8 px past their edge, from being clipped. */
+.card.devices .device-rows {
+  max-height: calc(10 * 57px); overflow-y: auto; overscroll-behavior: contain;
+  padding: 0 var(--space-8); margin: 0 calc(-1 * var(--space-8));
+}
 .device-row { border-top: 1px solid var(--line); }
 .device-row > summary { list-style: none; display: flex; align-items: center; gap: var(--space-12); min-height: 44px; padding: var(--space-8) var(--space-8); margin: 0 calc(-1 * var(--space-8)); cursor: pointer; border-radius: var(--radius-sm); }
 .device-row > summary::-webkit-details-marker { display: none; }
@@ -24359,8 +24773,8 @@ span.warning, .vault-problem .warning { color: var(--warn); }
 .backup-create .status-line:empty { display: none; }
 .backup-restore { display: flex; flex-direction: column; gap: var(--space-18); }
 .backup-restore h2 { margin: 0; font-size: var(--text-lg); }
-.backup-restore-help summary { cursor: pointer; color: var(--muted); font-size: var(--text-md); }
-.backup-restore-help p { line-height: 1.6; font-size: var(--text-md); }
+.backup-restore-help summary, .matter-help summary { cursor: pointer; color: var(--muted); font-size: var(--text-md); }
+.backup-restore-help p, .matter-help p { line-height: 1.6; font-size: var(--text-md); }
 .backup-restore .drop-zone { flex: 1; min-height: 142px; margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-14); border-radius: var(--radius-md); background: var(--material-thin); line-height: 1.6; }
 .backup-drop-icon svg { width: 28px; height: 28px; color: var(--accent); }
 @media (max-width: 900px) { .backup-actions-grid { grid-template-columns: 1fr; } }
@@ -24744,11 +25158,11 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 .group-selected-heading h3 { margin: 0; }
 .group-transfer { width: 32px; min-width: 32px; height: 32px; min-height: 32px; padding: 0; flex: 0 0 32px; display: grid; place-items: center; font-size: 20px; line-height: 1; border-radius: 50%; }
 .accessories-toolbar { display: flex; align-items: center; gap: var(--space-8); flex-wrap: wrap; }
-.accessories-toolbar > button:not(.menu-button) { display: inline-flex; align-items: center; gap: 7px; }
+.accessories-toolbar > button:not(.menu-button):not(.icon-button) { display: inline-flex; align-items: center; gap: 7px; }
 .accessories-toolbar button > svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; }
 .accessories-toolbar .search { width: clamp(180px, 22vw, 300px); }
 .toolbar-count { display: grid; place-items: center; min-width: 19px; height: 19px; border-radius: var(--radius-sm); background: var(--accent-fill); color: var(--accent-text); font-size: var(--text-xs); }
-.accessories-toolbar .accessory-options-button { width: 36px; height: 36px; color: var(--muted); background: var(--material-thin); box-shadow: none; }
+.accessories-toolbar .accessory-options-button { display: grid; place-items: center; width: 36px; height: 36px; color: var(--muted); background: var(--material-thin); box-shadow: none; }
 .accessories-toolbar .accessory-options-button svg { fill: none; stroke: currentColor; stroke-width: 1.6; width: 19px; height: 19px; }
 @media (max-width: 650px) { .group-picker-columns { grid-template-columns: 1fr; gap: var(--space-16); } .group-picker-columns .group-member-list { max-height: 25vh; } }
 @media (max-width: 600px) { .accessories-toolbar { width: 100%; } .accessories-toolbar .search { flex: 1 1 100%; width: 100%; } }
@@ -24964,6 +25378,11 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
 
 .status-footer .footer-update-check { display: inline-flex; align-items: center; gap: 5px; }
 .status-footer .footer-update-check svg { width: 14px; height: 14px; flex: none; }
+/* Downloading: the button fills from the left with the share done. */
+.status-footer .footer-update-check[style*="--update-progress"] {
+  background-image: linear-gradient(90deg, color-mix(in srgb, var(--accent) 38%, transparent) var(--update-progress), transparent var(--update-progress));
+  font-variant-numeric: tabular-nums;
+}
 .status-footer .footer-update-check[data-update-state="checking"] svg {
   transform-origin: center;
   animation: spin .8s linear infinite;
@@ -25706,6 +26125,72 @@ select option:disabled { color: var(--muted); }
 .message-dialog { max-width: min(560px, calc(100vw - 32px)); }
 .dialog-message { white-space: pre-wrap; overflow-wrap: anywhere; }
 .message-dialog input { width: 100%; min-width: 0; }
+
+/* The Accessories wall full screen (?full=1): the widgets alone over the backdrop, for a wall tablet. Grouped by room
+   or plugin, each group is a page of a strip that snaps, swiped with the finger's momentum (or the arrow keys, the dots,
+   the side arrows with a mouse); its chrome fades while nothing happens and comes back on a touch. */
+html.wall-full header, html.wall-full nav.tabbar, html.wall-full #banner { display: none !important; }
+html.wall-full #app, html.wall-full #app:has(> main > .status-footer) { display: block; max-width: none; min-height: 100dvh; margin: 0; padding: 0; }
+html.wall-full #app::before { display: none; }
+html.wall-full #view {
+  max-width: none; margin: 0;
+  padding: max(var(--space-24), env(safe-area-inset-top)) max(var(--space-24), env(safe-area-inset-right)) max(56px, env(safe-area-inset-bottom)) max(var(--space-24), env(safe-area-inset-left));
+  animation: wall-full-in 220ms var(--ease-out);
+}
+html.wall-full #view > :not(.accessory-walls):not(.wall-full-chrome) { display: none; }
+html.wall-full .accessory-section > .section-head { padding-right: 56px; }
+html.wall-full .accessory-section > .section-head h2 { font-size: var(--text-2xl); }
+@keyframes wall-full-in { from { opacity: 0; transform: scale(0.985); } }
+/* Paged: the strip fills the window, each page scrolls on its own when its widgets are taller. */
+html.wall-full.wall-paged #view { padding: 0; }
+html.wall-full .accessory-walls.wall-pages {
+  display: flex; height: 100dvh; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory;
+  overscroll-behavior-x: contain; scroll-behavior: smooth; scrollbar-width: none;
+}
+html.wall-full .accessory-walls.wall-pages::-webkit-scrollbar { display: none; }
+html.wall-full .wall-pages > .accessory-section {
+  flex: 0 0 100%; min-width: 0; margin: 0; scroll-snap-align: start; scroll-snap-stop: always; overflow-y: auto; overscroll-behavior-y: contain;
+  padding: max(var(--space-24), env(safe-area-inset-top)) max(var(--space-24), env(safe-area-inset-right)) max(64px, env(safe-area-inset-bottom)) max(var(--space-24), env(safe-area-inset-left));
+}
+.wall-full-chrome button { transition: opacity 400ms ease, transform 160ms var(--ease-out), background-color var(--fast) ease; }
+html.wall-full:not(.wall-awake) .wall-full-chrome button { opacity: 0.32; }
+.wall-full-button, .wall-step {
+  position: fixed; z-index: var(--layer-tabbar); display: grid; place-items: center; width: 44px; height: 44px; padding: 0;
+  border-radius: 50%; border: 1px solid var(--edge); background: var(--material-thick); box-shadow: var(--shadow-control); color: var(--text);
+  -webkit-backdrop-filter: blur(var(--blur)); backdrop-filter: blur(var(--blur));
+}
+.wall-full-options { top: max(var(--space-16), env(safe-area-inset-top)); right: max(var(--space-16), env(safe-area-inset-right)); }
+.wall-full-button svg, .wall-step svg { width: 20px; height: 20px; }
+.wall-full-button:active, .wall-step:active { transform: scale(0.94); }
+/* The toolbar's panel: the search across, the grouping as a row of choices, the filters, then leaving. */
+.wall-full-panel { display: grid; gap: var(--space-16); }
+.wall-full-panel h2 { margin: 0; }
+.wall-full-panel .search { width: 100%; }
+.wall-full-groupings { display: flex; flex-wrap: wrap; gap: var(--space-8); }
+/* The Filters button, out of the toolbar it is sized by: its glyph and label in a row, its own width. */
+.wall-full-panel > button { justify-self: start; display: inline-flex; align-items: center; gap: var(--space-8); }
+.wall-full-panel > button > svg { flex: none; width: 18px; height: 18px; }
+.wall-full-panel > .actions { justify-content: space-between; margin-top: var(--space-8); }
+.wall-step { top: 50%; margin-top: -22px; display: none; }
+.wall-step.previous { left: max(var(--space-12), env(safe-area-inset-left)); }
+.wall-step.next { right: max(var(--space-12), env(safe-area-inset-right)); }
+.wall-step:disabled { visibility: hidden; }
+@media (hover: hover) and (pointer: fine) { .wall-step { display: grid; } }
+.wall-dots {
+  position: fixed; z-index: var(--layer-tabbar); left: 50%; bottom: max(var(--space-14), env(safe-area-inset-bottom)); transform: translateX(-50%);
+  display: flex; gap: 0; padding: var(--space-4) var(--space-6); border-radius: var(--radius-pill); border: 1px solid var(--edge); background: var(--material-thick);
+  -webkit-backdrop-filter: blur(var(--blur)); backdrop-filter: blur(var(--blur)); box-shadow: var(--shadow-control);
+}
+.wall-dots button { display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; background: none; box-shadow: none; color: var(--text); }
+.wall-dots button::before { content: ""; width: 7px; height: 7px; border-radius: var(--radius-pill); background: currentColor; opacity: 0.3; transition: width 200ms var(--ease-out), opacity 200ms ease; }
+.wall-dots button[aria-current="true"] { width: 30px; }
+.wall-dots button[aria-current="true"]::before { width: 20px; opacity: 1; }
+html.wall-full:not(.wall-awake) .wall-dots { opacity: 0.6; }
+.wall-dots { transition: opacity 400ms ease; }
+@media (prefers-reduced-motion: reduce) {
+  html.wall-full #view { animation: none; }
+  html.wall-full .accessory-walls.wall-pages { scroll-behavior: auto; }
+}
 
 """#),
         "sw.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
@@ -27576,8 +28061,10 @@ self.addEventListener("notificationclick", (event) => {
     return dialog;
   }
 
-  /// The icon of what a service stands for when HomeKit has no type for it (`Service.standsFor`): a robot vacuum.
-  const standsForIcon = (accessory) => accessory.services?.some((service) => service.standsFor === "cleaningRobot") ? "vacuum" : null;
+  /// The icon of what a service stands for when HomeKit has no type for it (`Service.standsFor`): a robot vacuum, or a
+  /// pool robot for the Dolphin plugin's.
+  const standsForIcon = (accessory) => !accessory.services?.some((service) => service.standsFor === "cleaningRobot") ? null
+    : accessory.platform === "DolphinPoolCleaner" ? "poolRobot" : "vacuum";
 
   /// The tile's glyph, and a painter for its colour and state.
   function glyphFor(ctx, widget, built, primary) {

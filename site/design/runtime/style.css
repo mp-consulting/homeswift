@@ -225,7 +225,20 @@ header nav a svg { display: none; }
   header nav a svg { display: block; width: 20px; height: 20px; flex: none; }
   header nav a.active svg { color: var(--accent-ink); }
   header .spacer { flex: 1; }
-  header .user-button { width: 100%; max-width: none; padding: var(--space-6); border-radius: var(--radius-md); }
+  /* The account at the menu's foot: a row of its own under a hairline, as a sidebar's account switcher is, with its
+     role under the name and the selector glyph saying it opens a menu; without sign-in, the role alone. */
+  header .user-button, header .user-button:has(.user-name:empty) {
+    position: relative; width: 100%; max-width: none; margin-top: var(--space-16); padding: var(--space-8); gap: var(--space-10);
+    border-radius: var(--radius-md); text-align: left; transition: background-color var(--fast) var(--ease-out), transform var(--fast) var(--ease-out);
+  }
+  header .user-button::before { content: ""; position: absolute; top: calc(-1 * var(--space-8)); left: var(--space-8); right: var(--space-8); border-top: 1px solid var(--line); }
+  header .user-button:active { transform: scale(0.98); }
+  header .user-avatar { width: 34px; height: 34px; }
+  header .user-text { display: grid; gap: 1px; min-width: 0; flex: 1; }
+  header .user-name { font-weight: var(--weight-semibold); }
+  header .user-role { display: block; font-size: var(--text-xs); font-weight: var(--weight-medium); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  header .user-chevron { display: grid; flex: none; color: var(--muted); }
+  header .user-chevron svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   /* The Assistant floats at the window's bottom right, in reach on every page, and its chat opens above it; a save bar
      stops short of it. */
   header .chat-open {
@@ -237,8 +250,6 @@ header nav a svg { display: none; }
   header .chat-open .sparkle { width: 36px; height: 36px; }
   html .chat { top: auto; bottom: 120px; right: calc(max(var(--space-24), (100vw - 1360px) / 2) + var(--space-24)); height: min(740px, calc(100dvh - 160px)); transform-origin: bottom right; }
   #app:has(.chat-open) .settings-bar { margin-right: 76px; }
-  /* Without sign-in there is no name: the avatar alone, not an empty bar. */
-  header .user-button:has(.user-name:empty) { width: auto; align-self: flex-start; border-radius: var(--radius-pill); }
 }
 .spacer { flex: 1; }
 /* The account button at the header's right end: the user's initial on the accent and their name, opening its menu. */
@@ -254,6 +265,9 @@ header nav a svg { display: none; }
 }
 .user-avatar svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .user-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The role and the selector glyph show in the wide window's side menu only; elsewhere the name sits beside the avatar. */
+.user-text { display: contents; }
+.user-role, .user-chevron { display: none; }
 /* Without sign-in there is no name: the avatar alone, round. */
 .user-name:empty { display: none; }
 .user-button:has(.user-name:empty) { padding: 3px; }
@@ -1325,9 +1339,45 @@ textarea.short { min-height: 220px; }
 .update-command code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; font: 0.8125rem/1.5 var(--mono); scrollbar-width: none; }
 .update-command button { flex: none; padding: 5px var(--space-12); font-size: var(--text-sm); }
 .update-card details.more-options { margin: 0; }
+/* The Status page's update card, a hero: dark glass lit by a warm glow from its corner, the new version large, its
+   action at the right (under the words on a narrow card). The same in both themes: it is the page's one dark card. */
+.update-hero-card {
+  position: relative; overflow: hidden; gap: var(--space-14); color: #f6f2ee; border-color: rgba(255, 255, 255, 0.08);
+  background: radial-gradient(90% 160% at 100% 0%, color-mix(in srgb, var(--accent) 40%, transparent), transparent 42%), linear-gradient(160deg, #282420, #171615);
+  box-shadow: var(--shadow-thick);
+}
+.update-hero { display: flex; align-items: center; justify-content: space-between; gap: var(--space-20); flex-wrap: wrap; }
+.update-hero-text { display: grid; gap: var(--space-4); min-width: 0; }
+.update-hero-kicker { font-size: var(--text-sm); color: rgba(255, 255, 255, 0.68); }
+.update-hero-version { font-size: var(--text-display); font-weight: var(--weight-semibold); line-height: 1.05; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.update-hero-meta { color: rgba(255, 255, 255, 0.72); }
+.update-hero-text p { margin: var(--space-12) 0 0; color: rgba(255, 255, 255, 0.86); }
+.update-hero-action { flex: none; }
+.update-hero-links { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-16); flex-wrap: wrap; }
+.update-hero-links:empty { display: none; }
+.update-hero-card a:not(.button), .update-hero-card details.more-options > summary { color: rgba(255, 255, 255, 0.78); }
+/* On GitHub, opposite What's new and as quiet: its glyph, the same size and white, underlined only under the pointer. */
+.update-hero-link { display: inline-flex; align-items: center; gap: var(--space-6); font-size: var(--text-sm); font-weight: var(--weight-medium); text-decoration: none; }
+.update-hero-link svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.update-hero-card .update-hero-link:hover { color: #fff; text-decoration: underline; text-underline-offset: 3px; }
+.update-hero-card details.more-options > summary { font-size: var(--text-sm); font-weight: var(--weight-medium); }
+.update-hero-card .update-command code { background: rgba(255, 255, 255, 0.08); color: #fff; }
+.update-hero-card .update-command button { background: rgba(255, 255, 255, 0.1); color: #fff; border-color: rgba(255, 255, 255, 0.16); }
+.update-hero-card .progress-bar { background: rgba(255, 255, 255, 0.12); box-shadow: none; }
+.update-hero-card .error { color: #ffb4a8; }
 .update-progress { display: flex; align-items: center; gap: var(--space-8); margin: 0; }
 .update-progress svg { width: 16px; height: 16px; flex: none; color: var(--ok); }
 .update-progress .spinner { flex: none; }
+/* An update installing: what it does and how far, over a bar that fills with the share done, or pulses while the
+   bridge cannot tell. */
+.update-install { display: grid; gap: var(--space-8); margin: 0; }
+.update-install-head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-12); }
+.update-install-head b { font-variant-numeric: tabular-nums; }
+.progress-bar { position: relative; height: 6px; border-radius: var(--radius-pill); overflow: hidden; background: var(--material-thin); box-shadow: inset 0 0 0 1px var(--line); }
+.progress-bar > span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--accent-fill-top), var(--accent-fill)); transition: width 400ms var(--ease-out); }
+.progress-bar.indeterminate > span { width: 35%; animation: progress-pulse 1.2s ease-in-out infinite; }
+@keyframes progress-pulse { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+@media (prefers-reduced-motion: reduce) { .progress-bar.indeterminate > span { width: 100%; opacity: 0.45; animation: none; } }
 .updates-settings .actions { flex-wrap: wrap; }
 /* Settings › Updates: the headline is the state; it fades when it changes. */
 .update-head .who { min-width: 0; }
@@ -1614,6 +1664,12 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .devices-head strong { display: block; font-size: var(--text-xl); letter-spacing: -0.01em; }
 .devices-head .muted { font-size: var(--text-sm); }
 .device-rows { display: grid; grid-template-columns: minmax(0, 1fr); }
+/* Ten rows in view (57 px each, closed), the rest a scroll away inside the card; the side padding keeps the rows' hover,
+   drawn 8 px past their edge, from being clipped. */
+.card.devices .device-rows {
+  max-height: calc(10 * 57px); overflow-y: auto; overscroll-behavior: contain;
+  padding: 0 var(--space-8); margin: 0 calc(-1 * var(--space-8));
+}
 .device-row { border-top: 1px solid var(--line); }
 .device-row > summary { list-style: none; display: flex; align-items: center; gap: var(--space-12); min-height: 44px; padding: var(--space-8) var(--space-8); margin: 0 calc(-1 * var(--space-8)); cursor: pointer; border-radius: var(--radius-sm); }
 .device-row > summary::-webkit-details-marker { display: none; }
@@ -2771,8 +2827,8 @@ span.warning, .vault-problem .warning { color: var(--warn); }
 .backup-create .status-line:empty { display: none; }
 .backup-restore { display: flex; flex-direction: column; gap: var(--space-18); }
 .backup-restore h2 { margin: 0; font-size: var(--text-lg); }
-.backup-restore-help summary { cursor: pointer; color: var(--muted); font-size: var(--text-md); }
-.backup-restore-help p { line-height: 1.6; font-size: var(--text-md); }
+.backup-restore-help summary, .matter-help summary { cursor: pointer; color: var(--muted); font-size: var(--text-md); }
+.backup-restore-help p, .matter-help p { line-height: 1.6; font-size: var(--text-md); }
 .backup-restore .drop-zone { flex: 1; min-height: 142px; margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-14); border-radius: var(--radius-md); background: var(--material-thin); line-height: 1.6; }
 .backup-drop-icon svg { width: 28px; height: 28px; color: var(--accent); }
 @media (max-width: 900px) { .backup-actions-grid { grid-template-columns: 1fr; } }
@@ -3156,11 +3212,11 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 .group-selected-heading h3 { margin: 0; }
 .group-transfer { width: 32px; min-width: 32px; height: 32px; min-height: 32px; padding: 0; flex: 0 0 32px; display: grid; place-items: center; font-size: 20px; line-height: 1; border-radius: 50%; }
 .accessories-toolbar { display: flex; align-items: center; gap: var(--space-8); flex-wrap: wrap; }
-.accessories-toolbar > button:not(.menu-button) { display: inline-flex; align-items: center; gap: 7px; }
+.accessories-toolbar > button:not(.menu-button):not(.icon-button) { display: inline-flex; align-items: center; gap: 7px; }
 .accessories-toolbar button > svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; }
 .accessories-toolbar .search { width: clamp(180px, 22vw, 300px); }
 .toolbar-count { display: grid; place-items: center; min-width: 19px; height: 19px; border-radius: var(--radius-sm); background: var(--accent-fill); color: var(--accent-text); font-size: var(--text-xs); }
-.accessories-toolbar .accessory-options-button { width: 36px; height: 36px; color: var(--muted); background: var(--material-thin); box-shadow: none; }
+.accessories-toolbar .accessory-options-button { display: grid; place-items: center; width: 36px; height: 36px; color: var(--muted); background: var(--material-thin); box-shadow: none; }
 .accessories-toolbar .accessory-options-button svg { fill: none; stroke: currentColor; stroke-width: 1.6; width: 19px; height: 19px; }
 @media (max-width: 650px) { .group-picker-columns { grid-template-columns: 1fr; gap: var(--space-16); } .group-picker-columns .group-member-list { max-height: 25vh; } }
 @media (max-width: 600px) { .accessories-toolbar { width: 100%; } .accessories-toolbar .search { flex: 1 1 100%; width: 100%; } }
@@ -3376,6 +3432,11 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
 
 .status-footer .footer-update-check { display: inline-flex; align-items: center; gap: 5px; }
 .status-footer .footer-update-check svg { width: 14px; height: 14px; flex: none; }
+/* Downloading: the button fills from the left with the share done. */
+.status-footer .footer-update-check[style*="--update-progress"] {
+  background-image: linear-gradient(90deg, color-mix(in srgb, var(--accent) 38%, transparent) var(--update-progress), transparent var(--update-progress));
+  font-variant-numeric: tabular-nums;
+}
 .status-footer .footer-update-check[data-update-state="checking"] svg {
   transform-origin: center;
   animation: spin .8s linear infinite;
@@ -4118,3 +4179,69 @@ select option:disabled { color: var(--muted); }
 .message-dialog { max-width: min(560px, calc(100vw - 32px)); }
 .dialog-message { white-space: pre-wrap; overflow-wrap: anywhere; }
 .message-dialog input { width: 100%; min-width: 0; }
+
+/* The Accessories wall full screen (?full=1): the widgets alone over the backdrop, for a wall tablet. Grouped by room
+   or plugin, each group is a page of a strip that snaps, swiped with the finger's momentum (or the arrow keys, the dots,
+   the side arrows with a mouse); its chrome fades while nothing happens and comes back on a touch. */
+html.wall-full header, html.wall-full nav.tabbar, html.wall-full #banner { display: none !important; }
+html.wall-full #app, html.wall-full #app:has(> main > .status-footer) { display: block; max-width: none; min-height: 100dvh; margin: 0; padding: 0; }
+html.wall-full #app::before { display: none; }
+html.wall-full #view {
+  max-width: none; margin: 0;
+  padding: max(var(--space-24), env(safe-area-inset-top)) max(var(--space-24), env(safe-area-inset-right)) max(56px, env(safe-area-inset-bottom)) max(var(--space-24), env(safe-area-inset-left));
+  animation: wall-full-in 220ms var(--ease-out);
+}
+html.wall-full #view > :not(.accessory-walls):not(.wall-full-chrome) { display: none; }
+html.wall-full .accessory-section > .section-head { padding-right: 56px; }
+html.wall-full .accessory-section > .section-head h2 { font-size: var(--text-2xl); }
+@keyframes wall-full-in { from { opacity: 0; transform: scale(0.985); } }
+/* Paged: the strip fills the window, each page scrolls on its own when its widgets are taller. */
+html.wall-full.wall-paged #view { padding: 0; }
+html.wall-full .accessory-walls.wall-pages {
+  display: flex; height: 100dvh; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory;
+  overscroll-behavior-x: contain; scroll-behavior: smooth; scrollbar-width: none;
+}
+html.wall-full .accessory-walls.wall-pages::-webkit-scrollbar { display: none; }
+html.wall-full .wall-pages > .accessory-section {
+  flex: 0 0 100%; min-width: 0; margin: 0; scroll-snap-align: start; scroll-snap-stop: always; overflow-y: auto; overscroll-behavior-y: contain;
+  padding: max(var(--space-24), env(safe-area-inset-top)) max(var(--space-24), env(safe-area-inset-right)) max(64px, env(safe-area-inset-bottom)) max(var(--space-24), env(safe-area-inset-left));
+}
+.wall-full-chrome button { transition: opacity 400ms ease, transform 160ms var(--ease-out), background-color var(--fast) ease; }
+html.wall-full:not(.wall-awake) .wall-full-chrome button { opacity: 0.32; }
+.wall-full-button, .wall-step {
+  position: fixed; z-index: var(--layer-tabbar); display: grid; place-items: center; width: 44px; height: 44px; padding: 0;
+  border-radius: 50%; border: 1px solid var(--edge); background: var(--material-thick); box-shadow: var(--shadow-control); color: var(--text);
+  -webkit-backdrop-filter: blur(var(--blur)); backdrop-filter: blur(var(--blur));
+}
+.wall-full-options { top: max(var(--space-16), env(safe-area-inset-top)); right: max(var(--space-16), env(safe-area-inset-right)); }
+.wall-full-button svg, .wall-step svg { width: 20px; height: 20px; }
+.wall-full-button:active, .wall-step:active { transform: scale(0.94); }
+/* The toolbar's panel: the search across, the grouping as a row of choices, the filters, then leaving. */
+.wall-full-panel { display: grid; gap: var(--space-16); }
+.wall-full-panel h2 { margin: 0; }
+.wall-full-panel .search { width: 100%; }
+.wall-full-groupings { display: flex; flex-wrap: wrap; gap: var(--space-8); }
+/* The Filters button, out of the toolbar it is sized by: its glyph and label in a row, its own width. */
+.wall-full-panel > button { justify-self: start; display: inline-flex; align-items: center; gap: var(--space-8); }
+.wall-full-panel > button > svg { flex: none; width: 18px; height: 18px; }
+.wall-full-panel > .actions { justify-content: space-between; margin-top: var(--space-8); }
+.wall-step { top: 50%; margin-top: -22px; display: none; }
+.wall-step.previous { left: max(var(--space-12), env(safe-area-inset-left)); }
+.wall-step.next { right: max(var(--space-12), env(safe-area-inset-right)); }
+.wall-step:disabled { visibility: hidden; }
+@media (hover: hover) and (pointer: fine) { .wall-step { display: grid; } }
+.wall-dots {
+  position: fixed; z-index: var(--layer-tabbar); left: 50%; bottom: max(var(--space-14), env(safe-area-inset-bottom)); transform: translateX(-50%);
+  display: flex; gap: 0; padding: var(--space-4) var(--space-6); border-radius: var(--radius-pill); border: 1px solid var(--edge); background: var(--material-thick);
+  -webkit-backdrop-filter: blur(var(--blur)); backdrop-filter: blur(var(--blur)); box-shadow: var(--shadow-control);
+}
+.wall-dots button { display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; background: none; box-shadow: none; color: var(--text); }
+.wall-dots button::before { content: ""; width: 7px; height: 7px; border-radius: var(--radius-pill); background: currentColor; opacity: 0.3; transition: width 200ms var(--ease-out), opacity 200ms ease; }
+.wall-dots button[aria-current="true"] { width: 30px; }
+.wall-dots button[aria-current="true"]::before { width: 20px; opacity: 1; }
+html.wall-full:not(.wall-awake) .wall-dots { opacity: 0.6; }
+.wall-dots { transition: opacity 400ms ease; }
+@media (prefers-reduced-motion: reduce) {
+  html.wall-full #view { animation: none; }
+  html.wall-full .accessory-walls.wall-pages { scroll-behavior: auto; }
+}

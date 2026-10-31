@@ -47,6 +47,7 @@ public actor MyDevicesPlugin: HomeswiftPlugin {
     public static let platform = "MyDevices"     // the block's "platform" key
     public static let name = "My Devices"        // for `homeswift plugins` and the logs
     public static let icon: String? = "bulb"     // the web UI's icon: a brand's logo in common.js, or what it controls
+    public static let summary: String? = "Lights and plugs on the local network"   // its line in Add a plugin, translated in the UI's catalogs
 
     let configuration: Configuration
     let context: PluginContext
@@ -214,6 +215,9 @@ identity and pairing, like Homebridge's. A block with `"_paused": true` is **pau
 run, so nothing reaches its devices or their cloud (an iOS app sharing the account keeps its session), and its
 accessories stay in HomeKit, with their rooms and automations, answering No Response until it resumes (reads,
 writes, identify and snapshots fail without reaching the plugin's handlers: `Accessory.isUnavailable`).
+`"_hiddenFromHomeKit": [ids]` keeps the block's accessories with these ids out of the Home app (the web UI's **Visible in Home app**, MCP's
+`set_homekit_visibility`): they stay on the bridge for the web UI, the MCP server and Matter, so a Matter device of its
+own can be in Apple Home through Matter alone. Changing the list does not reload the plugin.
 `disabledPlugins` lists platform names to skip; their accessories leave HomeKit. Homebridge's `accessories`
 blocks are not supported.
 

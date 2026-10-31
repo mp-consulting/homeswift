@@ -131,6 +131,9 @@
     const name = shownName();
     $("#user .user-avatar").replaceChildren(auth.mode === "form" && name ? name.slice(0, 1).toUpperCase() : HomeswiftCommon.icon("user"));
     $("#user .user-name").textContent = name;
+    // Under the name in the side menu: what the account is; without sign-in, that alone, never a bare avatar.
+    $("#user .user-role").textContent = auth.mode !== "form" ? t("No sign-in") : isAdmin() ? t("Administrator") : t("User");
+    $("#user .user-chevron").replaceChildren(HomeswiftCommon.icon("selector"));
   }
 
   // Its menu: who is signed in and as what, their account and appearance, the users for an administrator, signing out.
@@ -380,6 +383,8 @@
     // A dialog belongs to the view it opened on (an accessory's sheet, whose menu links to its log): a new view closes
     // it, or it would stay over the next one. The restart overlay outlives views.
     for (const dialog of document.querySelectorAll("dialog[open]")) if (dialog !== restartOverlay) dialog.close();
+    // The Accessories wall's full screen belongs to it: the view draws it again when its address asks (?full=1).
+    document.documentElement.classList.remove("wall-full", "wall-paged", "wall-awake");
     const decode = (part) => { try { return decodeURIComponent(part); } catch { return part; } };
     let [name = "status", ...args] = location.pathname.split("/").filter(Boolean).map(decode);
     // config.json's editor moved into Settings: an old link or bookmark lands there.
@@ -650,7 +655,17 @@
       button: "switch", airQuality: "wind", alarm: "bell", valve: "drop", heaterCooler: "thermo", garageDoor: "gate", airPurifier: "wind" };
     // The ecosystems a fabric's vendor id says it is (Connectivity Standards Alliance vendor ids).
     const matterVendors = { "0x1349": "Apple Home", "0x1384": "Apple Home", "0x6006": "Google Home", "0x1217": "Alexa" };
-    const matterIcon = (node) => matterIcons[node.types?.[0]] ?? "accessory";
+    // A Dolphin is a pool robot, as on its plugin's page and its widget.
+    const matterIcon = (node) => node.id?.startsWith("DolphinPoolCleaner:") ? "poolRobot" : matterIcons[node.types?.[0]] ?? "accessory";
+    // What Matter needs of the network, folded: under a code waiting to be scanned, and under a device that did not
+    // start. The ports are the bridge's and the next ones, which devices of their own take.
+    const matterNetworkHelp = () => {
+      const port = matter?.port ?? 5540;
+      return el("details", { class: "matter-help" }, el("summary", { text: t("Stuck on Setting Up?") }),
+        el("p", { class: "muted", text: t("Matter controllers reach devices over IPv6: this machine needs IPv6 on (on a Synology: Control Panel, Network, Network Interface), and host networking in Docker.") }),
+        el("p", { class: "muted", text: t("A firewall on this machine must let UDP in from IPv6 addresses too: ports {ports} and 5353 (mDNS), from All. A rule for the IPv4 subnet alone leaves the Home app on Setting Up…", { ports: `${port}–${port + 10}` }) }),
+        el("p", { class: "muted", text: t("Apple Home also needs a home hub (an Apple TV or a HomePod) on the same network.") }));
+    };
     const matterParts = (node, own, refresh) => {
       const base = own ? `/api/matter/devices/${encodeURIComponent(node.id)}` : "/api/matter";
       const fabrics = node.fabrics || [];
@@ -704,6 +719,8 @@
             el("p", { text: own ? t("In the Home app (or another ecosystem's): add an accessory, then scan this code or type it.")
               : t("In the ecosystem's app: add a Matter device, then scan this code or type it.") }),
             el("div", { class: "code", text: node.pairing.manualCode.replace(/^(\d{4})(\d{3})(\d{4})$/, "$1-$2-$3") })))
+          : null,
+        node.pairing ? matterNetworkHelp()
           : admin ? (() => {
             // What it does, under it (a phone shows no hover text): Matter lets several apps share a device, each
             // adding it with its own code.
@@ -726,6 +743,24 @@
       const parts = matterParts(node, own, () => redrawMatter?.());
       return own ? deviceRow(parts, `matter-${slug(node.id)}`, open) : serverCard(parts, "matter");
     };
+    // A device of its own whose node did not start (no IPv6, most often): its row says why, and offers to take it off.
+    const failedMatterRow = (device, open) => deviceRow({
+      head: [tile("warning", "heat"),
+        el("div", { class: "who" }, el("strong", { text: device.name }), el("div", { class: "muted", text: t("Matter device of its own") })),
+        el("span", { class: "pill status bad", text: t("Not started") })],
+      body: () => [
+        el("p", { class: "error", text: device.noIPv6
+          ? t("Matter needs IPv6, and this machine has none. Turn IPv6 on (on a Synology: Control Panel, Network, Network Interface), then restart homeswift.")
+          : t("Matter could not start this device: {error}", { error: device.error }) }),
+        matterNetworkHelp(),
+        isAdmin() ? el("div", { class: "actions" },
+          el("button", { type: "button", class: "link danger", actionIcon: "close", text: t("Take off Matter"), onclick: (event) => HomeswiftCommon.busyButton(event.currentTarget, async () => {
+            await api(`/api/matter/devices/${encodeURIComponent(device.id)}`, { method: "PUT", body: { own: false } });
+            matterOwn.delete(device.id);
+            await redrawMatter?.();
+          }) })) : null],
+      search: device.name,
+    }, `matter-${slug(device.id)}`, open);
 
     // Accessories and Matter devices of their own, one line each, those waiting to be added first: a home may have a
     // hundred, which cards would bury the bridges under. Built on each draw (Customise draws the section again, and a
@@ -742,7 +777,10 @@
         const ecosystems = (device.fabrics || []).length;
         return { name: device.name, id: `matter-${slug(device.id)}`, kind: "matter", ecosystems, waiting: !ecosystems, make: (open) => matterNode(device, true, open) };
       });
-      const entries = [...external, ...own];
+      // Not started: first, so the reason is in view.
+      const failed = !matter?.enabled ? [] : (matter.failedDevices || []).map((device) =>
+        ({ name: device.name, id: `matter-${slug(device.id)}`, kind: "matter", ecosystems: 0, waiting: true, make: (open) => failedMatterRow(device, open) }));
+      const entries = [...failed, ...external, ...own];
       if (!entries.length) return null;
       const waiting = entries.filter((entry) => entry.waiting).length;
       const list = el("div", { class: "device-rows" });
@@ -773,8 +811,10 @@
 
     // The page is widgets the user can hide and order (Customise, at the bottom; Glass UI's dashboard layout),
     // drawn only when shown: the activity charts load nothing while hidden.
+    // The overview's update card, which an install from the footer redraws.
+    let overviewUpdate = null;
     const widgets = {
-      overview: () => [updateCard(status.update, { changed: (next) => updateChanged(next) }),
+      overview: () => [overviewUpdate = updateCard(status.update, { changed: (next) => updateChanged(next) }),
       // Each figure with its glyph; on a phone the four share one row, "Home app controllers" shortened.
       el("div", { class: "stats" },
         el("a", { class: "stat", href: "/accessories" }, tile("bulb", "yellow"), el("b", { text: status.bridges.reduce((sum, bridge) => sum + bridge.accessories, 0) }), el("span", { text: t("Accessories") })),
@@ -809,18 +849,24 @@
     let footerUpdate = status.update;
     // Installed but not running yet: Homebrew upgraded it, a relaunch starts it.
     const relaunchPending = () => updatePhase(footerUpdate) === "installed";
-    const footerLabels = { error: () => t("Try again"), installing: () => t("Installing…"), relaunching: () => t("Relaunching…"), installed: () => t("Relaunch to update"),
+    const footerLabels = { error: () => t("Try again"), installing: () => updateProgressLabel(footerUpdate), relaunching: () => t("Relaunching…"), installed: () => t("Relaunch to update"),
       available: () => footerUpdate.canInstall ? t("Install update") : t("Update available"), current: () => t("Up to date"), idle: () => t("Check for updates") };
     /// The footer's button as `phase` says (a failed check first), or `label` while it checks.
     const renderUpdate = (phase = footerUpdate?.error ? "error" : updatePhase(footerUpdate), label = footerLabels[phase]()) => {
       const state = phase === "installing" || phase === "relaunching" ? "checking" : phase;
       checkUpdates.dataset.updateState = state;
+      // The button fills as the download goes, when the bridge knows how far.
+      const fraction = phase === "installing" && footerUpdate?.progress?.phase === "downloading" ? footerUpdate.progress.fraction : null;
+      if (fraction == null) checkUpdates.style.removeProperty("--update-progress");
+      else checkUpdates.style.setProperty("--update-progress", `${Math.round(fraction * 100)}%`);
       checkUpdates.replaceChildren(HomeswiftCommon.icon(({ current: "check", available: "download", installed: "power", error: "warning" })[state] || "restore"),
         el("span", { class: "footer-update-label", text: label }));
     };
     // The overview's card and the sheet both tell the footer what an install is doing.
     const updateChanged = (next) => {
       footerUpdate = next;
+      // The overview's card follows an install the footer started.
+      if (overviewUpdate?.isConnected && next?.available) overviewUpdate.show?.(next);
       checkUpdates.disabled = Boolean(next.installing || next.relaunching);
       renderUpdate();
     };
@@ -829,6 +875,8 @@
       el("button", { actionIcon: "close", type: "button", text: t("Close"), onclick: () => done() })), "update-check-title", { returnFocus: checkUpdates });
     const checkUpdates = el("button", { type: "button", class: "link footer-update-check", "aria-live": "polite", onclick: async (event) => {
       if (relaunchPending()) { restartBridge(event); return; }
+      // An update this bridge installs itself: here, its progress in this button, then the restart.
+      if (footerUpdate?.available && footerUpdate.canInstall && isAdmin() && !footerUpdate.error) { installUpdate(checkUpdates, footerUpdate, updateChanged); return; }
       if (footerUpdate?.available && !footerUpdate.error) { showUpdate(); return; }
       checkUpdates.disabled = true;
       renderUpdate("checking", t("Checking…"));
@@ -1058,7 +1106,7 @@
   /// `embedded` leaves out the card and its heading, for a page whose own heading says it (Settings › Updates).
   function updateCard(update, { changed = () => {}, embedded = false } = {}) {
     if (!update?.available) return null;
-    const card = el("div", { class: embedded ? "update-card update-details" : "card update-card" });
+    const card = el("div", { class: embedded ? "update-card update-details" : "card update-card update-hero-card" });
     const fill = () => card.replaceChildren(...updateCardContent(update, draw, embedded).filter(Boolean));
     const draw = (next) => {
       update = next;
@@ -1066,6 +1114,8 @@
       fill();
     };
     fill();
+    // Another control installing it (the footer's button) shows its progress here too, without calling `changed` back.
+    card.show = (next) => { if (next !== update) { update = next; fill(); } };
     return card;
   }
 
@@ -1096,10 +1146,35 @@
     const spinner = () => el("span", { class: "spinner", "aria-hidden": "true" });
     const progress = (glyph, text) => el("p", { class: "update-progress", role: "status" }, glyph, el("span", { text }));
     const status = {
-      installing: () => progress(spinner(), t("Installing Homeswift {version}… The bridge restarts when it is done.", { version: update.installing })),
+      installing: () => installProgress(update),
       relaunching: () => progress(spinner(), t("Restarting into Homeswift {version}…", { version: update.installed })),
       installed: () => progress(HomeswiftCommon.icon("check"), t("Homeswift {version} is installed. Relaunch to start it.", { version: update.installed })),
     }[phase]?.() ?? null;
+    // The Status page's card as a hero: the new version large, what this one is, one line, and its action at the right.
+    if (!embedded) {
+      const days = update.publishedAt ? Math.max(0, Math.round((Date.now() - new Date(update.publishedAt)) / 86400000)) : null;
+      const when = days == null ? null : new Intl.RelativeTimeFormat(HomeswiftI18n.locale, { numeric: "auto" }).format(-days, "day");
+      const installable = update.canInstall && isAdmin();
+      const action = phase === "installed" && isAdmin() ? el("button", { class: "primary", type: "button", actionIcon: "power", text: t("Relaunch now"), onclick: restartBridge })
+        : installable ? el("button", { class: "primary", type: "button", actionIcon: "download", text: t("Update and restart"), onclick: (event) => installUpdate(event.currentTarget, update, draw) })
+        : update.download ? el("a", { class: "button primary", href: update.download.url, rel: "noopener", title: update.download.name, actionIcon: "download", text: t("Download the package") })
+        : null;
+      return [
+        el("div", { class: "update-hero" },
+          el("div", { class: "update-hero-text" },
+            el("span", { class: "update-hero-kicker", text: t("A new version") }),
+            el("strong", { class: "update-hero-version", text: update.latest }),
+            el("span", { class: "update-hero-meta", text: when ? t("You run {version} · released {when}", { version: update.current, when }) : t("You run {version}", { version: update.current }) }),
+            underway ? null : el("p", { text: installable ? t("Pairings, scenes and the vault are kept; the bridge restarts on its own.") : HomeswiftI18n.message(update.how) })),
+          underway || !action ? null : el("div", { class: "update-hero-action" }, action)),
+        status,
+        update.installError ? el("p", { class: "error", role: "alert", text: t("Could not install the update: {error}", { error: update.installError }) }) : null,
+        underway || installable ? null : command,
+        el("div", { class: "update-hero-links" },
+          update.notes ? el("details", { class: "more-options" }, el("summary", { text: t("What's new") }), markdown(update.notes)) : null,
+          el("a", { class: "update-hero-link", href: update.url, target: "_blank", rel: "noopener" }, HomeswiftCommon.icon("open"), el("span", { text: t("On GitHub") }))),
+      ];
+    }
     return [
       embedded ? null : el("div", { class: "server-head" },
         tile("update", "green"),
@@ -1120,10 +1195,31 @@
     ];
   }
 
+  /// What an install is doing, from the bridge's `progress`: downloading (the share done when the size is known),
+  /// then installing; the words "Downloading 42 %" for the footer's button.
+  function updateProgressLabel(update) {
+    const fraction = update?.progress?.fraction;
+    if (update?.progress?.phase === "installing") return t("Installing…");
+    return fraction == null ? t("Downloading…") : t("Downloading {percent} %", { percent: Math.round(fraction * 100) });
+  }
+  /// The card's line while an update installs: what it does, how far, and a bar (a pulse while the share is unknown).
+  function installProgress(update) {
+    const installing = update.progress?.phase === "installing";
+    const fraction = installing ? null : update.progress?.fraction;
+    const percent = fraction == null ? null : Math.round(fraction * 100);
+    const text = installing ? t("Installing Homeswift {version}… The bridge restarts when it is done.", { version: update.installing })
+      : t("Downloading Homeswift {version}…", { version: update.installing });
+    return el("div", { class: "update-install", role: "status" },
+      el("div", { class: "update-install-head" }, el("span", { text }), percent == null ? null : el("b", { text: `${percent} %` })),
+      el("div", { class: `progress-bar${percent == null ? " indeterminate" : ""}`, role: "progressbar", "aria-label": text,
+        "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": percent == null ? null : String(percent) },
+        el("span", { style: percent == null ? null : `width: ${percent}%` })));
+  }
+
   /// Asks the bridge to install the latest release and relaunch, then follows it: the card shows the install, and the
   /// restart's overlay takes over once the bridge goes down to start the new version.
   async function installUpdate(button, update, draw) {
-    if (!await confirmRestart({ title: t("Install Homeswift {version}?", { version: update.latest }), confirm: t("Install and relaunch"), icon: "download",
+    if (!await confirmRestart({ title: t("Update to Homeswift {version}?", { version: update.latest }), confirm: t("Update and restart"), icon: "download",
       text: t("Homeswift installs the update, then restarts. Your accessories will disconnect briefly; this page reconnects when the new version is ready.") })) return;
     button.disabled = true;
     const started = Date.now();
@@ -1140,7 +1236,7 @@
     let shown = JSON.stringify(state);
     // An upgrade fetches and may build: minutes, at most the installer's half hour.
     while (state.installing) {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
       try {
         state = await api("/api/updates");
       } catch (e) {
@@ -1673,7 +1769,8 @@
   // The accessories that are Matter devices of their own (/api/matter), for their menus: the pages with accessory
   // menus (Accessories, Status's quick section) keep it current.
   let matterOwn = new Set();
-  const rememberMatterOwn = (matter) => { matterOwn = new Set((matter?.ownDevices || []).map((device) => device.id)); };
+  // One that did not start counts: its menu leads to the row that says why, and takes it off.
+  const rememberMatterOwn = (matter) => { matterOwn = new Set([...(matter?.ownDevices || []), ...(matter?.failedDevices || [])].map((device) => device.id)); };
   const loadMatterOwn = () => api("/api/matter").then(rememberMatterOwn).catch(() => {});
 
   /// An accessory as a Matter device of its own, with its own pairing code (the Status page shows it), or back off.
@@ -1697,6 +1794,19 @@
     ];
   }
 
+  /// Whether the Home app has the accessory: off, HomeKit loses it (and its room, scenes and automations) while
+  /// Homeswift and Matter keep it, so a Matter device of its own can be in Apple Home through Matter alone.
+  function homeKitToggle(accessory) {
+    const visible = !accessory.hiddenFromHomeKit;
+    return { label: t("Visible in Home app"), icon: "house", checked: visible, checkbox: true, toggle: true, onSelect: async () => {
+      if (visible && !await HomeswiftCommon.confirmDialog(t("{name} leaves the Home app, with its room, scenes and automations. Homeswift and Matter keep it; shown again, the Home app adds it as a new accessory.", { name: accessory.name }))) return;
+      try {
+        await api(`/api/accessories/${encodeURIComponent(accessory.id)}/homekit`, { method: "PUT", body: { visible: !visible } });
+        route();
+      } catch (e) { HomeswiftCommon.showAlert(e.message); }
+    } };
+  }
+
   /// What the menu of an accessory's widget offers, after its sizes.
   /// An accessory's ⋯ menu after All controls, in groups as a context menu orders them: what to look at or do with
   /// it, how it sits on the wall (`arrange`, the wall's size choices, first), then the administrator's way to its
@@ -1714,6 +1824,7 @@
         try { await setPaused(accessory.platform, accessory.platformName, false); route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
       } } : null,
       isAdmin() ? { label: t("Show its log"), icon: "logs", href: `/logs/${accessory.slug ?? encodeURIComponent(accessory.id)}` } : null,
+      isAdmin() && !accessory.mirroredFrom && accessory.platform ? homeKitToggle(accessory) : null,
       ...(isAdmin() && !accessory.mirroredFrom ? matterActions(accessory) : []),
       accessory.platform && isAdmin() ? { label: t("Plugin settings"), icon: "gear", href: `/plugins/${slug(accessory.platformName || accessory.platform)}` } : null,
     ];
@@ -1735,6 +1846,8 @@
     // Hidden accessories (an accessory's ⋯ menu) only with ?hidden=1.
     const showHidden = params.get("hidden") === "1";
     const noResponse = params.get("unavailable") === "1";
+    // Full screen (?full=1): the widgets alone, a room or plugin a page when grouped; an address a wall tablet can open.
+    const fullScreen = params.get("full") === "1";
     // The controllers some accessories mirror (Apple Home, through Wingman): each gets a filter.
     const sources = [...new Set(all.map((accessory) => accessory.mirroredFrom).filter(Boolean))];
     const from = sources.includes(params.get("from")) ? params.get("from") : null;
@@ -2270,6 +2383,7 @@
       ], { keyboard: event.detail === 0, onReorder: saveRoomOrder }) }, HomeswiftCommon.icon("room"), el("span", { text: t("Rooms") }));
 
     function render() {
+      if (fullScreen) editing = false;
       roomOrderButton.classList.toggle("hidden", !editing || !isAdmin() || layout.grouping !== "room" || !rooms.length);
       nodes.clear();
       // By plugin or by room: a section each (by plugin in the order of their names, those of no plugin last; by room
@@ -2309,6 +2423,7 @@
         for (const child of wall.children) arrangeObserver.observe(child);
       }
       filter();
+      if (fullScreen) fullScreenChrome();
     }
 
     const search = el("input", { type: "search", class: "search", placeholder: t("Search accessories"), "aria-label": t("Search accessories") });
@@ -2380,15 +2495,111 @@
     ]);
     more.replaceChildren(HomeswiftCommon.icon("sliders"));
     more.classList.add("accessory-options-button");
+
+    // Full screen: the address says it, so a reload or a tablet's bookmark keeps it; the browser's own full screen too
+    // where it has one (not an iPhone), asked from the click, which it needs.
+    const setFullScreen = (on) => {
+      const next = new URLSearchParams(location.search);
+      if (on) next.set("full", "1"); else next.delete("full");
+      if (on) document.documentElement.requestFullscreen?.().catch(() => {});
+      else if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+      navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
+    };
+    const fullScreenButton = el("button", { type: "button", class: "icon-button accessory-options-button", "aria-label": t("Full screen"), title: t("Full screen"),
+      onclick: () => setFullScreen(true) }, HomeswiftCommon.icon("expand"));
+    // The chrome over the full-screen wall: Close, and when grouped the dots and, with a mouse, the side arrows.
+    const chrome = el("div", { class: "wall-full-chrome" });
+    let page = 0;
+    function fullScreenChrome() {
+      const pages = [...content.children].filter((section) => !section.classList.contains("hidden"));
+      const paged = layout.grouping !== "none" && pages.length > 1;
+      content.classList.toggle("wall-pages", paged);
+      document.documentElement.classList.add("wall-full");
+      document.documentElement.classList.toggle("wall-paged", paged);
+      page = Math.min(page, Math.max(0, pages.length - 1));
+      const go = (index) => {
+        page = Math.max(0, Math.min(pages.length - 1, index));
+        content.scrollTo({ left: page * content.clientWidth });
+      };
+      const dots = pages.map((section, index) => el("button", { type: "button", "aria-label": section.querySelector("h2")?.textContent || t("Page {n}", { n: index + 1 }),
+        onclick: () => go(index) }));
+      const previous = el("button", { type: "button", class: "wall-step previous", "aria-label": t("Previous"), onclick: () => go(page - 1) }, HomeswiftCommon.icon("back"));
+      const next = el("button", { type: "button", class: "wall-step next", "aria-label": t("Next"), onclick: () => go(page + 1) }, HomeswiftCommon.icon("forward"));
+      const mark = () => {
+        dots.forEach((dot, index) => dot.setAttribute("aria-current", String(index === page)));
+        previous.disabled = page === 0;
+        next.disabled = page === pages.length - 1;
+      };
+      content.onscroll = paged ? () => {
+        const now = Math.round(content.scrollLeft / Math.max(1, content.clientWidth));
+        if (now !== page) { page = now; mark(); }
+      } : null;
+      chrome.replaceChildren(optionsButton,
+        ...(paged ? [previous, next, el("div", { class: "wall-dots", role: "group", "aria-label": t("Pages") }, dots)] : []));
+      mark();
+      if (paged) requestAnimationFrame(() => content.scrollTo({ left: page * content.clientWidth, behavior: "instant" }));
+      wake();
+      chrome.go = go;
+    }
+    // The toolbar, out of the way: a panel from the right edge (the bottom on a phone) with the search, the grouping, the
+    // filters and Leave full screen, opened by the one button left on the wall.
+    const openToolbar = () => openSheet((done) => el("div", { class: "wall-full-panel" },
+      el("h2", { id: "wall-full-panel-title", text: t("Accessories") }),
+      search,
+      el("div", { class: "wall-full-groupings", role: "group", "aria-label": t("Group the widgets") }, groupings.map(([value, label, icon]) =>
+        el("button", { type: "button", actionIcon: icon, class: layout.grouping === value ? "primary" : "", "aria-pressed": String(layout.grouping === value), text: label,
+          onclick: () => { page = 0; setGrouping(value); done(); } }))),
+      filters,
+      el("div", { class: "actions" },
+        el("button", { type: "button", actionIcon: "close", text: t("Leave full screen"), onclick: () => { done(); setFullScreen(false); } }),
+        el("button", { type: "button", actionIcon: "check", class: "primary", text: t("Done"), onclick: () => done() }))),
+    "wall-full-panel-title", { returnFocus: optionsButton });
+    const optionsButton = el("button", { type: "button", class: "wall-full-button wall-full-options", "aria-label": t("Accessory options"), "aria-haspopup": "dialog",
+      title: t("Accessory options"), onclick: openToolbar }, HomeswiftCommon.icon("sliders"));
+    // A search from the panel changes which pages there are.
+    search.addEventListener("input", () => { if (fullScreen) fullScreenChrome(); });
+    // The chrome wakes on a touch, the mouse or a key, and fades after a few quiet seconds.
+    let sleepTimer = null;
+    const wake = () => {
+      document.documentElement.classList.add("wall-awake");
+      clearTimeout(sleepTimer);
+      sleepTimer = setTimeout(() => document.documentElement.classList.remove("wall-awake"), 3000);
+    };
+    if (fullScreen) {
+      // Listeners on the window for this view only: each goes once the view has gone.
+      const gone = () => !content.isConnected;
+      const onKey = (event) => {
+        if (gone()) { removeEventListener("keydown", onKey); return; }
+        wake();
+        // A menu or a sheet open has the keys.
+        if (document.querySelector("dialog[open], .menu:not(.closing)") || event.target.closest?.("input, textarea, select")) return;
+        if (event.key === "Escape") { event.preventDefault(); setFullScreen(false); }
+        else if (event.key === "ArrowRight") { event.preventDefault(); chrome.go?.(page + 1); }
+        else if (event.key === "ArrowLeft") { event.preventDefault(); chrome.go?.(page - 1); }
+      };
+      const onPointer = () => { if (gone()) { removeEventListener("pointermove", onPointer); removeEventListener("pointerdown", onPointer); return; } wake(); };
+      // The browser's full screen left with its own Esc: the wall leaves too.
+      const onFullScreen = () => {
+        if (gone()) { document.removeEventListener("fullscreenchange", onFullScreen); return; }
+        if (!document.fullscreenElement) setFullScreen(false);
+      };
+      addEventListener("keydown", onKey);
+      addEventListener("pointermove", onPointer, { passive: true });
+      addEventListener("pointerdown", onPointer, { passive: true });
+      if (document.fullscreenElement) document.addEventListener("fullscreenchange", onFullScreen);
+      // Pages follow the window's width (a tablet turned).
+      const onResize = () => { if (gone()) { removeEventListener("resize", onResize); return; } if (content.classList.contains("wall-pages")) content.scrollTo({ left: page * content.clientWidth, behavior: "instant" }); };
+      addEventListener("resize", onResize);
+    }
     render();
     show(main,
       pageHead(t("Accessories"), !accessories.length ? "" : from ? t("{count} from {source}, which HomeKit has already. Changes here reach your devices.", { count: accessories.length, source: t(from) })
         : servers === 1 ? t("{count} on one server, as the Home app sees them. Changes here reach your devices.", { count: accessories.length })
         : t("{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.", { count: accessories.length, servers }),
-        el("div", { class: "accessories-toolbar" }, search, filters, accessories.length ? edit : null, roomOrderButton, more)),
+        el("div", { class: "accessories-toolbar" }, search, filters, accessories.length ? edit : null, roomOrderButton, more, accessories.length ? fullScreenButton : null)),
       accessoryTabs(""),
       note,
-      accessories.length ? [content, none] : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("bulb")), el("p", { class: "muted", text: all.length ? t("Every accessory is hidden.") : t("No accessories yet. Plugins add them once they reach their devices.") })));
+      accessories.length ? [content, none, fullScreen ? chrome : null] : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("bulb")), el("p", { class: "muted", text: all.length ? t("Every accessory is hidden.") : t("No accessories yet. Plugins add them once they reach their devices.") })));
   };
 
   /// Accessories by plugin: [name, accessories] pairs by the plugin's name, each list by name; those of no
@@ -2424,7 +2635,7 @@
       return el("div", { class: "card server plugin-instance" },
         el("div", { class: "server-head" },
           tile(block.icon ?? (block.system ? "gear" : "plugin"), block.system ? "grey" : "orange"),
-          el("div", { class: "who" }, el("a", { class: "card-title", href: opens }, el("strong", { text: block.platform === "HomeswiftUI" && block.name === "HomeswiftUI" ? "Homeswift UI" : block.name })),
+          el("div", { class: "who" }, el("a", { class: "card-title", href: opens }, el("strong", { text: blockTitle(block) })),
             el("div", { class: "muted", text: [kindName, block.childBridge ? t("child bridge") : null].filter(Boolean).join(" · ") })),
           // In this dense list, running is the usual state: a quiet dot; the others (paused, no plugin, built in) say so
           // in words, as the plugin's own page and the bridges do for every state.
@@ -2436,7 +2647,7 @@
         el("div", { class: "card-foot" },
           el("span", { class: "muted", text: instance?.paused ? t("No calls to its devices; they show No Response in the Home app.")
             : instance ? "" : block.system ? t("A block of the runtime itself.") : plugin ? t("It did not start: the log says why.") : t("No plugin compiled into this homeswift provides this platform.") }),
-          el("div", { class: "plugin-card-actions" }, el("a", { class: "button", href: opens, actionIcon: plugin?.hasPages && instance && !instance.paused ? "open" : "gear", text: plugin?.hasPages && instance && !instance.paused ? t("Open its page") : t("Settings") }), menuButton(t("Actions for {name}", { name: block.name }), () => blockActions(block, plugin, instance)))));
+          el("div", { class: "plugin-card-actions" }, el("a", { class: "button", href: opens, actionIcon: plugin?.hasPages && instance && !instance.paused ? "open" : "gear", text: plugin?.hasPages && instance && !instance.paused ? t("Open its page") : t("Settings") }), menuButton(t("Actions for {name}", { name: blockTitle(block) }), () => blockActions(block, plugin, instance)))));
     };
 
     /// What the menu of a plugin's card offers: its page, the block as a form or as JSON (Expert), pause or
@@ -2461,7 +2672,8 @@
       const used = plugins.blocks.some((block) => block.platform === plugin.platform);
       const card = el("div", { class: "card server catalog" },
         el("div", { class: "server-head" }, tile(plugin.icon ?? "plugin", "orange"),
-          el("div", { class: "who" }, el("strong", { text: plugin.name }), el("div", { class: "muted", text: plugin.platform })),
+          // Under its name, what it brings (`HomeswiftPlugin.summary`, in the catalogs).
+          el("div", { class: "who" }, el("strong", { text: plugin.name }), plugin.summary ? el("div", { class: "muted", text: t(plugin.summary) }) : null),
           used ? el("span", { class: "pill status standby", text: t("In use [used]") }) : null),
         el("div", { class: "actions" }, plugin.hasPages
           // A plugin with its own page sets itself up there (pairing a TV, finding lights), as Homebridge's
@@ -2469,7 +2681,7 @@
           // would leave the page no primary action.
           ? el("button", { actionIcon: "plus", text: used ? t("Add another") : t("Add"), onclick: (event) => addWithPage(plugin, event.currentTarget) })
           : el("a", { class: "button", actionIcon: "plus", href: `/plugins/add/${encodeURIComponent(plugin.platform)}`, text: used ? t("Add another") : t("Add") })));
-      return { card, name: plugin.name, text: `${plugin.name} ${plugin.platform}`, used };
+      return { card, name: plugin.name, text: [plugin.name, plugin.platform, plugin.summary, plugin.summary && t(plugin.summary)].filter(Boolean).join(" "), used };
     });
 
     async function addWithPage(plugin, button) {
@@ -2513,6 +2725,10 @@
   };
 
   /// A block's state pill: its label and tone.
+  /// A block as the pages name it: a built-in block still under its platform's name reads as words ("HomeswiftMatter" is
+  /// Homeswift Matter); any other, its own name.
+  const builtInTitles = { HomeswiftUI: "Homeswift UI", HomeswiftMatter: "Homeswift Matter" };
+  const blockTitle = (block) => (block.name === block.platform && builtInTitles[block.platform]) || block.name;
   const blockState = (block, plugin, instance) => block.system ? [t("Built in"), "standby"] : instance?.paused ? [t("Paused"), "paused"]
     : instance ? [t("Running"), "on"] : plugin ? [t("Not running"), "away"] : [t("No plugin"), "away"];
 
@@ -2757,11 +2973,11 @@
     leaveGuard = async () => !dirty() || isNew || await HomeswiftCommon.confirmDialog(t("Leave without saving your changes?"));
     leaveGuard.quiet = () => isNew || !dirty();
     show(main,
-      breadcrumb([t("Plugins"), "/plugins"], [block.name, isNew ? "/plugins" : settingsLink(block)], [isNew ? t("Add") : hasPage ? t("Expert") : t("Settings")]),
+      breadcrumb([t("Plugins"), "/plugins"], [blockTitle(block), isNew ? "/plugins" : settingsLink(block)], [isNew ? t("Add") : hasPage ? t("Expert") : t("Settings")]),
       el("div", { class: "page-head settings-head" },
         tile(block.icon ?? (block.system ? "gear" : "plugin"), block.system ? "grey" : "orange"),
         el("div", { class: "who" },
-          el("h1", { text: isNew ? t("Add {name}", { name: plugin.name }) : block.name }),
+          el("h1", { text: isNew ? t("Add {name}", { name: plugin.name }) : blockTitle(block) }),
           el("p", { class: "muted", text: [...new Set([plugin ? plugin.name : platform, platform])].filter((part) => part !== block.name).concat(
             instance ? [tn("{n} accessory on {bridge}", "{n} accessories on {bridge}", instance.accessories, { bridge: instance.bridge })] : []).join(" · ") })),
         el("div", { class: "tools" }, el("span", { class: `pill status ${kind}`, text: state }))),
