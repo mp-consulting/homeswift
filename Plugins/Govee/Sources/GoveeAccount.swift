@@ -13,20 +13,48 @@ struct AccountCredentials: Sendable, Equatable, Codable {
     var iotPass: String
 }
 
-/// Keeps the account token and the AWS IoT certificate between launches (`connection/credentials.ts`), both
-/// readable by the owner only: `credentials.json` and `govee.pfx` in the plugin's directory.
+/// What the vault keeps of the account (the instance's account credentials, `context.credentials()`): the login a
+/// sign-in gave and the AWS IoT certificate, and the password when Setup signed in, so a refused token can be renewed.
+struct StoredLogin: Sendable, Equatable, Codable {
+    var username: String
+    /// Set by Setup, which takes it out of config.json; nil for a login the block's password gave.
+    var password: String?
+    var credentials: AccountCredentials?
+    /// The account's AWS IoT client certificate and key, base64 PKCS#12.
+    var iot: String?
+}
+
+/// Keeps the account token and the AWS IoT certificate between launches (`connection/credentials.ts`), in the vault as
+/// the account's credentials. `credentials.json` and `govee.pfx`, the owner-only files of the plugin's directory they
+/// were kept in before, move into the vault the first time they are read.
 struct CredentialStore: Sendable {
-    let directory: URL
+    let context: PluginContext
     let username: String
     let logger: Logger
 
-    var credentialsFile: URL { directory.appendingPathComponent("credentials.json") }
-    /// The account's AWS IoT client certificate and key (PKCS#12).
-    var iotFile: URL { directory.appendingPathComponent("govee.pfx") }
+    var directory: URL { context.storageDirectory }
+    /// Before the vault: `{"username", "credentials"}`.
+    var legacyCredentialsFile: URL { directory.appendingPathComponent("credentials.json") }
+    /// Before the vault: the certificate, PKCS#12.
+    var legacyIoTFile: URL { directory.appendingPathComponent("govee.pfx") }
 
-    private struct Stored: Codable {
+    private struct LegacyStored: Codable {
         var username: String
         var credentials: AccountCredentials
+    }
+
+    /// What the vault holds, after moving the legacy files into it.
+    static func stored(_ context: PluginContext) -> StoredLogin? {
+        if let stored = context.credentials(as: StoredLogin.self) { return stored }
+        let directory = context.storageDirectory
+        let file = directory.appendingPathComponent("credentials.json"), certificate = directory.appendingPathComponent("govee.pfx")
+        guard let data = try? Data(contentsOf: file), let legacy = try? JSONDecoder().decode(LegacyStored.self, from: data) else { return nil }
+        let iot = (try? Data(contentsOf: certificate))?.base64EncodedString()
+        let stored = StoredLogin(username: legacy.username, credentials: legacy.credentials, iot: iot)
+        guard (try? context.saveCredentials(stored)) != nil else { return stored }
+        try? FileManager.default.removeItem(at: file)
+        try? FileManager.default.removeItem(at: certificate)
+        return stored
     }
 
     /// The credentials of an earlier login of the same user, or nil when a login is needed (nothing kept,
@@ -34,30 +62,40 @@ struct CredentialStore: Sendable {
     func load() -> AccountCredentials? {
         logger.debug("[HTTP] Checking for cached credentials...")
         do {
-            guard FileManager.default.fileExists(atPath: credentialsFile.path) else { throw StoreError.missing(Lang.accTokenNoExist) }
-            let stored = try JSONDecoder().decode(Stored.self, from: Data(contentsOf: credentialsFile))
+            guard let stored = Self.stored(context), let credentials = stored.credentials else { throw StoreError.missing(Lang.accTokenNoExist) }
             guard stored.username == username else { throw StoreError.missing(Lang.accTokenUserChange) }
-            guard FileManager.default.fileExists(atPath: iotFile.path) else { throw StoreError.missing("iot certificate does not exist") }
+            guard stored.iot != nil else { throw StoreError.missing("iot certificate does not exist") }
             logger.debug("[HTTP] \(Lang.accTokenFromCache).")
-            return stored.credentials
+            return credentials
         } catch {
             logger.debug("[HTTP] Cache not available (\(error)), performing fresh login...")
             return nil
         }
     }
 
-    /// Saves a fresh login and its certificate (base64 PKCS#12).
+    /// Saves a fresh login and its certificate (base64 PKCS#12), keeping the password Setup kept for the same user.
     func save(_ credentials: AccountCredentials, iotCertificate: String) throws {
-        try OwnerOnlyFile.write(Govee.bytes(base64: iotCertificate).data, to: iotFile)
+        let previous = Self.stored(context)
+        let password = previous?.username == username ? previous?.password : nil
         do {
-            try OwnerOnlyFile.write(JSONEncoder().encode(Stored(username: username, credentials: credentials)), to: credentialsFile)
+            try context.saveCredentials(StoredLogin(username: username, password: password, credentials: credentials, iot: iotCertificate))
         } catch {
             logger.warning("[HTTP] \(Lang.accTokenStoreErr) \(error).")
+            throw error
         }
     }
 
-    func clear() {
-        try? FileManager.default.removeItem(at: credentialsFile)
+    /// Forgets the token and the certificate. The password Setup kept stays, so the account is still signed in to.
+    func clear() { Self.clear(context) }
+
+    static func clear(_ context: PluginContext) {
+        try? FileManager.default.removeItem(at: context.storageDirectory.appendingPathComponent("credentials.json"))
+        try? FileManager.default.removeItem(at: context.storageDirectory.appendingPathComponent("govee.pfx"))
+        guard var stored = context.credentials(as: StoredLogin.self) else { return }
+        guard stored.password != nil else { return context.removeCredentials() }
+        stored.credentials = nil
+        stored.iot = nil
+        try? context.saveCredentials(stored)
     }
 
     /// Written once a Homebridge login was imported, so it is imported once (Clear Cache leaves it).
@@ -84,18 +122,19 @@ struct CredentialStore: Sendable {
         }
         let credentials = AccountCredentials(topic: parts[0], token: parts[1], accountId: parts[3], endpoint: parts[4], iotPass: parts[5])
         do {
-            try OwnerOnlyFile.write(certificate, to: iotFile)
-            try OwnerOnlyFile.write(JSONEncoder().encode(Stored(username: username, credentials: credentials)), to: credentialsFile)
+            try save(credentials, iotCertificate: certificate.base64EncodedString())
             try OwnerOnlyFile.write(Data(storagePath.path.utf8), to: importMarker)
         } catch {
-            logger.warning("[HTTP] \(Lang.accTokenStoreErr) \(error).")
             return nil
         }
         logger.info("[HTTP] imported the Homebridge plugin's login from \(storagePath.path).")
         return credentials
     }
 
-    func certificate() throws -> Data { try Data(contentsOf: iotFile) }
+    func certificate() throws -> Data {
+        guard let iot = Self.stored(context)?.iot else { throw StoreError.missing("iot certificate does not exist") }
+        return Govee.bytes(base64: iot).data
+    }
 
     enum StoreError: Error, CustomStringConvertible {
         case missing(String)

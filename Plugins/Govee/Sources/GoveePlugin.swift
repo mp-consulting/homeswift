@@ -73,7 +73,7 @@ public actor GoveePlugin: HomeswiftPlugin {
     private let adaptiveLighting: AdaptiveLightingFactory
     private var logger: Logger { context.logger }
     nonisolated let debug: DebugLog
-    private let deviceSettings: [String: DeviceSettings]
+    let deviceSettings: [String: DeviceSettings]
     private let ignoredDevices: Set<String>
 
     private(set) var account: GoveeAccount?
@@ -117,11 +117,25 @@ public actor GoveePlugin: HomeswiftPlugin {
         self.dependencies = dependencies
         adaptiveLighting = Self.adaptiveLighting(context: context)
         debug = DebugLog(logger: context.logger, raised: configuration.debug)
-        let settings = configuration.devices
+        let settings = Self.deviceSettings(configuration, context)
         deviceSettings = settings
         ignoredDevices = Set(settings.filter { $0.value.ignoreDevice }.keys)
         queue = CommandQueue(interval: dependencies.bleQueueInterval ?? configuration.bleQueueInterval)
         store = context.persistedDictionary("device-state.json")
+    }
+
+    /// The devices' settings: the entries of the `…Devices` arrays, with each device's Accessory Settings over them (its
+    /// name as its `label`); a device set up through Setup has only the latter.
+    static func deviceSettings(_ configuration: Configuration, _ context: PluginContext) -> [String: DeviceSettings] {
+        var settings = configuration.devices
+        for (deviceID, accessory) in context.allAccessorySettings {
+            let id = Govee.parseDeviceId(deviceID)
+            var fields = settings[id]?.raw.objectValue ?? [:]
+            fields.merge(accessory.plugin) { $1 }
+            if let name = accessory.name { fields["label"] = .string(name) }
+            settings[id] = DeviceSettings(raw: .object(fields), list: settings[id]?.list)
+        }
+        return settings
     }
 
     /// Homeswift's `AdaptiveLightingController` in automatic mode, as the Homebridge plugin used HAP-NodeJS's,
@@ -221,14 +235,15 @@ public actor GoveePlugin: HomeswiftPlugin {
 
     private func setUpHTTPAndAWS() async {
         debug("[HTTP] Setting up HTTP and AWS clients...")
-        guard let username = configuration.username, let password = configuration.password else {
+        guard let signIn = accountLogin() else {
             debug("[HTTP] No username or password configured")
             logger.warning("[HTTP] \(Lang.disableClient) \(Lang.noCreds).")
             return
         }
+        let username = signIn.username
         let api = GoveeAPI(transport: dependencies.http, clientId: GoveeAPI.clientId(username: username))
-        let account = GoveeAccount(api: api, username: username, password: password, code: configuration.code, logger: logger, retryDelay: dependencies.retryDelay)
-        let store = CredentialStore(directory: context.storageDirectory, username: username, logger: logger)
+        let account = GoveeAccount(api: api, username: username, password: signIn.password, code: signIn.code, logger: logger, retryDelay: dependencies.retryDelay)
+        let store = CredentialStore(context: context, username: username, logger: logger)
         self.account = account
         credentialStore = store
         do {
@@ -364,8 +379,14 @@ public actor GoveePlugin: HomeswiftPlugin {
 
     // MARK: Devices
 
-    /// Devices the user left out: one by one (`ignoreDevice`), or every Matter model with `ignoreMatter`.
+    /// Devices the user left out: Excluded in their Accessory Settings, and the Homebridge shapes: one by one
+    /// (`ignoreDevice`), or every Matter model with `ignoreMatter`.
     func isIgnored(_ id: String, model: String?) -> Bool {
+        context.isExcluded(id) || isIgnoredBySettings(id, model: model)
+    }
+
+    /// Left out by the block's own settings (`ignoreDevice`, `ignoreMatter`), which Setup shows as such.
+    func isIgnoredBySettings(_ id: String, model: String?) -> Bool {
         ignoredDevices.contains(id) || (configuration.ignoreMatter && model.map { GoveeConstants.matterModels.contains($0.uppercased()) } == true)
     }
 
@@ -498,7 +519,7 @@ public actor GoveePlugin: HomeswiftPlugin {
             let model = device["sku"]?.stringValue ?? ""
             var entry: [String: JSONValue] = [
                 "deviceId": .string(id), "deviceName": .string(device["deviceName"]?.stringValue ?? ""), "model": .string(model),
-                "deviceType": .string(DeviceConfigKey(model: model).rawValue),
+                "deviceType": .string(DeviceConfigKey(model: model).rawValue), "account": true,
             ]
             // The LAN address, for the page's picker when the device was found there too.
             if let ip = lanDevices.first(where: { $0.device == id })?.ip { entry["ip"] = .string(ip) }

@@ -176,9 +176,11 @@ extension PluginHost {
         // AWS: subscribed to the account topic, and asked the light for its status.
         #expect(await eventually { environment.mqtt.published.contains { $0.topic == "GD/light-topic" && $0.payload["msg"]?["cmd"] == "status" } })
         #expect(environment.mqtt.subscribed == ["account-topic"])
-        // The login and certificate are kept, owner-only.
+        // The login and certificate are kept in the vault, as the account's credentials.
         let storage = environment.directory.appendingPathComponent("plugins/Govee-Govee")
-        #expect(FileManager.default.fileExists(atPath: storage.appendingPathComponent("govee.pfx").path))
+        let kept = try #require(host.context(platform: GoveePlugin.platform, name: GoveePlugin.name)?.credentials(as: StoredLogin.self))
+        #expect(kept.username == "user@example.com" && kept.password == nil && kept.credentials?.token == "token-1" && kept.iot?.isEmpty == false)
+        #expect(!FileManager.default.fileExists(atPath: storage.appendingPathComponent("govee.pfx").path))
         #expect(FileManager.default.fileExists(atPath: storage.appendingPathComponent("discovered-devices.json").path))
         // The settings page's list of discovered devices.
         let cached = try await plugin.handleWebRequest(PluginWebRequest(method: "GET", path: "cached-devices", user: "me"))
@@ -394,6 +396,7 @@ extension PluginHost {
         let storage = environment.directory.appendingPathComponent("plugins/Govee-Govee")
         #expect(!FileManager.default.fileExists(atPath: storage.appendingPathComponent("govee.pfx").path))
         #expect(!FileManager.default.fileExists(atPath: storage.appendingPathComponent("credentials.json").path))
+        #expect(host.context(platform: GoveePlugin.platform, name: GoveePlugin.name)?.credentials() == nil)
         // The running instance forgets too: the next change does not write the old state back.
         #expect(await plugin.store.values.isEmpty)
         #expect(!FileManager.default.fileExists(atPath: storage.appendingPathComponent("device-state.json").path))
@@ -584,9 +587,8 @@ extension PluginHost {
 
         // The kept login cleared (as Clear Cache does): the next start logs in rather than import again.
         let files = FileManager.default.subpaths(atPath: environment.directory.path) ?? []
-        let marker = try #require(files.first { $0.hasSuffix("homebridge-import") })
-        let pluginDirectory = environment.directory.appendingPathComponent(marker).deletingLastPathComponent()
-        for name in ["credentials.json", "govee.pfx"] { try FileManager.default.removeItem(at: pluginDirectory.appendingPathComponent(name)) }
+        #expect(files.contains { $0.hasSuffix("homebridge-import") })
+        host.context(platform: GoveePlugin.platform, name: GoveePlugin.name)?.removeCredentials()
         let again = try await environment.start(settings)
         defer { Task { await again.stop() } }
         #expect(environment.govee.requests(to: Self.loginPath).count == 1)
