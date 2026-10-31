@@ -1929,7 +1929,132 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // Under the name in the side menu: what the account is; without sign-in, that alone, never a bare avatar.
     $("#user .user-role").textContent = auth.mode !== "form" ? t("No sign-in") : isAdmin() ? t("Administrator") : t("User");
     $("#user .user-chevron").replaceChildren(HomeswiftCommon.icon("selector"));
+    $("#user .user-burger").replaceChildren(HomeswiftCommon.icon("menu"));
+    // A wide window's side menu has no account button: its menu's entries are You's, under Home's sections.
+    const form = auth.mode === "form";
+    const item = (glyph, text, onclick) => el("button", { type: "button", class: "side-action", onclick }, glyph, el("span", { text }));
+    $("header nav.side-you").replaceChildren(...[
+      el("a", { href: "/account" }, HomeswiftCommon.icon("user"), el("span", { text: form ? t("Your account") : t("Account") })),
+      el("a", { href: "/appearance" }, HomeswiftCommon.icon("sun"), el("span", { text: t("Appearance") })),
+      form && isAdmin() ? el("a", { href: "/users" }, HomeswiftCommon.icon("users"), el("span", { text: t("Users and tokens") })) : null,
+      item(HomeswiftCommon.icon("globe"), t("Language"), (event) => languageMenu(event.currentTarget)),
+      form ? item(HomeswiftCommon.icon("logout"), t("Sign out"), signOut) : null].filter(Boolean));
+    for (const link of document.querySelectorAll("header nav.side-you a")) {
+      const current = link.getAttribute("href") === `/${location.pathname.split("/")[1]}`;
+      link.classList.toggle("active", current);
+      if (current) link.setAttribute("aria-current", "page");
+    }
   }
+
+  // ---- Homeswift itself: its health, version, update and Send feedback -------------------------------------------
+  // At the side menu's foot on a wide window, folded under one line; on a narrower one, in the Status page's footer.
+  // One state, drawn in each place that shows it.
+
+  let aboutStatus = null, aboutUpdate = null;
+  // The Status page's update card, which an install from another control redraws.
+  let overviewUpdate = null;
+
+  /// Homeswift's health in a few words, and its tone (on, away).
+  function healthOf(status) {
+    const waiting = status.bridges.filter((bridge) => !bridge.paired).length;
+    return status.restartNeeded ? [t("Running; some changes need a restart"), "away"]
+      : waiting ? [tn("Running; one server waits to be added in the Home app", "Running; {n} servers wait to be added in the Home app", waiting), "away"]
+      : [t("Running, and everything is in the Home app"), "on"];
+  }
+
+  const updateLabels = { error: () => t("Try again"), installing: () => updateProgressLabel(aboutUpdate), relaunching: () => t("Relaunching…"), installed: () => t("Relaunch to update"),
+    available: () => aboutUpdate.canInstall ? t("Install update") : t("Update available"), current: () => t("Up to date"), idle: () => t("Check for updates") };
+
+  /// Every update button as `phase` says (a failed check first), or `label` while it checks; the side menu's line
+  /// marks an update waiting.
+  function renderUpdateButtons(phase = aboutUpdate?.error ? "error" : updatePhase(aboutUpdate), label = updateLabels[phase](), only = null) {
+    const state = phase === "installing" || phase === "relaunching" ? "checking" : phase;
+    // The button fills as the download goes, when the bridge knows how far.
+    const fraction = phase === "installing" && aboutUpdate?.progress?.phase === "downloading" ? aboutUpdate.progress.fraction : null;
+    const buttons = only ? [only] : document.querySelectorAll(".footer-update-check");
+    for (const button of buttons) {
+      button.dataset.updateState = state;
+      button.disabled = state === "checking";
+      if (aboutUpdate?.error) button.title = t("Could not check for updates. Try again.");
+      else button.removeAttribute("title");
+      if (fraction == null) button.style.removeProperty("--update-progress");
+      else button.style.setProperty("--update-progress", `${Math.round(fraction * 100)}%`);
+      button.replaceChildren(HomeswiftCommon.icon(({ current: "check", available: "download", installed: "power", error: "warning" })[state] || "restore"),
+        el("span", { class: "footer-update-label", text: label }));
+    }
+    if (!only) $("#side-about").classList.toggle("has-update", ["available", "installed"].includes(state));
+  }
+
+  // The overview's card, the sheet and the buttons all say what an install is doing.
+  function updateChanged(next) {
+    aboutUpdate = next;
+    if (overviewUpdate?.isConnected && next?.available) overviewUpdate.show?.(next);
+    renderUpdateButtons();
+  }
+
+  /// An update button: checks for one, shows what is new, installs an update the bridge can install itself (its
+  /// progress in the button, then the restart), or relaunches into one Homebrew installed.
+  function updateButton() {
+    const button = el("button", { type: "button", class: "link footer-update-check", "aria-live": "polite", onclick: async (event) => {
+      const showUpdate = () => openSheet((done) => el("div", {},
+        el("h2", { id: "update-check-title", text: t("Updates") }), updateCard(aboutUpdate, { changed: updateChanged }),
+        el("button", { actionIcon: "close", type: "button", text: t("Close"), onclick: () => done() })), "update-check-title", { returnFocus: button });
+      if (updatePhase(aboutUpdate) === "installed") { restartBridge(event); return; }
+      if (aboutUpdate?.available && aboutUpdate.canInstall && !aboutUpdate.error) { installUpdate(button, aboutUpdate, updateChanged); return; }
+      if (aboutUpdate?.available && !aboutUpdate.error) { showUpdate(); return; }
+      renderUpdateButtons("checking", t("Checking…"));
+      try {
+        aboutUpdate = await api("/api/updates/check", { method: "POST", body: {} });
+        if (!aboutUpdate || aboutUpdate.error) throw new Error();
+        if (aboutUpdate.available) showUpdate();
+      } catch {
+        aboutUpdate = { error: true };
+      } finally {
+        renderUpdateButtons();
+      }
+    } });
+    renderUpdateButtons(undefined, undefined, button);
+    return button;
+  }
+
+  /// The health, the version and host with an administrator's update button, and Send feedback: drawn anew for each
+  /// place that shows them.
+  function aboutParts(status) {
+    const [health, kind] = healthOf(status);
+    return {
+      health: el("p", { class: `health ${kind}` }, el("strong", { text: health })),
+      meta: el("div", { class: "status-footer-meta" },
+        el("p", { class: "muted", text: t("Version {version} · {host}", { version: status.version, host: status.system.hostname }) }),
+        isAdmin() ? updateButton() : null),
+      feedback: el("a", { class: "link", href: "https://github.com/mp-consulting/homeswift/issues", target: "_blank", rel: "noopener", title: t("Send feedback"), "aria-label": t("Send feedback"),
+        onclick: (event) => { event.preventDefault(); window.open(event.currentTarget.href, "homeswift-feedback", "popup,noopener,width=1100,height=800"); } },
+        HomeswiftCommon.icon("bug"), el("span", { class: "status-footer-action-label", text: t("Send feedback") })),
+    };
+  }
+
+  /// The side menu's foot: one line (the health's dot, the version, a mark when an update waits) that unfolds into
+  /// the rest, open or folded as the viewer left it.
+  function drawSideAbout(status) {
+    aboutStatus = status;
+    if (status.update) aboutUpdate = status.update;
+    const about = aboutParts(status);
+    const details = $("#side-about");
+    details.replaceChildren(
+      el("summary", {},
+        el("span", { class: `side-about-dot ${healthOf(status)[1]}`, "aria-hidden": "true" }),
+        el("span", { class: "side-about-title", text: t("Homeswift {version}", { version: status.version }) }),
+        el("span", { class: "side-about-badge", role: "img", "aria-label": t("Update available"), title: t("Update available") }),
+        HomeswiftCommon.icon("down")),
+      el("div", { class: "side-about-body" }, about.health, about.meta, about.feedback,
+        // Restarting, in the accent: an administrator's, and not a page like the rest.
+        isAdmin() ? el("button", { type: "button", class: "link side-about-restart", onclick: restartBridge }, HomeswiftCommon.icon("power"), el("span", { text: t("Restart homeswift…") })) : null));
+    details.hidden = false;
+    renderUpdateButtons();
+  }
+  $("#side-about").open = (() => { try { return localStorage.getItem("homeswift.sideAbout") === "open"; } catch { return false; } })();
+  $("#side-about").addEventListener("toggle", (event) => {
+    try { localStorage.setItem("homeswift.sideAbout", event.currentTarget.open ? "open" : "folded"); } catch {}
+  });
 
   // Its menu: who is signed in and as what, their account and appearance, the users for an administrator, signing out.
   $("#user").addEventListener("click", (event) => {
@@ -1939,14 +2064,21 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   document.addEventListener("homeswift-account-menu", (event) => openUserMenu(event.detail.trigger, event.detail.keyboard));
   function openUserMenu(trigger, keyboard = false) {
     const form = auth.mode === "form";
+    const phone = matchMedia("(max-width: 640px)").matches;
     HomeswiftCommon.menu(trigger, [
       form ? { heading: shownName(), detail: isAdmin() ? t("{username} · Administrator", { username: auth.username }) : auth.username } : { heading: t("No sign-in"), detail: t("Anyone who opens this web UI uses it") },
       { label: form ? t("Your account") : t("Account"), icon: "user", href: "/account" },
       { label: t("Appearance"), icon: "sliders", href: "/appearance" },
       form && isAdmin() ? { label: t("Users and tokens"), icon: "users", href: "/users" } : null,
       // A phone's tab bar has no room for Settings: it is here, as the header holds it on a wider window.
-      isAdmin() && matchMedia("(max-width: 640px)").matches ? { label: t("Settings"), icon: "gear", href: "/settings" } : null,
+      phone && isAdmin() ? { label: t("Settings"), icon: "gear", href: "/settings" } : null,
       { label: t("Language"), icon: flag(HomeswiftI18n.language), onSelect: () => setTimeout(() => languageMenu(trigger)) },
+      // On a phone this is the page's menu: Homeswift's health, version and updates are here too (the side menu
+      // holds them on a wide window).
+      ...(phone && aboutStatus ? [{ separator: true },
+        { heading: t("Homeswift {version}", { version: aboutStatus.version }), detail: healthOf(aboutStatus)[0] },
+        isAdmin() ? { label: updateLabels[aboutUpdate?.error ? "error" : updatePhase(aboutUpdate)](), icon: aboutUpdate?.available ? "download" : "update", href: "/settings/updates" } : null,
+        { label: t("Send feedback"), icon: "bug", onSelect: () => window.open("https://github.com/mp-consulting/homeswift/issues", "_blank", "noopener") }] : []),
       // Restarting, apart and in the accent: an administrator's, and not a page like the rest.
       isAdmin() ? { separator: true } : null,
       isAdmin() ? { label: t("Restart homeswift…"), icon: "power", accent: true, onSelect: () => restartBridge() } : null,
@@ -2110,6 +2242,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     $("#auth").classList.add("hidden");
     $("#app").classList.remove("hidden");
     drawUser();
+    // The side menu's Homeswift line, on every page (the Status page draws it again with what it loads).
+    api("/api/status").then(drawSideAbout).catch(() => {});
     HomeswiftCommon.tabBar({ parent: $("#app") });
     // The header's sections take their icons, shown beside their names when a wide window makes the header a side menu.
     for (const link of document.querySelectorAll("header nav a")) {
@@ -2400,10 +2534,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     let matter = firstMatter;
     rememberMatterOwn(matter);
     $("#banner").classList.toggle("hidden", !status.restartNeeded || !isAdmin());
-    const waiting = status.bridges.filter((bridge) => !bridge.paired);
-    const [health, healthKind] = status.restartNeeded ? [t("Running; some changes need a restart"), "away"]
-      : waiting.length ? [tn("Running; one server waits to be added in the Home app", "Running; {n} servers wait to be added in the Home app", waiting.length), "away"]
-      : [t("Running, and everything is in the Home app"), "on"];
     const plugins = new Set(status.bridges.filter((bridge) => !bridge.external).flatMap((bridge) => bridge.platforms));
     const main0 = status.bridges.find((bridge) => !bridge.childBridge && !bridge.external);
 
@@ -2606,8 +2736,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     // The page is widgets the user can hide and order (Customise, at the bottom; Glass UI's dashboard layout),
     // drawn only when shown: the activity charts load nothing while hidden.
-    // The overview's update card, which an install from the footer redraws.
-    let overviewUpdate = null;
     const widgets = {
       overview: () => [overviewUpdate = updateCard(status.update, { changed: (next) => updateChanged(next) }),
       // Each figure with its glyph; on a phone the four share one row, "Home app controllers" shortened.
@@ -2641,63 +2769,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           el("a", { class: "link", href: "/notifications" }, HomeswiftCommon.icon("bell"), el("span", { text: t("Notifications") }))) : null)],
     };
     const sections = new Map();
-    let footerUpdate = status.update;
-    // Installed but not running yet: Homebrew upgraded it, a relaunch starts it.
-    const relaunchPending = () => updatePhase(footerUpdate) === "installed";
-    const footerLabels = { error: () => t("Try again"), installing: () => updateProgressLabel(footerUpdate), relaunching: () => t("Relaunching…"), installed: () => t("Relaunch to update"),
-      available: () => footerUpdate.canInstall ? t("Install update") : t("Update available"), current: () => t("Up to date"), idle: () => t("Check for updates") };
-    /// The footer's button as `phase` says (a failed check first), or `label` while it checks.
-    const renderUpdate = (phase = footerUpdate?.error ? "error" : updatePhase(footerUpdate), label = footerLabels[phase]()) => {
-      const state = phase === "installing" || phase === "relaunching" ? "checking" : phase;
-      checkUpdates.dataset.updateState = state;
-      // The button fills as the download goes, when the bridge knows how far.
-      const fraction = phase === "installing" && footerUpdate?.progress?.phase === "downloading" ? footerUpdate.progress.fraction : null;
-      if (fraction == null) checkUpdates.style.removeProperty("--update-progress");
-      else checkUpdates.style.setProperty("--update-progress", `${Math.round(fraction * 100)}%`);
-      checkUpdates.replaceChildren(HomeswiftCommon.icon(({ current: "check", available: "download", installed: "power", error: "warning" })[state] || "restore"),
-        el("span", { class: "footer-update-label", text: label }));
-    };
-    // The overview's card and the sheet both tell the footer what an install is doing.
-    const updateChanged = (next) => {
-      footerUpdate = next;
-      // The overview's card follows an install the footer started.
-      if (overviewUpdate?.isConnected && next?.available) overviewUpdate.show?.(next);
-      checkUpdates.disabled = Boolean(next.installing || next.relaunching);
-      renderUpdate();
-    };
-    const showUpdate = () => openSheet((done) => el("div", {},
-      el("h2", { id: "update-check-title", text: t("Updates") }), updateCard(footerUpdate, { changed: updateChanged }),
-      el("button", { actionIcon: "close", type: "button", text: t("Close"), onclick: () => done() })), "update-check-title", { returnFocus: checkUpdates });
-    const checkUpdates = el("button", { type: "button", class: "link footer-update-check", "aria-live": "polite", onclick: async (event) => {
-      if (relaunchPending()) { restartBridge(event); return; }
-      // An update this bridge installs itself: here, its progress in this button, then the restart.
-      if (footerUpdate?.available && footerUpdate.canInstall && isAdmin() && !footerUpdate.error) { installUpdate(checkUpdates, footerUpdate, updateChanged); return; }
-      if (footerUpdate?.available && !footerUpdate.error) { showUpdate(); return; }
-      checkUpdates.disabled = true;
-      renderUpdate("checking", t("Checking…"));
-      try {
-        footerUpdate = await api("/api/updates/check", { method: "POST", body: {} });
-        if (!footerUpdate || footerUpdate.error) throw new Error();
-        checkUpdates.removeAttribute("title");
-        if (footerUpdate.available) showUpdate();
-      } catch {
-        footerUpdate = { error: true };
-        checkUpdates.title = t("Could not check for updates. Try again.");
-      } finally {
-        checkUpdates.disabled = false;
-        renderUpdate();
-      }
-    } });
-    renderUpdate();
+    // Homeswift's health, version, update and feedback: in the side menu on a wide window, here on a narrower one
+    // (style.css hides one or the other); Customise stays with the page.
+    drawSideAbout(status);
+    const about = aboutParts(status);
     const footer = el("footer", { class: "actions page-foot status-footer" },
-      el("div", { class: "status-footer-summary" },
-        el("p", { class: `health ${healthKind}` }, el("strong", { text: health })),
-        el("div", { class: "status-footer-meta" },
-          el("p", { class: "muted", text: t("Version {version} · {host}", { version: status.version, host: status.system.hostname }) }),
-          isAdmin() ? checkUpdates : null)),
-      el("a", { class: "link", href: "https://github.com/mp-consulting/homeswift/issues", target: "_blank", rel: "noopener", title: t("Send feedback"), "aria-label": t("Send feedback"),
-        onclick: (event) => { event.preventDefault(); window.open(event.currentTarget.href, "homeswift-feedback", "popup,noopener,width=1100,height=800"); } },
-        HomeswiftCommon.icon("bug"), el("span", { class: "status-footer-action-label", text: t("Send feedback") })),
+      el("div", { class: "status-footer-summary" }, about.health, about.meta), about.feedback,
       el("button", { type: "button", class: "link", "aria-label": t("Customise the Status page"), "aria-haspopup": "menu", "aria-expanded": "false",
         onclick: (event) => customiseDashboard(event.currentTarget, renderDashboard, event.detail === 0) }, HomeswiftCommon.icon("sliders"), el("span", { class: "status-footer-action-label", text: t("Customise this page…") })));
     function renderDashboard(layout) {
@@ -8435,6 +8512,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // The web UI: a browser window with a page of tiles in it.
     browser: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 8.5h18M6 6.25h0M8.5 6.25h0"/><rect x="6.5" y="11.5" width="4.5" height="5" rx="1"/><path d="M14 12.5h3.5M14 15.5h3.5"/>',
     selector: '<path d="M8 9.5l4-4 4 4M8 14.5l4 4 4-4"/>',
+    menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
     sparkle: '<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z"/><path d="M18.5 15.5l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z"/>',
     ungroup: '<rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><path d="M3 9V3h6M3 3l5 5M15 21h6v-6M21 21l-5-5"/>',
     group: '<rect x="3" y="8" width="13" height="13" rx="3"/><path d="M8 8V6a3 3 0 0 1 3-3h7a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3h-2M7 14.5h5M9.5 12v5"/>',
@@ -14617,6 +14695,7 @@ HomeswiftI18n.add("es", {
   "The bridge is in the Home app. To add it again, reset its pairings below, then scan this code.": "El puente está en la app Casa. Para añadirlo de nuevo, restablece sus emparejamientos abajo y escanea este código.",
   "Homeswift is up to date": "Homeswift está actualizado",
   "Homeswift {version} is installed": "Homeswift {version} está instalado",
+  "Homeswift {version}": "Homeswift {version}",
   "Installing Homeswift {version}…": "Instalando Homeswift {version}…",
   "Could not check for updates": "No se pudieron buscar actualizaciones",
   "Not checked yet": "Aún no se ha comprobado",
@@ -17182,6 +17261,7 @@ HomeswiftI18n.add("fr", {
   "The bridge is in the Home app. To add it again, reset its pairings below, then scan this code.": "Le pont est dans l’app Maison. Pour l’ajouter à nouveau, réinitialisez ses jumelages ci-dessous, puis scannez ce code.",
   "Homeswift is up to date": "Homeswift est à jour",
   "Homeswift {version} is installed": "Homeswift {version} est installé",
+  "Homeswift {version}": "Homeswift {version}",
   "Installing Homeswift {version}…": "Installation de Homeswift {version}…",
   "Could not check for updates": "Impossible de rechercher des mises à jour",
   "Not checked yet": "Pas encore vérifié",
@@ -19747,6 +19827,7 @@ HomeswiftI18n.add("pt", {
   "The bridge is in the Home app. To add it again, reset its pairings below, then scan this code.": "A ponte está na app Casa. Para a adicionar de novo, reponha os emparelhamentos abaixo e leia este código.",
   "Homeswift is up to date": "O Homeswift está atualizado",
   "Homeswift {version} is installed": "O Homeswift {version} está instalado",
+  "Homeswift {version}": "Homeswift {version}",
   "Installing Homeswift {version}…": "A instalar o Homeswift {version}…",
   "Could not check for updates": "Não foi possível procurar atualizações",
   "Not checked yet": "Ainda não verificado",
@@ -20485,7 +20566,8 @@ HomeswiftI18n.add("pt", {
       <a href="/appearance" data-i18n>Appearance</a>
     </nav>
     <span class="spacer"></span>
-    <button id="user" type="button" class="user-button" aria-haspopup="menu" aria-expanded="false" aria-label="Account menu" data-i18n><span class="user-avatar" aria-hidden="true"></span><span class="user-text"><span class="user-name"></span><span class="user-role"></span></span><span class="user-chevron" aria-hidden="true"></span></button>
+    <details id="side-about" class="side-about" hidden></details>
+    <button id="user" type="button" class="user-button" aria-haspopup="menu" aria-expanded="false" aria-label="Account menu" data-i18n><span class="user-avatar" aria-hidden="true"></span><span class="user-text"><span class="user-name"></span><span class="user-role"></span></span><span class="user-chevron" aria-hidden="true"></span><span class="user-burger" aria-hidden="true"></span></button>
   </header>
   <div id="banner" class="banner hidden" data-i18n>Some changes need a restart of homeswift. <button id="restart" class="link" data-i18n data-action-icon="power">Restart now</button></div>
   <main id="view"></main>
@@ -20637,7 +20719,7 @@ HomeswiftI18n.add("pt", {
   const prefix = `/api/plugins/${encodeURIComponent(platform)}/${encodeURIComponent(name)}/`;
 
   const { $, el, icon, tile, fact, markdown, sparkle, api, assistantRequest, formatTemperature, temperature } = HomeswiftCommon;
-  const { t } = HomeswiftI18n;
+  const { t, tn } = HomeswiftI18n;
 
   /// This plugin instance's own routes (its handleWebRequest).
   const request = (path, options) => api(prefix + String(path).replace(/^\//, ""), options);
@@ -20735,7 +20817,8 @@ HomeswiftI18n.add("pt", {
     const userName = el("span", { class: "user-name" });
     const userRole = el("span", { class: "user-role", text: t("No sign-in") });
     const user = el("button", { id: "user", type: "button", class: "user-button", "aria-haspopup": "menu", "aria-expanded": "false", "aria-label": t("Account menu") },
-      avatar, el("span", { class: "user-text" }, userName, userRole), el("span", { class: "user-chevron", "aria-hidden": "true" }, HomeswiftCommon.icon("selector")));
+      avatar, el("span", { class: "user-text" }, userName, userRole), el("span", { class: "user-chevron", "aria-hidden": "true" }, HomeswiftCommon.icon("selector")),
+      el("span", { class: "user-burger", "aria-hidden": "true" }, HomeswiftCommon.icon("menu")));
     const shownName = () => (auth.mode === "form" ? (auth.name && auth.name !== auth.username ? auth.name : auth.username || "") : "");
     user.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -20745,24 +20828,62 @@ HomeswiftI18n.add("pt", {
         { label: form ? t("Your account") : t("Account"), icon: "user", href: "/account" },
         { label: t("Appearance"), icon: "sliders", href: "/appearance" },
         form && auth.admin ? { label: t("Users and tokens"), icon: "users", href: "/users" } : null,
+        // On a phone this is the page's menu: Homeswift's health, version and updates are here too.
+        ...(matchMedia("(max-width: 640px)").matches && aboutStatus ? [{ separator: true },
+          { heading: t("Homeswift {version}", { version: aboutStatus.version }), detail: healthOf(aboutStatus)[0] },
+          auth.admin ? { label: aboutStatus.update?.available ? t("Update available") : t("Updates"), icon: "download", href: "/settings/updates" } : null,
+          { label: t("Send feedback"), icon: "bug", onSelect: () => window.open("https://github.com/mp-consulting/homeswift/issues", "_blank", "noopener") }] : []),
         form ? { separator: true } : null,
-        form ? { label: t("Sign out"), icon: "logout", onSelect: async () => {
-          try { await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }); } catch {}
-          location.href = "/";
-        } } : null,
+        form ? { label: t("Sign out"), icon: "logout", onSelect: signOut } : null,
       ], { keyboard: event.detail === 0 });
     });
+    const link = (path, text, glyph) => el("a", { href: path, class: path === "/plugins" ? "active" : "" }, HomeswiftCommon.icon(glyph), el("span", { text }));
+    // You's pages, and the account menu's other entries once the account is known (a wide window's side menu has no
+    // account button).
+    const you = el("nav", { class: "side-you" }, link("/account", t("Account"), "user"), link("/appearance", t("Appearance"), "sun"));
+    const signOut = async () => {
+      try { await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }); } catch {}
+      location.href = "/";
+    };
+    // Homeswift at the side menu's foot, folded under one line, as on the UI's own pages; its updates are on
+    // Settings › Updates.
+    let aboutStatus = null;
+    const healthOf = (status) => {
+      const waiting = status.bridges.filter((bridge) => !bridge.paired).length;
+      return status.restartNeeded ? [t("Running; some changes need a restart"), "away"]
+        : waiting ? [tn("Running; one server waits to be added in the Home app", "Running; {n} servers wait to be added in the Home app", waiting), "away"]
+        : [t("Running, and everything is in the Home app"), "on"];
+    };
+    const about = el("details", { id: "side-about", class: "side-about", hidden: true });
+    try { about.open = localStorage.getItem("homeswift.sideAbout") === "open"; } catch {}
+    about.addEventListener("toggle", () => { try { localStorage.setItem("homeswift.sideAbout", about.open ? "open" : "folded"); } catch {} });
+    const drawAbout = () => {
+      const status = aboutStatus;
+      if (!status) return;
+      const [health, kind] = healthOf(status);
+      about.classList.toggle("has-update", Boolean(status.update?.available));
+      about.replaceChildren(
+        el("summary", {}, el("span", { class: `side-about-dot ${kind}`, "aria-hidden": "true" }),
+          el("span", { class: "side-about-title", text: t("Homeswift {version}", { version: status.version }) }),
+          el("span", { class: "side-about-badge", role: "img", "aria-label": t("Update available"), title: t("Update available") }), HomeswiftCommon.icon("down")),
+        el("div", { class: "side-about-body" },
+          el("p", { class: `health ${kind}` }, el("strong", { text: health })),
+          el("p", { class: "muted", text: t("Version {version} · {host}", { version: status.version, host: status.system.hostname }) }),
+          auth.admin ? el("a", { class: "link", href: "/settings/updates" }, HomeswiftCommon.icon("download"), el("span", { text: status.update?.available ? t("Update available") : t("Updates") })) : null,
+          el("a", { class: "link", href: "https://github.com/mp-consulting/homeswift/issues", target: "_blank", rel: "noopener" }, HomeswiftCommon.icon("bug"), el("span", { text: t("Send feedback") }))));
+      about.hidden = false;
+    };
+    api("/api/status").then((status) => { aboutStatus = status; drawAbout(); }).catch(() => {});
     // The header as index.html has it: in a wide window it is the frame's side menu, with the brand's name, Home's
     // sections and You's pages, each with its icon.
-    const link = (path, text, glyph) => el("a", { href: path, class: path === "/plugins" ? "active" : "" }, HomeswiftCommon.icon(glyph), el("span", { text }));
     header.replaceChildren(
       el("a", { class: "brand", href: "/", "aria-label": "Homeswift", title: "Homeswift" }, el("img", { src: "/icon.svg", class: "logo", alt: "" }),
         el("span", { class: "brand-name", "aria-hidden": "true", text: "Homeswift" })),
       el("span", { class: "side-caption", "aria-hidden": "true", text: t("Home") }),
       el("nav", { "aria-label": t("Sections") }, sections.map(([path, text, glyph]) => link(path, text, glyph))),
       el("span", { class: "side-caption", "aria-hidden": "true", text: t("You") }),
-      el("nav", { class: "side-you" }, link("/account", t("Account"), "user"), link("/appearance", t("Appearance"), "sun")),
-      el("span", { class: "spacer" }), user);
+      you,
+      el("span", { class: "spacer" }), about, user);
     // The page in the app's frame (#app, which the wide layout draws), as the UI's own pages are.
     let app = $("#app");
     if (!app) {
@@ -20785,6 +20906,11 @@ HomeswiftI18n.add("pt", {
       avatar.replaceChildren(auth.mode === "form" && name ? name.slice(0, 1).toUpperCase() : HomeswiftCommon.icon("user"));
       userName.textContent = name;
       userRole.textContent = auth.mode !== "form" ? t("No sign-in") : auth.admin ? t("Administrator") : t("User");
+      const form = auth.mode === "form";
+      you.replaceChildren(...[link("/account", form ? t("Your account") : t("Account"), "user"), link("/appearance", t("Appearance"), "sun"),
+        form && auth.admin ? link("/users", t("Users and tokens"), "users") : null,
+        form ? el("button", { type: "button", class: "side-action", onclick: signOut }, HomeswiftCommon.icon("logout"), el("span", { text: t("Sign out") })) : null].filter(Boolean));
+      drawAbout();
       if (state.liveWebFiles) followWebFiles();
     }).catch(() => {});
   }
@@ -22171,20 +22297,16 @@ header nav a svg { display: none; }
   header nav a svg { display: block; width: 20px; height: 20px; flex: none; }
   header nav a.active svg { color: var(--accent-ink); }
   header .spacer { flex: 1; }
-  /* The account at the menu's foot: a row of its own under a hairline, as a sidebar's account switcher is, with its
-     role under the name and the selector glyph saying it opens a menu; without sign-in, the role alone. */
-  header .user-button, header .user-button:has(.user-name:empty) {
-    position: relative; width: 100%; max-width: none; margin-top: var(--space-16); padding: var(--space-8); gap: var(--space-10);
-    border-radius: var(--radius-md); text-align: left; transition: background-color var(--fast) var(--ease-out), transform var(--fast) var(--ease-out);
+  /* No account button: its entries are You's (drawUser), and Homeswift's section sits at the menu's foot. */
+  header .user-button { display: none; }
+  header nav.side-you .side-action {
+    display: flex; align-items: center; gap: var(--space-12); width: 100%; height: 46px; padding: 0 var(--space-14); border: 1px solid transparent;
+    border-radius: var(--radius-md); background: none; box-shadow: none; color: var(--muted); font: inherit; font-size: var(--text-base);
+    font-weight: var(--weight-medium); text-align: left; transition: background-color var(--fast) var(--ease-out), transform var(--fast) var(--ease-out);
   }
-  header .user-button::before { content: ""; position: absolute; top: calc(-1 * var(--space-8)); left: var(--space-8); right: var(--space-8); border-top: 1px solid var(--line); }
-  header .user-button:active { transform: scale(0.98); }
-  header .user-avatar { width: 34px; height: 34px; }
-  header .user-text { display: grid; gap: 1px; min-width: 0; flex: 1; }
-  header .user-name { font-weight: var(--weight-semibold); }
-  header .user-role { display: block; font-size: var(--text-xs); font-weight: var(--weight-medium); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  header .user-chevron { display: grid; flex: none; color: var(--muted); }
-  header .user-chevron svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  header nav.side-you .side-action:hover { background-color: var(--material-thin); color: var(--text); }
+  header nav.side-you .side-action:active { transform: scale(0.98); }
+  header nav.side-you .side-action svg { display: block; width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   /* The Assistant floats at the window's bottom right, in reach on every page, and its chat opens above it; a save bar
      stops short of it. */
   header .chat-open {
@@ -22213,7 +22335,14 @@ header nav a svg { display: none; }
 .user-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The role and the selector glyph show in the wide window's side menu only; elsewhere the name sits beside the avatar. */
 .user-text { display: contents; }
-.user-role, .user-chevron { display: none; }
+.user-role, .user-chevron, .user-burger { display: none; }
+/* On a phone the account button is the page's menu (the account, Homeswift's health and updates): a hamburger. */
+@media (max-width: 640px) {
+  header .user-button, header .user-button:has(.user-name:empty) { padding: 0; }
+  header .user-button .user-avatar, header .user-button .user-name { display: none; }
+  header .user-burger { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; color: var(--text); }
+  header .user-burger svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+}
 /* Without sign-in there is no name: the avatar alone, round. */
 .user-name:empty { display: none; }
 .user-button:has(.user-name:empty) { padding: 3px; }
@@ -25303,8 +25432,12 @@ main:has(> .status-footer) > .dash-widget:last-of-type { margin-bottom: var(--sp
 main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% - 24px); margin-inline: auto; }
 /* Status details remain visible even when the Overview widget is hidden. */
 /* A quiet utility bar: status first, metadata second, one compact action. */
+/* Dark between a phone and the wide window; the side menu (wide) or the hamburger menu (a phone) holds all but
+   Customise, which then sits quietly at the page's end. */
+@media (min-width: 641px) and (max-width: 1179.98px) {
+  .status-footer { --text: #edf0f5; --muted: #adb6c4; --accent-ink: #f4c49e; --warn: #f1c084; --ok: #75d5a0; --error: #ff9999; }
+}
 .status-footer {
-  --text: #edf0f5; --muted: #adb6c4; --accent-ink: #f4c49e; --warn: #f1c084; --ok: #75d5a0; --error: #ff9999;
   display: flex; justify-content: space-between; align-items: center; flex-wrap: nowrap; gap: var(--space-20);
   width: 100%; flex-shrink: 0; margin: auto 0 0;
   padding: var(--space-12) max(var(--space-16), calc((100% - 1076px) / 2));
@@ -25335,7 +25468,7 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
 }
 
 .status-footer-meta { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--space-4) var(--space-12); }
-.status-footer .footer-update-check { margin: 0; padding: 0; min-height: 24px; font-size: inherit; line-height: inherit; color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; }
+:is(.status-footer, .side-about) .footer-update-check { margin: 0; padding: 0; min-height: 24px; font-size: inherit; line-height: inherit; color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; }
 @media (max-width: 640px) {
   .status-footer-meta { margin-top: var(--space-4); padding-left: var(--space-14); }
   .status-footer-summary .status-footer-meta .muted { margin: 0; padding: 0; }
@@ -25343,7 +25476,7 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
 
 /* Keep the version and its update action on one row, even on narrow screens. */
 .status-footer-meta > .muted { flex: 0 1 auto; max-width: calc(100% - 125px); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.status-footer .footer-update-check { flex: none; white-space: nowrap; }
+:is(.status-footer, .side-about) .footer-update-check { flex: none; white-space: nowrap; }
 @media (max-width: 640px) {
   .status-footer { display: grid; grid-template-columns: minmax(0, 1fr) 40px; gap: var(--space-4) var(--space-12); }
   .status-footer-summary { display: contents; }
@@ -25356,40 +25489,92 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
 /* The update pill keeps to its label, and goes under the version when the row is narrow. */
 .status-footer-meta { flex-wrap: wrap; }
 .status-footer-meta > .muted { max-width: none; }
-.status-footer .footer-update-check {
+:is(.status-footer, .side-about) .footer-update-check {
   padding: 3px var(--space-8); min-height: 28px; border: 1px solid rgba(255,255,255,.2); border-radius: 5px;
   background: rgba(255,255,255,.05); text-decoration: none;
 }
-.status-footer .footer-update-check:hover { background: rgba(255,255,255,.12); }
-.status-footer .footer-update-check:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 3px; }
+:is(.status-footer, .side-about) .footer-update-check:hover { background: rgba(255,255,255,.12); }
+:is(.status-footer, .side-about) .footer-update-check:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 3px; }
 
-.status-footer .footer-update-check[data-update-state="current"] { --update-tone: var(--ok); }
-.status-footer .footer-update-check[data-update-state="available"] { --update-tone: var(--warn); }
-.status-footer .footer-update-check[data-update-state="installed"] { --update-tone: var(--ok); }
-.status-footer .footer-update-check[data-update-state="error"] { --update-tone: var(--error); }
-.status-footer .footer-update-check {
+:is(.status-footer, .side-about) .footer-update-check[data-update-state="current"] { --update-tone: var(--ok); }
+:is(.status-footer, .side-about) .footer-update-check[data-update-state="available"] { --update-tone: var(--warn); }
+:is(.status-footer, .side-about) .footer-update-check[data-update-state="installed"] { --update-tone: var(--ok); }
+:is(.status-footer, .side-about) .footer-update-check[data-update-state="error"] { --update-tone: var(--error); }
+:is(.status-footer, .side-about) .footer-update-check {
   color: var(--update-tone, var(--text));
   border-color: color-mix(in srgb, var(--update-tone, var(--muted)) 45%, transparent);
   background: color-mix(in srgb, var(--update-tone, var(--muted)) 10%, transparent);
 }
-.status-footer .footer-update-check:hover:not(:disabled) {
+:is(.status-footer, .side-about) .footer-update-check:hover:not(:disabled) {
   background: color-mix(in srgb, var(--update-tone, var(--muted)) 20%, transparent);
 }
 
-.status-footer .footer-update-check { display: inline-flex; align-items: center; gap: 5px; }
-.status-footer .footer-update-check svg { width: 14px; height: 14px; flex: none; }
+:is(.status-footer, .side-about) .footer-update-check { display: inline-flex; align-items: center; gap: 5px; }
+:is(.status-footer, .side-about) .footer-update-check svg { width: 14px; height: 14px; flex: none; }
 /* Downloading: the button fills from the left with the share done. */
-.status-footer .footer-update-check[style*="--update-progress"] {
+:is(.status-footer, .side-about) .footer-update-check[style*="--update-progress"] {
   background-image: linear-gradient(90deg, color-mix(in srgb, var(--accent) 38%, transparent) var(--update-progress), transparent var(--update-progress));
   font-variant-numeric: tabular-nums;
 }
-.status-footer .footer-update-check[data-update-state="checking"] svg {
+:is(.status-footer, .side-about) .footer-update-check[data-update-state="checking"] svg {
   transform-origin: center;
   animation: spin .8s linear infinite;
 }
 @media (prefers-reduced-motion: reduce) {
-  .status-footer .footer-update-check[data-update-state="checking"] svg { animation: none; }
+  :is(.status-footer, .side-about) .footer-update-check[data-update-state="checking"] svg { animation: none; }
 }
+
+/* Homeswift at the side menu's foot (a wide window): one quiet line, the health's dot and the version, a dot when an
+   update waits; it unfolds into the health, the host, the update button and Send feedback. */
+.side-about { display: none; }
+@media (max-width: 640px) {
+  .status-footer { display: flex; justify-content: flex-start; padding: var(--space-8) var(--space-16) var(--space-16); border: 0; background: none; color: var(--text); }
+  .status-footer > .status-footer-summary, .status-footer > a.link { display: none; }
+  .status-footer > .link { color: var(--muted); border-color: var(--edge); border-radius: var(--radius-pill); background: var(--material-thin); }
+}
+@media (min-width: 1180px) {
+  .status-footer { justify-content: flex-end; padding: var(--space-8) 0 0; border: 0; background: none; color: var(--text); }
+  .status-footer > .status-footer-summary, .status-footer > a.link { display: none; }
+  .status-footer > .link { color: var(--muted); border-color: var(--edge); border-radius: var(--radius-pill); background: var(--material-thin); padding-inline: var(--space-14); }
+  .status-footer > .link:hover, .status-footer > .link[aria-expanded="true"] { color: var(--text); border-color: var(--edge); background: var(--control); }
+
+  header .side-about { display: block; position: relative; margin-top: var(--space-16); }
+  header .side-about::before { content: ""; position: absolute; top: calc(-1 * var(--space-8)); left: var(--space-8); right: var(--space-8); border-top: 1px solid var(--line); }
+  header .side-about[hidden] { display: none; }
+  .side-about > summary {
+    display: flex; align-items: center; gap: var(--space-10); min-height: 40px; padding: 0 var(--space-12); border-radius: var(--radius-md);
+    list-style: none; cursor: pointer; color: var(--muted); font-size: var(--text-sm); font-weight: var(--weight-medium);
+    transition: background-color var(--fast) var(--ease-out), color var(--fast) var(--ease-out);
+  }
+  .side-about > summary::-webkit-details-marker { display: none; }
+  .side-about > summary:hover, .side-about[open] > summary { color: var(--text); background-color: var(--material-thin); }
+  .side-about > summary:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+  .side-about-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 18%, transparent); }
+  .side-about-dot.away { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 18%, transparent); }
+  .side-about-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .side-about-badge { display: none; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+  .side-about.has-update .side-about-badge { display: block; }
+  .side-about > summary svg { flex: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    transition: transform var(--fast) var(--ease-out); }
+  .side-about[open] > summary svg { transform: rotate(180deg); }
+  .side-about-body { display: grid; gap: var(--space-10); padding: var(--space-10) var(--space-12) var(--space-4); font-size: var(--text-xs); line-height: 1.5; }
+  .side-about[open] .side-about-body { animation: side-about-in 180ms var(--ease-out); }
+  .side-about-body p { margin: 0; }
+  .side-about-body .health { gap: var(--space-8); }
+  .side-about-body .health::before { width: 6px; height: 6px; margin-top: calc(.75em - 3px); }
+  .side-about-body .health strong { font-weight: var(--weight-medium); }
+  .side-about-body .status-footer-meta { display: grid; justify-items: start; gap: var(--space-8); }
+  .side-about-body .status-footer-meta > .muted { white-space: normal; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+  .side-about-body > a.link { display: inline-flex; align-items: center; gap: var(--space-8); justify-self: start; color: var(--muted); text-decoration: none; }
+  .side-about-body > .side-about-restart { display: inline-flex; align-items: center; gap: var(--space-8); justify-self: start; margin: 0; padding: 0; min-height: 0;
+    color: var(--accent-ink); font-size: inherit; font-weight: var(--weight-medium); text-decoration: none; }
+  .side-about-body > .side-about-restart:hover { text-decoration: underline; text-underline-offset: 3px; }
+  .side-about-body > a.link:hover { color: var(--text); }
+  .side-about-body > .side-about-restart svg,
+  .side-about-body > a.link svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+}
+@keyframes side-about-in { from { opacity: 0; transform: translateY(-4px); } }
+@media (prefers-reduced-motion: reduce) { .side-about[open] .side-about-body { animation: none; } .side-about > summary svg { transition: none; } }
 
 .group-box > summary > svg { width: 18px; height: 18px; margin-right: var(--space-8); vertical-align: -3px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 

@@ -42,8 +42,11 @@ The header has the sections (Status, Accessories, Scenes, Plugins, Logs, Setting
 when it is on, and the account menu behind your initial: **Account**, **Appearance**, **Users** (administrators),
 **Language**, then apart and in orange **Restart homeswift…** (administrators), and **Sign out**. In a window 1180 px
 wide or more the app sits in one frame of glass and the header becomes the menu down its
-left: the sections under **Home**, **Account** and **Appearance** under **You**, each with its icon, and the account menu
-at its foot. Every view is an address ([Addresses](#addresses)), so Back and Forward work and a view can be kept or
+left: the sections under **Home**; under **You** the account menu's entries (**Account**, **Appearance**, **Users** for
+administrators, **Language**, **Sign out**), each with its icon, in place of the account button; and at its foot
+**Homeswift** and its version, folded, which unfolds into its health, the machine, the update button, **Send feedback**
+and **Restart homeswift…** (administrators). On a phone the account button is a menu (☰) with those too; between the
+two, the Status page's footer has them. Every view is an address ([Addresses](#addresses)), so Back and Forward work and a view can be kept or
 shared.
 
 ### Status
@@ -82,8 +85,8 @@ When GitHub has a newer release, a card under the summary says so, with its note
 `.spk` to download on a Synology NAS, the image tag to pull in Docker, `brew upgrade` or the tag to check out. The
 bridge asks GitHub's API a minute after it starts and then twice a day, sending only its version (`ReleaseWatcher`);
 `"checkForUpdates": false` turns it off. On a Homebrew install an administrator's **Install and relaunch** runs
-`brew upgrade homeswift` and restarts into the new binary (Homebrew's `opt/homeswift` link); the footer's button
-follows it (**Install update**, **Installing…**, then **Relaunch to update** when the new version is on disk, from here
+`brew upgrade homeswift` and restarts into the new binary (Homebrew's `opt/homeswift` link); the update button (the
+side menu's, or the footer's) follows it (**Install update**, **Installing…**, then **Relaunch to update** when the new version is on disk, from here
 or a `brew upgrade` run by hand). A Synology package, a container and a checkout cannot upgrade themselves: their card
 says how. Settings › Updates has the same card.
 

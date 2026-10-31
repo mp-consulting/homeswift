@@ -134,7 +134,132 @@
     // Under the name in the side menu: what the account is; without sign-in, that alone, never a bare avatar.
     $("#user .user-role").textContent = auth.mode !== "form" ? t("No sign-in") : isAdmin() ? t("Administrator") : t("User");
     $("#user .user-chevron").replaceChildren(HomeswiftCommon.icon("selector"));
+    $("#user .user-burger").replaceChildren(HomeswiftCommon.icon("menu"));
+    // A wide window's side menu has no account button: its menu's entries are You's, under Home's sections.
+    const form = auth.mode === "form";
+    const item = (glyph, text, onclick) => el("button", { type: "button", class: "side-action", onclick }, glyph, el("span", { text }));
+    $("header nav.side-you").replaceChildren(...[
+      el("a", { href: "/account" }, HomeswiftCommon.icon("user"), el("span", { text: form ? t("Your account") : t("Account") })),
+      el("a", { href: "/appearance" }, HomeswiftCommon.icon("sun"), el("span", { text: t("Appearance") })),
+      form && isAdmin() ? el("a", { href: "/users" }, HomeswiftCommon.icon("users"), el("span", { text: t("Users and tokens") })) : null,
+      item(HomeswiftCommon.icon("globe"), t("Language"), (event) => languageMenu(event.currentTarget)),
+      form ? item(HomeswiftCommon.icon("logout"), t("Sign out"), signOut) : null].filter(Boolean));
+    for (const link of document.querySelectorAll("header nav.side-you a")) {
+      const current = link.getAttribute("href") === `/${location.pathname.split("/")[1]}`;
+      link.classList.toggle("active", current);
+      if (current) link.setAttribute("aria-current", "page");
+    }
   }
+
+  // ---- Homeswift itself: its health, version, update and Send feedback -------------------------------------------
+  // At the side menu's foot on a wide window, folded under one line; on a narrower one, in the Status page's footer.
+  // One state, drawn in each place that shows it.
+
+  let aboutStatus = null, aboutUpdate = null;
+  // The Status page's update card, which an install from another control redraws.
+  let overviewUpdate = null;
+
+  /// Homeswift's health in a few words, and its tone (on, away).
+  function healthOf(status) {
+    const waiting = status.bridges.filter((bridge) => !bridge.paired).length;
+    return status.restartNeeded ? [t("Running; some changes need a restart"), "away"]
+      : waiting ? [tn("Running; one server waits to be added in the Home app", "Running; {n} servers wait to be added in the Home app", waiting), "away"]
+      : [t("Running, and everything is in the Home app"), "on"];
+  }
+
+  const updateLabels = { error: () => t("Try again"), installing: () => updateProgressLabel(aboutUpdate), relaunching: () => t("Relaunching…"), installed: () => t("Relaunch to update"),
+    available: () => aboutUpdate.canInstall ? t("Install update") : t("Update available"), current: () => t("Up to date"), idle: () => t("Check for updates") };
+
+  /// Every update button as `phase` says (a failed check first), or `label` while it checks; the side menu's line
+  /// marks an update waiting.
+  function renderUpdateButtons(phase = aboutUpdate?.error ? "error" : updatePhase(aboutUpdate), label = updateLabels[phase](), only = null) {
+    const state = phase === "installing" || phase === "relaunching" ? "checking" : phase;
+    // The button fills as the download goes, when the bridge knows how far.
+    const fraction = phase === "installing" && aboutUpdate?.progress?.phase === "downloading" ? aboutUpdate.progress.fraction : null;
+    const buttons = only ? [only] : document.querySelectorAll(".footer-update-check");
+    for (const button of buttons) {
+      button.dataset.updateState = state;
+      button.disabled = state === "checking";
+      if (aboutUpdate?.error) button.title = t("Could not check for updates. Try again.");
+      else button.removeAttribute("title");
+      if (fraction == null) button.style.removeProperty("--update-progress");
+      else button.style.setProperty("--update-progress", `${Math.round(fraction * 100)}%`);
+      button.replaceChildren(HomeswiftCommon.icon(({ current: "check", available: "download", installed: "power", error: "warning" })[state] || "restore"),
+        el("span", { class: "footer-update-label", text: label }));
+    }
+    if (!only) $("#side-about").classList.toggle("has-update", ["available", "installed"].includes(state));
+  }
+
+  // The overview's card, the sheet and the buttons all say what an install is doing.
+  function updateChanged(next) {
+    aboutUpdate = next;
+    if (overviewUpdate?.isConnected && next?.available) overviewUpdate.show?.(next);
+    renderUpdateButtons();
+  }
+
+  /// An update button: checks for one, shows what is new, installs an update the bridge can install itself (its
+  /// progress in the button, then the restart), or relaunches into one Homebrew installed.
+  function updateButton() {
+    const button = el("button", { type: "button", class: "link footer-update-check", "aria-live": "polite", onclick: async (event) => {
+      const showUpdate = () => openSheet((done) => el("div", {},
+        el("h2", { id: "update-check-title", text: t("Updates") }), updateCard(aboutUpdate, { changed: updateChanged }),
+        el("button", { actionIcon: "close", type: "button", text: t("Close"), onclick: () => done() })), "update-check-title", { returnFocus: button });
+      if (updatePhase(aboutUpdate) === "installed") { restartBridge(event); return; }
+      if (aboutUpdate?.available && aboutUpdate.canInstall && !aboutUpdate.error) { installUpdate(button, aboutUpdate, updateChanged); return; }
+      if (aboutUpdate?.available && !aboutUpdate.error) { showUpdate(); return; }
+      renderUpdateButtons("checking", t("Checking…"));
+      try {
+        aboutUpdate = await api("/api/updates/check", { method: "POST", body: {} });
+        if (!aboutUpdate || aboutUpdate.error) throw new Error();
+        if (aboutUpdate.available) showUpdate();
+      } catch {
+        aboutUpdate = { error: true };
+      } finally {
+        renderUpdateButtons();
+      }
+    } });
+    renderUpdateButtons(undefined, undefined, button);
+    return button;
+  }
+
+  /// The health, the version and host with an administrator's update button, and Send feedback: drawn anew for each
+  /// place that shows them.
+  function aboutParts(status) {
+    const [health, kind] = healthOf(status);
+    return {
+      health: el("p", { class: `health ${kind}` }, el("strong", { text: health })),
+      meta: el("div", { class: "status-footer-meta" },
+        el("p", { class: "muted", text: t("Version {version} · {host}", { version: status.version, host: status.system.hostname }) }),
+        isAdmin() ? updateButton() : null),
+      feedback: el("a", { class: "link", href: "https://github.com/mp-consulting/homeswift/issues", target: "_blank", rel: "noopener", title: t("Send feedback"), "aria-label": t("Send feedback"),
+        onclick: (event) => { event.preventDefault(); window.open(event.currentTarget.href, "homeswift-feedback", "popup,noopener,width=1100,height=800"); } },
+        HomeswiftCommon.icon("bug"), el("span", { class: "status-footer-action-label", text: t("Send feedback") })),
+    };
+  }
+
+  /// The side menu's foot: one line (the health's dot, the version, a mark when an update waits) that unfolds into
+  /// the rest, open or folded as the viewer left it.
+  function drawSideAbout(status) {
+    aboutStatus = status;
+    if (status.update) aboutUpdate = status.update;
+    const about = aboutParts(status);
+    const details = $("#side-about");
+    details.replaceChildren(
+      el("summary", {},
+        el("span", { class: `side-about-dot ${healthOf(status)[1]}`, "aria-hidden": "true" }),
+        el("span", { class: "side-about-title", text: t("Homeswift {version}", { version: status.version }) }),
+        el("span", { class: "side-about-badge", role: "img", "aria-label": t("Update available"), title: t("Update available") }),
+        HomeswiftCommon.icon("down")),
+      el("div", { class: "side-about-body" }, about.health, about.meta, about.feedback,
+        // Restarting, in the accent: an administrator's, and not a page like the rest.
+        isAdmin() ? el("button", { type: "button", class: "link side-about-restart", onclick: restartBridge }, HomeswiftCommon.icon("power"), el("span", { text: t("Restart homeswift…") })) : null));
+    details.hidden = false;
+    renderUpdateButtons();
+  }
+  $("#side-about").open = (() => { try { return localStorage.getItem("homeswift.sideAbout") === "open"; } catch { return false; } })();
+  $("#side-about").addEventListener("toggle", (event) => {
+    try { localStorage.setItem("homeswift.sideAbout", event.currentTarget.open ? "open" : "folded"); } catch {}
+  });
 
   // Its menu: who is signed in and as what, their account and appearance, the users for an administrator, signing out.
   $("#user").addEventListener("click", (event) => {
@@ -144,14 +269,21 @@
   document.addEventListener("homeswift-account-menu", (event) => openUserMenu(event.detail.trigger, event.detail.keyboard));
   function openUserMenu(trigger, keyboard = false) {
     const form = auth.mode === "form";
+    const phone = matchMedia("(max-width: 640px)").matches;
     HomeswiftCommon.menu(trigger, [
       form ? { heading: shownName(), detail: isAdmin() ? t("{username} · Administrator", { username: auth.username }) : auth.username } : { heading: t("No sign-in"), detail: t("Anyone who opens this web UI uses it") },
       { label: form ? t("Your account") : t("Account"), icon: "user", href: "/account" },
       { label: t("Appearance"), icon: "sliders", href: "/appearance" },
       form && isAdmin() ? { label: t("Users and tokens"), icon: "users", href: "/users" } : null,
       // A phone's tab bar has no room for Settings: it is here, as the header holds it on a wider window.
-      isAdmin() && matchMedia("(max-width: 640px)").matches ? { label: t("Settings"), icon: "gear", href: "/settings" } : null,
+      phone && isAdmin() ? { label: t("Settings"), icon: "gear", href: "/settings" } : null,
       { label: t("Language"), icon: flag(HomeswiftI18n.language), onSelect: () => setTimeout(() => languageMenu(trigger)) },
+      // On a phone this is the page's menu: Homeswift's health, version and updates are here too (the side menu
+      // holds them on a wide window).
+      ...(phone && aboutStatus ? [{ separator: true },
+        { heading: t("Homeswift {version}", { version: aboutStatus.version }), detail: healthOf(aboutStatus)[0] },
+        isAdmin() ? { label: updateLabels[aboutUpdate?.error ? "error" : updatePhase(aboutUpdate)](), icon: aboutUpdate?.available ? "download" : "update", href: "/settings/updates" } : null,
+        { label: t("Send feedback"), icon: "bug", onSelect: () => window.open("https://github.com/mp-consulting/homeswift/issues", "_blank", "noopener") }] : []),
       // Restarting, apart and in the accent: an administrator's, and not a page like the rest.
       isAdmin() ? { separator: true } : null,
       isAdmin() ? { label: t("Restart homeswift…"), icon: "power", accent: true, onSelect: () => restartBridge() } : null,
@@ -315,6 +447,8 @@
     $("#auth").classList.add("hidden");
     $("#app").classList.remove("hidden");
     drawUser();
+    // The side menu's Homeswift line, on every page (the Status page draws it again with what it loads).
+    api("/api/status").then(drawSideAbout).catch(() => {});
     HomeswiftCommon.tabBar({ parent: $("#app") });
     // The header's sections take their icons, shown beside their names when a wide window makes the header a side menu.
     for (const link of document.querySelectorAll("header nav a")) {
@@ -605,10 +739,6 @@
     let matter = firstMatter;
     rememberMatterOwn(matter);
     $("#banner").classList.toggle("hidden", !status.restartNeeded || !isAdmin());
-    const waiting = status.bridges.filter((bridge) => !bridge.paired);
-    const [health, healthKind] = status.restartNeeded ? [t("Running; some changes need a restart"), "away"]
-      : waiting.length ? [tn("Running; one server waits to be added in the Home app", "Running; {n} servers wait to be added in the Home app", waiting.length), "away"]
-      : [t("Running, and everything is in the Home app"), "on"];
     const plugins = new Set(status.bridges.filter((bridge) => !bridge.external).flatMap((bridge) => bridge.platforms));
     const main0 = status.bridges.find((bridge) => !bridge.childBridge && !bridge.external);
 
@@ -811,8 +941,6 @@
 
     // The page is widgets the user can hide and order (Customise, at the bottom; Glass UI's dashboard layout),
     // drawn only when shown: the activity charts load nothing while hidden.
-    // The overview's update card, which an install from the footer redraws.
-    let overviewUpdate = null;
     const widgets = {
       overview: () => [overviewUpdate = updateCard(status.update, { changed: (next) => updateChanged(next) }),
       // Each figure with its glyph; on a phone the four share one row, "Home app controllers" shortened.
@@ -846,63 +974,12 @@
           el("a", { class: "link", href: "/notifications" }, HomeswiftCommon.icon("bell"), el("span", { text: t("Notifications") }))) : null)],
     };
     const sections = new Map();
-    let footerUpdate = status.update;
-    // Installed but not running yet: Homebrew upgraded it, a relaunch starts it.
-    const relaunchPending = () => updatePhase(footerUpdate) === "installed";
-    const footerLabels = { error: () => t("Try again"), installing: () => updateProgressLabel(footerUpdate), relaunching: () => t("Relaunching…"), installed: () => t("Relaunch to update"),
-      available: () => footerUpdate.canInstall ? t("Install update") : t("Update available"), current: () => t("Up to date"), idle: () => t("Check for updates") };
-    /// The footer's button as `phase` says (a failed check first), or `label` while it checks.
-    const renderUpdate = (phase = footerUpdate?.error ? "error" : updatePhase(footerUpdate), label = footerLabels[phase]()) => {
-      const state = phase === "installing" || phase === "relaunching" ? "checking" : phase;
-      checkUpdates.dataset.updateState = state;
-      // The button fills as the download goes, when the bridge knows how far.
-      const fraction = phase === "installing" && footerUpdate?.progress?.phase === "downloading" ? footerUpdate.progress.fraction : null;
-      if (fraction == null) checkUpdates.style.removeProperty("--update-progress");
-      else checkUpdates.style.setProperty("--update-progress", `${Math.round(fraction * 100)}%`);
-      checkUpdates.replaceChildren(HomeswiftCommon.icon(({ current: "check", available: "download", installed: "power", error: "warning" })[state] || "restore"),
-        el("span", { class: "footer-update-label", text: label }));
-    };
-    // The overview's card and the sheet both tell the footer what an install is doing.
-    const updateChanged = (next) => {
-      footerUpdate = next;
-      // The overview's card follows an install the footer started.
-      if (overviewUpdate?.isConnected && next?.available) overviewUpdate.show?.(next);
-      checkUpdates.disabled = Boolean(next.installing || next.relaunching);
-      renderUpdate();
-    };
-    const showUpdate = () => openSheet((done) => el("div", {},
-      el("h2", { id: "update-check-title", text: t("Updates") }), updateCard(footerUpdate, { changed: updateChanged }),
-      el("button", { actionIcon: "close", type: "button", text: t("Close"), onclick: () => done() })), "update-check-title", { returnFocus: checkUpdates });
-    const checkUpdates = el("button", { type: "button", class: "link footer-update-check", "aria-live": "polite", onclick: async (event) => {
-      if (relaunchPending()) { restartBridge(event); return; }
-      // An update this bridge installs itself: here, its progress in this button, then the restart.
-      if (footerUpdate?.available && footerUpdate.canInstall && isAdmin() && !footerUpdate.error) { installUpdate(checkUpdates, footerUpdate, updateChanged); return; }
-      if (footerUpdate?.available && !footerUpdate.error) { showUpdate(); return; }
-      checkUpdates.disabled = true;
-      renderUpdate("checking", t("Checking…"));
-      try {
-        footerUpdate = await api("/api/updates/check", { method: "POST", body: {} });
-        if (!footerUpdate || footerUpdate.error) throw new Error();
-        checkUpdates.removeAttribute("title");
-        if (footerUpdate.available) showUpdate();
-      } catch {
-        footerUpdate = { error: true };
-        checkUpdates.title = t("Could not check for updates. Try again.");
-      } finally {
-        checkUpdates.disabled = false;
-        renderUpdate();
-      }
-    } });
-    renderUpdate();
+    // Homeswift's health, version, update and feedback: in the side menu on a wide window, here on a narrower one
+    // (style.css hides one or the other); Customise stays with the page.
+    drawSideAbout(status);
+    const about = aboutParts(status);
     const footer = el("footer", { class: "actions page-foot status-footer" },
-      el("div", { class: "status-footer-summary" },
-        el("p", { class: `health ${healthKind}` }, el("strong", { text: health })),
-        el("div", { class: "status-footer-meta" },
-          el("p", { class: "muted", text: t("Version {version} · {host}", { version: status.version, host: status.system.hostname }) }),
-          isAdmin() ? checkUpdates : null)),
-      el("a", { class: "link", href: "https://github.com/mp-consulting/homeswift/issues", target: "_blank", rel: "noopener", title: t("Send feedback"), "aria-label": t("Send feedback"),
-        onclick: (event) => { event.preventDefault(); window.open(event.currentTarget.href, "homeswift-feedback", "popup,noopener,width=1100,height=800"); } },
-        HomeswiftCommon.icon("bug"), el("span", { class: "status-footer-action-label", text: t("Send feedback") })),
+      el("div", { class: "status-footer-summary" }, about.health, about.meta), about.feedback,
       el("button", { type: "button", class: "link", "aria-label": t("Customise the Status page"), "aria-haspopup": "menu", "aria-expanded": "false",
         onclick: (event) => customiseDashboard(event.currentTarget, renderDashboard, event.detail === 0) }, HomeswiftCommon.icon("sliders"), el("span", { class: "status-footer-action-label", text: t("Customise this page…") })));
     function renderDashboard(layout) {

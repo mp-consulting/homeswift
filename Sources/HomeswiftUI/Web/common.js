@@ -44,6 +44,7 @@
     // The web UI: a browser window with a page of tiles in it.
     browser: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 8.5h18M6 6.25h0M8.5 6.25h0"/><rect x="6.5" y="11.5" width="4.5" height="5" rx="1"/><path d="M14 12.5h3.5M14 15.5h3.5"/>',
     selector: '<path d="M8 9.5l4-4 4 4M8 14.5l4 4 4-4"/>',
+    menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
     sparkle: '<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z"/><path d="M18.5 15.5l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z"/>',
     ungroup: '<rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><path d="M3 9V3h6M3 3l5 5M15 21h6v-6M21 21l-5-5"/>',
     group: '<rect x="3" y="8" width="13" height="13" rx="3"/><path d="M8 8V6a3 3 0 0 1 3-3h7a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3h-2M7 14.5h5M9.5 12v5"/>',

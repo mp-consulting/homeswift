@@ -2554,6 +2554,7 @@ HomeswiftI18n.add("fr", {
   "The bridge is in the Home app. To add it again, reset its pairings below, then scan this code.": "Le pont est dans l’app Maison. Pour l’ajouter à nouveau, réinitialisez ses jumelages ci-dessous, puis scannez ce code.",
   "Homeswift is up to date": "Homeswift est à jour",
   "Homeswift {version} is installed": "Homeswift {version} est installé",
+  "Homeswift {version}": "Homeswift {version}",
   "Installing Homeswift {version}…": "Installation de Homeswift {version}…",
   "Could not check for updates": "Impossible de rechercher des mises à jour",
   "Not checked yet": "Pas encore vérifié",
