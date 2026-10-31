@@ -331,7 +331,8 @@ struct LightShowTests {
 
     /// Every light of a step is written at the same time, and a light's values together, as the Home app writes them:
     /// four lights whose writes take 300 ms each are set in about 0.6 s (the values, then On), where one write after
-    /// another took almost 5 s.
+    /// another took almost 5 s. What is counted is how many writes were under way at once, not the time, which a
+    /// loaded machine stretches: 12 (four lights' three values) when nothing holds them up, 1 one after another.
     @Test func theLightsAreWrittenTogether() async throws {
         let (environment, client) = try await den(bulbs: 4, slow: true)
         defer { Task { await environment.stop() } }
@@ -339,11 +340,11 @@ struct LightShowTests {
         let lights = (1...4).map { "Devices:bulb\($0)" }
         let plan: JSONValue = ["name": "Teal", "animation": ["lights": .array(lights.map(JSONValue.string)),
                                                             "steps": [["colors": [["hue": 180, "saturation": 90, "brightness": 70]], "seconds": 1]]]]
-        let start = ContinuousClock.now
         let set = try await client.tool("run_scene", ["plan": plan])
         #expect(set["isError"] != true)
         #expect(await eventually { lights.allSatisfy { value(environment, $0, .hue)?.doubleValue == 180 && value(environment, $0, .on) == .bool(true) } })
-        #expect(ContinuousClock.now - start < .seconds(2))
+        // The four lights at least were written together.
+        #expect(environment.mostSlowWritesAtOnce >= 4)
         for bulb in 1...4 {
             let keys = environment.written.map(\.0).filter { $0.hasPrefix("bulb\(bulb).") }
             #expect(Set(keys.dropLast()) == ["bulb\(bulb).brightness", "bulb\(bulb).saturation", "bulb\(bulb).hue"])
