@@ -820,7 +820,10 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
    menus of cards side by side line up whatever each card holds. */
 .server:has(> .card-foot), .accessory-card, .server.catalog { display: flex; flex-direction: column; }
 .card > .card-foot, .server.catalog > .actions { margin-top: auto; }
-.accessory-section + .accessory-section { margin-top: var(--space-8); }
+/* Rooms as the Home app's: 36 between one room's tiles and the next room's name, the name a bold title, 10 above
+   its tiles. */
+.accessory-section + .accessory-section { margin-top: 36px; }
+.accessory-section > .section-head h2 { font-size: var(--text-3xl); font-weight: var(--weight-bold); letter-spacing: -0.02em; }
 
 /* Apple Home proportions: compact rows and taller tiles in the same column width. A medium tile spans two
    compact rows; large and extra large keep two columns and fit their controls into as many rows as they need. */
@@ -2157,7 +2160,7 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
   input, select, textarea, .code-editor > .code-layer, .code-editor > .code-input, .code-editor > .code-gutter { font-size: 16px; }
   /* Comfortable targets, near Apple's 44pt: every button at least 40px tall, a text button too (its hit area
      grows, not its look). */
-  .menu-button, .chat-icon { width: 40px; height: 40px; }
+  .menu-button, .chat-icon, .chat-open { width: 40px; height: 40px; }
   button, a.button { min-height: 40px; }
   /* A round button with only a glyph grows both ways, so it stays round. */
   button:is(.icon-button, .menu-button) { min-width: 40px; }
@@ -4197,7 +4200,6 @@ html.wall-full #view {
 }
 html.wall-full #view > :not(.accessory-walls):not(.wall-full-chrome) { display: none; }
 html.wall-full .accessory-section > .section-head { padding-right: 56px; }
-html.wall-full .accessory-section > .section-head h2 { font-size: var(--text-2xl); }
 /* The graph full screen (/accessories/graph?full=1): the graph alone filling the window, its zoom at the foot and the
    options button in the corner, both faded while nothing happens; the inspector a card over it (a sheet on a phone). */
 html.wall-full.graph-full #view > .overview-card.graph-full-card { display: flex; }
@@ -4209,7 +4211,8 @@ html.graph-full #view { animation: none; }
 .graph-full-card {
   position: fixed; inset: 0; flex-direction: column; gap: 0; margin: 0; border: 0; border-radius: 0; background: none; box-shadow: none;
   -webkit-backdrop-filter: none; backdrop-filter: none;
-  padding: max(var(--space-16), env(safe-area-inset-top)) max(72px, env(safe-area-inset-right)) max(var(--space-16), env(safe-area-inset-bottom)) max(72px, env(safe-area-inset-left));
+  /* No padding: the graph runs to the window's edges, under the zoom and options buttons, which float on their own. */
+  padding: 0;
 }
 .graph-full-card > :not(.overview-frame):not(.overview-zoom):not(.wall-full-chrome) { display: none; }
 .graph-full-card .overview-frame { flex: 1; min-height: 0; }

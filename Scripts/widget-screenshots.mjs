@@ -16,7 +16,7 @@ const html = `<!doctype html><html lang="en"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="stylesheet" href="/style.css"><script src="/i18n.js"></script>
 <style>body{padding:0}main{max-width:1200px;margin:auto;padding:24px 16px}
-.accessory-walls{width:100%}.page-head{margin-bottom:20px}h2{font-size:20px;margin:28px 0 12px}.wall{margin-bottom:30px}</style>
+.accessory-walls{width:100%}.page-head{margin-bottom:20px}</style>
 <body><div id="app"><main id="view" class="accessory-walls"></main></div>
 <script src="/common.js"></script><script src="/remote.js"></script>
 <script src="/widgets.js"></script><script src="/groups.js"></script><script src="/home.js"></script><script src="/preview.js"></script></body></html>`;

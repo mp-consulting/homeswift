@@ -12,6 +12,12 @@ All notable changes to this project are documented here. The format follows
   glass sheet is the box its fixed children are placed in, not the window. Menus and the date range's popover are now
   placed where they land, and kept inside the sheet they opened in.
 - Web UI: the graph's full-screen zoom buttons had their glyph off centre, pushed up by the hidden label's line.
+- Web UI: the graph in full screen stopped 72px short of each side, cut off on a phone: it now fills the window, under
+  its zoom and options buttons.
+- Web UI: on a phone, the header's Assistant button was 36px wide and 40px tall, an oval off centre in the bar: it is
+  round again, 40px both ways.
+- Web UI: the Accessories page's rooms are spaced as the Home app's: 36px between one room's tiles and the next room's
+  name, the name a bold 22px title. The widget screenshots draw rooms with the page's own markup.
 
 ## [0.18.0] - 2026-10-31
 

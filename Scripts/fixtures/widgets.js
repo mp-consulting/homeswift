@@ -69,7 +69,7 @@ window.preview=(mode='wall')=>{
   }
  }else{
   const groups=mode==='phone'?[['Garden',[[gate,'medium'],[{...lock,id:'locked',name:'Side Gate',services:[S('LockMechanism',[C('Lock Current State',1),C('Lock Target State',1,'uint8',{security:true})])]},'medium']]],['Entrance',[[lock,'medium'],[accessories[2],'small'],[accessories[3],'small'],[plug,'small'],[accessories[5],'small'],[cover,'small'],[sensor,'small']]],['Living Room',[[climate,'xlarge'],[purifier,'large']]]]:[['Living Room',[[accessories[5],'medium'],[plug,'small'],[sensor,'small'],[climate,'xlarge'],[purifier,'large'],[cover,'medium'],[gate,'medium'],[valve,'large'],[accessories[2],'small'],[accessories[3],'small'],[lock,'medium']]]];
-  for(const [name,items]of groups){main.append(e('h2',{text:name}));const wall=e('div',{class:'wall'});main.append(wall);for(const [a,size]of items)add(mode==='paused'?{...a,paused:true}:a,size,wall);}
+  for(const [name,items]of groups){const wall=e('div',{class:'wall'});main.append(e('section',{class:'accessory-section'},[name?e('div',{class:'section-head'},[e('h2',{text:name})]):null,wall].filter(Boolean)));for(const [a,size]of items)add(mode==='paused'?{...a,paused:true}:a,size,wall);}
  }
  if(mode==='edit')for(const wall of document.querySelectorAll('.wall')){
   wall.classList.add('editing');
