@@ -326,7 +326,7 @@ public struct HomeswiftCatalog: Sendable {
             }
             json.field("supportsIdentify", .bool(accessory.supportsIdentify))
             // The device does not answer (a paused plugin says so with `paused`): the web UI shows No Response.
-            if accessory.isUnavailable, located.platform?.paused != true { json.field("unavailable", true) }
+            if accessory.showsNoResponse, located.platform?.paused != true { json.field("unavailable", true) }
         }
     }
 

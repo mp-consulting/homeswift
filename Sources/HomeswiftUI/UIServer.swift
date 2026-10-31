@@ -1535,8 +1535,8 @@ final class EventHub: Sendable {
                 let service = accessory.services.first { $0.characteristics.contains { $0 === characteristic } }
                 var payload: [String: JSONValue] = [
                     "id": .string(accessory.id), "characteristic": .string(characteristic.type.name), "value": characteristic.isConfidential ? .null : HomeswiftCatalog.json(value),
-                    // Whether the device answers: No Response on its card follows it (`Accessory.isUnavailable`).
-                    "unavailable": .bool(accessory.isUnavailable),
+                    // Whether the device answers: No Response on its card follows it (`Accessory.showsNoResponse`).
+                    "unavailable": .bool(accessory.showsNoResponse),
                 ]
                 if let service {
                     payload["service"] = .string(service.type.name)

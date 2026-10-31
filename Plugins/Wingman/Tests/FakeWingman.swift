@@ -30,6 +30,8 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
         var keptFrom = 1
         /// Accessories removed in the Home app.
         var removed: Set<String> = []
+        /// Accessories Apple Home says are not reachable, besides those the home lists so.
+        var unreachable: Set<String> = []
     }
 
     private let state = NIOLockedValueBox(State())
@@ -73,6 +75,9 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
         }
     }
 
+    /// Apple Home says this accessory is not reachable (HomeKit's reachability lags for Matter devices).
+    func markUnreachable(_ accessory: String) { state.withLockedValue { _ = $0.unreachable.insert(accessory) } }
+
     /// Wingman's menu removed this bridge.
     func forgetBridge() { state.withLockedValue { $0.tokenValid = false } }
 
@@ -109,9 +114,15 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
         guard authorized, state.withLockedValue({ $0.tokenValid }) else { return json(["error": "pair first"], status: 401) }
         switch (request.method, path) {
         case ("GET", "/homes"):
-            let removed = state.withLockedValue { $0.removed }
+            let (removed, unreachable) = state.withLockedValue { ($0.removed, $0.unreachable) }
             var home = Self.home
-            home["accessories"] = (home["accessories"] as? [[String: Any]] ?? []).filter { !removed.contains($0["id"] as? String ?? "") }
+            home["accessories"] = (home["accessories"] as? [[String: Any]] ?? []).compactMap { accessory -> [String: Any]? in
+                let id = accessory["id"] as? String ?? ""
+                guard !removed.contains(id) else { return nil }
+                var accessory = accessory
+                if unreachable.contains(id) { accessory["reachable"] = false }
+                return accessory
+            }
             return json(["homes": [home]])
         case ("GET", "/events"):
             let since = Int(query["since"] ?? "") ?? 0
