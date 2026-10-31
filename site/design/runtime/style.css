@@ -4209,7 +4209,8 @@ html.graph-full #view { animation: none; }
 .graph-full-card {
   position: fixed; inset: 0; flex-direction: column; gap: 0; margin: 0; border: 0; border-radius: 0; background: none; box-shadow: none;
   -webkit-backdrop-filter: none; backdrop-filter: none;
-  padding: max(var(--space-16), env(safe-area-inset-top)) max(72px, env(safe-area-inset-right)) max(var(--space-16), env(safe-area-inset-bottom)) max(72px, env(safe-area-inset-left));
+  /* No padding: the graph runs to the window's edges, under the zoom and options buttons, which float on their own. */
+  padding: 0;
 }
 .graph-full-card > :not(.overview-frame):not(.overview-zoom):not(.wall-full-chrome) { display: none; }
 .graph-full-card .overview-frame { flex: 1; min-height: 0; }

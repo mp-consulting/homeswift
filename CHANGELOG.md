@@ -12,6 +12,8 @@ All notable changes to this project are documented here. The format follows
   glass sheet is the box its fixed children are placed in, not the window. Menus and the date range's popover are now
   placed where they land, and kept inside the sheet they opened in.
 - Web UI: the graph's full-screen zoom buttons had their glyph off centre, pushed up by the hidden label's line.
+- Web UI: the graph in full screen stopped 72px short of each side, cut off on a phone: it now fills the window, under
+  its zoom and options buttons.
 
 ## [0.18.0] - 2026-10-31
 
