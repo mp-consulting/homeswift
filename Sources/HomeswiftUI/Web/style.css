@@ -918,7 +918,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 @media (prefers-contrast: more) { .widget:not(.widget-full) .menu-button { border: 1px solid currentColor; } }
 /* A phone holds every button to 40px tall (the phone rules below); a widget's own controls keep their shapes,
    a swatch round, a step a bar, the corner's glyph 28px, its hit area grown under a finger instead. */
-.widget .swatch, .widget .steps > button, .widget .seg > button, .widget .round, .widget .w-hit, .widget:not(.widget-full) .menu-button, .edit-bar button { min-height: 0; }
+.widget .swatch, .widget .steps > button, .widget .seg > button, .widget .round, .widget .w-hit, .widget:not(.widget-full) .menu-button, .edit-bar button { min-height: 0; min-width: 0; }
 .widget .swatch { flex: none; }
 .widget button { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 @media (pointer: coarse) {
@@ -2159,8 +2159,10 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
      grows, not its look). */
   .menu-button, .chat-icon { width: 40px; height: 40px; }
   button, a.button { min-height: 40px; }
+  /* A round button with only a glyph grows both ways, so it stays round. */
+  button:is(.icon-button, .menu-button) { min-width: 40px; }
   button.link { padding-top: var(--space-10); padding-bottom: var(--space-10); }
-  .group button, .chat-suggestions button, .tabbar a { min-height: 0; }
+  .group button, .chat-suggestions button, .tabbar a { min-height: 0; min-width: 0; }
   .menu [role="menuitem"] { padding: 11px var(--space-14); font-size: var(--text-lg); }
   /* A page's heading beside its tile, smaller; its tools under it. */
   .page-head { flex-wrap: nowrap; align-items: center; gap: var(--space-12); margin: var(--space-4) 0 var(--space-16); }
@@ -3612,7 +3614,7 @@ select option:disabled { color: var(--muted); }
 .accessory-group.size-medium .server-head .tile { width: 28px; height: 28px; border-radius: var(--radius-sm); }
 .accessory-group.size-medium .server-head .who { flex: 1; }
 .accessory-group.size-medium .server-head strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); }
-.accessory-group.size-medium .server-head .menu-button { width: 26px; height: 26px; min-height: 0; padding: 3px; }
+.accessory-group.size-medium .server-head .menu-button { width: 26px; height: 26px; min-height: 0; min-width: 0; padding: 3px; }
 .accessory-group.size-medium .group-controls { gap: var(--space-4); margin-top: 5px; }
 .accessory-group.size-medium .group-controls > label { min-height: 24px; font-size: var(--text-2xs); gap: 5px; }
 .accessory-group.size-medium .group-count { display: none; }
