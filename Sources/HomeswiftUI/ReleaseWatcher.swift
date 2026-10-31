@@ -497,6 +497,8 @@ public struct SynologyInstaller: UpdateInstalling {
                 }
             }
             if let total, received < total { throw UpdateError(message: "the download stopped at \(Int(received)) of \(Int(total)) bytes") }
+            // The last chunk can be under a percent: the bar still ends full.
+            if total != nil, reported < 1 { progress(1) }
             return
         }
         throw UpdateError(message: "the download was redirected too many times")
