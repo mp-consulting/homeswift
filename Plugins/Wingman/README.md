@@ -57,8 +57,10 @@ pushes it; a `homes` event (an accessory added or removed, a room or name change
 no longer keeps (it keeps 500) make the plugin read the homes again. Homeswift's own
 accessories are recognised by their serial numbers, so a TV or a camera Homeswift publishes on its own is left out too,
 and an entry without a pinned certificate is never sent its token. A write goes to `POST /write` by characteristic id; locks, garage doors and alarms are security controls
-(the web UI and the MCP server ask first) and Wingman refuses them anyway. An accessory Apple Home says is not
-reachable shows No Response until it reports again. A Wingman that forgot the bridge shows **Pair again**.
+(the web UI and the MCP server ask first), and Wingman refuses them unless **Let bridges operate locks and doors** is
+on in its settings (off by default). An accessory Apple Home says is not reachable shows No Response until it reports
+again or takes a write; it is still written, as the Home app still tries it (`Accessory.isUnreachable`): HomeKit's
+reachability lags for Matter devices on a Mac, and HomeKit answers a write the device misses with an error. A Wingman that forgot the bridge shows **Pair again**.
 
 The MCP tools are `Wingman_list_wingmen`, `Wingman_discover` and `Wingman_pair`.
 

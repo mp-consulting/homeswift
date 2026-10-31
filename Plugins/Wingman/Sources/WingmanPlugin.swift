@@ -284,8 +284,6 @@ actor Link {
     private let refreshInterval: Duration
     private var client: WingmanClient
     private var snapshot: Snapshot?
-    /// Accessories Apple Home says do not answer, until they report again.
-    private var unreachable: Set<String> = []
     private var since = 0
     private var phase = Phase.connecting
     private var lastContact: Date?
@@ -351,6 +349,8 @@ actor Link {
             guard let client = await self?.client else { throw WingmanError.unreachable("stopped") }
             do {
                 try await client.write(accessory: accessoryID, characteristic: characteristicID, value: value)
+                // HomeKit took it: the accessory answers, whatever its reachability said.
+                await self?.answered(accessoryID)
             } catch {
                 self?.logger.warning("Wingman write failed: \(error)", metadata: ["accessory": "\(accessoryID)", "characteristic": "\(characteristicID)"])
                 throw error
@@ -359,14 +359,12 @@ actor Link {
         var mirrors: [String: Mirror] = [:]
         var changed: [Mirror] = []
         var leftOut = 0
-        unreachable = []
         for home in homes {
             for accessory in home.accessories {
                 guard plugin.includes(accessory, home: home, homeswift: homeswift) else {
                     leftOut += 1
                     continue
                 }
-                if accessory.reachable == false { unreachable.insert(accessory.id) }
                 if let kept = snapshot?.mirrors[accessory.id], kept.signature == Mirror.signature(of: accessory) {
                     kept.update(from: accessory)
                     mirrors[accessory.id] = kept
@@ -385,6 +383,11 @@ actor Link {
         lastContact = Date()
         for mirror in changed { plugin.publish(mirror.accessory) }
         await plugin.prune()
+    }
+
+    /// The accessory answered (a value change, a write Wingman took): No Response ends until a read says otherwise.
+    private func answered(_ accessoryID: String) {
+        snapshot?.mirrors[accessoryID]?.accessory.isUnreachable = false
     }
 
     /// Waits for value changes and applies them. Answers whether the homes must be read again (Wingman restarted,
@@ -410,7 +413,7 @@ actor Link {
             }
             Mirror.apply(event.value, to: characteristic)
             // It reports again: it answers.
-            if unreachable.remove(accessoryID) != nil { mirror.accessory.isUnavailable = false }
+            answered(accessoryID)
         }
         if let last = answer.last { since = max(since, last) }
         return readAgain
@@ -433,7 +436,7 @@ actor Link {
         }
         var json: [String: JSONValue] = [
             "id": .string(device.id), "name": .string(name), "host": .string(client.host), "port": .number(Double(client.port)), "state": .string(state),
-            "accessories": .number(Double(snapshot?.mirrors.count ?? 0)), "notResponding": .number(Double(unreachable.count)),
+            "accessories": .number(Double(snapshot?.mirrors.count ?? 0)), "notResponding": .number(Double(snapshot?.mirrors.values.count(where: \.accessory.isUnreachable) ?? 0)),
             "leftOut": .number(Double(snapshot?.leftOut ?? 0)), "homes": .array((snapshot?.homes ?? []).map(JSONValue.string)),
             "pinned": .bool(device.fingerprint != nil),
         ]

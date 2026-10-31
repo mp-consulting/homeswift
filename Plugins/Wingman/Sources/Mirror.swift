@@ -83,7 +83,8 @@ struct Mirror {
             category: Self.category(of: (services.first(where: \.isPrimary) ?? services[0]).type), services: services, onIdentify: onIdentify)
         accessory.mirroredFrom = Self.source
         accessory.suggestedRoom = source.room
-        accessory.isUnavailable = source.reachable == false
+        // Apple Home's No Response: writes still go to Wingman, which answers for HomeKit.
+        accessory.isUnreachable = source.reachable == false
         self.accessory = accessory
         self.characteristics = characteristics
         signature = Self.signature(of: source)
@@ -114,8 +115,7 @@ struct Mirror {
                 if let id = item.id, let characteristic = characteristics[id] { Self.apply(item.value, to: characteristic) }
             }
         }
-        let unavailable = source.reachable == false
-        if accessory.isUnavailable != unavailable { accessory.isUnavailable = unavailable }
+        accessory.isUnreachable = source.reachable == false
     }
 
     /// What Homeswift's types say, with the bounds this device reports; a type Homeswift does not know is described

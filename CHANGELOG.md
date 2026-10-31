@@ -20,6 +20,13 @@ All notable changes to this project are documented here. The format follows
   groups its tools with a cog whose menu has the provider's settings and the voice's language, its field sits at the
   very bottom, and with a mouse its head drags it anywhere in the window.
 
+### Fixed
+
+- Wingman: an accessory Apple Home says is not reachable still takes writes, as the Home app still tries it. HomeKit's
+  reachability lags for Matter devices on a Mac, which left a Nuki lock showing No Response and refusing every change
+  before it reached Wingman; a write HomeKit takes ends No Response. `Accessory.isUnreachable` is the new state for a
+  mirror (docs/plugins.md). Locks also need **Let bridges operate locks and doors** on in Wingman.
+
 ## [0.16.0] - 2026-10-30
 
 ### Added

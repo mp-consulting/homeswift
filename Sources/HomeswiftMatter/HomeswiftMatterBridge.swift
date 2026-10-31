@@ -289,7 +289,7 @@ public actor HomeswiftMatterBridge: MatterControl {
             for state in mapping.states() { await device.update(robotState(state, id: accessory.id), part: index) }
         }
         if let level = batteryLevel(accessory) { await device.update(.battery(percent: level)) }
-        await device.setReachable(!accessory.isUnavailable)
+        await device.setReachable(!accessory.showsNoResponse)
     }
 
     /// A Matter controller's command: the characteristic writes Apple Home would make.
@@ -356,7 +356,7 @@ public actor HomeswiftMatterBridge: MatterControl {
     private func changed(_ accessory: Accessory, _ characteristic: Characteristic, _ value: HAPValue) async {
         guard let bridged = devices[accessory.id], bridged.accessory === accessory else { return }
         let device = bridged.device
-        await device.setReachable(!accessory.isUnavailable)
+        await device.setReachable(!accessory.showsNoResponse)
         let type = characteristic.type.uuid
         if type == CharacteristicType.batteryLevel.uuid, let level = batteryLevel(accessory) {
             await device.update(.battery(percent: level))

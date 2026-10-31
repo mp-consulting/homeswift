@@ -94,6 +94,30 @@ import Testing
         #expect(presses.withLockedValue { $0 } == 0)
     }
 
+    /// Unreachable shows No Response, but writes still reach the handler; unavailable (a paused plugin) stops them,
+    /// unreachable or not, and each flag reads back as it was set.
+    @Test func anUnreachableAccessoryStillTakesWrites() async throws {
+        let light = lamp("u")
+        let on = light.service(.lightbulb)!.characteristic(.on)
+        let written = NIOLockedValueBox<[HAPValue]>([])
+        on.onWrite { value in written.withLockedValue { $0.append(value) } }
+        let changes = NIOLockedValueBox(0)
+        _ = on.observe { change in if change.oldValue == change.newValue { changes.withLockedValue { $0 += 1 } } }
+        light.isUnreachable = true
+        #expect(light.showsNoResponse && !light.isUnavailable)
+        try await on.write(.bool(true))
+        #expect(written.withLockedValue { $0 } == [.bool(true)])
+        light.isUnavailable = true
+        #expect(light.isUnavailable)
+        await #expect(throws: HAPStatusError.self) { try await on.write(.bool(false)) }
+        light.isUnavailable = false
+        // Still unreachable: No Response stays, and only the two real changes of No Response were announced.
+        #expect(light.showsNoResponse && !light.isUnavailable)
+        light.isUnreachable = false
+        #expect(!light.showsNoResponse)
+        #expect(changes.withLockedValue { $0 } == 2)
+    }
+
     @Test func knownTypesAreFoundByUUID() {
         #expect(CharacteristicType.known(uuid: HAPUUID("00000008-0000-1000-8000-0026BB765291"))?.name == "Brightness")
         #expect(CharacteristicType.known(uuid: HAPUUID("CE")) == .colorTemperature)

@@ -89,16 +89,34 @@ public final class Accessory: @unchecked Sendable {
     /// web UI's event stream carries `unavailable`) learn it at once.
     public var isUnavailable: Bool {
         get { services.contains { $0.characteristics.contains(where: \.isUnavailable) } }
-        set {
-            let characteristics = services.flatMap(\.characteristics)
-            guard characteristics.contains(where: { $0.isUnavailable != newValue }) else { return }
-            for characteristic in characteristics { characteristic.isUnavailable = newValue }
-            // A state, never a button's press (which automations take as one), and never an empty value.
-            let announcer = characteristics.first {
-                $0.type.permissions.contains(.events) && $0.type.uuid != CharacteristicType.programmableSwitchEvent.uuid && $0.value != .null
-            }
-            if let announcer { announcer.update(announcer.value, origin: nil, force: true) }
+        set { setAvailability(newValue, \.isUnavailable) }
+    }
+
+    /// No Response as the device's own controller reports it, for a mirror (the Wingman plugin: Apple Home's
+    /// reachability, which lags for Matter devices): it shows as when `isUnavailable`, but writes still reach the
+    /// handlers, as the Home app still tries an accessory that shows No Response, and the device's controller answers.
+    /// A paused plugin's accessory is `isUnavailable` as well, which no write passes.
+    public var isUnreachable: Bool {
+        get { services.contains { $0.characteristics.contains(where: \.isUnreachable) } }
+        set { setAvailability(newValue, \.isUnreachable) }
+    }
+
+    /// Whether it shows No Response (the web UI's cards, Matter's reachability, HomeKit's reads): `isUnavailable` or
+    /// `isUnreachable`.
+    public var showsNoResponse: Bool { services.contains { $0.characteristics.contains(where: \.showsNoResponse) } }
+
+    private func setAvailability(_ value: Bool, _ flag: ReferenceWritableKeyPath<Characteristic, Bool>) {
+        let characteristics = services.flatMap(\.characteristics)
+        guard characteristics.contains(where: { $0[keyPath: flag] != value }) else { return }
+        let showed = characteristics.contains(where: \.showsNoResponse)
+        for characteristic in characteristics { characteristic[keyPath: flag] = value }
+        // Only a change of what shows is announced: unreachable while paused shows No Response all along.
+        guard characteristics.contains(where: \.showsNoResponse) != showed else { return }
+        // A state, never a button's press (which automations take as one), and never an empty value.
+        let announcer = characteristics.first {
+            $0.type.permissions.contains(.events) && $0.type.uuid != CharacteristicType.programmableSwitchEvent.uuid && $0.value != .null
         }
+        if let announcer { announcer.update(announcer.value, origin: nil, force: true) }
     }
 
     /// The controller this accessory mirrors, for an accessory HomeKit already has another way ("Apple Home": the
