@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Web UI: a menu opened in a sheet (the full screens' Filters, in the wall's and the graph's panel) showed off screen: a
+  glass sheet is the box its fixed children are placed in, not the window. Menus and the date range's popover are now
+  placed where they land, and kept inside the sheet they opened in.
+
 ## [0.18.0] - 2026-10-31
 
 ### Added
