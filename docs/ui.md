@@ -193,8 +193,12 @@ accessory a disc on the outer ring, each plugin's branch in a colour of its own.
 and the icons of a ring never overlap. Click a bridge or plugin to zoom into its branch; Ctrl-scroll, a trackpad or
 touch pinch, dragging and the zoom buttons move the view. Click any node for a card with its facts and readings
 (grouped by service, each with a tooltip saying what it is) and its accessories, each a click from its own card; on a
-phone the card sits under the graph. A search field and a Filters menu (unavailable, bridges, device types) redraw the
-graph with what matches, and a table shows the same rows.
+phone the card sits under the graph. An accessory's card holds its widget, live as on the wall (a tap toggles it, its main
+control in reach), then **All controls** (the widget's sheet) and **Identify** when the accessory can. A search field and a Filters menu
+(unavailable, bridges, device types) redraw the graph with what matches, and a table shows the same rows. **Full
+screen** (the toolbar's last button, or `/accessories/graph?full=1`): the graph alone filling the window, its zoom at
+the bottom right as a map's and one button in the top corner for the search, the filters and Leave full screen, both
+fading while nothing happens; the cards and their actions work as on the page, a sheet from the bottom on a phone, and Esc leaves.
 
 ### Quick controls
 

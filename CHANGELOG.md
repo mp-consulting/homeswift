@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- The Accessories graph in full screen (`/accessories/graph?full=1`, or its toolbar's button), as the wall's: the graph
+  alone, its zoom in the corner as a map's, the search and filters behind one button. An accessory's card in the graph
+  holds its widget, live (a tap toggles it), then All controls and Identify.
 - Updates in place on a Synology package too, and with their progress: the bridge downloads the release (the .spk for
   this NAS, Homebrew's upgrade on a Mac), says how far it has got, checks the new binary, puts it in place and restarts;
   the Status page's card (a new dark hero with the version) and the footer's button show the download's share as it

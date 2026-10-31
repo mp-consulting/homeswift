@@ -1837,6 +1837,7 @@ HomeswiftI18n.add("pt", {
   "{n} block in config.json": "{n} bloco no config.json",
   "{n} blocks in config.json": "{n} blocos no config.json",
   "Wall": "Mural",
+  "Graph options": "Opções do gráfico",
   "Graph": "Gráfico",
   "Accessories views": "Vistas dos acessórios",
   "Who made the device, as its plugin reports it.": "Quem fabricou o dispositivo, segundo o seu plugin.",

@@ -1336,10 +1336,24 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return model;
   }
 
-  /// Accessories › Graph: the radial graph of the bridges, their plugins and their accessories.
+  /// Accessories › Graph: the radial graph of the bridges, their plugins and their accessories. Full screen (?full=1):
+  /// the graph alone over the backdrop, as the wall's full screen, an address a wall tablet can open.
   async function graphPage(main, tabs) {
     const model = await loadOverview();
-    app().show(main, app().pageHead(t("Accessories"), t("What homeswift runs: its bridges, their plugins and the accessories each one publishes.")), tabs, overviewCard(model));
+    const full = new URLSearchParams(location.search).get("full") === "1";
+    const card = overviewCard(model, { full });
+    if (full) {
+      document.documentElement.classList.add("wall-full", "graph-full");
+      app().show(main, card);
+    } else {
+      app().show(main, app().pageHead(t("Accessories"), t("What homeswift runs: its bridges, their plugins and the accessories each one publishes.")), tabs, card);
+    }
+  }
+  /// In or out of the graph's full screen: the browser's too, where it can.
+  function setGraphFullScreen(on) {
+    if (on) document.documentElement.requestFullscreen?.().catch(() => {});
+    else if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    app().navigate(`/accessories/graph${on ? "?full=1" : ""}`, { replace: true });
   }
 
   /// What a detail card shows: a name and icon (or the app's icon), a status, facts, and readings; an accessory's
@@ -1349,8 +1363,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       factRow("bridge", accessory.bridge), factRow("category", categoryName(accessory.category))];
     // A camera shows its picture first: live while the card is open, else snapshots, as on the Accessories page.
     const camera = accessory.services?.some((service) => service.type === "CameraRTPStreamManagement");
-    return { name: accessory.name, icon: accessoryIcon(accessory), status: deviceStatus(accessory), warn: Boolean(accessory.unavailable), facts,
-      media: camera ? () => HomeswiftWidgets.cameraView(accessory) : null, sections: HomeswiftWidgets.valueSections(accessory) };
+    // What can be done to it from here: its widget, live, as on the wall (a tap toggles it, its main control is in reach),
+    // every control in the wall's sheet, and Identify when it can. A camera's picture is its widget already.
+    const actions = [
+      { icon: "sliders", label: t("All controls"), run: () => HomeswiftWidgets.open(accessory) },
+      accessory.supportsIdentify ? { icon: "identify", label: t("Identify"),
+        run: () => api(`/api/accessories/${encodeURIComponent(accessory.id)}/identify`, { method: "POST" }).catch((e) => HomeswiftCommon.showAlert(e.message)) } : null,
+    ].filter(Boolean);
+    return { name: accessory.name, icon: accessoryIcon(accessory), status: deviceStatus(accessory), warn: Boolean(accessory.unavailable), facts, actions,
+      media: camera ? () => HomeswiftWidgets.cameraView(accessory) : () => el("div", { class: "detail-widget" }, HomeswiftWidgets.card(accessory, { size: "large" })),
+      sections: HomeswiftWidgets.valueSections(accessory) };
   }
   /// A card's fact: its label, its value, and a tooltip saying what it is.
   const factInfo = {
@@ -1423,6 +1445,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("span", { class: `detail-glyph${data.image ? " app" : ""}` }, glyph),
         el("div", { class: "who" }, el("strong", { text: data.name }), el("div", { class: `detail-status${data.warn ? " warn" : ""}`, text: data.status })), close),
       data.media ? el("div", { class: "detail-media" }, data.media()) : null,
+      data.actions?.length ? el("div", { class: "detail-actions" }, ...data.actions.map((action) =>
+        el("button", { type: "button", class: action.primary ? "primary" : "", actionIcon: action.icon, text: action.label, onclick: action.run }))) : null,
       list(shown(data.facts)),
       ...(data.sections ?? []).map((section) => el("section", { class: "detail-section" }, el("h3", { class: "service-name", text: section.name }), list(section.rows))),
       items.length ? el("ul", { class: "detail-items", role: "list" }, ...items.map((item) =>
@@ -1444,7 +1468,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   /// The card: the radial graph with zoom (a click on a bridge or plugin, Ctrl-scroll or a trackpad pinch, a touch pinch,
   /// drag to pan, the buttons), a tooltip on hover and focus, the legend and a table of the same rows.
-  function overviewCard(model) {
+  function overviewCard(model, { full = false } = {}) {
     if (!model.tops.length) return el("section", { class: "card overview-card" }, el("p", { class: "muted", text: t("Nothing runs here yet.") }));
     // The graph's square (its viewBox, set by `redraw`), the zoomable layer in it, and what each node zooms to and shows.
     const svg = svgNode("svg", { class: "overview-graph", role: "group", "aria-label": t("Graph of the bridges, plugins and accessories") });
@@ -1697,23 +1721,68 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       { separator: true },
       { label: t("Clear filters"), clearFilters: true, icon: "restore", disabled: clear.disabled, onSelect: () => clear.click() },
     ]));
-    const toolbar = el("div", { class: "accessories-toolbar overview-toolbar" }, search, filters, count, clear);
+    const fullScreenButton = el("button", { type: "button", class: "icon-button accessory-options-button", "aria-label": t("Full screen"), title: t("Full screen"),
+      onclick: () => setGraphFullScreen(true) }, HomeswiftCommon.icon("expand"));
+    const toolbar = el("div", { class: "accessories-toolbar overview-toolbar" }, search, filters, count, clear, full ? null : fullScreenButton);
     redraw();
 
     const controls = el("div", { class: "overview-zoom" },
-      el("button", { type: "button", actionIcon: "plus", text: t("Zoom in"), onclick: () => animateTo(viewAt(1.6, centre())) }),
-      el("button", { type: "button", actionIcon: "minus", text: t("Zoom out"), onclick: () => animateTo(viewAt(1 / 1.6, centre())) }),
-      el("button", { type: "button", actionIcon: "restore", text: t("Reset view"), onclick: () => animateTo(home()) }));
+      el("button", { type: "button", actionIcon: "plus", text: t("Zoom in"), "aria-label": t("Zoom in"), title: t("Zoom in"), onclick: () => animateTo(viewAt(1.6, centre())) }),
+      el("button", { type: "button", actionIcon: "minus", text: t("Zoom out"), "aria-label": t("Zoom out"), title: t("Zoom out"), onclick: () => animateTo(viewAt(1 / 1.6, centre())) }),
+      el("button", { type: "button", actionIcon: "restore", text: t("Reset view"), "aria-label": t("Reset view"), title: t("Reset view"), onclick: () => animateTo(home()) }));
     // Only what the drawing cannot say itself: a plugin is named by its icon, its tooltip and its card.
     const legend = el("ul", { class: "overview-legend" },
       el("li", {}, el("i", { class: "legend-mark hollow" }), el("span", { text: t("Unavailable") })),
       el("li", {}, el("i", { class: "legend-mark status paused" }), el("span", { text: t("Paused") })),
       el("li", {}, el("i", { class: "legend-mark status warn" }), el("span", { text: t("Not paired") })));
-    return el("section", { class: "card overview-card" },
+    // Full screen: the graph and its zoom alone, the search and the filters in a panel from the one button left, and
+    // that button and the zoom faded while nothing happens, as on the wall.
+    const chrome = full ? graphFullScreenChrome(frame, search, filters, clear) : null;
+    return el("section", { class: `card overview-card${full ? " graph-full-card" : ""}` },
+      chrome,
       el("div", { class: "chart-head" }, el("div", { class: "who" }, el("strong", { text: t("Graph of the bridges, plugins and accessories") }),
         el("div", { class: "muted", text: t("Pinch or Ctrl-scroll to zoom. Click a bridge to see its plugins and accessories.") }))),
       toolbar, frame, controls, legend,
       el("details", { class: "overview-more" }, el("summary", {}, HomeswiftCommon.icon("grid"), el("span", { text: t("Show as a table") })), table));
+  }
+
+  /// The full-screen graph's chrome: the button that opens a panel with the search, the filters and Leave full screen;
+  /// Escape (or the browser's own) leaves; a touch, the mouse or a key wakes the chrome, which fades a few seconds later.
+  function graphFullScreenChrome(frame, search, filters, clear) {
+    const optionsButton = el("button", { type: "button", class: "wall-full-button wall-full-options", "aria-label": t("Graph options"), "aria-haspopup": "dialog",
+      title: t("Graph options"), onclick: () => app().openSheet((done) => el("div", { class: "wall-full-panel" },
+        el("h2", { id: "graph-full-panel-title", text: t("Graph") }),
+        search, el("div", { class: "actions graph-full-filters" }, filters, clear),
+        el("div", { class: "actions" },
+          el("button", { type: "button", actionIcon: "close", text: t("Leave full screen"), onclick: () => { done(); setGraphFullScreen(false); } }),
+          el("button", { type: "button", actionIcon: "check", class: "primary", text: t("Done"), onclick: () => done() }))),
+      "graph-full-panel-title", { returnFocus: optionsButton }) }, HomeswiftCommon.icon("sliders"));
+    let sleepTimer = null;
+    const wake = () => {
+      document.documentElement.classList.add("wall-awake");
+      clearTimeout(sleepTimer);
+      sleepTimer = setTimeout(() => document.documentElement.classList.remove("wall-awake"), 3000);
+    };
+    // Listeners on the window for this view only: each goes once the graph has left the page.
+    const gone = () => !frame.isConnected;
+    const onKey = (event) => {
+      if (gone()) { removeEventListener("keydown", onKey); return; }
+      wake();
+      // A menu, a sheet or the inspector open has the keys.
+      if (document.querySelector("dialog[open], .menu:not(.closing)") || event.target.closest?.("input, textarea, select, .overview-detail")) return;
+      if (event.key === "Escape") { event.preventDefault(); setGraphFullScreen(false); }
+    };
+    const onPointer = () => { if (gone()) { removeEventListener("pointermove", onPointer); removeEventListener("pointerdown", onPointer); return; } wake(); };
+    const onFullScreen = () => {
+      if (gone()) { document.removeEventListener("fullscreenchange", onFullScreen); return; }
+      if (!document.fullscreenElement) setGraphFullScreen(false);
+    };
+    addEventListener("keydown", onKey);
+    addEventListener("pointermove", onPointer, { passive: true });
+    addEventListener("pointerdown", onPointer, { passive: true });
+    if (document.fullscreenElement) document.addEventListener("fullscreenchange", onFullScreen);
+    wake();
+    return el("div", { class: "wall-full-chrome" }, optionsButton);
   }
 
   /// The radial graph: homeswift at the origin, each bridge an icon on the first ring, each plugin one on the second, each
@@ -2310,7 +2379,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // it, or it would stay over the next one. The restart overlay outlives views.
     for (const dialog of document.querySelectorAll("dialog[open]")) if (dialog !== restartOverlay) dialog.close();
     // The Accessories wall's full screen belongs to it: the view draws it again when its address asks (?full=1).
-    document.documentElement.classList.remove("wall-full", "wall-paged", "wall-awake");
+    document.documentElement.classList.remove("wall-full", "wall-paged", "wall-awake", "graph-full");
     const decode = (part) => { try { return decodeURIComponent(part); } catch { return part; } };
     let [name = "status", ...args] = location.pathname.split("/").filter(Boolean).map(decode);
     // config.json's editor moved into Settings: an old link or bookmark lands there.
@@ -6540,7 +6609,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     enumLabels: HomeswiftWidgets.enumLabels, labelFor: HomeswiftWidgets.labelFor, withSlugs,
   });
   // The Settings pages (admin.js) draw with the same helpers.
-  window.HomeswiftApp = { api, navigate, route, finder, pageHead, breadcrumb, show, savedText, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, assistantPage, configPage };
+  window.HomeswiftApp = { api, navigate, route, finder, pageHead, breadcrumb, show, openSheet, savedText, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, assistantPage, configPage };
 
   loadAuth().catch((e) => { $("#auth").classList.remove("hidden"); $("#auth-error").textContent = e.message; });
 })();
@@ -13985,6 +14054,7 @@ HomeswiftI18n.add("es", {
   "{n} block in config.json": "{n} bloque en config.json",
   "{n} blocks in config.json": "{n} bloques en config.json",
   "Wall": "Panel",
+  "Graph options": "Opciones del gráfico",
   "Graph": "Gráfico",
   "Accessories views": "Vistas de accesorios",
   "Who made the device, as its plugin reports it.": "Quién fabricó el dispositivo, según su plugin.",
@@ -16551,6 +16621,7 @@ HomeswiftI18n.add("fr", {
   "{n} block in config.json": "{n} bloc dans config.json",
   "{n} blocks in config.json": "{n} blocs dans config.json",
   "Wall": "Mur",
+  "Graph options": "Options du graphe",
   "Graph": "Graphe",
   "Accessories views": "Vues des accessoires",
   "Who made the device, as its plugin reports it.": "Le fabricant de l’appareil, tel que son plugin l’indique.",
@@ -19117,6 +19188,7 @@ HomeswiftI18n.add("pt", {
   "{n} block in config.json": "{n} bloco no config.json",
   "{n} blocks in config.json": "{n} blocos no config.json",
   "Wall": "Mural",
+  "Graph options": "Opções do gráfico",
   "Graph": "Gráfico",
   "Accessories views": "Vistas dos acessórios",
   "Who made the device, as its plugin reports it.": "Quem fabricou o dispositivo, segundo o seu plugin.",
@@ -26280,6 +26352,49 @@ html.wall-full #view {
 html.wall-full #view > :not(.accessory-walls):not(.wall-full-chrome) { display: none; }
 html.wall-full .accessory-section > .section-head { padding-right: 56px; }
 html.wall-full .accessory-section > .section-head h2 { font-size: var(--text-2xl); }
+/* The graph full screen (/accessories/graph?full=1): the graph alone filling the window, its zoom at the foot and the
+   options button in the corner, both faded while nothing happens; the inspector a card over it (a sheet on a phone). */
+html.wall-full.graph-full #view > .overview-card.graph-full-card { display: flex; }
+/* #view's entrance would make it, while it moves, the box the fixed card is laid out in: the card fades in itself. */
+html.graph-full #view { animation: none; }
+.graph-full-card { animation: graph-full-in 220ms var(--ease-out); }
+@keyframes graph-full-in { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .graph-full-card { animation: none; } }
+.graph-full-card {
+  position: fixed; inset: 0; flex-direction: column; gap: 0; margin: 0; border: 0; border-radius: 0; background: none; box-shadow: none;
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+  padding: max(var(--space-16), env(safe-area-inset-top)) max(72px, env(safe-area-inset-right)) max(var(--space-16), env(safe-area-inset-bottom)) max(72px, env(safe-area-inset-left));
+}
+.graph-full-card > :not(.overview-frame):not(.overview-zoom):not(.wall-full-chrome) { display: none; }
+.graph-full-card .overview-frame { flex: 1; min-height: 0; }
+.graph-full-card .overview-graph { width: 100%; height: 100%; max-width: none; }
+.graph-full-card .overview-detail { max-height: calc(100dvh - var(--space-24) * 2); }
+/* Its zoom as a map's: round glyph buttons stacked in the bottom right corner, as the wall's corner button is drawn. */
+.graph-full-card .overview-zoom {
+  position: fixed; right: max(var(--space-16), env(safe-area-inset-right)); bottom: max(var(--space-16), env(safe-area-inset-bottom)); z-index: var(--layer-tabbar);
+  flex-direction: column; flex-wrap: nowrap; gap: var(--space-8); margin: 0; transition: opacity 400ms ease;
+}
+.graph-full-card .overview-zoom button {
+  display: grid; place-items: center; width: 44px; height: 44px; min-width: 0; min-height: 0; padding: 0; gap: 0; font-size: 0; border-radius: 50%;
+  border: 1px solid var(--edge); background: var(--material-thick); box-shadow: var(--shadow-control); color: var(--text);
+  -webkit-backdrop-filter: blur(var(--blur)); backdrop-filter: blur(var(--blur));
+}
+.graph-full-card .overview-zoom button svg { width: 20px; height: 20px; }
+.graph-full-card .overview-zoom button:active { transform: scale(0.94); }
+html.graph-full:not(.wall-awake) .overview-zoom { opacity: 0.32; }
+@media (max-width: 640px) {
+  .graph-full-card .overview-detail { position: fixed; left: var(--space-8); right: var(--space-8); bottom: max(var(--space-8), env(safe-area-inset-bottom)); width: auto; max-height: 62dvh; margin: 0; box-shadow: var(--shadow-thick); }
+}
+.graph-full-filters { justify-content: flex-start; }
+.graph-full-filters > button { display: inline-flex; align-items: center; gap: var(--space-8); }
+.graph-full-filters > button > svg { flex: none; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+/* The inspector's widget: the accessory's own tile, live, at the wall's large size scaled to the card (two units of
+   its width); then its actions, quiet, as a tile's long press would offer them. */
+.detail-widget { --unit: calc((min(300px, 100vw - 16px) - var(--space-16) * 2 - 10px) / 2); --unit-gap: 10px; --tile-row: 64px; display: grid; justify-content: center; }
+.detail-widget > .widget { box-shadow: var(--shadow-control); }
+/* The inspector's actions: every control and Identify, under its widget. */
+.detail-actions { display: flex; flex-wrap: wrap; gap: var(--space-8); }
+.detail-actions > button { flex: 1; justify-content: center; display: inline-flex; align-items: center; gap: var(--space-6); padding: var(--space-6) var(--space-12); font-size: var(--text-sm); }
 @keyframes wall-full-in { from { opacity: 0; transform: scale(0.985); } }
 /* Paged: the strip fills the window, each page scrolls on its own when its widgets are taller. */
 html.wall-full.wall-paged #view { padding: 0; }

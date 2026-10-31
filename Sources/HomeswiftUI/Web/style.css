@@ -4198,6 +4198,49 @@ html.wall-full #view {
 html.wall-full #view > :not(.accessory-walls):not(.wall-full-chrome) { display: none; }
 html.wall-full .accessory-section > .section-head { padding-right: 56px; }
 html.wall-full .accessory-section > .section-head h2 { font-size: var(--text-2xl); }
+/* The graph full screen (/accessories/graph?full=1): the graph alone filling the window, its zoom at the foot and the
+   options button in the corner, both faded while nothing happens; the inspector a card over it (a sheet on a phone). */
+html.wall-full.graph-full #view > .overview-card.graph-full-card { display: flex; }
+/* #view's entrance would make it, while it moves, the box the fixed card is laid out in: the card fades in itself. */
+html.graph-full #view { animation: none; }
+.graph-full-card { animation: graph-full-in 220ms var(--ease-out); }
+@keyframes graph-full-in { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .graph-full-card { animation: none; } }
+.graph-full-card {
+  position: fixed; inset: 0; flex-direction: column; gap: 0; margin: 0; border: 0; border-radius: 0; background: none; box-shadow: none;
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+  padding: max(var(--space-16), env(safe-area-inset-top)) max(72px, env(safe-area-inset-right)) max(var(--space-16), env(safe-area-inset-bottom)) max(72px, env(safe-area-inset-left));
+}
+.graph-full-card > :not(.overview-frame):not(.overview-zoom):not(.wall-full-chrome) { display: none; }
+.graph-full-card .overview-frame { flex: 1; min-height: 0; }
+.graph-full-card .overview-graph { width: 100%; height: 100%; max-width: none; }
+.graph-full-card .overview-detail { max-height: calc(100dvh - var(--space-24) * 2); }
+/* Its zoom as a map's: round glyph buttons stacked in the bottom right corner, as the wall's corner button is drawn. */
+.graph-full-card .overview-zoom {
+  position: fixed; right: max(var(--space-16), env(safe-area-inset-right)); bottom: max(var(--space-16), env(safe-area-inset-bottom)); z-index: var(--layer-tabbar);
+  flex-direction: column; flex-wrap: nowrap; gap: var(--space-8); margin: 0; transition: opacity 400ms ease;
+}
+.graph-full-card .overview-zoom button {
+  display: grid; place-items: center; width: 44px; height: 44px; min-width: 0; min-height: 0; padding: 0; gap: 0; font-size: 0; border-radius: 50%;
+  border: 1px solid var(--edge); background: var(--material-thick); box-shadow: var(--shadow-control); color: var(--text);
+  -webkit-backdrop-filter: blur(var(--blur)); backdrop-filter: blur(var(--blur));
+}
+.graph-full-card .overview-zoom button svg { width: 20px; height: 20px; }
+.graph-full-card .overview-zoom button:active { transform: scale(0.94); }
+html.graph-full:not(.wall-awake) .overview-zoom { opacity: 0.32; }
+@media (max-width: 640px) {
+  .graph-full-card .overview-detail { position: fixed; left: var(--space-8); right: var(--space-8); bottom: max(var(--space-8), env(safe-area-inset-bottom)); width: auto; max-height: 62dvh; margin: 0; box-shadow: var(--shadow-thick); }
+}
+.graph-full-filters { justify-content: flex-start; }
+.graph-full-filters > button { display: inline-flex; align-items: center; gap: var(--space-8); }
+.graph-full-filters > button > svg { flex: none; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+/* The inspector's widget: the accessory's own tile, live, at the wall's large size scaled to the card (two units of
+   its width); then its actions, quiet, as a tile's long press would offer them. */
+.detail-widget { --unit: calc((min(300px, 100vw - 16px) - var(--space-16) * 2 - 10px) / 2); --unit-gap: 10px; --tile-row: 64px; display: grid; justify-content: center; }
+.detail-widget > .widget { box-shadow: var(--shadow-control); }
+/* The inspector's actions: every control and Identify, under its widget. */
+.detail-actions { display: flex; flex-wrap: wrap; gap: var(--space-8); }
+.detail-actions > button { flex: 1; justify-content: center; display: inline-flex; align-items: center; gap: var(--space-6); padding: var(--space-6) var(--space-12); font-size: var(--text-sm); }
 @keyframes wall-full-in { from { opacity: 0; transform: scale(0.985); } }
 /* Paged: the strip fills the window, each page scrolls on its own when its widgets are taller. */
 html.wall-full.wall-paged #view { padding: 0; }

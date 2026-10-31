@@ -515,7 +515,7 @@
     // it, or it would stay over the next one. The restart overlay outlives views.
     for (const dialog of document.querySelectorAll("dialog[open]")) if (dialog !== restartOverlay) dialog.close();
     // The Accessories wall's full screen belongs to it: the view draws it again when its address asks (?full=1).
-    document.documentElement.classList.remove("wall-full", "wall-paged", "wall-awake");
+    document.documentElement.classList.remove("wall-full", "wall-paged", "wall-awake", "graph-full");
     const decode = (part) => { try { return decodeURIComponent(part); } catch { return part; } };
     let [name = "status", ...args] = location.pathname.split("/").filter(Boolean).map(decode);
     // config.json's editor moved into Settings: an old link or bookmark lands there.
@@ -4745,7 +4745,7 @@
     enumLabels: HomeswiftWidgets.enumLabels, labelFor: HomeswiftWidgets.labelFor, withSlugs,
   });
   // The Settings pages (admin.js) draw with the same helpers.
-  window.HomeswiftApp = { api, navigate, route, finder, pageHead, breadcrumb, show, savedText, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, assistantPage, configPage };
+  window.HomeswiftApp = { api, navigate, route, finder, pageHead, breadcrumb, show, openSheet, savedText, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, assistantPage, configPage };
 
   loadAuth().catch((e) => { $("#auth").classList.remove("hidden"); $("#auth-error").textContent = e.message; });
 })();
