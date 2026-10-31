@@ -79,6 +79,16 @@ All notable changes to this project are documented here. The format follows
   MyDolphin its refresh token and EcoFlow its developer keys (the block's `accessKey` and `secretKey` go once they are
   kept); Daikin's sign-ins run through Setup.
 
+### Changed
+
+- Every plugin sets up through Setup, and what it pairs or signs in with is kept in the vault: Philips Hue's bridge key
+  (`bridge.json` moves there), Philips Ambilight TV's and Wingman's keys (out of `devices`), IKEA DIRIGERA's hub token,
+  MyDolphin's, LG ThinQ's refresh tokens, Govee's login and certificate (`credentials.json` and `govee.pfx` move there),
+  eWeLink's password, Dyson's local credentials, EcoFlow's developer keys and the UniFi consoles' logins Setup adds;
+  Daikin's sign-ins run through it. A block's own secret keys still work, the vault's winning.
+- Each plugin lists its devices for Setup and skips an Excluded one, eWeLink's channels and UniFi's child accessories
+  with it.
+
 ### Fixed
 
 - Web UI: a menu opened in a sheet (the full screens' Filters, in the wall's and the graph's panel) showed off screen: a
