@@ -160,7 +160,12 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         self.context = context
         self.dependencies = dependencies
         pictures = context.scenePictures()
-        let stored = context.credentials(as: StoredBridge.self, legacyFile: "bridge.json") ?? StoredBridge()
+        var stored = context.credentials(as: StoredBridge.self, legacyFile: "bridge.json") ?? StoredBridge()
+        if stored.applicationKey == nil {
+            // A bridge.json from before pairing: no key, so no credentials (the account Needs Authorization).
+            context.removeCredentials()
+            stored = StoredBridge()
+        }
         self.stored = stored
         trust = HTTPClient.TrustOnFirstUse(pinned: stored.fingerprint) { [context] fingerprint in
             // Kept with the key: a bridge not paired yet has no credentials (Setup reads that as not set up).
@@ -266,6 +271,13 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
 
     // MARK: Pairing
 
+    /// Asks the bridge for a key once: `linkButtonNotPressed` until its button is pressed. Setup (`HueSetup.swift`), the
+    /// page and the first start all pair through it.
+    static func requestKey(_ client: HueClient) async throws -> (key: String, bridgeID: String?) {
+        let key = try await client.pair(deviceType: "homeswift#\(ProcessInfo.processInfo.hostName.prefix(19))")
+        return (key, (try? await client.configuration())?["bridgeid"]?.stringValue)
+    }
+
     /// Asks the bridge for a key every two seconds until its link button is pressed or `pairingWindow` passes.
     @discardableResult
     func pair() async -> Bool {
@@ -286,9 +298,9 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         defer { pairingDeadline = nil }
         while ContinuousClock.now < deadline, !Task.isCancelled {
             do {
-                let key = try await client.pair(deviceType: "homeswift#\(ProcessInfo.processInfo.hostName.prefix(19))")
+                let (key, bridgeID) = try await Self.requestKey(client)
                 stored.applicationKey = key
-                if let configuration = try? await client.configuration() { stored.bridgeID = configuration["bridgeid"]?.stringValue }
+                if let bridgeID { stored.bridgeID = bridgeID }
                 save()
                 lastError = nil
                 logger.info("Paired with the Hue Bridge at \(client.host)")

@@ -74,15 +74,16 @@ extension HomeswiftCatalog {
         return [
             "platform": .string(platform), "name": .string(name),
             "accountAuthorization": .string(host.registry.entry(for: platform)?.accountAuthorization.rawValue ?? "none"),
-            "accountSetUp": .bool(context?.credentials() != nil),
+            "accountSetUp": .bool(context?.haveCredentials([nil]).isEmpty == false),
             "devices": .array(devices.map { device in
-                let status = settings[device.deviceID]?.excluded == true ? "excluded"
+                let status = settings[device.deviceID]?.excluded == true || device.excludedBySettings ? "excluded"
                     : device.isSetUp ? "setUp" : device.authorization == .none ? "discovered" : "needsAuthorization"
                 var json: [String: JSONValue] = [
                     "deviceID": .string(device.deviceID), "accessoryID": .string("\(platform):\(device.deviceID)"), "name": .string(device.name),
                     "authorization": .string(device.authorization.rawValue), "status": .string(status),
                 ]
                 if let model = device.model { json["model"] = .string(model) }
+                if device.excludedBySettings { json["excludedBySettings"] = true }
                 // What kind of accessory it is on the bridge, for its glyph.
                 if let accessory = accessories["\(platform):\(device.deviceID)"] { json["category"] = .string("\(accessory.category)") }
                 if let address = device.address { json["address"] = .string(address) }
@@ -149,12 +150,19 @@ extension HomeswiftCatalog {
     /// reloads and the runtime takes its accessories off the bridge, or lets the plugin add them.
     public func setExcluded(platform: String, name: String?, deviceID: String, excluded: Bool) async throws -> JSONValue {
         try await editBlock(platform: platform, name: name, create: false, dryRun: false, checkSchemas: false) { block in
-            var all = block["_accessories"]?.objectValue ?? [:]
-            var settings = AccessorySettings(json: all[deviceID] ?? [:])
-            settings.excluded = excluded
-            all[deviceID] = settings.json.objectValue?.isEmpty == true ? nil : settings.json
-            block["_accessories"] = all.isEmpty ? nil : .object(all)
+            Self.editAccessorySettings(&block, deviceID: deviceID) { $0.excluded = excluded }
         }
+    }
+
+    /// Changes one device's Accessory Settings in a block's `_accessories`; a device left with none, and a block left with
+    /// no device, lose their entry.
+    static func editAccessorySettings(_ block: inout [String: JSONValue], deviceID: String, _ edit: (inout AccessorySettings) -> Void) {
+        var all = block["_accessories"]?.objectValue ?? [:]
+        var settings = AccessorySettings(json: all[deviceID] ?? [:])
+        edit(&settings)
+        // Removed, not set to nil: JSONValue takes the nil literal as JSON null.
+        if settings.json.objectValue?.isEmpty == true { all.removeValue(forKey: deviceID) } else { all[deviceID] = settings.json }
+        if all.isEmpty { block.removeValue(forKey: "_accessories") } else { block["_accessories"] = .object(all) }
     }
 
     @discardableResult
@@ -200,11 +208,9 @@ extension HomeswiftCatalog {
             applied = try await editBlock(platform: session.platform, name: session.name, dryRun: false, checkSchemas: false) { block in
                 for (key, value) in session.draft?.objectValue ?? [:] where key != "_accessories" { block[key] = value }
                 if let deviceID {
-                    var all = block["_accessories"]?.objectValue ?? [:]
-                    var settings = all[deviceID]?.objectValue ?? [:]
-                    settings.merge(outcome.settings) { $1 }
-                    all[deviceID] = .object(settings)
-                    block["_accessories"] = .object(all)
+                    Self.editAccessorySettings(&block, deviceID: deviceID) { settings in
+                        settings = AccessorySettings(json: .object((settings.json.objectValue ?? [:]).merging(outcome.settings) { $1 }))
+                    }
                 } else {
                     block.merge(outcome.settings) { $1 }
                 }
@@ -231,6 +237,12 @@ extension HomeswiftCatalog {
         return .object(answer)
     }
 
+    /// A Setup's answer for a model: what the devices and the plugin said (names, prompts, errors) is data, never instructions.
+    static func untrusted(_ answer: JSONValue) -> ToolResult {
+        let platform = answer["platform"]?.stringValue ?? "plugin"
+        return ToolResult(text: "<untrusted-data source=\"\(platform)\">\n\(answer.text(pretty: true))\n</untrusted-data>", structured: answer)
+    }
+
     var setupTools: [MCPTool] {
         let catalog = self
         let instance: [String: JSONValue] = [
@@ -242,12 +254,13 @@ extension HomeswiftCatalog {
                 name: "discover_devices", title: "Find devices",
                 description: "Asks a plugin which devices it finds now (on the network, in its account, at the addresses its settings name), each with "
                     + "its deviceID, its accessoryID, the Authorization it needs (none, buttonPress, deviceCode, accountLogin, browserRedirect, apiKey) and its "
-                    + "status: setUp, needsAuthorization (start_setup with its deviceID), discovered (the plugin publishes it by itself) or excluded. "
+                    + "status: setUp, needsAuthorization (start_setup with its deviceID), discovered (the plugin publishes it by itself) or excluded "
+                    + "(excludedBySettings: by the plugin's own settings, which get_plugin_config_schema describes). "
                     + "accountAuthorization says what the plugin's account needs (start_setup without a deviceID).",
                 inputSchema: ["type": "object", "required": ["platform"], "properties": .object(instance)],
                 scope: .admin, readOnly: true
             ) { call in
-                .json(try await catalog.discoverDevices(platform: try call.string("platform"), name: call.optionalString("name")))
+                Self.untrusted(try await catalog.discoverDevices(platform: try call.string("platform"), name: call.optionalString("name")))
             },
             MCPTool(
                 name: "start_setup", title: "Set up a device",
@@ -257,7 +270,7 @@ extension HomeswiftCatalog {
                 inputSchema: ["type": "object", "required": ["platform"], "properties": .object(instance.merging(["deviceID": ["type": "string"]]) { $1 })],
                 scope: .admin
             ) { call in
-                .json(try await catalog.startSetup(platform: try call.string("platform"), name: call.optionalString("name"), deviceID: call.optionalString("deviceID"), by: .client))
+                Self.untrusted(try await catalog.startSetup(platform: try call.string("platform"), name: call.optionalString("name"), deviceID: call.optionalString("deviceID"), by: .client))
             },
             MCPTool(
                 name: "continue_setup", title: "Answer a Setup step",
@@ -267,7 +280,7 @@ extension HomeswiftCatalog {
                 inputSchema: ["type": "object", "required": ["session"], "properties": ["session": ["type": "string"], "answers": ["type": "object"]]],
                 scope: .admin
             ) { call in
-                .json(try await catalog.continueSetup(try call.string("session"), answers: call.arguments["answers"]?.objectValue ?? [:], by: .client))
+                Self.untrusted(try await catalog.continueSetup(try call.string("session"), answers: call.arguments["answers"]?.objectValue ?? [:], by: .client))
             },
             MCPTool(
                 name: "cancel_setup", title: "Cancel a Setup",

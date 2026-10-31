@@ -14866,6 +14866,9 @@ HomeswiftI18n.add("es", {
   "Change keys": "Cambiar las claves",
   "{plugin} needs this before it can reach its devices.": "{plugin} lo necesita para llegar a sus dispositivos.",
   "Its devices show here once it is set up.": "Sus dispositivos aparecen aquí una vez configurado.",
+  "Left out by its settings": "Excluido por sus ajustes",
+  "Press the link button on the Hue Bridge.": "Pulsa el botón de enlace del puente Hue.",
+  "No Hue Bridge answered on the network. Enter its address, from the Hue app's settings.": "Ningún puente Hue respondió en la red. Introduce su dirección, en los ajustes de la app Hue.",
 });
 
 """#),
@@ -17463,6 +17466,9 @@ HomeswiftI18n.add("fr", {
   "Change keys": "Changer les clés",
   "{plugin} needs this before it can reach its devices.": "{plugin} en a besoin pour joindre ses appareils.",
   "Its devices show here once it is set up.": "Ses appareils s’affichent ici une fois configuré.",
+  "Left out by its settings": "Exclu par ses réglages",
+  "Press the link button on the Hue Bridge.": "Appuyez sur le bouton de liaison du pont Hue.",
+  "No Hue Bridge answered on the network. Enter its address, from the Hue app's settings.": "Aucun pont Hue n’a répondu sur le réseau. Saisissez son adresse, dans les réglages de l’app Hue.",
 });
 
 """#),
@@ -20060,6 +20066,9 @@ HomeswiftI18n.add("pt", {
   "Change keys": "Alterar as chaves",
   "{plugin} needs this before it can reach its devices.": "{plugin} precisa disto para chegar aos seus dispositivos.",
   "Its devices show here once it is set up.": "Os seus dispositivos aparecem aqui depois de configurado.",
+  "Left out by its settings": "Excluído pelas suas definições",
+  "Press the link button on the Hue Bridge.": "Prima o botão de ligação da ponte Hue.",
+  "No Hue Bridge answered on the network. Enter its address, from the Hue app's settings.": "Nenhuma ponte Hue respondeu na rede. Introduza o endereço, nas definições da app Hue.",
 });
 
 """#),
@@ -22417,14 +22426,16 @@ HomeswiftI18n.add("pt", {
     };
     const items = [
       device.status === "setUp" && device.authorization !== "none" ? { label: t("Set up again"), icon: "pair", onSelect: () => open(block, device, device.name, null, reload) } : null,
-      excluded ? { label: t("Include"), icon: "plus", onSelect: toggle(false) } : { label: t("Exclude"), icon: "minus", onSelect: toggle(true) },
+      // Left out by the plugin's own settings: included again there, not here.
+      device.excludedBySettings ? { label: t("Open its settings"), icon: "gear", href: `/plugins/${encodeURIComponent(block.slug)}/expert` }
+        : excluded ? { label: t("Include"), icon: "plus", onSelect: toggle(false) } : { label: t("Exclude"), icon: "minus", onSelect: toggle(true) },
     ].filter(Boolean);
     const needs = device.status === "needsAuthorization";
     const glyph = glyphs[device.category] ?? (needs ? methods[device.authorization]?.[1] : null) ?? "accessory";
     return el("div", { class: `setup-device ${excluded ? "is-excluded" : ""}` },
       tile(glyph, excluded ? "grey" : needs ? "orange" : "blue"),
       el("div", { class: "who" }, el("strong", { text: device.name }),
-        el("div", { class: "muted", text: [device.model, device.address].filter(Boolean).join(" · ") || device.deviceID })),
+        el("div", { class: "muted", text: device.excludedBySettings ? t("Left out by its settings") : [device.model, device.address].filter(Boolean).join(" · ") || device.deviceID })),
       tone === "on" ? el("span", { class: "status-dot", role: "img", "aria-label": state(), title: state() }) : el("span", { class: `pill status ${tone}`, text: state() }),
       device.status === "needsAuthorization"
         ? el("button", { class: "primary", actionIcon: "pair", text: t("Set up"), onclick: (event) => open(block, device, device.name, event.currentTarget, reload) })
@@ -22434,7 +22445,7 @@ HomeswiftI18n.add("pt", {
 
   /// The sheet of one Setup: it starts the session, then draws each prompt the plugin sends until it is done.
   function open(block, device, title, trigger, after, subtitle = "") {
-    let session = null, poll = 0, ticker = 0, done = false;
+    let session = null, poll = 0, ticker = 0, done = false, closed = false;
     // A Button Press's end: the retries keep it, so the countdown does not start over at each one.
     let until = 0;
     const stop = () => { clearTimeout(poll); clearInterval(ticker); };
@@ -22449,6 +22460,8 @@ HomeswiftI18n.add("pt", {
 
       function draw(answer) {
         stop();
+        // An answer that arrives after the sheet closed (a retry under way) draws nothing and starts nothing.
+        if (closed) return;
         if (answer.status === "done") {
           done = true;
           session = null;
@@ -22482,7 +22495,7 @@ HomeswiftI18n.add("pt", {
           }
           fill(
             el("div", { class: "pair-prompt pairing" }, el("span", { class: "link-button", "aria-hidden": "true" }, HomeswiftCommon.icon("pair")),
-              el("div", {}, el("p", {}, el("strong", { text: prompt.message })), left)),
+              el("div", {}, el("p", {}, el("strong", { text: t(prompt.message) })), left)),
             error,
             el("div", { class: "actions" }, el("button", { type: "button", actionIcon: "close", text: t("Cancel"), onclick: () => dismiss() })));
           return;
@@ -22504,9 +22517,9 @@ HomeswiftI18n.add("pt", {
           HomeswiftCommon.busyButton(submit, async () => draw(await step(Object.fromEntries(inputs.map(([field, input]) => [field.key, input.value])))));
         };
         fill(
-          el("p", { text: prompt.message }),
+          el("p", { text: t(prompt.message) }),
           /^https?:\/\//i.test(prompt.url ?? "") ? el("a", { class: "button", href: prompt.url, target: "_blank", rel: "noopener noreferrer", actionIcon: "open", text: t("Open the sign-in page") }) : null,
-          ...inputs.map(([field, input]) => el("label", { class: "field", htmlFor: input.id }, el("span", { class: "field-title", text: field.label }), input)),
+          ...inputs.map(([field, input]) => el("label", { class: "field", htmlFor: input.id }, el("span", { class: "field-title", text: t(field.label) }), input)),
           error,
           el("div", { class: "actions" }, el("button", { type: "button", actionIcon: "close", text: t("Cancel"), onclick: () => dismiss() }), submit));
         (inputs.find(([, input]) => !input.value)?.[1] ?? submit).focus();
@@ -22521,6 +22534,7 @@ HomeswiftI18n.add("pt", {
     }, "setup-title", {
       returnFocus: trigger,
       onClose: () => {
+        closed = true;
         stop();
         // A Setup left half way ends on the server too; one that is done shows its device as set up.
         if (session) post(`${session}/cancel`, {}).catch(() => {});

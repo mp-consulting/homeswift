@@ -105,6 +105,13 @@ extension PluginContext {
         return try? JSONDecoder().decode(T.self, from: data)
     }
 
+    /// Which of these devices (nil for the account) have credentials, from one read of the vault that does not count as
+    /// a use: what Setup shows as Authorized.
+    public func haveCredentials(_ deviceIDs: [String?]) -> Set<String?> {
+        let names = Set(((try? CredentialVault(storage: vaultStorage).entries()) ?? [:]).keys)
+        return Set(deviceIDs.filter { names.contains(credentialsFile(for: $0).entryName) })
+    }
+
     /// Replaces them: a refreshed token. The bridge saves an Authorization's own when it is done.
     public func saveCredentials(_ credentials: JSONValue, for deviceID: String? = nil) throws {
         try credentialsFile(for: deviceID).save(credentials)

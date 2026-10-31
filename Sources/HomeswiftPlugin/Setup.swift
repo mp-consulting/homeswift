@@ -34,14 +34,21 @@ public struct DiscoveredDevice: Sendable, Codable, Equatable {
     public var authorization: AuthorizationMethod
     /// The plugin talks to it already: Authorized, or needing none, and not Excluded.
     public var isSetUp: Bool
+    /// Left out by one of the plugin's own settings (a Homebridge-shaped exclude list), not by its Accessory Settings: the
+    /// person includes it again there.
+    public var excludedBySettings: Bool
 
-    public init(deviceID: String, name: String, model: String? = nil, address: String? = nil, authorization: AuthorizationMethod = .none, isSetUp: Bool = false) {
+    public init(
+        deviceID: String, name: String, model: String? = nil, address: String? = nil, authorization: AuthorizationMethod = .none, isSetUp: Bool = false,
+        excludedBySettings: Bool = false
+    ) {
         self.deviceID = deviceID
         self.name = name
         self.model = model
         self.address = address
         self.authorization = authorization
         self.isSetUp = isSetUp
+        self.excludedBySettings = excludedBySettings
     }
 }
 

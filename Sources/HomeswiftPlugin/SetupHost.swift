@@ -6,8 +6,8 @@ import NIOConcurrencyHelpers
 // plugin when its block is the one asked for; otherwise (a block not saved yet, a plugin that failed to start, a paused
 // one) on a plugin made for the step and stopped after it, never started, so Setup never waits for a reload.
 extension PluginHost {
-    /// Runs `body` with a plugin for the block `platform`/`name`: `block` when given (a draft not saved yet), else the
-    /// block config.json has. The context is the instance's, or the one it will have once the block is saved, so the
+    /// Runs `body` with a plugin for the block `platform`/`name`: the instance's running plugin, else one made from
+    /// `block` when given (a draft not saved yet) or the block config.json has. The context is the instance's, or the one it will have once the block is saved, so the
     /// credentials it reads and writes are the instance's.
     public func withSetupPlugin<T: Sendable>(
         platform: String, name: String?, block: JSONValue? = nil, _ body: (any HomeswiftPlugin, PluginContext) async throws -> T
@@ -23,7 +23,9 @@ extension PluginHost {
         } else {
             json = try JSONValue.object(["platform": .string(platform), "name": .string(name)]).encoded()
         }
-        if let instance, !instance.block.paused, instance.block.json == json, let plugin = instance.plugin.withLockedValue({ $0 }) {
+        // A running plugin answers for its instance, whatever block was asked: a second plugin on its context would write
+        // the same credentials and stores at the same time. A draft only makes sense for a block not saved yet.
+        if let instance, !instance.block.paused, let plugin = instance.plugin.withLockedValue({ $0 }) {
             return try await body(plugin, instance.context)
         }
         let context: PluginContext
@@ -54,13 +56,14 @@ extension PluginHost {
         try await withSetupPlugin(platform: platform, name: name, block: block) { plugin, context in
             let accessoryIDs = Set(context.accessories.map(\.id))
             var seen = Set<String>()
-            return try await plugin.discover().compactMap { device in
-                guard seen.insert(device.deviceID).inserted else { return nil }
+            let devices = try await plugin.discover().filter { seen.insert($0.deviceID).inserted }
+            let authorizedIDs = context.haveCredentials(devices.filter { $0.authorization != .none }.map(\.deviceID))
+            return devices.map { device in
                 var device = device
                 let id = context.accessoryID(of: device.deviceID)
                 let published = accessoryIDs.contains(id) || accessoryIDs.contains { $0.hasPrefix("\(id):") }
-                let authorized = device.authorization != .none && context.credentials(for: device.deviceID) != nil
-                device.isSetUp = !context.isExcluded(device.deviceID) && (device.isSetUp || published || authorized)
+                let authorized = authorizedIDs.contains(device.deviceID)
+                device.isSetUp = !context.isExcluded(device.deviceID) && !device.excludedBySettings && (device.isSetUp || published || authorized)
                 return device
             }
         }

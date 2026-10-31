@@ -2591,4 +2591,7 @@ HomeswiftI18n.add("pt", {
   "Change keys": "Alterar as chaves",
   "{plugin} needs this before it can reach its devices.": "{plugin} precisa disto para chegar aos seus dispositivos.",
   "Its devices show here once it is set up.": "Os seus dispositivos aparecem aqui depois de configurado.",
+  "Left out by its settings": "Excluído pelas suas definições",
+  "Press the link button on the Hue Bridge.": "Prima o botão de ligação da ponte Hue.",
+  "No Hue Bridge answered on the network. Enter its address, from the Hue app's settings.": "Nenhuma ponte Hue respondeu na rede. Introduza o endereço, nas definições da app Hue.",
 });

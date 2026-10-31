@@ -114,14 +114,16 @@
     };
     const items = [
       device.status === "setUp" && device.authorization !== "none" ? { label: t("Set up again"), icon: "pair", onSelect: () => open(block, device, device.name, null, reload) } : null,
-      excluded ? { label: t("Include"), icon: "plus", onSelect: toggle(false) } : { label: t("Exclude"), icon: "minus", onSelect: toggle(true) },
+      // Left out by the plugin's own settings: included again there, not here.
+      device.excludedBySettings ? { label: t("Open its settings"), icon: "gear", href: `/plugins/${encodeURIComponent(block.slug)}/expert` }
+        : excluded ? { label: t("Include"), icon: "plus", onSelect: toggle(false) } : { label: t("Exclude"), icon: "minus", onSelect: toggle(true) },
     ].filter(Boolean);
     const needs = device.status === "needsAuthorization";
     const glyph = glyphs[device.category] ?? (needs ? methods[device.authorization]?.[1] : null) ?? "accessory";
     return el("div", { class: `setup-device ${excluded ? "is-excluded" : ""}` },
       tile(glyph, excluded ? "grey" : needs ? "orange" : "blue"),
       el("div", { class: "who" }, el("strong", { text: device.name }),
-        el("div", { class: "muted", text: [device.model, device.address].filter(Boolean).join(" · ") || device.deviceID })),
+        el("div", { class: "muted", text: device.excludedBySettings ? t("Left out by its settings") : [device.model, device.address].filter(Boolean).join(" · ") || device.deviceID })),
       tone === "on" ? el("span", { class: "status-dot", role: "img", "aria-label": state(), title: state() }) : el("span", { class: `pill status ${tone}`, text: state() }),
       device.status === "needsAuthorization"
         ? el("button", { class: "primary", actionIcon: "pair", text: t("Set up"), onclick: (event) => open(block, device, device.name, event.currentTarget, reload) })
@@ -131,7 +133,7 @@
 
   /// The sheet of one Setup: it starts the session, then draws each prompt the plugin sends until it is done.
   function open(block, device, title, trigger, after, subtitle = "") {
-    let session = null, poll = 0, ticker = 0, done = false;
+    let session = null, poll = 0, ticker = 0, done = false, closed = false;
     // A Button Press's end: the retries keep it, so the countdown does not start over at each one.
     let until = 0;
     const stop = () => { clearTimeout(poll); clearInterval(ticker); };
@@ -146,6 +148,8 @@
 
       function draw(answer) {
         stop();
+        // An answer that arrives after the sheet closed (a retry under way) draws nothing and starts nothing.
+        if (closed) return;
         if (answer.status === "done") {
           done = true;
           session = null;
@@ -179,7 +183,7 @@
           }
           fill(
             el("div", { class: "pair-prompt pairing" }, el("span", { class: "link-button", "aria-hidden": "true" }, HomeswiftCommon.icon("pair")),
-              el("div", {}, el("p", {}, el("strong", { text: prompt.message })), left)),
+              el("div", {}, el("p", {}, el("strong", { text: t(prompt.message) })), left)),
             error,
             el("div", { class: "actions" }, el("button", { type: "button", actionIcon: "close", text: t("Cancel"), onclick: () => dismiss() })));
           return;
@@ -201,9 +205,9 @@
           HomeswiftCommon.busyButton(submit, async () => draw(await step(Object.fromEntries(inputs.map(([field, input]) => [field.key, input.value])))));
         };
         fill(
-          el("p", { text: prompt.message }),
+          el("p", { text: t(prompt.message) }),
           /^https?:\/\//i.test(prompt.url ?? "") ? el("a", { class: "button", href: prompt.url, target: "_blank", rel: "noopener noreferrer", actionIcon: "open", text: t("Open the sign-in page") }) : null,
-          ...inputs.map(([field, input]) => el("label", { class: "field", htmlFor: input.id }, el("span", { class: "field-title", text: field.label }), input)),
+          ...inputs.map(([field, input]) => el("label", { class: "field", htmlFor: input.id }, el("span", { class: "field-title", text: t(field.label) }), input)),
           error,
           el("div", { class: "actions" }, el("button", { type: "button", actionIcon: "close", text: t("Cancel"), onclick: () => dismiss() }), submit));
         (inputs.find(([, input]) => !input.value)?.[1] ?? submit).focus();
@@ -218,6 +222,7 @@
     }, "setup-title", {
       returnFocus: trigger,
       onClose: () => {
+        closed = true;
         stop();
         // A Setup left half way ends on the server too; one that is done shows its device as set up.
         if (session) post(`${session}/cancel`, {}).catch(() => {});
