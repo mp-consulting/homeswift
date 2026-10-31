@@ -48,6 +48,11 @@ public protocol HomeswiftPlugin: Sendable {
     /// it controls (`"bulb"`, `"thermo"`). A new logo goes into common.js's `logos`. Defaults to nil: a plug.
     static var icon: String? { get }
 
+    /// What the plugin brings, in one short line under its name in the web UI's list of plugins to add: the devices
+    /// and what it does with them ("Lights, scenes, effects and sensors from a Hue Bridge"), not the brand again. In
+    /// English; the web UI's catalogs translate it (`TranslationTests` checks). Defaults to nil: no line.
+    static var summary: String? { get }
+
     /// The plugin's `config.schema.json` as text (key order kept), for the settings form of the web UI and
     /// the Assistant's config copilot. `Scripts/embed-assets.swift plugin` generates it from the file.
     /// Defaults to nil: no form, only the raw block.
@@ -132,6 +137,7 @@ public protocol HomeswiftPlugin: Sendable {
 extension HomeswiftPlugin {
     public static var name: String { platform }
     public static var icon: String? { nil }
+    public static var summary: String? { nil }
     public static var configurationSchemaJSON: String? { nil }
     public static var webFiles: [String: WebFile] { [:] }
     public static var assistantActions: [AssistantAction] { [] }

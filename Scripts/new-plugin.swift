@@ -663,6 +663,8 @@ public actor __NAME__Plugin: HomeswiftPlugin {
     public static let name = "__DISPLAY__"
     /// The web UI's icon: a name from Sources/HomeswiftUI/Web/common.js's icons, its brand's logo where there is one.
     public static let icon: String? = "plugin"
+    // `summary`: one line under its name in the web UI's list of plugins to add ("Lights, scenes and sensors from a
+    // hub"), with its French, Spanish and Portuguese in Sources/HomeswiftUI/Web/i18n-<lang>.js (TranslationTests checks).
     // `configurationSchemaJSON` is in ConfigurationSchema.swift, generated from ../config.schema.json.
 
     static let defaultPollingInterval = 30

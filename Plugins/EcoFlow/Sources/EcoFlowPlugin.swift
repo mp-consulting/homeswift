@@ -75,6 +75,7 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
     public static let platform = "EcoFlow"
 
     public static let icon: String? = "logo-ecoflow"
+    public static let summary: String? = "Power stations and home batteries: charge, and their power live"
     public static let name = "EcoFlow"
     // `configurationSchemaJSON` is in ConfigurationSchema.swift, generated from ../config.schema.json.
 

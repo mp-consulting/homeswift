@@ -14,6 +14,8 @@ extension DolphinPoolCleanerPlugin {
   "use strict";
   const { t, tn } = HomeswiftI18n;
   const { $, el, request, explain, assistant, breadcrumb, act, poll, fact, readBlock, updateBlock } = homeswift;
+  // The pool robot's icon, the one its widget and its Matter row show.
+  $(".tile.pool")?.replaceChildren(HomeswiftCommon.icon("poolRobot"));
 
   const IOT_REGION = "eu-west-1";
   const DEVICE_TYPE_LABELS = { 62: t("IoT Connected (M400/M600)"), 60: t("IoT Connected"), 50: t("BLE Connected") };
@@ -902,7 +904,7 @@ HomeswiftI18n.add({
 <header><a class="brand" href="/" aria-label="Homeswift" title="Homeswift"><img src="/icon.svg" class="logo" alt=""></a></header>
 <main>
   <div class="page-head">
-    <span class="tile large pool" aria-hidden="true"><svg viewBox="0 0 16 16" style="fill:currentColor;stroke:none"><path fill-rule="evenodd" d="M7.21.8C7.69.295 8 0 8 0q.164.544.371 1.038c.812 1.946 2.073 3.35 3.197 4.6C12.878 7.096 14 8.345 14 10a6 6 0 0 1-12 0C2 6.668 5.58 2.517 7.21.8m.413 1.021A31 31 0 0 0 5.794 3.99c-.726.95-1.436 2.008-1.96 3.07C3.304 8.133 3 9.138 3 10c0 0 2.5 1.5 5 .5s5-.5 5-.5c0-1.201-.796-2.157-2.181-3.7l-.03-.032C9.75 5.11 8.5 3.72 7.623 1.82z"/></svg></span>
+    <span class="tile large pool" aria-hidden="true"></span>
     <div>
       <h1>Dolphin Pool Cleaner</h1>
       <p class="muted" data-i18n>Connect your MyDolphin Plus account, then choose how your robot appears in the Home app.</p>

@@ -375,6 +375,33 @@ struct PluginHostTests {
         await host.stop()
     }
 
+    /// `_hiddenFromHomeKit` keeps an accessory out of HomeKit from the start, and a change to it applies without reloading
+    /// the plugin: the accessory stays on the bridge, for the web UI, the MCP server and Matter.
+    @Test func hidesAccessoriesFromHomeKitWithoutReloadingThePlugin() async throws {
+        func configuration(hidden: String) throws -> HomeswiftConfiguration {
+            try HomeswiftConfiguration.decode(Data(#"""
+                { "bridge": { "port": 0 }, "platforms": [
+                  { "platform": "Recording", "name": "Lamps", "lamps": ["lamp-1", "lamp-2"], "_hiddenFromHomeKit": [\#(hidden)] }
+                ] }
+                """#.utf8))
+        }
+        #expect(throws: ConfigurationError.self) {
+            try HomeswiftConfiguration.decode(Data(#"{ "platforms": [{ "platform": "Recording", "_hiddenFromHomeKit": "lamp-1" }] }"#.utf8))
+        }
+        let host = try PluginHost(configuration: try configuration(hidden: #""Recording:lamp-1""#), registry: environment.registry,
+                                  storageDirectory: environment.directory, options: environment.options)
+        try await host.start()
+        let server = host.mainBridge.server
+        #expect(server.isHiddenFromHomeKit("Recording:lamp-1") && !server.isHiddenFromHomeKit("Recording:lamp-2"))
+        #expect(server.accessories.contains { $0.id == "Recording:lamp-1" })
+
+        let report = await host.apply(try configuration(hidden: #""Recording:lamp-2""#))
+        #expect(report == PluginHost.ReloadReport())
+        #expect(environment.createdPlugins.count == 1)
+        #expect(!server.isHiddenFromHomeKit("Recording:lamp-1") && server.isHiddenFromHomeKit("Recording:lamp-2"))
+        await host.stop()
+    }
+
     /// Blocks with the same platform and name pair up with their instances in order: a change to the second
     /// reloads the second, not the first.
     @Test func reloadsTheDuplicateBlockThatChanged() async throws {

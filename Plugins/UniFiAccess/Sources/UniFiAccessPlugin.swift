@@ -13,6 +13,7 @@ import NIOConcurrencyHelpers
 public actor UniFiAccessPlugin: HomeswiftPlugin {
     public static let platform = "UniFi Access"
     public static let icon: String? = "logo-ubiquiti"
+    public static let summary: String? = "Door locks, hubs and readers, followed in real time"
     public static let name = "UniFi Access"
     // `configurationSchemaJSON` is in ConfigurationSchema.swift, generated from ../config.schema.json;
     // `webFiles` in WebFiles.swift, generated from ../Web.

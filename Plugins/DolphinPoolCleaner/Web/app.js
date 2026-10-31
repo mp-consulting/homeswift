@@ -5,6 +5,8 @@
   "use strict";
   const { t, tn } = HomeswiftI18n;
   const { $, el, request, explain, assistant, breadcrumb, act, poll, fact, readBlock, updateBlock } = homeswift;
+  // The pool robot's icon, the one its widget and its Matter row show.
+  $(".tile.pool")?.replaceChildren(HomeswiftCommon.icon("poolRobot"));
 
   const IOT_REGION = "eu-west-1";
   const DEVICE_TYPE_LABELS = { 62: t("IoT Connected (M400/M600)"), 60: t("IoT Connected"), 50: t("BLE Connected") };

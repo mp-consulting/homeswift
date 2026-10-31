@@ -17,6 +17,7 @@ import NIOPosix
 public actor DaikinCloudPlugin: HomeswiftPlugin {
     public static let platform = "DaikinCloud"
     public static let icon: String? = "thermo"
+    public static let summary: String? = "Air conditioners and Altherma heat pumps through the Onecta cloud"
     public static let name = "Daikin Cloud"
     // `configurationSchemaJSON` is in ConfigurationSchema.swift, generated from ../config.schema.json;
     // `webFiles` in WebFiles.swift, generated from ../Web.

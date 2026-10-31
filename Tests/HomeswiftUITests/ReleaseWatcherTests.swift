@@ -29,14 +29,112 @@ final class FakeInstaller: UpdateInstalling, Sendable {
         self.onDisk = NIOLockedValueBox(onDisk)
         self.installs = installs
     }
-    func install(version: String) async throws {
+    func install(release: ReleaseWatcher.Release, progress: @escaping @Sendable (UpdateProgress) -> Void) async throws {
+        progress(UpdateProgress(phase: .downloading, fraction: 0.5))
+        progress(UpdateProgress(phase: .installing))
         if let installs { onDisk.withLockedValue { $0 = installs } }
     }
     func installedVersion() async -> String? { onDisk.withLockedValue { $0 } }
     var executable: String? { "/opt/homebrew/opt/homeswift/bin/homeswift" }
 }
 
+/// GitHub's asset link, which redirects to its storage, then the file in pieces with its length.
+final class CannedDownload: HTTPStreaming, Sendable {
+    let file: Data
+    let requests = NIOLockedValueBox<[URL]>([])
+    init(_ file: Data) { self.file = file }
+
+    func stream(_ request: HomeswiftNetwork.HTTPRequest) async throws -> HTTPStreamingResponse {
+        requests.withLockedValue { $0.append(request.url) }
+        let (stream, continuation) = AsyncThrowingStream.makeStream(of: [UInt8].self, throwing: (any Error).self)
+        if request.url.host == "github.com" {
+            continuation.finish()
+            return HTTPStreamingResponse(status: 302, headers: [("Location", "https://objects.example.com/homeswift.spk")], body: .init(stream))
+        }
+        let bytes = [UInt8](file)
+        for start in stride(from: 0, to: bytes.count, by: max(1, bytes.count / 10)) { continuation.yield(Array(bytes[start..<min(bytes.count, start + max(1, bytes.count / 10))])) }
+        continuation.finish()
+        return HTTPStreamingResponse(status: 200, headers: [("Content-Length", "\(bytes.count)")], body: .init(stream))
+    }
+}
+
 @Suite struct ReleaseWatcherTests {
+    /// brew's output says where the upgrade is: downloading (with the percent of a bar when it prints one), then
+    /// pouring and linking.
+    @Test func readsBrewsProgress() {
+        var reader = BrewProgress()
+        #expect(reader.read("==> Fetching homeswift") == nil)
+        #expect(reader.read("##########                  42.5%") == UpdateProgress(phase: .downloading, fraction: 0.425))
+        #expect(reader.read("==> Upgrading homeswift 0.3.0 -> 0.4.0") == UpdateProgress(phase: .installing))
+        #expect(reader.read("90% of something after") == nil)
+        #expect(reader.read("==> Pouring homeswift--0.4.0.arm64_sonoma.bottle.tar.gz") == nil)
+    }
+
+    /// A Synology package upgrades itself: the .spk through GitHub's redirect, its progress, the new binary asked its
+    /// version, then bin, lib and app swapped in; a binary that is not the release leaves everything as it was.
+    @Test func aSynologyPackageSwapsInTheRelease() async throws {
+        let files = FileManager.default
+        let root = files.temporaryDirectory.appendingPathComponent("homeswift-spk-\(UUID().uuidString)")
+        defer { try? files.removeItem(at: root) }
+        func write(_ text: String, _ path: String, in folder: URL, executable: Bool = false) throws {
+            let url = folder.appendingPathComponent(path)
+            try files.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try text.write(to: url, atomically: true, encoding: .utf8)
+            if executable { try files.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path) }
+        }
+        func tar(_ arguments: [String]) throws {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: files.isExecutableFile(atPath: "/usr/bin/tar") ? "/usr/bin/tar" : "/bin/tar")
+            process.arguments = arguments
+            try process.run()
+            process.waitUntilExit()
+            #expect(process.terminationStatus == 0)
+        }
+        /// An .spk whose binary says `says`.
+        func package(says: String) throws -> Data {
+            let build = root.appendingPathComponent("build-\(says)")
+            let contents = build.appendingPathComponent("package")
+            try write("#!/bin/sh\necho \(says)\n", "bin/homeswift", in: contents, executable: true)
+            try write("new lib", "lib/libavahi-client.so.3", in: contents)
+            try write("new start", "app/start.sh", in: contents)
+            let spk = build.appendingPathComponent("spk")
+            try files.createDirectory(at: spk, withIntermediateDirectories: true)
+            try tar(["-czf", spk.appendingPathComponent("package.tgz").path, "-C", contents.path, "."])
+            try write("package=\"homeswift\"", "INFO", in: spk)
+            let file = build.appendingPathComponent("homeswift.spk")
+            try tar(["-cf", file.path, "-C", spk.path, "INFO", "package.tgz"])
+            return try Data(contentsOf: file)
+        }
+        let target = root.appendingPathComponent("target")
+        try write("#!/bin/sh\necho 0.3.0\n", "bin/homeswift", in: target, executable: true)
+        try write("old lib", "lib/libavahi-client.so.3", in: target)
+        try write("old start", "app/start.sh", in: target)
+        try write("menu", "ui/config", in: target)
+        let release = ReleaseWatcher.Release(version: "0.4.0", url: "https://github.com/x", notes: "", publishedAt: nil,
+                                             assets: [.init(name: "homeswift-x86_64-0.4.0.spk", url: "https://github.com/mp-consulting/homeswift/releases/download/v0.4.0/homeswift-x86_64-0.4.0.spk")])
+
+        // A package whose binary is another version: refused, nothing moved.
+        let wrong = try #require(SynologyInstaller(target: target.path, architecture: "x86_64", transport: CannedDownload(try package(says: "0.3.9"))))
+        await #expect(throws: UpdateError.self) { try await wrong.install(release: release) { _ in } }
+        #expect(try String(contentsOf: target.appendingPathComponent("lib/libavahi-client.so.3"), encoding: .utf8) == "old lib")
+        #expect(await wrong.installedVersion() == "0.3.0")
+
+        let download = CannedDownload(try package(says: "0.4.0"))
+        let installer = try #require(SynologyInstaller(target: target.path, architecture: "x86_64", transport: download))
+        let seen = NIOLockedValueBox<[UpdateProgress]>([])
+        try await installer.install(release: release) { progress in seen.withLockedValue { $0.append(progress) } }
+        #expect(download.requests.withLockedValue { $0.map(\.host) } == ["github.com", "objects.example.com"])
+        let fractions = seen.withLockedValue { $0 }.filter { $0.phase == .downloading }.compactMap(\.fraction)
+        #expect(fractions.first == 0 && fractions.last == 1 && fractions == fractions.sorted())
+        #expect(seen.withLockedValue { $0 }.last == UpdateProgress(phase: .installing))
+        #expect(await installer.installedVersion() == "0.4.0")
+        #expect(try String(contentsOf: target.appendingPathComponent("lib/libavahi-client.so.3"), encoding: .utf8) == "new lib")
+        #expect(try String(contentsOf: target.appendingPathComponent("app/start.sh"), encoding: .utf8) == "new start")
+        // What the package does not bring stays (DSM's menu entry), and the work folder goes.
+        #expect(try String(contentsOf: target.appendingPathComponent("ui/config"), encoding: .utf8) == "menu")
+        #expect(!files.fileExists(atPath: target.appendingPathComponent(".update").path))
+    }
+
     @Test func installsAndSaysARelaunchStartsIt() async throws {
         let releases = watcher(CannedGitHub(json: Self.release), install: .homebrew, installer: FakeInstaller(onDisk: "0.3.0", installs: "0.4.0"))
         let environment = try UITestEnvironment(auth: .none, options: { $0.releases = releases })
