@@ -3700,6 +3700,45 @@ select option:disabled { color: var(--muted); }
 /* Pairing: the bridge's button drawn, what to do, and Pair at the row's end; the drawn button pulses while the bridge waits. */
 .pair-prompt { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--space-16); align-items: center; margin-top: var(--space-14); padding: var(--space-14) var(--space-16); border-radius: var(--radius-lg); background: var(--material-thin); border: 1px solid var(--line); }
 .pair-prompt p { margin: 0; font-size: var(--text-md); }
+
+/* Add accessories (setup.js): a card per plugin, a row per device it finds, and one sheet for every Setup. */
+.setup-list { display: grid; gap: var(--space-16); }
+.setup-instance .server-head .who { flex: 1; }
+.setup-tools { display: flex; gap: var(--space-8); flex: none; }
+.setup-devices { display: grid; margin-top: var(--space-12); border-top: 1px solid var(--line); }
+.setup-device { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto; gap: var(--space-12); align-items: center; padding: var(--space-10) 0; border-bottom: 1px solid var(--line); }
+.setup-device:last-child { border-bottom: 0; }
+.setup-device .who strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.setup-device .who .muted { font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.setup-device.is-excluded .who { opacity: 0.6; }
+.setup-device .status-dot { justify-self: end; }
+.setup-account .who .muted { white-space: normal; }
+.setup-account { background: color-mix(in srgb, var(--accent) 7%, transparent); margin: 0 calc(-1 * var(--space-12)); padding-inline: var(--space-12); border-radius: var(--radius-md); }
+.setup-loading, .setup-none { margin: var(--space-12) 0 0; }
+.setup-sheet .setup-method { margin-top: calc(-1 * var(--space-6)); }
+.setup-step { display: grid; gap: var(--space-12); }
+.setup-step > p { margin: 0; }
+.setup-step .pair-prompt { margin-top: 0; grid-template-columns: auto minmax(0, 1fr); }
+.setup-done { display: grid; justify-items: center; text-align: center; gap: var(--space-6); padding: var(--space-12) 0; }
+.setup-done p { margin: 0; }
+.setup-check { width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
+.setup-check svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+@media (prefers-reduced-motion: no-preference) {
+  .setup-check { animation: setup-check-in 320ms var(--ease-out) both; }
+  @keyframes setup-check-in { from { opacity: 0; transform: scale(0.85); } }
+}
+@media (max-width: 640px) {
+  .setup-instance .server-head { flex-wrap: wrap; }
+  .setup-tools { width: 100%; }
+  /* The dot and the menu stay on the name's line; a pill and a button go under the name. */
+  .setup-device { grid-template-columns: auto minmax(0, 1fr) auto auto; row-gap: var(--space-8); }
+  .setup-device > .status-dot { grid-row: 1; grid-column: 3; }
+  .setup-device > :last-child { grid-row: 1; grid-column: 4; }
+  .setup-device > .pill { grid-row: 2; grid-column: 2; justify-self: start; }
+  .setup-device > button.primary { grid-row: 2; grid-column: 3 / 5; justify-self: end; }
+  .setup-account > button.primary:last-child { grid-row: 2; grid-column: 3 / 5; }
+  .setup-spacer { display: none; }
+}
 .link-button { width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; background: radial-gradient(circle at 50% 40%, #fff, #e6e8ee 70%); box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.15); color: #3d4352; }
 .link-button svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 .pairing .link-button { animation: press 1.6s var(--ease-out) infinite; }

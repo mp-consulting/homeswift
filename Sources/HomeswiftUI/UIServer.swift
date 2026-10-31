@@ -908,6 +908,7 @@ public final class UIServer: Sendable {
                 return .json(result)
             }
         case .POST:
+            if route.first == "setup", let reply = try await setupRoute(Array(route.dropFirst()), body: body, username: username) { return reply }
             if route == ["updates", "check"] {
                 guard let releases = options.releases else { return .error(503, "update checking is unavailable") }
                 await releases.check()
@@ -1522,7 +1523,7 @@ public final class UIServer: Sendable {
     }
 
     /// Who changed config.json; the host's own line says what applied.
-    private func noteConfigChange(by username: String) {
+    func noteConfigChange(by username: String) {
         logger.info("config.json changed from the web UI", metadata: ["user": "\(username)"])
     }
 }

@@ -474,7 +474,7 @@
   // As Glass UI's: a user who is not an administrator sees Status and Accessories (and controls accessories); the
   // plugins, config.json, the log and the users are an administrator's. The server refuses the rest anyway.
 
-  const adminSections = new Set(["plugins", "logs", "settings", "users", "import", "welcome"]);
+  const adminSections = new Set(["plugins", "logs", "settings", "users", "import", "welcome", "setup"]);
   const isAdmin = () => Boolean(auth && auth.admin);
 
   /// Shows the header's and the tab bar's sections the user may open.
@@ -2564,6 +2564,7 @@
       } },
     ]));
     const more = menuButton(t("Accessory options"), () => [
+      ...(isAdmin() ? [{ label: t("Add accessories"), icon: "plus", href: "/setup" }] : []),
       { label: t("Create group"), icon: "group", onSelect: () => groupingControls.edit() },
       { separator: true },
       ...groupings.map(([value, label, icon]) => ({ label, icon, checked: layout.grouping === value, onSelect: () => setGrouping(value) })),
@@ -2681,7 +2682,8 @@
         el("div", { class: "accessories-toolbar" }, search, filters, accessories.length ? edit : null, roomOrderButton, more, accessories.length ? fullScreenButton : null)),
       accessoryTabs(""),
       note,
-      accessories.length ? [content, none, fullScreen ? chrome : null] : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("bulb")), el("p", { class: "muted", text: all.length ? t("Every accessory is hidden.") : t("No accessories yet. Plugins add them once they reach their devices.") })));
+      accessories.length ? [content, none, fullScreen ? chrome : null] : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("bulb")), el("p", { class: "muted", text: all.length ? t("Every accessory is hidden.") : t("No accessories yet. Plugins add them once they reach their devices.") }),
+        !all.length && isAdmin() ? el("a", { class: "button primary", href: "/setup", actionIcon: "plus", text: t("Add accessories") }) : null));
   };
 
   /// Accessories by plugin: [name, accessories] pairs by the plugin's name, each list by name; those of no
@@ -2741,6 +2743,7 @@
       };
       return [
         plugin && plugin.hasPages && instance && !instance.paused ? { label: t("Open its page"), icon: "open", href: pluginPage(block) } : null,
+        plugin ? { label: t("Add accessories"), icon: "plus", href: `/setup#${encodeURIComponent(block.slug)}` } : null,
         { label: t("Edit settings (Expert)"), icon: "edit", href: expertLink(block) },
         { label: t("Edit as JSON (Expert)"), icon: "code", href: expertLink(block, "json") },
         instance && !instance.paused ? { label: t("Pause"), icon: "pause", onSelect: () => toggle(true) } : null,
@@ -4749,6 +4752,7 @@
   const accessoryCard = (accessory) => HomeswiftWidgets.card(accessory, { size: HomeswiftWidgets.kindOf(accessory).size, actions: accessoryActions });
   // The Homebridge import (import.js): its page at /import and the welcome page at /welcome.
   views.import = (main) => window.HomeswiftImport.view(main);
+  views.setup = (main) => window.HomeswiftSetup.view(main);
   views.welcome = (main) => window.HomeswiftImport.welcome(main);
   window.HomeswiftHome?.install({
     views, api, show, pageHead, breadcrumb, accessoryCard, navigate, route: () => route(), isAdmin,

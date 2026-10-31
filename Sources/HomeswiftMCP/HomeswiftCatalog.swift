@@ -593,6 +593,7 @@ public struct HomeswiftCatalog: Sendable {
                 [
                     "platform": .string(entry.platform), "name": .string(entry.name), "hasSchema": .bool(entry.configurationSchemaJSON != nil), "hasPages": .bool(entry.hasPages),
                     "icon": entry.icon.map(JSONValue.string) ?? .null, "summary": entry.summary.map(JSONValue.string) ?? .null,
+                    "accountAuthorization": .string(entry.accountAuthorization.rawValue),
                     "tools": .array(entry.assistantActions.map { .string(Self.actionToolName(platform: entry.platform, action: $0.name)) }),
                 ]
             } + (host.registry.entry(for: AIConfiguration.platform) == nil ? [["platform": .string(AIConfiguration.platform), "name": .string("Assistant"), "hasSchema": .bool(true), "hasPages": .bool(false),

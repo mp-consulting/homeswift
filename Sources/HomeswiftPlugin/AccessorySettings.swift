@@ -93,13 +93,15 @@ extension PluginContext {
     public func accessoryID(of deviceID: String) -> String { "\(platform):\(deviceID)" }
 
     /// What an Authorization gave for the account (no `deviceID`) or a device, from the vault; nil when there is none.
-    public func credentials(for deviceID: String? = nil) -> JSONValue? {
-        credentialsFile(for: deviceID).load()
+    /// Their being there is what Setup reads as Authorized: keep none for an account or a device not authorized yet.
+    /// `legacyFile`, a file of the plugin's storage directory it kept them in before, moves into the vault when read.
+    public func credentials(for deviceID: String? = nil, legacyFile: String? = nil) -> JSONValue? {
+        credentialsFile(for: deviceID, legacyFile: legacyFile).load()
     }
 
     /// The credentials as the plugin's own type.
-    public func credentials<T: Decodable>(for deviceID: String? = nil, as type: T.Type) -> T? {
-        guard let json = credentials(for: deviceID), let data = try? json.encoded() else { return nil }
+    public func credentials<T: Decodable>(for deviceID: String? = nil, as type: T.Type, legacyFile: String? = nil) -> T? {
+        guard let json = credentials(for: deviceID, legacyFile: legacyFile), let data = try? json.encoded() else { return nil }
         return try? JSONDecoder().decode(T.self, from: data)
     }
 
@@ -118,10 +120,10 @@ extension PluginContext {
     }
 
     /// `plugin.<instance>.account`, or `plugin.<instance>.device-<deviceID>`.
-    func credentialsFile(for deviceID: String?) -> SecretFile<JSONValue> {
+    func credentialsFile(for deviceID: String?, legacyFile: String? = nil) -> SecretFile<JSONValue> {
         let file = deviceID.map { "device-\($0)" } ?? "account"
         return SecretFile(
             vault: CredentialVault(storage: vaultStorage), entryName: SecretFile<JSONValue>.entryName(instance: key, file: file),
-            owner: "\(platform)/\(name)")
+            owner: "\(platform)/\(name)", legacyFile: legacyFile.map(storageFile))
     }
 }

@@ -69,9 +69,12 @@ extension HomeswiftCatalog {
         setupSessions.remember(devices, for: "\(platform)/\(name)")
         let saved = (try? readConfig())?["platforms"]?.arrayValue?.first { $0["platform"]?.stringValue == platform && ($0["name"]?.stringValue ?? platform) == name }
         let settings = AccessorySettings.all(in: block ?? saved ?? .null)
+        let context = host.context(platform: platform, name: name)
+        let accessories = Dictionary(context?.accessories.map { ($0.id, $0) } ?? [], uniquingKeysWith: { first, _ in first })
         return [
             "platform": .string(platform), "name": .string(name),
             "accountAuthorization": .string(host.registry.entry(for: platform)?.accountAuthorization.rawValue ?? "none"),
+            "accountSetUp": .bool(context?.credentials() != nil),
             "devices": .array(devices.map { device in
                 let status = settings[device.deviceID]?.excluded == true ? "excluded"
                     : device.isSetUp ? "setUp" : device.authorization == .none ? "discovered" : "needsAuthorization"
@@ -80,6 +83,8 @@ extension HomeswiftCatalog {
                     "authorization": .string(device.authorization.rawValue), "status": .string(status),
                 ]
                 if let model = device.model { json["model"] = .string(model) }
+                // What kind of accessory it is on the bridge, for its glyph.
+                if let accessory = accessories["\(platform):\(device.deviceID)"] { json["category"] = .string("\(accessory.category)") }
                 if let address = device.address { json["address"] = .string(address) }
                 return .object(json)
             }),
@@ -138,6 +143,18 @@ extension HomeswiftCatalog {
             }
         }
         return try await step(session, answers: texts, first: false)
+    }
+
+    /// Excludes a device of the block (GLOSSARY.md, "Excluded"), or includes it again, in its Accessory Settings: the plugin
+    /// reloads and the runtime takes its accessories off the bridge, or lets the plugin add them.
+    public func setExcluded(platform: String, name: String?, deviceID: String, excluded: Bool) async throws -> JSONValue {
+        try await editBlock(platform: platform, name: name, create: false, dryRun: false, checkSchemas: false) { block in
+            var all = block["_accessories"]?.objectValue ?? [:]
+            var settings = AccessorySettings(json: all[deviceID] ?? [:])
+            settings.excluded = excluded
+            all[deviceID] = settings.json.objectValue?.isEmpty == true ? nil : settings.json
+            block["_accessories"] = all.isEmpty ? nil : .object(all)
+        }
     }
 
     @discardableResult
