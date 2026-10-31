@@ -2032,8 +2032,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     };
   }
 
-  /// The side menu's foot: one line (the health's dot, the version, a mark when an update waits) that unfolds into
-  /// the rest, open or folded as the viewer left it.
+  /// The side menu's foot: one line (the health's dot, the version, a mark when an update waits) that unfolds upward
+  /// into the rest.
   function drawSideAbout(status) {
     aboutStatus = status;
     if (status.update) aboutUpdate = status.update;
@@ -2044,17 +2044,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("span", { class: `side-about-dot ${healthOf(status)[1]}`, "aria-hidden": "true" }),
         el("span", { class: "side-about-title", text: t("Homeswift {version}", { version: status.version }) }),
         el("span", { class: "side-about-badge", role: "img", "aria-label": t("Update available"), title: t("Update available") }),
-        HomeswiftCommon.icon("down")),
+        HomeswiftCommon.icon("up")),
       el("div", { class: "side-about-body" }, about.health, about.meta, about.feedback,
         // Restarting, in the accent: an administrator's, and not a page like the rest.
         isAdmin() ? el("button", { type: "button", class: "link side-about-restart", onclick: restartBridge }, HomeswiftCommon.icon("power"), el("span", { text: t("Restart homeswift…") })) : null));
     details.hidden = false;
     renderUpdateButtons();
   }
-  $("#side-about").open = (() => { try { return localStorage.getItem("homeswift.sideAbout") === "open"; } catch { return false; } })();
-  $("#side-about").addEventListener("toggle", (event) => {
-    try { localStorage.setItem("homeswift.sideAbout", event.currentTarget.open ? "open" : "folded"); } catch {}
-  });
+  HomeswiftCommon.foldOnLeave($("#side-about"));
 
   // Its menu: who is signed in and as what, their account and appearance, the users for an administrator, signing out.
   $("#user").addEventListener("click", (event) => {
@@ -10216,8 +10213,19 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const confirmDialog = (message) => messageDialog(message, { kind: "confirm" });
   const promptDialog = (message, value = "") => messageDialog(message, { kind: "prompt", value });
 
+  /// A `<details>` that opens as a popover (the side menu's Homeswift section): a click outside it or Escape folds it,
+  /// Escape giving the focus back to its summary.
+  function foldOnLeave(details) {
+    document.addEventListener("click", (event) => { if (details.open && !details.contains(event.target)) details.open = false; });
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || !details.open) return;
+      details.open = false;
+      details.querySelector("summary")?.focus();
+    });
+  }
+
   window.HomeswiftCommon = {
-    showAlert, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, lastChange: () => lastChange,
+    foldOnLeave, showAlert, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, lastChange: () => lastChange,
     $, el, icon, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
@@ -20856,8 +20864,7 @@ HomeswiftI18n.add("pt", {
         : [t("Running, and everything is in the Home app"), "on"];
     };
     const about = el("details", { id: "side-about", class: "side-about", hidden: true });
-    try { about.open = localStorage.getItem("homeswift.sideAbout") === "open"; } catch {}
-    about.addEventListener("toggle", () => { try { localStorage.setItem("homeswift.sideAbout", about.open ? "open" : "folded"); } catch {} });
+    HomeswiftCommon.foldOnLeave(about);
     const drawAbout = () => {
       const status = aboutStatus;
       if (!status) return;
@@ -20866,7 +20873,7 @@ HomeswiftI18n.add("pt", {
       about.replaceChildren(
         el("summary", {}, el("span", { class: `side-about-dot ${kind}`, "aria-hidden": "true" }),
           el("span", { class: "side-about-title", text: t("Homeswift {version}", { version: status.version }) }),
-          el("span", { class: "side-about-badge", role: "img", "aria-label": t("Update available"), title: t("Update available") }), HomeswiftCommon.icon("down")),
+          el("span", { class: "side-about-badge", role: "img", "aria-label": t("Update available"), title: t("Update available") }), HomeswiftCommon.icon("up")),
         el("div", { class: "side-about-body" },
           el("p", { class: `health ${kind}` }, el("strong", { text: health })),
           el("p", { class: "muted", text: t("Version {version} · {host}", { version: status.version, host: status.system.hostname }) }),
@@ -25534,9 +25541,17 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
   .status-footer > .link { color: var(--muted); border-color: var(--edge); border-radius: var(--radius-pill); background: var(--material-thin); }
 }
 @media (min-width: 1180px) {
-  .status-footer { justify-content: flex-end; padding: var(--space-8) 0 0; border: 0; background: none; color: var(--text); }
+  /* Customise floats at the window's bottom right while the page scrolls, its middle on the Assistant's button's, to its
+     left (that button sits 24 px into the frame's 28 px padding and is 56 px wide). */
+  .status-footer {
+    position: sticky; bottom: calc(var(--space-24) + var(--space-24) + 10px); z-index: 2; justify-content: flex-end;
+    padding: var(--space-8) 0 0; border: 0; background: none; color: var(--text); pointer-events: none;
+  }
+  #app:has(.chat-open) .status-footer { padding-right: calc(56px - var(--space-4) + var(--space-16)); }
+  .status-footer > .link { pointer-events: auto; box-shadow: var(--shadow-control); }
   .status-footer > .status-footer-summary, .status-footer > a.link { display: none; }
-  .status-footer > .link { color: var(--muted); border-color: var(--edge); border-radius: var(--radius-pill); background: var(--material-thin); padding-inline: var(--space-14); }
+  .status-footer > .link { color: var(--muted); border-color: var(--edge); border-radius: var(--radius-pill); background: var(--material-thick); padding-inline: var(--space-14);
+    -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%); }
   .status-footer > .link:hover, .status-footer > .link[aria-expanded="true"] { color: var(--text); border-color: var(--edge); background: var(--control); }
 
   header .side-about { display: block; position: relative; margin-top: var(--space-16); }
@@ -25558,7 +25573,15 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
   .side-about > summary svg { flex: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
     transition: transform var(--fast) var(--ease-out); }
   .side-about[open] > summary svg { transform: rotate(180deg); }
-  .side-about-body { display: grid; gap: var(--space-10); padding: var(--space-10) var(--space-12) var(--space-4); font-size: var(--text-xs); line-height: 1.5; }
+  /* It opens upward, a card of glass over the menu as a menu is, so the side menu keeps the window's height. */
+  .side-about-body {
+    position: absolute; left: 0; right: 0; bottom: calc(100% + var(--space-8)); z-index: var(--layer-menu);
+    display: grid; gap: var(--space-10); padding: var(--space-14); font-size: var(--text-xs); line-height: 1.5;
+    border-radius: calc(var(--radius-sm) + 6px); background-color: var(--material-thick); background-image: var(--sheen);
+    -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
+    border: 1px solid var(--edge); box-shadow: 0 18px 44px rgba(25, 34, 56, 0.24), inset 0 1px 0 var(--edge-light);
+    transform-origin: bottom center;
+  }
   .side-about[open] .side-about-body { animation: side-about-in 180ms var(--ease-out); }
   .side-about-body p { margin: 0; }
   .side-about-body .health { gap: var(--space-8); }
@@ -25574,7 +25597,7 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
   .side-about-body > .side-about-restart svg,
   .side-about-body > a.link svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 }
-@keyframes side-about-in { from { opacity: 0; transform: translateY(-4px); } }
+@keyframes side-about-in { from { opacity: 0; transform: translateY(4px) scale(0.97); } }
 @media (prefers-reduced-motion: reduce) { .side-about[open] .side-about-body { animation: none; } .side-about > summary svg { transition: none; } }
 
 .group-box > summary > svg { width: 18px; height: 18px; margin-right: var(--space-8); vertical-align: -3px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }

@@ -237,8 +237,8 @@
     };
   }
 
-  /// The side menu's foot: one line (the health's dot, the version, a mark when an update waits) that unfolds into
-  /// the rest, open or folded as the viewer left it.
+  /// The side menu's foot: one line (the health's dot, the version, a mark when an update waits) that unfolds upward
+  /// into the rest.
   function drawSideAbout(status) {
     aboutStatus = status;
     if (status.update) aboutUpdate = status.update;
@@ -249,17 +249,14 @@
         el("span", { class: `side-about-dot ${healthOf(status)[1]}`, "aria-hidden": "true" }),
         el("span", { class: "side-about-title", text: t("Homeswift {version}", { version: status.version }) }),
         el("span", { class: "side-about-badge", role: "img", "aria-label": t("Update available"), title: t("Update available") }),
-        HomeswiftCommon.icon("down")),
+        HomeswiftCommon.icon("up")),
       el("div", { class: "side-about-body" }, about.health, about.meta, about.feedback,
         // Restarting, in the accent: an administrator's, and not a page like the rest.
         isAdmin() ? el("button", { type: "button", class: "link side-about-restart", onclick: restartBridge }, HomeswiftCommon.icon("power"), el("span", { text: t("Restart homeswift…") })) : null));
     details.hidden = false;
     renderUpdateButtons();
   }
-  $("#side-about").open = (() => { try { return localStorage.getItem("homeswift.sideAbout") === "open"; } catch { return false; } })();
-  $("#side-about").addEventListener("toggle", (event) => {
-    try { localStorage.setItem("homeswift.sideAbout", event.currentTarget.open ? "open" : "folded"); } catch {}
-  });
+  HomeswiftCommon.foldOnLeave($("#side-about"));
 
   // Its menu: who is signed in and as what, their account and appearance, the users for an administrator, signing out.
   $("#user").addEventListener("click", (event) => {

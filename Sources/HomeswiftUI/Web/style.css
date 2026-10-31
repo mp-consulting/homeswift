@@ -3461,9 +3461,17 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
   .status-footer > .link { color: var(--muted); border-color: var(--edge); border-radius: var(--radius-pill); background: var(--material-thin); }
 }
 @media (min-width: 1180px) {
-  .status-footer { justify-content: flex-end; padding: var(--space-8) 0 0; border: 0; background: none; color: var(--text); }
+  /* Customise floats at the window's bottom right while the page scrolls, its middle on the Assistant's button's, to its
+     left (that button sits 24 px into the frame's 28 px padding and is 56 px wide). */
+  .status-footer {
+    position: sticky; bottom: calc(var(--space-24) + var(--space-24) + 10px); z-index: 2; justify-content: flex-end;
+    padding: var(--space-8) 0 0; border: 0; background: none; color: var(--text); pointer-events: none;
+  }
+  #app:has(.chat-open) .status-footer { padding-right: calc(56px - var(--space-4) + var(--space-16)); }
+  .status-footer > .link { pointer-events: auto; box-shadow: var(--shadow-control); }
   .status-footer > .status-footer-summary, .status-footer > a.link { display: none; }
-  .status-footer > .link { color: var(--muted); border-color: var(--edge); border-radius: var(--radius-pill); background: var(--material-thin); padding-inline: var(--space-14); }
+  .status-footer > .link { color: var(--muted); border-color: var(--edge); border-radius: var(--radius-pill); background: var(--material-thick); padding-inline: var(--space-14);
+    -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%); }
   .status-footer > .link:hover, .status-footer > .link[aria-expanded="true"] { color: var(--text); border-color: var(--edge); background: var(--control); }
 
   header .side-about { display: block; position: relative; margin-top: var(--space-16); }
@@ -3485,7 +3493,15 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
   .side-about > summary svg { flex: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
     transition: transform var(--fast) var(--ease-out); }
   .side-about[open] > summary svg { transform: rotate(180deg); }
-  .side-about-body { display: grid; gap: var(--space-10); padding: var(--space-10) var(--space-12) var(--space-4); font-size: var(--text-xs); line-height: 1.5; }
+  /* It opens upward, a card of glass over the menu as a menu is, so the side menu keeps the window's height. */
+  .side-about-body {
+    position: absolute; left: 0; right: 0; bottom: calc(100% + var(--space-8)); z-index: var(--layer-menu);
+    display: grid; gap: var(--space-10); padding: var(--space-14); font-size: var(--text-xs); line-height: 1.5;
+    border-radius: calc(var(--radius-sm) + 6px); background-color: var(--material-thick); background-image: var(--sheen);
+    -webkit-backdrop-filter: blur(var(--blur-thick)) saturate(180%); backdrop-filter: blur(var(--blur-thick)) saturate(180%);
+    border: 1px solid var(--edge); box-shadow: 0 18px 44px rgba(25, 34, 56, 0.24), inset 0 1px 0 var(--edge-light);
+    transform-origin: bottom center;
+  }
   .side-about[open] .side-about-body { animation: side-about-in 180ms var(--ease-out); }
   .side-about-body p { margin: 0; }
   .side-about-body .health { gap: var(--space-8); }
@@ -3501,7 +3517,7 @@ main:has(> .status-footer) > .dash-widget { max-width: 1076px; width: calc(100% 
   .side-about-body > .side-about-restart svg,
   .side-about-body > a.link svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 }
-@keyframes side-about-in { from { opacity: 0; transform: translateY(-4px); } }
+@keyframes side-about-in { from { opacity: 0; transform: translateY(4px) scale(0.97); } }
 @media (prefers-reduced-motion: reduce) { .side-about[open] .side-about-body { animation: none; } .side-about > summary svg { transition: none; } }
 
 .group-box > summary > svg { width: 18px; height: 18px; margin-right: var(--space-8); vertical-align: -3px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }

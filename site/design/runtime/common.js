@@ -1747,8 +1747,19 @@
   const confirmDialog = (message) => messageDialog(message, { kind: "confirm" });
   const promptDialog = (message, value = "") => messageDialog(message, { kind: "prompt", value });
 
+  /// A `<details>` that opens as a popover (the side menu's Homeswift section): a click outside it or Escape folds it,
+  /// Escape giving the focus back to its summary.
+  function foldOnLeave(details) {
+    document.addEventListener("click", (event) => { if (details.open && !details.contains(event.target)) details.open = false; });
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || !details.open) return;
+      details.open = false;
+      details.querySelector("summary")?.focus();
+    });
+  }
+
   window.HomeswiftCommon = {
-    showAlert, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, lastChange: () => lastChange,
+    foldOnLeave, showAlert, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, lastChange: () => lastChange,
     $, el, icon, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };

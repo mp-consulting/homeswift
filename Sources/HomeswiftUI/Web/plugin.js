@@ -147,8 +147,7 @@
         : [t("Running, and everything is in the Home app"), "on"];
     };
     const about = el("details", { id: "side-about", class: "side-about", hidden: true });
-    try { about.open = localStorage.getItem("homeswift.sideAbout") === "open"; } catch {}
-    about.addEventListener("toggle", () => { try { localStorage.setItem("homeswift.sideAbout", about.open ? "open" : "folded"); } catch {} });
+    HomeswiftCommon.foldOnLeave(about);
     const drawAbout = () => {
       const status = aboutStatus;
       if (!status) return;
@@ -157,7 +156,7 @@
       about.replaceChildren(
         el("summary", {}, el("span", { class: `side-about-dot ${kind}`, "aria-hidden": "true" }),
           el("span", { class: "side-about-title", text: t("Homeswift {version}", { version: status.version }) }),
-          el("span", { class: "side-about-badge", role: "img", "aria-label": t("Update available"), title: t("Update available") }), HomeswiftCommon.icon("down")),
+          el("span", { class: "side-about-badge", role: "img", "aria-label": t("Update available"), title: t("Update available") }), HomeswiftCommon.icon("up")),
         el("div", { class: "side-about-body" },
           el("p", { class: `health ${kind}` }, el("strong", { text: health })),
           el("p", { class: "muted", text: t("Version {version} · {host}", { version: status.version, host: status.system.hostname }) }),
