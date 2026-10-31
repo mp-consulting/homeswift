@@ -601,4 +601,107 @@ struct DirigeraSensorTests {
         #expect(!host.mainBridge.server.accessories.contains { $0.id == DirigeraPlugin.accessoryID(deviceID: "styrbar-1") })
         await host.stop()
     }
+
+}
+
+@Suite(.timeLimit(.minutes(1)))
+struct DirigeraSetupTests {
+    let environment = TestEnvironment()
+    let sofaID = DirigeraPlugin.accessoryID(deviceID: "bulb-1")
+    let plugID = DirigeraPlugin.accessoryID(deviceID: "plug-1")
+    let scenesID = DirigeraPlugin.sceneAccessoryID(host: "192.0.2.20")
+
+    func accessory(_ host: PluginHost, _ id: String) async throws -> Accessory {
+        #expect(await eventually { host.mainBridge.server.accessories.contains { $0.id == id } })
+        return try #require(host.mainBridge.server.accessories.first { $0.id == id })
+    }
+
+    /// Setup finds the hub, asks for its action button until it is pressed, keeps the token in the plugin's vault entry
+    /// (nothing for the bridge to keep), then says the account is Authorized and lists the hub's devices and scenes.
+    @Test func setUpPairsTheHubWithItsButtonThenListsItsDevices() async throws {
+        let host = try await environment.start(settings: ["hubs": [["host": "192.0.2.20"]]])
+        #expect(try await host.accountAuthorized(platform: DirigeraPlugin.platform, name: DirigeraPlugin.name) == false)
+        let plugin = try #require(environment.plugin)
+        guard case .ask(let prompt, let state) = try await plugin.authorize(SetupRequest(target: .account)) else { Issue.record("expected the button"); return }
+        #expect(prompt.waitSeconds == 60 && prompt.retryAfter == 2 && prompt.fields.isEmpty)
+        #expect(state["host"] == "192.0.2.20" && state["fingerprint"]?.stringValue?.isEmpty == false)
+        // Not pressed yet: asked again, the same code kept.
+        guard case .ask(_, let again) = try await plugin.authorize(SetupRequest(target: .account, state: state)) else { Issue.record("expected the button again"); return }
+        #expect(again["code"] == state["code"] && again["verifier"] == state["verifier"])
+        #expect(environment.hub.sent.filter { $0.path == "/v1/oauth/authorize" }.count == 1)
+        environment.hub.pressButton()
+        guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .account, state: again)) else { Issue.record("expected done"); return }
+        #expect(outcome.credentials == nil && outcome.settings.isEmpty)
+        let vault = CredentialVault(storage: environment.directory)
+        let entry = try #require(try vault.names().first { $0.hasPrefix("plugin.") && $0.hasSuffix(".hubs.json") })
+        #expect(try vault.entry(named: entry)?.fields["token"]?.contains(FakeHub.token) == true)
+        #expect(try await host.accountAuthorized(platform: DirigeraPlugin.platform, name: DirigeraPlugin.name) == true)
+        // The running plugin had not read the hub: discovery reads it with the token Setup kept.
+        let devices = try await host.discoverDevices(platform: DirigeraPlugin.platform, name: DirigeraPlugin.name)
+        #expect(devices.contains { $0.deviceID == "bulb-1" && $0.name == "Sofa Lamp" && $0.isSetUp && $0.authorization == .none })
+        #expect(devices.contains { $0.deviceID == "vallhorn-1" && $0.model == "VALLHORN Wireless Motion Sensor" })
+        #expect(devices.contains { $0.deviceID == "scenes:192.0.2.20" && $0.name == "IKEA Scenes" && $0.isSetUp })
+        #expect(!devices.contains { $0.deviceID == "vallhorn-motion" })
+        await host.stop()
+    }
+
+    /// A step that does not work leaves the Setup where it was, for people to answer again.
+    @Test func setUpRefusesWhatDoesNotWork() async throws {
+        let host = try await environment.start(settings: ["hubs": [["host": "192.0.2.20"]]])
+        let plugin = try #require(environment.plugin)
+        environment.hub.pressButton()
+        // A verifier the hub's code was not made for.
+        let wrong: JSONValue = ["host": "192.0.2.20", "code": "code-1", "verifier": "not-the-verifier", "fingerprint": .null]
+        await #expect(throws: SetupError.self) { _ = try await plugin.authorize(SetupRequest(target: .account, state: wrong)) }
+        let device = DiscoveredDevice(deviceID: "bulb-1", name: "Sofa Lamp")
+        await #expect(throws: SetupError.self) { _ = try await plugin.authorize(SetupRequest(target: .device(device))) }
+        #expect(try await host.accountAuthorized(platform: DirigeraPlugin.platform, name: DirigeraPlugin.name) == false)
+        await host.stop()
+    }
+
+    /// `excludeDevices` and `excludeScenes` show as left out by the settings; the devices need nothing to be set up.
+    @Test func setUpShowsWhatTheExcludeListsLeaveOut() async throws {
+        let host = try await environment.start(settings: [
+            "hubs": [["host": "192.0.2.20", "token": FakeHub.token, "name": "Home"]], "excludeDevices": ["Hallway", "Kitchen Remote"], "excludeScenes": ["Movie night"],
+        ])
+        _ = try await accessory(host, sofaID)
+        let devices = try await host.discoverDevices(platform: DirigeraPlugin.platform, name: DirigeraPlugin.name)
+        let hallway = try #require(devices.first { $0.deviceID == "bulb-2" })
+        #expect(hallway.excludedBySettings && !hallway.isSetUp)
+        #expect(devices.first { $0.deviceID == "styrbar-1" }?.excludedBySettings == true)
+        let scenes = try #require(devices.first { $0.deviceID == "scenes:192.0.2.20" })
+        #expect(scenes.name == "Home Scenes" && scenes.excludedBySettings)
+        #expect(devices.first { $0.deviceID == "bulb-1" }?.isSetUp == true)
+        await host.stop()
+    }
+
+    /// Devices Excluded in their Accessory Settings (a light, a group, the scenes) never become accessories.
+    @Test func excludedDevicesStayOut() async throws {
+        let host = try await environment.start(settings: [
+            "hubs": [["host": "192.0.2.20", "token": FakeHub.token]],
+            "_accessories": ["bulb-1": ["excluded": true], "styrbar-1": ["excluded": true], "scenes:192.0.2.20": ["excluded": true]],
+        ])
+        _ = try await accessory(host, plugID)
+        _ = try await accessory(host, DirigeraPlugin.accessoryID(deviceID: "vallhorn-1"))
+        let ids = Set(host.mainBridge.server.accessories.map(\.id))
+        #expect(!ids.contains(sofaID) && !ids.contains(scenesID) && !ids.contains(DirigeraPlugin.accessoryID(deviceID: "styrbar-1")))
+        let devices = try await host.discoverDevices(platform: DirigeraPlugin.platform, name: DirigeraPlugin.name)
+        #expect(devices.first { $0.deviceID == "bulb-1" }?.isSetUp == false)
+        #expect(devices.first { $0.deviceID == "bulb-1" }?.excludedBySettings == false)
+        await host.stop()
+    }
+
+    /// The token pairing kept wins over one config.json still has. Read on a plugin made for Setup and never started: a
+    /// running one would try the stale token on the hub, be refused and drop the token.
+    @Test func theVaultsTokenWinsOverConfigJSONs() async throws {
+        let host = try await environment.start(settings: [:])
+        let block: JSONValue = ["platform": .string(DirigeraPlugin.platform), "name": .string(DirigeraPlugin.name), "hubs": [["host": "192.0.2.20", "token": "stale-token"]]]
+        try await host.withSetupPlugin(platform: DirigeraPlugin.platform, name: DirigeraPlugin.name, block: block) { _, context in
+            try context.secretFile("hubs.json", as: [String: DirigeraPlugin.StoredHub].self).save(["192.0.2.20": .init(token: FakeHub.token)])
+        }
+        await host.stop()
+        let restarted = try await environment.start(settings: ["hubs": [["host": "192.0.2.20", "token": "stale-token"]]])
+        #expect(await environment.plugin?.token(for: "192.0.2.20") == FakeHub.token)
+        await restarted.stop()
+    }
 }

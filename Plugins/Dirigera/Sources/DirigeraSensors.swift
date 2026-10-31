@@ -38,8 +38,14 @@ extension DirigeraPlugin {
         }.joined(separator: "|") + (devices.contains { $0.battery != nil } ? "|b" : "")
     }
 
+    /// Left out by `excludeDevices` (the group's id, or a name or an id of one of its parts) or Excluded in its
+    /// Accessory Settings (by the group's id, its accessory's).
     func isExcluded(group devices: [DirigeraDevice], id: String) -> Bool {
-        excludedDevices.contains(id.lowercased()) || devices.contains { isExcluded($0) }
+        excludedBySettings(group: devices, id: id) || context.isExcluded(id)
+    }
+
+    func excludedBySettings(group devices: [DirigeraDevice], id: String) -> Bool {
+        excludedDevices.contains(id.lowercased()) || devices.contains { excludedBySettings($0) }
     }
 
     /// Shows a hub's grouped devices: their values, or a new accessory when what they have changed. Answers the
