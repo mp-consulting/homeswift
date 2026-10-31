@@ -193,6 +193,20 @@ public struct HomeswiftCatalog: Sendable {
         return found
     }
 
+    /// Shows the accessory in the Home app or keeps it out (`_hiddenFromHomeKit` in its plugin's block): out, HomeKit
+    /// loses it with its room, scenes and automations, and gets it back as a new accessory. The web UI, the MCP server
+    /// and Matter keep it either way. Its plugin is not reloaded.
+    public func setVisibleInHomeKit(_ located: Located, visible: Bool, by writer: ConfigWriter = .person) async throws -> JSONValue {
+        guard let platform = located.platform else { throw CatalogError("\(located.accessory.name) belongs to no plugin block") }
+        guard located.accessory.mirroredFrom == nil else { throw CatalogError("\(located.accessory.name) comes from \(located.accessory.mirroredFrom!): HomeKit has it there") }
+        let id = located.accessory.id
+        return try await editBlock(platform: platform.platform, name: platform.name, create: false, dryRun: false, by: writer) { block in
+            var ids = (block["_hiddenFromHomeKit"]?.arrayValue ?? []).compactMap(\.stringValue).filter { $0 != id }
+            if !visible { ids.append(id) }
+            if ids.isEmpty { block["_hiddenFromHomeKit"] = nil } else { block["_hiddenFromHomeKit"] = .array(ids.map { .string($0) }) }
+        }
+    }
+
     /// Makes the accessory identify itself (a light blinks, a speaker chimes).
     public func identify(_ located: Located) async throws {
         guard located.accessory.supportsIdentify else { throw CatalogError("This accessory does not support Identify") }
@@ -299,6 +313,8 @@ public struct HomeswiftCatalog: Sendable {
             }
             if layout?.favourite == true { json.field("favourite", true) }
             if layout?.hidden == true { json.field("hidden", true) }
+            // Kept out of the Home app (`_hiddenFromHomeKit`); the web UI offers to show it there again.
+            if located.bridge.server.isHiddenFromHomeKit(accessory.id) { json.field("hiddenFromHomeKit", true) }
             // Its plugin records an Eve history: get_accessory_history, and the web UI's History, have something to show.
             if !EveHistory.histories(of: accessory).isEmpty { json.field("history", true) }
             json.field("id", .string(accessory.id))
@@ -506,12 +522,19 @@ public struct HomeswiftCatalog: Sendable {
 
     /// The Assistant's icon in the web UI, as a plugin's would be.
     static let assistantIcon = "sparkle"
+    /// Its line in the list of plugins to add, as a plugin's `summary`.
+    static let assistantSummary = "Answers questions, explains errors and writes a daily digest"
+    /// The Matter bridge's (the `HomeswiftMatter` block): Matter's own mark.
+    static let matterIcon = "matter"
+    /// The web UI's own block (`HomeswiftUI`): a browser window.
+    static let webUIIcon = "browser"
 
     /// The web UI's icon for a config block's platform: its plugin's (`HomeswiftPlugin.icon`), a Homebridge block's
     /// under the platform it runs as (HomebridgeAiKit as the Assistant), else nil.
     public func pluginIcon(platform: String) -> String? {
         let canonical = HomebridgeImport.renamedPlatforms[platform] ?? platform
-        return host.registry.entry(for: canonical)?.icon ?? (canonical == AIConfiguration.platform ? Self.assistantIcon : nil)
+        return host.registry.entry(for: canonical)?.icon
+            ?? [AIConfiguration.platform: Self.assistantIcon, "HomeswiftMatter": Self.matterIcon, "HomeswiftUI": Self.webUIIcon][canonical]
     }
 
     public func pluginsJSON() -> JSONValue {
@@ -526,11 +549,11 @@ public struct HomeswiftCatalog: Sendable {
             "plugins": .array(host.registry.entries.map { entry in
                 [
                     "platform": .string(entry.platform), "name": .string(entry.name), "hasSchema": .bool(entry.configurationSchemaJSON != nil), "hasPages": .bool(entry.hasPages),
-                    "icon": entry.icon.map(JSONValue.string) ?? .null,
+                    "icon": entry.icon.map(JSONValue.string) ?? .null, "summary": entry.summary.map(JSONValue.string) ?? .null,
                     "tools": .array(entry.assistantActions.map { .string(Self.actionToolName(platform: entry.platform, action: $0.name)) }),
                 ]
             } + (host.registry.entry(for: AIConfiguration.platform) == nil ? [["platform": .string(AIConfiguration.platform), "name": .string("Assistant"), "hasSchema": .bool(true), "hasPages": .bool(false),
-                                                                              "icon": .string(Self.assistantIcon), "tools": .array([])]] : [])),
+                                                                              "icon": .string(Self.assistantIcon), "summary": .string(Self.assistantSummary), "tools": .array([])]] : [])),
         ]
     }
 
@@ -1114,6 +1137,18 @@ public struct HomeswiftCatalog: Sendable {
                 let found = try catalog.accessory(in: call)
                 try await catalog.identify(found)
                 return .text("Identify sent to \(found.accessory.name)")
+            },
+            MCPTool(
+                name: "set_homekit_visibility", title: "Show or hide an accessory in the Home app",
+                description: "Keeps an accessory out of the Home app (visible: false) or shows it there again (visible: true), through its "
+                    + "plugin's block (_hiddenFromHomeKit). Hidden, HomeKit loses it with its room, scenes and automations, and gets it back as a "
+                    + "new accessory; Homeswift, its tools and Matter keep it either way, so a Matter device of its own stays in the ecosystems "
+                    + "that added it. list_accessories says hiddenFromHomeKit.",
+                inputSchema: ["type": "object", "required": ["id", "visible"], "properties": ["id": idSchema, "visible": ["type": "boolean"]]],
+                scope: .admin, destructive: true, idempotent: true
+            ) { call in
+                guard let visible = call.arguments["visible"]?.boolValue else { throw JSONRPCError.invalidParams("visible is required") }
+                return .json(try await catalog.setVisibleInHomeKit(try catalog.accessory(in: call), visible: visible, by: .client))
             },
             MCPTool(
                 name: "update_config", title: "Replace config.json",

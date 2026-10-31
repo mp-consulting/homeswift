@@ -73,6 +73,39 @@ import Testing
         await server.stop()
     }
 
+    /// An accessory hidden from HomeKit by choice leaves its database as a mirrored one does, keeps its aid and its place on
+    /// the bridge, and comes back with the same aid; each change moves the configuration number, the primary never hides.
+    @Test func anAccessoryHiddenFromHomeKitLeavesItsDatabaseAndComesBack() async throws {
+        let server = try HAPServer(
+            bridge: Accessory(id: "bridge", name: "Test Bridge", category: .bridge, services: []), accessories: [], storage: MemoryStorage(),
+            options: .init(port: 0, advertise: false, logger: testLogger))
+        let pool = lamp("pool")
+        try server.add(pool)
+        try server.add(lamp("other"))
+        try await server.start()
+        let number = { server.txtRecord().first { $0.0 == "c#" }?.1 }
+        let aid = pool.aid
+        let first = number()
+
+        try server.setHiddenFromHomeKit(["pool", "bridge"])
+        #expect(server.isHiddenFromHomeKit("pool") && !server.isHiddenFromHomeKit("bridge"))
+        #expect(!server.database(includeValues: false).accessories.map(\.aid).contains(aid))
+        #expect(server.database(includeValues: false).accessories.map(\.aid).contains(1))
+        #expect(server.accessories.contains { $0.id == "pool" })
+        #expect(server.accessory(aid: aid) == nil)
+        let hidden = number()
+        #expect(hidden != first)
+        // The same set again changes nothing.
+        try server.setHiddenFromHomeKit(["pool"])
+        #expect(number() == hidden)
+
+        try server.setHiddenFromHomeKit([])
+        #expect(server.accessory(aid: aid) === pool)
+        #expect(server.database(includeValues: false).accessories.map(\.aid).contains(aid))
+        #expect(number() != hidden)
+        await server.stop()
+    }
+
     /// Becoming unavailable, or available again, is announced with an event of a value that did not change, so the web
     /// UI's cards follow; setting it to what it is announces nothing, and a button's press is never what announces it.
     @Test func availabilityChangesAreAnnounced() {

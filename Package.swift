@@ -113,6 +113,7 @@ let package = Package(
                 "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftMCP",
                 .product(name: "Matter", package: "swift-matter"),
                 .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
             ]
         ),
@@ -327,6 +328,7 @@ let package = Package(
             dependencies: [
                 "Homeswift", "HomeswiftPlugin", "HomeswiftMatter",
                 .product(name: "Matter", package: "swift-matter"),
+                .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
             ]
         ),

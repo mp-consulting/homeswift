@@ -14,6 +14,7 @@ import Logging
 public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
     public static let platform = "PhilipsAmbilightTV"
     public static let icon: String? = "tv"
+    public static let summary: String? = "Power, inputs, volume, the remote and Ambilight of Philips Android TVs"
     public static let name = "Philips Ambilight TV"
     // `configurationSchemaJSON` is in ConfigurationSchema.swift, generated from ../config.schema.json;
     // `webFiles` in WebFiles.swift, generated from ../Web.

@@ -15,6 +15,7 @@ import Logging
 public actor GoveePlugin: HomeswiftPlugin {
     public static let platform = "Govee"
     public static let icon: String? = "bulb"
+    public static let summary: String? = "Lights with scenes and effects, plugs and sensors"
     public static let name = "Govee"
     // `configurationSchemaJSON` is in ConfigurationSchema.swift, generated from ../config.schema.json;
     // `webFiles` in WebFiles.swift, generated from ../Web.

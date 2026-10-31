@@ -46,6 +46,28 @@ import Testing
         }
     }
 
+    /// Each plugin's `summary` (read from its source) and the Assistant's, the lines under the plugins to add, which the
+    /// page passes to `t()` at run time, have their translations in the UI's catalogs.
+    @Test func pluginSummariesAreTranslated() throws {
+        let web = Self.root.appendingPathComponent("Sources/HomeswiftUI/Web")
+        var summaries: [String] = []
+        let pattern = try NSRegularExpression(pattern: #"static let (?:summary: String\?|assistantSummary) = "([^"]+)""#)
+        let sources = [Self.root.appendingPathComponent("Sources/HomeswiftMCP/HomeswiftCatalog.swift")]
+            + (FileManager.default.enumerator(at: Self.root.appendingPathComponent("Plugins"), includingPropertiesForKeys: nil)?
+                .compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" && $0.path.contains("/Sources/") } ?? [])
+        for source in sources {
+            let text = try String(contentsOf: source, encoding: .utf8)
+            for match in pattern.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+                summaries.append(String(text[Range(match.range(at: 1), in: text)!]))
+            }
+        }
+        #expect(summaries.count >= 15, "the plugins' summaries and the Assistant's were not found")
+        for language in Self.languages {
+            let entries = try Self.catalog(web.appendingPathComponent("i18n-\(language).js"))[language] ?? [:]
+            for summary in summaries { #expect(entries[summary] != nil, "i18n-\(language).js has no translation of \"\(summary)\"") }
+        }
+    }
+
     /// Every form a schema draws (each plugin's config.schema.json, the Assistant's, the web UI's): each field says
     /// what it does, a choice names its values, a list names one entry, and each of those words has a French, Spanish
     /// and Portuguese translation in the schema's own `i18n` that keeps its placeholders.

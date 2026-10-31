@@ -4,6 +4,7 @@ import HomeswiftPlugin
 import Logging
 import Matter
 import NIOConcurrencyHelpers
+import NIOCore
 import Testing
 
 @testable import HomeswiftMatter
@@ -87,7 +88,9 @@ struct BridgeFixture {
     let commissioner: Commissioner
     let session: UInt16
 
-    init(_ configuration: MatterConfiguration = MatterConfiguration()) async throws {
+    /// `deviceTransport` replaces the accessories' own nodes' memory transports (one that fails, say).
+    init(_ configuration: MatterConfiguration = MatterConfiguration(),
+         deviceTransport: (@Sendable (_ accessoryID: String) async -> any MatterTransport)? = nil) async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("homeswift-matter-tests-\(UUID().uuidString)")
         let created = PluginBox()
         var registry = PluginRegistry()
@@ -107,7 +110,10 @@ struct BridgeFixture {
         matter = try await HomeswiftMatterBridge(configuration: configuration, source: host, storage: Matter.MemoryStorage(),
                                                  deviceStorage: { _ in Matter.MemoryStorage() },
                                                  transport: await network.transport(named: "bridge"),
-                                                 deviceTransport: { await network.transport(named: $0) }, advertise: false,
+                                                 deviceTransport: { id in
+                                                     if let deviceTransport { return await deviceTransport(id) }
+                                                     return await network.transport(named: id)
+                                                 }, advertise: false,
                                                  reliability: Self.fast, logger: testLogger)
         try await matter.start()
         let layer = MessageLayer(transport: await network.transport(named: "controller"), reliability: Self.fast)
@@ -143,8 +149,10 @@ struct BridgeFixture {
 }
 
 /// Runs `body` on a fresh fixture and stops it afterwards, whether or not `body` throws.
-func withFixture(_ configuration: MatterConfiguration = MatterConfiguration(), _ body: (BridgeFixture) async throws -> Void) async throws {
-    let fixture = try await BridgeFixture(configuration)
+func withFixture(_ configuration: MatterConfiguration = MatterConfiguration(),
+                 deviceTransport: (@Sendable (_ accessoryID: String) async -> any MatterTransport)? = nil,
+                 _ body: (BridgeFixture) async throws -> Void) async throws {
+    let fixture = try await BridgeFixture(configuration, deviceTransport: deviceTransport)
     do {
         try await body(fixture)
     } catch {
@@ -152,6 +160,25 @@ func withFixture(_ configuration: MatterConfiguration = MatterConfiguration(), _
         throw error
     }
     await fixture.stop()
+}
+
+/// A transport that does not start, as UDP on `::` fails on a host with IPv6 off; counts its tries.
+final class FailingTransport: MatterTransport {
+    let error: any Error
+    let tries: NIOLockedValueBox<Int>
+
+    init(_ error: any Error, tries: NIOLockedValueBox<Int>) {
+        self.error = error
+        self.tries = tries
+    }
+
+    func start(receive: @escaping @Sendable ([UInt8], PeerAddress) async -> Void) async throws {
+        tries.withLockedValue { $0 += 1 }
+        throw error
+    }
+
+    func send(_ datagram: [UInt8], to peer: PeerAddress) async throws {}
+    func close() async {}
 }
 
 final class PluginBox: @unchecked Sendable {
@@ -224,6 +251,61 @@ struct MatterBridgeTests {
             let after = await fixture.matter.statusJSON(includePairing: true)["ownDevices"]?.arrayValue?.first
             #expect(after?["commissioned"] == .bool(true))
             #expect(after?["pairing"] == nil)
+        }
+    }
+
+    @Test func saysWhyADeviceOfItsOwnDidNotStart() async throws {
+        var configuration = MatterConfiguration()
+        configuration.bridge = false
+        configuration.devices = ["Household:lamp"]
+        let tries = NIOLockedValueBox(0)
+        let noIPv6 = IOError(errnoCode: EAFNOSUPPORT, reason: "bind")
+        try await withFixture(configuration, deviceTransport: { _ in FailingTransport(noIPv6, tries: tries) }) { fixture in
+            // Tried once: another port would fail the same way.
+            #expect(tries.withLockedValue { $0 } == 1)
+            let status = await fixture.matter.statusJSON(includePairing: true)
+            #expect(status["ownDevices"] == .array([]))
+            let failed = try #require(status["failedDevices"]?.arrayValue?.first)
+            #expect(failed["id"] == "Household:lamp")
+            #expect(failed["name"] == "Lamp")
+            #expect(failed["noIPv6"] == .bool(true))
+            #expect(failed["error"]?.stringValue?.contains("IPv6") == true)
+
+            // A look at the accessories leaves it; new settings try again, and taking it off forgets it.
+            await fixture.matter.sync()
+            #expect(tries.withLockedValue { $0 } == 1)
+            #expect(await fixture.matter.apply(configuration))
+            #expect(tries.withLockedValue { $0 } == 2)
+            configuration.devices = []
+            #expect(await fixture.matter.apply(configuration))
+            #expect(await fixture.matter.statusJSON(includePairing: false)["failedDevices"] == .array([]))
+        }
+    }
+
+    /// Kept out of the Home app, an accessory is still a Matter device of its own: Matter reads the bridge's accessories,
+    /// not what HomeKit sees.
+    @Test func staysOnMatterWhenHiddenFromHomeKit() async throws {
+        var configuration = MatterConfiguration()
+        configuration.bridge = false
+        configuration.devices = ["Household:lamp"]
+        try await withFixture(configuration) { fixture in
+            try fixture.host.mainBridge.server.setHiddenFromHomeKit(["Household:lamp"])
+            await fixture.matter.sync()
+            #expect(await fixture.matter.bridgedIDs == ["Household:lamp"])
+            #expect(await fixture.matter.statusJSON(includePairing: false)["ownDevices"]?.arrayValue?.count == 1)
+        }
+    }
+
+    @Test func triesAnotherPortWhenOneIsTaken() async throws {
+        var configuration = MatterConfiguration()
+        configuration.bridge = false
+        configuration.devices = ["Household:lamp"]
+        let tries = NIOLockedValueBox(0)
+        let taken = IOError(errnoCode: EADDRINUSE, reason: "bind")
+        try await withFixture(configuration, deviceTransport: { _ in FailingTransport(taken, tries: tries) }) { fixture in
+            #expect(tries.withLockedValue { $0 } == 5)
+            let failed = try #require(await fixture.matter.statusJSON(includePairing: false)["failedDevices"]?.arrayValue?.first)
+            #expect(failed["noIPv6"] == .bool(false))
         }
     }
 

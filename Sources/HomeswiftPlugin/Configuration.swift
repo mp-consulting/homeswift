@@ -17,7 +17,8 @@ import Homeswift
 /// `bridge.username` is the HAP device ID and `bridge.pin` the setup code; both are optional here (Homeswift
 /// generates and keeps them). A block with `_bridge` runs as a child bridge: its own HAP server, identity
 /// and pairing. A block with `"_paused": true` keeps its accessories in HomeKit, showing No Response, while its
-/// plugin does not run, so nothing reaches the devices or their cloud. `accessories` blocks (Homebridge's
+/// plugin does not run, so nothing reaches the devices or their cloud. `_hiddenFromHomeKit` lists accessory ids the
+/// bridge keeps out of HomeKit (the web UI, the MCP server and Matter still have them). `accessories` blocks (Homebridge's
 /// accessory plugins) are not supported.
 public struct HomeswiftConfiguration: Sendable {
     public struct Bridge: Codable, Sendable, Equatable {
@@ -101,6 +102,9 @@ public struct HomeswiftConfiguration: Sendable {
         public var childBridge: ChildBridge?
         /// `_paused`: the plugin does not run; its accessories stay, unavailable.
         public var paused: Bool
+        /// `_hiddenFromHomeKit`: the ids of its accessories kept out of HomeKit (`HAPServer.setHiddenFromHomeKit`);
+        /// they stay in the web UI, the MCP server and Matter. Not in `json`: changing it does not reload the plugin.
+        public var hiddenFromHomeKit: [String] = []
         /// The whole block as JSON, what the plugin's `Configuration` is decoded from.
         public var json: Data
 
@@ -194,8 +198,17 @@ public struct HomeswiftConfiguration: Sendable {
                 if let paused = block["_paused"], !(paused is Bool) {
                     throw ConfigurationError.invalidValue(key: "platforms[\(index)]._paused", expected: "true or false")
                 }
-                let json = try JSONSerialization.data(withJSONObject: block, options: [.sortedKeys])
-                configuration.platforms.append(Platform(platform: platform, name: name, childBridge: childBridge, paused: block["_paused"] as? Bool == true, json: json))
+                var hidden: [String] = []
+                if let list = block["_hiddenFromHomeKit"] {
+                    guard let ids = list as? [String] else {
+                        throw ConfigurationError.invalidValue(key: "platforms[\(index)]._hiddenFromHomeKit", expected: "an array of accessory ids")
+                    }
+                    hidden = ids
+                }
+                let json = try JSONSerialization.data(withJSONObject: block.filter { $0.key != "_hiddenFromHomeKit" }, options: [.sortedKeys])
+                var entry = Platform(platform: platform, name: name, childBridge: childBridge, paused: block["_paused"] as? Bool == true, json: json)
+                entry.hiddenFromHomeKit = hidden
+                configuration.platforms.append(entry)
             }
         }
         if let disabled = root["disabledPlugins"] {

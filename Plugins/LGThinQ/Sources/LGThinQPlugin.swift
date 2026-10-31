@@ -11,6 +11,7 @@ import Logging
 public actor LGThinQPlugin: HomeswiftPlugin {
     public static let platform = "LGThinQ"
     public static let icon: String? = "logo-lg"
+    public static let summary: String? = "Air conditioners, washers, fridges and other appliances through LG's cloud"
     public static let name = "LG ThinQ"
     // `configurationSchemaJSON` is in ConfigurationSchema.swift, generated from ../config.schema.json;
     // `webFiles` in WebFiles.swift, generated from ../Web.

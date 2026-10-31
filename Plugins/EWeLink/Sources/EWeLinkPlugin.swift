@@ -14,6 +14,7 @@ import Logging
 public actor EWeLinkPlugin: HomeswiftPlugin {
     public static let platform = "eWeLink"
     public static let icon: String? = "switch"
+    public static let summary: String? = "Sonoff and other eWeLink switches, outlets, lights, curtains and sensors"
     public static let name = "eWeLink"
     // `configurationSchemaJSON` is in ConfigurationSchema.swift, generated from ../config.schema.json;
     // `webFiles` in WebFiles.swift, generated from ../Web.

@@ -72,12 +72,18 @@ extension HomeswiftCatalog {
             }
         }
         let exists = block != nil
-        return try await editBlock(platform: "HomeswiftMatter", name: nil, dryRun: false) { block in
+        var answer = try await editBlock(platform: "HomeswiftMatter", name: nil, dryRun: false) { block in
             if !exists { block["bridge"] = false }
             var devices = (block["devices"]?.arrayValue ?? []).compactMap(\.stringValue).filter { $0 != id }
             if own { devices.append(id) }
             block["devices"] = .array(devices.map { .string($0) })
+        }.objectValue ?? [:]
+        // Matter has the change by now: a node that did not start says why (no IPv6, most often).
+        if own, let failure = await matter.current?.statusJSON(includePairing: false)["failedDevices"]?.arrayValue?.first(where: { $0["id"]?.stringValue == id }) {
+            answer["error"] = failure["error"]
+            answer["noIPv6"] = failure["noIPv6"]
         }
+        return .object(answer)
     }
 
     var matterTools: [MCPTool] {
@@ -86,7 +92,8 @@ extension HomeswiftCatalog {
             MCPTool(
                 name: "get_matter_status", title: "Matter bridge status",
                 description: "The Matter bridge, which puts the plugins' accessories in Google Home, Alexa, SmartThings or Home Assistant: "
-                    + "whether it is commissioned, whether its commissioning window is open, the fabrics (one per ecosystem) and the bridged devices. "
+                    + "whether it is commissioned, whether its commissioning window is open, the fabrics (one per ecosystem), the bridged devices "
+                    + "and the devices of their own that did not start, with why (failedDevices). "
                     + "The pairing code is never given out here: the user reads it in the web UI or where homeswift prints it.",
                 scope: .read, idempotent: true
             ) { _ in .json(await (try catalog.requireMatter()).statusJSON(includePairing: false)) },
