@@ -124,8 +124,10 @@ struct BridgeFixture {
             ? try await commissioner.commission(.memory("bridge"), passcode: matter.setupPayload.passcode, nodeID: 0x42).localSessionID : 0
     }
 
-    /// MRP at a hundredth of its timings: acknowledgements do not hold the exchanges up.
-    static let fast = ReliabilityParameters(timeScale: 0.01)
+    /// MRP at a tenth of its timings: acknowledgements do not hold the exchanges up, and a peer still has some 340 ms to
+    /// answer before the sender gives up (33 ms before it retransmits). At a hundredth that was 34 ms, which a loaded
+    /// machine running every test target at once overran: commissioning failed `notAcknowledged`, or on a duplicate.
+    static let fast = ReliabilityParameters(timeScale: 0.1)
 
     /// The accessory's device endpoint; throws, without recording an issue, while it is not bridged (an `eventually`
     /// may wait through a device made again).
