@@ -23,9 +23,9 @@ public actor UniFiProtectPlugin: HomeswiftPlugin {
     let configuration: Configuration
     let context: PluginContext
     let dependencies: ProtectDependencies
-    private var logger: Logger { dependencies.logger ?? context.logger }
+    var logger: Logger { dependencies.logger ?? context.logger }
     private var platformState: ProtectPlatform?
-    private var controllers: [ProtectNVR] = []
+    private(set) var controllers: [ProtectNVR] = []
     private var launches: [Task<Void, Never>] = []
     /// `stop()` ran: a start still awaiting starts nothing more.
     private var isStopped = false
@@ -41,6 +41,10 @@ public actor UniFiProtectPlugin: HomeswiftPlugin {
     }
 
     public func start() async throws {
+        // The controllers set up through Setup beside the block's, and the Excluded devices as feature options.
+        var configuration = configuration
+        configuration.controllers = controllerEntries()
+        configuration.options = Self.exclusions(context) + configuration.options
         let platform = await ProtectPlatform(configuration: configuration, logger: logger, host: context, storageDirectory: context.storageDirectory,
                                              dependencies: dependencies)
         guard !isStopped else { return }
@@ -146,10 +150,50 @@ public actor UniFiProtectPlugin: HomeswiftPlugin {
         }
     }
 
-    /// Logs in to a controller with what the page sent, reads its bootstrap, and answers with the NVR and
-    /// its adopted devices sorted by name; the error the API logged otherwise. Twenty seconds at most.
+    /// Logs in to a controller with what the page sent, reads its bootstrap (`read`), and answers with the NVR and
+    /// its adopted devices sorted by name; the error the API logged otherwise.
     private func devices(_ body: JSONValue) async -> PluginWebResponse {
         let address = body.string("address")?.trimmingCharacters(in: .whitespaces) ?? ""
+        let verifyTls = body.bool("verifyTls")
+        let username = body.string("username") ?? ""
+        // The certificate this controller is pinned to, as the running plugin trusts it.
+        let pinned = verifyTls ? nil : platformState?.tlsPins.get(address)
+        // A configured controller's devices need no password from the page: the block's own is used, but only
+        // over a connection that proves it is that controller (the system's roots, or its pin). A first contact
+        // trusts whatever certificate answers, so the stored password is not sent to it.
+        let configured = controllerEntries().first { $0.address.trimmingCharacters(in: .whitespaces).lowercased() == address.lowercased() }
+        var password = body.string("password") ?? ""
+        if password.isEmpty, let configured, configured.username == username {
+            guard verifyTls || pinned != nil else {
+                return PluginWebResponse(["devices": [], "error": "Enter the password: this controller's certificate is not pinned yet."])
+            }
+            password = configured.password
+        }
+        let bootstrap: JSONValue
+        switch await read(address: address, username: username, password: password, verifyTls: verifyTls, pinned: pinned) {
+        case .read(let read): bootstrap = read
+        case .failed(let message): return PluginWebResponse(["devices": [], "error": .string(message)])
+        }
+        var devices: [JSONValue] = [bootstrap.at("nvr") ?? .object([:])]
+        for category in ProtectNVR.deviceCategories {
+            let adopted = bootstrap.array(category + "s").filter { !$0.bool("isAdoptedByOther") && $0.bool("isAdopted") }
+            devices += adopted.sorted {
+                ($0.string("name") ?? $0.string("marketName") ?? "").lowercased() < ($1.string("name") ?? $1.string("marketName") ?? "").lowercased()
+            }
+        }
+        return PluginWebResponse(["devices": .array(devices), "error": ""])
+    }
+
+    /// A controller's bootstrap, or the error the API logged.
+    enum ControllerRead: Sendable {
+        case read(JSONValue)
+        case failed(String)
+    }
+
+    /// Logs in to a controller and reads its bootstrap without events, twenty seconds at most: the page's device list,
+    /// and Setup's check of a login and its discovery. `pinned` is the certificate to trust: by default the one the
+    /// plugin's pins keep for the address (`verifyTls` off).
+    func read(address: String, username: String, password: String, verifyTls: Bool, pinned: String?? = nil) async -> ControllerRead {
         // Without `verifyTls`, the login goes to the vetted address (and the port the page gave), so a second
         // DNS answer cannot steer it to another host; with it, to the name the certificate must carry.
         let connectAddress: String
@@ -158,28 +202,14 @@ public actor UniFiProtectPlugin: HomeswiftPlugin {
             let host = vetted.address.contains(":") ? "[\(vetted.address)]" : vetted.address
             connectAddress = host + (URLComponents(string: "https://" + address)?.port.map { ":\($0)" } ?? "")
         } catch {
-            return PluginWebResponse(["devices": [], "error": .string("\(error)")])
+            return .failed("\(error)")
         }
         let recorder = ErrorRecorder()
         var errorLogger = Logger(label: logger.label) { _ in recorder }
         errorLogger.logLevel = .error
-        let verifyTls = body.bool("verifyTls")
-        let username = body.string("username") ?? ""
-        // The certificate this controller is pinned to, as the running plugin trusts it.
-        let pinned = verifyTls ? nil : platformState?.tlsPins.get(address)
-        // A configured controller's devices need no password from the page: the block's own is used, but only
-        // over a connection that proves it is that controller (the system's roots, or its pin). A first contact
-        // trusts whatever certificate answers, so the stored password is not sent to it.
-        let configured = configuration.controllers.first { $0.address.trimmingCharacters(in: .whitespaces).lowercased() == address.lowercased() }
-        var password = body.string("password") ?? ""
-        if password.isEmpty, let configured, configured.username == username {
-            guard verifyTls || pinned != nil else {
-                return PluginWebResponse(["devices": [], "error": "Enter the password: this controller's certificate is not pinned yet."])
-            }
-            password = configured.password
-        }
+        let pin = pinned ?? (verifyTls ? nil : ProtectTLSPinStore(url: context.storageDirectory.appendingPathComponent(ProtectSettings.tlsPinFile)).get(address))
         let api = ProtectAPI(log: ProtectLog(logger: errorLogger), options: .init(
-            verifyTls: verifyTls, pin: ProtectTLSPin.Options(pinnedFingerprint: pinned), transport: dependencies.transport, webSockets: dependencies.webSockets,
+            verifyTls: verifyTls, pin: ProtectTLSPin.Options(pinnedFingerprint: pin), transport: dependencies.transport, webSockets: dependencies.webSockets,
             timeScale: dependencies.timeScale, connectsEvents: false))
         let work = Task { () -> Bool in
             guard await api.login(address: verifyTls ? address : connectAddress, username: username, password: password) else { return false }
@@ -193,19 +223,11 @@ public actor UniFiProtectPlugin: HomeswiftPlugin {
         timeout.cancel()
         defer { Task { await api.logout() } }
         guard ready, let bootstrap = await api.bootstrap else {
-            let message = work.isCancelled && !ready
+            return .failed(work.isCancelled && !ready
                 ? "Timed out after \(Int(Self.getDevicesTimeout.components.seconds))s waiting for \(address) to respond. Check that the address and credentials are correct and that the controller is reachable from this Homeswift host."
-                : recorder.last ?? ""
-            return PluginWebResponse(["devices": [], "error": .string(message)])
+                : recorder.last ?? "")
         }
-        var devices: [JSONValue] = [bootstrap.at("nvr") ?? .object([:])]
-        for category in ProtectNVR.deviceCategories {
-            let adopted = bootstrap.array(category + "s").filter { !$0.bool("isAdoptedByOther") && $0.bool("isAdopted") }
-            devices += adopted.sorted {
-                ($0.string("name") ?? $0.string("marketName") ?? "").lowercased() < ($1.string("name") ?? $1.string("marketName") ?? "").lowercased()
-            }
-        }
-        return PluginWebResponse(["devices": .array(devices), "error": ""])
+        return .read(bootstrap)
     }
 
     /// The catalog as the Homebridge plugin's `/getOptions` gave it to its page.

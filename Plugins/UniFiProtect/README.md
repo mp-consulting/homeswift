@@ -75,6 +75,16 @@ data URL), `telemetry` and the rest of the Homebridge plugin's topics, and answe
 topics (`snapshot/set` takes a snapshot, `message/set` writes a doorbell message, `liveview/set` arms the
 security system...).
 
+## Setup
+
+The **Add accessories** page lists each controller as a device, by its MAC: the configured ones, and the UniFi
+consoles discovery finds on the network. A console not set up asks for an **Account Login**, a local account of
+the console that can use UniFi Protect; the login is checked before it is kept, in the vault under the controller's
+MAC, and its address goes in its Accessory Settings. A controller of `controllers` keeps its password there,
+sealed in config.json; a login Setup kept for the same address replaces it. The controller's cameras, lights, sensors, chimes and viewers need
+nothing more. Excluding one there is the same as `Disable.Device.<MAC>` in `options`, which Setup shows as
+left out by the plugin's own settings.
+
 ## The web page
 
 With the web UI on, the Plugins page has an **Open** button for this plugin: the Homebridge plugin's settings
