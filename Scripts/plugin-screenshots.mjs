@@ -93,6 +93,8 @@ const hueResources = [
 ];
 const hue = createServer(tls, (request, response) => {
   const json = (value, status = 200) => { response.writeHead(status, { "Content-Type": "application/json" }); response.end(JSON.stringify(value)); };
+  // A pairing: the link button is never pressed, so a bridge set up on the Add accessories page waits for it.
+  if (request.method === "POST" && request.url === "/api") return json([{ error: { type: 101, description: "link button not pressed" } }]);
   if (request.url === "/api/config") return json({ bridgeid: "001788FFFE000001", name: "Hue Bridge" });
   if (request.headers["hue-application-key"] !== "demo-key") return json({ errors: [{ description: "unauthorized user" }] }, 403);
   if (request.url === "/clip/v2/resource") return json({ errors: [], data: hueResources });
@@ -144,6 +146,8 @@ writeFileSync(join(storage, "config.json"), JSON.stringify({
   platforms: [
     { platform: "HomeswiftUI", name: "Web UI", port: uiPort, host: "127.0.0.1", auth: "none", checkForUpdates: false, scheduledBackupDisable: true },
     { platform: "PhilipsHue", name: "Philips Hue", host: `127.0.0.1:${huePort}`, transitionMs: 400 },
+    // A second bridge not paired yet, for the Add accessories page's Pair row.
+    { platform: "PhilipsHue", name: "Upstairs Hue", host: `127.0.0.1:${huePort}` },
     { platform: "Dirigera", name: "IKEA DIRIGERA", hubs: [{ host: "127.0.0.1", token: "demo-token", name: "Home" }] },
   ],
 }, null, 2));
@@ -355,6 +359,10 @@ try {
     }
   };
   const toUI = into(templates), toStatus = into(join(root, "docs/images/status"));
+  // The Add accessories page (docs/ui.md), and its sheet pairing the second bridge.
+  await shot("setup", "/setup", { ready: ".setup-account", tall: 1700 }).then(() => toUI("setup"));
+  await shot("setup-pair", "/setup", { ready: ".setup-account button.primary", viewport: true, height: 720,
+    prepare: `document.querySelector(".setup-account button.primary").click(); await new Promise((done) => setTimeout(done, 1500));` }).then(() => toUI("setup-pair"));
   const step = (title) => `[...document.querySelectorAll(".scene-flow-nav")].find((b) => b.textContent.includes(${literal(title)}))?.click();`;
   // A phone's fixed save bar and menu button would land mid-picture in a capture taller than the screen.
   const unpinned = `const style = document.createElement("style"); style.textContent = ".save-bar, nav.tabbar { display: none !important; }"; document.head.append(style);`;
