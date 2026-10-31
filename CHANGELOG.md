@@ -67,6 +67,17 @@ All notable changes to this project are documented here. The format follows
 - HAP: a request finds the characteristics it names in a lookup built once and kept apart from the server's state
   lock, which it took for every characteristic: with 16 controllers' connections busy, 14% of the server's time went
   to waiting on that lock. Timing observers have a lock of their own too.
+- Setup, one way to get a device into the bridge whatever its plugin: the web UI's **Add accessories** page (`/setup`)
+  lists what each plugin finds and where each device stands, and sets up accounts and devices in one sheet (a hub's
+  link button, a TV's PIN, a sign-in with its one-time code, a sign-in page's redirect, developer keys). MCP clients get
+  `discover_devices`, `start_setup`, `continue_setup` and `cancel_setup`; a secret field takes only a `vault:` reference.
+  What an Authorization gives goes in the vault, never config.json. See GLOSSARY.md and docs/plugins.md, "Setup".
+- Accessory Settings in a block's `_accessories`, by Device Id: **Exclude** a device from its row (it never becomes an
+  accessory, in the Home app or Matter), and plugins' own settings per device. Homebridge-shaped blocks still load
+  (docs/adr/0001-canonical-accessory-settings.md).
+- Philips Hue keeps its bridge's key in the vault (`bridge.json` moves there), Philips Ambilight TV its TVs' keys,
+  MyDolphin its refresh token and EcoFlow its developer keys (the block's `accessKey` and `secretKey` go once they are
+  kept); Daikin's sign-ins run through Setup.
 
 ### Fixed
 

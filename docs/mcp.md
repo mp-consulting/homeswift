@@ -226,6 +226,13 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   block never stops a change to another setting. A refusal names each problem with its place
   (`ElgatoKeyLights: pollingRate must be >= 250`), the dry run's too. `ignoreSchema: true` saves anyway, for a
   value the plugin accepts that its schema does not list; `restore_config` puts a backup back unchecked.
+- **Setup** ([plugins.md](plugins.md#setup)). `discover_devices` lists what a plugin finds, each device with its
+  `deviceID`, the Authorization it needs and its `status` (`setUp`, `needsAuthorization`, `discovered`, `excluded`), and
+  whether the account is set up. `start_setup` (a `deviceID`, or none for the account) answers the first prompt: a
+  message for the person, the fields to answer, a page to open or a wait; `continue_setup` answers it, and
+  `cancel_setup` ends it. A secret field takes only a `vault:` reference: the person adds the entry on the Vault page,
+  or finishes in the web UI. What a device or a plugin says is wrapped in `<untrusted-data>`. A device is excluded with
+  `patch_config` (`_accessories.<deviceID>.excluded`).
 - **Rooms.** The Home app's rooms never reach a bridge; these are the web UI's (Glass UI's accessory layout,
   `accessory-layout.json`). `get_accessory_layout` lists the rooms with their accessories (and `displayName`,
   `hidden`, `favourite`) and those in no room; `set_accessory_layout` puts accessories in rooms (a new name adds
