@@ -234,11 +234,11 @@
   function partsList(device, { disabled = false, onChange = null } = {}) {
     const parts = device.parts ?? [];
     if (!parts.length) return null;
-    const boxes = parts.map((part) => el("input", { type: "checkbox", checked: part.included, disabled, "aria-label": part.name }));
+    const boxes = parts.map((part) => el("input", { type: "checkbox", checked: part.included, disabled, "aria-label": t(part.name) }));
     const node = el("div", { class: "setup-parts", role: "group", "aria-label": t("Parts of {name}", { name: device.name }) },
       ...parts.map((part, index) => el("label", { class: "setup-part" },
         el("span", { class: "setup-part-icon", "aria-hidden": "true" }, HomeswiftCommon.icon(part.icon ?? "accessory")),
-        el("span", { class: "setup-part-name", text: part.name }),
+        el("span", { class: "setup-part-name", text: t(part.name) }),
         el("span", { class: "switch" }, boxes[index], el("span")))));
     if (onChange) boxes.forEach((box, index) => box.addEventListener("change", () => onChange(parts[index], box.checked, box)));
     return {

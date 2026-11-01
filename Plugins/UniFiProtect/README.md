@@ -85,6 +85,12 @@ sealed in config.json; a login Setup kept for the same address replaces it. The 
 nothing more. Excluding one there is the same as `Disable.Device.<MAC>` in `options`, which Setup shows as
 left out by the plugin's own settings.
 
+Only consoles that run UniFi Protect are listed (asked without signing in, one without it answers with its web page).
+Once one is signed in, its devices are offered to pick, and each camera, light or sensor lists its parts, what it can
+add to the Home app or leave out (an occupancy sensor, a motion detection switch, a status light switch, a doorbell's
+mute switch or package camera flashlight, as the device supports them): a part switched there is that device's feature
+option (`Enable.Motion.OccupancySensor.<MAC>`), kept in its Accessory Settings' `parts`.
+
 ## The web page
 
 With the web UI on, the Plugins page has an **Open** button for this plugin: the Homebridge plugin's settings

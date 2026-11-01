@@ -44,7 +44,7 @@ public actor UniFiProtectPlugin: HomeswiftPlugin {
         // The controllers set up through Setup beside the block's, and the Excluded devices as feature options.
         var configuration = configuration
         configuration.controllers = controllerEntries()
-        configuration.options = Self.exclusions(context) + configuration.options
+        configuration.options = Self.exclusions(context) + configuration.options + Self.partChoices(context)
         let platform = await ProtectPlatform(configuration: configuration, logger: logger, host: context, storageDirectory: context.storageDirectory,
                                              dependencies: dependencies)
         guard !isStopped else { return }

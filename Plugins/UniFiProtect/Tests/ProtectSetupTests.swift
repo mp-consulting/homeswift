@@ -32,6 +32,24 @@ import Testing
         #expect(!found.contains { $0.address == "192.168.1.1" && $0.deviceID != Fixtures.nvrMAC })
     }
 
+    /// A camera lists what it can add or leave out as parts, as the device supports them; a part switched on Add
+    /// accessories is that camera's option.
+    @Test func aCamerasPartsFollowItsAccessorySettings() async throws {
+        let environment = ProtectTestEnvironment()
+        var settings = ProtectTestEnvironment.block()
+        settings["_accessories"] = [Fixtures.cameraMAC: ["parts": ["Motion.OccupancySensor": true]]]
+        let host = try environment.host(settings: settings)
+        try await host.start()
+        defer { Task { await host.stop() } }
+        _ = await eventually { environment.accessory(host, ProtectPlatform.accessoryID(Fixtures.sensorMAC)) != nil }
+        let plugin = try #require(environment.plugin)
+        let camera = try #require(try await plugin.discover().first { $0.deviceID == Fixtures.cameraMAC })
+        let parts = Dictionary(uniqueKeysWithValues: camera.parts.map { ($0.id, $0) })
+        #expect(parts["Motion.OccupancySensor"]?.included == true)
+        #expect(parts["Motion.Switch"]?.included == false && parts["Motion.Switch"]?.name == "Motion detection switch")
+        #expect(UniFiProtectPlugin.partChoices(try context(host)) == ["Enable.Motion.OccupancySensor.\(Fixtures.cameraMAC)"])
+    }
+
     /// A console's login: asked, refused with an error the person answers again, then kept for the NVR's MAC with its
     /// address.
     @Test func signsInToAConsole() async throws {

@@ -69,6 +69,8 @@ extension UniFiAccessPlugin {
                 for device in await controller.api.devices ?? [] {
                     let hub = hubs["\(Self.platform):\(device.identifier.uppercased())"]
                     if var device = hubDevice(device, controller: mac, isSetUp: hub != nil) {
+                        // Named as its accessory is, after its main door (a UA Gate's gate): the hub's own name is its model.
+                        if let hub { device.name = await hub.accessoryName }
                         device.parts = await hub?.parts ?? []
                         found.append(device)
                     }

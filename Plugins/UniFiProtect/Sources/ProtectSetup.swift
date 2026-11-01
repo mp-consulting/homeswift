@@ -24,6 +24,49 @@ extension UniFiProtectPlugin {
         context.excludedDeviceIDs.filter { !$0.hasPrefix("address:") }.sorted().map { "Disable.Device.\($0)" }
     }
 
+    /// The parts a person chose on Add accessories (Accessory Settings' `parts`), as that device's feature options:
+    /// `{ "Motion.OccupancySensor": true }` is `Enable.Motion.OccupancySensor.<MAC>`. A device's own option wins over the
+    /// block's.
+    static func partChoices(_ context: PluginContext) -> [String] {
+        context.allAccessorySettings.sorted { $0.key < $1.key }.flatMap { deviceID, settings in
+            settings.parts.sorted { $0.key < $1.key }.map { "\($0.value ? "Enable" : "Disable").\($0.key).\(deviceID)" }
+        }
+    }
+
+    /// What a camera, a light or a sensor brings that a person can add or leave out (Add accessories' parts), each a
+    /// feature option of the device, offered as the plugin's settings page offers it: only what the device supports.
+    static func parts(of device: JSONValue, category: String, test: (String) -> Bool) -> [DevicePart] {
+        let flags = { (name: String) in device.bool("featureFlags.\(name)") }
+        let thirdParty = device.bool("isThirdPartyCamera")
+        var parts: [DevicePart] = []
+        func add(_ option: String, _ name: String, _ icon: String, when: Bool = true) {
+            if when { parts.append(DevicePart(option, name: name, icon: icon, included: test(option))) }
+        }
+        switch category {
+        case "camera":
+            let doorbell = flags("isDoorbell")
+            add("Doorbell.PackageCamera.Flashlight", "Package camera flashlight", "bulb", when: flags("hasPackageCamera"))
+            add("Doorbell.Mute", "Doorbell mute switch", "bell", when: doorbell)
+            add("Doorbell.PhysicalChime", "Chime switches", "bell", when: flags("hasChime"))
+            add("Doorbell.AuthSensor", "Fingerprint and NFC sensor", "sensor", when: flags("hasFingerprintSensor"))
+            add("Motion.OccupancySensor", "Occupancy sensor", "sensor", when: !thirdParty)
+            add("Motion.Switch", "Motion detection switch", "switch", when: !thirdParty)
+            add("Device.StatusLed.Switch", "Status light switch", "switch", when: flags("hasLedStatus"))
+            add("Device.NightVision.Dimmer", "Night vision dimmer", "bulb", when: flags("hasLedIr"))
+            add("Video.HKSV.Recording.Switch", "Recording switch", "camera", when: !thirdParty)
+        case "light":
+            add("Motion.OccupancySensor", "Occupancy sensor", "sensor")
+            add("Motion.Switch", "Motion detection switch", "switch")
+            add("Device.StatusLed.Switch", "Status light switch", "switch")
+        case "sensor":
+            add("Motion.OccupancySensor", "Occupancy sensor", "sensor", when: device.at("motionSettings") != nil)
+            add("Device.StatusLed.Switch", "Status light switch", "switch")
+        default:
+            break
+        }
+        return parts
+    }
+
     /// The controllers to run: those of `controllers`, with the login Setup kept for the same address in place of theirs,
     /// then those set up through Setup only (Accessory Settings with an `address`, and a login in the vault), unless
     /// Excluded.
@@ -50,7 +93,7 @@ extension UniFiProtectPlugin {
     /// The block's feature options, with the Excluded devices (`exclusions`) or without them.
     func featureOptions(excluding: Bool) -> FeatureOptions {
         FeatureOptions(categories: FeatureOptionCatalog.categories, options: FeatureOptionCatalog.options,
-                       configuredOptions: (excluding ? Self.exclusions(context) : []) + configuration.options, dottedIdentifiers: controllerEntries().map(\.address))
+                       configuredOptions: (excluding ? Self.exclusions(context) : []) + configuration.options + Self.partChoices(context), dottedIdentifiers: controllerEntries().map(\.address))
     }
 
     /// The controllers, those running with their devices, and the UniFi consoles on the network that are not set up,
@@ -68,9 +111,11 @@ extension UniFiProtectPlugin {
             for category in ProtectNVR.deviceCategories {
                 for device in bootstrap.array(category + "s") where device.bool("isAdopted") && !device.bool("isAdoptedByOther") {
                     guard let deviceMAC = device.string("mac")?.nonEmpty else { continue }
-                    found.append(DiscoveredDevice(
+                    var discovered = DiscoveredDevice(
                         deviceID: deviceMAC, name: device.string("name") ?? device.string("marketName") ?? deviceMAC, model: device.string("marketName"),
-                        isSetUp: isSetUp(deviceMAC, scopes), excludedBySettings: !configured.test("Device", device: deviceMAC, controllers: scopes)))
+                        isSetUp: isSetUp(deviceMAC, scopes), excludedBySettings: !configured.test("Device", device: deviceMAC, controllers: scopes))
+                    discovered.parts = Self.parts(of: device, category: category) { configured.test($0, device: deviceMAC, controllers: scopes) }
+                    found.append(discovered)
                 }
             }
         }

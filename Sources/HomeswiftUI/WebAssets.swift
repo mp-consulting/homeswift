@@ -14141,6 +14141,15 @@ HomeswiftI18n.add("es", {
   "Also delete its {n} vault entries": "Borrar también sus {n} entradas de la bóveda",
   "The sign-ins and tokens it kept. Left there, adding it again finds them.": "Los inicios de sesión y tokens que guardó. Si se quedan, al añadirlo de nuevo los encuentra.",
   "Parts of {name}": "Partes de {name}",
+  "Package camera flashlight": "Linterna de la cámara de paquetes",
+  "Doorbell mute switch": "Interruptor de silencio del timbre",
+  "Chime switches": "Interruptores del carillón",
+  "Fingerprint and NFC sensor": "Sensor de huella y NFC",
+  "Occupancy sensor": "Sensor de ocupación",
+  "Motion detection switch": "Interruptor de detección de movimiento",
+  "Status light switch": "Interruptor de la luz de estado",
+  "Night vision dimmer": "Regulador de la visión nocturna",
+  "Recording switch": "Interruptor de grabación",
   "Your plugins": "Tus plugins",
   "Search your plugins": "Buscar en tus plugins",
   "Sort your plugins": "Ordenar tus plugins",
@@ -16829,6 +16838,15 @@ HomeswiftI18n.add("fr", {
   "Also delete its {n} vault entries": "Supprimer aussi ses {n} entrées du coffre",
   "The sign-ins and tokens it kept. Left there, adding it again finds them.": "Les connexions et jetons qu'il a gardés. S'ils restent, l'ajouter à nouveau les retrouve.",
   "Parts of {name}": "Éléments de {name}",
+  "Package camera flashlight": "Lampe de la caméra à colis",
+  "Doorbell mute switch": "Interrupteur de sourdine de la sonnette",
+  "Chime switches": "Interrupteurs du carillon",
+  "Fingerprint and NFC sensor": "Capteur d'empreinte et NFC",
+  "Occupancy sensor": "Détecteur de présence",
+  "Motion detection switch": "Interrupteur de détection de mouvement",
+  "Status light switch": "Interrupteur du voyant d'état",
+  "Night vision dimmer": "Variateur de la vision nocturne",
+  "Recording switch": "Interrupteur d'enregistrement",
   "Your plugins": "Vos plugins",
   "Search your plugins": "Rechercher dans vos plugins",
   "Sort your plugins": "Trier vos plugins",
@@ -19517,6 +19535,15 @@ HomeswiftI18n.add("pt", {
   "Also delete its {n} vault entries": "Eliminar também as suas {n} entradas do cofre",
   "The sign-ins and tokens it kept. Left there, adding it again finds them.": "As credenciais e tokens que guardou. Se ficarem, ao adicioná-lo de novo encontra-os.",
   "Parts of {name}": "Partes de {name}",
+  "Package camera flashlight": "Lanterna da câmara de encomendas",
+  "Doorbell mute switch": "Interruptor de silêncio da campainha",
+  "Chime switches": "Interruptores do carrilhão",
+  "Fingerprint and NFC sensor": "Sensor de impressão digital e NFC",
+  "Occupancy sensor": "Sensor de ocupação",
+  "Motion detection switch": "Interruptor de deteção de movimento",
+  "Status light switch": "Interruptor da luz de estado",
+  "Night vision dimmer": "Regulador da visão noturna",
+  "Recording switch": "Interruptor de gravação",
   "Your plugins": "Os seus plugins",
   "Search your plugins": "Pesquisar nos seus plugins",
   "Sort your plugins": "Ordenar os seus plugins",
@@ -22821,11 +22848,11 @@ HomeswiftI18n.add("pt", {
   function partsList(device, { disabled = false, onChange = null } = {}) {
     const parts = device.parts ?? [];
     if (!parts.length) return null;
-    const boxes = parts.map((part) => el("input", { type: "checkbox", checked: part.included, disabled, "aria-label": part.name }));
+    const boxes = parts.map((part) => el("input", { type: "checkbox", checked: part.included, disabled, "aria-label": t(part.name) }));
     const node = el("div", { class: "setup-parts", role: "group", "aria-label": t("Parts of {name}", { name: device.name }) },
       ...parts.map((part, index) => el("label", { class: "setup-part" },
         el("span", { class: "setup-part-icon", "aria-hidden": "true" }, HomeswiftCommon.icon(part.icon ?? "accessory")),
-        el("span", { class: "setup-part-name", text: part.name }),
+        el("span", { class: "setup-part-name", text: t(part.name) }),
         el("span", { class: "switch" }, boxes[index], el("span")))));
     if (onChange) boxes.forEach((box, index) => box.addEventListener("change", () => onChange(parts[index], box.checked, box)));
     return {
