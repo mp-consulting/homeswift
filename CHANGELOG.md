@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Web UI: behind Cloudflare or another reverse proxy, installing an update showed the proxy's 502 page, its HTML, in an
+  alert: the bridge was restarting and the proxy answered for it. A 502, 503 or 504 that is not the bridge's JSON now
+  reads as the bridge not answering, as a dropped connection does: the page waits for the restart, and other requests
+  say Homeswift did not answer, never with the proxy's page.
+
 ## [0.18.1] - 2026-11-01
 
 ### Changed

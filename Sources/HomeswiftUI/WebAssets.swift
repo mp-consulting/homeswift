@@ -1884,7 +1884,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     if (response.status === 401 && !path.startsWith("/api/auth/")) { showAuth(); throw new ApiError(401, "signed out"); }
     const text = await response.text();
     if (!response.ok) {
-      let message = text, problems;
+      // Not an ApiError: the bridge did not answer, as when the connection drops (a restart under way).
+      const gone = HomeswiftCommon.gatewayError(response.status, text);
+      if (gone) throw gone;
+      let message = HomeswiftCommon.plainMessage(text), problems;
       try { ({ error: message = text, problems } = JSON.parse(text)); } catch {}
       throw new ApiError(response.status, HomeswiftI18n.message(message || `HTTP ${response.status}`), problems);
     }
@@ -2214,7 +2217,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const started = Date.now();
     try {
       const response = await fetch("/api/restart", { method: "POST", credentials: "same-origin", signal: AbortSignal.timeout(4000) });
-      if (!response.ok) throw new ApiError(response.status, `HTTP ${response.status}`);
+      // A proxy's 502 to 504 (the bridge did not answer) can mean the restart already began, as a dropped connection.
+      if (!response.ok && (response.status < 502 || response.status > 504)) throw new ApiError(response.status, `HTTP ${response.status}`);
       // The process may exit before completing the response body. Headers are enough.
     } catch (e) {
       if (e instanceof ApiError) {
@@ -2287,6 +2291,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             return;
           }
         } else if (response.status === 401) { await finishRestart(); return; }
+        // A proxy in front of the bridge (Cloudflare, a reverse proxy) answers for it while it is down.
+        else if (response.status >= 502 && response.status <= 504) { wasOffline = true; healthyReplies = 0; }
       } catch { wasOffline = true; healthyReplies = 0; }
       if (Date.now() < deadline) setTimeout(poll, 1000);
       else {
@@ -3180,7 +3186,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       try {
         state = await api("/api/updates");
       } catch (e) {
-        // Gone: the restart began between two questions.
+        // Gone, or a proxy answering for it: the restart began between two questions.
         if (!(e instanceof ApiError)) { waitForRestart(started); return; }
         HomeswiftCommon.showAlert(e.message);
         return;
@@ -9176,6 +9182,19 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// When this page last asked the bridge to change something: what it made itself, a change event shortly after
   /// tells it nothing new.
   let lastChange = 0;
+  /// A 502, 503 or 504 whose body is not the bridge's JSON came from a proxy in front of it (Cloudflare, a reverse
+  /// proxy) because the bridge did not answer, most often while it restarts: an error that says so, marked
+  /// `unreachable`, never the proxy's page. Null for any other reply.
+  function gatewayError(status, text) {
+    if (status < 502 || status > 504) return null;
+    try { JSON.parse(text); return null; } catch {}
+    return Object.assign(new Error(t("Homeswift did not answer (HTTP {status}): it may be restarting. Try again in a moment.", { status })),
+      { status, unreachable: true });
+  }
+
+  /// The message of a reply that is not JSON: its text, unless it is a page (HTML), which says nothing in an alert.
+  const plainMessage = (text) => (text.trimStart().startsWith("<") ? "" : text);
+
   async function api(path, { method = "GET", body, stream = false } = {}) {
     if (method !== "GET") lastChange = Date.now();
     // The Assistant answers in the page's language.
@@ -9185,8 +9204,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     if (response.status === 401) { location.href = "/"; throw new Error("signed out"); }
     if (stream && response.ok) return response;
     const text = await response.text();
+    const gone = gatewayError(response.status, text);
+    if (gone) throw gone;
     let json = null;
-    try { json = text ? JSON.parse(text) : null; } catch { json = { error: text }; }
+    try { json = text ? JSON.parse(text) : null; } catch { json = { error: plainMessage(text) }; }
     if (!response.ok) throw Object.assign(new Error(window.HomeswiftI18n?.message((json && json.error) || `HTTP ${response.status}`) ?? `HTTP ${response.status}`), { status: response.status });
     return json;
   }
@@ -10312,7 +10333,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
 
   window.HomeswiftCommon = {
-    foldOnLeave, showAlert, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, lastChange: () => lastChange,
+    foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, lastChange: () => lastChange,
     $, el, icon, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
@@ -12557,6 +12578,7 @@ HomeswiftI18n.add("es", {
   "Port {port} is in use or cannot be opened on this address. Choose another port.": "El puerto {port} está ocupado o no se puede abrir en esta dirección. Elige otro puerto.",
   "Port {port} is available.": "El puerto {port} está disponible.",
   "Checking port…": "Comprobando el puerto…",
+  "Homeswift did not answer (HTTP {status}): it may be restarting. Try again in a moment.": "Homeswift no respondió (HTTP {status}): puede que se esté reiniciando. Inténtalo de nuevo en un momento.",
   "Please wait. This page will reconnect automatically.": "Espera un momento. Esta página se volverá a conectar automáticamente.",
   "Connection": "Conexión",
   "Updates": "Actualizaciones",
@@ -15124,6 +15146,7 @@ HomeswiftI18n.add("fr", {
   "Port {port} is in use or cannot be opened on this address. Choose another port.": "Le port {port} est utilisé ou ne peut pas être ouvert sur cette adresse. Choisissez un autre port.",
   "Port {port} is available.": "Le port {port} est disponible.",
   "Checking port…": "Vérification du port…",
+  "Homeswift did not answer (HTTP {status}): it may be restarting. Try again in a moment.": "Homeswift n’a pas répondu (HTTP {status}) : il redémarre peut-être. Réessayez dans un instant.",
   "Please wait. This page will reconnect automatically.": "Veuillez patienter. Cette page se reconnectera automatiquement.",
   "Connection": "Connexion",
   "Updates": "Mises à jour",
@@ -17691,6 +17714,7 @@ HomeswiftI18n.add("pt", {
   "Port {port} is in use or cannot be opened on this address. Choose another port.": "A porta {port} está ocupada ou não pode ser aberta neste endereço. Escolha outra porta.",
   "Port {port} is available.": "A porta {port} está disponível.",
   "Checking port…": "A verificar a porta…",
+  "Homeswift did not answer (HTTP {status}): it may be restarting. Try again in a moment.": "O Homeswift não respondeu (HTTP {status}): pode estar a reiniciar. Tente novamente daqui a pouco.",
   "Please wait. This page will reconnect automatically.": "Aguarde. Esta página voltará a ligar-se automaticamente.",
   "Connection": "Ligação",
   "Updates": "Atualizações",

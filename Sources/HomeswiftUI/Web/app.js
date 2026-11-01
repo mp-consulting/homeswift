@@ -20,7 +20,10 @@
     if (response.status === 401 && !path.startsWith("/api/auth/")) { showAuth(); throw new ApiError(401, "signed out"); }
     const text = await response.text();
     if (!response.ok) {
-      let message = text, problems;
+      // Not an ApiError: the bridge did not answer, as when the connection drops (a restart under way).
+      const gone = HomeswiftCommon.gatewayError(response.status, text);
+      if (gone) throw gone;
+      let message = HomeswiftCommon.plainMessage(text), problems;
       try { ({ error: message = text, problems } = JSON.parse(text)); } catch {}
       throw new ApiError(response.status, HomeswiftI18n.message(message || `HTTP ${response.status}`), problems);
     }
@@ -350,7 +353,8 @@
     const started = Date.now();
     try {
       const response = await fetch("/api/restart", { method: "POST", credentials: "same-origin", signal: AbortSignal.timeout(4000) });
-      if (!response.ok) throw new ApiError(response.status, `HTTP ${response.status}`);
+      // A proxy's 502 to 504 (the bridge did not answer) can mean the restart already began, as a dropped connection.
+      if (!response.ok && (response.status < 502 || response.status > 504)) throw new ApiError(response.status, `HTTP ${response.status}`);
       // The process may exit before completing the response body. Headers are enough.
     } catch (e) {
       if (e instanceof ApiError) {
@@ -423,6 +427,8 @@
             return;
           }
         } else if (response.status === 401) { await finishRestart(); return; }
+        // A proxy in front of the bridge (Cloudflare, a reverse proxy) answers for it while it is down.
+        else if (response.status >= 502 && response.status <= 504) { wasOffline = true; healthyReplies = 0; }
       } catch { wasOffline = true; healthyReplies = 0; }
       if (Date.now() < deadline) setTimeout(poll, 1000);
       else {
@@ -1316,7 +1322,7 @@
       try {
         state = await api("/api/updates");
       } catch (e) {
-        // Gone: the restart began between two questions.
+        // Gone, or a proxy answering for it: the restart began between two questions.
         if (!(e instanceof ApiError)) { waitForRestart(started); return; }
         HomeswiftCommon.showAlert(e.message);
         return;
