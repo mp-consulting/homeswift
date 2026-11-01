@@ -354,7 +354,8 @@ Every platform block of config.json, with whether it runs, is paused, and on whi
 plugins compiled into this homeswift, with a search and a sort.
 
 - **A card's ⋯** opens the plugin's page, its Expert form or JSON, pauses or resumes it, and removes it; its name opens
-  its page.
+  its page. Removing a plugin that kept sign-ins or tokens in the vault offers to delete them too (off by default: left
+  there, adding the plugin again finds them; they are the entries its namespace owns, not those a person made).
 - **Pause** (also at the top right of a plugin's page) stops the plugin's calls to its devices, for when an app sharing
   the account would be signed out by them. Its accessories stay in the Home app, showing No Response, and the page
   offers **Resume**.
@@ -418,8 +419,9 @@ API, app or both) asks which first, the block's own picked. An answer that did n
 Setup. What it gives goes in the vault, and the plugin reloads with it.
 
 An account set up for the first time then lists what the plugin finds, every device switched on: those switched off are
-excluded (they can be included later), and the sheet ends on the accessories added. A device's own Setup, or an account
-signed in again, ends at done.
+excluded (they can be included later), and the sheet ends on the accessories added. A device that brings devices of its
+own (a UniFi console: its cameras, doors and sensors) lists those the same way once the plugin reaches them. Another
+device's Setup, or an account signed in again, ends at done.
 
 ![The sheet pairing a Hue Bridge: its link button, and the time left](images/ui/setup-pair.png)
 

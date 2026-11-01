@@ -4335,7 +4335,9 @@ select option:disabled { color: var(--muted); }
 
 .message-dialog { max-width: min(560px, calc(100vw - 32px)); }
 .dialog-message { white-space: pre-wrap; overflow-wrap: anywhere; }
-.message-dialog input { width: 100%; min-width: 0; }
+.message-dialog input:not([type="checkbox"]) { width: 100%; min-width: 0; }
+.message-dialog .toggle { margin: var(--space-4) 0 var(--space-6); }
+.message-dialog .toggle .help { display: block; font-size: var(--text-sm); margin-top: 2px; }
 
 /* The Accessories wall full screen (?full=1): the widgets alone over the backdrop, for a wall tablet. Grouped by room
    or plugin, each group is a page of a strip that snaps, swiped with the finger's momentum (or the arrow keys, the dots,

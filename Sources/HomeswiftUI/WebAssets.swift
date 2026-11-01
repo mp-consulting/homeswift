@@ -4684,8 +4684,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   /// Takes a block out of config.json, after asking: its accessories leave the Home app.
   async function removeBlock(block, after = () => route()) {
-    if (!await HomeswiftCommon.confirmDialog(t("Remove \"{name}\" from config.json? Its accessories leave the Home app.", { name: block.name }))) return;
-    try { await api(`/api/config/platforms/${block.index}`, { method: "DELETE" }); leaveGuard = null; after(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
+    // The vault's entries the plugin wrote (its sign-ins, its tokens) stay unless asked: added again, it finds them.
+    const entries = block.vaultEntries ?? 0;
+    const answer = await HomeswiftCommon.confirmDialog(t("Remove \"{name}\" from config.json? Its accessories leave the Home app.", { name: block.name }),
+      entries ? { toggle: { label: tn("Also delete its vault entry", "Also delete its {n} vault entries", entries), help: t("The sign-ins and tokens it kept. Left there, adding it again finds them.") } } : {});
+    if (!answer) return;
+    const vault = answer.checked ? "?vault=true" : "";
+    try { await api(`/api/config/platforms/${block.index}${vault}`, { method: "DELETE" }); leaveGuard = null; after(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
   }
 
   /// A block's address: its plugin's own page when it has one, else its settings. `expertLink` is always the form
@@ -10293,22 +10298,27 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // Queue modal messages so simultaneous failures never stack focus traps.
   let dialogQueue = Promise.resolve();
   let dialogSequence = 0;
-  function messageDialog(message, { kind = "alert", value = "" } = {}) {
+  /// `toggle`, for a confirmation: a switch under the message, off to begin with (`{ label, help }`); the answer is then
+  /// false, or `{ checked }`.
+  function messageDialog(message, { kind = "alert", value = "", toggle = null } = {}) {
     const show = () => new Promise((resolve) => {
       const previousFocus = document.activeElement;
       const id = `message-dialog-${++dialogSequence}`;
       const input = kind === "prompt" ? el("input", { type: "text", value, "aria-labelledby": `${id}-body` }) : null;
+      const box = toggle ? el("input", { type: "checkbox" }) : null;
+      const choice = box ? el("label", { class: "toggle" }, el("span", { class: "switch" }, box, el("span")),
+        el("span", {}, el("span", { class: "field-title", text: toggle.label }), toggle.help ? el("span", { class: "muted help", text: toggle.help }) : null)) : null;
       const cancel = kind !== "alert" ? el("button", { type: "button", actionIcon: "close", text: t("Cancel"), onclick: () => dialog.close("cancel") }) : null;
       const ok = el("button", { type: "submit", class: "primary", actionIcon: "check", text: kind === "confirm" ? t("Continue") : t("OK") });
       const form = el("form", { method: "dialog" },
         el("h2", { id: `${id}-title`, text: kind === "alert" ? t("Message") : kind === "prompt" ? t("Enter a value") : t("Confirm") }),
-        el("p", { id: `${id}-body`, class: "dialog-message", text: String(message) }), input,
+        el("p", { id: `${id}-body`, class: "dialog-message", text: String(message) }), input, choice,
         el("div", { class: "actions" }, cancel, ok));
       const dialog = el("dialog", { class: "admin-dialog card message-dialog", "aria-labelledby": `${id}-title`, "aria-describedby": `${id}-body` }, form);
       form.addEventListener("submit", (event) => { event.preventDefault(); dialog.close("ok"); });
       dialog.addEventListener("close", () => {
         const result = dialog.returnValue === "ok";
-        const answer = input ? (result ? input.value : null) : result;
+        const answer = input ? (result ? input.value : null) : box ? (result && { checked: box.checked }) : result;
         dialog.remove();
         if (previousFocus?.isConnected) previousFocus.focus();
         resolve(answer);
@@ -10323,7 +10333,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return result;
   }
   const showAlert = (message) => messageDialog(message);
-  const confirmDialog = (message) => messageDialog(message, { kind: "confirm" });
+  const confirmDialog = (message, options = {}) => messageDialog(message, { kind: "confirm", ...options });
   const promptDialog = (message, value = "") => messageDialog(message, { kind: "prompt", value });
 
   /// A `<details>` that opens as a popover (the side menu's Homeswift section): a click outside it or Escape folds it,
@@ -14127,6 +14137,9 @@ HomeswiftI18n.add("es", {
   "{plugin} found {n} devices.": "{plugin} encontró {n} dispositivos.",
   "Choose those that go into the Home app. The others are excluded; you can include them later.": "Elige los que van a la app Casa. Los demás quedan excluidos; puedes incluirlos más tarde.",
   "They reach the Home app in a moment.": "Llegan a la app Casa en un momento.",
+  "Also delete its vault entry": "Borrar también su entrada de la bóveda",
+  "Also delete its {n} vault entries": "Borrar también sus {n} entradas de la bóveda",
+  "The sign-ins and tokens it kept. Left there, adding it again finds them.": "Los inicios de sesión y tokens que guardó. Si se quedan, al añadirlo de nuevo los encuentra.",
   "Your plugins": "Tus plugins",
   "Search your plugins": "Buscar en tus plugins",
   "Sort your plugins": "Ordenar tus plugins",
@@ -16811,6 +16824,9 @@ HomeswiftI18n.add("fr", {
   "{plugin} found {n} devices.": "{plugin} a trouvé {n} appareils.",
   "Choose those that go into the Home app. The others are excluded; you can include them later.": "Choisissez ceux qui vont dans l'app Maison. Les autres sont exclus ; vous pourrez les inclure plus tard.",
   "They reach the Home app in a moment.": "Ils arrivent dans l'app Maison dans un instant.",
+  "Also delete its vault entry": "Supprimer aussi son entrée du coffre",
+  "Also delete its {n} vault entries": "Supprimer aussi ses {n} entrées du coffre",
+  "The sign-ins and tokens it kept. Left there, adding it again finds them.": "Les connexions et jetons qu'il a gardés. S'ils restent, l'ajouter à nouveau les retrouve.",
   "Your plugins": "Vos plugins",
   "Search your plugins": "Rechercher dans vos plugins",
   "Sort your plugins": "Trier vos plugins",
@@ -19495,6 +19511,9 @@ HomeswiftI18n.add("pt", {
   "{plugin} found {n} devices.": "{plugin} encontrou {n} dispositivos.",
   "Choose those that go into the Home app. The others are excluded; you can include them later.": "Escolha os que vão para a app Casa. Os outros ficam excluídos; pode incluí-los mais tarde.",
   "They reach the Home app in a moment.": "Chegam à app Casa num instante.",
+  "Also delete its vault entry": "Eliminar também a sua entrada do cofre",
+  "Also delete its {n} vault entries": "Eliminar também as suas {n} entradas do cofre",
+  "The sign-ins and tokens it kept. Left there, adding it again finds them.": "As credenciais e tokens que guardou. Se ficarem, ao adicioná-lo de novo encontra-os.",
   "Your plugins": "Os seus plugins",
   "Search your plugins": "Pesquisar nos seus plugins",
   "Sort your plugins": "Ordenar os seus plugins",
@@ -22727,13 +22746,15 @@ HomeswiftI18n.add("pt", {
         accountSetUp = found.accountSetUp;
         const needs = (device) => device.status === "needsAuthorization";
         const waiting = found.devices.filter(needs), settled = found.devices.filter((device) => !needs(device));
-        const rows = waiting.map((device) => deviceRow(block, plugin, device, load));
+        // What the plugin found before a device's Setup: what is new after it came with that device (a console's cameras).
+        const known = new Set(found.devices.map((device) => device.deviceID));
+        const rows = waiting.map((device) => deviceRow(block, plugin, device, load, known));
         if (action && !accountSetUp) rows.unshift(accountRow());
         if (settled.length) {
           const excluded = settled.filter((device) => device.status === "excluded").length;
           const fold = el("details", { class: "setup-fold", open: folded || (!rows.length && settled.length <= 3) },
             el("summary", {}, el("span", { text: [tn("{n} set up", "{n} set up [plural]", settled.length - excluded), excluded ? tn("{n} excluded", "{n} excluded [plural]", excluded) : null].filter(Boolean).join(" · ") })),
-            el("div", { class: "setup-devices" }, ...settled.map((device) => deviceRow(block, plugin, device, load))));
+            el("div", { class: "setup-devices" }, ...settled.map((device) => deviceRow(block, plugin, device, load, known))));
           fold.addEventListener("toggle", () => { folded = fold.open; });
           rows.push(fold);
         }
@@ -22753,7 +22774,7 @@ HomeswiftI18n.add("pt", {
   }
 
   /// A device: what it is, where it stands, and what can be done with it.
-  function deviceRow(block, plugin, device, reload) {
+  function deviceRow(block, plugin, device, reload, known) {
     const [state, tone] = (statuses[device.status] ?? statuses.discovered);
     const excluded = device.status === "excluded";
     const toggle = (value) => async () => {
@@ -22763,7 +22784,7 @@ HomeswiftI18n.add("pt", {
       } catch (e) { HomeswiftCommon.showAlert(e.message); }
     };
     const items = [
-      device.status === "setUp" && device.authorization !== "none" ? { label: t("Set up again"), icon: "pair", onSelect: () => open({ block, plugin, device, after: reload }) } : null,
+      device.status === "setUp" && device.authorization !== "none" ? { label: t("Set up again"), icon: "pair", onSelect: () => open({ block, plugin, device, known, after: reload }) } : null,
       // Left out by the plugin's own settings: included again there, not here.
       device.excludedBySettings ? { label: t("Open its settings"), icon: "gear", href: `/plugins/${encodeURIComponent(block.slug)}/expert` }
         : excluded ? { label: t("Include"), icon: "plus", onSelect: toggle(false) } : { label: t("Exclude"), icon: "minus", onSelect: toggle(true) },
@@ -22777,7 +22798,7 @@ HomeswiftI18n.add("pt", {
         el("div", { class: "muted", text: device.excludedBySettings ? t("Left out by its settings") : [device.model, device.address].filter(Boolean).join(" · ") || device.deviceID })),
       tone === "on" ? el("span", { class: "status-dot", role: "img", "aria-label": state(), title: state() }) : el("span", { class: `pill status ${tone}`, text: state() }),
       needs
-        ? el("button", { class: "primary", actionIcon: "pair", text: t("Set up"), onclick: (event) => open({ block, plugin, device, trigger: event.currentTarget, after: reload }) })
+        ? el("button", { class: "primary", actionIcon: "pair", text: t("Set up"), onclick: (event) => open({ block, plugin, device, known, trigger: event.currentTarget, after: reload }) })
         : el("span", { class: "setup-spacer" }),
       menuButton(t("Actions for {name}", { name: device.name }), () => items));
   }
@@ -22828,14 +22849,15 @@ HomeswiftI18n.add("pt", {
   /// The sheet of one Setup: it starts the session, then draws each prompt the plugin sends until it is done. An
   /// account set up for the first time then lists what the plugin finds, to pick those that go into the Home app (the
   /// others are excluded); then what was added. Its header names where it stands: signing in, the devices, done.
-  function open({ block, plugin = null, device = null, draft = false, firstTime = false, trigger = null, after }) {
+  function open({ block, plugin = null, device = null, known = null, draft = false, firstTime = false, trigger = null, after }) {
     const title = device?.name ?? block.name;
     // Under the title, a device's Authorization, or the plugin when the instance's name does not say it (an account's
     // way to sign in may be the person's choice, asked in the sheet).
     const subtitle = device ? methods[device.authorization]?.[0]() ?? "" : plugin && bare(plugin.name) !== bare(block.name) ? plugin.name : "";
     const glyph = device ? methods[device.authorization]?.[1] ?? "accessory" : block.icon ?? plugin?.icon ?? "plugin";
     const picking = firstTime && !device;
-    const stages = [device ? t("Set up") : accountActions[plugin?.accountAuthorization]?.[0]() ?? t("Sign in"), picking ? t("Devices") : null, t("Done")].filter(Boolean);
+    const devicesStage = t("Devices");
+    const stages = [device ? t("Set up") : accountActions[plugin?.accountAuthorization]?.[0]() ?? t("Sign in"), picking ? devicesStage : null, t("Done")].filter(Boolean);
     let session = null, poll = 0, ticker = 0, done = false, closed = false;
     // A Button Press's end: the retries keep it, so the countdown does not start over at each one.
     let until = 0;
@@ -22873,17 +22895,23 @@ HomeswiftI18n.add("pt", {
         body.querySelector(".actions button")?.focus();
       }
 
-      /// What the account reaches, to pick: every device ticked; those left out are excluded.
-      async function pick() {
-        stage(1);
+      /// What the account, or a device just set up (a console), reaches, to pick: every device ticked; those left out are
+      /// excluded. A console's devices come once the plugin has connected to it: it is asked a few times.
+      async function pick({ keep, tries = 1, owner = plugin?.name ?? block.name }) {
         fill(loading(t("Looking for devices…")));
-        let found;
-        try {
-          found = (await post("discover", { platform: block.platform, name: block.name })).devices
-            .filter((one) => one.status === "setUp" || one.status === "discovered");
-        } catch { found = []; }
+        let found = [];
+        for (let attempt = 0; attempt < tries && !closed; attempt++) {
+          if (attempt) await new Promise((resume) => setTimeout(resume, 2000));
+          try {
+            found = (await post("discover", { platform: block.platform, name: block.name })).devices
+              .filter((one) => (one.status === "setUp" || one.status === "discovered") && keep(one));
+          } catch { found = []; }
+          if (found.length) break;
+        }
         if (closed) return;
         if (!found.length) { finish(); return; }
+        if (!stages.includes(devicesStage)) stages.splice(stages.length - 1, 0, devicesStage);
+        stage(stages.indexOf(devicesStage));
         const boxes = found.map((one) => el("input", { type: "checkbox", checked: true, value: one.deviceID }));
         const submit = el("button", { class: "primary", type: "submit", actionIcon: "plus" });
         const count = () => {
@@ -22901,7 +22929,7 @@ HomeswiftI18n.add("pt", {
           });
         };
         fill(
-          el("p", {}, el("strong", { text: tn("{plugin} found one device.", "{plugin} found {n} devices.", found.length, { plugin: plugin?.name ?? block.name }) })),
+          el("p", {}, el("strong", { text: tn("{plugin} found one device.", "{plugin} found {n} devices.", found.length, { plugin: owner }) })),
           el("p", { class: "muted", text: t("Choose those that go into the Home app. The others are excluded; you can include them later.") }),
           el("div", { class: "setup-picks" }, ...found.map((one, index) => el("label", { class: "setup-pick" }, boxes[index],
             tile(HomeswiftWidgets.categoryIcon(one.category) ?? glyph, "blue"),
@@ -22917,7 +22945,10 @@ HomeswiftI18n.add("pt", {
         if (answer.status === "done") {
           done = true;
           session = null;
-          if (picking) pick(); else finish();
+          if (picking) pick({ keep: () => true });
+          // A console signed in: the cameras, doors and sensors it brings, not the devices that were there already.
+          else if (device && known) pick({ keep: (one) => one.authorization === "none" && !known.has(one.deviceID) && one.deviceID !== device.deviceID, tries: 5, owner: title });
+          else finish();
           return;
         }
         session = answer.session;
@@ -27357,7 +27388,9 @@ select option:disabled { color: var(--muted); }
 
 .message-dialog { max-width: min(560px, calc(100vw - 32px)); }
 .dialog-message { white-space: pre-wrap; overflow-wrap: anywhere; }
-.message-dialog input { width: 100%; min-width: 0; }
+.message-dialog input:not([type="checkbox"]) { width: 100%; min-width: 0; }
+.message-dialog .toggle { margin: var(--space-4) 0 var(--space-6); }
+.message-dialog .toggle .help { display: block; font-size: var(--text-sm); margin-top: 2px; }
 
 /* The Accessories wall full screen (?full=1): the widgets alone over the backdrop, for a wall tablet. Grouped by room
    or plugin, each group is a page of a strip that snaps, swiped with the finger's momentum (or the arrow keys, the dots,

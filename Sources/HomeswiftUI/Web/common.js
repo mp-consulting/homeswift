@@ -1746,22 +1746,27 @@
   // Queue modal messages so simultaneous failures never stack focus traps.
   let dialogQueue = Promise.resolve();
   let dialogSequence = 0;
-  function messageDialog(message, { kind = "alert", value = "" } = {}) {
+  /// `toggle`, for a confirmation: a switch under the message, off to begin with (`{ label, help }`); the answer is then
+  /// false, or `{ checked }`.
+  function messageDialog(message, { kind = "alert", value = "", toggle = null } = {}) {
     const show = () => new Promise((resolve) => {
       const previousFocus = document.activeElement;
       const id = `message-dialog-${++dialogSequence}`;
       const input = kind === "prompt" ? el("input", { type: "text", value, "aria-labelledby": `${id}-body` }) : null;
+      const box = toggle ? el("input", { type: "checkbox" }) : null;
+      const choice = box ? el("label", { class: "toggle" }, el("span", { class: "switch" }, box, el("span")),
+        el("span", {}, el("span", { class: "field-title", text: toggle.label }), toggle.help ? el("span", { class: "muted help", text: toggle.help }) : null)) : null;
       const cancel = kind !== "alert" ? el("button", { type: "button", actionIcon: "close", text: t("Cancel"), onclick: () => dialog.close("cancel") }) : null;
       const ok = el("button", { type: "submit", class: "primary", actionIcon: "check", text: kind === "confirm" ? t("Continue") : t("OK") });
       const form = el("form", { method: "dialog" },
         el("h2", { id: `${id}-title`, text: kind === "alert" ? t("Message") : kind === "prompt" ? t("Enter a value") : t("Confirm") }),
-        el("p", { id: `${id}-body`, class: "dialog-message", text: String(message) }), input,
+        el("p", { id: `${id}-body`, class: "dialog-message", text: String(message) }), input, choice,
         el("div", { class: "actions" }, cancel, ok));
       const dialog = el("dialog", { class: "admin-dialog card message-dialog", "aria-labelledby": `${id}-title`, "aria-describedby": `${id}-body` }, form);
       form.addEventListener("submit", (event) => { event.preventDefault(); dialog.close("ok"); });
       dialog.addEventListener("close", () => {
         const result = dialog.returnValue === "ok";
-        const answer = input ? (result ? input.value : null) : result;
+        const answer = input ? (result ? input.value : null) : box ? (result && { checked: box.checked }) : result;
         dialog.remove();
         if (previousFocus?.isConnected) previousFocus.focus();
         resolve(answer);
@@ -1776,7 +1781,7 @@
     return result;
   }
   const showAlert = (message) => messageDialog(message);
-  const confirmDialog = (message) => messageDialog(message, { kind: "confirm" });
+  const confirmDialog = (message, options = {}) => messageDialog(message, { kind: "confirm", ...options });
   const promptDialog = (message, value = "") => messageDialog(message, { kind: "prompt", value });
 
   /// A `<details>` that opens as a popover (the side menu's Homeswift section): a click outside it or Escape folds it,

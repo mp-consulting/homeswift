@@ -162,13 +162,15 @@
         accountSetUp = found.accountSetUp;
         const needs = (device) => device.status === "needsAuthorization";
         const waiting = found.devices.filter(needs), settled = found.devices.filter((device) => !needs(device));
-        const rows = waiting.map((device) => deviceRow(block, plugin, device, load));
+        // What the plugin found before a device's Setup: what is new after it came with that device (a console's cameras).
+        const known = new Set(found.devices.map((device) => device.deviceID));
+        const rows = waiting.map((device) => deviceRow(block, plugin, device, load, known));
         if (action && !accountSetUp) rows.unshift(accountRow());
         if (settled.length) {
           const excluded = settled.filter((device) => device.status === "excluded").length;
           const fold = el("details", { class: "setup-fold", open: folded || (!rows.length && settled.length <= 3) },
             el("summary", {}, el("span", { text: [tn("{n} set up", "{n} set up [plural]", settled.length - excluded), excluded ? tn("{n} excluded", "{n} excluded [plural]", excluded) : null].filter(Boolean).join(" · ") })),
-            el("div", { class: "setup-devices" }, ...settled.map((device) => deviceRow(block, plugin, device, load))));
+            el("div", { class: "setup-devices" }, ...settled.map((device) => deviceRow(block, plugin, device, load, known))));
           fold.addEventListener("toggle", () => { folded = fold.open; });
           rows.push(fold);
         }
@@ -188,7 +190,7 @@
   }
 
   /// A device: what it is, where it stands, and what can be done with it.
-  function deviceRow(block, plugin, device, reload) {
+  function deviceRow(block, plugin, device, reload, known) {
     const [state, tone] = (statuses[device.status] ?? statuses.discovered);
     const excluded = device.status === "excluded";
     const toggle = (value) => async () => {
@@ -198,7 +200,7 @@
       } catch (e) { HomeswiftCommon.showAlert(e.message); }
     };
     const items = [
-      device.status === "setUp" && device.authorization !== "none" ? { label: t("Set up again"), icon: "pair", onSelect: () => open({ block, plugin, device, after: reload }) } : null,
+      device.status === "setUp" && device.authorization !== "none" ? { label: t("Set up again"), icon: "pair", onSelect: () => open({ block, plugin, device, known, after: reload }) } : null,
       // Left out by the plugin's own settings: included again there, not here.
       device.excludedBySettings ? { label: t("Open its settings"), icon: "gear", href: `/plugins/${encodeURIComponent(block.slug)}/expert` }
         : excluded ? { label: t("Include"), icon: "plus", onSelect: toggle(false) } : { label: t("Exclude"), icon: "minus", onSelect: toggle(true) },
@@ -212,7 +214,7 @@
         el("div", { class: "muted", text: device.excludedBySettings ? t("Left out by its settings") : [device.model, device.address].filter(Boolean).join(" · ") || device.deviceID })),
       tone === "on" ? el("span", { class: "status-dot", role: "img", "aria-label": state(), title: state() }) : el("span", { class: `pill status ${tone}`, text: state() }),
       needs
-        ? el("button", { class: "primary", actionIcon: "pair", text: t("Set up"), onclick: (event) => open({ block, plugin, device, trigger: event.currentTarget, after: reload }) })
+        ? el("button", { class: "primary", actionIcon: "pair", text: t("Set up"), onclick: (event) => open({ block, plugin, device, known, trigger: event.currentTarget, after: reload }) })
         : el("span", { class: "setup-spacer" }),
       menuButton(t("Actions for {name}", { name: device.name }), () => items));
   }
@@ -263,14 +265,15 @@
   /// The sheet of one Setup: it starts the session, then draws each prompt the plugin sends until it is done. An
   /// account set up for the first time then lists what the plugin finds, to pick those that go into the Home app (the
   /// others are excluded); then what was added. Its header names where it stands: signing in, the devices, done.
-  function open({ block, plugin = null, device = null, draft = false, firstTime = false, trigger = null, after }) {
+  function open({ block, plugin = null, device = null, known = null, draft = false, firstTime = false, trigger = null, after }) {
     const title = device?.name ?? block.name;
     // Under the title, a device's Authorization, or the plugin when the instance's name does not say it (an account's
     // way to sign in may be the person's choice, asked in the sheet).
     const subtitle = device ? methods[device.authorization]?.[0]() ?? "" : plugin && bare(plugin.name) !== bare(block.name) ? plugin.name : "";
     const glyph = device ? methods[device.authorization]?.[1] ?? "accessory" : block.icon ?? plugin?.icon ?? "plugin";
     const picking = firstTime && !device;
-    const stages = [device ? t("Set up") : accountActions[plugin?.accountAuthorization]?.[0]() ?? t("Sign in"), picking ? t("Devices") : null, t("Done")].filter(Boolean);
+    const devicesStage = t("Devices");
+    const stages = [device ? t("Set up") : accountActions[plugin?.accountAuthorization]?.[0]() ?? t("Sign in"), picking ? devicesStage : null, t("Done")].filter(Boolean);
     let session = null, poll = 0, ticker = 0, done = false, closed = false;
     // A Button Press's end: the retries keep it, so the countdown does not start over at each one.
     let until = 0;
@@ -308,17 +311,23 @@
         body.querySelector(".actions button")?.focus();
       }
 
-      /// What the account reaches, to pick: every device ticked; those left out are excluded.
-      async function pick() {
-        stage(1);
+      /// What the account, or a device just set up (a console), reaches, to pick: every device ticked; those left out are
+      /// excluded. A console's devices come once the plugin has connected to it: it is asked a few times.
+      async function pick({ keep, tries = 1, owner = plugin?.name ?? block.name }) {
         fill(loading(t("Looking for devices…")));
-        let found;
-        try {
-          found = (await post("discover", { platform: block.platform, name: block.name })).devices
-            .filter((one) => one.status === "setUp" || one.status === "discovered");
-        } catch { found = []; }
+        let found = [];
+        for (let attempt = 0; attempt < tries && !closed; attempt++) {
+          if (attempt) await new Promise((resume) => setTimeout(resume, 2000));
+          try {
+            found = (await post("discover", { platform: block.platform, name: block.name })).devices
+              .filter((one) => (one.status === "setUp" || one.status === "discovered") && keep(one));
+          } catch { found = []; }
+          if (found.length) break;
+        }
         if (closed) return;
         if (!found.length) { finish(); return; }
+        if (!stages.includes(devicesStage)) stages.splice(stages.length - 1, 0, devicesStage);
+        stage(stages.indexOf(devicesStage));
         const boxes = found.map((one) => el("input", { type: "checkbox", checked: true, value: one.deviceID }));
         const submit = el("button", { class: "primary", type: "submit", actionIcon: "plus" });
         const count = () => {
@@ -336,7 +345,7 @@
           });
         };
         fill(
-          el("p", {}, el("strong", { text: tn("{plugin} found one device.", "{plugin} found {n} devices.", found.length, { plugin: plugin?.name ?? block.name }) })),
+          el("p", {}, el("strong", { text: tn("{plugin} found one device.", "{plugin} found {n} devices.", found.length, { plugin: owner }) })),
           el("p", { class: "muted", text: t("Choose those that go into the Home app. The others are excluded; you can include them later.") }),
           el("div", { class: "setup-picks" }, ...found.map((one, index) => el("label", { class: "setup-pick" }, boxes[index],
             tile(HomeswiftWidgets.categoryIcon(one.category) ?? glyph, "blue"),
@@ -352,7 +361,10 @@
         if (answer.status === "done") {
           done = true;
           session = null;
-          if (picking) pick(); else finish();
+          if (picking) pick({ keep: () => true });
+          // A console signed in: the cameras, doors and sensors it brings, not the devices that were there already.
+          else if (device && known) pick({ keep: (one) => one.authorization === "none" && !known.has(one.deviceID) && one.deviceID !== device.deviceID, tries: 5, owner: title });
+          else finish();
           return;
         }
         session = answer.session;

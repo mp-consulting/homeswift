@@ -2820,8 +2820,13 @@
 
   /// Takes a block out of config.json, after asking: its accessories leave the Home app.
   async function removeBlock(block, after = () => route()) {
-    if (!await HomeswiftCommon.confirmDialog(t("Remove \"{name}\" from config.json? Its accessories leave the Home app.", { name: block.name }))) return;
-    try { await api(`/api/config/platforms/${block.index}`, { method: "DELETE" }); leaveGuard = null; after(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
+    // The vault's entries the plugin wrote (its sign-ins, its tokens) stay unless asked: added again, it finds them.
+    const entries = block.vaultEntries ?? 0;
+    const answer = await HomeswiftCommon.confirmDialog(t("Remove \"{name}\" from config.json? Its accessories leave the Home app.", { name: block.name }),
+      entries ? { toggle: { label: tn("Also delete its vault entry", "Also delete its {n} vault entries", entries), help: t("The sign-ins and tokens it kept. Left there, adding it again finds them.") } } : {});
+    if (!answer) return;
+    const vault = answer.checked ? "?vault=true" : "";
+    try { await api(`/api/config/platforms/${block.index}${vault}`, { method: "DELETE" }); leaveGuard = null; after(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
   }
 
   /// A block's address: its plugin's own page when it has one, else its settings. `expertLink` is always the form

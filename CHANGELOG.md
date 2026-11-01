@@ -19,7 +19,8 @@ All notable changes to this project are documented here. The format follows
   sheet (a hub's link button, a TV's PIN, a sign-in with its one-time code, a sign-in page's redirect, developer keys;
   Daikin, LG ThinQ and EcoFlow ask which way to sign in; Dyson, LG ThinQ and eWeLink offer their countries and
   languages in a menu). Plugins to add are cards with a search; the sheet shows where the Setup stands and, for a new
-  account, lets you pick the devices that go into the Home app (the others are excluded). The Accessories page's toolbar leads to it. MCP clients get
+  account, or a UniFi console just signed in, lets you pick the devices that go into the Home app (the others are
+  excluded). Removing a plugin offers to delete the vault entries it kept. The Accessories page's toolbar leads to it. MCP clients get
   `discover_devices`, `start_setup`, `continue_setup` and `cancel_setup`; a secret field takes only a `vault:` reference.
   What an Authorization gives goes in the vault, never config.json. See GLOSSARY.md and docs/plugins.md, "Setup".
 - Accessory Settings in a block's `_accessories`, by Device Id: **Exclude** a device from its row (it never becomes an
