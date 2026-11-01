@@ -112,15 +112,49 @@ public struct SetupField: Sendable, Codable, Equatable {
 }
 
 /// One option of a choice: its value, what it is called and, for people, what it means. In English, as prompts are.
+/// An option that is a country or a language carries its code, which the web UI names in the reader's language.
 public struct SetupOption: Sendable, Codable, Equatable {
     public var value: String
     public var label: String
     public var detail: String?
+    /// The ISO 3166 country the option is (`GB`).
+    public var country: String?
+    /// The language tag the option is (`fr-FR`).
+    public var language: String?
 
-    public init(_ value: String, label: String, detail: String? = nil) {
+    public init(_ value: String, label: String, detail: String? = nil, country: String? = nil, language: String? = nil) {
         self.value = value
         self.label = label
         self.detail = detail
+        self.country = country
+        self.language = language
+    }
+
+    /// Countries by their ISO 3166 codes (every country when nil), each answering `value(code)`: the code itself, or
+    /// what the plugin sends for it (a calling code). Labelled in English, sorted by name.
+    public static func countries(_ codes: [String]? = nil, value: (String) -> String = { $0 }) -> [SetupOption] {
+        let english = Locale(identifier: "en_US")
+        // Countries and territories: not the European Union or the United Nations (no region holds them), nor the
+        // codes for unknown or pseudo regions.
+        let all = codes ?? Locale.Region.isoRegions.filter { $0.containingRegion != nil }.map(\.identifier)
+            .filter { $0.count == 2 && $0.allSatisfy(\.isLetter) && !["QO", "XA", "XB", "ZZ"].contains($0) }
+        return all.compactMap { code in
+            guard let name = english.localizedString(forRegionCode: code), name != code else { return nil }
+            return SetupOption(value(code), label: name, country: code)
+        }.sorted { $0.label < $1.label }
+    }
+
+    /// Languages as a language and a country (`fr-FR`), the tags the system knows, labelled in English.
+    public static func languages() -> [SetupOption] {
+        let english = Locale(identifier: "en_US")
+        let tags = Set(Locale.availableIdentifiers.compactMap { identifier -> String? in
+            let parts = identifier.split(separator: "_")
+            guard parts.count == 2, parts[0].count == 2, parts[1].count == 2, parts[1].allSatisfy(\.isUppercase) else { return nil }
+            return "\(parts[0])-\(parts[1])"
+        })
+        return tags.compactMap { tag in
+            english.localizedString(forIdentifier: tag.replacingOccurrences(of: "-", with: "_")).map { SetupOption(tag, label: $0, language: tag) }
+        }.sorted { $0.label < $1.label }
     }
 }
 

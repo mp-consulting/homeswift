@@ -334,7 +334,9 @@ settings it brings and reloads the plugin; the web UI's **Add accessories** page
   EcoFlow's developer API, app or both) asks
   which first, with `SetupField.choice(_:label:options:value:)` (the block's current one as `value`), reads it with
   `request.choice(_:among:)`, and returns each later step `.keeping` it, so the steps after know it and the block
-  keeps it once done. A short list of fixed answers (EcoFlow's region) is a choice too, not text to type.
+  keeps it once done. A short list of fixed answers (EcoFlow's region) is a choice too, not text to type. A country or a language is a
+  choice of `SetupOption.countries()` (each country's ISO code, or what the plugin sends for it, such as eWeLink's
+  calling codes) or `SetupOption.languages()`: the web UI shows a long choice as a menu, named in the reader's language.
 - **What it gives**: `SetupOutcome.credentials` (tokens, keys, a device's password) go to the vault, read back with
   `context.credentials(for:as:)`; `settings` are merged into the block for the account (a `null` takes a key out,
   one the credentials now hold) or into the device's Accessory Settings; `deviceID` names the device when the

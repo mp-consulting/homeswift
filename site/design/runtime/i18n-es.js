@@ -2653,9 +2653,8 @@ HomeswiftI18n.add("es", {
   "Sign in with your LG account.": "Inicia sesión con tu cuenta LG.",
   "Sign in on LG's page that opens. When it ends on a blank page, paste the address the browser shows (it contains iabClose).": "Inicia sesión en la página de LG que se abre. Cuando termine en una página en blanco, pega la dirección que muestra el navegador (contiene iabClose).",
   "Sign in with your eWeLink account.": "Inicia sesión con tu cuenta eWeLink.",
-  "Country (two letters, such as GB or US)": "País (dos letras, como ES o MX)",
-  "Country (two letters, such as US or FR)": "País (dos letras, como ES o US)",
-  "Language (such as en-US or fr-FR)": "Idioma (como es-ES o en-US)",
+  "Country": "País",
+  "Not chosen": "Sin elegir",
+  "Choose…": "Elegir…",
   "Email or phone number": "Correo electrónico o número de teléfono",
-  "Country calling code (such as +1 or +44)": "Prefijo del país (como +34 o +1)",
 });

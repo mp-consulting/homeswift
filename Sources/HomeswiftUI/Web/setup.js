@@ -168,9 +168,36 @@
       menuButton(t("Actions for {name}", { name: device.name }), () => items));
   }
 
+  /// What an option is called: a country or a language in the reader's language, else its label translated.
+  const regionNames = new Intl.DisplayNames([HomeswiftI18n.language, "en"], { type: "region" });
+  const languageNames = new Intl.DisplayNames([HomeswiftI18n.language, "en"], { type: "language" });
+  const optionName = (option) => {
+    try {
+      if (option.country) return regionNames.of(option.country) ?? option.label;
+      if (option.language) return languageNames.of(option.language) ?? option.label;
+    } catch { /* a code the browser does not know */ }
+    return t(option.label);
+  };
+
+  /// A long list to pick from (a country, a language): a menu sorted by name, the block's answer picked, else the
+  /// browser's own country or language, else nothing yet.
+  function menu(field) {
+    const options = field.options.map((option) => ({ option, name: optionName(option) }))
+      .sort((a, b) => a.name.localeCompare(b.name, HomeswiftI18n.language));
+    const browser = navigator.language ?? "";
+    const picked = field.options.find((option) => option.value === field.value)
+      ?? field.options.find((option) => option.language === browser)
+      ?? field.options.find((option) => option.country && option.country === browser.split("-")[1]?.toUpperCase());
+    return el("select", { name: field.key, id: `setup-${field.key}`, required: !field.optional },
+      el("option", { value: "", text: field.optional ? t("Not chosen") : t("Choose…"), disabled: !field.optional, selected: !picked }),
+      ...options.map(({ option, name }) => el("option", { value: option.value, text: name, selected: option === picked })));
+  }
+
   /// A choice (how to sign in, a region): its options as radio buttons, each with what it means, the one the block has
-  /// picked. It reads as an input does: `value`, the option picked or "", and `focus()`.
+  /// picked; a long one without meanings to read is a menu. It reads as an input does: `value`, the option picked or
+  /// "", and `focus()`.
   function choice(field) {
+    if (field.options.length > 4 && !field.options.some((option) => option.detail)) return menu(field);
     const radios = field.options.map((option) => el("input", { type: "radio", name: `setup-${field.key}`, value: option.value, checked: option.value === field.value }));
     const node = el("fieldset", { class: "field setup-choice", id: `setup-${field.key}` },
       el("legend", { class: "field-title", text: t(field.label) }),
@@ -281,7 +308,7 @@
         fill(
           el("p", { text: t(prompt.message, prompt.values ?? {}) }),
           link,
-          ...inputs.map(([field, input]) => field.kind === "choice" ? input
+          ...inputs.map(([field, input]) => input.tagName === "FIELDSET" ? input
             : el("label", { class: "field", htmlFor: input.id }, el("span", { class: "field-title", text: t(field.label) }), input)),
           left,
           error,

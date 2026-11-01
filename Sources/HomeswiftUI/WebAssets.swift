@@ -14929,11 +14929,10 @@ HomeswiftI18n.add("es", {
   "Sign in with your LG account.": "Inicia sesión con tu cuenta LG.",
   "Sign in on LG's page that opens. When it ends on a blank page, paste the address the browser shows (it contains iabClose).": "Inicia sesión en la página de LG que se abre. Cuando termine en una página en blanco, pega la dirección que muestra el navegador (contiene iabClose).",
   "Sign in with your eWeLink account.": "Inicia sesión con tu cuenta eWeLink.",
-  "Country (two letters, such as GB or US)": "País (dos letras, como ES o MX)",
-  "Country (two letters, such as US or FR)": "País (dos letras, como ES o US)",
-  "Language (such as en-US or fr-FR)": "Idioma (como es-ES o en-US)",
+  "Country": "País",
+  "Not chosen": "Sin elegir",
+  "Choose…": "Elegir…",
   "Email or phone number": "Correo electrónico o número de teléfono",
-  "Country calling code (such as +1 or +44)": "Prefijo del país (como +34 o +1)",
 });
 
 """#),
@@ -17593,11 +17592,10 @@ HomeswiftI18n.add("fr", {
   "Sign in with your LG account.": "Connectez-vous avec votre compte LG.",
   "Sign in on LG's page that opens. When it ends on a blank page, paste the address the browser shows (it contains iabClose).": "Connectez-vous sur la page LG qui s’ouvre. Quand elle se termine sur une page vide, collez l’adresse affichée par le navigateur (elle contient iabClose).",
   "Sign in with your eWeLink account.": "Connectez-vous avec votre compte eWeLink.",
-  "Country (two letters, such as GB or US)": "Pays (deux lettres, comme FR ou BE)",
-  "Country (two letters, such as US or FR)": "Pays (deux lettres, comme FR ou US)",
-  "Language (such as en-US or fr-FR)": "Langue (comme fr-FR ou en-US)",
+  "Country": "Pays",
+  "Not chosen": "Non choisi",
+  "Choose…": "Choisir…",
   "Email or phone number": "E-mail ou numéro de téléphone",
-  "Country calling code (such as +1 or +44)": "Indicatif du pays (comme +33 ou +1)",
 });
 
 """#),
@@ -20257,11 +20255,10 @@ HomeswiftI18n.add("pt", {
   "Sign in with your LG account.": "Inicie sessão com a sua conta LG.",
   "Sign in on LG's page that opens. When it ends on a blank page, paste the address the browser shows (it contains iabClose).": "Inicie sessão na página da LG que se abre. Quando terminar numa página em branco, cole o endereço que o navegador mostra (contém iabClose).",
   "Sign in with your eWeLink account.": "Inicie sessão com a sua conta eWeLink.",
-  "Country (two letters, such as GB or US)": "País (duas letras, como PT ou BR)",
-  "Country (two letters, such as US or FR)": "País (duas letras, como PT ou US)",
-  "Language (such as en-US or fr-FR)": "Idioma (como pt-PT ou en-US)",
+  "Country": "País",
+  "Not chosen": "Não escolhido",
+  "Choose…": "Escolher…",
   "Email or phone number": "E-mail ou número de telefone",
-  "Country calling code (such as +1 or +44)": "Indicativo do país (como +351 ou +1)",
 });
 
 """#),
@@ -22673,9 +22670,36 @@ HomeswiftI18n.add("pt", {
       menuButton(t("Actions for {name}", { name: device.name }), () => items));
   }
 
+  /// What an option is called: a country or a language in the reader's language, else its label translated.
+  const regionNames = new Intl.DisplayNames([HomeswiftI18n.language, "en"], { type: "region" });
+  const languageNames = new Intl.DisplayNames([HomeswiftI18n.language, "en"], { type: "language" });
+  const optionName = (option) => {
+    try {
+      if (option.country) return regionNames.of(option.country) ?? option.label;
+      if (option.language) return languageNames.of(option.language) ?? option.label;
+    } catch { /* a code the browser does not know */ }
+    return t(option.label);
+  };
+
+  /// A long list to pick from (a country, a language): a menu sorted by name, the block's answer picked, else the
+  /// browser's own country or language, else nothing yet.
+  function menu(field) {
+    const options = field.options.map((option) => ({ option, name: optionName(option) }))
+      .sort((a, b) => a.name.localeCompare(b.name, HomeswiftI18n.language));
+    const browser = navigator.language ?? "";
+    const picked = field.options.find((option) => option.value === field.value)
+      ?? field.options.find((option) => option.language === browser)
+      ?? field.options.find((option) => option.country && option.country === browser.split("-")[1]?.toUpperCase());
+    return el("select", { name: field.key, id: `setup-${field.key}`, required: !field.optional },
+      el("option", { value: "", text: field.optional ? t("Not chosen") : t("Choose…"), disabled: !field.optional, selected: !picked }),
+      ...options.map(({ option, name }) => el("option", { value: option.value, text: name, selected: option === picked })));
+  }
+
   /// A choice (how to sign in, a region): its options as radio buttons, each with what it means, the one the block has
-  /// picked. It reads as an input does: `value`, the option picked or "", and `focus()`.
+  /// picked; a long one without meanings to read is a menu. It reads as an input does: `value`, the option picked or
+  /// "", and `focus()`.
   function choice(field) {
+    if (field.options.length > 4 && !field.options.some((option) => option.detail)) return menu(field);
     const radios = field.options.map((option) => el("input", { type: "radio", name: `setup-${field.key}`, value: option.value, checked: option.value === field.value }));
     const node = el("fieldset", { class: "field setup-choice", id: `setup-${field.key}` },
       el("legend", { class: "field-title", text: t(field.label) }),
@@ -22786,7 +22810,7 @@ HomeswiftI18n.add("pt", {
         fill(
           el("p", { text: t(prompt.message, prompt.values ?? {}) }),
           link,
-          ...inputs.map(([field, input]) => field.kind === "choice" ? input
+          ...inputs.map(([field, input]) => input.tagName === "FIELDSET" ? input
             : el("label", { class: "field", htmlFor: input.id }, el("span", { class: "field-title", text: t(field.label) }), input)),
           left,
           error,

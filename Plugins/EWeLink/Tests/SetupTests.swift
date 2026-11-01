@@ -24,6 +24,12 @@ struct SetupTests {
         #expect(await plugin.accountAuthorized() == false)
         guard case .ask(let prompt, _) = try await plugin.authorize(SetupRequest(target: .account)) else { Issue.record("expected the account"); return }
         #expect(prompt.fields.map(\.key) == ["username", "password", "countryCode"] && prompt.fields[1].kind == .secret && prompt.fields[2].optional)
+        // The country is picked from a list, each answering its calling code, each in the region eWeLink assigns it.
+        let countries = prompt.fields[2].options
+        #expect(prompt.fields[2].kind == .choice && countries.first { $0.country == "GB" }?.value == "+44" && countries.count == EWeLinkCloud.callingCodes.count)
+        for (country, code) in EWeLinkCloud.callingCodes {
+            #expect(EWeLinkCloud.Region.allCases.contains { $0.countryCodes.contains(code) }, "\(country): +\(code) has no region")
+        }
         await #expect(throws: SetupError("The country calling code is a number such as +1 or +44")) {
             _ = try await plugin.authorize(SetupRequest(target: .account, answers: ["username": "a@b.c", "password": "good", "countryCode": "UK"]))
         }

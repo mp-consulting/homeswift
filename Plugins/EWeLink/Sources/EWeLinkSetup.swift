@@ -68,7 +68,8 @@ extension EWeLinkPlugin {
         guard let username = request.answer("username"), let password = request.secret("password") else {
             return .ask(SetupPrompt(message: "Sign in with your eWeLink account.", fields: [
                 SetupField("username", label: "Email or phone number"), SetupField("password", label: "Password", kind: .secret),
-                SetupField("countryCode", label: "Country calling code (such as +1 or +44)", optional: true),
+                .choice("countryCode", label: "Country", options: SetupOption.countries(Array(EWeLinkCloud.callingCodes.keys)) { "+" + (EWeLinkCloud.callingCodes[$0] ?? "1") },
+                        value: configuration.countryCode.flatMap { $0.isEmpty ? nil : "+" + $0.filter(\.isNumber) }, optional: true),
             ]))
         }
         let typedCountry = request.answer("countryCode")

@@ -27,7 +27,9 @@ struct SetupTests {
         guard case .ask(let region, let chosen) = try await plugin.authorize(SetupRequest(target: .account, answers: ["auth_mode": "token"])) else {
             Issue.record("expected the region"); return
         }
-        #expect(region.fields.map(\.key) == ["country", "language"])
+        #expect(region.fields.map(\.key) == ["country", "language"] && region.fields.allSatisfy { $0.kind == .choice })
+        #expect(region.fields[0].options.contains(SetupOption("FR", label: "France", country: "FR")))
+        #expect(region.fields[1].options.contains(SetupOption("fr-FR", label: "French (France)", language: "fr-FR")))
         #expect(chosen["auth_mode"] == "token")
         await #expect(throws: SetupError("The country has two letters, such as US or FR")) {
             _ = try await plugin.authorize(SetupRequest(target: .account, answers: ["country": "France", "language": "fr-FR"], state: chosen))

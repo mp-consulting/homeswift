@@ -151,7 +151,7 @@ extension DysonPureCoolPlugin {
         }
         guard let typed = request.answer("email") else {
             return .asking(.ask(SetupPrompt(message: message, fields: [
-                SetupField("email", label: "Email"), SetupField("countryCode", label: "Country (two letters, such as GB or US)", optional: true),
+                SetupField("email", label: "Email"), .choice("countryCode", label: "Country", options: SetupOption.countries(), value: configuration.countryCode?.nonEmpty?.uppercased(), optional: true),
             ])))
         }
         do {

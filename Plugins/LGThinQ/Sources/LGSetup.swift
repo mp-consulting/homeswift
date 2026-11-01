@@ -83,7 +83,8 @@ extension LGThinQPlugin {
         let language = region["language"]?.stringValue ?? configuration.language.flatMap { $0.isEmpty ? nil : $0 }
         guard let country, let language else {
             return .ask(SetupPrompt(message: "Choose the country and the language of your LG account.", fields: [
-                SetupField("country", label: "Country (two letters, such as US or FR)"), SetupField("language", label: "Language (such as en-US or fr-FR)"),
+                .choice("country", label: "Country", options: SetupOption.countries(), value: configuration.country?.uppercased()),
+                .choice("language", label: "Language", options: SetupOption.languages(), value: configuration.language),
             ]))
         }
         let token: String
