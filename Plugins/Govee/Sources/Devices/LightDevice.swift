@@ -263,7 +263,7 @@ final class LightDevice: GoveeDevice {
         stateRequestSeq += 1
         let seq = stateRequestSeq
         // A little longer than brightness and colour, so on/off is sent last.
-        try? await Task.sleep(for: .milliseconds(400))
+        await environment.stateDelay()
         // Only the latest of quick taps is sent, and only when it changes the state.
         guard seq == stateRequestSeq, newValue != cacheState else { return }
         do {

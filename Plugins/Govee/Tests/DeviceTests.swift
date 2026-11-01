@@ -22,7 +22,8 @@ final class DeviceHarness: @unchecked Sendable {
     @GoveeActor
     init(
         model: String, settings: JSONValue = [:], platform: JSONValue = [:], transports: TransportFlags = TransportFlags(hasLAN: true, useLAN: true),
-        adaptiveLighting: AdaptiveLightingFactory? = nil, store: DeviceStore = memoryStore(), logger: Logger = testLogger
+        adaptiveLighting: AdaptiveLightingFactory? = nil, store: DeviceStore = memoryStore(), logger: Logger = testLogger,
+        stateDelay: (@Sendable () async -> Void)? = nil
     ) {
         self.store = store
         var environment = DeviceEnvironment(
@@ -35,6 +36,7 @@ final class DeviceHarness: @unchecked Sendable {
             },
             logger: logger, deviceLogging: true, debugLogging: false, cached: nil, store: store, historyDirectory: nil, adaptiveLighting: adaptiveLighting)
         environment.temperatureSourceFirstRead = .milliseconds(50)
+        environment.stateDelay = stateDelay ?? {}
         device = GoveeDevice.make(model: model, environment: environment)
         device.configure()
     }
@@ -50,6 +52,36 @@ final class DeviceHarness: @unchecked Sendable {
     /// Writes as HomeKit would: the handler, then the value.
     func write(_ characteristic: Characteristic?, _ value: HAPValue) async throws {
         try await #require(characteristic).write(value)
+    }
+}
+
+/// Holds whoever waits until it opens, and says how many are waiting.
+actor Gate {
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var watchers: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var isOpen = false
+    private var arrived = 0
+
+    func wait() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+            arrived += 1
+            let ready = watchers.filter { $0.count <= arrived }
+            watchers.removeAll { $0.count <= arrived }
+            ready.forEach { $0.continuation.resume() }
+        }
+    }
+
+    func waitForWaiters(_ count: Int) async {
+        guard arrived < count else { return }
+        await withCheckedContinuation { watchers.append((count, $0)) }
+    }
+
+    func open() {
+        isOpen = true
+        waiters.forEach { $0.resume() }
+        waiters = []
     }
 }
 
@@ -103,11 +135,15 @@ func update(_ fields: (inout DeviceUpdate) -> Void) -> DeviceUpdate {
     }
 
     @Test func theLastOfTwoQuickTapsWins() async throws {
-        let harness = await DeviceHarness(model: "H6008")
+        // Each write waits at the gate until both have arrived, On first.
+        let gate = Gate()
+        let harness = await DeviceHarness(model: "H6008", stateDelay: { await gate.wait() })
         let light = try #require(await harness.service(.lightbulb))
         async let on: Void = harness.write(light[.on], true)
-        try await Task.sleep(for: .milliseconds(100))
+        await gate.waitForWaiters(1)
         async let off: Void = harness.write(light[.on], false)
+        await gate.waitForWaiters(2)
+        await gate.open()
         _ = try await (on, off)
         // The light was off already, so the superseded On is not sent.
         #expect(harness.sent.items.isEmpty)
