@@ -40,6 +40,9 @@ extension UIServer {
                 let answer = try await catalog.setPart(platform: platform, name: name, deviceID: deviceID, part: part, included: included)
                 noteConfigChange(by: username)
                 return .json(answer)
+            case let path where path.count == 2 && path[1] == "state":
+                // A Setup the Assistant started, taken over on the page.
+                return .json(try catalog.setupState(path[0]))
             case let path where path.count == 2 && path[1] == "cancel":
                 return .json(["cancelled": .bool(catalog.cancelSetup(path[0]))])
             case let path where path.count == 1:

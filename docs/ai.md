@@ -152,6 +152,13 @@ scopes, schema checks, confirmations and the audit log are the MCP server's. A d
 run first; its answer goes on the page's confirmation card, and the user's choice answers the session's
 elicitation. `docs/ui.md` describes the chat.
 
+The Assistant sets up accessories through Setup's tools (`discover_devices`, `start_setup`, `continue_setup`,
+`set_device_excluded`, `set_device_part`), from Add accessories' **Set up with the Assistant** or any message. A step it
+must not see or cannot do, a password or keys, a sign-in page, a button to press (`HomeswiftCatalog.needsThePage`), is
+handed to the page: `ChatToolbox` tells the conversation, which shows a card whose **Continue in the Setup sheet** opens
+that very Setup in the sheet (`/api/setup/<session>/state`), where the person types the secret; the model is told to
+point to the card and never to ask for the secret in the chat.
+
 The web UI's requests (the chat, explain, ask, Log Doctor, the digest, room suggestions, the config copilot)
 carry the page's language as `Accept-Language`; for French, Spanish or Portuguese the Assistant is told to
 answer in it (`Prompts.answerLanguage`, `AssistantService.speaking`), and the day's digest is kept per language.

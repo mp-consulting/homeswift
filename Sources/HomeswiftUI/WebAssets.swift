@@ -8237,6 +8237,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("span", { class: "visually-hidden", text: ` ${{ running: t("(running)"), failed: t("(failed)"), declined: t("(not allowed)") }[item.state] ?? t("(done)")}` }));
     case "confirm":
       return confirmCard(item);
+    case "setup":
+      // A Setup the Assistant started, at a step the person finishes in the sheet: a password, a sign-in page, a button.
+      return el("div", { class: "chat-setup" },
+        el("p", { text: item.message ? t(item.message, item.values ?? {}) : t("This step continues in the Setup sheet.") }),
+        el("button", { type: "button", class: "primary", actionIcon: "forward", text: t("Continue in the Setup sheet"),
+          onclick: () => window.HomeswiftSetup?.resume(item) }));
     default:
       return el("p", { class: "chat-error", role: "alert", text: HomeswiftI18n.message(item.text) });
     }
@@ -8252,6 +8258,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       case "user": lines.push(`**${t("You")}:** ${item.text}`, ""); break;
       case "assistant": lines.push(`**${t("Assistant")}:** ${item.text}`, ""); break;
       case "tool": lines.push(`- ${item.title}${item.summary ? ` · ${item.summary}` : ""} \`${item.name}\` ${status[item.state] ?? t("(done)")}`); break;
+      case "setup": lines.push(`- ${t("Continue in the Setup sheet")}: ${item.message ? t(item.message, item.values ?? {}) : ""}`.trimEnd()); break;
       case "confirm": lines.push(`- ${describe(item)} ${item.state === "pending" ? "" : item.state === "allowed" ? t("Allowed") : t("Not allowed")}`.trimEnd()); break;
       default: lines.push(`> ${HomeswiftI18n.message(item.text)}`, "");
       }
@@ -14153,6 +14160,10 @@ HomeswiftI18n.add("es", {
   "Open a plugin to set up its devices, or add one for another brand.": "Abre un plugin para configurar sus dispositivos, o añade uno para otra marca.",
   "Not set up yet": "Aún sin configurar",
   "No devices found": "No se encontraron dispositivos",
+  "Set up with the Assistant": "Configurar con el Asistente",
+  "Help me add my accessories: ": "Ayúdame a añadir mis accesorios: ",
+  "This step continues in the Setup sheet.": "Este paso sigue en la ventana de configuración.",
+  "Continue in the Setup sheet": "Continuar en la ventana de configuración",
   "Your plugins": "Tus plugins",
   "Search your plugins": "Buscar en tus plugins",
   "Sort your plugins": "Ordenar tus plugins",
@@ -16853,6 +16864,10 @@ HomeswiftI18n.add("fr", {
   "Open a plugin to set up its devices, or add one for another brand.": "Ouvrez un plugin pour configurer ses appareils, ou ajoutez-en un pour une autre marque.",
   "Not set up yet": "Pas encore configuré",
   "No devices found": "Aucun appareil trouvé",
+  "Set up with the Assistant": "Configurer avec l'Assistant",
+  "Help me add my accessories: ": "Aide-moi à ajouter mes accessoires : ",
+  "This step continues in the Setup sheet.": "Cette étape se poursuit dans la fenêtre de configuration.",
+  "Continue in the Setup sheet": "Continuer dans la fenêtre de configuration",
   "Your plugins": "Vos plugins",
   "Search your plugins": "Rechercher dans vos plugins",
   "Sort your plugins": "Trier vos plugins",
@@ -19553,6 +19568,10 @@ HomeswiftI18n.add("pt", {
   "Open a plugin to set up its devices, or add one for another brand.": "Abra um plugin para configurar os seus dispositivos, ou adicione um para outra marca.",
   "Not set up yet": "Ainda não configurado",
   "No devices found": "Nenhum dispositivo encontrado",
+  "Set up with the Assistant": "Configurar com o Assistente",
+  "Help me add my accessories: ": "Ajuda-me a adicionar os meus acessórios: ",
+  "This step continues in the Setup sheet.": "Este passo continua na janela de configuração.",
+  "Continue in the Setup sheet": "Continuar na janela de configuração",
   "Your plugins": "Os seus plugins",
   "Search your plugins": "Pesquisar nos seus plugins",
   "Sort your plugins": "Ordenar os seus plugins",
@@ -22668,10 +22687,13 @@ HomeswiftI18n.add("pt", {
     const cards = blocks.map((block) => instanceCard(block, byPlatform.get(block.platform), { open: blocks.length === 1 || block.slug === wanted }));
     // The plugins in use, one row each, and a way to add another; before any, the brands to start from.
     const add = el("button", { type: "button", class: "primary", actionIcon: "plus", text: t("Add a plugin"), onclick: (event) => pickPlugin(plugins, event.currentTarget) });
+    // Or the Assistant does it: it finds the plugin, starts the Setup and hands the steps with a secret back to the sheet.
+    const assistant = window.HomeswiftChat?.available()
+      ? el("button", { type: "button", actionIcon: "sparkle", text: t("Set up with the Assistant"), onclick: () => HomeswiftChat.ask(t("Help me add my accessories: ")) }) : null;
     app().show(main,
       cards.length
-        ? app().pageHead(t("Add accessories"), t("Open a plugin to set up its devices, or add one for another brand."), add)
-        : app().pageHead(t("Add accessories"), t("Start with the brand of your devices.")),
+        ? app().pageHead(t("Add accessories"), t("Open a plugin to set up its devices, or add one for another brand."), assistant, add)
+        : app().pageHead(t("Add accessories"), t("Start with the brand of your devices."), assistant),
       cards.length ? el("div", { class: "setup-list" }, ...cards.map((card) => card.node)) : brandGrid(plugins));
     // From a plugin's menu (/setup#<slug>): its card in view, open.
     const card = wanted ? document.getElementById(`setup-${wanted}`) : null;
@@ -22951,7 +22973,7 @@ HomeswiftI18n.add("pt", {
   /// The sheet of one Setup: it starts the session, then draws each prompt the plugin sends until it is done. An
   /// account set up for the first time then lists what the plugin finds, to pick those that go into the Home app (the
   /// others are excluded); then what was added. Its header names where it stands: signing in, the devices, done.
-  function open({ block, plugin = null, device = null, known = null, draft = false, firstTime = false, trigger = null, after }) {
+  function open({ block, plugin = null, device = null, known = null, draft = false, firstTime = false, resume = null, trigger = null, after }) {
     const title = device?.name ?? block.name;
     // Under the title, a device's Authorization, or the plugin when the instance's name does not say it (an account's
     // way to sign in may be the person's choice, asked in the sheet).
@@ -23138,7 +23160,8 @@ HomeswiftI18n.add("pt", {
 
       const step = (answers) => post(session, { answers });
       // A plugin added from the catalog: its block is saved once its Setup is done.
-      post("start", { platform: block.platform, name: block.name, deviceID: device?.deviceID, block: draft ? block : undefined })
+      // A Setup the Assistant started is taken over where it stands; the others start here.
+      (resume ? post(`${resume}/state`, {}) : post("start", { platform: block.platform, name: block.name, deviceID: device?.deviceID, block: draft ? block : undefined }))
         .then(draw)
         .catch((e) => fill(el("p", { class: "error", role: "alert", text: e.message }),
           el("div", { class: "actions" }, el("button", { type: "button", actionIcon: "close", text: t("Close"), onclick: () => dismiss() }))));
@@ -23156,7 +23179,19 @@ HomeswiftI18n.add("pt", {
     });
   }
 
-  window.HomeswiftSetup = { view };
+  /// A Setup the Assistant started, opened in the sheet at the step it stands at (a password, a sign-in page, a button
+  /// to press): the chat's card calls it. The page, when it is open, is drawn again once it is done.
+  async function resume({ session, platform, name }) {
+    try {
+      const plugins = await api("/api/plugins");
+      const plugin = plugins.plugins.find((one) => one.platform === platform) ?? null;
+      const block = plugins.blocks.find((one) => one.platform === platform && one.name === name) ?? { platform, name: name ?? platform };
+      const isNew = !plugins.blocks.some((one) => one.platform === platform && one.name === name);
+      open({ block, plugin, resume: session, firstTime: isNew, after: () => { if (location.pathname === "/setup") app().route(); } });
+    } catch (e) { HomeswiftCommon.showAlert(e.message); }
+  }
+
+  window.HomeswiftSetup = { view, resume };
 })();
 
 """#),
@@ -27010,6 +27045,11 @@ select option:disabled { color: var(--muted); }
 .setup-pick .who { display: grid; min-width: 0; }
 .setup-pick .who > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .setup-pick .muted { font-size: var(--text-sm); }
+/* The chat handing a Setup over to the sheet: what the step asks, and the way there. */
+.chat-setup { display: grid; gap: var(--space-8); justify-items: start; padding: var(--space-12) var(--space-14); border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.chat-setup p { margin: 0; }
+
 /* A device's parts under it (a gate's side door, a door sensor, a doorbell): each on its own line with its switch,
    indented under the device's name. */
 .setup-pick-group, .setup-device-group { border-bottom: 1px solid var(--line); }

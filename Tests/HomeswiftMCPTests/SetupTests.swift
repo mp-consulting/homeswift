@@ -106,6 +106,23 @@ struct SetupTests {
         await host.stop()
     }
 
+    /// A Setup the Assistant started reads where it stands, for the page to take over a step with a secret, a page to
+    /// open or a button to press; a PIN, which the person reads out, stays in the conversation.
+    @Test func aSetupInProgressIsTakenOverOnThePage() async throws {
+        try await host.start()
+        defer { Task { await host.stop() } }
+        let tv = try await catalog.startSetup(platform: "Pairable", name: nil, deviceID: "tv")
+        let session = try #require(tv["session"]?.stringValue)
+        #expect(try catalog.setupState(session)["prompt"]?["fields"]?[0]?["key"] == "pin")
+        #expect(!HomeswiftCatalog.needsThePage(tv))
+        let hub = try await catalog.startSetup(platform: "Pairable", name: nil, deviceID: "hub")
+        #expect(HomeswiftCatalog.needsThePage(hub))
+        let account = try await catalog.startSetup(platform: "Pairable", name: nil, deviceID: nil)
+        #expect(HomeswiftCatalog.needsThePage(account))
+        #expect(!HomeswiftCatalog.needsThePage(["status": "done"]))
+        #expect(throws: CatalogError.self) { try catalog.setupState("gone") }
+    }
+
     /// A part left out goes in the device's Accessory Settings, beside its other settings, and reads back as written.
     @Test func aPartLeftOutIsKeptInTheDevicesAccessorySettings() async throws {
         try await host.start()

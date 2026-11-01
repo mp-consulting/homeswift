@@ -177,6 +177,21 @@ extension HomeswiftCatalog {
     @discardableResult
     public func cancelSetup(_ id: String) -> Bool { setupSessions.remove(id) }
 
+    /// Where a Setup in progress stands, its prompt as it was last answered: for the web UI to take over a Setup the
+    /// Assistant started, at a step that asks for a secret, a sign-in page or a button press.
+    public func setupState(_ id: String) throws -> JSONValue {
+        guard let session = setupSessions.session(id) else { throw CatalogError("No Setup in progress with id \(id): it ended or expired, start it again") }
+        return asking(session, error: nil)
+    }
+
+    /// Whether a Setup's answer is one the person finishes on the page rather than in a conversation: done is not, a prompt
+    /// with a secret field, a sign-in page or a wait (a button to press) is.
+    public static func needsThePage(_ answer: JSONValue) -> Bool {
+        guard answer["status"] == "asking", let prompt = answer["prompt"] else { return false }
+        let secret = prompt["fields"]?.arrayValue?.contains { $0["kind"] == "secret" } == true
+        return secret || prompt["url"]?.stringValue != nil || prompt["waitSeconds"]?.intValue != nil
+    }
+
     /// Runs one step of the plugin's Authorization: a prompt keeps the session, done saves what it gave and ends it.
     private func step(_ session: SetupSession, answers: [String: String], first: Bool) async throws -> JSONValue {
         let request = SetupRequest(target: session.target, answers: answers, state: session.state)
@@ -279,11 +294,18 @@ extension HomeswiftCatalog {
                 name: "start_setup", title: "Set up a device",
                 description: "Starts the Setup of a device discover_devices found (deviceID), or of the plugin's account (no deviceID), and answers its first "
                     + "prompt: a message for the person, the fields to answer with continue_setup, a page to open (browserRedirect) or a wait (buttonPress: "
-                    + "tell the person to press the button, then call continue_setup every retryAfter seconds). status done means it is set up.",
+                    + "tell the person to press the button, then call continue_setup every retryAfter seconds). status done means it is set up. A plugin not "
+                    + "added yet (list_plugins: a platform with no block of that name) is added when its account's Setup is done.",
                 inputSchema: ["type": "object", "required": ["platform"], "properties": .object(instance.merging(["deviceID": ["type": "string"]]) { $1 })],
                 scope: .admin
             ) { call in
-                Self.untrusted(try await catalog.startSetup(platform: try call.string("platform"), name: call.optionalString("name"), deviceID: call.optionalString("deviceID")))
+                let platform = try call.string("platform")
+                // A plugin not added yet: its block, saved once its account's Setup is done.
+                let blocks = (try? catalog.readConfig()["platforms"]?.arrayValue) ?? []
+                let name = call.optionalString("name") ?? (blocks.contains { $0["platform"]?.stringValue == platform } ? nil : catalog.host.registry.entry(for: platform)?.name)
+                let exists = blocks.contains { $0["platform"]?.stringValue == platform && ($0["name"]?.stringValue ?? platform) == (name ?? platform) }
+                let draft: JSONValue? = exists ? nil : ["platform": .string(platform), "name": .string(name ?? platform)]
+                return Self.untrusted(try await catalog.startSetup(platform: platform, name: name, deviceID: call.optionalString("deviceID"), block: draft))
             },
             MCPTool(
                 name: "continue_setup", title: "Answer a Setup step",
@@ -294,6 +316,28 @@ extension HomeswiftCatalog {
                 scope: .admin
             ) { call in
                 Self.untrusted(try await catalog.continueSetup(try call.string("session"), answers: call.arguments["answers"]?.objectValue ?? [:], by: .client))
+            },
+            MCPTool(
+                name: "set_device_excluded", title: "Exclude or include a device",
+                description: "Excludes a device a plugin found (deviceID from discover_devices) from the bridge, so it is never an accessory, in the Home "
+                    + "app or Matter, or includes it again (excluded false). The plugin reloads.",
+                inputSchema: ["type": "object", "required": ["platform", "deviceID", "excluded"],
+                              "properties": .object(instance.merging(["deviceID": ["type": "string"], "excluded": ["type": "boolean"]]) { $1 })],
+                scope: .admin, destructive: true
+            ) { call in
+                Self.untrusted(try await catalog.setExcluded(platform: try call.string("platform"), name: call.optionalString("name"), deviceID: try call.string("deviceID"),
+                                                             excluded: call.arguments["excluded"]?.boolValue ?? true))
+            },
+            MCPTool(
+                name: "set_device_part", title: "Include or leave out a part of a device",
+                description: "Includes or leaves out one part of a device (a gate's side door, a door sensor, a camera's occupancy sensor: the parts "
+                    + "discover_devices lists under a device, by id) while the device stays. The plugin reloads and builds it with the part, or without.",
+                inputSchema: ["type": "object", "required": ["platform", "deviceID", "part", "included"],
+                              "properties": .object(instance.merging(["deviceID": ["type": "string"], "part": ["type": "string"], "included": ["type": "boolean"]]) { $1 })],
+                scope: .admin
+            ) { call in
+                Self.untrusted(try await catalog.setPart(platform: try call.string("platform"), name: call.optionalString("name"), deviceID: try call.string("deviceID"),
+                                                         part: try call.string("part"), included: call.arguments["included"]?.boolValue ?? true))
             },
             MCPTool(
                 name: "cancel_setup", title: "Cancel a Setup",

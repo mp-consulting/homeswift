@@ -24,8 +24,10 @@ All notable changes to this project are documented here. The format follows
   excluded). Removing a plugin offers to delete the vault entries it kept. A device's parts (a UA Gate's side door,
   its door sensors, a doorbell; a Protect camera's occupancy sensor, motion switch, status light switch, doorbell mute
   or package camera flashlight) each have a switch, kept in its Accessory Settings' `parts`. The Accessories page's
-  toolbar leads to it. MCP clients get
-  `discover_devices`, `start_setup`, `continue_setup` and `cancel_setup`; a secret field takes only a `vault:` reference.
+  toolbar leads to it. The Assistant sets accessories up too (**Set up with the Assistant**): it starts the Setup,
+  and a step with a password, a sign-in page or a button to press continues in the Setup sheet from a card in the chat.
+  MCP clients get
+  `discover_devices`, `start_setup`, `continue_setup`, `cancel_setup`, `set_device_excluded` and `set_device_part`; a secret field takes only a `vault:` reference.
   What an Authorization gives goes in the vault, never config.json. See GLOSSARY.md and docs/plugins.md, "Setup".
 - Accessory Settings in a block's `_accessories`, by Device Id: **Exclude** a device from its row (it never becomes an
   accessory, in the Home app or Matter), and plugins' own settings per device. Homebridge-shaped blocks still load
@@ -105,7 +107,7 @@ All notable changes to this project are documented here. The format follows
 - Setup, one way to get a device into the bridge whatever its plugin: the web UI's **Add accessories** page (`/setup`)
   lists what each plugin finds and where each device stands, and sets up accounts and devices in one sheet (a hub's
   link button, a TV's PIN, a sign-in with its one-time code, a sign-in page's redirect, developer keys). MCP clients get
-  `discover_devices`, `start_setup`, `continue_setup` and `cancel_setup`; a secret field takes only a `vault:` reference.
+  `discover_devices`, `start_setup`, `continue_setup`, `cancel_setup`, `set_device_excluded` and `set_device_part`; a secret field takes only a `vault:` reference.
   What an Authorization gives goes in the vault, never config.json. See GLOSSARY.md and docs/plugins.md, "Setup".
 - Accessory Settings in a block's `_accessories`, by Device Id: **Exclude** a device from its row (it never becomes an
   accessory, in the Home app or Matter), and plugins' own settings per device. Homebridge-shaped blocks still load

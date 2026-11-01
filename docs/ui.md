@@ -406,6 +406,10 @@ again. One that needs someone opens by itself and comes first, and when there is
 needs a code, a button or a sign-in, with **Set up**; then the devices set up, a quiet dot each, and those excluded.
 While a plugin looks for devices, its row says so and its devices dim.
 
+**Set up with the Assistant**, when the Assistant is configured, opens the chat for it: it finds the plugin, starts the
+Setup and answers what you tell it (a PIN), and hands a step with a password, a sign-in page or a button to press back to
+the Setup sheet through a card in the conversation.
+
 **Add a plugin**, at the top right, opens a sheet listing the plugins compiled in, those not in use first, each with
 what it reaches, and a search. A plugin with an account opens its Setup at once, and its block is saved when the Setup
 is done; one without an account is added as it is, and the page scrolls to its row, open. Before any plugin is set up,

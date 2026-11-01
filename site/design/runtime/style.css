@@ -3847,6 +3847,11 @@ select option:disabled { color: var(--muted); }
 .setup-pick .who { display: grid; min-width: 0; }
 .setup-pick .who > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .setup-pick .muted { font-size: var(--text-sm); }
+/* The chat handing a Setup over to the sheet: what the step asks, and the way there. */
+.chat-setup { display: grid; gap: var(--space-8); justify-items: start; padding: var(--space-12) var(--space-14); border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.chat-setup p { margin: 0; }
+
 /* A device's parts under it (a gate's side door, a door sensor, a doorbell): each on its own line with its switch,
    indented under the device's name. */
 .setup-pick-group, .setup-device-group { border-bottom: 1px solid var(--line); }

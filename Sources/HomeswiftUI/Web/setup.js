@@ -45,10 +45,13 @@
     const cards = blocks.map((block) => instanceCard(block, byPlatform.get(block.platform), { open: blocks.length === 1 || block.slug === wanted }));
     // The plugins in use, one row each, and a way to add another; before any, the brands to start from.
     const add = el("button", { type: "button", class: "primary", actionIcon: "plus", text: t("Add a plugin"), onclick: (event) => pickPlugin(plugins, event.currentTarget) });
+    // Or the Assistant does it: it finds the plugin, starts the Setup and hands the steps with a secret back to the sheet.
+    const assistant = window.HomeswiftChat?.available()
+      ? el("button", { type: "button", actionIcon: "sparkle", text: t("Set up with the Assistant"), onclick: () => HomeswiftChat.ask(t("Help me add my accessories: ")) }) : null;
     app().show(main,
       cards.length
-        ? app().pageHead(t("Add accessories"), t("Open a plugin to set up its devices, or add one for another brand."), add)
-        : app().pageHead(t("Add accessories"), t("Start with the brand of your devices.")),
+        ? app().pageHead(t("Add accessories"), t("Open a plugin to set up its devices, or add one for another brand."), assistant, add)
+        : app().pageHead(t("Add accessories"), t("Start with the brand of your devices."), assistant),
       cards.length ? el("div", { class: "setup-list" }, ...cards.map((card) => card.node)) : brandGrid(plugins));
     // From a plugin's menu (/setup#<slug>): its card in view, open.
     const card = wanted ? document.getElementById(`setup-${wanted}`) : null;
@@ -328,7 +331,7 @@
   /// The sheet of one Setup: it starts the session, then draws each prompt the plugin sends until it is done. An
   /// account set up for the first time then lists what the plugin finds, to pick those that go into the Home app (the
   /// others are excluded); then what was added. Its header names where it stands: signing in, the devices, done.
-  function open({ block, plugin = null, device = null, known = null, draft = false, firstTime = false, trigger = null, after }) {
+  function open({ block, plugin = null, device = null, known = null, draft = false, firstTime = false, resume = null, trigger = null, after }) {
     const title = device?.name ?? block.name;
     // Under the title, a device's Authorization, or the plugin when the instance's name does not say it (an account's
     // way to sign in may be the person's choice, asked in the sheet).
@@ -515,7 +518,8 @@
 
       const step = (answers) => post(session, { answers });
       // A plugin added from the catalog: its block is saved once its Setup is done.
-      post("start", { platform: block.platform, name: block.name, deviceID: device?.deviceID, block: draft ? block : undefined })
+      // A Setup the Assistant started is taken over where it stands; the others start here.
+      (resume ? post(`${resume}/state`, {}) : post("start", { platform: block.platform, name: block.name, deviceID: device?.deviceID, block: draft ? block : undefined }))
         .then(draw)
         .catch((e) => fill(el("p", { class: "error", role: "alert", text: e.message }),
           el("div", { class: "actions" }, el("button", { type: "button", actionIcon: "close", text: t("Close"), onclick: () => dismiss() }))));
@@ -533,5 +537,17 @@
     });
   }
 
-  window.HomeswiftSetup = { view };
+  /// A Setup the Assistant started, opened in the sheet at the step it stands at (a password, a sign-in page, a button
+  /// to press): the chat's card calls it. The page, when it is open, is drawn again once it is done.
+  async function resume({ session, platform, name }) {
+    try {
+      const plugins = await api("/api/plugins");
+      const plugin = plugins.plugins.find((one) => one.platform === platform) ?? null;
+      const block = plugins.blocks.find((one) => one.platform === platform && one.name === name) ?? { platform, name: name ?? platform };
+      const isNew = !plugins.blocks.some((one) => one.platform === platform && one.name === name);
+      open({ block, plugin, resume: session, firstTime: isNew, after: () => { if (location.pathname === "/setup") app().route(); } });
+    } catch (e) { HomeswiftCommon.showAlert(e.message); }
+  }
+
+  window.HomeswiftSetup = { view, resume };
 })();
