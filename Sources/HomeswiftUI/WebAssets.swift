@@ -22616,9 +22616,18 @@ HomeswiftI18n.add("pt", {
         el("div", { class: "setup-list" }, ...cards.map((card) => card.node))) : null);
     // From a plugin's menu (/setup#<slug>): its card first in view.
     const wanted = decodeURIComponent(location.hash.slice(1));
-    if (wanted) document.getElementById(`setup-${wanted}`)?.scrollIntoView({ block: "start" });
+    const card = wanted ? document.getElementById(`setup-${wanted}`) : null;
+    const reveal = () => card?.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    reveal();
+    // A plugin just added: its card says it is the one, for a moment.
+    if (card && history.state?.added === wanted) {
+      card.classList.add("just-added");
+      setTimeout(() => card.classList.remove("just-added"), 2200);
+      history.replaceState(null, "", location.href);
+    }
     // Every plugin looks at once: a slow cloud does not hold the others back.
-    await Promise.all(cards.map((card) => card.load()));
+    // A card that turns out to need someone moves to the top of the list: the one asked for is followed there.
+    await Promise.all(cards.map((one) => one.load().then(() => { if (one.node === card) reveal(); })));
   }
 
   /// The plugins compiled in, to add from here: one with an account opens its Setup at once (the block is saved when
@@ -22628,9 +22637,14 @@ HomeswiftI18n.add("pt", {
     // System platforms (the Assistant) have no Setup: their settings are elsewhere.
     const addable = plugins.plugins.filter((plugin) => plugin.accountAuthorization)
       .sort((a, b) => Number(used(a)) - Number(used(b)) || a.name.localeCompare(b.name));
-    const redraw = () => app().route();
     async function add(plugin, button) {
       const block = { platform: plugin.platform, name: app().uniqueName(plugin.name, plugins.blocks) };
+      // Drawn again with the new plugin's card in view: it goes at the end of the list, under the catalog.
+      const redraw = () => {
+        const slug = HomeswiftCommon.slug(block.name);
+        history.replaceState({ added: slug }, "", `/setup#${encodeURIComponent(slug)}`);
+        app().route();
+      };
       if (plugin.accountAuthorization !== "none") { open({ block, plugin, draft: true, firstTime: true, trigger: button, after: redraw }); return; }
       await HomeswiftCommon.busyButton(button, async () => {
         await api(`/api/config/block/${encodeURIComponent(block.platform)}/${encodeURIComponent(block.name)}`, { method: "POST", body: {} });
@@ -26744,6 +26758,14 @@ select option:disabled { color: var(--muted); }
 /* A plugin that needs someone comes first; its devices set up or excluded fold under their count. */
 .setup-in-use { margin-top: var(--space-24); }
 .setup-instance.needs-you { order: -1; }
+/* A plugin just added: its card glows once, where the page scrolled to. */
+@media (prefers-reduced-motion: no-preference) {
+  .setup-instance.just-added { animation: setup-added 1.6s var(--ease-out) 300ms; }
+  @keyframes setup-added { 0%, 30% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent); } }
+}
+@media (prefers-reduced-motion: reduce) {
+  .setup-instance.just-added { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); }
+}
 .setup-fold > summary { cursor: pointer; padding: var(--space-10) 0; color: var(--muted); font-size: var(--text-sm); }
 .setup-fold > .setup-devices { margin-top: 0; }
 .setup-devices > .setup-fold:first-child { border-top: 0; }

@@ -3736,6 +3736,14 @@ select option:disabled { color: var(--muted); }
 /* A plugin that needs someone comes first; its devices set up or excluded fold under their count. */
 .setup-in-use { margin-top: var(--space-24); }
 .setup-instance.needs-you { order: -1; }
+/* A plugin just added: its card glows once, where the page scrolled to. */
+@media (prefers-reduced-motion: no-preference) {
+  .setup-instance.just-added { animation: setup-added 1.6s var(--ease-out) 300ms; }
+  @keyframes setup-added { 0%, 30% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent); } }
+}
+@media (prefers-reduced-motion: reduce) {
+  .setup-instance.just-added { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); }
+}
 .setup-fold > summary { cursor: pointer; padding: var(--space-10) 0; color: var(--muted); font-size: var(--text-sm); }
 .setup-fold > .setup-devices { margin-top: 0; }
 .setup-devices > .setup-fold:first-child { border-top: 0; }
