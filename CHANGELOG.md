@@ -21,6 +21,15 @@ All notable changes to this project are documented here. The format follows
 - HAP: an admin controller made a user by another admin could still add, remove and list pairings until it
   reconnected: `/pairings` used the permission its session started with. It now reads the pairings as they are, as
   characteristic handlers already did.
+- HAP: a pair setup left unfinished after its first step kept the bridge answering "busy" to every other controller
+  until its connection closed, which could be an hour or never. It now gives way after 30 seconds, as in Apple's ADK
+  (`HAPServer.Options.pairSetupTimeout`), and its later steps are refused.
+- HAP: a pair verify on a connection already verified is refused (400), as HAP-NodeJS 2.2.4 does: it would have
+  swapped the session's keys in the middle of it.
+- HAP: a connection gets at most one event message a second, button presses aside, as the specification asks
+  (notifications coalesced over at least a second) and Apple's ADK does. The first change after a quiet second still
+  goes after 50ms; a characteristic changing all the time is reported once a second.
+  `HAPServer.Options.minimumEventInterval` sets the interval.
 
 ## [0.18.1] - 2026-11-01
 

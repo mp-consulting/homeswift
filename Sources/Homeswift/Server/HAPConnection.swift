@@ -30,6 +30,8 @@ final class HAPConnection: @unchecked Sendable {
         var queuedEvents: [CharacteristicJSON] = []
         /// Whether a flush is on its way, so a burst of changes schedules one.
         var flushScheduled = false
+        /// When the last event message went, for `HAPServer.Options.minimumEventInterval`.
+        var lastEventSent = NIODeadline.distantPast
         var closeHandlers = CloseHandlers()
         var closed = false
     }
@@ -110,6 +112,7 @@ final class HAPConnection: @unchecked Sendable {
                     return shared.queuedEvents.filter { shared.subscriptions.contains(CharacteristicKey(aid: $0.aid ?? 0, iid: $0.iid)) }
                 }
                 guard session != nil, !events.isEmpty else { continue }
+                shared.withLockedValue { $0.lastEventSent = .now() }
                 write(HTTPResponse.json(200, CharacteristicsJSON(characteristics: events)).serialized(protocol: "EVENT/1.0"))
             }
         }
@@ -162,29 +165,32 @@ final class HAPConnection: @unchecked Sendable {
     }
 
     /// Queues an event for a characteristic this connection subscribed to, sent with the others queued within `delay`
-    /// as one `EVENT/1.0` message (HAP-NodeJS's `HAPConnection.sendEvent`). The same value queued twice in a row
-    /// goes once; a different one is kept, for the automations it triggers. `immediate` sends the queue now.
-    func queueEvent(_ key: CharacteristicKey, value: HAPValue, immediate: Bool, delay: TimeAmount) {
-        enum Next { case none, schedule, flush }
+    /// as one `EVENT/1.0` message (HAP-NodeJS's `HAPConnection.sendEvent`), and no sooner than `interval` after the
+    /// previous message (the ADK's rate limit). The same value queued twice in a row goes once; a different one is
+    /// kept, for the automations it triggers. `immediate` sends the queue now.
+    func queueEvent(_ key: CharacteristicKey, value: HAPValue, immediate: Bool, delay: TimeAmount, interval: TimeAmount) {
+        enum Next { case none, schedule(TimeAmount), flush }
+        let now = NIODeadline.now()
         let next = shared.withLockedValue { shared -> Next in
             guard shared.subscriptions.contains(key) else { return .none }
             if !immediate, let last = shared.queuedEvents.last(where: { $0.aid == key.aid && $0.iid == key.iid }), last.value == value {
                 return .none
             }
             shared.queuedEvents.append(CharacteristicJSON(aid: key.aid, iid: key.iid, value: value))
-            if immediate || delay <= .zero { return .flush }
+            let wait = max(delay, shared.lastEventSent + interval - now)
+            if immediate || wait <= .zero { return .flush }
             guard !shared.flushScheduled else { return .none }
             shared.flushScheduled = true
-            return .schedule
+            return .schedule(wait)
         }
         switch next {
         case .none:
             break
         case .flush:
             continuation.yield(.flushEvents)
-        case .schedule:
+        case .schedule(let wait):
             let continuation = continuation
-            channel.eventLoop.scheduleTask(in: delay) { continuation.yield(.flushEvents) }
+            channel.eventLoop.scheduleTask(in: wait) { continuation.yield(.flushEvents) }
         }
     }
 

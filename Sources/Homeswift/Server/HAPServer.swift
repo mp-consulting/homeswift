@@ -45,6 +45,14 @@ public final class HAPServer: @unchecked Sendable {
         /// sends a few events, not 30. Button presses go at once. HAP-NodeJS waits 250ms (`EVENT_COALESCING_DELAY`);
         /// a burst arrives within a few milliseconds, and a quarter of a second shows on another iPhone.
         public var eventCoalescingDelay: TimeAmount = .milliseconds(50)
+        /// The shortest time between two event messages on a connection, button presses aside: the spec has
+        /// notifications coalesced over at least a second. The first after a quiet second goes after
+        /// `eventCoalescingDelay`, as Apple's HomeKit ADK sends it at once (`kHAPIPAccessoryServer_MaxEventNotificationDelay`);
+        /// a characteristic changing all the time is reported once a second.
+        public var minimumEventInterval: TimeAmount = .seconds(1)
+        /// How long a pair setup may take from M1 before another controller can start one (the ADK's
+        /// `kHAPPairing_PairSetupProcedureTimeout`): one that stops halfway would otherwise keep the bridge busy.
+        public var pairSetupTimeout: TimeAmount = .seconds(30)
         public var logger: Logger
 
         public init(
@@ -87,6 +95,8 @@ public final class HAPServer: @unchecked Sendable {
         var changeObservers: [ChangeObserver] = []
         var structureObservers: [@Sendable () -> Void] = []
         var pairSetupOwner: ObjectIdentifier?
+        /// When `pairSetupOwner` sent its M1.
+        var pairSetupStarted = NIODeadline.distantPast
         var failedPairSetupAttempts = 0
         var serverChannel: (any Channel)?
         var idleCheck: RepeatedTask?
@@ -774,11 +784,11 @@ extension HAPServer {
         // A subscription made before it was hidden hears nothing more: HomeKit no longer has it.
         guard !hidden else { return }
         // As HAP-NodeJS, button presses are delivered at once (they take the queued events with them), the rest after
-        // `eventCoalescingDelay`.
+        // `eventCoalescingDelay`, a `minimumEventInterval` after the last message at the earliest.
         let uuid = characteristic.type.uuid
         let immediate = uuid == CharacteristicType.buttonEvent.uuid || uuid == CharacteristicType.programmableSwitchEvent.uuid
         for connection in connections where connection.id != origin {
-            connection.queueEvent(key, value: value, immediate: immediate, delay: options.eventCoalescingDelay)
+            connection.queueEvent(key, value: value, immediate: immediate, delay: options.eventCoalescingDelay, interval: options.minimumEventInterval)
         }
     }
 }

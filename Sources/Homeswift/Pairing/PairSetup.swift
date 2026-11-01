@@ -1,5 +1,6 @@
 import Crypto
 import Foundation
+import NIOCore
 
 enum PairSetupState {
     case awaitingProof(SRP.Server)
@@ -32,11 +33,15 @@ extension HAPConnection {
     }
 
     private func pairSetupStart() -> HTTPResponse {
+        let now = NIODeadline.now()
+        let timeout = server.options.pairSetupTimeout
         let claim = server.state.withLockedValue { state -> TLVError? in
             if !state.persisted.pairings.isEmpty { return .unavailable }
             if state.failedPairSetupAttempts >= 100 { return .maxTries }
-            if let owner = state.pairSetupOwner, owner != id { return .busy }
+            // One left unfinished for `pairSetupTimeout` gives way.
+            if let owner = state.pairSetupOwner, owner != id, now - state.pairSetupStarted < timeout { return .busy }
             state.pairSetupOwner = id
+            state.pairSetupStarted = now
             return nil
         }
         if let claim {
@@ -53,7 +58,17 @@ extension HAPConnection {
         return .tlv(tlv)
     }
 
+    /// Whether this connection's pair setup is still the one under way, within `pairSetupTimeout` of its M1.
+    private var ownsPairSetup: Bool {
+        let timeout = server.options.pairSetupTimeout
+        return server.state.withLockedValue { $0.pairSetupOwner == id && .now() - $0.pairSetupStarted < timeout }
+    }
+
     private func pairSetupVerify(_ tlv: TLV8) -> HTTPResponse {
+        guard ownsPairSetup else {
+            pairSetup = nil
+            return pairingError(state: 4, .unknown)
+        }
         guard case .awaitingProof(let srp) = pairSetup,
             let publicKey = tlv[.publicKey], let proof = tlv[.proof]
         else {
@@ -72,6 +87,10 @@ extension HAPConnection {
     }
 
     private func pairSetupExchange(_ tlv: TLV8) -> HTTPResponse {
+        guard ownsPairSetup else {
+            pairSetup = nil
+            return pairingError(state: 6, .unknown)
+        }
         guard case .awaitingExchange(let sessionKey) = pairSetup, let encrypted = tlv[.encryptedData] else {
             return pairingError(state: 6, .unknown)
         }
