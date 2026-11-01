@@ -405,7 +405,7 @@ is not set up yet (a hub not paired, a cloud not signed in) leads with that row:
 ([Setup](plugins.md#setup)): the link button to press with a countdown while it retries, a PIN the TV shows, an email
 then the code sent to it, keys, or a sign-in page to open while the sheet waits for its redirect (or for its address,
 pasted). A plugin with more than one way to sign in (Daikin's Developer Portal or the Onecta app, LG's page or a
-password) asks which first, the block's own picked. An answer that did not work is asked again; Cancel ends the Setup.
+password, EcoFlow's developer API, app or both) asks which first, the block's own picked. An answer that did not work is asked again; Cancel ends the Setup.
 What it gives goes in the vault, and the plugin reloads with it. While a plugin looks for devices, its card's **Find
 again** turns and its rows dim.
 

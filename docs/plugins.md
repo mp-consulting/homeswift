@@ -330,7 +330,8 @@ settings it brings and reloads the plugin; the web UI's **Add accessories** page
   the one before, so keep what the next one needs in `state` (it stays on the bridge, never reaches a page or a model).
   A field of kind `secret` is a password or a key: a person types it in the web UI, an MCP client may only pass a
   `vault:` reference. A wait (`waitSeconds`) is sent again with no answers every `retryAfter` seconds.
-  A plugin with more than one way to sign in (Daikin's Developer Portal or Onecta login, LG's page or a password) asks
+  A plugin with more than one way to sign in (Daikin's Developer Portal or Onecta login, LG's page or a password,
+  EcoFlow's developer API, app or both) asks
   which first, with `SetupField.choice(_:label:options:value:)` (the block's current one as `value`), reads it with
   `request.choice(_:among:)`, and returns each later step `.keeping` it, so the steps after know it and the block
   keeps it once done. A short list of fixed answers (EcoFlow's region) is a choice too, not text to type.

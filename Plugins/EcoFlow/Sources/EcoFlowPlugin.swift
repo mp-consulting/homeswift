@@ -49,6 +49,17 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
         var developerAPI: @Sendable (_ accessKey: String, _ secretKey: String, _ region: String?) -> any EcoFlowAPI = { accessKey, secretKey, region in
             EcoFlowCloud(accessKey: accessKey, secretKey: secretKey, baseURL: region?.lowercased() == "eu" ? EcoFlowCloud.euBaseURL : EcoFlowCloud.usBaseURL, transport: HTTPClient())
         }
+        /// The EcoFlow app's sign-in for an email and password Setup is given, to check them before they are kept.
+        var appSignIn: @Sendable (_ email: String, _ password: String) async throws -> Void = { email, password in
+            let app = EcoFlowAppAPI(email: email, password: password, serials: [], transport: HTTPClient(), mqtt: { MQTTClient($0) })
+            do {
+                try await app.checkSignIn()
+            } catch {
+                await app.stop()
+                throw error
+            }
+            await app.stop()
+        }
         /// The cloud's energy history, with the app's sign-in; nil without it or with `importHistory` false.
         var history: EcoFlowHistory? = nil
     }
