@@ -14,6 +14,13 @@ All notable changes to this project are documented here. The format follows
   say Homeswift did not answer, never with the proxy's page.
 - Web UI: in the graph (and its groups and lists), a camera whose first service is a motion sensor showed the sensor's
   icon, as UniFi Protect's do: a camera now shows a camera, a video doorbell a bell, whatever its first service.
+- HAP: a bridge serves HomeKit at most 149 accessories, besides itself, as the specification requires ("A bridge must
+  not expose more than 150 HAP accessory objects") and HAP-NodeJS and Apple's ADK do. Past that, the accessories added
+  last stay out of HomeKit, as hidden ones do (they keep their ids and come in as others leave), and the log says which
+  and to move a plugin to a child bridge. Before, nothing stopped a bridge from growing past what HomeKit accepts.
+- HAP: an admin controller made a user by another admin could still add, remove and list pairings until it
+  reconnected: `/pairings` used the permission its session started with. It now reads the pairings as they are, as
+  characteristic handlers already did.
 
 ## [0.18.1] - 2026-11-01
 

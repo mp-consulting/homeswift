@@ -525,6 +525,34 @@ struct ServerTests {
         await #expect(throws: (any Error).self) { _ = try await controller.nextMessage() }
         await server.stop()
     }
+
+    @Test func anAdminMadeAUserManagesPairingsNoMore() async throws {
+        let controller = try await pairedController()
+        // Another admin first, so the accessory keeps one; then this controller's own pairing loses the admin bit.
+        let other = TestController()
+        var add = TLV8()
+        add.append(.state, 1)
+        add.append(.method, 3)
+        add.append(.identifier, Data(other.identifier.utf8))
+        add.append(.publicKey, other.signingKey.publicKey.rawRepresentation)
+        add.append(.permissions, 1)
+        #expect(try await controller.tlv("/pairings", add).byte(.error) == nil)
+        add = TLV8()
+        add.append(.state, 1)
+        add.append(.method, 3)
+        add.append(.identifier, Data(controller.identifier.utf8))
+        add.append(.publicKey, controller.signingKey.publicKey.rawRepresentation)
+        add.append(.permissions, 0)
+        #expect(try await controller.tlv("/pairings", add).byte(.error) == nil)
+
+        // Same session, started as an admin's: the permission counts as it is now.
+        var list = TLV8()
+        list.append(.state, 1)
+        list.append(.method, 5)
+        #expect(try await controller.tlv("/pairings", list).byte(.error) == TLVError.authentication.rawValue)
+        await controller.close()
+        await server.stop()
+    }
 }
 
 actor WriteLog {

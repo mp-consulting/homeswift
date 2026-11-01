@@ -79,7 +79,7 @@ extension HAPConnection {
             return (pairingError(state: 4, .authentication), .none)
         }
 
-        setController(identifier, isAdmin: pairing.isAdmin)
+        setController(identifier)
         server.logger.debug("Controller verified", metadata: ["controller": "\(identifier)"])
         var response = TLV8()
         response.append(.state, 4)
