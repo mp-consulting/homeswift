@@ -14106,6 +14106,26 @@ HomeswiftI18n.add("es", {
   "Status Low Battery": "Batería baja",
   "Status Tampered": "Manipulado",
   "{names}: no plugin compiled into this homeswift runs these blocks, so they are ignored.": "{names}: ningún plugin compilado en este homeswift ejecuta estos bloques, así que se ignoran.",
+  "Add another {name}": "Añadir otro {name}",
+  "Nothing to sign in to": "Sin inicio de sesión",
+  "No plugin matches.": "Ningún plugin coincide.",
+  "{n} set up": "{n} configurado",
+  "{n} set up [plural]": "{n} configurados",
+  "{n} excluded": "{n} excluido",
+  "{n} excluded [plural]": "{n} excluidos",
+  "Needs you once": "Una acción pendiente",
+  "Needs you {n} times": "{n} acciones pendientes",
+  "Step {at} of {count}": "Paso {at} de {count}",
+  "Devices": "Dispositivos",
+  "One accessory added.": "Un accesorio añadido.",
+  "{n} accessories added.": "{n} accesorios añadidos.",
+  "Add one accessory": "Añadir un accesorio",
+  "Add {n} accessories": "Añadir {n} accesorios",
+  "Add none": "No añadir ninguno",
+  "{plugin} found one device.": "{plugin} encontró un dispositivo.",
+  "{plugin} found {n} devices.": "{plugin} encontró {n} dispositivos.",
+  "Choose those that go into the Home app. The others are excluded; you can include them later.": "Elige los que van a la app Casa. Los demás quedan excluidos; puedes incluirlos más tarde.",
+  "They reach the Home app in a moment.": "Llegan a la app Casa en un momento.",
   "Your plugins": "Tus plugins",
   "Search your plugins": "Buscar en tus plugins",
   "Sort your plugins": "Ordenar tus plugins",
@@ -16769,6 +16789,26 @@ HomeswiftI18n.add("fr", {
   "Status Low Battery": "Batterie faible",
   "Status Tampered": "Manipulé",
   "{names}: no plugin compiled into this homeswift runs these blocks, so they are ignored.": "{names} : aucun plugin compilé dans ce homeswift n’exécute ces blocs, ils sont donc ignorés.",
+  "Add another {name}": "Ajouter un autre {name}",
+  "Nothing to sign in to": "Aucune connexion requise",
+  "No plugin matches.": "Aucun plugin ne correspond.",
+  "{n} set up": "{n} configuré",
+  "{n} set up [plural]": "{n} configurés",
+  "{n} excluded": "{n} exclu",
+  "{n} excluded [plural]": "{n} exclus",
+  "Needs you once": "Une action requise",
+  "Needs you {n} times": "{n} actions requises",
+  "Step {at} of {count}": "Étape {at} sur {count}",
+  "Devices": "Appareils",
+  "One accessory added.": "Un accessoire ajouté.",
+  "{n} accessories added.": "{n} accessoires ajoutés.",
+  "Add one accessory": "Ajouter un accessoire",
+  "Add {n} accessories": "Ajouter {n} accessoires",
+  "Add none": "N'en ajouter aucun",
+  "{plugin} found one device.": "{plugin} a trouvé un appareil.",
+  "{plugin} found {n} devices.": "{plugin} a trouvé {n} appareils.",
+  "Choose those that go into the Home app. The others are excluded; you can include them later.": "Choisissez ceux qui vont dans l'app Maison. Les autres sont exclus ; vous pourrez les inclure plus tard.",
+  "They reach the Home app in a moment.": "Ils arrivent dans l'app Maison dans un instant.",
   "Your plugins": "Vos plugins",
   "Search your plugins": "Rechercher dans vos plugins",
   "Sort your plugins": "Trier vos plugins",
@@ -19432,6 +19472,26 @@ HomeswiftI18n.add("pt", {
   "Status Low Battery": "Bateria fraca",
   "Status Tampered": "Manipulado",
   "{names}: no plugin compiled into this homeswift runs these blocks, so they are ignored.": "{names}: nenhum plugin compilado neste homeswift executa estes blocos, por isso são ignorados.",
+  "Add another {name}": "Adicionar outro {name}",
+  "Nothing to sign in to": "Sem início de sessão",
+  "No plugin matches.": "Nenhum plugin corresponde.",
+  "{n} set up": "{n} configurado",
+  "{n} set up [plural]": "{n} configurados",
+  "{n} excluded": "{n} excluído",
+  "{n} excluded [plural]": "{n} excluídos",
+  "Needs you once": "Uma ação pendente",
+  "Needs you {n} times": "{n} ações pendentes",
+  "Step {at} of {count}": "Passo {at} de {count}",
+  "Devices": "Dispositivos",
+  "One accessory added.": "Um acessório adicionado.",
+  "{n} accessories added.": "{n} acessórios adicionados.",
+  "Add one accessory": "Adicionar um acessório",
+  "Add {n} accessories": "Adicionar {n} acessórios",
+  "Add none": "Não adicionar nenhum",
+  "{plugin} found one device.": "{plugin} encontrou um dispositivo.",
+  "{plugin} found {n} devices.": "{plugin} encontrou {n} dispositivos.",
+  "Choose those that go into the Home app. The others are excluded; you can include them later.": "Escolha os que vão para a app Casa. Os outros ficam excluídos; pode incluí-los mais tarde.",
+  "They reach the Home app in a moment.": "Chegam à app Casa num instante.",
   "Your plugins": "Os seus plugins",
   "Search your plugins": "Pesquisar nos seus plugins",
   "Sort your plugins": "Ordenar os seus plugins",
@@ -22508,7 +22568,7 @@ HomeswiftI18n.add("pt", {
   "use strict";
 
   const { el, tile, menuButton } = HomeswiftCommon;
-  const { t } = HomeswiftI18n;
+  const { t, tn } = HomeswiftI18n;
   const app = () => window.HomeswiftApp;
   const api = (...args) => app().api(...args);
   const post = (path, body) => api(`/api/setup/${path}`, { method: "POST", body });
@@ -22568,39 +22628,58 @@ HomeswiftI18n.add("pt", {
     const redraw = () => app().route();
     async function add(plugin, button) {
       const block = { platform: plugin.platform, name: app().uniqueName(plugin.name, plugins.blocks) };
-      if (plugin.accountAuthorization !== "none") { open({ block, plugin, draft: true, trigger: button, after: redraw }); return; }
+      if (plugin.accountAuthorization !== "none") { open({ block, plugin, draft: true, firstTime: true, trigger: button, after: redraw }); return; }
       await HomeswiftCommon.busyButton(button, async () => {
         await api(`/api/config/block/${encodeURIComponent(block.platform)}/${encodeURIComponent(block.name)}`, { method: "POST", body: {} });
         redraw();
       });
     }
-    const rows = addable.map((plugin) => el("div", { class: "setup-device setup-plugin" },
-      tile(plugin.icon ?? "plugin", "orange"),
-      el("div", { class: "who" }, el("strong", { text: plugin.name }), plugin.summary ? el("div", { class: "muted", text: t(plugin.summary) }) : null),
-      used(plugin) ? el("span", { class: "pill status standby", text: t("In use [used]") }) : el("span", { class: "setup-spacer" }),
-      el("button", { actionIcon: "plus", text: used(plugin) ? t("Add another") : t("Add"), onclick: (event) => add(plugin, event.currentTarget) })));
+    // A brand's card: what it reaches, and how it connects (a sign-in, a button on a hub, nothing).
+    const cards = addable.map((plugin) => {
+      const how = methods[plugin.accountAuthorization];
+      const card = el("button", { type: "button", class: "setup-brand", onclick: (event) => add(plugin, event.currentTarget),
+        "aria-label": used(plugin) ? t("Add another {name}", { name: plugin.name }) : t("Add {name}", { name: plugin.name }) },
+        tile(plugin.icon ?? "plugin", "orange"),
+        el("span", { class: "setup-brand-name" }, el("span", { text: plugin.name }), used(plugin) ? el("span", { class: "setup-brand-used", text: t("In use [used]") }) : null),
+        plugin.summary ? el("span", { class: "setup-brand-summary muted", text: t(plugin.summary) }) : null,
+        el("span", { class: "setup-brand-how muted" }, HomeswiftCommon.icon(how[1]), plugin.accountAuthorization === "none" ? t("Nothing to sign in to") : how[0]()));
+      card.dataset.search = `${plugin.name} ${t(plugin.summary ?? "")} ${plugin.summary ?? ""}`.toLowerCase();
+      return card;
+    });
+    const none = el("p", { class: "muted setup-none", hidden: true, text: t("No plugin matches.") });
+    const search = el("input", { type: "search", class: "search setup-search", placeholder: t("Search plugins"), "aria-label": t("Search plugins"),
+      oninput: () => {
+        const words = search.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+        let shown = 0;
+        for (const card of cards) shown += (card.hidden = !words.every((word) => card.dataset.search.includes(word))) ? 0 : 1;
+        none.hidden = shown > 0;
+      } });
     return el("section", { class: "setup-catalog", "aria-labelledby": "setup-catalog-title" },
       el("div", { class: "section-head" }, el("h2", { id: "setup-catalog-title", text: t("Add a plugin") }),
         el("span", { class: "muted", text: inUse ? t("For devices none of yours reaches yet.") : t("Start with the brand of your devices.") })),
-      el("div", { class: "card setup-instance" }, el("div", { class: "setup-devices" }, ...rows)));
+      addable.length > 6 ? search : null,
+      el("div", { class: "setup-brands" }, ...cards), none);
   }
 
   /// A wait for a plugin, its ring turning beside what it is waiting for.
   const loading = (text) => el("p", { class: "setup-loading muted" }, el("span", { class: "spinner", "aria-hidden": "true" }), el("span", { text }));
 
-  /// One plugin instance: its account, when it has one, and the devices it finds.
+  /// One plugin instance: its account, when it has one, and the devices it finds. What needs a person shows; the
+  /// devices already set up or excluded fold under a count. A card that needs someone moves to the top of the list.
   function instanceCard(block, plugin) {
     const list = el("div", { class: "setup-devices", "aria-live": "polite" }, loading(t("Looking for devices…")));
+    // Under the name, where its devices stand; the plugin until then, when the name does not say it already.
+    const summary = el("div", { class: "muted", text: bare(block.name) === bare(plugin.name) ? "" : plugin.name });
+    let folded = false;
     const action = accountActions[plugin.accountAuthorization];
     let accountSetUp = false;
     const find = el("button", { actionIcon: "search", text: t("Find again"), onclick: () => load() });
     // Once the account is set up, doing it again is in the menu: the list is what the card is for then.
     const again = action ? menuButton(t("Actions for {name}", { name: block.name }),
-      () => [{ label: action[accountSetUp ? 1 : 0](), icon: action[2], onSelect: () => open({ block, plugin, after: load }) }]) : null;
+      () => [{ label: action[accountSetUp ? 1 : 0](), icon: action[2], onSelect: () => open({ block, plugin, firstTime: !accountSetUp, after: load }) }]) : null;
     const node = el("section", { class: "card setup-instance", id: `setup-${block.slug}`, "aria-label": block.name },
       el("div", { class: "server-head" }, tile(block.icon ?? plugin.icon ?? "plugin", "orange"),
-        // Under the name, the plugin, when the name does not say it already.
-        el("div", { class: "who" }, el("strong", { text: block.name }), bare(block.name) === bare(plugin.name) ? null : el("div", { class: "muted", text: plugin.name })),
+        el("div", { class: "who" }, el("strong", { text: block.name }), summary),
         el("div", { class: "setup-tools" }, find, again)),
       list);
 
@@ -22610,7 +22689,7 @@ HomeswiftI18n.add("pt", {
       el("div", { class: "who" }, el("strong", { text: methods[plugin.accountAuthorization][0]() }),
         el("div", { class: "muted", text: t("{plugin} needs this before it can reach its devices.", { plugin: plugin.name }) })),
       el("span", { class: "pill status away", text: statuses.needsAuthorization[0]() }),
-      el("button", { class: "primary", actionIcon: action[2], text: action[0](), onclick: (event) => open({ block, plugin, trigger: event.currentTarget, after: load }) }));
+      el("button", { class: "primary", actionIcon: action[2], text: action[0](), onclick: (event) => open({ block, plugin, firstTime: true, trigger: event.currentTarget, after: load }) }));
 
     // A search in progress, whatever started it (the page, Find again, a Setup just done): the button turns and the
     // rows it may replace dim, as a device on the network can take seconds to answer.
@@ -22629,11 +22708,24 @@ HomeswiftI18n.add("pt", {
       try {
         const found = await post("discover", { platform: block.platform, name: block.name });
         accountSetUp = found.accountSetUp;
-        const rows = found.devices.map((device) => deviceRow(block, device, load));
+        const needs = (device) => device.status === "needsAuthorization";
+        const waiting = found.devices.filter(needs), settled = found.devices.filter((device) => !needs(device));
+        const rows = waiting.map((device) => deviceRow(block, plugin, device, load));
         if (action && !accountSetUp) rows.unshift(accountRow());
+        if (settled.length) {
+          const excluded = settled.filter((device) => device.status === "excluded").length;
+          const fold = el("details", { class: "setup-fold", open: folded || (!rows.length && settled.length <= 3) },
+            el("summary", {}, el("span", { text: [tn("{n} set up", "{n} set up [plural]", settled.length - excluded), excluded ? tn("{n} excluded", "{n} excluded [plural]", excluded) : null].filter(Boolean).join(" · ") })),
+            el("div", { class: "setup-devices" }, ...settled.map((device) => deviceRow(block, plugin, device, load))));
+          fold.addEventListener("toggle", () => { folded = fold.open; });
+          rows.push(fold);
+        }
         if (!found.devices.length) rows.push(el("p", { class: "muted setup-none", text: action && !accountSetUp
           ? t("Its devices show here once it is set up.") : t("This plugin finds no devices by itself: its settings name them.") }));
         list.replaceChildren(...rows);
+        const attention = waiting.length + (action && !accountSetUp ? 1 : 0);
+        summary.textContent = attention ? tn("Needs you once", "Needs you {n} times", attention) : bare(block.name) === bare(plugin.name) ? "" : plugin.name;
+        node.classList.toggle("needs-you", attention > 0);
       } catch (e) {
         list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));
       } finally {
@@ -22644,7 +22736,7 @@ HomeswiftI18n.add("pt", {
   }
 
   /// A device: what it is, where it stands, and what can be done with it.
-  function deviceRow(block, device, reload) {
+  function deviceRow(block, plugin, device, reload) {
     const [state, tone] = (statuses[device.status] ?? statuses.discovered);
     const excluded = device.status === "excluded";
     const toggle = (value) => async () => {
@@ -22654,7 +22746,7 @@ HomeswiftI18n.add("pt", {
       } catch (e) { HomeswiftCommon.showAlert(e.message); }
     };
     const items = [
-      device.status === "setUp" && device.authorization !== "none" ? { label: t("Set up again"), icon: "pair", onSelect: () => open({ block, device, after: reload }) } : null,
+      device.status === "setUp" && device.authorization !== "none" ? { label: t("Set up again"), icon: "pair", onSelect: () => open({ block, plugin, device, after: reload }) } : null,
       // Left out by the plugin's own settings: included again there, not here.
       device.excludedBySettings ? { label: t("Open its settings"), icon: "gear", href: `/plugins/${encodeURIComponent(block.slug)}/expert` }
         : excluded ? { label: t("Include"), icon: "plus", onSelect: toggle(false) } : { label: t("Exclude"), icon: "minus", onSelect: toggle(true) },
@@ -22668,7 +22760,7 @@ HomeswiftI18n.add("pt", {
         el("div", { class: "muted", text: device.excludedBySettings ? t("Left out by its settings") : [device.model, device.address].filter(Boolean).join(" · ") || device.deviceID })),
       tone === "on" ? el("span", { class: "status-dot", role: "img", "aria-label": state(), title: state() }) : el("span", { class: `pill status ${tone}`, text: state() }),
       needs
-        ? el("button", { class: "primary", actionIcon: "pair", text: t("Set up"), onclick: (event) => open({ block, device, trigger: event.currentTarget, after: reload }) })
+        ? el("button", { class: "primary", actionIcon: "pair", text: t("Set up"), onclick: (event) => open({ block, plugin, device, trigger: event.currentTarget, after: reload }) })
         : el("span", { class: "setup-spacer" }),
       menuButton(t("Actions for {name}", { name: device.name }), () => items));
   }
@@ -22716,25 +22808,88 @@ HomeswiftI18n.add("pt", {
   /// A wait with nothing to type or open: a button to press on the device.
   const pressing = (prompt) => Boolean(prompt.waitSeconds) && !prompt.fields.length && !prompt.url;
 
-  /// The sheet of one Setup: it starts the session, then draws each prompt the plugin sends until it is done.
-  /// `plugin` names the account's sheet; a device's says what its Authorization is.
-  function open({ block, plugin = null, device = null, draft = false, trigger = null, after }) {
+  /// The sheet of one Setup: it starts the session, then draws each prompt the plugin sends until it is done. An
+  /// account set up for the first time then lists what the plugin finds, to pick those that go into the Home app (the
+  /// others are excluded); then what was added. Its header names where it stands: signing in, the devices, done.
+  function open({ block, plugin = null, device = null, draft = false, firstTime = false, trigger = null, after }) {
     const title = device?.name ?? block.name;
     // Under the title, a device's Authorization, or the plugin when the instance's name does not say it (an account's
     // way to sign in may be the person's choice, asked in the sheet).
     const subtitle = device ? methods[device.authorization]?.[0]() ?? "" : plugin && bare(plugin.name) !== bare(block.name) ? plugin.name : "";
+    const glyph = device ? methods[device.authorization]?.[1] ?? "accessory" : block.icon ?? plugin?.icon ?? "plugin";
+    const picking = firstTime && !device;
+    const stages = [device ? t("Set up") : accountActions[plugin?.accountAuthorization]?.[0]() ?? t("Sign in"), picking ? t("Devices") : null, t("Done")].filter(Boolean);
     let session = null, poll = 0, ticker = 0, done = false, closed = false;
     // A Button Press's end: the retries keep it, so the countdown does not start over at each one.
     let until = 0;
     const stop = () => { clearTimeout(poll); clearInterval(ticker); };
     app().openSheet((dismiss) => {
       const body = el("div", { class: "setup-step" }, loading(t("Asking the plugin…")));
+      const steps = el("ol", { class: "setup-stages" });
+      const stage = (at) => {
+        steps.setAttribute("aria-label", t("Step {at} of {count}", { at: at + 1, count: stages.length }));
+        steps.replaceChildren(...stages.map((name, index) => el("li", { class: index < at ? "done" : index === at ? "current" : "", "aria-current": index === at ? "step" : null },
+          el("span", { class: "setup-stage-dot", "aria-hidden": "true" }, index < at ? HomeswiftCommon.icon("check") : String(index + 1)), el("span", { text: name }))));
+      };
+      stage(0);
       const form = el("form", { class: "account-form setup-sheet", novalidate: true },
-        el("h2", { id: "setup-title", text: title }),
-        subtitle ? el("p", { class: "muted setup-method", text: subtitle }) : null,
+        el("div", { class: "setup-sheet-head" }, tile(glyph, "orange"),
+          el("div", {}, el("h2", { id: "setup-title", text: title }), subtitle ? el("p", { class: "muted setup-method", text: subtitle }) : null)),
+        stages.length > 1 ? steps : null,
         body);
       form.addEventListener("submit", (event) => event.preventDefault());
-      const fill = (...nodes) => body.replaceChildren(...nodes.filter(Boolean));
+      const fill = (...nodes) => { body.replaceChildren(...nodes.filter(Boolean)); body.classList.remove("entering"); void body.offsetWidth; body.classList.add("entering"); };
+
+      /// The end: what reached the Home app, when the sheet knows.
+      function finish(added = null) {
+        stage(stages.length - 1);
+        fill(
+          el("div", { class: "setup-done" }, el("span", { class: "setup-check", "aria-hidden": "true" }, HomeswiftCommon.icon("check")),
+            el("p", {}, el("strong", { text: device ? t("{name} is set up.", { name: title })
+              : added?.length ? tn("One accessory added.", "{n} accessories added.", added.length) : t("The account is set up.") })),
+            el("p", { class: "muted", text: added?.length ? t("They reach the Home app in a moment.") : t("Its accessories reach the Home app in a moment.") })),
+          added?.length ? el("ul", { class: "setup-added" }, ...added.map((found, index) =>
+            el("li", { style: `--index: ${Math.min(index, 8)}` }, tile(HomeswiftWidgets.categoryIcon(found.category) ?? glyph, "blue"), el("span", { text: found.name })))) : null,
+          el("div", { class: "actions" }, el("button", { class: "primary", actionIcon: "check", text: t("Done"), onclick: () => dismiss() })));
+        body.querySelector(".actions button")?.focus();
+      }
+
+      /// What the account reaches, to pick: every device ticked; those left out are excluded.
+      async function pick() {
+        stage(1);
+        fill(loading(t("Looking for devices…")));
+        let found;
+        try {
+          found = (await post("discover", { platform: block.platform, name: block.name })).devices
+            .filter((one) => one.status === "setUp" || one.status === "discovered");
+        } catch { found = []; }
+        if (closed) return;
+        if (!found.length) { finish(); return; }
+        const boxes = found.map((one) => el("input", { type: "checkbox", checked: true, value: one.deviceID }));
+        const submit = el("button", { class: "primary", type: "submit", actionIcon: "plus" });
+        const count = () => {
+          const picked = boxes.filter((box) => box.checked).length;
+          submit.textContent = picked ? tn("Add one accessory", "Add {n} accessories", picked) : t("Add none");
+        };
+        boxes.forEach((box) => box.addEventListener("change", count));
+        count();
+        form.onsubmit = (event) => {
+          event.preventDefault();
+          HomeswiftCommon.busyButton(submit, async () => {
+            const left = found.filter((one, index) => !boxes[index].checked);
+            for (const one of left) await post("exclude", { platform: block.platform, name: block.name, deviceID: one.deviceID, excluded: true });
+            finish(found.filter((one, index) => boxes[index].checked));
+          });
+        };
+        fill(
+          el("p", {}, el("strong", { text: tn("{plugin} found one device.", "{plugin} found {n} devices.", found.length, { plugin: plugin?.name ?? block.name }) })),
+          el("p", { class: "muted", text: t("Choose those that go into the Home app. The others are excluded; you can include them later.") }),
+          el("div", { class: "setup-picks" }, ...found.map((one, index) => el("label", { class: "setup-pick" }, boxes[index],
+            tile(HomeswiftWidgets.categoryIcon(one.category) ?? glyph, "blue"),
+            el("span", { class: "who" }, el("strong", { text: one.name }), el("span", { class: "muted", text: [one.model, one.address].filter(Boolean).join(" · ") || one.deviceID }))))),
+          el("div", { class: "actions" }, submit));
+        submit.focus({ preventScroll: true });
+      }
 
       function draw(answer) {
         stop();
@@ -22743,12 +22898,7 @@ HomeswiftI18n.add("pt", {
         if (answer.status === "done") {
           done = true;
           session = null;
-          fill(
-            el("div", { class: "setup-done" }, el("span", { class: "setup-check", "aria-hidden": "true" }, HomeswiftCommon.icon("check")),
-              el("p", {}, el("strong", { text: device ? t("{name} is set up.", { name: title }) : t("The account is set up.") })),
-              el("p", { class: "muted", text: t("Its accessories reach the Home app in a moment.") })),
-            el("div", { class: "actions" }, el("button", { class: "primary", actionIcon: "check", text: t("Done"), onclick: () => dismiss() })));
-          body.querySelector("button")?.focus();
+          if (picking) pick(); else finish();
           return;
         }
         session = answer.session;
@@ -22782,9 +22932,13 @@ HomeswiftI18n.add("pt", {
           retry();
         }
         if (pressing(prompt)) {
+          // The time left as a bar that empties, from where the wait stands now.
+          const total = prompt.waitSeconds * 1000;
+          const bar = el("span", { class: "setup-wait-bar", "aria-hidden": "true" },
+            el("span", { style: `animation-duration: ${total}ms; animation-delay: -${Math.max(0, total - (until - Date.now()))}ms` }));
           fill(
-            el("div", { class: "pair-prompt pairing" }, el("span", { class: "link-button", "aria-hidden": "true" }, HomeswiftCommon.icon("pair")),
-              el("div", {}, el("p", {}, el("strong", { text: t(prompt.message, prompt.values ?? {}) })), left)),
+            el("div", { class: "setup-press" }, el("span", { class: "setup-ring", "aria-hidden": "true" }, HomeswiftCommon.icon("pair")),
+              el("p", {}, el("strong", { text: t(prompt.message, prompt.values ?? {}) })), bar, left),
             error,
             el("div", { class: "actions" }, cancel));
           return;
@@ -22793,6 +22947,7 @@ HomeswiftI18n.add("pt", {
           if (field.kind === "choice") return [field, choice(field)];
           const input = el("input", {
             name: field.key, id: `setup-${field.key}`, required: !field.optional, spellcheck: false,
+            class: field.kind === "code" ? "setup-code" : "",
             type: field.kind === "secret" ? "password" : field.kind === "url" ? "url" : "text",
             autocomplete: field.kind === "secret" ? "current-password" : field.kind === "code" ? "one-time-code" : "off",
             inputmode: field.kind === "code" ? "numeric" : undefined,
@@ -26553,8 +26708,40 @@ select option:disabled { color: var(--muted); }
 
 /* Add accessories (setup.js): a card per plugin, a row per device it finds, and one sheet for every Setup. */
 .setup-list { display: grid; gap: var(--space-16); }
-.setup-catalog .setup-devices { margin-top: 0; border-top: 0; }
-.setup-plugin { grid-template-columns: auto minmax(0, 1fr) auto auto; }
+.setup-list > .card { margin-bottom: 0; }
+/* The plugins to add: a card per brand, what it reaches and how it connects; the whole card adds it. */
+.setup-search { width: 100%; max-width: 420px; margin-bottom: var(--space-12); }
+.setup-brands { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--space-12); }
+.setup-brand {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--space-12); row-gap: 2px; align-items: start; align-content: start;
+  height: auto; min-height: 0; padding: var(--space-14); text-align: left; font: inherit; color: var(--text); white-space: normal;
+  border-radius: var(--radius-lg); background: var(--material-thick); border: 1px solid var(--edge); box-shadow: var(--shadow-control);
+  transition: transform 160ms var(--ease-out), border-color 160ms var(--ease-out);
+}
+.setup-brand[hidden] { display: none; }
+.setup-brand > .tile { grid-row: span 3; }
+.setup-brand-name { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-6); font-weight: var(--weight-semibold); }
+.setup-brand-used { font-size: var(--text-2xs); font-weight: var(--weight-medium); color: var(--muted); padding: 1px var(--space-6); border: 1px solid var(--line); border-radius: var(--radius-pill); }
+.setup-brand-summary { font-size: var(--text-xs); line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.setup-brand-how { display: inline-flex; align-items: center; gap: 5px; margin-top: var(--space-4); font-size: var(--text-xs); }
+.setup-brand-how svg { width: 13px; height: 13px; flex: none; }
+@media (hover: hover) and (pointer: fine) { .setup-brand:hover { border-color: color-mix(in srgb, var(--accent) 45%, transparent); } }
+.setup-brand:active { transform: scale(0.97); }
+/* A phone: two brands a row, their name and how they connect; what they reach is a tap away. */
+@media (max-width: 560px) {
+  .setup-brands { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-8); }
+  .setup-brand { grid-template-columns: minmax(0, 1fr); padding: var(--space-12); row-gap: var(--space-4); }
+  .setup-brand > .tile { grid-row: auto; width: 34px; height: 34px; margin-bottom: var(--space-4); }
+  .setup-brand > .tile svg { width: 19px; height: 19px; }
+  .setup-brand-summary { display: none; }
+  .setup-brand-how { margin-top: 0; }
+}
+/* A plugin that needs someone comes first; its devices set up or excluded fold under their count. */
+.setup-in-use { margin-top: var(--space-24); }
+.setup-instance.needs-you { order: -1; }
+.setup-fold > summary { cursor: pointer; padding: var(--space-10) 0; color: var(--muted); font-size: var(--text-sm); }
+.setup-fold > .setup-devices { margin-top: 0; }
+.setup-devices > .setup-fold:first-child { border-top: 0; }
 .setup-instance .server-head .who { flex: 1; }
 .setup-tools { display: flex; gap: var(--space-8); flex: none; }
 .setup-devices { display: grid; margin-top: var(--space-12); border-top: 1px solid var(--line); }
@@ -26572,7 +26759,6 @@ select option:disabled { color: var(--muted); }
 /* Searching again: the rows a new list may replace dim, after a moment so a quick answer does not flash them. */
 .setup-device { transition: opacity var(--normal) var(--ease-out); }
 .setup-instance.is-searching .setup-device { opacity: 0.55; transition-delay: 150ms; }
-.setup-sheet .setup-method { margin-top: calc(-1 * var(--space-6)); }
 .setup-step { display: grid; gap: var(--space-12); }
 .setup-step > p { margin: 0; }
 .setup-choice { border: 0; margin: 0; padding: 0; display: grid; gap: var(--space-8); }
@@ -26582,7 +26768,63 @@ select option:disabled { color: var(--muted); }
 .setup-option input { margin: 3px 0 0; accent-color: var(--accent); }
 .setup-option > span { display: grid; gap: var(--space-4); }
 .setup-option .muted { font-size: var(--text-sm); }
-.setup-step .pair-prompt { margin-top: 0; grid-template-columns: auto minmax(0, 1fr); }
+/* The sheet's head: what is being set up, and where it stands (a stage per screen: signing in, the devices, done). */
+.setup-sheet-head { display: flex; align-items: center; gap: var(--space-12); margin-bottom: var(--space-12); }
+.admin-dialog.sheet .setup-sheet-head h2 { margin: 0; font-size: var(--text-2xl); letter-spacing: -0.015em; }
+.setup-sheet .setup-sheet-head .setup-method { margin: 2px 0 0; }
+.setup-stages { list-style: none; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); margin: 0 0 var(--space-18); padding: 0; }
+.setup-stages li { display: flex; align-items: center; gap: var(--space-6); font-size: var(--text-xs); color: var(--muted); }
+.setup-stages li + li::before { content: ""; width: 16px; height: 1px; background: var(--line); }
+.setup-stage-dot { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: var(--text-2xs); font-weight: var(--weight-semibold);
+  border: 1px solid var(--line); background: var(--material-thin); transition: background-color 200ms var(--ease-out), color 200ms var(--ease-out); }
+.setup-stage-dot svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.setup-stages li.current { color: var(--text); font-weight: var(--weight-medium); }
+.setup-stages li.current .setup-stage-dot { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.setup-stages li.done .setup-stage-dot { background: color-mix(in srgb, var(--ok) 16%, transparent); border-color: transparent; color: var(--ok); }
+/* Each new screen of the sheet comes up from just below; a retry that changes nothing does not move. */
+@media (prefers-reduced-motion: no-preference) {
+  .setup-step.entering > * { animation: setup-enter 220ms var(--ease-out) both; }
+  @keyframes setup-enter { from { opacity: 0; transform: translateY(6px); } }
+}
+.setup-code { font-size: var(--text-3xl); letter-spacing: 0.3em; font-variant-numeric: tabular-nums; max-width: 220px; }
+/* A Button Press: a ring that keeps calling for the press, and the time left as a bar that empties. */
+.setup-press { display: grid; justify-items: center; text-align: center; gap: var(--space-8); padding: var(--space-12) 0 var(--space-4); }
+.setup-press p { margin: 0; }
+.setup-ring { position: relative; width: 72px; height: 72px; border-radius: 50%; display: grid; place-items: center; margin-bottom: var(--space-6);
+  background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent-ink, var(--accent)); }
+.setup-ring svg { width: 30px; height: 30px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.setup-ring::after { content: ""; position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--accent); opacity: 0; }
+.setup-wait-bar { width: 100%; max-width: 260px; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; margin-top: var(--space-6); }
+.setup-wait-bar > span { display: block; height: 100%; background: var(--accent); transform-origin: left; animation: setup-wait linear both; }
+@keyframes setup-wait { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+@media (prefers-reduced-motion: no-preference) {
+  .setup-ring::after { animation: setup-call 1.6s var(--ease-out) infinite; }
+  @keyframes setup-call { from { transform: scale(1); opacity: 0.6; } to { transform: scale(1.45); opacity: 0; } }
+}
+/* The devices an account reaches, ticked to go into the Home app. */
+.setup-picks { display: grid; border-top: 1px solid var(--line); }
+.setup-pick { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--space-12); align-items: center; padding: var(--space-10) 0;
+  border-bottom: 1px solid var(--line); cursor: pointer; }
+.setup-pick > .tile { grid-column: 1; grid-row: 1; transition: filter 160ms var(--ease-out), opacity 160ms var(--ease-out); }
+.setup-pick > input { grid-column: 3; grid-row: 1; }
+.setup-pick > .who { grid-column: 2; grid-row: 1; }
+.setup-pick:not(:has(input:checked)) .tile { filter: grayscale(1); opacity: 0.55; }
+.setup-pick:not(:has(input:checked)) .who { opacity: 0.6; }
+/* The sheet's buttons stay in reach under a long list. */
+.setup-step > .actions:last-child { position: sticky; bottom: calc(-1 * var(--space-20)); margin-bottom: calc(-1 * var(--space-20)); padding: var(--space-14) 0 var(--space-20);
+  background: linear-gradient(to bottom, transparent, var(--material-solid) 30%); }
+.setup-pick input { margin: 0; }
+.setup-pick .who { display: grid; min-width: 0; }
+.setup-pick .who > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.setup-pick .muted { font-size: var(--text-sm); }
+/* What reached the Home app, one after the other. */
+.setup-added { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-6); }
+.setup-added li { display: flex; align-items: center; gap: var(--space-10); padding: var(--space-6) var(--space-10); border-radius: var(--radius-md); background: var(--material-thin); }
+.setup-added .tile { width: 28px; height: 28px; border-radius: var(--radius-xs); }
+.setup-added .tile svg { width: 15px; height: 15px; }
+@media (prefers-reduced-motion: no-preference) {
+  .setup-step.entering .setup-added li { animation: setup-enter 240ms var(--ease-out) both; animation-delay: calc(var(--index) * 45ms + 120ms); }
+}
 .setup-done { display: grid; justify-items: center; text-align: center; gap: var(--space-6); padding: var(--space-12) 0; }
 .setup-done p { margin: 0; }
 .setup-check { width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }

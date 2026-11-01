@@ -6,7 +6,7 @@
   "use strict";
 
   const { el, tile, menuButton } = HomeswiftCommon;
-  const { t } = HomeswiftI18n;
+  const { t, tn } = HomeswiftI18n;
   const app = () => window.HomeswiftApp;
   const api = (...args) => app().api(...args);
   const post = (path, body) => api(`/api/setup/${path}`, { method: "POST", body });
@@ -66,39 +66,58 @@
     const redraw = () => app().route();
     async function add(plugin, button) {
       const block = { platform: plugin.platform, name: app().uniqueName(plugin.name, plugins.blocks) };
-      if (plugin.accountAuthorization !== "none") { open({ block, plugin, draft: true, trigger: button, after: redraw }); return; }
+      if (plugin.accountAuthorization !== "none") { open({ block, plugin, draft: true, firstTime: true, trigger: button, after: redraw }); return; }
       await HomeswiftCommon.busyButton(button, async () => {
         await api(`/api/config/block/${encodeURIComponent(block.platform)}/${encodeURIComponent(block.name)}`, { method: "POST", body: {} });
         redraw();
       });
     }
-    const rows = addable.map((plugin) => el("div", { class: "setup-device setup-plugin" },
-      tile(plugin.icon ?? "plugin", "orange"),
-      el("div", { class: "who" }, el("strong", { text: plugin.name }), plugin.summary ? el("div", { class: "muted", text: t(plugin.summary) }) : null),
-      used(plugin) ? el("span", { class: "pill status standby", text: t("In use [used]") }) : el("span", { class: "setup-spacer" }),
-      el("button", { actionIcon: "plus", text: used(plugin) ? t("Add another") : t("Add"), onclick: (event) => add(plugin, event.currentTarget) })));
+    // A brand's card: what it reaches, and how it connects (a sign-in, a button on a hub, nothing).
+    const cards = addable.map((plugin) => {
+      const how = methods[plugin.accountAuthorization];
+      const card = el("button", { type: "button", class: "setup-brand", onclick: (event) => add(plugin, event.currentTarget),
+        "aria-label": used(plugin) ? t("Add another {name}", { name: plugin.name }) : t("Add {name}", { name: plugin.name }) },
+        tile(plugin.icon ?? "plugin", "orange"),
+        el("span", { class: "setup-brand-name" }, el("span", { text: plugin.name }), used(plugin) ? el("span", { class: "setup-brand-used", text: t("In use [used]") }) : null),
+        plugin.summary ? el("span", { class: "setup-brand-summary muted", text: t(plugin.summary) }) : null,
+        el("span", { class: "setup-brand-how muted" }, HomeswiftCommon.icon(how[1]), plugin.accountAuthorization === "none" ? t("Nothing to sign in to") : how[0]()));
+      card.dataset.search = `${plugin.name} ${t(plugin.summary ?? "")} ${plugin.summary ?? ""}`.toLowerCase();
+      return card;
+    });
+    const none = el("p", { class: "muted setup-none", hidden: true, text: t("No plugin matches.") });
+    const search = el("input", { type: "search", class: "search setup-search", placeholder: t("Search plugins"), "aria-label": t("Search plugins"),
+      oninput: () => {
+        const words = search.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+        let shown = 0;
+        for (const card of cards) shown += (card.hidden = !words.every((word) => card.dataset.search.includes(word))) ? 0 : 1;
+        none.hidden = shown > 0;
+      } });
     return el("section", { class: "setup-catalog", "aria-labelledby": "setup-catalog-title" },
       el("div", { class: "section-head" }, el("h2", { id: "setup-catalog-title", text: t("Add a plugin") }),
         el("span", { class: "muted", text: inUse ? t("For devices none of yours reaches yet.") : t("Start with the brand of your devices.") })),
-      el("div", { class: "card setup-instance" }, el("div", { class: "setup-devices" }, ...rows)));
+      addable.length > 6 ? search : null,
+      el("div", { class: "setup-brands" }, ...cards), none);
   }
 
   /// A wait for a plugin, its ring turning beside what it is waiting for.
   const loading = (text) => el("p", { class: "setup-loading muted" }, el("span", { class: "spinner", "aria-hidden": "true" }), el("span", { text }));
 
-  /// One plugin instance: its account, when it has one, and the devices it finds.
+  /// One plugin instance: its account, when it has one, and the devices it finds. What needs a person shows; the
+  /// devices already set up or excluded fold under a count. A card that needs someone moves to the top of the list.
   function instanceCard(block, plugin) {
     const list = el("div", { class: "setup-devices", "aria-live": "polite" }, loading(t("Looking for devices…")));
+    // Under the name, where its devices stand; the plugin until then, when the name does not say it already.
+    const summary = el("div", { class: "muted", text: bare(block.name) === bare(plugin.name) ? "" : plugin.name });
+    let folded = false;
     const action = accountActions[plugin.accountAuthorization];
     let accountSetUp = false;
     const find = el("button", { actionIcon: "search", text: t("Find again"), onclick: () => load() });
     // Once the account is set up, doing it again is in the menu: the list is what the card is for then.
     const again = action ? menuButton(t("Actions for {name}", { name: block.name }),
-      () => [{ label: action[accountSetUp ? 1 : 0](), icon: action[2], onSelect: () => open({ block, plugin, after: load }) }]) : null;
+      () => [{ label: action[accountSetUp ? 1 : 0](), icon: action[2], onSelect: () => open({ block, plugin, firstTime: !accountSetUp, after: load }) }]) : null;
     const node = el("section", { class: "card setup-instance", id: `setup-${block.slug}`, "aria-label": block.name },
       el("div", { class: "server-head" }, tile(block.icon ?? plugin.icon ?? "plugin", "orange"),
-        // Under the name, the plugin, when the name does not say it already.
-        el("div", { class: "who" }, el("strong", { text: block.name }), bare(block.name) === bare(plugin.name) ? null : el("div", { class: "muted", text: plugin.name })),
+        el("div", { class: "who" }, el("strong", { text: block.name }), summary),
         el("div", { class: "setup-tools" }, find, again)),
       list);
 
@@ -108,7 +127,7 @@
       el("div", { class: "who" }, el("strong", { text: methods[plugin.accountAuthorization][0]() }),
         el("div", { class: "muted", text: t("{plugin} needs this before it can reach its devices.", { plugin: plugin.name }) })),
       el("span", { class: "pill status away", text: statuses.needsAuthorization[0]() }),
-      el("button", { class: "primary", actionIcon: action[2], text: action[0](), onclick: (event) => open({ block, plugin, trigger: event.currentTarget, after: load }) }));
+      el("button", { class: "primary", actionIcon: action[2], text: action[0](), onclick: (event) => open({ block, plugin, firstTime: true, trigger: event.currentTarget, after: load }) }));
 
     // A search in progress, whatever started it (the page, Find again, a Setup just done): the button turns and the
     // rows it may replace dim, as a device on the network can take seconds to answer.
@@ -127,11 +146,24 @@
       try {
         const found = await post("discover", { platform: block.platform, name: block.name });
         accountSetUp = found.accountSetUp;
-        const rows = found.devices.map((device) => deviceRow(block, device, load));
+        const needs = (device) => device.status === "needsAuthorization";
+        const waiting = found.devices.filter(needs), settled = found.devices.filter((device) => !needs(device));
+        const rows = waiting.map((device) => deviceRow(block, plugin, device, load));
         if (action && !accountSetUp) rows.unshift(accountRow());
+        if (settled.length) {
+          const excluded = settled.filter((device) => device.status === "excluded").length;
+          const fold = el("details", { class: "setup-fold", open: folded || (!rows.length && settled.length <= 3) },
+            el("summary", {}, el("span", { text: [tn("{n} set up", "{n} set up [plural]", settled.length - excluded), excluded ? tn("{n} excluded", "{n} excluded [plural]", excluded) : null].filter(Boolean).join(" · ") })),
+            el("div", { class: "setup-devices" }, ...settled.map((device) => deviceRow(block, plugin, device, load))));
+          fold.addEventListener("toggle", () => { folded = fold.open; });
+          rows.push(fold);
+        }
         if (!found.devices.length) rows.push(el("p", { class: "muted setup-none", text: action && !accountSetUp
           ? t("Its devices show here once it is set up.") : t("This plugin finds no devices by itself: its settings name them.") }));
         list.replaceChildren(...rows);
+        const attention = waiting.length + (action && !accountSetUp ? 1 : 0);
+        summary.textContent = attention ? tn("Needs you once", "Needs you {n} times", attention) : bare(block.name) === bare(plugin.name) ? "" : plugin.name;
+        node.classList.toggle("needs-you", attention > 0);
       } catch (e) {
         list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));
       } finally {
@@ -142,7 +174,7 @@
   }
 
   /// A device: what it is, where it stands, and what can be done with it.
-  function deviceRow(block, device, reload) {
+  function deviceRow(block, plugin, device, reload) {
     const [state, tone] = (statuses[device.status] ?? statuses.discovered);
     const excluded = device.status === "excluded";
     const toggle = (value) => async () => {
@@ -152,7 +184,7 @@
       } catch (e) { HomeswiftCommon.showAlert(e.message); }
     };
     const items = [
-      device.status === "setUp" && device.authorization !== "none" ? { label: t("Set up again"), icon: "pair", onSelect: () => open({ block, device, after: reload }) } : null,
+      device.status === "setUp" && device.authorization !== "none" ? { label: t("Set up again"), icon: "pair", onSelect: () => open({ block, plugin, device, after: reload }) } : null,
       // Left out by the plugin's own settings: included again there, not here.
       device.excludedBySettings ? { label: t("Open its settings"), icon: "gear", href: `/plugins/${encodeURIComponent(block.slug)}/expert` }
         : excluded ? { label: t("Include"), icon: "plus", onSelect: toggle(false) } : { label: t("Exclude"), icon: "minus", onSelect: toggle(true) },
@@ -166,7 +198,7 @@
         el("div", { class: "muted", text: device.excludedBySettings ? t("Left out by its settings") : [device.model, device.address].filter(Boolean).join(" · ") || device.deviceID })),
       tone === "on" ? el("span", { class: "status-dot", role: "img", "aria-label": state(), title: state() }) : el("span", { class: `pill status ${tone}`, text: state() }),
       needs
-        ? el("button", { class: "primary", actionIcon: "pair", text: t("Set up"), onclick: (event) => open({ block, device, trigger: event.currentTarget, after: reload }) })
+        ? el("button", { class: "primary", actionIcon: "pair", text: t("Set up"), onclick: (event) => open({ block, plugin, device, trigger: event.currentTarget, after: reload }) })
         : el("span", { class: "setup-spacer" }),
       menuButton(t("Actions for {name}", { name: device.name }), () => items));
   }
@@ -214,25 +246,88 @@
   /// A wait with nothing to type or open: a button to press on the device.
   const pressing = (prompt) => Boolean(prompt.waitSeconds) && !prompt.fields.length && !prompt.url;
 
-  /// The sheet of one Setup: it starts the session, then draws each prompt the plugin sends until it is done.
-  /// `plugin` names the account's sheet; a device's says what its Authorization is.
-  function open({ block, plugin = null, device = null, draft = false, trigger = null, after }) {
+  /// The sheet of one Setup: it starts the session, then draws each prompt the plugin sends until it is done. An
+  /// account set up for the first time then lists what the plugin finds, to pick those that go into the Home app (the
+  /// others are excluded); then what was added. Its header names where it stands: signing in, the devices, done.
+  function open({ block, plugin = null, device = null, draft = false, firstTime = false, trigger = null, after }) {
     const title = device?.name ?? block.name;
     // Under the title, a device's Authorization, or the plugin when the instance's name does not say it (an account's
     // way to sign in may be the person's choice, asked in the sheet).
     const subtitle = device ? methods[device.authorization]?.[0]() ?? "" : plugin && bare(plugin.name) !== bare(block.name) ? plugin.name : "";
+    const glyph = device ? methods[device.authorization]?.[1] ?? "accessory" : block.icon ?? plugin?.icon ?? "plugin";
+    const picking = firstTime && !device;
+    const stages = [device ? t("Set up") : accountActions[plugin?.accountAuthorization]?.[0]() ?? t("Sign in"), picking ? t("Devices") : null, t("Done")].filter(Boolean);
     let session = null, poll = 0, ticker = 0, done = false, closed = false;
     // A Button Press's end: the retries keep it, so the countdown does not start over at each one.
     let until = 0;
     const stop = () => { clearTimeout(poll); clearInterval(ticker); };
     app().openSheet((dismiss) => {
       const body = el("div", { class: "setup-step" }, loading(t("Asking the plugin…")));
+      const steps = el("ol", { class: "setup-stages" });
+      const stage = (at) => {
+        steps.setAttribute("aria-label", t("Step {at} of {count}", { at: at + 1, count: stages.length }));
+        steps.replaceChildren(...stages.map((name, index) => el("li", { class: index < at ? "done" : index === at ? "current" : "", "aria-current": index === at ? "step" : null },
+          el("span", { class: "setup-stage-dot", "aria-hidden": "true" }, index < at ? HomeswiftCommon.icon("check") : String(index + 1)), el("span", { text: name }))));
+      };
+      stage(0);
       const form = el("form", { class: "account-form setup-sheet", novalidate: true },
-        el("h2", { id: "setup-title", text: title }),
-        subtitle ? el("p", { class: "muted setup-method", text: subtitle }) : null,
+        el("div", { class: "setup-sheet-head" }, tile(glyph, "orange"),
+          el("div", {}, el("h2", { id: "setup-title", text: title }), subtitle ? el("p", { class: "muted setup-method", text: subtitle }) : null)),
+        stages.length > 1 ? steps : null,
         body);
       form.addEventListener("submit", (event) => event.preventDefault());
-      const fill = (...nodes) => body.replaceChildren(...nodes.filter(Boolean));
+      const fill = (...nodes) => { body.replaceChildren(...nodes.filter(Boolean)); body.classList.remove("entering"); void body.offsetWidth; body.classList.add("entering"); };
+
+      /// The end: what reached the Home app, when the sheet knows.
+      function finish(added = null) {
+        stage(stages.length - 1);
+        fill(
+          el("div", { class: "setup-done" }, el("span", { class: "setup-check", "aria-hidden": "true" }, HomeswiftCommon.icon("check")),
+            el("p", {}, el("strong", { text: device ? t("{name} is set up.", { name: title })
+              : added?.length ? tn("One accessory added.", "{n} accessories added.", added.length) : t("The account is set up.") })),
+            el("p", { class: "muted", text: added?.length ? t("They reach the Home app in a moment.") : t("Its accessories reach the Home app in a moment.") })),
+          added?.length ? el("ul", { class: "setup-added" }, ...added.map((found, index) =>
+            el("li", { style: `--index: ${Math.min(index, 8)}` }, tile(HomeswiftWidgets.categoryIcon(found.category) ?? glyph, "blue"), el("span", { text: found.name })))) : null,
+          el("div", { class: "actions" }, el("button", { class: "primary", actionIcon: "check", text: t("Done"), onclick: () => dismiss() })));
+        body.querySelector(".actions button")?.focus();
+      }
+
+      /// What the account reaches, to pick: every device ticked; those left out are excluded.
+      async function pick() {
+        stage(1);
+        fill(loading(t("Looking for devices…")));
+        let found;
+        try {
+          found = (await post("discover", { platform: block.platform, name: block.name })).devices
+            .filter((one) => one.status === "setUp" || one.status === "discovered");
+        } catch { found = []; }
+        if (closed) return;
+        if (!found.length) { finish(); return; }
+        const boxes = found.map((one) => el("input", { type: "checkbox", checked: true, value: one.deviceID }));
+        const submit = el("button", { class: "primary", type: "submit", actionIcon: "plus" });
+        const count = () => {
+          const picked = boxes.filter((box) => box.checked).length;
+          submit.textContent = picked ? tn("Add one accessory", "Add {n} accessories", picked) : t("Add none");
+        };
+        boxes.forEach((box) => box.addEventListener("change", count));
+        count();
+        form.onsubmit = (event) => {
+          event.preventDefault();
+          HomeswiftCommon.busyButton(submit, async () => {
+            const left = found.filter((one, index) => !boxes[index].checked);
+            for (const one of left) await post("exclude", { platform: block.platform, name: block.name, deviceID: one.deviceID, excluded: true });
+            finish(found.filter((one, index) => boxes[index].checked));
+          });
+        };
+        fill(
+          el("p", {}, el("strong", { text: tn("{plugin} found one device.", "{plugin} found {n} devices.", found.length, { plugin: plugin?.name ?? block.name }) })),
+          el("p", { class: "muted", text: t("Choose those that go into the Home app. The others are excluded; you can include them later.") }),
+          el("div", { class: "setup-picks" }, ...found.map((one, index) => el("label", { class: "setup-pick" }, boxes[index],
+            tile(HomeswiftWidgets.categoryIcon(one.category) ?? glyph, "blue"),
+            el("span", { class: "who" }, el("strong", { text: one.name }), el("span", { class: "muted", text: [one.model, one.address].filter(Boolean).join(" · ") || one.deviceID }))))),
+          el("div", { class: "actions" }, submit));
+        submit.focus({ preventScroll: true });
+      }
 
       function draw(answer) {
         stop();
@@ -241,12 +336,7 @@
         if (answer.status === "done") {
           done = true;
           session = null;
-          fill(
-            el("div", { class: "setup-done" }, el("span", { class: "setup-check", "aria-hidden": "true" }, HomeswiftCommon.icon("check")),
-              el("p", {}, el("strong", { text: device ? t("{name} is set up.", { name: title }) : t("The account is set up.") })),
-              el("p", { class: "muted", text: t("Its accessories reach the Home app in a moment.") })),
-            el("div", { class: "actions" }, el("button", { class: "primary", actionIcon: "check", text: t("Done"), onclick: () => dismiss() })));
-          body.querySelector("button")?.focus();
+          if (picking) pick(); else finish();
           return;
         }
         session = answer.session;
@@ -280,9 +370,13 @@
           retry();
         }
         if (pressing(prompt)) {
+          // The time left as a bar that empties, from where the wait stands now.
+          const total = prompt.waitSeconds * 1000;
+          const bar = el("span", { class: "setup-wait-bar", "aria-hidden": "true" },
+            el("span", { style: `animation-duration: ${total}ms; animation-delay: -${Math.max(0, total - (until - Date.now()))}ms` }));
           fill(
-            el("div", { class: "pair-prompt pairing" }, el("span", { class: "link-button", "aria-hidden": "true" }, HomeswiftCommon.icon("pair")),
-              el("div", {}, el("p", {}, el("strong", { text: t(prompt.message, prompt.values ?? {}) })), left)),
+            el("div", { class: "setup-press" }, el("span", { class: "setup-ring", "aria-hidden": "true" }, HomeswiftCommon.icon("pair")),
+              el("p", {}, el("strong", { text: t(prompt.message, prompt.values ?? {}) })), bar, left),
             error,
             el("div", { class: "actions" }, cancel));
           return;
@@ -291,6 +385,7 @@
           if (field.kind === "choice") return [field, choice(field)];
           const input = el("input", {
             name: field.key, id: `setup-${field.key}`, required: !field.optional, spellcheck: false,
+            class: field.kind === "code" ? "setup-code" : "",
             type: field.kind === "secret" ? "password" : field.kind === "url" ? "url" : "text",
             autocomplete: field.kind === "secret" ? "current-password" : field.kind === "code" ? "one-time-code" : "off",
             inputmode: field.kind === "code" ? "numeric" : undefined,
