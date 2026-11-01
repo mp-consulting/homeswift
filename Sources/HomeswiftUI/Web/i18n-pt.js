@@ -320,6 +320,7 @@ HomeswiftI18n.add("pt", {
   "Port {port} is in use or cannot be opened on this address. Choose another port.": "A porta {port} está ocupada ou não pode ser aberta neste endereço. Escolha outra porta.",
   "Port {port} is available.": "A porta {port} está disponível.",
   "Checking port…": "A verificar a porta…",
+  "Homeswift did not answer (HTTP {status}): it may be restarting. Try again in a moment.": "O Homeswift não respondeu (HTTP {status}): pode estar a reiniciar. Tente novamente daqui a pouco.",
   "Please wait. This page will reconnect automatically.": "Aguarde. Esta página voltará a ligar-se automaticamente.",
   "Connection": "Ligação",
   "Updates": "Atualizações",

@@ -8,6 +8,28 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Web UI: behind Cloudflare or another reverse proxy, installing an update showed the proxy's 502 page, its HTML, in an
+  alert: the bridge was restarting and the proxy answered for it. A 502, 503 or 504 that is not the bridge's JSON now
+  reads as the bridge not answering, as a dropped connection does: the page waits for the restart, and other requests
+  say Homeswift did not answer, never with the proxy's page.
+- Web UI: in the graph (and its groups and lists), a camera whose first service is a motion sensor showed the sensor's
+  icon, as UniFi Protect's do: a camera now shows a camera, a video doorbell a bell, whatever its first service.
+- HAP: a bridge serves HomeKit at most 149 accessories, besides itself, as the specification requires ("A bridge must
+  not expose more than 150 HAP accessory objects") and HAP-NodeJS and Apple's ADK do. Past that, the accessories added
+  last stay out of HomeKit, as hidden ones do (they keep their ids and come in as others leave), and the log says which
+  and to move a plugin to a child bridge. Before, nothing stopped a bridge from growing past what HomeKit accepts.
+- HAP: an admin controller made a user by another admin could still add, remove and list pairings until it
+  reconnected: `/pairings` used the permission its session started with. It now reads the pairings as they are, as
+  characteristic handlers already did.
+- HAP: a pair setup left unfinished after its first step kept the bridge answering "busy" to every other controller
+  until its connection closed, which could be an hour or never. It now gives way after 30 seconds, as in Apple's ADK
+  (`HAPServer.Options.pairSetupTimeout`), and its later steps are refused.
+- HAP: a pair verify on a connection already verified is refused (400), as HAP-NodeJS 2.2.4 does: it would have
+  swapped the session's keys in the middle of it.
+- HAP: a connection gets at most one event message a second, button presses aside, as the specification asks
+  (notifications coalesced over at least a second) and Apple's ADK does. The first change after a quiet second still
+  goes after 50ms; a characteristic changing all the time is reported once a second.
+  `HAPServer.Options.minimumEventInterval` sets the interval.
 - HAP: values keep within the specification's bounds, as HAP-NodeJS 2.2.4 checks them. A string's `maxLen` is never
   more than 256 (in the database and in writes). A data value is at most 2 MiB of base64, or its type's new
   `maxDataLength` (`maxDataLen` in the database). A number is rounded to its `minStep` from its minimum value: a

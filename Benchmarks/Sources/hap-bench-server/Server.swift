@@ -33,9 +33,10 @@ struct BenchServer {
             FileHandle.standardError.write(Data("PIN must look like 031-45-154\n".utf8))
             exit(1)
         }
-        let server = try HAPServer(
-            bridge: bridge, accessories: lamps, storage: storage,
-            options: .init(setupCode: code, deviceID: env["DEVICE_ID"], port: port, advertise: env["ADVERTISE"] != "0", logger: logger))
+        var options = HAPServer.Options(setupCode: code, deviceID: env["DEVICE_ID"], port: port, advertise: env["ADVERTISE"] != "0", logger: logger)
+        // The event benchmark writes back to back to time each event; HAP-NodeJS has no rate limit to match.
+        options.minimumEventInterval = .zero
+        let server = try HAPServer(bridge: bridge, accessories: lamps, storage: storage, options: options)
         try await server.run()
     }
 }

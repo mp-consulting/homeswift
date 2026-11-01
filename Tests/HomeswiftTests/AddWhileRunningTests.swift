@@ -49,6 +49,31 @@ import Testing
         await restarted.stop()
     }
 
+    /// HomeKit takes 150 accessories from a bridge, itself included: those added last wait outside, and come in as
+    /// others leave.
+    @Test func aBridgeServesAtMost149Accessories() async throws {
+        let server = try HAPServer(
+            bridge: Accessory(id: "bridge", name: "Test Bridge", category: .bridge, services: []), accessories: [], storage: MemoryStorage(),
+            options: .init(port: 0, advertise: false, logger: testLogger))
+        let lamps = (1...HAPServer.maxBridgedAccessories + 2).map { lamp("lamp \($0)") }
+        for lamp in lamps { try server.add(lamp) }
+        try await server.start()
+        func served() -> [Int] { server.database(includeValues: false).accessories.map(\.aid) }
+        #expect(served().count == HAPServer.maxBridgedAccessories + 1)
+        let waiting = try #require(lamps.last)
+        #expect(!served().contains(waiting.aid))
+        #expect(server.accessory(aid: waiting.aid) == nil)
+        #expect(server.characteristic(aid: waiting.aid, iid: 1) == nil)
+
+        // One that HomeKit has leaves: the first waiting comes in, the last still waits.
+        let number = configurationNumber(server)
+        try server.remove(lamps[0])
+        #expect(served().contains(lamps[lamps.count - 2].aid))
+        #expect(!served().contains(waiting.aid))
+        #expect(configurationNumber(server) != number)
+        await server.stop()
+    }
+
     /// A burst of new accessories bumps the number for each and settles the hash once, shortly after.
     @Test func newAccessoriesSettleTheHashAfterTheBurst() async throws {
         let server = try HAPServer(

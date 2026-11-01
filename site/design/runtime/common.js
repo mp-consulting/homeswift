@@ -640,6 +640,19 @@
   /// When this page last asked the bridge to change something: what it made itself, a change event shortly after
   /// tells it nothing new.
   let lastChange = 0;
+  /// A 502, 503 or 504 whose body is not the bridge's JSON came from a proxy in front of it (Cloudflare, a reverse
+  /// proxy) because the bridge did not answer, most often while it restarts: an error that says so, marked
+  /// `unreachable`, never the proxy's page. Null for any other reply.
+  function gatewayError(status, text) {
+    if (status < 502 || status > 504) return null;
+    try { JSON.parse(text); return null; } catch {}
+    return Object.assign(new Error(t("Homeswift did not answer (HTTP {status}): it may be restarting. Try again in a moment.", { status })),
+      { status, unreachable: true });
+  }
+
+  /// The message of a reply that is not JSON: its text, unless it is a page (HTML), which says nothing in an alert.
+  const plainMessage = (text) => (text.trimStart().startsWith("<") ? "" : text);
+
   async function api(path, { method = "GET", body, stream = false } = {}) {
     if (method !== "GET") lastChange = Date.now();
     // The Assistant answers in the page's language.
@@ -649,8 +662,10 @@
     if (response.status === 401) { location.href = "/"; throw new Error("signed out"); }
     if (stream && response.ok) return response;
     const text = await response.text();
+    const gone = gatewayError(response.status, text);
+    if (gone) throw gone;
     let json = null;
-    try { json = text ? JSON.parse(text) : null; } catch { json = { error: text }; }
+    try { json = text ? JSON.parse(text) : null; } catch { json = { error: plainMessage(text) }; }
     if (!response.ok) throw Object.assign(new Error(window.HomeswiftI18n?.message((json && json.error) || `HTTP ${response.status}`) ?? `HTTP ${response.status}`), { status: response.status });
     return json;
   }
@@ -1776,7 +1791,7 @@
   }
 
   window.HomeswiftCommon = {
-    foldOnLeave, showAlert, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, lastChange: () => lastChange,
+    foldOnLeave, showAlert, gatewayError, plainMessage, confirmDialog, promptDialog, busyButton, fold, scaledCanvas, pictureDataURL, choosePictureFile, byteSize, lastChange: () => lastChange,
     $, el, icon, subnav, tile, clearFilters, rangeControl, fact, markdown, sparkle, api, menu, menuButton, dragToDismiss, copyText, jsonHighlight, jsonView, jsonEditor, jsonCheck, sections, tabBar, setPaused, slug, withSlugs, jsonDiff,
     assistantRequest, applyPreferences, loadPreferences, preferences: () => preferences, temperature, formatTemperature, ago,
   };
