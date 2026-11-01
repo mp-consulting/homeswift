@@ -55,6 +55,7 @@ actor AccessHub {
         var separateAccessMethods = false
         var separateDoorbell = false
         var separateSensors = false
+        var separateSideDoor = false
         var logDoorbell = true
         var logLock = true
         var log: [SensorInput: Bool] = [:]
@@ -212,6 +213,7 @@ actor AccessHub {
         hints.separateAccessMethods = hasFeature("AccessMethod.SeparateAccessory")
         hints.separateDoorbell = hasFeature("Hub.Doorbell.SeparateAccessory")
         hints.separateSensors = hasFeature("Hub.Sensors.SeparateAccessory")
+        hints.separateSideDoor = hints.hasSideDoor && hasFeature("Hub.SideDoor.SeparateAccessory")
         hints.logDoorbell = hasFeature("Log.Doorbell")
         hints.logLock = hasFeature("Log.Lock")
         if catalog.usesProxyMode { checkUltraInputs() }

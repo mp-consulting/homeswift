@@ -12,6 +12,8 @@ All notable changes to this project are documented here. The format follows
   `rename_accessory`. The name goes in its plugin's block (`_accessories`, by Device Id) and the bridge puts it on the
   accessory's Name and Configured Name, without reloading the plugin and with its aids and iids, so its room, scenes and
   automations stay. The Home app follows Configured Name; a rename made there is kept in config.json the same way.
+- UniFi Access: `Hub.SideDoor.SeparateAccessory` puts a UA Gate's side door (its lock, position sensor and trigger) on
+  an accessory of its own, with its own tile, rather than a second lock on the gate's.
 - Setup, one way to get a device into the bridge whatever its plugin: the web UI's **Add accessories** page (`/setup`)
   lists what each plugin finds and where each device stands, adds plugins, and sets up accounts and devices in one
   sheet (a hub's link button, a TV's PIN, a sign-in with its one-time code, a sign-in page's redirect, developer keys;

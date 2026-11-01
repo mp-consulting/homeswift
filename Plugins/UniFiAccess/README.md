@@ -26,8 +26,9 @@ by default; leave them off unless you want that. Homeswift's own surfaces treat 
 user confirmed, and the web UI asks first.
 
 Names follow the controller (`Device.SyncName`), including a UA Gate's door names. With
-`Hub.Sensors.SeparateAccessory`, `Hub.Doorbell.SeparateAccessory` and `AccessMethod.SeparateAccessory` the
-sensors, the doorbell and the access method switches get tiles of their own (accessory ids
+`Hub.Sensors.SeparateAccessory`, `Hub.Doorbell.SeparateAccessory`, `Hub.SideDoor.SeparateAccessory` (a UA Gate's
+side door) and `AccessMethod.SeparateAccessory` the sensors, the doorbell, the side door and the access method switches
+get tiles of their own (accessory ids
 `UniFi Access:<MAC>.<group>`); turning the option off brings them back to the hub.
 
 ## Configuration
@@ -83,6 +84,7 @@ log lists every device with its MAC at startup.
 | `Hub.DPS`, `Hub.REL`, `Hub.REN`, `Hub.REX` | on | Contact sensors for the terminal inputs (when wired) |
 | `Hub.SideDoor`, `Hub.SideDoor.DPS` | on | UA Gate: the side door lock and its position sensor |
 | `Hub.SideDoor.Lock.Trigger` | off | UA Gate: a switch for the side door lock |
+| `Hub.SideDoor.SeparateAccessory` | off | UA Gate: the side door, its sensor and trigger on an accessory of its own |
 | `AccessMethod.SeparateAccessory` | off | The access method switches on an accessory of their own |
 | `AccessMethod.Face`, `.Hand`, `.Mobile`, `.NFC`, `.PIN`, `.QR`, `.TouchPass` | on | A switch per access method the reader supports |
 | `Log.Doorbell`, `Log.DPS`, `Log.REL`, `Log.REN`, `Log.REX`, `Log.Lock` | on | Log these events |

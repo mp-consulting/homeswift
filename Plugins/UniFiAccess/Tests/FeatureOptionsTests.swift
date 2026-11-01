@@ -159,7 +159,7 @@ import Testing
         #expect(options.test("AccessMethod.Face") && !options.test("AccessMethod.SeparateAccessory"))
         #expect(!options.test("Controller.Publish.Telemetry"))
         #expect(options.groups["Hub.Doorbell"] == ["Hub.Doorbell.SeparateAccessory"])
-        #expect(options.groups["Hub.SideDoor"] == ["Hub.SideDoor.DPS", "Hub.SideDoor.Lock.Trigger"])
+        #expect(options.groups["Hub.SideDoor"] == ["Hub.SideDoor.DPS", "Hub.SideDoor.SeparateAccessory", "Hub.SideDoor.Lock.Trigger"])
 
         // Device ids (a MAC, with a port for a door of an Enterprise hub) scope; numbers are values.
         let scoped = AccessOptions.make(["Enable.Hub.LockDelayInterval.AABBCCDDEEFF", "Enable.Hub.LockDelayInterval.AABBCCDDEEFF-PORT1.10", "Disable.Controller.DelayDeviceRemoval"])

@@ -375,6 +375,26 @@ struct AccessHubTests {
         #expect(await hub.sideDoorLocationId == "door-2")
     }
 
+    /// The side door on a tile of its own: its lock (primary), its trigger and its position sensor leave the gate's
+    /// accessory, which keeps the gate; without the option they come back.
+    @Test func gateSideDoorOnItsOwnAccessory() async throws {
+        let host = try await environment.start(devices: [ugt()], doors: Self.gateDoors, options: ["Enable.Hub.SideDoor.SeparateAccessory", "Enable.Hub.SideDoor.Lock.Trigger"])
+        #expect(await eventually { accessory(host, "\(gateID).SideDoor")?.name == "Portillon" })
+        let side = try #require(accessory(host, "\(gateID).SideDoor"))
+        #expect(side.category == .doorLock)
+        #expect(side.service(.lockMechanism, "Lock.Door.Side")?.isPrimary == true)
+        #expect(side.service(.contactSensor, "ContactSensor.DPS.Side") != nil)
+        #expect(side.service(.switch, "Switch.Lock.Door.Side.Trigger") != nil)
+        let gate = try #require(accessory(host, gateID))
+        #expect(gate.service(.garageDoorOpener, nil) != nil && gate.service(.lockMechanism, "Lock.Door.Side") == nil)
+        await host.stop()
+
+        let again = try await environment.start(devices: [ugt()], doors: Self.gateDoors)
+        defer { Task { await again.stop() } }
+        #expect(await eventually { accessory(again, gateID)?.service(.lockMechanism, "Lock.Door.Side") != nil })
+        #expect(accessory(again, "\(gateID).SideDoor") == nil)
+    }
+
     @Test func gateDoorsByName() async throws {
         // No port settings: the door names decide.
         let doors: [JSONValue] = [

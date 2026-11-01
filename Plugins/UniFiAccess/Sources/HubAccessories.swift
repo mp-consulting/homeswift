@@ -26,6 +26,9 @@ extension AccessHub {
 
     func childId(_ group: String) -> String { "\(id).\(group)" }
 
+    /// A UA Gate's side door, on an accessory of its own (`Hub.SideDoor.SeparateAccessory`).
+    static let accessoryGroupSideDoor = "SideDoor"
+
     /// Builds the accessories from the hints and the state, and puts them in HomeKit. Services keep the names
     /// HomeKit has for them (renamed with the device when its name changes); the aids and iids stay.
     func rebuild() async {
@@ -94,15 +97,18 @@ extension AccessHub {
             built.contact[reserved] = service
             place(service, group: group, childName: "\(accessoryName) \(input.label)")
         }
+        // The side door's own accessory, when it has one: its lock, its trigger and its position sensor.
+        let sideDoorGroup = hints.separateSideDoor ? Self.accessoryGroupSideDoor : nil
+        let sideDoorLabel = sideDoorName.flatMap { hints.syncName ? AccessSettings.sanitizeName($0) : nil } ?? "\(accessoryName) Side Door"
         if hints.hasSideDoor, hints.hasWiringSideDoorDps {
             let reserved = AccessReservedName.contactDPSSide
-            let group = hints.separateSensors ? reserved.rawValue : nil
+            let group = hints.separateSensors ? reserved.rawValue : sideDoorGroup
             let host = group.map(childId) ?? id
             let syncedName = sideDoorName.flatMap { hints.syncName ? AccessSettings.sanitizeName($0) + " Door Position Sensor" : nil }
             let label = syncedName ?? name("\(accessoryName) Side Door Position Sensor", .contactSensor, reserved.rawValue, on: host)
             let service = contactSensor(label, reserved, state: sideDpsBacking, online: online)
             built.contact[reserved] = service
-            place(service, group: group, childName: syncedName ?? "\(accessoryName) Side Door Position Sensor")
+            place(service, group: group, childName: group == sideDoorGroup ? sideDoorLabel : syncedName ?? "\(accessoryName) Side Door Position Sensor")
         }
 
         // The door, the primary service unless the doorbell is on the same accessory.
@@ -129,16 +135,17 @@ extension AccessHub {
             }
         }
         if hints.hasSideDoor {
-            let label = sideDoorName.flatMap { hints.syncName ? AccessSettings.sanitizeName($0) : nil } ?? "\(accessoryName) Side Door"
-            let service = named(Service(.lockMechanism, name: label, subtype: AccessReservedName.lockDoorSide.rawValue, optional: [.configuredName]), label)
+            let label = sideDoorLabel
+            let service = named(Service(.lockMechanism, name: label, subtype: AccessReservedName.lockDoorSide.rawValue, optional: [.configuredName],
+                                        isPrimary: sideDoorGroup != nil), label)
             configureLock(service, side: true)
             built.sideLock = service
-            mainServices.append(service)
+            place(service, group: sideDoorGroup, childName: label)
             if hasFeature("Hub.SideDoor.Lock.Trigger") {
                 let triggerName = sideDoorName.flatMap { hints.syncName ? AccessSettings.sanitizeName($0) + " Lock Trigger" : nil } ?? "\(accessoryName) Side Door Lock Trigger"
                 let service = trigger(triggerName, .lockDoorSideTrigger, side: true)
                 built.switches[.lockDoorSideTrigger] = service
-                mainServices.append(service)
+                place(service, group: sideDoorGroup, childName: label)
             }
         }
 
@@ -177,7 +184,8 @@ extension AccessHub {
         for (group, child) in groups.sorted(by: { $0.key < $1.key }) {
             let accessory = Accessory(
                 id: childId(group), name: child.name, manufacturer: "Ubiquiti Inc.", model: model, serialNumber: "\(serial)-\(group)", firmwareRevision: firmware,
-                category: group == Self.accessoryGroupDoorbell ? .videoDoorbell : group == Self.accessoryGroupAccessMethods ? .switch : .sensor,
+                category: group == Self.accessoryGroupDoorbell ? .videoDoorbell : group == Self.accessoryGroupAccessMethods ? .switch
+                    : group == Self.accessoryGroupSideDoor ? .doorLock : .sensor,
                 services: child.services)
             built.children[group] = accessory
             accessories.append(accessory)

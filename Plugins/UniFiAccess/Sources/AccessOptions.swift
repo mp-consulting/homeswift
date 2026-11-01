@@ -78,6 +78,10 @@ enum AccessOptions {
                 "SideDoor.DPS", default: true, description: "Add a contact sensor accessory for the side door position sensor.", group: "SideDoor",
                 modelKey: DeviceCatalog.modelsSideDoor),
             FeatureOptionEntry(
+                "SideDoor.SeparateAccessory", default: false,
+                description: "Put the side door, with its position sensor and lock trigger, on a HomeKit accessory of its own so that it gets its own tile instead of sharing the gate's. Enabling this changes the identity of the side door in HomeKit, so any automations, room assignments, or names you have set for it will need to be set again.",
+                group: "SideDoor", modelKey: DeviceCatalog.modelsSideDoor),
+            FeatureOptionEntry(
                 "SideDoor.Lock.Trigger", default: false,
                 description: "Add a switch accessory to control the side door lock. This can be useful in automation scenarios where you want to work around HomeKit's security restrictions for controlling locks.",
                 group: "SideDoor", modelKey: DeviceCatalog.modelsSideDoor),
