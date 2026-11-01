@@ -44,8 +44,11 @@
     const cards = blocks.map((block) => instanceCard(block, byPlatform.get(block.platform)));
     app().show(main,
       app().pageHead(t("Add accessories"), t("What each plugin finds now. Set up the devices that ask for a code, a button or a sign-in; exclude those you do not want in the Home app.")),
-      cards.length ? el("div", { class: "setup-list" }, ...cards.map((card) => card.node)) : null,
-      catalog(plugins, blocks.length));
+      // Adding a plugin first, then what the ones in use find.
+      catalog(plugins, blocks.length),
+      cards.length ? el("section", { class: "setup-in-use", "aria-labelledby": "setup-in-use-title" },
+        el("div", { class: "section-head" }, el("h2", { id: "setup-in-use-title", text: t("Your plugins") })),
+        el("div", { class: "setup-list" }, ...cards.map((card) => card.node))) : null);
     // From a plugin's menu (/setup#<slug>): its card first in view.
     const wanted = decodeURIComponent(location.hash.slice(1));
     if (wanted) document.getElementById(`setup-${wanted}`)?.scrollIntoView({ block: "start" });

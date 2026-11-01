@@ -3705,7 +3705,6 @@ select option:disabled { color: var(--muted); }
 
 /* Add accessories (setup.js): a card per plugin, a row per device it finds, and one sheet for every Setup. */
 .setup-list { display: grid; gap: var(--space-16); }
-.setup-catalog { margin-top: var(--space-24); }
 .setup-catalog .setup-devices { margin-top: 0; border-top: 0; }
 .setup-plugin { grid-template-columns: auto minmax(0, 1fr) auto auto; }
 .setup-instance .server-head .who { flex: 1; }
