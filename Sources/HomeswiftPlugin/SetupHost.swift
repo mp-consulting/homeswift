@@ -52,7 +52,8 @@ extension PluginHost {
     }
 
     /// What the plugin of the block finds now, and whether its account is Authorized, from one plugin: each device set up
-    /// when the plugin says so, when it has credentials of its own, or when its accessory is on the bridge, and Excluded
+    /// when the plugin says so, when it has credentials and Accessory Settings of its own, or when its accessory is on the
+    /// bridge, and Excluded
     /// when its Accessory Settings say so.
     public func discover(platform: String, name: String?, block: JSONValue? = nil) async throws -> Discovery {
         try await withSetupPlugin(platform: platform, name: name, block: block) { plugin, context in
@@ -62,12 +63,15 @@ extension PluginHost {
             let devices = try await found.filter { seen.insert($0.deviceID).inserted }
             // One read of the vault's names for the account and every device.
             let authorized = context.haveCredentials([nil] + devices.filter { $0.authorization != .none }.map(\.deviceID))
+            // A device's credentials count with its Accessory Settings, as the runtime runs it (`setUpDevices`): a login
+            // left in the vault by a block removed and added again is not a device set up.
+            let configured = Set(context.allAccessorySettings.keys)
             let accessoryIDs = context.accessories.map(\.id)
             let marked = devices.map { device in
                 var device = device
                 device.isExcluded = context.isExcluded(device.deviceID)
                 let published = accessoryIDs.contains { context.isAccessory($0, of: device.deviceID) }
-                device.isSetUp = !device.isExcluded && !device.excludedBySettings && (device.isSetUp || published || authorized.contains(device.deviceID))
+                device.isSetUp = !device.isExcluded && !device.excludedBySettings && (device.isSetUp || published || authorized.contains(device.deviceID) && configured.contains(device.deviceID))
                 return device
             }
             return Discovery(devices: marked, accountAuthorized: await pluginAnswer ?? authorized.contains(nil))
