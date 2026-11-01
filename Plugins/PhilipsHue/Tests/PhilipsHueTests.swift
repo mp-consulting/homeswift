@@ -22,6 +22,11 @@ final class FakeBridge: HueTransport, @unchecked Sendable {
         var method: String
         var path: String
         var body: JSONValue
+        /// Where it went, and the application key it carried: not part of what tests compare a request with.
+        var host: String? = nil
+        var key: String? = nil
+
+        static func == (a: Sent, b: Sent) -> Bool { a.method == b.method && a.path == b.path && a.body == b.body }
     }
 
     private let state = NIOLockedValueBox<(linkButton: Bool, key: String, resources: [JSONValue], sent: [Sent], refuseKey: Bool, bridgeID: String)>(
@@ -80,7 +85,7 @@ final class FakeBridge: HueTransport, @unchecked Sendable {
         let path = request.url.path
         let body = request.body.flatMap { try? JSONValue(data: $0) } ?? .null
         let snapshot = state.withLockedValue { state in
-            state.sent.append(Sent(method: request.method, path: path, body: body))
+            state.sent.append(Sent(method: request.method, path: path, body: body, host: request.url.host, key: request.header("hue-application-key")))
             return state
         }
         func json(_ value: JSONValue, status: Int = 200) -> HomeswiftNetwork.HTTPResponse { HomeswiftNetwork.HTTPResponse(status: status, body: value.encoded(), certificateFingerprint: "aa:bb") }
@@ -281,15 +286,11 @@ struct PhilipsHueTests {
         #expect(await eventually { await plugin.storedBridge.bridgeID != nil })
         await plugin.use(host: "192.0.2.11")
         #expect(await eventually { await plugin.storedBridge.applicationKey == nil })
-        // Let a read that was already on its way land (requests stop coming), then check that none starts with the dropped key.
-        var before = -1
-        let deadline = ContinuousClock.now + .seconds(10)
-        while environment.bridge.sent.count != before, ContinuousClock.now < deadline {
-            before = environment.bridge.sent.count
-            try await Task.sleep(for: .milliseconds(300))
-        }
-        try await Task.sleep(for: .milliseconds(300))
-        #expect(!environment.bridge.sent.dropFirst(before).contains { $0.path == "/clip/v2/resource" })
+        // Nothing the plugin sends to the new address carries the dropped key (it waits for Setup to pair again). A read
+        // already on its way to the old address may still land there, so only the new address's requests count: the
+        // window can miss a late request, never fail on an early one.
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(!environment.bridge.sent.contains { $0.host == "192.0.2.11" && $0.key != nil })
         await host.stop()
     }
 
