@@ -203,6 +203,93 @@ struct ServerTests {
         await server.stop()
     }
 
+    /// As HAP-NodeJS: the reads of one request run at the same time (one slow device does not hold up the others),
+    /// the results keep the request's order, and one characteristic twice is refused.
+    @Test func readsOfOneRequestRunTogether() async throws {
+        let events = EventLog()
+        let on = lightbulb.characteristic(.on)
+        let brightness = lightbulb.characteristic(.brightness)
+        on.onRead {
+            await events.append("on started")
+            try await Task.sleep(for: .milliseconds(300))
+            await events.append("on done")
+            return .bool(true)
+        }
+        brightness.onRead {
+            await events.append("brightness started")
+            throw HAPStatusError(.resourceBusy)
+        }
+        let controller = try await pairedController()
+
+        let read = try await controller.request("GET", "/characteristics?id=2.\(on.iid),2.\(brightness.iid),2.999")
+        // Brightness started while On was still being read.
+        let lines = await events.lines
+        #expect(Set(lines.prefix(2)) == ["on started", "brightness started"])
+        #expect(lines.last == "on done")
+        #expect(read.status == 207)
+        let results = (read.json as? [String: Any])?["characteristics"] as? [[String: Any]]
+        #expect(results?.map { $0["iid"] as? Int } == [on.iid, brightness.iid, 999])
+        #expect(results?.map { $0["status"] as? Int } == [
+            HAPStatus.success.rawValue, HAPStatus.resourceBusy.rawValue, HAPStatus.resourceDoesNotExist.rawValue,
+        ])
+        #expect(results?.first?["value"] as? Bool == true)
+
+        let twice = try await controller.request("GET", "/characteristics?id=2.\(on.iid),2.\(on.iid)")
+        #expect(twice.status == 422)
+        await controller.close()
+        await server.stop()
+    }
+
+    /// As HAP-NodeJS: changes within the coalescing delay go as one event message, in order, the same value twice
+    /// in a row once; a button press goes at once and takes the queued changes with it.
+    @Test func eventsOfABurstGoAsOneMessage() async throws {
+        let on = lightbulb.characteristic(.on)
+        let brightness = lightbulb.characteristic(.brightness)
+        let controller = try await pairedController()
+        let subscribe = try await controller.json("PUT", "/characteristics", ["characteristics": [
+            ["aid": 2, "iid": on.iid, "ev": true], ["aid": 2, "iid": brightness.iid, "ev": true],
+        ]])
+        #expect(subscribe.status == 204)
+
+        on.value = true
+        brightness.value = 30
+        brightness.sendEvent(.int(30))
+        brightness.value = 40
+        let event = try await controller.nextMessage()
+        #expect(event.startLine == "EVENT/1.0 200")
+        let changed = (event.json as? [String: Any])?["characteristics"] as? [[String: Any]]
+        #expect(changed?.map { $0["iid"] as? Int } == [on.iid, brightness.iid, brightness.iid])
+        #expect(changed?.map { ($0["value"] as? NSNumber)?.intValue } == [1, 30, 40])
+        await controller.close()
+        await server.stop()
+
+        // A delay no test waits out: only the button press can send the brightness.
+        let button = Service(.statelessProgrammableSwitch, name: "Button")
+        let light = Service(.lightbulb, name: "Lamp", optional: [.brightness], isPrimary: true)
+        let lamp = Accessory(id: "lamp-2", name: "Lamp", category: .lightbulb, services: [light, button])
+        var options = HAPServer.Options(setupCode: SetupCode("031-45-154"), port: 0, advertise: false, logger: testLogger)
+        options.eventCoalescingDelay = .seconds(60)
+        let server = try HAPServer(accessory: lamp, storage: MemoryStorage(), options: options)
+        try await server.start()
+        let pressing = TestController()
+        try await pressing.connect(port: server.port!)
+        try pressing.addPairing(to: server)
+        try await pressing.pairVerify()
+        let level = light.characteristic(.brightness)
+        let press = button.characteristic(.programmableSwitchEvent)
+        let subscribed = try await pressing.json("PUT", "/characteristics", ["characteristics": [
+            ["aid": 1, "iid": level.iid, "ev": true], ["aid": 1, "iid": press.iid, "ev": true],
+        ]])
+        #expect(subscribed.status == 204)
+        level.value = 70
+        press.sendEvent(.int(0))
+        let pressed = try await pressing.nextMessage()
+        let both = (pressed.json as? [String: Any])?["characteristics"] as? [[String: Any]]
+        #expect(both?.map { $0["iid"] as? Int } == [level.iid, press.iid])
+        await pressing.close()
+        await server.stop()
+    }
+
     @Test func timesRequestsAndHandlers() async throws {
         let timings = TimingLog()
         server.observeTimings { timings.append($0) }

@@ -11,45 +11,78 @@ extension HAPConnection {
         let type = query["type"] == "1"
         let ev = query["ev"] == "1"
 
+        var keys: [CharacteristicKey] = []
+        for pair in ids.split(separator: ",") {
+            let parts = pair.split(separator: ".")
+            guard parts.count == 2, let aid = Int(parts[0]), let iid = Int(parts[1]) else {
+                return .hapStatus(400, .invalidValueInRequest)
+            }
+            keys.append(CharacteristicKey(aid: aid, iid: iid))
+        }
+        // As HAP-NodeJS: the same characteristic twice in one request is refused, since the reads run together.
+        guard Set(keys).count == keys.count else { return .hapStatus(422, .invalidValueInRequest) }
+
         var results: [CharacteristicJSON] = []
-        var failed = false
         // Built once for the request, not for each characteristic.
         let requestContext = requestContext
         // The accessories read, for the timing observers.
         let start = ContinuousClock.now
         var read: Set<Int> = []
         defer { if !read.isEmpty { server.recordTiming(.request, aids: read, since: start) } }
-        for pair in ids.split(separator: ",") {
-            let parts = pair.split(separator: ".")
-            guard parts.count == 2, let aid = Int(parts[0]), let iid = Int(parts[1]) else {
-                return .hapStatus(400, .invalidValueInRequest)
-            }
-            guard let characteristic = server.characteristic(aid: aid, iid: iid) else {
-                results.append(CharacteristicJSON(aid: aid, iid: iid, status: .resourceDoesNotExist))
-                failed = true
+        // The reads to run: the result's index and the characteristic.
+        var reads: [(index: Int, characteristic: Characteristic)] = []
+        for key in keys {
+            guard let characteristic = server.characteristic(aid: key.aid, iid: key.iid) else {
+                results.append(CharacteristicJSON(aid: key.aid, iid: key.iid, status: .resourceDoesNotExist))
                 continue
             }
             guard characteristic.type.permissions.contains(.pairedRead) else {
-                results.append(CharacteristicJSON(aid: aid, iid: iid, status: .writeOnlyCharacteristic))
-                failed = true
+                results.append(CharacteristicJSON(aid: key.aid, iid: key.iid, status: .writeOnlyCharacteristic))
                 continue
             }
-            read.insert(aid)
+            read.insert(key.aid)
+            reads.append((results.count, characteristic))
+            results.append(CharacteristicJSON(aid: key.aid, iid: key.iid))
+        }
+
+        // As HAP-NodeJS, the reads of one request run at the same time: the Home app asks for every tile on screen in
+        // one request, and one slow device must not hold up the others' values. One read runs in place.
+        let origin = id
+        let perform = { @Sendable (read: (index: Int, characteristic: Characteristic)) async -> (Int, Characteristic, HAPStatus?) in
+            let characteristic = read.characteristic
             do {
                 if characteristic.showsNoResponse { throw HAPStatusError(.serviceCommunicationFailure) }
                 if let handler = characteristic.readHandler {
                     let value = try await HAPRequestContext.$current.withValue(requestContext) { try await characteristic.timed(handler) }
-                    characteristic.update(value, origin: id, force: false, reason: .read)
+                    characteristic.update(value, origin: origin, force: false, reason: .read)
                 }
-                var entry = CharacteristicJSON(
-                    describing: characteristic, includeValue: true, includeMeta: meta, includePerms: perms, includeType: type)
-                entry.aid = aid
-                if ev { entry.ev = isSubscribed(to: CharacteristicKey(aid: aid, iid: iid)) }
-                results.append(entry)
+                return (read.index, characteristic, nil)
             } catch {
-                results.append(CharacteristicJSON(aid: aid, iid: iid, status: Self.status(for: error)))
-                failed = true
+                return (read.index, characteristic, Self.status(for: error))
             }
+        }
+        var outcomes: [(Int, Characteristic, HAPStatus?)] = []
+        if reads.count == 1 {
+            outcomes = [await perform(reads[0])]
+        } else if reads.count > 1 {
+            outcomes = await withTaskGroup(of: (Int, Characteristic, HAPStatus?).self) { group in
+                for read in reads { group.addTask { await perform(read) } }
+                return await group.reduce(into: []) { $0.append($1) }
+            }
+        }
+        var failed = results.contains { $0.status != nil }
+        for (index, characteristic, status) in outcomes {
+            if let status {
+                results[index].status = status.rawValue
+                failed = true
+                continue
+            }
+            let key = keys[index]
+            var entry = CharacteristicJSON(
+                describing: characteristic, includeValue: true, includeMeta: meta, includePerms: perms, includeType: type)
+            entry.aid = key.aid
+            if ev { entry.ev = isSubscribed(to: key) }
+            results[index] = entry
         }
         if failed {
             for index in results.indices where results[index].status == nil {

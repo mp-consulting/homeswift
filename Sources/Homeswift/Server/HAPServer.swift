@@ -41,6 +41,9 @@ public final class HAPServer: @unchecked Sendable {
         /// Interface names or IPv4 addresses the built-in responder advertises on (Homebridge's `bind`); empty
         /// for every interface.
         public var interfaces: [String] = []
+        /// How long a connection holds characteristic events to send them as one message (HAP-NodeJS's
+        /// `EVENT_COALESCING_DELAY`): a scene changing 30 lights sends a few events, not 30. Button presses go at once.
+        public var eventCoalescingDelay: TimeAmount = .milliseconds(250)
         public var logger: Logger
 
         public init(
@@ -640,11 +643,13 @@ extension HAPServer {
         }
         // A subscription made before it was hidden hears nothing more: HomeKit no longer has it.
         guard !hidden else { return }
-        let targets = connections.filter { $0.id != origin && $0.isSubscribed(to: key) }
-        guard !targets.isEmpty else { return }
-        let event = CharacteristicsJSON(characteristics: [CharacteristicJSON(aid: key.aid, iid: key.iid, value: value)])
-        let message = HTTPResponse.json(200, event).serialized(protocol: "EVENT/1.0")
-        for connection in targets { connection.sendEvent(message) }
+        // As HAP-NodeJS, button presses are delivered at once (they take the queued events with them), the rest after
+        // `eventCoalescingDelay`.
+        let uuid = characteristic.type.uuid
+        let immediate = uuid == CharacteristicType.buttonEvent.uuid || uuid == CharacteristicType.programmableSwitchEvent.uuid
+        for connection in connections where connection.id != origin {
+            connection.queueEvent(key, value: value, immediate: immediate, delay: options.eventCoalescingDelay)
+        }
     }
 }
 
