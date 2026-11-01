@@ -37,6 +37,17 @@ import Testing
 
     /// A console's login: asked, refused with an error the person answers again, then kept for the controller's MAC with
     /// its address.
+    /// A controller set up through Setup but not reached yet is still known by the MAC Setup kept for its address.
+    @Test func aControllerNotReachedYetKeepsItsDeviceId() async throws {
+        let environment = AccessTestEnvironment()
+        let host = try environment.host(settings: ["_accessories": ["AABBCCDDEE01": ["address": "10.0.0.7"]]])
+        try await host.start()
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        #expect(await plugin.setUpDeviceID(address: "10.0.0.7") == "AABBCCDDEE01")
+        #expect(await plugin.setUpDeviceID(address: "10.0.0.8") == nil)
+    }
+
     @Test func signsInToAConsole() async throws {
         let host = try environment.host(settings: [:])
         try await host.start()

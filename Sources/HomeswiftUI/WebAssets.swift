@@ -14150,6 +14150,9 @@ HomeswiftI18n.add("es", {
   "Status light switch": "Interruptor de la luz de estado",
   "Night vision dimmer": "Regulador de la visión nocturna",
   "Recording switch": "Interruptor de grabación",
+  "Open a plugin to set up its devices, or add one for another brand.": "Abre un plugin para configurar sus dispositivos, o añade uno para otra marca.",
+  "Not set up yet": "Aún sin configurar",
+  "No devices found": "No se encontraron dispositivos",
   "Your plugins": "Tus plugins",
   "Search your plugins": "Buscar en tus plugins",
   "Sort your plugins": "Ordenar tus plugins",
@@ -16847,6 +16850,9 @@ HomeswiftI18n.add("fr", {
   "Status light switch": "Interrupteur du voyant d'état",
   "Night vision dimmer": "Variateur de la vision nocturne",
   "Recording switch": "Interrupteur d'enregistrement",
+  "Open a plugin to set up its devices, or add one for another brand.": "Ouvrez un plugin pour configurer ses appareils, ou ajoutez-en un pour une autre marque.",
+  "Not set up yet": "Pas encore configuré",
+  "No devices found": "Aucun appareil trouvé",
   "Your plugins": "Vos plugins",
   "Search your plugins": "Rechercher dans vos plugins",
   "Sort your plugins": "Trier vos plugins",
@@ -19544,6 +19550,9 @@ HomeswiftI18n.add("pt", {
   "Status light switch": "Interruptor da luz de estado",
   "Night vision dimmer": "Regulador da visão noturna",
   "Recording switch": "Interruptor de gravação",
+  "Open a plugin to set up its devices, or add one for another brand.": "Abra um plugin para configurar os seus dispositivos, ou adicione um para outra marca.",
+  "Not set up yet": "Ainda não configurado",
+  "No devices found": "Nenhum dispositivo encontrado",
   "Your plugins": "Os seus plugins",
   "Search your plugins": "Pesquisar nos seus plugins",
   "Sort your plugins": "Ordenar os seus plugins",
@@ -22655,16 +22664,16 @@ HomeswiftI18n.add("pt", {
     const plugins = await api("/api/plugins");
     const byPlatform = new Map(plugins.plugins.map((plugin) => [plugin.platform, plugin]));
     const blocks = plugins.blocks.filter((block) => !block.system && byPlatform.has(block.platform));
-    const cards = blocks.map((block) => instanceCard(block, byPlatform.get(block.platform)));
-    app().show(main,
-      app().pageHead(t("Add accessories"), t("What each plugin finds now. Set up the devices that ask for a code, a button or a sign-in; exclude those you do not want in the Home app.")),
-      // Adding a plugin first, then what the ones in use find.
-      catalog(plugins, blocks.length),
-      cards.length ? el("section", { class: "setup-in-use", "aria-labelledby": "setup-in-use-title" },
-        el("div", { class: "section-head" }, el("h2", { id: "setup-in-use-title", text: t("Your plugins") })),
-        el("div", { class: "setup-list" }, ...cards.map((card) => card.node))) : null);
-    // From a plugin's menu (/setup#<slug>): its card first in view.
     const wanted = decodeURIComponent(location.hash.slice(1));
+    const cards = blocks.map((block) => instanceCard(block, byPlatform.get(block.platform), { open: blocks.length === 1 || block.slug === wanted }));
+    // The plugins in use, one row each, and a way to add another; before any, the brands to start from.
+    const add = el("button", { type: "button", class: "primary", actionIcon: "plus", text: t("Add a plugin"), onclick: (event) => pickPlugin(plugins, event.currentTarget) });
+    app().show(main,
+      cards.length
+        ? app().pageHead(t("Add accessories"), t("Open a plugin to set up its devices, or add one for another brand."), add)
+        : app().pageHead(t("Add accessories"), t("Start with the brand of your devices.")),
+      cards.length ? el("div", { class: "setup-list" }, ...cards.map((card) => card.node)) : brandGrid(plugins));
+    // From a plugin's menu (/setup#<slug>): its card in view, open.
     const card = wanted ? document.getElementById(`setup-${wanted}`) : null;
     const reveal = () => card?.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
     reveal();
@@ -22679,75 +22688,111 @@ HomeswiftI18n.add("pt", {
     await Promise.all(cards.map((one) => one.load().then(() => { if (one.node === card) reveal(); })));
   }
 
-  /// The plugins compiled in, to add from here: one with an account opens its Setup at once (the block is saved when
-  /// it is done), one without is added as it is and its card looks for devices. Those not in use yet come first.
-  function catalog(plugins, inUse) {
+  /// The plugins compiled in that can be added: one with an account opens its Setup at once (the block is saved when it
+  /// is done), one without is added as it is and its card looks for devices. Those not in use yet come first.
+  const addablePlugins = (plugins) => {
     const used = (plugin) => plugins.blocks.some((block) => block.platform === plugin.platform);
     // System platforms (the Assistant) have no Setup: their settings are elsewhere.
-    const addable = plugins.plugins.filter((plugin) => plugin.accountAuthorization)
-      .sort((a, b) => Number(used(a)) - Number(used(b)) || a.name.localeCompare(b.name));
-    async function add(plugin, button) {
-      const block = { platform: plugin.platform, name: app().uniqueName(plugin.name, plugins.blocks) };
-      // Drawn again with the new plugin's card in view: it goes at the end of the list, under the catalog.
-      const redraw = () => {
-        const slug = HomeswiftCommon.slug(block.name);
-        history.replaceState({ added: slug }, "", `/setup#${encodeURIComponent(slug)}`);
-        app().route();
-      };
-      if (plugin.accountAuthorization !== "none") { open({ block, plugin, draft: true, firstTime: true, trigger: button, after: redraw }); return; }
-      await HomeswiftCommon.busyButton(button, async () => {
-        await api(`/api/config/block/${encodeURIComponent(block.platform)}/${encodeURIComponent(block.name)}`, { method: "POST", body: {} });
-        redraw();
-      });
-    }
-    // A brand's card: what it reaches, and how it connects (a sign-in, a button on a hub, nothing).
-    const cards = addable.map((plugin) => {
-      const how = methods[plugin.accountAuthorization];
-      const card = el("button", { type: "button", class: "setup-brand", onclick: (event) => add(plugin, event.currentTarget),
-        "aria-label": used(plugin) ? t("Add another {name}", { name: plugin.name }) : t("Add {name}", { name: plugin.name }) },
-        tile(plugin.icon ?? "plugin", "orange"),
-        el("span", { class: "setup-brand-name" }, el("span", { text: plugin.name }), used(plugin) ? el("span", { class: "setup-brand-used", text: t("In use [used]") }) : null),
-        plugin.summary ? el("span", { class: "setup-brand-summary muted", text: t(plugin.summary) }) : null,
-        el("span", { class: "setup-brand-how muted" }, HomeswiftCommon.icon(how[1]), plugin.accountAuthorization === "none" ? t("Nothing to sign in to") : how[0]()));
-      card.dataset.search = `${plugin.name} ${t(plugin.summary ?? "")} ${plugin.summary ?? ""}`.toLowerCase();
-      return card;
-    });
+    return plugins.plugins.filter((plugin) => plugin.accountAuthorization)
+      .map((plugin) => ({ plugin, used: used(plugin) }))
+      .sort((a, b) => Number(a.used) - Number(b.used) || a.plugin.name.localeCompare(b.plugin.name));
+  };
+
+  async function addPlugin(plugins, plugin, trigger) {
+    const block = { platform: plugin.platform, name: app().uniqueName(plugin.name, plugins.blocks) };
+    // Drawn again with the new plugin's card in view, open.
+    const redraw = () => {
+      const slug = HomeswiftCommon.slug(block.name);
+      history.replaceState({ added: slug }, "", `/setup#${encodeURIComponent(slug)}`);
+      app().route();
+    };
+    if (plugin.accountAuthorization !== "none") { open({ block, plugin, draft: true, firstTime: true, trigger, after: redraw }); return; }
+    try {
+      await api(`/api/config/block/${encodeURIComponent(block.platform)}/${encodeURIComponent(block.name)}`, { method: "POST", body: {} });
+      redraw();
+    } catch (e) { HomeswiftCommon.showAlert(e.message); }
+  }
+
+  /// How a plugin connects, in a few words: a sign-in, a button on a hub, nothing.
+  const howItConnects = (plugin) => plugin.accountAuthorization === "none" ? t("Nothing to sign in to") : methods[plugin.accountAuthorization][0]();
+
+  /// A search over a list of plugins: hides those that do not match every word, and says when none does.
+  function searchOver(items, text) {
     const none = el("p", { class: "muted setup-none", hidden: true, text: t("No plugin matches.") });
     const search = el("input", { type: "search", class: "search setup-search", placeholder: t("Search plugins"), "aria-label": t("Search plugins"),
       oninput: () => {
         const words = search.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
         let shown = 0;
-        for (const card of cards) shown += (card.hidden = !words.every((word) => card.dataset.search.includes(word))) ? 0 : 1;
+        for (const [index, item] of items.entries()) shown += (item.hidden = !words.every((word) => text[index].includes(word))) ? 0 : 1;
         none.hidden = shown > 0;
       } });
-    return el("section", { class: "setup-catalog", "aria-labelledby": "setup-catalog-title" },
-      el("div", { class: "section-head" }, el("h2", { id: "setup-catalog-title", text: t("Add a plugin") }),
-        el("span", { class: "muted", text: inUse ? t("For devices none of yours reaches yet.") : t("Start with the brand of your devices.") })),
-      addable.length > 6 ? search : null,
-      el("div", { class: "setup-brands" }, ...cards), none);
+    return { search, none };
+  }
+  const searchText = (plugin) => `${plugin.name} ${t(plugin.summary ?? "")} ${plugin.summary ?? ""}`.toLowerCase();
+
+  /// Before any plugin: the brands, each a card with its name and how it connects.
+  function brandGrid(plugins) {
+    const addable = addablePlugins(plugins);
+    const cards = addable.map(({ plugin }) => el("button", { type: "button", class: "setup-brand", title: plugin.summary ? t(plugin.summary) : "",
+      onclick: (event) => addPlugin(plugins, plugin, event.currentTarget), "aria-label": t("Add {name}", { name: plugin.name }) },
+      tile(plugin.icon ?? "plugin", "orange"),
+      el("span", { class: "setup-brand-name", text: plugin.name }),
+      el("span", { class: "setup-brand-how muted", text: howItConnects(plugin) })));
+    const { search, none } = searchOver(cards, addable.map(({ plugin }) => searchText(plugin)));
+    return el("section", { class: "setup-catalog", "aria-label": t("Add a plugin") }, search, el("div", { class: "setup-brands" }, ...cards), none);
+  }
+
+  /// Adding a plugin once some are in use: a sheet listing the brands, with a search; the one picked starts its Setup.
+  function pickPlugin(plugins, trigger) {
+    const addable = addablePlugins(plugins);
+    app().openSheet((dismiss) => {
+      const rows = addable.map(({ plugin, used }) => el("button", { type: "button", class: "setup-plugin-row", onclick: () => dismiss(plugin) },
+        tile(plugin.icon ?? "plugin", "orange"),
+        el("span", { class: "who" }, el("strong", {}, plugin.name, used ? el("span", { class: "setup-brand-used", text: t("In use [used]") }) : null),
+          el("span", { class: "muted", text: plugin.summary ? t(plugin.summary) : howItConnects(plugin) })),
+        el("span", { class: "setup-chevron", "aria-hidden": "true" })));
+      const { search, none } = searchOver(rows, addable.map(({ plugin }) => searchText(plugin)));
+      queueMicrotask(() => search.focus());
+      return el("div", { class: "account-form setup-picker" },
+        el("h2", { id: "setup-picker-title", text: t("Add a plugin") }),
+        search, el("div", { class: "setup-plugin-rows" }, ...rows), none);
+    }, "setup-picker-title", {
+      returnFocus: trigger,
+      // The picked plugin's Setup opens once this sheet has gone.
+      onClose: (plugin) => { if (plugin) addPlugin(plugins, plugin, trigger); else trigger?.focus(); },
+    });
   }
 
   /// A wait for a plugin, its ring turning beside what it is waiting for.
   const loading = (text) => el("p", { class: "setup-loading muted" }, el("span", { class: "spinner", "aria-hidden": "true" }), el("span", { text }));
 
-  /// One plugin instance: its account, when it has one, and the devices it finds. What needs a person shows; the
-  /// devices already set up or excluded fold under a count. A card that needs someone moves to the top of the list.
-  function instanceCard(block, plugin) {
+  /// One plugin instance, one row: its name and where its devices stand. Opened, its account when it has one and the
+  /// devices it finds, each with what can be done. One that needs someone opens and moves to the top of the list.
+  function instanceCard(block, plugin, { open: openAtFirst = false } = {}) {
     const list = el("div", { class: "setup-devices", "aria-live": "polite" }, loading(t("Looking for devices…")));
-    // Under the name, where its devices stand; the plugin until then, when the name does not say it already.
-    const summary = el("div", { class: "muted", text: bare(block.name) === bare(plugin.name) ? "" : plugin.name });
-    let folded = false;
+    // Under the name, where its devices stand.
+    const summary = el("span", { class: "muted", text: t("Looking for devices…") });
     const action = accountActions[plugin.accountAuthorization];
     let accountSetUp = false;
-    const find = el("button", { actionIcon: "search", text: t("Find again"), onclick: () => load() });
-    // Once the account is set up, doing it again is in the menu: the list is what the card is for then.
-    const again = action ? menuButton(t("Actions for {name}", { name: block.name }),
-      () => [{ label: action[accountSetUp ? 1 : 0](), icon: action[2], onSelect: () => open({ block, plugin, firstTime: !accountSetUp, after: load }) }]) : null;
-    const node = el("section", { class: "card setup-instance", id: `setup-${block.slug}`, "aria-label": block.name },
-      el("div", { class: "server-head" }, tile(block.icon ?? plugin.icon ?? "plugin", "orange"),
-        el("div", { class: "who" }, el("strong", { text: block.name }), summary),
-        el("div", { class: "setup-tools" }, find, again)),
-      list);
+    // Looking again, and the account's sign-in once it is set up, are in the menu: the row stays one line.
+    const menu = menuButton(t("Actions for {name}", { name: block.name }), () => [
+      { label: t("Find again"), icon: "search", onSelect: () => { setOpen(true); load(); } },
+      action ? { label: action[accountSetUp ? 1 : 0](), icon: action[2], onSelect: () => open({ block, plugin, firstTime: !accountSetUp, after: load }) } : null,
+    ].filter(Boolean));
+    const bodyID = `setup-${block.slug}-devices`;
+    // The row opens and closes it; its menu sits beside the chevron.
+    const toggle = el("button", { type: "button", class: "setup-instance-toggle", "aria-expanded": "false", "aria-controls": bodyID },
+      tile(block.icon ?? plugin.icon ?? "plugin", "orange"),
+      el("span", { class: "who" }, el("strong", { text: block.name }), summary));
+    const chevron = el("span", { class: "setup-chevron", "aria-hidden": "true" });
+    const head = el("div", { class: "setup-instance-head" }, toggle, menu, chevron);
+    const body = el("div", { class: "setup-instance-body", id: bodyID, hidden: true }, list);
+    const node = el("section", { class: "card setup-instance", id: `setup-${block.slug}`, "aria-label": block.name }, head, body);
+    const setOpen = (on) => { body.hidden = !on; toggle.setAttribute("aria-expanded", String(on)); node.classList.toggle("is-open", on); };
+    let touched = false;
+    toggle.addEventListener("click", () => { touched = true; setOpen(body.hidden); });
+    chevron.addEventListener("click", () => toggle.click());
+    setOpen(openAtFirst);
 
     /// The account's row, first, while it is not set up: nothing else works before it.
     const accountRow = () => el("div", { class: "setup-device setup-account" },
@@ -22765,8 +22810,7 @@ HomeswiftI18n.add("pt", {
       const busy = searches > 0;
       node.classList.toggle("is-searching", busy);
       list.toggleAttribute("aria-busy", busy);
-      find.classList.toggle("busy", busy);
-      find.disabled = busy;
+      if (busy) { summary.textContent = t("Looking for devices…"); summary.dataset.tone = ""; }
     };
 
     async function load() {
@@ -22780,20 +22824,19 @@ HomeswiftI18n.add("pt", {
         const known = new Set(found.devices.map((device) => device.deviceID));
         const rows = waiting.map((device) => deviceRow(block, plugin, device, load, known));
         if (action && !accountSetUp) rows.unshift(accountRow());
-        if (settled.length) {
-          const excluded = settled.filter((device) => device.status === "excluded").length;
-          const fold = el("details", { class: "setup-fold", open: folded || (!rows.length && settled.length <= 3) },
-            el("summary", {}, el("span", { text: [tn("{n} set up", "{n} set up [plural]", settled.length - excluded), excluded ? tn("{n} excluded", "{n} excluded [plural]", excluded) : null].filter(Boolean).join(" · ") })),
-            el("div", { class: "setup-devices" }, ...settled.map((device) => deviceRow(block, plugin, device, load, known))));
-          fold.addEventListener("toggle", () => { folded = fold.open; });
-          rows.push(fold);
-        }
+        rows.push(...settled.map((device) => deviceRow(block, plugin, device, load, known)));
+        const excluded = settled.filter((device) => device.status === "excluded").length;
         if (!found.devices.length) rows.push(el("p", { class: "muted setup-none", text: action && !accountSetUp
           ? t("Its devices show here once it is set up.") : t("This plugin finds no devices by itself: its settings name them.") }));
         list.replaceChildren(...rows);
         const attention = waiting.length + (action && !accountSetUp ? 1 : 0);
-        summary.textContent = attention ? tn("Needs you once", "Needs you {n} times", attention) : bare(block.name) === bare(plugin.name) ? "" : plugin.name;
+        summary.textContent = attention ? tn("Needs you once", "Needs you {n} times", attention)
+          : settled.length ? [tn("{n} set up", "{n} set up [plural]", settled.length - excluded), excluded ? tn("{n} excluded", "{n} excluded [plural]", excluded) : null].filter(Boolean).join(" · ")
+          : action && !accountSetUp ? t("Not set up yet") : t("No devices found");
+        summary.dataset.tone = attention ? "away" : "";
         node.classList.toggle("needs-you", attention > 0);
+        // What needs someone is shown, unless they closed it themselves.
+        if (attention && !touched) setOpen(true);
       } catch (e) {
         list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));
       } finally {
@@ -26836,10 +26879,9 @@ select option:disabled { color: var(--muted); }
   transition: transform 160ms var(--ease-out), border-color 160ms var(--ease-out);
 }
 .setup-brand[hidden] { display: none; }
-.setup-brand > .tile { grid-row: span 3; }
+.setup-brand > .tile { grid-row: span 2; }
 .setup-brand-name { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-6); font-weight: var(--weight-semibold); }
 .setup-brand-used { font-size: var(--text-2xs); font-weight: var(--weight-medium); color: var(--muted); padding: 1px var(--space-6); border: 1px solid var(--line); border-radius: var(--radius-pill); }
-.setup-brand-summary { font-size: var(--text-xs); line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .setup-brand-how { display: inline-flex; align-items: center; gap: 5px; margin-top: var(--space-4); font-size: var(--text-xs); }
 .setup-brand-how svg { width: 13px; height: 13px; flex: none; }
 @media (hover: hover) and (pointer: fine) { .setup-brand:hover { border-color: color-mix(in srgb, var(--accent) 45%, transparent); } }
@@ -26850,11 +26892,9 @@ select option:disabled { color: var(--muted); }
   .setup-brand { grid-template-columns: minmax(0, 1fr); padding: var(--space-12); row-gap: var(--space-4); }
   .setup-brand > .tile { grid-row: auto; width: 34px; height: 34px; margin-bottom: var(--space-4); }
   .setup-brand > .tile svg { width: 19px; height: 19px; }
-  .setup-brand-summary { display: none; }
   .setup-brand-how { margin-top: 0; }
 }
 /* A plugin that needs someone comes first; its devices set up or excluded fold under their count. */
-.setup-in-use { margin-top: var(--space-24); }
 .setup-instance.needs-you { order: -1; }
 /* A plugin just added: its card glows once, where the page scrolled to. */
 @media (prefers-reduced-motion: no-preference) {
@@ -26864,11 +26904,39 @@ select option:disabled { color: var(--muted); }
 @media (prefers-reduced-motion: reduce) {
   .setup-instance.just-added { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); }
 }
-.setup-fold > summary { cursor: pointer; padding: var(--space-10) 0; color: var(--muted); font-size: var(--text-sm); }
-.setup-fold > .setup-devices { margin-top: 0; }
-.setup-devices > .setup-fold:first-child { border-top: 0; }
-.setup-instance .server-head .who { flex: 1; }
-.setup-tools { display: flex; gap: var(--space-8); flex: none; }
+/* A plugin in use: one row, its name and where its devices stand; the whole row opens it on its devices. */
+.setup-list > .setup-instance { padding: 0; }
+.setup-instance-head { display: flex; align-items: center; gap: var(--space-10); padding-right: var(--space-18); border-radius: inherit; }
+.setup-instance-toggle {
+  flex: 1; min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-12); align-items: center;
+  min-height: 0; padding: var(--space-14) 0 var(--space-14) var(--space-18); border: 0; border-radius: inherit; background: none; box-shadow: none;
+  font: inherit; color: var(--text); text-align: left; white-space: normal;
+}
+.setup-instance-toggle .who { display: grid; gap: 2px; min-width: 0; }
+.setup-instance-toggle .who strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.setup-instance-toggle .who .muted { font-size: var(--text-sm); }
+.setup-instance-toggle .who .muted[data-tone="away"] { color: var(--warn); font-weight: var(--weight-medium); }
+@media (hover: hover) and (pointer: fine) { .setup-instance-head:has(.setup-instance-toggle:hover) { background: var(--material-thin); } }
+.setup-chevron { flex: none; width: 8px; height: 8px; margin: 0 var(--space-4); border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
+  transform: rotate(-45deg); transition: transform 200ms var(--ease-out); cursor: pointer; }
+.setup-instance.is-open .setup-chevron { transform: rotate(45deg); }
+.setup-instance-body { padding: 0 var(--space-18) var(--space-12); }
+.setup-instance-body > .setup-devices { margin-top: 0; }
+/* Adding a plugin: the brands in a sheet, one row each, with what they reach. */
+.setup-picker > h2 { margin-bottom: var(--space-12); }
+.setup-picker .setup-search { max-width: none; }
+.setup-plugin-rows { display: grid; }
+.setup-plugin-row {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--space-12); align-items: center; width: 100%; min-height: 0;
+  padding: var(--space-10) var(--space-6); border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: none; box-shadow: none;
+  font: inherit; color: var(--text); text-align: left; white-space: normal;
+}
+.setup-plugin-row[hidden] { display: none; }
+.setup-plugin-row .who { display: grid; gap: 2px; min-width: 0; }
+.setup-plugin-row .who strong { display: flex; align-items: center; gap: var(--space-6); }
+.setup-plugin-row .who .muted { font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (hover: hover) and (pointer: fine) { .setup-plugin-row:hover { background: var(--material-thin); } }
+.setup-plugin-row:active { background: var(--material-thin); }
 .setup-devices { display: grid; margin-top: var(--space-12); border-top: 1px solid var(--line); }
 .setup-device { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto; gap: var(--space-12); align-items: center; padding: var(--space-10) 0; border-bottom: 1px solid var(--line); }
 .setup-device:last-child { border-bottom: 0; }
@@ -26973,8 +27041,6 @@ select option:disabled { color: var(--muted); }
   @keyframes setup-check-in { from { opacity: 0; transform: scale(0.85); } }
 }
 @media (max-width: 640px) {
-  .setup-instance .server-head { flex-wrap: wrap; }
-  .setup-tools { width: 100%; }
   /* The dot and the menu stay on the name's line; a pill and a button go under the name. */
   .setup-device { grid-template-columns: auto minmax(0, 1fr) auto auto; row-gap: var(--space-8); }
   .setup-device > .status-dot { grid-row: 1; grid-column: 3; }

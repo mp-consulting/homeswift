@@ -399,16 +399,18 @@ another change; a plugin's own page and **Pause** write without the check.
 `/setup`, from the Accessories page's **Add accessories** (a plus alone on a phone), an empty wall, and a plugin card's
 ⋯ (`/setup#<slug>`), for administrators.
 
-**Add a plugin**, at the top, is a card per plugin compiled in, those not in use first, with what it reaches and how it
-connects (a sign-in, keys, a button on a hub, nothing to sign in to); a search narrows them. On a phone the cards are two
-a row, without what they reach. A card with an account opens its Setup at once, and its block is saved when the Setup is
-done; one without an account is added as it is, and its card looks for its devices.
+Each plugin in use is one row: its name and where its devices stand ("10 set up · 1 excluded", or "Needs you once" in
+orange). A row opens on its devices; its ⋯ beside the chevron looks for devices again (**Find again**) and signs in to its account
+again. One that needs someone opens by itself and comes first, and when there is only one plugin it is open. Opened, a plugin whose account is not set up yet
+(a hub not paired, a cloud not signed in) leads with that row, as nothing else works before it; then each device that
+needs a code, a button or a sign-in, with **Set up**; then the devices set up, a quiet dot each, and those excluded.
+While a plugin looks for devices, its row says so and its devices dim.
 
-**Your plugins** follow: each plugin block with what its plugin finds now. What needs someone shows: an account not set
-up yet (a hub not paired, a cloud not signed in) leads with its row, as nothing else works before it, then each device
-that needs a code, a button or a sign-in, with **Set up**. The devices set up and those excluded fold under their count
-("8 set up · 2 excluded"), where a quiet dot marks one set up. A plugin that needs someone says how many times under its
-name and moves to the top of the list. While a plugin looks for devices, its card's **Find again** turns and its rows dim.
+**Add a plugin**, at the top right, opens a sheet listing the plugins compiled in, those not in use first, each with
+what it reaches, and a search. A plugin with an account opens its Setup at once, and its block is saved when the Setup
+is done; one without an account is added as it is, and the page scrolls to its row, open. Before any plugin is set up,
+the page shows the brands themselves, two a row on a phone, with how each connects (a sign-in, keys, a button on a hub,
+nothing to sign in to).
 
 **Set up** opens one sheet, the same for every plugin, with the plugin's tile, its name and where the Setup stands: the
 sign-in (or the pairing), the devices, done. It draws what the plugin asks ([Setup](plugins.md#setup)): the link button to

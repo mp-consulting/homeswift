@@ -104,8 +104,14 @@ extension UniFiAccessPlugin {
     }
 
     /// A controller as a device: by its MAC once it is known, else by its address.
+    /// The Device Id Setup kept for a controller at `address` (its MAC, in Accessory Settings with that `address`): a
+    /// controller not reached yet is still the one set up, not a console asking for a login.
+    func setUpDeviceID(address: String) -> String? {
+        context.allAccessorySettings.first { $0.value.plugin["address"]?.stringValue?.trimmingCharacters(in: .whitespaces).lowercased() == address.lowercased() }?.key
+    }
+
     private func controllerDevice(mac: String?, name: String, address: String, isSetUp: Bool) -> DiscoveredDevice {
-        DiscoveredDevice(deviceID: mac ?? "address:\(address)", name: name, model: "UniFi Access", address: address, authorization: .accountLogin,
+        DiscoveredDevice(deviceID: mac ?? setUpDeviceID(address: address) ?? "address:\(address)", name: name, model: "UniFi Access", address: address, authorization: .accountLogin,
                          isSetUp: isSetUp, excludedBySettings: mac.map { !configuredOptions.test("Device", device: $0, controller: $0) } ?? false)
     }
 
