@@ -407,7 +407,8 @@ struct AccessoryTests {
         #expect(outlet[EveCharacteristic.voltage] != nil && outlet[EveCharacteristic.electricCurrent] != nil)
         environment.push("1000aaaaaa", ["power": "12.5", "voltage": "231.5", "current": "0.06"])
         #expect(await eventually { outlet[.outletInUse]?.value == true })
-        #expect(await eventually { outlet[EveCharacteristic.currentConsumption]?.value == 13 && outlet[EveCharacteristic.voltage]?.value == 231.5 })
+        // On the types' steps, as on Homebridge: whole watts and volts.
+        #expect(await eventually { outlet[EveCharacteristic.currentConsumption]?.value == 13 && outlet[EveCharacteristic.voltage]?.value == 232.0 })
         environment.push("1000aaaaaa", ["power": "2"])
         #expect(await eventually { outlet[.outletInUse]?.value == false })
         await host.stop()

@@ -34,7 +34,7 @@ extension HAPConnection {
     private func pairSetupStart() -> HTTPResponse {
         let claim = server.state.withLockedValue { state -> TLVError? in
             if !state.persisted.pairings.isEmpty { return .unavailable }
-            if state.failedPairSetupAttempts >= 100 { return .maxTries }
+            if state.persisted.failedPairSetupAttempts ?? 0 >= 100 { return .maxTries }
             if let owner = state.pairSetupOwner, owner != id { return .busy }
             state.pairSetupOwner = id
             return nil
@@ -116,6 +116,8 @@ extension HAPConnection {
         }
 
         endPairSetup(failed: false)
+        server.state.withLockedValue { $0.persisted.failedPairSetupAttempts = nil }
+        try? server.persist()
         server.logger.info("Paired with controller", metadata: ["controller": "\(identifier)"])
         server.updateAdvertisement()
 
@@ -129,7 +131,12 @@ extension HAPConnection {
         pairSetup = nil
         server.state.withLockedValue { state in
             if state.pairSetupOwner == id { state.pairSetupOwner = nil }
-            if failed { state.failedPairSetupAttempts += 1 }
+            if failed { state.persisted.failedPairSetupAttempts = (state.persisted.failedPairSetupAttempts ?? 0) + 1 }
+        }
+        if failed {
+            do { try server.persist() } catch {
+                server.logger.error("Could not save the failed pair setup", metadata: ["error": "\(error)"])
+            }
         }
     }
 }

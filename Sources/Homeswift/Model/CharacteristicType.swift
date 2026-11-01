@@ -1,3 +1,4 @@
+import Foundation
 public enum CharacteristicFormat: String, Sendable, Codable {
     case bool, uint8, uint16, uint32, uint64, int, float, string, tlv8, data
 }
@@ -29,7 +30,10 @@ public struct CharacteristicType: Sendable, Hashable {
     public var minValue: Double?
     public var maxValue: Double?
     public var minStep: Double?
+    /// A string's longest value in UTF-8 bytes: 64 when nil, at most `maxStringLength` whatever it says.
     public var maxLength: Int?
+    /// A data value's longest base64 string: `defaultMaxDataLength` when nil.
+    public var maxDataLength: Int?
     public var validValues: [Int]?
     public var validValueRange: ClosedRange<Int>?
 
@@ -44,7 +48,8 @@ public struct CharacteristicType: Sendable, Hashable {
         minStep: Double? = nil,
         maxLength: Int? = nil,
         validValues: [Int]? = nil,
-        validValueRange: ClosedRange<Int>? = nil
+        validValueRange: ClosedRange<Int>? = nil,
+        maxDataLength: Int? = nil
     ) {
         self.name = name
         self.uuid = uuid
@@ -57,7 +62,16 @@ public struct CharacteristicType: Sendable, Hashable {
         self.maxLength = maxLength
         self.validValues = validValues
         self.validValueRange = validValueRange
+        self.maxDataLength = maxDataLength
     }
+
+    /// The spec's limit on any string's `maxLen` (HAP-NodeJS caps it there too).
+    public static let maxStringLength = 256
+    /// A data value's limit without `maxDataLength`, as HAP-NodeJS's and the ADK's (2 MiB).
+    public static let defaultMaxDataLength = 0x200000
+
+    /// The longest string a value may be.
+    var stringLimit: Int { min(maxLength ?? 64, Self.maxStringLength) }
 
     /// The same type with different bounds, e.g. `.currentTemperature.with(minValue: -40)`.
     public func with(minValue: Double? = nil, maxValue: Double? = nil, minStep: Double? = nil, validValues: [Int]? = nil) -> Self {
@@ -85,7 +99,7 @@ public struct CharacteristicType: Sendable, Hashable {
         case .bool:
             return value.boolValue.map(HAPValue.bool)
         case .uint8, .uint16, .uint32, .uint64, .int:
-            guard let int = value.intValue else { return nil }
+            guard var int = value.intValue else { return nil }
             let bounds: ClosedRange<Int> =
                 switch format {
                 case .uint8: 0...Int(UInt8.max)
@@ -94,6 +108,7 @@ public struct CharacteristicType: Sendable, Hashable {
                 case .uint64: 0...Int.max
                 default: Int(Int32.min)...Int(Int32.max)
                 }
+            if let minStep, minStep > 1 { int = Int(Self.round(Double(int), toStep: minStep, from: minValue ?? 0)) }
             guard bounds.contains(int) else { return nil }
             if let minValue, Double(int) < minValue { return nil }
             if let maxValue, Double(int) > maxValue { return nil }
@@ -101,17 +116,40 @@ public struct CharacteristicType: Sendable, Hashable {
             if let validValueRange, !validValueRange.contains(int) { return nil }
             return .int(int)
         case .float:
-            guard let double = value.doubleValue, double.isFinite else { return nil }
+            guard var double = value.doubleValue, double.isFinite else { return nil }
+            if let minStep, minStep > 0 { double = Self.round(double, toStep: minStep, from: minValue ?? 0) }
             let tolerance = (minStep ?? 0) / 2
             if let minValue, double < minValue - tolerance { return nil }
             if let maxValue, double > maxValue + tolerance { return nil }
             return .double(double)
         case .string:
-            guard let string = value.stringValue, string.utf8.count <= (maxLength ?? 64) else { return nil }
+            guard let string = value.stringValue, string.utf8.count <= stringLimit else { return nil }
             return .string(string)
-        case .tlv8, .data:
+        case .data:
+            // As HAP-NodeJS, the base64 text is measured, not decoded.
+            guard let string = value.stringValue, string.utf8.count <= maxDataLength ?? Self.defaultMaxDataLength else { return nil }
+            return .string(string)
+        case .tlv8:
             return value.stringValue.map(HAPValue.string)
         }
+    }
+
+    /// `value` on the grid of `step` from `base`, as HAP-NodeJS rounds the values plugins set: 21.43 with a step of
+    /// 0.1 is 21.4. Kept to the decimals of the step and the base, without binary noise (21.400000000000002).
+    static func round(_ value: Double, toStep step: Double, from base: Double) -> Double {
+        let stepped = step * ((value - base) / step).rounded() + base
+        let scale = pow(10, Double(max(decimals(step), decimals(base))))
+        return (stepped * scale).rounded() / scale
+    }
+
+    /// How many decimals `value` has, up to 10.
+    private static func decimals(_ value: Double) -> Int {
+        var scaled = value
+        for count in 0..<10 {
+            if abs(scaled - scaled.rounded()) < 1e-9 * max(1, abs(scaled)) { return count }
+            scaled *= 10
+        }
+        return 10
     }
 }
 

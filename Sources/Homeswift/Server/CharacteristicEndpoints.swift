@@ -183,7 +183,10 @@ extension HAPConnection {
 
     /// `PUT /prepare`: opens a timed-write window for locks and garage doors.
     func handlePrepare(_ body: Data) -> HTTPResponse {
-        guard let request = try? HAPJSON.decoder.decode(PrepareRequest.self, from: body) else {
+        // As HAP-NodeJS: a pid, and a TTL from 1ms to 2^31 - 1 ms.
+        guard let request = try? HAPJSON.decoder.decode(PrepareRequest.self, from: body), request.pid != 0,
+            (1...Int(Int32.max)).contains(request.ttl)
+        else {
             return .hapStatus(400, .invalidValueInRequest)
         }
         timedWrite = (request.pid, ContinuousClock.now + .milliseconds(request.ttl))

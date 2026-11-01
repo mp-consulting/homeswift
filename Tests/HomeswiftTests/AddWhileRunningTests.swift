@@ -109,6 +109,7 @@ import Testing
         state.configurationNumber = 42
         state.databaseHash = "ab12"
         state.port = 51826
+        state.failedPairSetupAttempts = 3
         state.pairings = [Pairing(identifier: "A1/\"quoted\"", publicKey: Data((0..<32).map { UInt8($0) }), isAdmin: true),
                           Pairing(identifier: "B2", publicKey: Data(), isAdmin: false)]
         for index in 0..<200 {

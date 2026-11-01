@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- HAP: values keep within the specification's bounds, as HAP-NodeJS 2.2.4 checks them. A string's `maxLen` is never
+  more than 256 (in the database and in writes). A data value is at most 2 MiB of base64, or its type's new
+  `maxDataLength` (`maxDataLen` in the database). A number is rounded to its `minStep` from its minimum value: a
+  plugin setting 21.43 on a temperature with a step of 0.1 stores 21.4, and Eve's Voltage (a step of 1, from
+  homebridge-ewelink) shows whole volts, as on Homebridge. A timed write's `PUT /prepare` needs a pid and
+  a TTL from 1 ms to 2^31 − 1 ms, otherwise it gets 400.
+- HAP: the count of failed pair setups, which stops them at 100 as the specification asks, is saved with the
+  pairings, as Apple's ADK keeps it: a restart reset it, so the limit did not hold. A pair setup that succeeds clears
+  it.
+
 ## [0.18.1] - 2026-11-01
 
 ### Changed

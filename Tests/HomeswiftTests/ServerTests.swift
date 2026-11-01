@@ -525,6 +525,42 @@ struct ServerTests {
         await #expect(throws: (any Error).self) { _ = try await controller.nextMessage() }
         await server.stop()
     }
+
+    /// As HAP-NodeJS: a timed write's prepare needs a pid and a TTL from 1ms to 2^31 - 1 ms.
+    @Test func prepareTakesABoundedTTL() async throws {
+        let controller = try await pairedController()
+        for (pid, ttl) in [(0, 1000), (7, 0), (7, -1), (7, Int(Int32.max) + 1)] {
+            #expect(try await controller.json("PUT", "/prepare", ["pid": pid, "ttl": ttl]).status == 400)
+        }
+        #expect(try await controller.json("PUT", "/prepare", ["pid": 7, "ttl": 1000]).status == 200)
+        await controller.close()
+        await server.stop()
+    }
+
+    /// The failed pair setups are saved: a restart does not reset the count that stops them at 100.
+    @Test func failedPairSetupsOutlastARestart() async throws {
+        try await server.start()
+        let controller = TestController()
+        try await controller.connect(port: server.port!)
+        await #expect(throws: TestController.PairingFailure.self) { try await controller.pairSetup(code: "999-99-998") }
+        await controller.close()
+        await server.stop()
+
+        let restarted = try HAPServer(
+            bridge: Accessory(id: "bridge", name: "Test Bridge", category: .bridge, services: []), accessories: [], storage: storage,
+            options: .init(port: 0, advertise: false, logger: testLogger))
+        #expect(restarted.state.withLockedValue { $0.persisted.failedPairSetupAttempts } == 1)
+        restarted.state.withLockedValue { $0.persisted.failedPairSetupAttempts = 100 }
+        try await restarted.start()
+        let next = TestController()
+        try await next.connect(port: restarted.port!)
+        var m1 = TLV8()
+        m1.append(.state, 1)
+        m1.append(.method, 0)
+        #expect(try await next.tlv("/pair-setup", m1).byte(.error) == TLVError.maxTries.rawValue)
+        await next.close()
+        await restarted.stop()
+    }
 }
 
 actor WriteLog {

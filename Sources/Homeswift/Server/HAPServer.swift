@@ -84,7 +84,6 @@ public final class HAPServer: @unchecked Sendable {
         var changeObservers: [ChangeObserver] = []
         var structureObservers: [@Sendable () -> Void] = []
         var pairSetupOwner: ObjectIdentifier?
-        var failedPairSetupAttempts = 0
         var serverChannel: (any Channel)?
         var idleCheck: RepeatedTask?
         /// `persisted.databaseHash` is behind the database: accessories with new ids were added since, each with
