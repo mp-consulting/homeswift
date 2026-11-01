@@ -107,6 +107,32 @@ enum UbiquitiDiscovery {
         return (broadcasts, unicast)
     }
 
+    /// Whether the console at `address` runs the app whose API answers at `path`. Asked without signing in, a console
+    /// with the app answers from its API (a 401, in JSON); one without answers its own web page. One that does not
+    /// answer is kept: signing in says what is wrong.
+    static func runsApp(at path: String, on address: String,
+                        send: @Sendable (HTTPRequest) async throws -> HTTPResponse = { try await HTTPClient(tls: .any).send($0) }) async -> Bool {
+        // An answer can claim any address: not this machine's own, nor link-local ones (a cloud's metadata).
+        guard !["0.", "127.", "169.254."].contains(where: address.hasPrefix) else { return false }
+        guard let url = URL(string: "https://\(address)\(path)"), let response = try? await send(HTTPRequest(method: "GET", url: url, timeout: .seconds(5))) else {
+            return true
+        }
+        return response.header("content-type")?.lowercased().hasPrefix("text/html") != true
+    }
+
+    /// The consoles that run the app at `path`, asked all at once.
+    static func running<Found: Sendable>(_ consoles: [Found], app path: String, address: (Found) -> String,
+                                         send: @escaping @Sendable (HTTPRequest) async throws -> HTTPResponse = { try await HTTPClient(tls: .any).send($0) }) async -> [Found] {
+        let addresses = consoles.map(address)
+        let answers = await withTaskGroup(of: (Int, Bool).self) { group in
+            for (index, address) in addresses.enumerated() { group.addTask { (index, await runsApp(at: path, on: address, send: send)) } }
+            var runs = [Bool](repeating: true, count: addresses.count)
+            for await (index, answer) in group { runs[index] = answer }
+            return runs
+        }
+        return consoles.indices.filter { answers[$0] }.map { consoles[$0] }
+    }
+
     static func discover(logger: Logger, timeout: Duration = timeout) async -> [DiscoveredConsole] {
         let socket: UDPSocket
         do {
@@ -134,7 +160,8 @@ enum UbiquitiDiscovery {
         for console in await collect.value where console.isConsole && !consoles.contains(where: { !$0.mac.isEmpty && $0.mac == console.mac }) {
             consoles.append(console)
         }
-        return consoles
+        // Not those without UniFi Access: a gateway beside a recorder that runs it, say.
+        return await running(consoles, app: "/proxy/access/api/v2/access/info", address: \.ip)
     }
 
     /// Whether the controller answers HTTPS on its address within five seconds (`/checkStatus`). The name is

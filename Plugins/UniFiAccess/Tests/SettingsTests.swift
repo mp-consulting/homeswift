@@ -193,6 +193,20 @@ import Testing
 
     static let pluginDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
 
+    /// A console without the app answers with its web page and is left out; one that does not answer stays, for
+    /// signing in to say what is wrong; an answer claiming this machine's own address is not asked.
+    @Test func discoveryKeepsConsolesRunningTheApp() async {
+        let send: @Sendable (HTTPRequest) async throws -> HTTPResponse = { request in
+            switch request.url.host {
+            case "10.0.0.1": return HTTPResponse(status: 200, headers: [("Content-Type", "text/html")], body: Data("<!doctype html>".utf8))
+            case "10.0.0.2": return HTTPResponse(status: 401, headers: [("Content-Type", "application/json")], body: Data("{}".utf8))
+            default: throw URLError(.timedOut)
+            }
+        }
+        let kept = await UbiquitiDiscovery.running(["10.0.0.1", "10.0.0.2", "10.0.0.3", "127.0.0.1"], app: "/proxy/access/api/v2/access/info", address: { $0 }, send: send)
+        #expect(kept == ["10.0.0.2", "10.0.0.3"])
+    }
+
     /// Consoles have a login to set up; access points, chimes and hubs answer the probe too, and have none.
     @Test func discoveryKeepsConsoles() {
         let answer = { (model: String, firmware: String) in DiscoveredConsole(ip: "192.168.1.2", name: model, model: model, firmware: firmware) }
