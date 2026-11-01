@@ -64,6 +64,7 @@ struct CharacteristicJSON: JSONWritable {
     var maxValue: Double?
     var minStep: Double?
     var maxLen: Int?
+    var maxDataLen: Int?
     var validValues: [Int]?
     var validValuesRange: [Int]?
     var ev: Bool?
@@ -90,6 +91,7 @@ struct CharacteristicJSON: JSONWritable {
             json.field("maxValue", maxValue)
             json.field("minStep", minStep)
             json.field("maxLen", maxLen)
+            json.field("maxDataLen", maxDataLen)
             json.field("valid-values", validValues)
             json.field("valid-values-range", validValuesRange)
             json.field("ev", ev)
@@ -121,7 +123,8 @@ struct CharacteristicJSON: JSONWritable {
             minValue = type.minValue
             maxValue = type.maxValue
             minStep = type.minStep
-            maxLen = type.format == .string ? type.maxLength : nil
+            maxLen = type.format == .string ? type.maxLength.map { min($0, CharacteristicType.maxStringLength) } : nil
+            maxDataLen = type.format == .data ? type.maxDataLength : nil
             validValues = type.validValues
             validValuesRange = type.validValueRange.map { [$0.lowerBound, $0.upperBound] }
         }

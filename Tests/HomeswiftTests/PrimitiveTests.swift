@@ -81,6 +81,32 @@ struct SetupTests {
         #expect(CharacteristicType.lockTargetState.coerce(.int(2)) == nil)
     }
 
+    /// The spec's bounds, as HAP-NodeJS 2.2.4 checks them: strings 64 bytes unless `maxLen` says more, never past
+    /// 256; data 2 MiB of base64 unless `maxDataLen` says otherwise; numbers on the grid of `minStep`.
+    @Test func keepsValuesWithinTheSpecsBounds() {
+        let name = CharacteristicType.name
+        #expect(name.coerce(.string(String(repeating: "a", count: 64))) != nil)
+        #expect(name.coerce(.string(String(repeating: "a", count: 65))) == nil)
+        var long = CharacteristicType(name: "Long", uuid: HAPUUID("00000001-0000-1000-8000-0026BB765291"), format: .string, permissions: [.pairedRead], maxLength: 1000)
+        #expect(long.coerce(.string(String(repeating: "a", count: 256))) != nil)
+        #expect(long.coerce(.string(String(repeating: "a", count: 257))) == nil)
+        #expect(CharacteristicJSON(describing: Characteristic(long), includeValue: false, includeMeta: true).maxLen == 256)
+
+        long.format = .data
+        #expect(long.coerce(.string(String(repeating: "A", count: CharacteristicType.defaultMaxDataLength))) != nil)
+        #expect(long.coerce(.string(String(repeating: "A", count: CharacteristicType.defaultMaxDataLength + 1))) == nil)
+        long.maxDataLength = 8
+        #expect(long.coerce(.string("AAAAAAAA")) != nil && long.coerce(.string("AAAAAAAAA")) == nil)
+        #expect(CharacteristicJSON(describing: Characteristic(long), includeValue: false, includeMeta: true).maxDataLen == 8)
+
+        // The step from the minimum, without binary noise; on an integer too.
+        #expect(CharacteristicType.currentTemperature.coerce(.double(21.43)) == .double(21.4))
+        #expect(CharacteristicType.currentTemperature.with(minStep: 0.5).coerce(.double(21.3)) == .double(21.5))
+        #expect(CharacteristicType.targetTemperature.coerce(.double(20.26)) == .double(20.3))
+        #expect(CharacteristicType.rotationSpeed.with(minStep: 25).coerce(.double(60)) == .double(50))
+        #expect(CharacteristicType.brightness.with(minStep: 10).coerce(.int(47)) == .int(50))
+    }
+
     /// HAP-NodeJS's setProps on a required characteristic: the extra takes its place, in its place.
     @Test func extraReplacesARequiredCharacteristic() {
         let thermostat = Service(.thermostat, extra: [Characteristic(.targetTemperature.with(minValue: 30, maxValue: 60))])

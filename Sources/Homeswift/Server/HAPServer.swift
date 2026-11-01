@@ -97,7 +97,6 @@ public final class HAPServer: @unchecked Sendable {
         var pairSetupOwner: ObjectIdentifier?
         /// When `pairSetupOwner` sent its M1.
         var pairSetupStarted = NIODeadline.distantPast
-        var failedPairSetupAttempts = 0
         var serverChannel: (any Channel)?
         var idleCheck: RepeatedTask?
         /// `persisted.databaseHash` is behind the database: accessories with new ids were added since, each with

@@ -21,6 +21,9 @@ struct PersistedState: Codable {
     /// Stable aids per accessory id, and iids per service/characteristic key.
     var aids: [String: Int] = [:]
     var iids: [String: Int] = [:]
+    /// Pair setups that failed since the last that succeeded: at 100 the accessory refuses more (`maxTries`), as
+    /// the spec asks; kept so a restart does not reset it, as the ADK keeps it. Nil when none.
+    var failedPairSetupAttempts: Int?
 
     /// The JSON `JSONDecoder` reads back, written directly: the server saves it after every accessory it gives new
     /// ids, and `JSONEncoder` cost as much as the rest of adding one (the iid map grows with every accessory).
@@ -34,6 +37,7 @@ struct PersistedState: Codable {
             json.field("configurationNumber", configurationNumber)
             json.field("databaseHash", databaseHash)
             json.field("port", port)
+            json.field("failedPairSetupAttempts", failedPairSetupAttempts)
             json.key("pairings")
             json.array { json in
                 for pairing in pairings {
