@@ -116,7 +116,9 @@ enum UbiquitiDiscovery {
         let listener = Task {
             var found: [Console] = []
             for await datagram in socket.datagrams {
-                if let console = parse(Array(datagram.data)), !found.contains(where: { $0.ip == console.ip }) { found.append(console) }
+                // A console can first answer with a stub of no model or firmware (`uum_controller`, from another port): only
+                // console answers count, so the stub does not take the place of the real one.
+                if let console = parse(Array(datagram.data)), console.isConsole, !found.contains(where: { $0.ip == console.ip }) { found.append(console) }
             }
             return found
         }
@@ -128,7 +130,7 @@ enum UbiquitiDiscovery {
         await socket.close()
         // Only consoles have a login to set up; one with several networks answers from each of its addresses.
         var consoles: [Console] = []
-        for console in await listener.value where console.isConsole && !consoles.contains(where: { !$0.mac.isEmpty && $0.mac == console.mac }) {
+        for console in await listener.value where !consoles.contains(where: { !$0.mac.isEmpty && $0.mac == console.mac }) {
             consoles.append(console)
         }
         // Not those without UniFi Protect: a gateway beside a recorder that runs it, say.

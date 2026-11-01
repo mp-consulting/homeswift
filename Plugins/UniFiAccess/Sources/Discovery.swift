@@ -145,7 +145,9 @@ enum UbiquitiDiscovery {
         let collect = Task {
             var found: [DiscoveredConsole] = []
             for await datagram in datagrams {
-                guard let console = parse(Array(datagram.data)), !found.contains(where: { $0.ip == console.ip }) else { continue }
+                // A console can first answer with a stub of no model or firmware (`uum_controller`, from another port): only
+                // console answers count, so the stub does not take the place of the real one.
+                guard let console = parse(Array(datagram.data)), console.isConsole, !found.contains(where: { $0.ip == console.ip }) else { continue }
                 found.append(console)
             }
             return found
@@ -157,7 +159,7 @@ enum UbiquitiDiscovery {
         await socket.close()
         // Only consoles have a login to set up; one with several networks answers from each of its addresses.
         var consoles: [DiscoveredConsole] = []
-        for console in await collect.value where console.isConsole && !consoles.contains(where: { !$0.mac.isEmpty && $0.mac == console.mac }) {
+        for console in await collect.value where !consoles.contains(where: { !$0.mac.isEmpty && $0.mac == console.mac }) {
             consoles.append(console)
         }
         // Not those without UniFi Access: a gateway beside a recorder that runs it, say.

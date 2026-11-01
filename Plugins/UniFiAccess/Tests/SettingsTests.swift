@@ -213,6 +213,8 @@ import Testing
         #expect(answer("UCGF", "5.1.34").isConsole && answer("UNVR", "6.0.11").isConsole && answer("UDM-Pro", "").isConsole)
         #expect(!answer("UP Chime", "UP.esp32.v1.7.20.0.402a5ff.240910.0648").isConsole)
         #expect(!answer("UA-Hub-Gate", "GT.mt7621.v2.6.13.0.g9bb4ebd.260911.1710").isConsole)
+        // The stub a recorder sends first, from another port.
+        #expect(!answer("", "").isConsole)
         #expect(!answer("UFP-UAP-B", "UFP-UAP-B.Maple.v1.1.0.4.2fed14f36e.260126.1409").isConsole)
     }
 
