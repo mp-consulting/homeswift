@@ -12,6 +12,8 @@ All notable changes to this project are documented here. The format follows
   alert: the bridge was restarting and the proxy answered for it. A 502, 503 or 504 that is not the bridge's JSON now
   reads as the bridge not answering, as a dropped connection does: the page waits for the restart, and other requests
   say Homeswift did not answer, never with the proxy's page.
+- Web UI: in the graph (and its groups and lists), a camera whose first service is a motion sensor showed the sensor's
+  icon, as UniFi Protect's do: a camera now shows a camera, a video doorbell a bell, whatever its first service.
 
 ## [0.18.1] - 2026-11-01
 

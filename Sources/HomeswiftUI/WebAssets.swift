@@ -28718,6 +28718,8 @@ self.addEventListener("notificationclick", (event) => {
     accessoryIcon(accessory) {
       const standsFor = standsForIcon(accessory);
       if (standsFor) return standsFor;
+      // A camera is its tile on the wall, whatever its first service (a motion sensor, a flashlight, a microphone).
+      if (accessory.camera) return categoryIcons[accessory.category]?.[0] ?? "camera";
       try {
         const ctx = context(accessory);
         const { widget, primary } = resolve(ctx);
