@@ -25,6 +25,7 @@ extension HAPConnection {
         var results: [CharacteristicJSON] = []
         // Built once for the request, not for each characteristic.
         let requestContext = requestContext
+        let lookup = server.lookup()
         // The accessories read, for the timing observers.
         let start = ContinuousClock.now
         var read: Set<Int> = []
@@ -32,7 +33,7 @@ extension HAPConnection {
         // The reads to run: the result's index and the characteristic.
         var reads: [(index: Int, characteristic: Characteristic)] = []
         for key in keys {
-            guard let characteristic = server.characteristic(aid: key.aid, iid: key.iid) else {
+            guard let characteristic = lookup.characteristics[key] else {
                 results.append(CharacteristicJSON(aid: key.aid, iid: key.iid, status: .resourceDoesNotExist))
                 continue
             }
@@ -110,6 +111,7 @@ extension HAPConnection {
 
         var results: [CharacteristicJSON] = []
         let requestContext = requestContext
+        let lookup = server.lookup()
         // The accessories written (not those only subscribed to), for the timing observers.
         let start = ContinuousClock.now
         var written: Set<Int> = []
@@ -118,7 +120,7 @@ extension HAPConnection {
         var writes: [(index: Int, characteristic: Characteristic, value: HAPValue, readBack: Bool)] = []
         for item in request.characteristics {
             let key = CharacteristicKey(aid: item.aid, iid: item.iid)
-            guard let characteristic = server.characteristic(aid: item.aid, iid: item.iid) else {
+            guard let characteristic = lookup.characteristics[key] else {
                 results.append(CharacteristicJSON(aid: item.aid, iid: item.iid, status: .resourceDoesNotExist))
                 continue
             }

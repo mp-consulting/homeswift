@@ -318,6 +318,32 @@ struct ServerTests {
         await server.stop()
     }
 
+    /// Requests find characteristics through a lookup built once and cached, apart from the state lock: it follows an
+    /// accessory added, hidden, shown again and removed, as the scan it replaced did.
+    @Test func lookupFollowsTheAccessories() async throws {
+        try await server.start()
+        let on = lightbulb.characteristic(.on)
+        #expect(server.characteristic(aid: lamp.aid, iid: on.iid) === on)
+        #expect(server.characteristic(aid: lamp.aid, iid: 999) == nil)
+
+        let sensor = Accessory(id: "sensor-2", name: "Sensor", category: .sensor, services: [Service(.temperatureSensor, name: "Sensor", isPrimary: true)])
+        try server.add(sensor)
+        let temperature = try #require(sensor.services[1].characteristics.first { $0.type.uuid == CharacteristicType.currentTemperature.uuid })
+        #expect(server.characteristic(aid: sensor.aid, iid: temperature.iid) === temperature)
+        #expect(server.lookup().accessories[sensor.aid] === sensor)
+
+        try server.setHiddenFromHomeKit(["sensor-2"])
+        #expect(server.characteristic(aid: sensor.aid, iid: temperature.iid) == nil)
+        try server.setHiddenFromHomeKit([])
+        #expect(server.characteristic(aid: sensor.aid, iid: temperature.iid) === temperature)
+
+        try server.remove(sensor)
+        #expect(server.characteristic(aid: sensor.aid, iid: temperature.iid) == nil)
+        #expect(server.lookup().accessories[sensor.aid] == nil)
+        #expect(server.characteristic(aid: lamp.aid, iid: on.iid) === on)
+        await server.stop()
+    }
+
     @Test func timesRequestsAndHandlers() async throws {
         let timings = TimingLog()
         server.observeTimings { timings.append($0) }
