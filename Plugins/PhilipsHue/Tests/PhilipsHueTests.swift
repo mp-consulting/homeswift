@@ -823,7 +823,8 @@ struct HueSensorTests {
     /// A press on the event stream fires its switch once, the same press twice fires twice, and a read that sees the
     /// press again fires nothing more.
     @Test func theEventStreamFiresButtonsAndShowsMotion() async throws {
-        let host = try await environment.start()
+        // No poll of its own: one landing after an event, on a slow machine, would undo the motion it brought.
+        let host = try await environment.start(settings: ["host": "192.0.2.10", "pollingInterval": 60])
         let dimmer = try await accessory(host, dimmerID)
         let sensor = try await accessory(host, sensorID)
         #expect(await eventually { environment.bridge.openStreams > 0 })
