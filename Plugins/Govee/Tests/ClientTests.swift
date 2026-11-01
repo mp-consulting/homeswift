@@ -341,6 +341,14 @@ func scanReply(_ device: String, sku: String = "H6008", extra: [String: JSONValu
         #expect(options.trust == .amazonRootCA1)
     }
 
+    /// Two bridges on one account (or this one and Homebridge) each keep their connection: AWS IoT drops one when
+    /// another opens with its id, and the login's client id is the same for both.
+    @Test func eachRunConnectsWithAClientIDOfItsOwn() {
+        #expect(GoveePlugin.awsClientID(accountId: "acc", clientId: "hb123", run: "1a2b3c4d") == "AP/acc/hb123-1a2b3c4d")
+        let first = GoveePlugin.awsClientID(accountId: "acc", clientId: "hb123"), second = GoveePlugin.awsClientID(accountId: "acc", clientId: "hb123")
+        #expect(first.hasPrefix("AP/acc/hb123-") && first != second)
+    }
+
     @Test func decodesTheAccountCertificate() throws {
         for fixture in [legacyPKCS12, modernPKCS12] {
             let identity = try GoveeIoTIdentity(pkcs12: Data(base64Encoded: fixture)!, passphrase: "secret")

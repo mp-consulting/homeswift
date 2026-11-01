@@ -281,7 +281,7 @@ public actor GoveePlugin: HomeswiftPlugin {
         }
         guard let credentials, !credentials.iotPass.isEmpty, !credentials.topic.isEmpty, !credentials.accountId.isEmpty else { return }
         let identity = try GoveeIoTIdentity(pkcs12: store.certificate(), passphrase: credentials.iotPass)
-        let clientID = "AP/\(credentials.accountId)/\(api.clientId)"
+        let clientID = Self.awsClientID(accountId: credentials.accountId, clientId: api.clientId)
         let connection = try await dependencies.mqtt(Self.mqttConfiguration(endpoint: credentials.endpoint, clientID: clientID, identity: identity))
         let client = AWSClient(accountTopic: credentials.topic, connection: connection, publishTimeout: dependencies.awsPublishTimeout, debug: debug) { [weak self] payload in
             await self?.receiveUpdateAWS(payload)
@@ -289,6 +289,14 @@ public actor GoveePlugin: HomeswiftPlugin {
         awsClient = client
         await client.start()
         logger.info("[AWS] \(Lang.available).")
+    }
+
+    /// The MQTT client id: `AP/<accountId>/<client id>` as the Homebridge plugin's, then a part of this run's own.
+    /// AWS IoT drops a connection when another opens with the same id, and the login's client id is the same for
+    /// every bridge signed in to an account (it comes from the email): without the suffix, two bridges (or this one
+    /// and Homebridge) would knock each other off every second and neither could send a command.
+    static func awsClientID(accountId: String, clientId: String, run: String = String(UUID().uuidString.prefix(8)).lowercased()) -> String {
+        "AP/\(accountId)/\(clientId)-\(run)"
     }
 
     /// AWS IoT over MQTT 3.1.1 on TLS port 8883: the account's PKCS#12 certificate, Amazon's root CA. Like the AWS IoT
