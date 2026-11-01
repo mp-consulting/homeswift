@@ -23,6 +23,9 @@ All notable changes to this project are documented here. The format follows
 - HAP: removing accessories no longer hashes the whole database for each, under the lock every request takes: each
   removal HomeKit sees bumps the configuration number at once, and the hash, the save and the advertisement follow
   once for the burst, as for added accessories. A plugin removing its stale accessories cost N² before.
+- HAP: a request finds the characteristics it names in a lookup built once and kept apart from the server's state
+  lock, which it took for every characteristic: with 16 controllers' connections busy, 14% of the server's time went
+  to waiting on that lock. Timing observers have a lock of their own too.
 
 ### Fixed
 

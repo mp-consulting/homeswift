@@ -83,7 +83,6 @@ public final class HAPServer: @unchecked Sendable {
         var connections: [ObjectIdentifier: HAPConnection] = [:]
         var changeObservers: [ChangeObserver] = []
         var structureObservers: [@Sendable () -> Void] = []
-        var timingObservers: [TimingObserver] = []
         var pairSetupOwner: ObjectIdentifier?
         var failedPairSetupAttempts = 0
         var serverChannel: (any Channel)?
@@ -107,6 +106,10 @@ public final class HAPServer: @unchecked Sendable {
     let storage: any HAPStorage
     let logger: Logger
     let state: NIOLockedValueBox<State>
+    /// What requests look up (`Lookup`), apart from `state`: a request takes this lock once, to copy a reference,
+    /// where it took the state lock for every characteristic it named, which 16 connections queued on.
+    private let lookupBox = NIOLockedValueBox<(lookup: Lookup?, generation: Int)>((nil, 0))
+    private let timingObservers = NIOLockedValueBox<[TimingObserver]>([])
     let signingKey: Curve25519.Signing.PrivateKey
     let advertiser = BonjourAdvertiser()
     let builtInAdvertiser: MDNSAdvertiser
@@ -264,7 +267,7 @@ public final class HAPServer: @unchecked Sendable {
         defer { structureChanged() }
         state.withLockedValue { state in
             guard let removed = state.accessories.removeValue(forKey: accessory.aid) else { return }
-            state.databaseVersion += 1
+            structureMoved(&state)
             guard state.serverChannel != nil, removed.mirroredFrom == nil, !state.hiddenFromHomeKit.contains(removed.id) else { return }
             state.persisted.configurationNumber = state.persisted.configurationNumber % 65535 + 1
             state.hashBehind = true
@@ -291,7 +294,7 @@ public final class HAPServer: @unchecked Sendable {
         let running = state.withLockedValue { state -> Bool? in
             guard state.hiddenFromHomeKit != ids else { return nil }
             state.hiddenFromHomeKit = ids
-            state.databaseVersion += 1
+            structureMoved(&state)
             return refreshIfRunning(&state)
         }
         guard let running else { return }
@@ -323,17 +326,16 @@ public final class HAPServer: @unchecked Sendable {
 
     /// Registers an observer of how long controllers' requests and the accessories' handlers take.
     public func observeTimings(_ observer: @escaping TimingObserver) {
-        state.withLockedValue { $0.timingObservers.append(observer) }
+        timingObservers.withLockedValue { $0.append(observer) }
     }
 
     /// Tells the timing observers that a call about the accessories `aids` began at `start` and ended now.
     func recordTiming(_ kind: Timing.Kind, aids: some Sequence<Int>, since start: ContinuousClock.Instant) {
         let duration = ContinuousClock.now - start
-        let (observers, accessories) = state.withLockedValue { state -> ([TimingObserver], [Accessory]) in
-            guard !state.timingObservers.isEmpty else { return ([], []) }
-            return (state.timingObservers, aids.compactMap { state.accessories[$0] })
-        }
+        let observers = timingObservers.withLockedValue { $0 }
         guard !observers.isEmpty else { return }
+        let all = lookup().accessories
+        let accessories = aids.compactMap { all[$0] }
         let timing = Timing(kind: kind, accessories: accessories, duration: duration)
         for observer in observers { observer(timing) }
     }
@@ -484,7 +486,7 @@ public final class HAPServer: @unchecked Sendable {
             }
         }
         state.accessories[aid] = accessory
-        state.databaseVersion += 1
+        structureMoved(&state)
         return changed
     }
 
@@ -621,11 +623,36 @@ public final class HAPServer: @unchecked Sendable {
     }
 
     func characteristic(aid: Int, iid: Int) -> Characteristic? {
-        guard let accessory = accessory(aid: aid) else { return nil }
-        for service in accessory.services {
-            if let match = service.characteristics.first(where: { $0.iid == iid }) { return match }
+        lookup().characteristics[CharacteristicKey(aid: aid, iid: iid)]
+    }
+
+    /// The characteristics controllers can name and the accessories by aid, built again after the accessories changed.
+    func lookup() -> Lookup {
+        let generation = lookupBox.withLockedValue { box -> Int? in box.lookup == nil ? box.generation : nil }
+        guard let generation else { return lookupBox.withLockedValue { $0.lookup! } }
+        let (accessories, hidden) = state.withLockedValue { ($0.accessories, $0.hiddenFromHomeKit) }
+        var characteristics: [CharacteristicKey: Characteristic] = [:]
+        for (aid, accessory) in accessories where accessory.mirroredFrom == nil && !hidden.contains(accessory.id) {
+            for service in accessory.services {
+                for characteristic in service.characteristics {
+                    characteristics[CharacteristicKey(aid: aid, iid: characteristic.iid)] = characteristic
+                }
+            }
         }
-        return nil
+        let lookup = Lookup(characteristics: characteristics, accessories: accessories)
+        // Kept only when nothing changed since the generation was read: a change made meanwhile may be missing.
+        lookupBox.withLockedValue { if $0.generation == generation { $0.lookup = lookup } }
+        return lookup
+    }
+
+    /// The accessories or their ids changed: the cached `GET /accessories` body and the lookup are built again. Called
+    /// inside `state`'s lock; `lookup()` never holds both.
+    private func structureMoved(_ state: inout State) {
+        state.databaseVersion += 1
+        lookupBox.withLockedValue {
+            $0.lookup = nil
+            $0.generation += 1
+        }
     }
 
     // MARK: Persistence and advertising
@@ -746,4 +773,11 @@ struct DatabaseTemplate: Sendable {
     var characteristics: [Characteristic]
     var version: Int
     var generation: UInt64
+}
+
+/// What a request looks up (`HAPServer.lookup()`): the characteristics controllers can name, by aid and iid, and every
+/// accessory by aid.
+struct Lookup: Sendable {
+    var characteristics: [CharacteristicKey: Characteristic]
+    var accessories: [Int: Accessory]
 }
