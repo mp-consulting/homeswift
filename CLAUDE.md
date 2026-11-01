@@ -153,7 +153,7 @@ node Scripts/generate-definitions.js <hap-nodejs> > Sources/Homeswift/Model/Defi
 - Every button carries an icon beside its text: `actionIcon` in `el()`, `data-action-icon` in HTML (the names are
   common.js's `icons`), tabs and plugin pages included; a button with only an icon has an `aria-label`.
 - A round button (icon only) is a circle: width, height and `min-height` all set to the same size, which matches its
-  neighbours in the row (36px in a toolbar). `button, a.button` get `min-height: 40px` on touch screens, so a 36px
+  neighbours in the row (36px in a toolbar, 40px at phone width, where every button grows to 40px). `button, a.button` get `min-height: 40px` on touch screens, so a 36px
   circle without its own `min-height` becomes an oval. Check every changed toolbar at phone width (375px) as well as
   desktop width, and compare each round button's computed width and height with its neighbours'.
 - The web UI: pages are plain HTML, CSS and JavaScript without dependencies or a build step; they are

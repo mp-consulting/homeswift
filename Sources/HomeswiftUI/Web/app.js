@@ -2588,7 +2588,7 @@
       navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
     };
     // Setup, in view whatever the wall holds; the empty wall has its own, larger.
-    const addButton = isAdmin() && all.length ? el("a", { class: "button accessories-add", href: "/setup", actionIcon: "plus", "aria-label": t("Add accessories"), title: t("Add accessories"), text: t("Add accessories") }) : null;
+    const addButton = isAdmin() && all.length ? el("a", { class: "button primary accessories-add", href: "/setup", actionIcon: "plus", "aria-label": t("Add accessories"), title: t("Add accessories"), text: t("Add accessories") }) : null;
     const fullScreenButton = el("button", { type: "button", class: "icon-button accessory-options-button", "aria-label": t("Full screen"), title: t("Full screen"),
       onclick: () => setFullScreen(true) }, HomeswiftCommon.icon("expand"));
     // The chrome over the full-screen wall: Close, and when grouped the dots and, with a mouse, the side arrows.

@@ -4452,7 +4452,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
     };
     // Setup, in view whatever the wall holds; the empty wall has its own, larger.
-    const addButton = isAdmin() && all.length ? el("a", { class: "button accessories-add", href: "/setup", actionIcon: "plus", "aria-label": t("Add accessories"), title: t("Add accessories"), text: t("Add accessories") }) : null;
+    const addButton = isAdmin() && all.length ? el("a", { class: "button primary accessories-add", href: "/setup", actionIcon: "plus", "aria-label": t("Add accessories"), title: t("Add accessories"), text: t("Add accessories") }) : null;
     const fullScreenButton = el("button", { type: "button", class: "icon-button accessory-options-button", "aria-label": t("Full screen"), title: t("Full screen"),
       onclick: () => setFullScreen(true) }, HomeswiftCommon.icon("expand"));
     // The chrome over the full-screen wall: Close, and when grouped the dots and, with a mouse, the side arrows.
@@ -26225,7 +26225,7 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 @media (max-width: 650px) { .group-picker-columns { grid-template-columns: 1fr; gap: var(--space-16); } .group-picker-columns .group-member-list { max-height: 25vh; } }
 @media (max-width: 600px) { .accessories-toolbar { width: 100%; } .accessories-toolbar .search { flex: 1 1 100%; width: 100%; } }
 /* Add accessories: its words where there is room, its plus alone beside the other round buttons on a phone. */
-@media (max-width: 600px) { .accessories-toolbar .accessories-add { width: 36px; height: 36px; min-height: 36px; padding: 0; gap: 0; font-size: 0; flex: none; } }
+@media (max-width: 600px) { .accessories-toolbar .accessories-add { width: 40px; height: 40px; min-height: 40px; padding: 0; gap: 0; font-size: 0; flex: none; } }
 
 /* Toolbar glyphs stay lighter than their labels. */
 .accessories-toolbar button > svg,
