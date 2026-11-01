@@ -202,10 +202,11 @@ an iPhone opens starts with a pair verify, so this is not a one-off cost.
 ChaCha20-Poly1305 (Node's OpenSSL, swift-crypto) and native JSON, and a read or a write takes 0.1 ms on either.
 Homeswift is 1.1–1.3× faster at p50 with tighter tails, and 2.3× faster on the 44 KB database, which it keeps as a
 template and fills in. The one metric HAP-NodeJS wins is CPU per request under concurrent load, 37–46 µs against
-43–131 µs: Homeswift's cost per request grows with the number of connections (60 µs on one), which points at the
-hand-offs between NIO's event loops and each connection's task. The locks on the request path are not it: an
-observer doing the Status page's per-request work, and a read handler on every characteristic, left the numbers
-where they were. It does not show in latency: at 16 connections Homeswift serves twice the requests because the
+43–131 µs: Homeswift's cost per request grows with the number of connections (60 µs on one). A profile at 16
+connections (`sample`, 2026-11-01) puts most of the difference in waiting on the server's state lock, which a read
+takes once per characteristic to find it (`HAPServer.accessory(aid:)`), and again for the request's context and its
+timing: a fifth of the busy samples were threads waiting on that lock, none on one connection. It does not show in
+latency: at 16 connections Homeswift serves twice the requests because the
 work spreads over the cores while Node's single thread plateaus around 22 000 req/s, with a similar p99.
 
 **Events arrive in 53 ms instead of 253 ms.** Both servers hold event notifications to send a burst as one
