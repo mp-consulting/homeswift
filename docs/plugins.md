@@ -218,6 +218,14 @@ writes, identify and snapshots fail without reaching the plugin's handlers: `Acc
 `"_hiddenFromHomeKit": [ids]` keeps the block's accessories with these ids out of the Home app (the web UI's **Visible in Home app**, MCP's
 `set_homekit_visibility`): they stay on the bridge for the web UI, the MCP server and Matter, so a Matter device of its
 own can be in Apple Home through Matter alone. Changing the list does not reload the plugin.
+`"_accessories": { "<Device Id>": { "name": "Desk" } }` renames an accessory, in the Home app too (the web UI's
+**Rename**, MCP's `rename_accessory`). The Device Id is the accessory's id after `<platform>:` (its whole id without
+that prefix). The runtime puts the name on Accessory Information's Name and on the services named after the accessory
+(`Dyson` and `Dyson Temperature` become `Desk` and `Desk Temperature`), and gives the primary service a Configured
+Name if it has none: the Home app keeps its own name for a paired accessory and does not follow Name, but it follows
+Configured Name and writes it when someone renames the accessory there, which the bridge keeps in `_accessories` too.
+Aids and iids stay, and a rename does not reload the plugin; without the name, the plugin's names come back. A plugin
+does nothing for it, but should not set Name or Configured Name again on its own after adding an accessory.
 `disabledPlugins` lists platform names to skip; their accessories leave HomeKit. Homebridge's `accessories`
 blocks are not supported.
 

@@ -18,8 +18,9 @@ import Homeswift
 /// generates and keeps them). A block with `_bridge` runs as a child bridge: its own HAP server, identity
 /// and pairing. A block with `"_paused": true` keeps its accessories in HomeKit, showing No Response, while its
 /// plugin does not run, so nothing reaches the devices or their cloud. `_hiddenFromHomeKit` lists accessory ids the
-/// bridge keeps out of HomeKit (the web UI, the MCP server and Matter still have them). `accessories` blocks (Homebridge's
-/// accessory plugins) are not supported.
+/// bridge keeps out of HomeKit (the web UI, the MCP server and Matter still have them). `_accessories` holds Accessory
+/// Settings by Device Id; its `name`s rename accessories, in HomeKit too (`AccessoryNaming`). `accessories` blocks
+/// (Homebridge's accessory plugins) are not supported.
 public struct HomeswiftConfiguration: Sendable {
     public struct Bridge: Codable, Sendable, Equatable {
         public var name: String
@@ -105,6 +106,9 @@ public struct HomeswiftConfiguration: Sendable {
         /// `_hiddenFromHomeKit`: the ids of its accessories kept out of HomeKit (`HAPServer.setHiddenFromHomeKit`);
         /// they stay in the web UI, the MCP server and Matter. Not in `json`: changing it does not reload the plugin.
         public var hiddenFromHomeKit: [String] = []
+        /// The names given in `_accessories`, by Device Id (`AccessoryNaming`): the runtime renames the accessories, in
+        /// HomeKit too. Not in `json`: a rename does not reload the plugin.
+        public var accessoryNames: [String: String] = [:]
         /// The whole block as JSON, what the plugin's `Configuration` is decoded from.
         public var json: Data
 
@@ -205,9 +209,30 @@ public struct HomeswiftConfiguration: Sendable {
                     }
                     hidden = ids
                 }
-                let json = try JSONSerialization.data(withJSONObject: block.filter { $0.key != "_hiddenFromHomeKit" }, options: [.sortedKeys])
+                var names: [String: String] = [:]
+                var kept = block.filter { $0.key != "_hiddenFromHomeKit" }
+                if let settings = block["_accessories"] {
+                    guard let byDevice = settings as? [String: Any], byDevice.values.allSatisfy({ $0 is [String: Any] }) else {
+                        throw ConfigurationError.invalidValue(key: "platforms[\(index)]._accessories", expected: "an object of Accessory Settings by Device Id")
+                    }
+                    // The names leave the plugin's JSON, so a rename does not reload it; the other settings are its own.
+                    var others: [String: Any] = [:]
+                    for case let (deviceID, fields as [String: Any]) in byDevice {
+                        if let given = fields["name"] {
+                            guard let text = given as? String else {
+                                throw ConfigurationError.invalidValue(key: "platforms[\(index)]._accessories.\(deviceID).name", expected: "a name")
+                            }
+                            if let name = AccessoryNaming.cleaned(text) { names[deviceID] = name }
+                        }
+                        let rest = fields.filter { $0.key != "name" }
+                        if !rest.isEmpty { others[deviceID] = rest }
+                    }
+                    kept["_accessories"] = others.isEmpty ? nil : others
+                }
+                let json = try JSONSerialization.data(withJSONObject: kept, options: [.sortedKeys])
                 var entry = Platform(platform: platform, name: name, childBridge: childBridge, paused: block["_paused"] as? Bool == true, json: json)
                 entry.hiddenFromHomeKit = hidden
+                entry.accessoryNames = names
                 configuration.platforms.append(entry)
             }
         }

@@ -27,18 +27,31 @@
     return app.api("/api/rooms", { method: "PUT", body });
   }
 
-  /// What an accessory card's menu adds: its room, a name for these pages, Quick Controls, hiding.
+  /// Renames an accessory, in the Home app too (its plugin's block keeps the name); empty gives it back its plugin's.
+  async function rename(accessory) {
+    const name = await HomeswiftCommon.promptDialog(t("A new name for {name}, in the Home app too. Empty gives it back the name its plugin gives it.", { name: displayName(accessory) }), displayName(accessory));
+    if (name === null || name.trim() === displayName(accessory)) return;
+    try {
+      await app.api(`/api/accessories/${encodeURIComponent(accessory.id)}/name`, { method: "PUT", body: { name: name.trim() || null } });
+      app.route();
+    } catch (e) { HomeswiftCommon.showAlert(e.message); }
+  }
+
+  /// What an accessory card's menu adds: its room, its name, Quick Controls, hiding. A plugin's accessory is renamed in
+  /// the Home app too; another controller's (mirrored) keeps a name for these pages only, as one given before does.
   function layoutActions(accessory) {
     const change = (fields) => changeLayout({ accessories: { [accessory.id]: fields } }).then(() => app.route()).catch((e) => HomeswiftCommon.showAlert(e.message));
+    const renames = accessory.platform && !accessory.mirroredFrom;
     return [
       { label: accessory.room ? t("Room: {room}…", { room: accessory.room }) : t("Put in a room…"), icon: "room", onSelect: () => chooseRoom(accessory, change) },
-      { label: t("Name on these pages…"), icon: "edit", onSelect: async () => {
+      renames ? { label: t("Rename…"), icon: "edit", onSelect: () => rename(accessory) } : null,
+      renames && !accessory.displayName ? null : { label: t("Name on these pages…"), icon: "edit", onSelect: async () => {
         const name = await HomeswiftCommon.promptDialog(t("A name for {name} on these pages (the Home app keeps its own). Empty goes back to {name}.", { name: accessory.name }), accessory.displayName || "");
         if (name !== null) change({ name: name.trim() || null });
       } },
       { label: accessory.favourite ? t("Remove from Quick Controls") : t("Add to Quick Controls"), icon: "star", onSelect: () => change({ favourite: !accessory.favourite }) },
       { label: accessory.hidden ? t("Show it again") : t("Hide"), icon: "eye", onSelect: () => change({ hidden: !accessory.hidden }) },
-    ];
+    ].filter(Boolean);
   }
 
   async function chooseRoom(accessory, change, note = "") {

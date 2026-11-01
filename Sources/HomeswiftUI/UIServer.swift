@@ -847,6 +847,15 @@ public final class UIServer: Sendable {
                 noteConfigChange(by: username)
                 return .json(result)
             }
+            if route.count == 3, route[0] == "accessories", route[2] == "name" {
+                // { "name": "Desk" } renames it, in the Home app too; null or "" gives it back its plugin's name.
+                guard let found = catalog.find(id: route[1]) else { return .error(404, "no accessory \(route[1])") }
+                guard body["name"]?.stringValue != nil || body["name"]?.isNull == true else { return .error(400, "name (a string, or null) is required") }
+                logger.info("Web UI user \(username) renamed \(found.accessory.name)")
+                let result = try await catalog.setAccessoryName(found, name: body["name"]?.stringValue)
+                noteConfigChange(by: username)
+                return .json(result)
+            }
             if route == ["config"] {
                 guard body.objectValue != nil else { return .error(400, "the config must be a JSON object") }
                 let result = try await catalog.applyConfig(body, dryRun: false, checkSchemas: request.query["force"] != "true")

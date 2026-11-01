@@ -136,12 +136,18 @@ screenshots, and what a plugin does to get good ones.
   that carry keys (a camera's Setup Endpoints) are not shown, nor what only HomeKit uses.
 - **A widget's ⋯ menu** (a right click on a tile): its size or its kind's, **All controls** (every control in a sheet,
   the rest under More), Identify, its log, ask the Assistant about it, its plugin's settings (administrators), resume a
-  paused plugin, a room, a name for these pages, add to the Quick Controls or hide it, and **History** for an accessory
+  paused plugin, a room, **Rename** (below), add to the Quick Controls or hide it, and **History** for an accessory
   whose plugin records an Eve history (temperature, humidity, power…): a day, a week or four weeks.
 - **Full screen** (the toolbar's last button, or `/accessories?full=1` for a wall tablet's bookmark): the widgets alone,
   in the browser's own full screen where it has one. Grouped by room or by plugin, one group fills the screen at a time
   and the next is a swipe away (the arrow keys, the dots, the side arrows with a mouse); one button opens the toolbar
   (search, grouping, filters, Leave full screen) as a panel from the right edge, and Esc leaves.
+- **Rename** (a widget's ⋯ menu, administrators): a new name for a plugin's accessory, in the Home app too, its room,
+  scenes and automations kept. Its plugin's block keeps it (`name` under its Device Id in `_accessories`) and the
+  bridge puts it on the accessory's Name and Configured Name, which the Home app follows; a rename in the Home app is
+  kept the same way. Empty gives it back the name its plugin gives it. An accessory mirrored from another controller
+  (Wingman's) is renamed there: it has **Name on these pages** instead, a name these pages show and the Home app does
+  not.
 - **Visible in Home app** (a widget's ⋯ menu, administrators): off, the accessory leaves the Home app, with its room,
   scenes and automations, while Homeswift and Matter keep it (`_hiddenFromHomeKit` in its plugin's block).
 - **Edit** shows grid guides, size controls and corner handles, and lets tiles be dragged onto any cell of the grid,

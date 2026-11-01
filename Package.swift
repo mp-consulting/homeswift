@@ -307,7 +307,7 @@ let package = Package(
         ),
         .testTarget(
             name: "HomeswiftTests",
-            dependencies: ["Homeswift", .product(name: "Logging", package: "swift-log")]
+            dependencies: ["Homeswift", "HomeswiftPlugin", .product(name: "Logging", package: "swift-log")]
         ),
         .testTarget(
             name: "HomeswiftAITests",

@@ -188,6 +188,7 @@ public final class PluginHost: @unchecked Sendable {
     private let energyImports = EnergyImportFeed()
     /// Each plugin's latest energy import report, by plugin key.
     private let energyProgress = NIOLockedValueBox<[String: EnergyImportProgress]>([:])
+    private let renameHandler = NIOLockedValueBox<(@Sendable (String, String) async -> Void)?>(nil)
     // The tail of the reloads, so two quick saves apply one after the other.
     let reloadTail = NIOLockedValueBox<Task<Void, Never>?>(nil)
 
@@ -463,6 +464,7 @@ public final class PluginHost: @unchecked Sendable {
             }
         }
         applyHomeKitVisibility(next)
+        applyAccessoryNames(next)
         logApplied(report)
         return report
     }
@@ -482,6 +484,31 @@ public final class PluginHost: @unchecked Sendable {
                 logger.error("Could not save which accessories HomeKit sees on \(bridge.name): \(error)")
             }
         }
+    }
+
+    /// Puts the names of each block's `_accessories` on its accessories, in HomeKit too (`AccessoryNaming`), without
+    /// reloading its plugin.
+    private func applyAccessoryNames(_ configuration: HomeswiftConfiguration) {
+        for instance in instances {
+            let block = configuration.platforms.first { $0.platform == instance.block.platform && $0.name == instance.block.name }
+            instance.context.applyNames(block?.accessoryNames ?? [:])
+        }
+    }
+
+    /// Calls `handler` with the accessory id and the name when a controller renames an accessory through its Configured
+    /// Name (the Home app does when someone renames it there); the MCP catalog stores it in `_accessories`. One handler;
+    /// nil removes it.
+    public func handleRenames(_ handler: (@Sendable (_ accessoryID: String, _ name: String) async -> Void)?) {
+        renameHandler.withLockedValue { $0 = handler }
+    }
+
+    /// The name the plugin gave an accessory renamed in `_accessories`; nil for one that was not.
+    public func pluginName(of accessoryID: String) -> String? {
+        for instance in instances {
+            guard let accessory = instance.context.accessory(id: accessoryID) else { continue }
+            return instance.context.naming.originalName(of: accessory)
+        }
+        return nil
     }
 
     /// One line per applied configuration, so the log shows what a save did without a restart.
@@ -584,6 +611,12 @@ public final class PluginHost: @unchecked Sendable {
         }
         let context = Self.makeContext(block: block, key: key, bridge: bridge, storageDirectory: storageDirectory, logLevel: logger.logLevel, assistant: assistantBox, externals: externals, values: values, energyImports: energyImports, energyProgress: energyProgress, assistantBackground: entry.assistantBackground)
         context.publishedAccessories = { [weak self] in self?.bridges.flatMap(\.server.accessories) ?? [] }
+        context.naming.setNames(block.accessoryNames)
+        context.naming.onRenamed { [weak self, logger = context.logger] id, name in
+            guard let handler = self?.renameHandler.withLockedValue({ $0 }) else { return }
+            logger.info("Renamed in HomeKit: \(id) is now \(name)")
+            Task { await handler(id, name) }
+        }
         return Instance(entry: entry, block: block, context: context)
     }
 

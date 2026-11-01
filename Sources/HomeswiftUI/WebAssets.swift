@@ -10647,18 +10647,31 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return app.api("/api/rooms", { method: "PUT", body });
   }
 
-  /// What an accessory card's menu adds: its room, a name for these pages, Quick Controls, hiding.
+  /// Renames an accessory, in the Home app too (its plugin's block keeps the name); empty gives it back its plugin's.
+  async function rename(accessory) {
+    const name = await HomeswiftCommon.promptDialog(t("A new name for {name}, in the Home app too. Empty gives it back the name its plugin gives it.", { name: displayName(accessory) }), displayName(accessory));
+    if (name === null || name.trim() === displayName(accessory)) return;
+    try {
+      await app.api(`/api/accessories/${encodeURIComponent(accessory.id)}/name`, { method: "PUT", body: { name: name.trim() || null } });
+      app.route();
+    } catch (e) { HomeswiftCommon.showAlert(e.message); }
+  }
+
+  /// What an accessory card's menu adds: its room, its name, Quick Controls, hiding. A plugin's accessory is renamed in
+  /// the Home app too; another controller's (mirrored) keeps a name for these pages only, as one given before does.
   function layoutActions(accessory) {
     const change = (fields) => changeLayout({ accessories: { [accessory.id]: fields } }).then(() => app.route()).catch((e) => HomeswiftCommon.showAlert(e.message));
+    const renames = accessory.platform && !accessory.mirroredFrom;
     return [
       { label: accessory.room ? t("Room: {room}…", { room: accessory.room }) : t("Put in a room…"), icon: "room", onSelect: () => chooseRoom(accessory, change) },
-      { label: t("Name on these pages…"), icon: "edit", onSelect: async () => {
+      renames ? { label: t("Rename…"), icon: "edit", onSelect: () => rename(accessory) } : null,
+      renames && !accessory.displayName ? null : { label: t("Name on these pages…"), icon: "edit", onSelect: async () => {
         const name = await HomeswiftCommon.promptDialog(t("A name for {name} on these pages (the Home app keeps its own). Empty goes back to {name}.", { name: accessory.name }), accessory.displayName || "");
         if (name !== null) change({ name: name.trim() || null });
       } },
       { label: accessory.favourite ? t("Remove from Quick Controls") : t("Add to Quick Controls"), icon: "star", onSelect: () => change({ favourite: !accessory.favourite }) },
       { label: accessory.hidden ? t("Show it again") : t("Hide"), icon: "eye", onSelect: () => change({ hidden: !accessory.hidden }) },
-    ];
+    ].filter(Boolean);
   }
 
   async function chooseRoom(accessory, change, note = "") {
@@ -12812,6 +12825,7 @@ HomeswiftI18n.add("es", {
   "a lock, door or alarm: automations do not change them": "una cerradura, puerta o alarma: las automatizaciones no las cambian",
   "a message is required": "se necesita un mensaje",
   "A name for {name} on these pages (the Home app keeps its own). Empty goes back to {name}.": "Un nombre para {name} en estas páginas (la app Casa mantiene el suyo). Si lo dejas vacío, vuelve a ser {name}.",
+  "A new name for {name}, in the Home app too. Empty gives it back the name its plugin gives it.": "Un nombre nuevo para {name}, también en la app Casa. Si lo dejas vacío, vuelve al nombre que le da su plugin.",
   "A new block: Add writes it to config.json.": "Un bloque nuevo: Añadir lo escribe en config.json.",
   "A new setup code applies to new pairings only: the Home app keeps the bridge.": "Un nuevo código de configuración solo se aplica a los nuevos emparejamientos: la app Casa conserva el puente.",
   "A phrase of several random words is long, strong and easy to remember.": "Una frase de varias palabras al azar es larga, segura y fácil de recordar.",
@@ -15380,6 +15394,7 @@ HomeswiftI18n.add("fr", {
   "a lock, door or alarm: automations do not change them": "une serrure, une porte ou une alarme : les automatisations n'y touchent pas",
   "a message is required": "un message est requis",
   "A name for {name} on these pages (the Home app keeps its own). Empty goes back to {name}.": "Un nom pour {name} sur ces pages (l'app Maison garde le sien). Vide, il redevient {name}.",
+  "A new name for {name}, in the Home app too. Empty gives it back the name its plugin gives it.": "Un nouveau nom pour {name}, dans l'app Maison aussi. Vide, il reprend le nom que lui donne son plugin.",
   "A new block: Add writes it to config.json.": "Un nouveau bloc : Ajouter l'écrit dans config.json.",
   "A new setup code applies to new pairings only: the Home app keeps the bridge.": "Un nouveau code de configuration ne s'applique qu'aux nouveaux jumelages : l'app Maison garde le pont.",
   "A phrase of several random words is long, strong and easy to remember.": "Une phrase de plusieurs mots aléatoires est longue, robuste et facile à retenir.",
@@ -17948,6 +17963,7 @@ HomeswiftI18n.add("pt", {
   "a lock, door or alarm: automations do not change them": "uma fechadura, porta ou alarme: as automatizações não lhes tocam",
   "a message is required": "é preciso uma mensagem",
   "A name for {name} on these pages (the Home app keeps its own). Empty goes back to {name}.": "Um nome para {name} nestas páginas (a app Casa mantém o seu). Se ficar vazio, volta a ser {name}.",
+  "A new name for {name}, in the Home app too. Empty gives it back the name its plugin gives it.": "Um novo nome para {name}, também na app Casa. Se ficar vazio, volta ao nome que o seu plugin lhe dá.",
   "A new block: Add writes it to config.json.": "Um bloco novo: Adicionar escreve-o no config.json.",
   "A new setup code applies to new pairings only: the Home app keeps the bridge.": "Um novo código de configuração só se aplica a novos emparelhamentos: a app Casa mantém a ponte.",
   "A phrase of several random words is long, strong and easy to remember.": "Uma frase de várias palavras aleatórias é longa, forte e fácil de memorizar.",
