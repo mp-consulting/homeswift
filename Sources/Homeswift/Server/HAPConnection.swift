@@ -298,7 +298,7 @@ final class HAPConnection: @unchecked Sendable {
         case ("POST", "/pairings"):
             return handlePairings(request.body)
         case ("GET", "/accessories"):
-            return (.json(200, server.database(includeValues: true)), .none)
+            return (HTTPResponse(status: 200, contentType: HTTPResponse.hapJSON, body: Data(server.accessoriesBody())), .none)
         case ("GET", "/characteristics"):
             return (await handleRead(request.query), .none)
         case ("PUT", "/characteristics"):

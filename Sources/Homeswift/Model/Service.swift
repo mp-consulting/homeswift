@@ -26,7 +26,10 @@ public final class Service: @unchecked Sendable {
     /// input sources and speaker, so the Home app shows them with it.
     public var linked: [Service] {
         get { linkedBox.withLockedValue { $0 } }
-        set { linkedBox.withLockedValue { $0 = newValue } }
+        set {
+            linkedBox.withLockedValue { $0 = newValue }
+            StructureGeneration.bump()
+        }
     }
 
     /// The controller that gives a lightbulb Adaptive Lighting, once one was made for it; weak, as the controller
@@ -97,12 +100,14 @@ public final class Service: @unchecked Sendable {
     /// `getCharacteristic`). Add characteristics before the accessory goes on a server: iids are given then.
     @discardableResult
     public func characteristic(adding type: CharacteristicType) -> Characteristic {
-        characteristicsBox.withLockedValue { list in
-            if let existing = list.first(where: { $0.type.uuid == type.uuid }) { return existing }
+        let (characteristic, added) = characteristicsBox.withLockedValue { list in
+            if let existing = list.first(where: { $0.type.uuid == type.uuid }) { return (existing, false) }
             let added = Characteristic(type)
             list.append(added)
-            return added
+            return (added, true)
         }
+        if added { StructureGeneration.bump() }
+        return characteristic
     }
 
     /// Copies the values another service (the same one on a cached accessory) had, when they still fit: readable

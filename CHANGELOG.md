@@ -14,6 +14,13 @@ All notable changes to this project are documented here. The format follows
 - HAP: characteristic events are held 50ms and sent as one message, as HAP-NodeJS's are (it waits 250ms): a plugin
   updating 30 lights sends a few events to each controller, not 30. The same value twice in a row goes once; button presses go at once and take
   the waiting events with them. `HAPServer.Options.eventCoalescingDelay` sets the delay.
+- HAP: `GET /accessories`, which every controller asks for when it reconnects or the configuration number moves, comes
+  from a template built once, with the values filled in: each characteristic's permissions, type and metadata were
+  built again for every request. The template is built again when an accessory is added, removed or hidden, or a
+  service's structure changes.
+- HAP: removing accessories no longer hashes the whole database for each, under the lock every request takes: each
+  removal HomeKit sees bumps the configuration number at once, and the hash, the save and the advertisement follow
+  once for the burst, as for added accessories. A plugin removing its stale accessories cost N² before.
 
 ### Fixed
 

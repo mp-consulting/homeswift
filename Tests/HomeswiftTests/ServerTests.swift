@@ -290,6 +290,34 @@ struct ServerTests {
         await server.stop()
     }
 
+    /// `GET /accessories` comes from a cached template with the values filled in: byte for byte the database as
+    /// built from scratch, after a value change, a service linked on the model, an accessory added or hidden.
+    @Test func cachedAccessoriesBodyIsTheDatabase() async throws {
+        func fresh() -> [UInt8] {
+            var json = JSONWriter()
+            server.database(includeValues: true).write(to: &json)
+            return json.bytes
+        }
+        try await server.start()
+        #expect(server.accessoriesBody() == fresh())
+        lightbulb.characteristic(.brightness).value = 42
+        lightbulb.characteristic(.on).value = true
+        #expect(server.accessoriesBody() == fresh())
+        #expect(String(decoding: server.accessoriesBody(), as: UTF8.self).contains("\"value\":42"))
+
+        let battery = Service(.battery, name: "Battery")
+        let sensor = Accessory(id: "sensor-1", name: "Sensor", category: .sensor, services: [Service(.temperatureSensor, name: "Sensor", isPrimary: true), battery])
+        try server.add(sensor)
+        #expect(server.accessoriesBody() == fresh())
+        sensor.services[1].linked = [battery]
+        #expect(server.accessoriesBody() == fresh())
+        #expect(String(decoding: server.accessoriesBody(), as: UTF8.self).contains("\"linked\":[\(battery.iid)]"))
+        try server.setHiddenFromHomeKit(["sensor-1"])
+        #expect(server.accessoriesBody() == fresh())
+        #expect(!String(decoding: server.accessoriesBody(), as: UTF8.self).contains("\"aid\":\(sensor.aid)"))
+        await server.stop()
+    }
+
     @Test func timesRequestsAndHandlers() async throws {
         let timings = TimingLog()
         server.observeTimings { timings.append($0) }

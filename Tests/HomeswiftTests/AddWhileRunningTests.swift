@@ -73,6 +73,36 @@ import Testing
         await server.stop()
     }
 
+    /// Removals bump the number each, as HomeKit must refetch, but hash, save and advertise once, after the burst: a
+    /// plugin removing its stale accessories hashed the whole database for each.
+    @Test func removalsSaveOnceAfterTheBurst() async throws {
+        let storage = MemoryStorage()
+        let server = try HAPServer(
+            bridge: Accessory(id: "bridge", name: "Test Bridge", category: .bridge, services: []),
+            accessories: ["a", "b", "c", "d"].map { lamp($0) }, storage: storage,
+            options: .init(port: 0, advertise: false, logger: testLogger))
+        try await server.start()
+        func saved() throws -> Int { try JSONDecoder().decode(PersistedState.self, from: try #require(try storage.load())).configurationNumber }
+        #expect(try saved() == 1)
+
+        for id in ["a", "b", "c"] { try server.remove(try #require(server.accessories.first { $0.id == id })) }
+        #expect(configurationNumber(server) == "4")
+        #expect(server.state.withLockedValue { $0.hashBehind && $0.announceBehind })
+        #expect(try saved() == 1)
+        let deadline = ContinuousClock.now + .seconds(10)
+        while server.state.withLockedValue({ $0.hashBehind }), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
+        #expect(try saved() == 4)
+        #expect(configurationNumber(server) == "4")
+
+        // One HomeKit does not see (mirrored) leaves the number as it is.
+        let mirror = lamp("m")
+        mirror.mirroredFrom = "Other:m"
+        try server.add(mirror)
+        try server.remove(mirror)
+        #expect(configurationNumber(server) == "4")
+        await server.stop()
+    }
+
     /// The state the server writes itself reads back with JSONDecoder as what JSONEncoder wrote.
     @Test func persistedStateReadsBackAsJSONEncoderWroteIt() throws {
         var state = PersistedState.new(setupCode: nil)

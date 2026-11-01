@@ -68,6 +68,8 @@ struct CharacteristicJSON: JSONWritable {
     var validValuesRange: [Int]?
     var ev: Bool?
     var status: Int?
+    /// Writes `"value":` with a hole after it (`JSONWriter.hole()`) instead of `value`, for `DatabaseTemplate`.
+    var valueHole = false
 
     func write(to json: inout JSONWriter) {
         json.object { json in
@@ -76,7 +78,12 @@ struct CharacteristicJSON: JSONWritable {
             json.field("type", type)
             json.field("perms", perms)
             json.field("format", format)
-            json.field("value", value)
+            if valueHole {
+                json.key("value")
+                json.hole()
+            } else {
+                json.field("value", value)
+            }
             json.field("description", description)
             json.field("unit", unit)
             json.field("minValue", minValue)

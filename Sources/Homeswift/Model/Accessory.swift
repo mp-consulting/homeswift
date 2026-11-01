@@ -59,6 +59,7 @@ public final class Accessory: @unchecked Sendable {
     /// Adds a service the server needs on every accessory (Protocol Information).
     func append(_ service: Service) {
         servicesBox.withLockedValue { $0.append(service) }
+        StructureGeneration.bump()
     }
 
     public var name: String {
@@ -138,4 +139,15 @@ public final class Accessory: @unchecked Sendable {
         guard !isUnavailable else { return }
         try? await information.characteristic(.identify).writeHandler(for: .bool(true))?(.bool(true))
     }
+}
+
+/// Counts the changes to accessories' structure made on the model rather than through a server (a service's `linked`,
+/// a characteristic or service added): a server's cached `GET /accessories` body (`DatabaseTemplate`) is built again
+/// when it moved.
+enum StructureGeneration {
+    private static let counter = NIOLockedValueBox<UInt64>(0)
+
+    static var current: UInt64 { counter.withLockedValue { $0 } }
+
+    static func bump() { counter.withLockedValue { $0 &+= 1 } }
 }
