@@ -12,6 +12,15 @@ enum UbiquitiDiscovery {
         var model: String
         var modelLong: String
         var name: String
+
+    /// A UniFi OS console, which runs UniFi Access and Protect (a gateway, a Cloud Key, a recorder), rather than one of
+    /// the access points, chimes, hubs or cameras that answer the probe too: a console reports a UniFi OS version as its
+    /// firmware (`5.1.34`) where a device reports its own (`UP.esp32.v1.7.20…`), and a console's model code.
+    var isConsole: Bool {
+        let code = model.uppercased().replacingOccurrences(of: "-", with: "")
+        return ["UDM", "UDR", "UDW", "UCG", "UCK", "UNVR", "ENVR", "EFG"].contains { code.hasPrefix($0) }
+            || firmware.range(of: #"^\d+\.\d+(\.\d+)*$"#, options: .regularExpression) != nil
+    }
     }
 
     static let port = 10001
@@ -91,6 +100,11 @@ enum UbiquitiDiscovery {
         }
         try? await Task.sleep(for: timeout)
         await socket.close()
-        return await listener.value
+        // Only consoles have a login to set up; one with several networks answers from each of its addresses.
+        var consoles: [Console] = []
+        for console in await listener.value where console.isConsole && !consoles.contains(where: { !$0.mac.isEmpty && $0.mac == console.mac }) {
+            consoles.append(console)
+        }
+        return consoles
     }
 }

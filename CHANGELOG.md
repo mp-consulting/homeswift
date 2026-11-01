@@ -36,6 +36,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- UniFi Access and Protect: Add accessories lists only the UniFi OS consoles (gateways, Cloud Keys, recorders) to
+  sign in to, not every access point, chime or hub that answers the discovery probe, and a console with several
+  networks once.
 - Govee: commands reach lights through the cloud while another bridge (or Homebridge) is signed in to the same
   account. Both used the same AWS IoT client id, so each knocked the other off every second; each run now has its own.
 - Web UI: behind Cloudflare or another reverse proxy, installing an update showed the proxy's 502 page, its HTML, in an

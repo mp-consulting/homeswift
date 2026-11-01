@@ -193,6 +193,15 @@ import Testing
 
     static let pluginDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
 
+    /// Consoles have a login to set up; access points, chimes and hubs answer the probe too, and have none.
+    @Test func discoveryKeepsConsoles() {
+        let answer = { (model: String, firmware: String) in DiscoveredConsole(ip: "192.168.1.2", name: model, model: model, firmware: firmware) }
+        #expect(answer("UCGF", "5.1.34").isConsole && answer("UNVR", "6.0.11").isConsole && answer("UDM-Pro", "").isConsole)
+        #expect(!answer("UP Chime", "UP.esp32.v1.7.20.0.402a5ff.240910.0648").isConsole)
+        #expect(!answer("UA-Hub-Gate", "GT.mt7621.v2.6.13.0.g9bb4ebd.260911.1710").isConsole)
+        #expect(!answer("UFP-UAP-B", "UFP-UAP-B.Maple.v1.1.0.4.2fed14f36e.260126.1409").isConsole)
+    }
+
     @Test func discoveryAnswers() {
         // Header, MAC+IP, hostname, short model, firmware.
         var packet: [UInt8] = [0x01, 0x00, 0x00, 0x30]

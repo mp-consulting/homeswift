@@ -17,6 +17,15 @@ struct DiscoveredConsole: Sendable, Equatable {
     var modelLong: String = ""
     var firmware: String = ""
 
+    /// A UniFi OS console, which runs UniFi Access and Protect (a gateway, a Cloud Key, a recorder), rather than one of
+    /// the access points, chimes, hubs or cameras that answer the probe too: a console reports a UniFi OS version as its
+    /// firmware (`5.1.34`) where a device reports its own (`UP.esp32.v1.7.20…`), and a console's model code.
+    var isConsole: Bool {
+        let code = model.uppercased().replacingOccurrences(of: "-", with: "")
+        return ["UDM", "UDR", "UDW", "UCG", "UCK", "UNVR", "ENVR", "EFG"].contains { code.hasPrefix($0) }
+            || firmware.range(of: #"^\d+\.\d+(\.\d+)*$"#, options: .regularExpression) != nil
+    }
+
     var json: JSONValue {
         ["ip": .string(ip), "mac": .string(mac), "name": .string(name), "model": .string(model), "modelLong": .string(modelLong), "firmware": .string(firmware)]
     }
@@ -120,7 +129,12 @@ enum UbiquitiDiscovery {
         for address in broadcasts + unicast { try? await socket.send(Data(probe), to: address, port: port) }
         try? await Task.sleep(for: timeout)
         await socket.close()
-        return await collect.value
+        // Only consoles have a login to set up; one with several networks answers from each of its addresses.
+        var consoles: [DiscoveredConsole] = []
+        for console in await collect.value where console.isConsole && !consoles.contains(where: { !$0.mac.isEmpty && $0.mac == console.mac }) {
+            consoles.append(console)
+        }
+        return consoles
     }
 
     /// Whether the controller answers HTTPS on its address within five seconds (`/checkStatus`). The name is

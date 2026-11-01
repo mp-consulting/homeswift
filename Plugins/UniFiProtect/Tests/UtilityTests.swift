@@ -373,6 +373,14 @@ import Glibc
         await #expect(throws: ONVIF.Failure.self) { try await ONVIF.discover(host: "", port: nil, servicePath: nil, username: "admin", password: "", transport: FakeCamera()) }
     }
 
+    /// Consoles have a login to set up; access points, chimes and hubs answer the probe too, and have none.
+    @Test func discoveryKeepsConsoles() {
+        let answer = { (model: String, firmware: String) in UbiquitiDiscovery.Console(firmware: firmware, ip: "192.168.1.2", mac: "", model: model, modelLong: "", name: model) }
+        #expect(answer("UCGF", "5.1.34").isConsole && answer("UNVR", "6.0.11").isConsole && answer("UDM-Pro", "").isConsole)
+        #expect(!answer("UP Chime", "UP.esp32.v1.7.20.0.402a5ff.240910.0648").isConsole)
+        #expect(!answer("UA-Hub-Gate", "GT.mt7621.v2.6.13.0.g9bb4ebd.260911.1710").isConsole)
+    }
+
     @Test func discoveryAnswers() {
         var message: [UInt8] = [1, 0, 0, 0]
         message += [0x02, 0, 10, 0x74, 0xAC, 0xB9, 0x01, 0x02, 0x03, 192, 168, 1, 1]
