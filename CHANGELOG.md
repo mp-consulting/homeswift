@@ -12,8 +12,6 @@ All notable changes to this project are documented here. The format follows
   `rename_accessory`. The name goes in its plugin's block (`_accessories`, by Device Id) and the bridge puts it on the
   accessory's Name and Configured Name, without reloading the plugin and with its aids and iids, so its room, scenes and
   automations stay. The Home app follows Configured Name; a rename made there is kept in config.json the same way.
-- UniFi Access: `Hub.SideDoor.SeparateAccessory` puts a UA Gate's side door (its lock, position sensor and trigger) on
-  an accessory of its own, with its own tile, rather than a second lock on the gate's.
 - UniFi Access: a UA Gate's side door (its lock, position sensor and trigger) and each door sensor get an accessory of
   their own, with their own tile, by default (`Hub.SideDoor.SeparateAccessory`, `Hub.Sensors.SeparateAccessory`; the
   Homebridge plugin groups them on the hub's, and disabling the options does too).
@@ -23,9 +21,10 @@ All notable changes to this project are documented here. The format follows
   Daikin, LG ThinQ and EcoFlow ask which way to sign in; Dyson, LG ThinQ and eWeLink offer their countries and
   languages in a menu). Plugins to add are cards with a search; the sheet shows where the Setup stands and, for a new
   account, or a UniFi console just signed in, lets you pick the devices that go into the Home app (the others are
-  excluded). Removing a plugin offers to delete the vault entries it kept. A device's
-  parts (a UA Gate's side door, its door sensors, a doorbell; a Protect camera's occupancy sensor, motion switch, status
-  light switch, doorbell mute or package camera flashlight) each have a switch, kept in its Accessory Settings' `parts`. The Accessories page's toolbar leads to it. MCP clients get
+  excluded). Removing a plugin offers to delete the vault entries it kept. A device's parts (a UA Gate's side door,
+  its door sensors, a doorbell; a Protect camera's occupancy sensor, motion switch, status light switch, doorbell mute
+  or package camera flashlight) each have a switch, kept in its Accessory Settings' `parts`. The Accessories page's
+  toolbar leads to it. MCP clients get
   `discover_devices`, `start_setup`, `continue_setup` and `cancel_setup`; a secret field takes only a `vault:` reference.
   What an Authorization gives goes in the vault, never config.json. See GLOSSARY.md and docs/plugins.md, "Setup".
 - Accessory Settings in a block's `_accessories`, by Device Id: **Exclude** a device from its row (it never becomes an
