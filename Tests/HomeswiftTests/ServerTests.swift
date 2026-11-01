@@ -1,5 +1,6 @@
 import Foundation
 import Logging
+import NIOCore
 import Testing
 
 @testable import Homeswift
@@ -523,6 +524,112 @@ struct ServerTests {
         #expect(response.byte(.error) == nil)
         #expect(!server.isPaired)
         await #expect(throws: (any Error).self) { _ = try await controller.nextMessage() }
+        await server.stop()
+    }
+
+    @Test func anAdminMadeAUserManagesPairingsNoMore() async throws {
+        let controller = try await pairedController()
+        // Another admin first, so the accessory keeps one; then this controller's own pairing loses the admin bit.
+        let other = TestController()
+        var add = TLV8()
+        add.append(.state, 1)
+        add.append(.method, 3)
+        add.append(.identifier, Data(other.identifier.utf8))
+        add.append(.publicKey, other.signingKey.publicKey.rawRepresentation)
+        add.append(.permissions, 1)
+        #expect(try await controller.tlv("/pairings", add).byte(.error) == nil)
+        add = TLV8()
+        add.append(.state, 1)
+        add.append(.method, 3)
+        add.append(.identifier, Data(controller.identifier.utf8))
+        add.append(.publicKey, controller.signingKey.publicKey.rawRepresentation)
+        add.append(.permissions, 0)
+        #expect(try await controller.tlv("/pairings", add).byte(.error) == nil)
+
+        // Same session, started as an admin's: the permission counts as it is now.
+        var list = TLV8()
+        list.append(.state, 1)
+        list.append(.method, 5)
+        #expect(try await controller.tlv("/pairings", list).byte(.error) == TLVError.authentication.rawValue)
+        await controller.close()
+        await server.stop()
+    }
+
+    /// As the ADK: the first event after a quiet interval goes at once, the next waits for the interval (one no test
+    /// waits out: only a button press sends it sooner).
+    @Test func eventsWaitTheMinimumIntervalAfterAMessage() async throws {
+        let button = Service(.statelessProgrammableSwitch, name: "Button")
+        let light = Service(.lightbulb, name: "Lamp", optional: [.brightness], isPrimary: true)
+        let lamp = Accessory(id: "lamp-3", name: "Lamp", category: .lightbulb, services: [light, button])
+        var options = HAPServer.Options(setupCode: SetupCode("031-45-154"), port: 0, advertise: false, logger: testLogger)
+        options.minimumEventInterval = .seconds(60)
+        let server = try HAPServer(accessory: lamp, storage: MemoryStorage(), options: options)
+        try await server.start()
+        let controller = TestController()
+        try await controller.connect(port: server.port!)
+        try controller.addPairing(to: server)
+        try await controller.pairVerify()
+        let level = light.characteristic(.brightness)
+        let press = button.characteristic(.programmableSwitchEvent)
+        let subscribed = try await controller.json("PUT", "/characteristics", ["characteristics": [
+            ["aid": 1, "iid": level.iid, "ev": true], ["aid": 1, "iid": press.iid, "ev": true],
+        ]])
+        #expect(subscribed.status == 204)
+
+        level.value = 10
+        let first = try await controller.nextMessage()
+        #expect(((first.json as? [String: Any])?["characteristics"] as? [[String: Any]])?.map { ($0["value"] as? NSNumber)?.intValue } == [10])
+        level.value = 20
+        press.sendEvent(.int(0))
+        let next = try await controller.nextMessage()
+        let both = (next.json as? [String: Any])?["characteristics"] as? [[String: Any]]
+        #expect(both?.map { $0["iid"] as? Int } == [level.iid, press.iid])
+        await controller.close()
+        await server.stop()
+    }
+
+    /// A pair setup left after M1 keeps others out for `pairSetupTimeout`, then gives way, and its M3 is refused.
+    @Test func anUnfinishedPairSetupTimesOut() async throws {
+        try await server.start()
+        var m1 = TLV8()
+        m1.append(.state, 1)
+        m1.append(.method, 0)
+        let stalled = TestController()
+        try await stalled.connect(port: server.port!)
+        #expect(try await stalled.tlv("/pair-setup", m1).byte(.error) == nil)
+        let next = TestController()
+        try await next.connect(port: server.port!)
+        #expect(try await next.tlv("/pair-setup", m1).byte(.error) == TLVError.busy.rawValue)
+
+        // The timeout passes: started that long ago.
+        server.state.withLockedValue { $0.pairSetupStarted = NIODeadline.now() - server.options.pairSetupTimeout - TimeAmount.seconds(1) }
+        await next.close()
+        try await next.connect(port: server.port!)
+        try await next.pairSetup(code: "031-45-154")
+        #expect(server.isPaired)
+
+        var m3 = TLV8()
+        m3.append(.state, 3)
+        m3.append(.publicKey, Data(repeating: 1, count: 384))
+        m3.append(.proof, Data(repeating: 2, count: 64))
+        #expect(try await stalled.tlv("/pair-setup", m3).byte(.error) == TLVError.unknown.rawValue)
+        await stalled.close()
+        await next.close()
+        await server.stop()
+    }
+
+    /// As HAP-NodeJS 2.2.4: a pair verify on a verified connection is refused, and the session goes on.
+    @Test func aVerifiedConnectionRefusesAnotherPairVerify() async throws {
+        let controller = try await pairedController()
+        var m1 = TLV8()
+        m1.append(.state, 1)
+        m1.append(.publicKey, Data(repeating: 9, count: 32))
+        let refused = try await controller.request("POST", "/pair-verify", body: m1.encoded(), contentType: "application/pairing+tlv8")
+        #expect(refused.status == 400)
+        let reply = try TLV8(decoding: refused.body)
+        #expect(reply.byte(.state) == 2 && reply.byte(.error) == TLVError.unknown.rawValue)
+        #expect(try await controller.request("GET", "/accessories").status == 200)
+        await controller.close()
         await server.stop()
     }
 }

@@ -215,6 +215,9 @@ message, except button events, which go at once: HAP-NodeJS for `EVENT_COALESCIN
 `eventedhttp.ts`), Homeswift for `HAPServer.Options.eventCoalescingDelay` (50 ms). A burst (a plugin updating many
 lights, a scene) arrives within a few milliseconds, so 50 ms still sends it as one message, without adding a
 quarter of a second to every state change HomeKit learns, and to every automation that reacts to one.
+Homeswift also sends at most one event message a second per connection, as the spec and Apple's HomeKit ADK do
+(`minimumEventInterval`): a change after a quiet second still arrives in 53 ms, one a second later waits. The
+benchmark writes back to back, so `hap-bench-server` turns the limit off to time each event.
 
 **Caveats.** The HAP-NodeJS script is the library alone, run the way Homebridge runs it (default advertiser,
 default Node flags) on Node 26, ahead of the versions its `engines` lists. The controller is Swift on NIO;

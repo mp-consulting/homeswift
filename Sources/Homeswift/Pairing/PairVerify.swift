@@ -15,6 +15,13 @@ extension HAPConnection {
         guard let tlv = try? TLV8(decoding: body), let step = tlv.byte(.state) else {
             return (pairingError(state: 2, .unknown), .none)
         }
+        // A verify on an encrypted connection would swap its keys mid-session: refused, as HAP-NodeJS 2.2.4 does.
+        guard !isVerified else {
+            server.logger.debug("Pair verify refused on a verified connection")
+            var response = pairingError(state: step &+ 1, .unknown)
+            response.status = 400
+            return (response, .none)
+        }
         switch step {
         case 1: return (pairVerifyStart(tlv), .none)
         case 3: return pairVerifyFinish(tlv)
@@ -79,7 +86,7 @@ extension HAPConnection {
             return (pairingError(state: 4, .authentication), .none)
         }
 
-        setController(identifier, isAdmin: pairing.isAdmin)
+        setController(identifier)
         server.logger.debug("Controller verified", metadata: ["controller": "\(identifier)"])
         var response = TLV8()
         response.append(.state, 4)

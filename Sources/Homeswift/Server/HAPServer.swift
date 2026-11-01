@@ -45,6 +45,14 @@ public final class HAPServer: @unchecked Sendable {
         /// sends a few events, not 30. Button presses go at once. HAP-NodeJS waits 250ms (`EVENT_COALESCING_DELAY`);
         /// a burst arrives within a few milliseconds, and a quarter of a second shows on another iPhone.
         public var eventCoalescingDelay: TimeAmount = .milliseconds(50)
+        /// The shortest time between two event messages on a connection, button presses aside: the spec has
+        /// notifications coalesced over at least a second. The first after a quiet second goes after
+        /// `eventCoalescingDelay`, as Apple's HomeKit ADK sends it at once (`kHAPIPAccessoryServer_MaxEventNotificationDelay`);
+        /// a characteristic changing all the time is reported once a second.
+        public var minimumEventInterval: TimeAmount = .seconds(1)
+        /// How long a pair setup may take from M1 before another controller can start one (the ADK's
+        /// `kHAPPairing_PairSetupProcedureTimeout`): one that stops halfway would otherwise keep the bridge busy.
+        public var pairSetupTimeout: TimeAmount = .seconds(30)
         public var logger: Logger
 
         public init(
@@ -80,10 +88,15 @@ public final class HAPServer: @unchecked Sendable {
         var accessories: [Int: Accessory] = [:]
         /// The ids of accessories kept out of HomeKit by choice (`setHiddenFromHomeKit`), as mirrored ones are.
         var hiddenFromHomeKit: Set<String> = []
+        /// The ids of bridged accessories past `maxBridgedAccessories`, the last added: out of HomeKit as hidden ones
+        /// are, until enough others leave.
+        var overCapacity: Set<String> = []
         var connections: [ObjectIdentifier: HAPConnection] = [:]
         var changeObservers: [ChangeObserver] = []
         var structureObservers: [@Sendable () -> Void] = []
         var pairSetupOwner: ObjectIdentifier?
+        /// When `pairSetupOwner` sent its M1.
+        var pairSetupStarted = NIODeadline.distantPast
         var failedPairSetupAttempts = 0
         var serverChannel: (any Channel)?
         var idleCheck: RepeatedTask?
@@ -97,7 +110,16 @@ public final class HAPServer: @unchecked Sendable {
         /// server's accessories) and `StructureGeneration` (their services).
         var databaseTemplate: DatabaseTemplate?
         var databaseVersion = 0
+
+        /// What HomeKit does not see besides mirrored accessories: those hidden by choice and those over capacity.
+        var outOfHomeKit: Set<String> { overCapacity.isEmpty ? hiddenFromHomeKit : hiddenFromHomeKit.union(overCapacity) }
+
+        func isOutOfHomeKit(_ id: String) -> Bool { hiddenFromHomeKit.contains(id) || overCapacity.contains(id) }
     }
+
+    /// HomeKit takes at most 150 accessories from a bridge, the bridge included ("A bridge must not expose more than 150
+    /// HAP accessory objects"); HAP-NodeJS and Apple's ADK both stop at 149 bridged ones.
+    public static let maxBridgedAccessories = 149
 
     private let primaryBox: NIOLockedValueBox<Accessory>
     /// The accessory with aid 1: the bridge, or the one standalone accessory.
@@ -268,7 +290,7 @@ public final class HAPServer: @unchecked Sendable {
         state.withLockedValue { state in
             guard let removed = state.accessories.removeValue(forKey: accessory.aid) else { return }
             structureMoved(&state)
-            guard state.serverChannel != nil, removed.mirroredFrom == nil, !state.hiddenFromHomeKit.contains(removed.id) else { return }
+            guard state.serverChannel != nil, removed.mirroredFrom == nil, !state.isOutOfHomeKit(removed.id) else { return }
             state.persisted.configurationNumber = state.persisted.configurationNumber % 65535 + 1
             state.hashBehind = true
             state.announceBehind = true
@@ -385,6 +407,7 @@ public final class HAPServer: @unchecked Sendable {
             $0.serverChannel = channel
             $0.idleCheck = idleCheck
             $0.persisted.port = port
+            reportOverCapacity($0)
         }
         try persist()
         logger.info("HAP server listening", metadata: ["port": "\(port)", "paired": "\(isPaired)"])
@@ -502,7 +525,7 @@ public final class HAPServer: @unchecked Sendable {
     }
 
     private func databaseHash(_ state: State) -> String {
-        let structure = database(accessories: state.accessories, hidden: state.hiddenFromHomeKit, includeValues: false)
+        let structure = database(accessories: state.accessories, hidden: state.outOfHomeKit, includeValues: false)
         var json = JSONWriter(capacity: 64 * 1024)
         structure.write(to: &json)
         return Secrets.hex(SHA256.hash(data: json.bytes))
@@ -563,7 +586,7 @@ public final class HAPServer: @unchecked Sendable {
     private func databaseTemplate() -> DatabaseTemplate {
         let generation = StructureGeneration.current
         let (cached, version, accessories, hidden) = state.withLockedValue { state in
-            (state.databaseTemplate, state.databaseVersion, state.accessories, state.hiddenFromHomeKit)
+            (state.databaseTemplate, state.databaseVersion, state.accessories, state.outOfHomeKit)
         }
         if let cached, cached.version == version, cached.generation == generation { return cached }
         // Built outside the lock; kept only when nothing changed meanwhile.
@@ -580,7 +603,7 @@ public final class HAPServer: @unchecked Sendable {
     }
 
     func database(includeValues: Bool) -> AccessoryDatabase {
-        let (accessories, hidden) = state.withLockedValue { ($0.accessories, $0.hiddenFromHomeKit) }
+        let (accessories, hidden) = state.withLockedValue { ($0.accessories, $0.outOfHomeKit) }
         return database(accessories: accessories, hidden: hidden, includeValues: includeValues)
     }
 
@@ -618,7 +641,7 @@ public final class HAPServer: @unchecked Sendable {
     /// The accessory a controller names; never a mirrored or hidden one, which HomeKit does not see.
     func accessory(aid: Int) -> Accessory? {
         state.withLockedValue { state in
-            state.accessories[aid].flatMap { $0.mirroredFrom == nil && !state.hiddenFromHomeKit.contains($0.id) ? $0 : nil }
+            state.accessories[aid].flatMap { $0.mirroredFrom == nil && !state.isOutOfHomeKit($0.id) ? $0 : nil }
         }
     }
 
@@ -630,7 +653,7 @@ public final class HAPServer: @unchecked Sendable {
     func lookup() -> Lookup {
         let generation = lookupBox.withLockedValue { box -> Int? in box.lookup == nil ? box.generation : nil }
         guard let generation else { return lookupBox.withLockedValue { $0.lookup! } }
-        let (accessories, hidden) = state.withLockedValue { ($0.accessories, $0.hiddenFromHomeKit) }
+        let (accessories, hidden) = state.withLockedValue { ($0.accessories, $0.outOfHomeKit) }
         var characteristics: [CharacteristicKey: Characteristic] = [:]
         for (aid, accessory) in accessories where accessory.mirroredFrom == nil && !hidden.contains(accessory.id) {
             for service in accessory.services {
@@ -648,11 +671,37 @@ public final class HAPServer: @unchecked Sendable {
     /// The accessories or their ids changed: the cached `GET /accessories` body and the lookup are built again. Called
     /// inside `state`'s lock; `lookup()` never holds both.
     private func structureMoved(_ state: inout State) {
+        updateOverCapacity(&state)
         state.databaseVersion += 1
         lookupBox.withLockedValue {
             $0.lookup = nil
             $0.generation += 1
         }
+    }
+
+    /// Keeps the bridged accessories HomeKit sees within `maxBridgedAccessories`, by aid: those it has had longest stay,
+    /// the ones added last wait outside. Counted before sorting, as it runs for every accessory a plugin adds.
+    private func updateOverCapacity(_ state: inout State) {
+        let hidden = state.hiddenFromHomeKit
+        let counts = { (entry: (key: Int, value: Accessory)) in
+            entry.key != 1 && entry.value.mirroredFrom == nil && !hidden.contains(entry.value.id)
+        }
+        var over: Set<String> = []
+        if state.accessories.count > Self.maxBridgedAccessories, state.accessories.lazy.filter(counts).count > Self.maxBridgedAccessories {
+            over = Set(state.accessories.filter(counts).sorted { $0.key < $1.key }.dropFirst(Self.maxBridgedAccessories).map(\.value.id))
+        }
+        guard over != state.overCapacity else { return }
+        state.overCapacity = over
+        // While accessories are still being added before `start()`, which reports the outcome once.
+        if state.serverChannel != nil { reportOverCapacity(state) }
+    }
+
+    private func reportOverCapacity(_ state: State) {
+        guard !state.overCapacity.isEmpty else { return }
+        let names = state.accessories.values.filter { state.overCapacity.contains($0.id) }.map(\.name).sorted()
+        logger.warning(
+            "HomeKit takes at most \(Self.maxBridgedAccessories) accessories per bridge: move a plugin to a child bridge",
+            metadata: ["left out": "\(names.count)", "accessories": "\(names.joined(separator: ", "))"])
     }
 
     // MARK: Persistence and advertising
@@ -727,7 +776,7 @@ extension HAPServer {
         let key = CharacteristicKey(aid: characteristic.aid, iid: characteristic.iid)
         let (connections, observers, accessory, hidden) = state.withLockedValue { state in
             let accessory = state.accessories[key.aid]
-            return (Array(state.connections.values), state.changeObservers, accessory, accessory.map { state.hiddenFromHomeKit.contains($0.id) } ?? false)
+            return (Array(state.connections.values), state.changeObservers, accessory, accessory.map { state.isOutOfHomeKit($0.id) } ?? false)
         }
         if let accessory {
             for observer in observers { observer(accessory, characteristic, value) }
@@ -735,11 +784,11 @@ extension HAPServer {
         // A subscription made before it was hidden hears nothing more: HomeKit no longer has it.
         guard !hidden else { return }
         // As HAP-NodeJS, button presses are delivered at once (they take the queued events with them), the rest after
-        // `eventCoalescingDelay`.
+        // `eventCoalescingDelay`, a `minimumEventInterval` after the last message at the earliest.
         let uuid = characteristic.type.uuid
         let immediate = uuid == CharacteristicType.buttonEvent.uuid || uuid == CharacteristicType.programmableSwitchEvent.uuid
         for connection in connections where connection.id != origin {
-            connection.queueEvent(key, value: value, immediate: immediate, delay: options.eventCoalescingDelay)
+            connection.queueEvent(key, value: value, immediate: immediate, delay: options.eventCoalescingDelay, interval: options.minimumEventInterval)
         }
     }
 }
