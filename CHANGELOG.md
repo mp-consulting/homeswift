@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- HAP: the reads of one `GET /characteristics` run at the same time, as HAP-NodeJS's: the Home app asks for every tile
+  on screen in one request, and one slow device no longer holds up the others' values (or shows them all as Not
+  Responding). The same characteristic twice in one read is refused (422), as in a write.
+- HAP: characteristic events are held 50ms and sent as one message, as HAP-NodeJS's are (it waits 250ms): a plugin
+  updating 30 lights sends a few events to each controller, not 30. The same value twice in a row goes once; button presses go at once and take
+  the waiting events with them. `HAPServer.Options.eventCoalescingDelay` sets the delay.
+
 ### Fixed
 
 - Web UI: a menu opened in a sheet (the full screens' Filters, in the wall's and the graph's panel) showed off screen: a

@@ -10,8 +10,8 @@ import NIOCore
 final class HAPConnection: @unchecked Sendable {
     enum Work {
         case data(ByteBuffer)
-        /// An event, serialized once for every connection it goes to.
-        case event(Data)
+        /// Time to send the queued events (`Shared.queuedEvents`) as one message.
+        case flushEvents
     }
 
     /// What to do after a response has gone out.
@@ -27,6 +27,10 @@ final class HAPConnection: @unchecked Sendable {
         var controllerID: String?
         var isAdmin = false
         var subscriptions: Set<CharacteristicKey> = []
+        /// The events waiting for `Work.flushEvents`, in the order the values changed.
+        var queuedEvents: [CharacteristicJSON] = []
+        /// Whether a flush is on its way, so a burst of changes schedules one.
+        var flushScheduled = false
         var closeHandlers = CloseHandlers()
         var closed = false
     }
@@ -91,9 +95,18 @@ final class HAPConnection: @unchecked Sendable {
                 shared.withLockedValue { $0.lastActivity = .now() }
                 raw.append(contentsOf: buffer.readableBytesView)
                 await processInbound()
-            case .event(let message):
-                guard session != nil else { continue }
-                write(message)
+            case .flushEvents:
+                // Behind any request in progress, as HAP-NodeJS holds events while it answers one.
+                let events = shared.withLockedValue { shared in
+                    defer {
+                        shared.queuedEvents = []
+                        shared.flushScheduled = false
+                    }
+                    // A subscription dropped in the meantime hears nothing more.
+                    return shared.queuedEvents.filter { shared.subscriptions.contains(CharacteristicKey(aid: $0.aid ?? 0, iid: $0.iid)) }
+                }
+                guard session != nil, !events.isEmpty else { continue }
+                write(HTTPResponse.json(200, CharacteristicsJSON(characteristics: events)).serialized(protocol: "EVENT/1.0"))
             }
         }
         server.unregister(self)
@@ -147,9 +160,31 @@ final class HAPConnection: @unchecked Sendable {
         return address
     }
 
-    /// Queues an event message (`HTTPResponse.serialized(protocol: "EVENT/1.0")`).
-    func sendEvent(_ message: Data) {
-        continuation.yield(.event(message))
+    /// Queues an event for a characteristic this connection subscribed to, sent with the others queued within `delay`
+    /// as one `EVENT/1.0` message (HAP-NodeJS's `HAPConnection.sendEvent`). The same value queued twice in a row
+    /// goes once; a different one is kept, for the automations it triggers. `immediate` sends the queue now.
+    func queueEvent(_ key: CharacteristicKey, value: HAPValue, immediate: Bool, delay: TimeAmount) {
+        enum Next { case none, schedule, flush }
+        let next = shared.withLockedValue { shared -> Next in
+            guard shared.subscriptions.contains(key) else { return .none }
+            if !immediate, let last = shared.queuedEvents.last(where: { $0.aid == key.aid && $0.iid == key.iid }), last.value == value {
+                return .none
+            }
+            shared.queuedEvents.append(CharacteristicJSON(aid: key.aid, iid: key.iid, value: value))
+            if immediate || delay <= .zero { return .flush }
+            guard !shared.flushScheduled else { return .none }
+            shared.flushScheduled = true
+            return .schedule
+        }
+        switch next {
+        case .none:
+            break
+        case .flush:
+            continuation.yield(.flushEvents)
+        case .schedule:
+            let continuation = continuation
+            channel.eventLoop.scheduleTask(in: delay) { continuation.yield(.flushEvents) }
+        }
     }
 
     func isSubscribed(to key: CharacteristicKey) -> Bool {
