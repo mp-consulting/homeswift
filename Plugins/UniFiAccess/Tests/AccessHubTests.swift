@@ -601,6 +601,13 @@ struct AccessHubTests {
         environment.controller.override("/api/auth/login") { _ in HTTPResponse(status: 403) }
         let refused = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "devices", body: ["address": "10.0.0.2", "username": "u", "password": "p"], user: "admin"))
         #expect(refused.json["error"]?.stringValue?.contains("Insufficient privileges") == true)
+        // A console without UniFi Access answers its proxy's paths with its own web page.
+        environment.controller.removeOverride("/api/auth/login")
+        for path in ["access/info", "devices/topology4"] {
+            environment.controller.override(path) { _ in HTTPResponse(status: 200, headers: [("Content-Type", "text/html")], body: Data("<!doctype html>".utf8)) }
+        }
+        let elsewhere = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "devices", body: ["address": "10.0.0.3", "username": "u", "password": "p"], user: "admin"))
+        #expect(elsewhere.json["error"]?.stringValue?.contains("UniFi Access does not run on this console") == true)
 
         let status = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "status", body: ["address": "10.0.0.1"], user: "admin"))
         #expect(status.json["online"] == true)

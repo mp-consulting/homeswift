@@ -36,6 +36,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- UniFi Access and Protect: signing in to a console that does not run the app says so, rather than "Unable to parse
+  response" (the console answers with its web page).
 - UniFi Access and Protect: Add accessories lists only the UniFi OS consoles (gateways, Cloud Keys, recorders) to
   sign in to, not every access point, chime or hub that answers the discovery probe, and a console with several
   networks once.
