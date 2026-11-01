@@ -66,6 +66,7 @@ public struct HomeswiftCatalog: Sendable {
         self.blockSchemas = blockSchemas
         self.logger = logger
         home = HomeState(directory: configURL.deletingLastPathComponent())
+        host.handleRenames { [self] id, name in await self.storeHomeRename(of: id, to: name) }
     }
 
     /// Runs the restart hook once the current reply has left. False when this process cannot restart itself.
@@ -204,6 +205,46 @@ public struct HomeswiftCatalog: Sendable {
             var ids = (block["_hiddenFromHomeKit"]?.arrayValue ?? []).compactMap(\.stringValue).filter { $0 != id }
             if !visible { ids.append(id) }
             if ids.isEmpty { block["_hiddenFromHomeKit"] = nil } else { block["_hiddenFromHomeKit"] = .array(ids.map { .string($0) }) }
+        }
+    }
+
+    /// Renames the accessory, in the Home app too: `name` under its Device Id in its plugin's block's `_accessories`,
+    /// which the runtime puts on its Name and Configured Name (`AccessoryNaming`) without reloading the plugin. nil or an
+    /// empty name gives it back the name its plugin gives it. A name the web UI showed instead (`AccessoryLayout`) goes:
+    /// there is one name now.
+    public func setAccessoryName(_ located: Located, name: String?, by writer: ConfigWriter = .person) async throws -> JSONValue {
+        guard let platform = located.platform else { throw CatalogError("\(located.accessory.name) belongs to no plugin block") }
+        guard located.accessory.mirroredFrom == nil else { throw CatalogError("\(located.accessory.name) comes from \(located.accessory.mirroredFrom!): rename it there") }
+        let cleaned = name.flatMap(AccessoryNaming.cleaned)
+        let id = located.accessory.id
+        let deviceID = AccessoryNaming.deviceID(of: id, platform: platform.platform)
+        let answer = try await editBlock(platform: platform.platform, name: platform.name, create: false, dryRun: false, by: writer) { block in
+            var settings = block["_accessories"]?.objectValue ?? [:]
+            var fields = settings[deviceID]?.objectValue ?? [:]
+            fields["name"] = cleaned.map { .string($0) }
+            settings[deviceID] = fields.isEmpty ? nil : .object(fields)
+            block["_accessories"] = settings.isEmpty ? nil : .object(settings)
+        }
+        if home.layout.value.accessories[id]?.name != nil {
+            try home.layout.update { layout in
+                guard var entry = layout.accessories[id] else { return }
+                entry.name = nil
+                layout.accessories[id] = entry.isEmpty ? nil : entry
+            }
+        }
+        var result = answer.objectValue ?? [:]
+        result["name"] = .string(located.accessory.name)
+        return .object(result)
+    }
+
+    /// Stores a rename made in the Home app (a controller's write of Configured Name) as the accessory's name.
+    func storeHomeRename(of accessoryID: String, to name: String) async {
+        guard let found = find(id: accessoryID) else { return }
+        do {
+            _ = try await setAccessoryName(found, name: name)
+            logger.info("Kept the Home app's name for an accessory", metadata: ["accessory": "\(accessoryID)", "name": "\(name)"])
+        } catch {
+            logger.warning("Could not keep the Home app's name for an accessory", metadata: ["accessory": "\(accessoryID)", "error": "\(error)"])
         }
     }
 
@@ -1149,6 +1190,16 @@ public struct HomeswiftCatalog: Sendable {
             ) { call in
                 guard let visible = call.arguments["visible"]?.boolValue else { throw JSONRPCError.invalidParams("visible is required") }
                 return .json(try await catalog.setVisibleInHomeKit(try catalog.accessory(in: call), visible: visible, by: .client))
+            },
+            MCPTool(
+                name: "rename_accessory", title: "Rename an accessory",
+                description: "Gives an accessory a new name, in the Home app too: its plugin's block keeps it (_accessories, by Device Id), and the "
+                    + "bridge puts it on the accessory's Name and Configured Name, which the Home app follows. Its room, scenes and automations stay. "
+                    + "An empty or missing name gives it back the name its plugin gives it. A rename in the Home app is kept the same way.",
+                inputSchema: ["type": "object", "required": ["id"], "properties": ["id": idSchema, "name": ["type": "string", "maxLength": 64]]],
+                scope: .admin, idempotent: true
+            ) { call in
+                .json(try await catalog.setAccessoryName(try catalog.accessory(in: call), name: call.optionalString("name"), by: .client))
             },
             MCPTool(
                 name: "update_config", title: "Replace config.json",

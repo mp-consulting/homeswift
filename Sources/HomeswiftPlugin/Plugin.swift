@@ -321,6 +321,8 @@ public final class PluginContext: @unchecked Sendable {
     let key: String
     let bridge: PluginHost.Bridge
     let cache: AccessoryCache
+    /// The names a person gave the accessories (`_accessories`), put on each one it adds.
+    let naming: AccessoryNaming
     let externals: ExternalAccessories
     let storageURL: URL
     /// The bridge's storage directory (`homeswift -U`): where `vault.json` and `secrets.key` are (`secretFile`), and the
@@ -414,6 +416,7 @@ public final class PluginContext: @unchecked Sendable {
         self.logger = logger
         self.bridge = bridge
         self.cache = cache
+        naming = AccessoryNaming(platform: platform)
         self.storageURL = storageURL
         self.vaultStorage = vaultStorage
         assistantBox = assistant
@@ -465,6 +468,7 @@ public final class PluginContext: @unchecked Sendable {
             externals.unpublishInBackground(id: accessory.id, key: key)
             _ = list.withLockedValue { $0.external.remove(accessory.id) }
         }
+        naming.apply(to: accessory)
         try bridge.server.add(accessory)
         list.withLockedValue { $0.put(accessory) }
         scheduleCacheSave()
@@ -487,6 +491,7 @@ public final class PluginContext: @unchecked Sendable {
         if self.accessory(id: accessory.id) != nil, !isExternal(id: accessory.id) {
             try bridge.server.remove(accessory)
         }
+        naming.apply(to: accessory)
         let (published, isNew) = try externals.publish(accessory, key: key, owner: name)
         list.withLockedValue { entries in
             entries.put(accessory)
@@ -513,6 +518,7 @@ public final class PluginContext: @unchecked Sendable {
             try bridge.server.remove(accessory)
         }
         bridge.release(id)
+        naming.forget(id)
         list.withLockedValue { entries in
             entries.accessories.removeAll { $0.id == id }
             entries.external.remove(id)
@@ -556,6 +562,7 @@ public final class PluginContext: @unchecked Sendable {
         for (accessory, external) in cached ?? [] {
             do {
                 try bridge.claim(accessory.id, for: key, name: name)
+                naming.apply(to: accessory)
                 if external {
                     let (published, isNew) = try externals.publish(accessory, key: key, owner: name)
                     if isNew { created.append(published.server) }
@@ -606,6 +613,24 @@ public final class PluginContext: @unchecked Sendable {
             guard cacheSaveDue.withLockedValue({ $0 }) else { return }
             writeCache()
         }
+    }
+
+    /// Puts the names of `_accessories` on the accessories it has now, or the plugin's back. One that gets a Configured
+    /// Name goes on its server again, its aid and iids kept, so controllers see the new characteristic.
+    func applyNames(_ names: [String: String]) {
+        guard naming.setNames(names) else { return }
+        for accessory in accessories where naming.apply(to: accessory) {
+            do {
+                if isExternal(id: accessory.id) {
+                    try externals.bridge(id: accessory.id, key: key)?.server.replace(primary: accessory)
+                } else {
+                    try bridge.server.add(accessory)
+                }
+            } catch {
+                logger.warning("Could not give \(accessory.name) its name in HomeKit: \(error)")
+            }
+        }
+        scheduleCacheSave()
     }
 
     /// Saves the cache now, after a save under way; the runtime does when the plugin stops.

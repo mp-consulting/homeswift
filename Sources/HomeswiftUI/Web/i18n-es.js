@@ -554,6 +554,7 @@ HomeswiftI18n.add("es", {
   "a lock, door or alarm: automations do not change them": "una cerradura, puerta o alarma: las automatizaciones no las cambian",
   "a message is required": "se necesita un mensaje",
   "A name for {name} on these pages (the Home app keeps its own). Empty goes back to {name}.": "Un nombre para {name} en estas páginas (la app Casa mantiene el suyo). Si lo dejas vacío, vuelve a ser {name}.",
+  "A new name for {name}, in the Home app too. Empty gives it back the name its plugin gives it.": "Un nombre nuevo para {name}, también en la app Casa. Si lo dejas vacío, vuelve al nombre que le da su plugin.",
   "A new block: Add writes it to config.json.": "Un bloque nuevo: Añadir lo escribe en config.json.",
   "A new setup code applies to new pairings only: the Home app keeps the bridge.": "Un nuevo código de configuración solo se aplica a los nuevos emparejamientos: la app Casa conserva el puente.",
   "A phrase of several random words is long, strong and easy to remember.": "Una frase de varias palabras al azar es larga, segura y fácil de recordar.",

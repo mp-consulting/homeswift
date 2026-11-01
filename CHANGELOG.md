@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Rename an accessory, in the Home app too: **Rename** in a widget's ⋯ menu on the Accessories page, and the MCP tool
+  `rename_accessory`. The name goes in its plugin's block (`_accessories`, by Device Id) and the bridge puts it on the
+  accessory's Name and Configured Name, without reloading the plugin and with its aids and iids, so its room, scenes and
+  automations stay. The Home app follows Configured Name; a rename made there is kept in config.json the same way.
+
 ### Fixed
 
 - Web UI: behind Cloudflare or another reverse proxy, installing an update showed the proxy's 502 page, its HTML, in an
