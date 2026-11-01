@@ -12,6 +12,25 @@ All notable changes to this project are documented here. The format follows
   `rename_accessory`. The name goes in its plugin's block (`_accessories`, by Device Id) and the bridge puts it on the
   accessory's Name and Configured Name, without reloading the plugin and with its aids and iids, so its room, scenes and
   automations stay. The Home app follows Configured Name; a rename made there is kept in config.json the same way.
+- Setup, one way to get a device into the bridge whatever its plugin: the web UI's **Add accessories** page (`/setup`)
+  lists what each plugin finds and where each device stands, adds plugins, and sets up accounts and devices in one
+  sheet (a hub's link button, a TV's PIN, a sign-in with its one-time code, a sign-in page's redirect, developer keys;
+  Daikin and LG ThinQ ask which way to sign in). The Accessories page's toolbar leads to it. MCP clients get
+  `discover_devices`, `start_setup`, `continue_setup` and `cancel_setup`; a secret field takes only a `vault:` reference.
+  What an Authorization gives goes in the vault, never config.json. See GLOSSARY.md and docs/plugins.md, "Setup".
+- Accessory Settings in a block's `_accessories`, by Device Id: **Exclude** a device from its row (it never becomes an
+  accessory, in the Home app or Matter), and plugins' own settings per device. Homebridge-shaped blocks still load
+  (docs/adr/0001-canonical-accessory-settings.md).
+
+### Changed
+
+- Every plugin sets up through Setup, and what it pairs or signs in with is kept in the vault: Philips Hue's bridge key
+  (`bridge.json` moves there), Philips Ambilight TV's and Wingman's keys (out of `devices`), IKEA DIRIGERA's hub token,
+  MyDolphin's, LG ThinQ's refresh tokens, Govee's login and certificate (`credentials.json` and `govee.pfx` move there),
+  eWeLink's password, Dyson's local credentials, EcoFlow's developer keys and the UniFi consoles' logins Setup adds;
+  Daikin's sign-ins run through it. A block's own secret keys still work, the vault's winning.
+- Each plugin lists its devices for Setup and skips an Excluded one, eWeLink's channels and UniFi's child accessories
+  with it.
 
 ### Fixed
 

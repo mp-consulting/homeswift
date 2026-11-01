@@ -3221,6 +3221,8 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 .accessories-toolbar .accessory-options-button svg { fill: none; stroke: currentColor; stroke-width: 1.6; width: 19px; height: 19px; }
 @media (max-width: 650px) { .group-picker-columns { grid-template-columns: 1fr; gap: var(--space-16); } .group-picker-columns .group-member-list { max-height: 25vh; } }
 @media (max-width: 600px) { .accessories-toolbar { width: 100%; } .accessories-toolbar .search { flex: 1 1 100%; width: 100%; } }
+/* Add accessories: its words where there is room, its plus alone beside the other round buttons on a phone. */
+@media (max-width: 600px) { .accessories-toolbar .accessories-add { width: 36px; height: 36px; min-height: 36px; padding: 0; gap: 0; font-size: 0; flex: none; } }
 
 /* Toolbar glyphs stay lighter than their labels. */
 .accessories-toolbar button > svg,
@@ -3703,6 +3705,9 @@ select option:disabled { color: var(--muted); }
 
 /* Add accessories (setup.js): a card per plugin, a row per device it finds, and one sheet for every Setup. */
 .setup-list { display: grid; gap: var(--space-16); }
+.setup-catalog { margin-top: var(--space-24); }
+.setup-catalog .setup-devices { margin-top: 0; border-top: 0; }
+.setup-plugin { grid-template-columns: auto minmax(0, 1fr) auto auto; }
 .setup-instance .server-head .who { flex: 1; }
 .setup-tools { display: flex; gap: var(--space-8); flex: none; }
 .setup-devices { display: grid; margin-top: var(--space-12); border-top: 1px solid var(--line); }
@@ -3723,6 +3728,13 @@ select option:disabled { color: var(--muted); }
 .setup-sheet .setup-method { margin-top: calc(-1 * var(--space-6)); }
 .setup-step { display: grid; gap: var(--space-12); }
 .setup-step > p { margin: 0; }
+.setup-choice { border: 0; margin: 0; padding: 0; display: grid; gap: var(--space-8); }
+.setup-choice legend { padding: 0; margin-bottom: var(--space-8); }
+.setup-option { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-10); align-items: start; padding: var(--space-12); border: 1px solid var(--line); border-radius: var(--radius-md); cursor: pointer; transition: border-color 160ms var(--ease-out), background-color 160ms var(--ease-out); }
+.setup-option:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.setup-option input { margin: 3px 0 0; accent-color: var(--accent); }
+.setup-option > span { display: grid; gap: var(--space-4); }
+.setup-option .muted { font-size: var(--text-sm); }
 .setup-step .pair-prompt { margin-top: 0; grid-template-columns: auto minmax(0, 1fr); }
 .setup-done { display: grid; justify-items: center; text-align: center; gap: var(--space-6); padding: var(--space-12) 0; }
 .setup-done p { margin: 0; }

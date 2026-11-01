@@ -44,15 +44,40 @@
     const cards = blocks.map((block) => instanceCard(block, byPlatform.get(block.platform)));
     app().show(main,
       app().pageHead(t("Add accessories"), t("What each plugin finds now. Set up the devices that ask for a code, a button or a sign-in; exclude those you do not want in the Home app.")),
-      cards.length ? el("div", { class: "setup-list" }, ...cards.map((card) => card.node))
-        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("plugin")),
-          el("p", { class: "muted", text: t("No plugin yet. Add one, then come back to set up its devices.") }),
-          el("a", { class: "button primary", href: "/plugins", actionIcon: "plus", text: t("Add a plugin") })));
+      cards.length ? el("div", { class: "setup-list" }, ...cards.map((card) => card.node)) : null,
+      catalog(plugins, blocks.length));
     // From a plugin's menu (/setup#<slug>): its card first in view.
     const wanted = decodeURIComponent(location.hash.slice(1));
     if (wanted) document.getElementById(`setup-${wanted}`)?.scrollIntoView({ block: "start" });
     // Every plugin looks at once: a slow cloud does not hold the others back.
     await Promise.all(cards.map((card) => card.load()));
+  }
+
+  /// The plugins compiled in, to add from here: one with an account opens its Setup at once (the block is saved when
+  /// it is done), one without is added as it is and its card looks for devices. Those not in use yet come first.
+  function catalog(plugins, inUse) {
+    const used = (plugin) => plugins.blocks.some((block) => block.platform === plugin.platform);
+    // System platforms (the Assistant) have no Setup: their settings are elsewhere.
+    const addable = plugins.plugins.filter((plugin) => plugin.accountAuthorization)
+      .sort((a, b) => Number(used(a)) - Number(used(b)) || a.name.localeCompare(b.name));
+    const redraw = () => app().route();
+    async function add(plugin, button) {
+      const block = { platform: plugin.platform, name: app().uniqueName(plugin.name, plugins.blocks) };
+      if (plugin.accountAuthorization !== "none") { open({ block, plugin, draft: true, trigger: button, after: redraw }); return; }
+      await HomeswiftCommon.busyButton(button, async () => {
+        await api(`/api/config/block/${encodeURIComponent(block.platform)}/${encodeURIComponent(block.name)}`, { method: "POST", body: {} });
+        redraw();
+      });
+    }
+    const rows = addable.map((plugin) => el("div", { class: "setup-device setup-plugin" },
+      tile(plugin.icon ?? "plugin", "orange"),
+      el("div", { class: "who" }, el("strong", { text: plugin.name }), plugin.summary ? el("div", { class: "muted", text: t(plugin.summary) }) : null),
+      used(plugin) ? el("span", { class: "pill status standby", text: t("In use [used]") }) : el("span", { class: "setup-spacer" }),
+      el("button", { actionIcon: "plus", text: used(plugin) ? t("Add another") : t("Add"), onclick: (event) => add(plugin, event.currentTarget) })));
+    return el("section", { class: "setup-catalog", "aria-labelledby": "setup-catalog-title" },
+      el("div", { class: "section-head" }, el("h2", { id: "setup-catalog-title", text: t("Add a plugin") }),
+        el("span", { class: "muted", text: inUse ? t("For devices none of yours reaches yet.") : t("Start with the brand of your devices.") })),
+      el("div", { class: "card setup-instance" }, el("div", { class: "setup-devices" }, ...rows)));
   }
 
   /// A wait for a plugin, its ring turning beside what it is waiting for.
@@ -143,14 +168,29 @@
       menuButton(t("Actions for {name}", { name: device.name }), () => items));
   }
 
+  /// A choice (how to sign in, a region): its options as radio buttons, each with what it means, the one the block has
+  /// picked. It reads as an input does: `value`, the option picked or "", and `focus()`.
+  function choice(field) {
+    const radios = field.options.map((option) => el("input", { type: "radio", name: `setup-${field.key}`, value: option.value, checked: option.value === field.value }));
+    const node = el("fieldset", { class: "field setup-choice", id: `setup-${field.key}` },
+      el("legend", { class: "field-title", text: t(field.label) }),
+      ...field.options.map((option, index) => el("label", { class: "setup-option" }, radios[index],
+        el("span", {}, el("strong", { text: t(option.label) }), option.detail ? el("span", { class: "muted", text: t(option.detail) }) : null))));
+    Object.defineProperty(node, "value", { get: () => radios.find((radio) => radio.checked)?.value ?? "" });
+    node.focus = () => (radios.find((radio) => radio.checked) ?? radios[0])?.focus();
+    return node;
+  }
+
   /// A wait with nothing to type or open: a button to press on the device.
   const pressing = (prompt) => Boolean(prompt.waitSeconds) && !prompt.fields.length && !prompt.url;
 
   /// The sheet of one Setup: it starts the session, then draws each prompt the plugin sends until it is done.
   /// `plugin` names the account's sheet; a device's says what its Authorization is.
-  function open({ block, plugin = null, device = null, trigger = null, after }) {
+  function open({ block, plugin = null, device = null, draft = false, trigger = null, after }) {
     const title = device?.name ?? block.name;
-    const subtitle = device ? methods[device.authorization]?.[0]() ?? "" : plugin?.name ?? "";
+    // Under the title, a device's Authorization, or the plugin when the instance's name does not say it (an account's
+    // way to sign in may be the person's choice, asked in the sheet).
+    const subtitle = device ? methods[device.authorization]?.[0]() ?? "" : plugin && bare(plugin.name) !== bare(block.name) ? plugin.name : "";
     let session = null, poll = 0, ticker = 0, done = false, closed = false;
     // A Button Press's end: the retries keep it, so the countdown does not start over at each one.
     let until = 0;
@@ -159,7 +199,7 @@
       const body = el("div", { class: "setup-step" }, loading(t("Asking the plugin…")));
       const form = el("form", { class: "account-form setup-sheet", novalidate: true },
         el("h2", { id: "setup-title", text: title }),
-        el("p", { class: "muted setup-method", text: subtitle }),
+        subtitle ? el("p", { class: "muted setup-method", text: subtitle }) : null,
         body);
       form.addEventListener("submit", (event) => event.preventDefault());
       const fill = (...nodes) => body.replaceChildren(...nodes.filter(Boolean));
@@ -218,6 +258,7 @@
           return;
         }
         const inputs = prompt.fields.map((field) => {
+          if (field.kind === "choice") return [field, choice(field)];
           const input = el("input", {
             name: field.key, id: `setup-${field.key}`, required: !field.optional, spellcheck: false,
             type: field.kind === "secret" ? "password" : field.kind === "url" ? "url" : "text",
@@ -240,7 +281,8 @@
         fill(
           el("p", { text: t(prompt.message, prompt.values ?? {}) }),
           link,
-          ...inputs.map(([field, input]) => el("label", { class: "field", htmlFor: input.id }, el("span", { class: "field-title", text: t(field.label) }), input)),
+          ...inputs.map(([field, input]) => field.kind === "choice" ? input
+            : el("label", { class: "field", htmlFor: input.id }, el("span", { class: "field-title", text: t(field.label) }), input)),
           left,
           error,
           el("div", { class: "actions" }, cancel, submit));
@@ -248,7 +290,8 @@
       }
 
       const step = (answers) => post(session, { answers });
-      post("start", { platform: block.platform, name: block.name, deviceID: device?.deviceID })
+      // A plugin added from the catalog: its block is saved once its Setup is done.
+      post("start", { platform: block.platform, name: block.name, deviceID: device?.deviceID, block: draft ? block : undefined })
         .then(draw)
         .catch((e) => fill(el("p", { class: "error", role: "alert", text: e.message }),
           el("div", { class: "actions" }, el("button", { type: "button", actionIcon: "close", text: t("Close"), onclick: () => dismiss() }))));

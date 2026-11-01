@@ -4428,7 +4428,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       } },
     ]));
     const more = menuButton(t("Accessory options"), () => [
-      ...(isAdmin() ? [{ label: t("Add accessories"), icon: "plus", href: "/setup" }] : []),
       { label: t("Create group"), icon: "group", onSelect: () => groupingControls.edit() },
       { separator: true },
       ...groupings.map(([value, label, icon]) => ({ label, icon, checked: layout.grouping === value, onSelect: () => setGrouping(value) })),
@@ -4452,6 +4451,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       else if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
       navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
     };
+    // Setup, in view whatever the wall holds; the empty wall has its own, larger.
+    const addButton = isAdmin() && all.length ? el("a", { class: "button accessories-add", href: "/setup", actionIcon: "plus", "aria-label": t("Add accessories"), title: t("Add accessories"), text: t("Add accessories") }) : null;
     const fullScreenButton = el("button", { type: "button", class: "icon-button accessory-options-button", "aria-label": t("Full screen"), title: t("Full screen"),
       onclick: () => setFullScreen(true) }, HomeswiftCommon.icon("expand"));
     // The chrome over the full-screen wall: Close, and when grouped the dots and, with a mouse, the side arrows.
@@ -4543,7 +4544,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       pageHead(t("Accessories"), !accessories.length ? "" : from ? t("{count} from {source}, which HomeKit has already. Changes here reach your devices.", { count: accessories.length, source: t(from) })
         : servers === 1 ? t("{count} on one server, as the Home app sees them. Changes here reach your devices.", { count: accessories.length })
         : t("{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.", { count: accessories.length, servers }),
-        el("div", { class: "accessories-toolbar" }, search, filters, accessories.length ? edit : null, roomOrderButton, more, accessories.length ? fullScreenButton : null)),
+        el("div", { class: "accessories-toolbar" }, search, filters, accessories.length ? edit : null, roomOrderButton, more, accessories.length ? fullScreenButton : null, addButton)),
       accessoryTabs(""),
       note,
       accessories.length ? [content, none, fullScreen ? chrome : null] : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("bulb")), el("p", { class: "muted", text: all.length ? t("Every accessory is hidden.") : t("No accessories yet. Plugins add them once they reach their devices.") }),
@@ -6623,7 +6624,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     enumLabels: HomeswiftWidgets.enumLabels, labelFor: HomeswiftWidgets.labelFor, withSlugs,
   });
   // The Settings pages (admin.js) draw with the same helpers.
-  window.HomeswiftApp = { api, navigate, route, finder, pageHead, breadcrumb, show, openSheet, savedText, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, assistantPage, configPage };
+  window.HomeswiftApp = { api, navigate, route, finder, uniqueName, pageHead, breadcrumb, show, openSheet, savedText, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, assistantPage, configPage };
 
   loadAuth().catch((e) => { $("#auth").classList.remove("hidden"); $("#auth-error").textContent = e.message; });
 })();
@@ -14848,7 +14849,8 @@ HomeswiftI18n.add("es", {
   "Excluded": "Excluido",
   "Add accessories": "Añadir accesorios",
   "What each plugin finds now. Set up the devices that ask for a code, a button or a sign-in; exclude those you do not want in the Home app.": "Lo que cada plugin encuentra ahora. Configura los dispositivos que piden un código, un botón o un inicio de sesión; excluye los que no quieras en la app Casa.",
-  "No plugin yet. Add one, then come back to set up its devices.": "Aún no hay ningún plugin. Añade uno y vuelve para configurar sus dispositivos.",
+  "For devices none of yours reaches yet.": "Para los dispositivos que ninguno de los tuyos alcanza todavía.",
+  "Start with the brand of your devices.": "Empieza por la marca de tus dispositivos.",
   "Looking for devices…": "Buscando dispositivos…",
   "Find again": "Buscar de nuevo",
   "This plugin finds no devices by itself: its settings name them.": "Este plugin no encuentra dispositivos por sí mismo: sus ajustes los indican.",
@@ -14889,7 +14891,20 @@ HomeswiftI18n.add("es", {
   "Enter the keys of your EcoFlow developer account, from developer.ecoflow.com.": "Introduce las claves de tu cuenta de desarrollador de EcoFlow, de developer.ecoflow.com.",
   "Access key": "Clave de acceso",
   "Secret key": "Clave secreta",
-  "Region (us or eu)": "Región (us o eu)",
+  "Choose how Homeswift signs in to Daikin.": "Elige cómo Homeswift inicia sesión en Daikin.",
+  "Choose how Homeswift signs in to LG ThinQ.": "Elige cómo Homeswift inicia sesión en LG ThinQ.",
+  "Sign in with": "Iniciar sesión con",
+  "Daikin Developer Portal": "Daikin Developer Portal",
+  "An app you make on Daikin's portal, then Daikin's sign-in page: 200 requests a day.": "Una app que creas en el portal de Daikin y luego la página de inicio de sesión de Daikin: 200 solicitudes al día.",
+  "Onecta app account": "Cuenta de la app Onecta",
+  "The email and password of the Onecta app: 3000 requests a day and live updates.": "El correo y la contraseña de la app Onecta: 3000 solicitudes al día y actualizaciones en directo.",
+  "LG's sign-in page": "La página de inicio de sesión de LG",
+  "Takes an LG, Google, Apple, Facebook or Amazon account, in your browser.": "Acepta una cuenta de LG, Google, Apple, Facebook o Amazon, en tu navegador.",
+  "Email and password": "Correo y contraseña",
+  "An LG account with a password of its own, typed here.": "Una cuenta de LG con contraseña propia, escrita aquí.",
+  "Region": "Región",
+  "Europe": "Europa",
+  "United States": "Estados Unidos",
   "No DIRIGERA hub answered on the network. Enter its address, from your router or the IKEA Home smart app.": "Ningún hub DIRIGERA respondió en la red. Introduce su dirección, desde tu router o la app IKEA Home smart.",
   "Press the action button on the back of the DIRIGERA hub.": "Pulsa el botón de acción en la parte trasera del hub DIRIGERA.",
   "In Wingman's menu, choose Pair a Homeswift Bridge. Check that the certificate in Wingman's window (Bridges tab) starts with {fingerprint}, then enter the code it shows.": "En el menú de Wingman, elige Pair a Homeswift Bridge. Comprueba que el certificado en la ventana de Wingman (pestaña Bridges) empieza por {fingerprint} e introduce el código que muestra.",
@@ -17489,7 +17504,8 @@ HomeswiftI18n.add("fr", {
   "Excluded": "Exclu",
   "Add accessories": "Ajouter des accessoires",
   "What each plugin finds now. Set up the devices that ask for a code, a button or a sign-in; exclude those you do not want in the Home app.": "Ce que chaque plugin trouve en ce moment. Configurez les appareils qui demandent un code, un bouton ou une connexion ; excluez ceux que vous ne voulez pas dans l'app Maison.",
-  "No plugin yet. Add one, then come back to set up its devices.": "Aucun plugin pour l’instant. Ajoutez-en un, puis revenez configurer ses appareils.",
+  "For devices none of yours reaches yet.": "Pour les appareils qu’aucun des vôtres n’atteint encore.",
+  "Start with the brand of your devices.": "Commencez par la marque de vos appareils.",
   "Looking for devices…": "Recherche d’appareils…",
   "Find again": "Chercher à nouveau",
   "This plugin finds no devices by itself: its settings name them.": "Ce plugin ne trouve pas d’appareils par lui-même : ses réglages les nomment.",
@@ -17530,7 +17546,20 @@ HomeswiftI18n.add("fr", {
   "Enter the keys of your EcoFlow developer account, from developer.ecoflow.com.": "Saisissez les clés de votre compte développeur EcoFlow, depuis developer.ecoflow.com.",
   "Access key": "Clé d’accès",
   "Secret key": "Clé secrète",
-  "Region (us or eu)": "Région (us ou eu)",
+  "Choose how Homeswift signs in to Daikin.": "Choisissez comment Homeswift se connecte à Daikin.",
+  "Choose how Homeswift signs in to LG ThinQ.": "Choisissez comment Homeswift se connecte à LG ThinQ.",
+  "Sign in with": "Se connecter avec",
+  "Daikin Developer Portal": "Daikin Developer Portal",
+  "An app you make on Daikin's portal, then Daikin's sign-in page: 200 requests a day.": "Une app que vous créez sur le portail de Daikin, puis la page de connexion de Daikin : 200 requêtes par jour.",
+  "Onecta app account": "Compte de l’app Onecta",
+  "The email and password of the Onecta app: 3000 requests a day and live updates.": "L’e-mail et le mot de passe de l’app Onecta : 3000 requêtes par jour et des mises à jour en direct.",
+  "LG's sign-in page": "La page de connexion de LG",
+  "Takes an LG, Google, Apple, Facebook or Amazon account, in your browser.": "Accepte un compte LG, Google, Apple, Facebook ou Amazon, dans votre navigateur.",
+  "Email and password": "E-mail et mot de passe",
+  "An LG account with a password of its own, typed here.": "Un compte LG avec son propre mot de passe, saisi ici.",
+  "Region": "Région",
+  "Europe": "Europe",
+  "United States": "États-Unis",
   "No DIRIGERA hub answered on the network. Enter its address, from your router or the IKEA Home smart app.": "Aucun hub DIRIGERA n’a répondu sur le réseau. Saisissez son adresse, depuis votre routeur ou l’app IKEA Home smart.",
   "Press the action button on the back of the DIRIGERA hub.": "Appuyez sur le bouton d’action au dos du hub DIRIGERA.",
   "In Wingman's menu, choose Pair a Homeswift Bridge. Check that the certificate in Wingman's window (Bridges tab) starts with {fingerprint}, then enter the code it shows.": "Dans le menu de Wingman, choisissez Pair a Homeswift Bridge. Vérifiez que le certificat dans la fenêtre de Wingman (onglet Bridges) commence par {fingerprint}, puis saisissez le code affiché.",
@@ -20130,7 +20159,8 @@ HomeswiftI18n.add("pt", {
   "Excluded": "Excluído",
   "Add accessories": "Adicionar acessórios",
   "What each plugin finds now. Set up the devices that ask for a code, a button or a sign-in; exclude those you do not want in the Home app.": "O que cada plugin encontra agora. Configure os dispositivos que pedem um código, um botão ou um início de sessão; exclua os que não quer na app Casa.",
-  "No plugin yet. Add one, then come back to set up its devices.": "Ainda não há nenhum plugin. Adicione um e volte para configurar os seus dispositivos.",
+  "For devices none of yours reaches yet.": "Para os dispositivos que nenhum dos seus alcança ainda.",
+  "Start with the brand of your devices.": "Comece pela marca dos seus dispositivos.",
   "Looking for devices…": "À procura de dispositivos…",
   "Find again": "Procurar de novo",
   "This plugin finds no devices by itself: its settings name them.": "Este plugin não encontra dispositivos sozinho: as suas definições indicam-nos.",
@@ -20171,7 +20201,20 @@ HomeswiftI18n.add("pt", {
   "Enter the keys of your EcoFlow developer account, from developer.ecoflow.com.": "Introduza as chaves da sua conta de programador EcoFlow, de developer.ecoflow.com.",
   "Access key": "Chave de acesso",
   "Secret key": "Chave secreta",
-  "Region (us or eu)": "Região (us ou eu)",
+  "Choose how Homeswift signs in to Daikin.": "Escolha como o Homeswift inicia sessão na Daikin.",
+  "Choose how Homeswift signs in to LG ThinQ.": "Escolha como o Homeswift inicia sessão no LG ThinQ.",
+  "Sign in with": "Iniciar sessão com",
+  "Daikin Developer Portal": "Daikin Developer Portal",
+  "An app you make on Daikin's portal, then Daikin's sign-in page: 200 requests a day.": "Uma app que cria no portal da Daikin e depois a página de início de sessão da Daikin: 200 pedidos por dia.",
+  "Onecta app account": "Conta da app Onecta",
+  "The email and password of the Onecta app: 3000 requests a day and live updates.": "O email e a palavra-passe da app Onecta: 3000 pedidos por dia e atualizações em direto.",
+  "LG's sign-in page": "A página de início de sessão da LG",
+  "Takes an LG, Google, Apple, Facebook or Amazon account, in your browser.": "Aceita uma conta LG, Google, Apple, Facebook ou Amazon, no seu navegador.",
+  "Email and password": "Email e palavra-passe",
+  "An LG account with a password of its own, typed here.": "Uma conta LG com palavra-passe própria, escrita aqui.",
+  "Region": "Região",
+  "Europe": "Europa",
+  "United States": "Estados Unidos",
   "No DIRIGERA hub answered on the network. Enter its address, from your router or the IKEA Home smart app.": "Nenhum hub DIRIGERA respondeu na rede. Introduza o endereço, a partir do router ou da app IKEA Home smart.",
   "Press the action button on the back of the DIRIGERA hub.": "Prima o botão de ação na parte de trás do hub DIRIGERA.",
   "In Wingman's menu, choose Pair a Homeswift Bridge. Check that the certificate in Wingman's window (Bridges tab) starts with {fingerprint}, then enter the code it shows.": "No menu do Wingman, escolha Pair a Homeswift Bridge. Verifique que o certificado na janela do Wingman (separador Bridges) começa por {fingerprint} e introduza o código apresentado.",
@@ -22479,15 +22522,40 @@ HomeswiftI18n.add("pt", {
     const cards = blocks.map((block) => instanceCard(block, byPlatform.get(block.platform)));
     app().show(main,
       app().pageHead(t("Add accessories"), t("What each plugin finds now. Set up the devices that ask for a code, a button or a sign-in; exclude those you do not want in the Home app.")),
-      cards.length ? el("div", { class: "setup-list" }, ...cards.map((card) => card.node))
-        : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("plugin")),
-          el("p", { class: "muted", text: t("No plugin yet. Add one, then come back to set up its devices.") }),
-          el("a", { class: "button primary", href: "/plugins", actionIcon: "plus", text: t("Add a plugin") })));
+      cards.length ? el("div", { class: "setup-list" }, ...cards.map((card) => card.node)) : null,
+      catalog(plugins, blocks.length));
     // From a plugin's menu (/setup#<slug>): its card first in view.
     const wanted = decodeURIComponent(location.hash.slice(1));
     if (wanted) document.getElementById(`setup-${wanted}`)?.scrollIntoView({ block: "start" });
     // Every plugin looks at once: a slow cloud does not hold the others back.
     await Promise.all(cards.map((card) => card.load()));
+  }
+
+  /// The plugins compiled in, to add from here: one with an account opens its Setup at once (the block is saved when
+  /// it is done), one without is added as it is and its card looks for devices. Those not in use yet come first.
+  function catalog(plugins, inUse) {
+    const used = (plugin) => plugins.blocks.some((block) => block.platform === plugin.platform);
+    // System platforms (the Assistant) have no Setup: their settings are elsewhere.
+    const addable = plugins.plugins.filter((plugin) => plugin.accountAuthorization)
+      .sort((a, b) => Number(used(a)) - Number(used(b)) || a.name.localeCompare(b.name));
+    const redraw = () => app().route();
+    async function add(plugin, button) {
+      const block = { platform: plugin.platform, name: app().uniqueName(plugin.name, plugins.blocks) };
+      if (plugin.accountAuthorization !== "none") { open({ block, plugin, draft: true, trigger: button, after: redraw }); return; }
+      await HomeswiftCommon.busyButton(button, async () => {
+        await api(`/api/config/block/${encodeURIComponent(block.platform)}/${encodeURIComponent(block.name)}`, { method: "POST", body: {} });
+        redraw();
+      });
+    }
+    const rows = addable.map((plugin) => el("div", { class: "setup-device setup-plugin" },
+      tile(plugin.icon ?? "plugin", "orange"),
+      el("div", { class: "who" }, el("strong", { text: plugin.name }), plugin.summary ? el("div", { class: "muted", text: t(plugin.summary) }) : null),
+      used(plugin) ? el("span", { class: "pill status standby", text: t("In use [used]") }) : el("span", { class: "setup-spacer" }),
+      el("button", { actionIcon: "plus", text: used(plugin) ? t("Add another") : t("Add"), onclick: (event) => add(plugin, event.currentTarget) })));
+    return el("section", { class: "setup-catalog", "aria-labelledby": "setup-catalog-title" },
+      el("div", { class: "section-head" }, el("h2", { id: "setup-catalog-title", text: t("Add a plugin") }),
+        el("span", { class: "muted", text: inUse ? t("For devices none of yours reaches yet.") : t("Start with the brand of your devices.") })),
+      el("div", { class: "card setup-instance" }, el("div", { class: "setup-devices" }, ...rows)));
   }
 
   /// A wait for a plugin, its ring turning beside what it is waiting for.
@@ -22578,14 +22646,29 @@ HomeswiftI18n.add("pt", {
       menuButton(t("Actions for {name}", { name: device.name }), () => items));
   }
 
+  /// A choice (how to sign in, a region): its options as radio buttons, each with what it means, the one the block has
+  /// picked. It reads as an input does: `value`, the option picked or "", and `focus()`.
+  function choice(field) {
+    const radios = field.options.map((option) => el("input", { type: "radio", name: `setup-${field.key}`, value: option.value, checked: option.value === field.value }));
+    const node = el("fieldset", { class: "field setup-choice", id: `setup-${field.key}` },
+      el("legend", { class: "field-title", text: t(field.label) }),
+      ...field.options.map((option, index) => el("label", { class: "setup-option" }, radios[index],
+        el("span", {}, el("strong", { text: t(option.label) }), option.detail ? el("span", { class: "muted", text: t(option.detail) }) : null))));
+    Object.defineProperty(node, "value", { get: () => radios.find((radio) => radio.checked)?.value ?? "" });
+    node.focus = () => (radios.find((radio) => radio.checked) ?? radios[0])?.focus();
+    return node;
+  }
+
   /// A wait with nothing to type or open: a button to press on the device.
   const pressing = (prompt) => Boolean(prompt.waitSeconds) && !prompt.fields.length && !prompt.url;
 
   /// The sheet of one Setup: it starts the session, then draws each prompt the plugin sends until it is done.
   /// `plugin` names the account's sheet; a device's says what its Authorization is.
-  function open({ block, plugin = null, device = null, trigger = null, after }) {
+  function open({ block, plugin = null, device = null, draft = false, trigger = null, after }) {
     const title = device?.name ?? block.name;
-    const subtitle = device ? methods[device.authorization]?.[0]() ?? "" : plugin?.name ?? "";
+    // Under the title, a device's Authorization, or the plugin when the instance's name does not say it (an account's
+    // way to sign in may be the person's choice, asked in the sheet).
+    const subtitle = device ? methods[device.authorization]?.[0]() ?? "" : plugin && bare(plugin.name) !== bare(block.name) ? plugin.name : "";
     let session = null, poll = 0, ticker = 0, done = false, closed = false;
     // A Button Press's end: the retries keep it, so the countdown does not start over at each one.
     let until = 0;
@@ -22594,7 +22677,7 @@ HomeswiftI18n.add("pt", {
       const body = el("div", { class: "setup-step" }, loading(t("Asking the plugin…")));
       const form = el("form", { class: "account-form setup-sheet", novalidate: true },
         el("h2", { id: "setup-title", text: title }),
-        el("p", { class: "muted setup-method", text: subtitle }),
+        subtitle ? el("p", { class: "muted setup-method", text: subtitle }) : null,
         body);
       form.addEventListener("submit", (event) => event.preventDefault());
       const fill = (...nodes) => body.replaceChildren(...nodes.filter(Boolean));
@@ -22653,6 +22736,7 @@ HomeswiftI18n.add("pt", {
           return;
         }
         const inputs = prompt.fields.map((field) => {
+          if (field.kind === "choice") return [field, choice(field)];
           const input = el("input", {
             name: field.key, id: `setup-${field.key}`, required: !field.optional, spellcheck: false,
             type: field.kind === "secret" ? "password" : field.kind === "url" ? "url" : "text",
@@ -22675,7 +22759,8 @@ HomeswiftI18n.add("pt", {
         fill(
           el("p", { text: t(prompt.message, prompt.values ?? {}) }),
           link,
-          ...inputs.map(([field, input]) => el("label", { class: "field", htmlFor: input.id }, el("span", { class: "field-title", text: t(field.label) }), input)),
+          ...inputs.map(([field, input]) => field.kind === "choice" ? input
+            : el("label", { class: "field", htmlFor: input.id }, el("span", { class: "field-title", text: t(field.label) }), input)),
           left,
           error,
           el("div", { class: "actions" }, cancel, submit));
@@ -22683,7 +22768,8 @@ HomeswiftI18n.add("pt", {
       }
 
       const step = (answers) => post(session, { answers });
-      post("start", { platform: block.platform, name: block.name, deviceID: device?.deviceID })
+      // A plugin added from the catalog: its block is saved once its Setup is done.
+      post("start", { platform: block.platform, name: block.name, deviceID: device?.deviceID, block: draft ? block : undefined })
         .then(draw)
         .catch((e) => fill(el("p", { class: "error", role: "alert", text: e.message }),
           el("div", { class: "actions" }, el("button", { type: "button", actionIcon: "close", text: t("Close"), onclick: () => dismiss() }))));
@@ -25929,6 +26015,8 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 .accessories-toolbar .accessory-options-button svg { fill: none; stroke: currentColor; stroke-width: 1.6; width: 19px; height: 19px; }
 @media (max-width: 650px) { .group-picker-columns { grid-template-columns: 1fr; gap: var(--space-16); } .group-picker-columns .group-member-list { max-height: 25vh; } }
 @media (max-width: 600px) { .accessories-toolbar { width: 100%; } .accessories-toolbar .search { flex: 1 1 100%; width: 100%; } }
+/* Add accessories: its words where there is room, its plus alone beside the other round buttons on a phone. */
+@media (max-width: 600px) { .accessories-toolbar .accessories-add { width: 36px; height: 36px; min-height: 36px; padding: 0; gap: 0; font-size: 0; flex: none; } }
 
 /* Toolbar glyphs stay lighter than their labels. */
 .accessories-toolbar button > svg,
@@ -26411,6 +26499,9 @@ select option:disabled { color: var(--muted); }
 
 /* Add accessories (setup.js): a card per plugin, a row per device it finds, and one sheet for every Setup. */
 .setup-list { display: grid; gap: var(--space-16); }
+.setup-catalog { margin-top: var(--space-24); }
+.setup-catalog .setup-devices { margin-top: 0; border-top: 0; }
+.setup-plugin { grid-template-columns: auto minmax(0, 1fr) auto auto; }
 .setup-instance .server-head .who { flex: 1; }
 .setup-tools { display: flex; gap: var(--space-8); flex: none; }
 .setup-devices { display: grid; margin-top: var(--space-12); border-top: 1px solid var(--line); }
@@ -26431,6 +26522,13 @@ select option:disabled { color: var(--muted); }
 .setup-sheet .setup-method { margin-top: calc(-1 * var(--space-6)); }
 .setup-step { display: grid; gap: var(--space-12); }
 .setup-step > p { margin: 0; }
+.setup-choice { border: 0; margin: 0; padding: 0; display: grid; gap: var(--space-8); }
+.setup-choice legend { padding: 0; margin-bottom: var(--space-8); }
+.setup-option { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-10); align-items: start; padding: var(--space-12); border: 1px solid var(--line); border-radius: var(--radius-md); cursor: pointer; transition: border-color 160ms var(--ease-out), background-color 160ms var(--ease-out); }
+.setup-option:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.setup-option input { margin: 3px 0 0; accent-color: var(--accent); }
+.setup-option > span { display: grid; gap: var(--space-4); }
+.setup-option .muted { font-size: var(--text-sm); }
 .setup-step .pair-prompt { margin-top: 0; grid-template-columns: auto minmax(0, 1fr); }
 .setup-done { display: grid; justify-items: center; text-align: center; gap: var(--space-6); padding: var(--space-12) 0; }
 .setup-done p { margin: 0; }

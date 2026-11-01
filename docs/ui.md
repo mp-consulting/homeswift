@@ -395,7 +395,8 @@ another change; a plugin's own page and **Pause** write without the check.
 
 ![Add accessories: what each plugin finds, and a bridge to pair](images/ui/setup.png)
 
-`/setup`, from the Accessories page's options, an empty wall, and a plugin card's ⋯ (`/setup#<slug>`): each plugin
+`/setup`, from the Accessories page's **Add accessories** (a plus alone on a phone), an empty wall, and a plugin card's
+⋯ (`/setup#<slug>`): each plugin
 block with what its plugin finds now, for administrators. A device already set up shows a quiet dot; one that needs a
 code, a button or a sign-in shows **Needs setup** and **Set up**; one left out shows **Excluded**. A plugin whose account
 is not set up yet (a hub not paired, a cloud not signed in) leads with that row: nothing else works before it.
@@ -403,11 +404,16 @@ is not set up yet (a hub not paired, a cloud not signed in) leads with that row:
 **Set up** opens one sheet, the same for every plugin, that draws what the plugin asks
 ([Setup](plugins.md#setup)): the link button to press with a countdown while it retries, a PIN the TV shows, an email
 then the code sent to it, keys, or a sign-in page to open while the sheet waits for its redirect (or for its address,
-pasted). An answer that did not work is asked again; Cancel ends the Setup.
+pasted). A plugin with more than one way to sign in (Daikin's Developer Portal or the Onecta app, LG's page or a
+password) asks which first, the block's own picked. An answer that did not work is asked again; Cancel ends the Setup.
+What it gives goes in the vault, and the plugin reloads with it. While a plugin looks for devices, its card's **Find
+again** turns and its rows dim.
 
 ![The sheet pairing a Hue Bridge: its link button, and the time left](images/ui/setup-pair.png)
- What it gives goes in the vault, and the
-plugin reloads with it.
+
+**Add a plugin**, under the cards, lists the plugins compiled in, those not in use first. **Add** on one with an
+account opens its Setup at once, and its block is saved when the Setup is done; one without an account is added as it
+is, and its card looks for its devices.
 
 A device's ⋯ **Exclude**s it (its Accessory Settings' `excluded`: the plugin makes no accessory of it, in the Home app or
 Matter) or **Include**s it again; one excluded by the plugin's own settings (a Homebridge exclude list) opens them
