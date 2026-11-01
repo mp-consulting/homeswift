@@ -131,6 +131,9 @@ actor AccessHub {
     /// The accessories and services built from the hints; rebuilt when they change.
     var built = Built()
     private var configured = false
+    /// The doors' names are read (`discoverDoorNames`): until then a device update must not rename and rebuild the
+    /// accessories after the hub's own name, which they would keep, a UA Gate's side door and sensors among them.
+    private var doorNamesRead = false
     private var removed = false
     /// Counts the door and lock state changes events made, so the bootstrap's older states do not undo them.
     private var doorStateChanges = 0
@@ -178,6 +181,7 @@ actor AccessHub {
         let doorStates = doorStateChanges
 
         if catalog.usesLocationApi { await discoverDoorNames() }
+        doorNamesRead = true
         guard !removed else { return }
         logLockDelayInterval(mainDoorName ?? "door")
         if hints.hasSideDoor { logLockDelayInterval(sideDoorName ?? "side door") }
@@ -623,7 +627,7 @@ actor AccessHub {
             guard let switchService = built.switches[method.subtype], let config = uda.config(method.key) else { continue }
             switchService.characteristic(.on).value = .bool(config == "yes")
         }
-        guard hints.syncName else { return }
+        guard hints.syncName, doorNamesRead || !catalog.usesLocationApi else { return }
         let wanted = AccessSettings.sanitizeName(mainDoorName ?? uda.alias ?? "")
         if !wanted.isEmpty, wanted != accessoryName {
             logger.info("\(prefix)Name change detected. A restart of Homebridge may be needed in order to complete name synchronization with HomeKit.")
