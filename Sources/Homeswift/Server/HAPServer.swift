@@ -92,6 +92,12 @@ public final class HAPServer: @unchecked Sendable {
         /// its bump of the number. A settle, shortly after or at `stop()`, catches the hash up.
         var hashBehind = false
         var hashSettleScheduled = false
+        /// Removals since the last settle not yet saved nor advertised: the settle does both, once for the burst.
+        var announceBehind = false
+        /// The `GET /accessories` body without its values, and what it was built from: `databaseVersion` (the
+        /// server's accessories) and `StructureGeneration` (their services).
+        var databaseTemplate: DatabaseTemplate?
+        var databaseVersion = 0
     }
 
     private let primaryBox: NIOLockedValueBox<Accessory>
@@ -251,16 +257,20 @@ public final class HAPServer: @unchecked Sendable {
         accessory.append(Service(.protocolInformation, extra: [Characteristic(.version, value: "1.1.0")]))
     }
 
-    /// Removes a bridged accessory, before or while running.
+    /// Removes a bridged accessory, before or while running. One HomeKit sees bumps the number at once; the hash, the
+    /// save and the advertisement wait for the settle, once for a burst: a plugin removing N stale accessories hashed
+    /// the whole database N times, under the lock every request takes.
     public func remove(_ accessory: Accessory) throws {
         defer { structureChanged() }
-        let running = state.withLockedValue { state in
-            state.accessories[accessory.aid] = nil
-            return refreshIfRunning(&state)
+        state.withLockedValue { state in
+            guard let removed = state.accessories.removeValue(forKey: accessory.aid) else { return }
+            state.databaseVersion += 1
+            guard state.serverChannel != nil, removed.mirroredFrom == nil, !state.hiddenFromHomeKit.contains(removed.id) else { return }
+            state.persisted.configurationNumber = state.persisted.configurationNumber % 65535 + 1
+            state.hashBehind = true
+            state.announceBehind = true
         }
-        guard running else { return }
-        try persist()
-        updateAdvertisement()
+        scheduleHashSettle()
     }
 
     /// Refreshes the configuration number while the server runs; before `start()` the database is still
@@ -281,6 +291,7 @@ public final class HAPServer: @unchecked Sendable {
         let running = state.withLockedValue { state -> Bool? in
             guard state.hiddenFromHomeKit != ids else { return nil }
             state.hiddenFromHomeKit = ids
+            state.databaseVersion += 1
             return refreshIfRunning(&state)
         }
         guard let running else { return }
@@ -473,6 +484,7 @@ public final class HAPServer: @unchecked Sendable {
             }
         }
         state.accessories[aid] = accessory
+        state.databaseVersion += 1
         return changed
     }
 
@@ -494,7 +506,7 @@ public final class HAPServer: @unchecked Sendable {
         return Secrets.hex(SHA256.hash(data: json.bytes))
     }
 
-    /// Catches the hash up a quarter of a second after the last add with new ids, once for the burst.
+    /// Catches the hash up a quarter of a second after the last add with new ids or removal, once for the burst.
     private func scheduleHashSettle() {
         let first = state.withLockedValue { state -> Bool in
             guard state.hashBehind, !state.hashSettleScheduled else { return false }
@@ -508,16 +520,19 @@ public final class HAPServer: @unchecked Sendable {
         }
     }
 
-    /// Stores the hash of the database as it is, without another bump: its changes have had theirs.
+    /// Stores the hash of the database as it is, without another bump: its changes have had theirs. Saves, and
+    /// advertises the number when removals have not.
     func settleHash() {
-        let settled = state.withLockedValue { state -> Bool in
+        let (settled, announce) = state.withLockedValue { state -> (Bool, Bool) in
             state.hashSettleScheduled = false
-            guard state.hashBehind else { return false }
+            defer { state.announceBehind = false }
+            guard state.hashBehind else { return (false, state.announceBehind) }
             state.persisted.databaseHash = databaseHash(state)
             state.hashBehind = false
-            return true
+            return (true, state.announceBehind)
         }
-        if settled { try? persist() }
+        if settled || announce { try? persist() }
+        if announce { updateAdvertisement() }
     }
 
     /// One accessory's part of the hashed database: its aid, services, characteristics and their metadata.
@@ -527,6 +542,41 @@ public final class HAPServer: @unchecked Sendable {
         return json.bytes
     }
 
+    /// The `GET /accessories` body: the cached template (built again when the accessories or their structure changed)
+    /// with the values as they are now. Building it took most of the request: the permissions, types and metadata
+    /// of every characteristic, for every controller that reconnects.
+    func accessoriesBody() -> [UInt8] {
+        let template = databaseTemplate()
+        var json = JSONWriter(capacity: template.bytes.count + template.characteristics.count * 8)
+        var start = 0
+        for (hole, characteristic) in zip(template.holes, template.characteristics) {
+            json.raw(template.bytes[start..<hole])
+            json.bare(characteristic.value)
+            start = hole
+        }
+        json.raw(template.bytes[start...])
+        return json.bytes
+    }
+
+    private func databaseTemplate() -> DatabaseTemplate {
+        let generation = StructureGeneration.current
+        let (cached, version, accessories, hidden) = state.withLockedValue { state in
+            (state.databaseTemplate, state.databaseVersion, state.accessories, state.hiddenFromHomeKit)
+        }
+        if let cached, cached.version == version, cached.generation == generation { return cached }
+        // Built outside the lock; kept only when nothing changed meanwhile.
+        var characteristics: [Characteristic]? = []
+        let database = database(accessories: accessories, hidden: hidden, includeValues: false, holes: &characteristics)
+        var json = JSONWriter(capacity: 64 * 1024)
+        database.write(to: &json)
+        let template = DatabaseTemplate(
+            bytes: json.bytes, holes: json.holes, characteristics: characteristics ?? [], version: version, generation: generation)
+        state.withLockedValue { state in
+            if state.databaseVersion == version, StructureGeneration.current == generation { state.databaseTemplate = template }
+        }
+        return template
+    }
+
     func database(includeValues: Bool) -> AccessoryDatabase {
         let (accessories, hidden) = state.withLockedValue { ($0.accessories, $0.hiddenFromHomeKit) }
         return database(accessories: accessories, hidden: hidden, includeValues: includeValues)
@@ -534,13 +584,26 @@ public final class HAPServer: @unchecked Sendable {
 
     /// Mirrored accessories (`Accessory.mirroredFrom`) stay out, HomeKit has them already, and those `hidden` from it.
     private func database(accessories: [Int: Accessory], hidden: Set<String>, includeValues: Bool) -> AccessoryDatabase {
+        var holes: [Characteristic]?
+        return database(accessories: accessories, hidden: hidden, includeValues: includeValues, holes: &holes)
+    }
+
+    /// With `holes`, each readable characteristic gets a hole for its value (`DatabaseTemplate`), and is appended.
+    private func database(
+        accessories: [Int: Accessory], hidden: Set<String>, includeValues: Bool, holes: inout [Characteristic]?
+    ) -> AccessoryDatabase {
         AccessoryDatabase(accessories: accessories.filter { $0.value.mirroredFrom == nil && !hidden.contains($0.value.id) }.sorted { $0.key < $1.key }.map { aid, accessory in
             AccessoryDatabase.AccessoryJSON(aid: aid, services: accessory.services.map { service in
                 AccessoryDatabase.ServiceJSON(
                     iid: service.iid,
                     type: service.type.uuid.shortForm,
                     characteristics: service.characteristics.map {
-                        CharacteristicJSON(describing: $0, includeValue: includeValues, includeMeta: true)
+                        var entry = CharacteristicJSON(describing: $0, includeValue: includeValues, includeMeta: true)
+                        if holes != nil, $0.type.permissions.contains(.pairedRead) {
+                            entry.valueHole = true
+                            holes?.append($0)
+                        }
+                        return entry
                     },
                     primary: service.isPrimary ? true : nil,
                     hidden: service.isHidden ? true : nil,
@@ -673,4 +736,14 @@ final class EventLoopTaskExecutor: TaskExecutor {
         let job = UnownedJob(job)
         eventLoop.execute { job.runSynchronously(on: self.asUnownedTaskExecutor()) }
     }
+}
+
+/// The `GET /accessories` body with a hole where each readable characteristic's value goes (`HAPServer.accessoriesBody`).
+struct DatabaseTemplate: Sendable {
+    var bytes: [UInt8]
+    var holes: [Int]
+    /// The characteristics whose values fill the holes, in order.
+    var characteristics: [Characteristic]
+    var version: Int
+    var generation: UInt64
 }

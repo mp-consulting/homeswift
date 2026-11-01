@@ -9,6 +9,8 @@ protocol JSONWritable {
 /// Callers write keys and values in order; commas are added as needed.
 struct JSONWriter {
     private(set) var bytes: [UInt8] = []
+    /// Where `hole()` left room for a value, as offsets into `bytes`.
+    private(set) var holes: [Int] = []
     /// One entry per open object or array: true until its first member is written.
     private var empty: [Bool] = []
     private var afterKey = false
@@ -135,6 +137,25 @@ struct JSONWriter {
         guard let values else { return }
         key(name)
         value(values)
+    }
+
+    // MARK: Templates
+
+    /// Leaves room for a value filled in later (`DatabaseTemplate`): the member is counted, nothing is written.
+    mutating func hole() {
+        separate()
+        holes.append(bytes.count)
+    }
+
+    /// Bytes written before, a part of a template.
+    mutating func raw(_ slice: ArraySlice<UInt8>) {
+        bytes.append(contentsOf: slice)
+    }
+
+    /// A value on its own, with no comma before it: into a template's hole.
+    mutating func bare(_ value: HAPValue) {
+        afterKey = true
+        self.value(value)
     }
 
     // MARK: Bytes
