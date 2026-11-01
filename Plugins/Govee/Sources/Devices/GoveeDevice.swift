@@ -52,6 +52,8 @@ struct DeviceEnvironment: Sendable {
     var adaptiveLighting: AdaptiveLightingFactory?
     /// When a plug shown as a heater or cooler first reads its source sensor.
     var temperatureSourceFirstRead: Duration = .seconds(5)
+    /// How long a light waits after an On or Off write before sending the latest one.
+    var stateDelay: @Sendable () async -> Void = { try? await Task.sleep(for: .milliseconds(400)) }
 }
 
 /// Adds Adaptive Lighting to a lightbulb that has Brightness and Color Temperature, before the accessory is
