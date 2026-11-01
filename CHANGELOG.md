@@ -6,14 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.18.1] - 2026-11-01
+
 ### Changed
 
 - HAP: the reads of one `GET /characteristics` run at the same time, as HAP-NodeJS's: the Home app asks for every tile
   on screen in one request, and one slow device no longer holds up the others' values (or shows them all as Not
   Responding). The same characteristic twice in one read is refused (422), as in a write.
 - HAP: characteristic events are held 50ms and sent as one message, as HAP-NodeJS's are (it waits 250ms): a plugin
-  updating 30 lights sends a few events to each controller, not 30. The same value twice in a row goes once; button presses go at once and take
-  the waiting events with them. `HAPServer.Options.eventCoalescingDelay` sets the delay.
+  updating 30 lights sends a few events to each controller, not 30. The same value twice in a row goes once; button
+  presses go at once and take the waiting events with them. `HAPServer.Options.eventCoalescingDelay` sets the delay.
 - HAP: `GET /accessories`, which every controller asks for when it reconnects or the configuration number moves, comes
   from a template built once, with the values filled in: each characteristic's permissions, type and metadata were
   built again for every request. The template is built again when an accessory is added, removed or hidden, or a
@@ -1460,7 +1462,8 @@ All notable changes to this project are documented here. The format follows
   SIGTERM; Homebrew formula `mp-consulting/tap/homeswift` with a `brew services` entry.
 - CI on macOS and Linux for every push and pull request.
 
-[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.18.0...HEAD
+[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.18.1...HEAD
+[0.18.1]: https://github.com/mp-consulting/homeswift/compare/v0.18.0...v0.18.1
 [0.18.0]: https://github.com/mp-consulting/homeswift/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/mp-consulting/homeswift/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/mp-consulting/homeswift/compare/v0.15.0...v0.16.0
