@@ -205,7 +205,8 @@ template and fills in. The one metric HAP-NodeJS wins is CPU per request under c
 43–131 µs: Homeswift's cost per request grows with the number of connections (60 µs on one). A profile at 16
 connections (`sample`, 2026-11-01) puts most of the difference in waiting on the server's state lock, which a read
 takes once per characteristic to find it (`HAPServer.accessory(aid:)`), and again for the request's context and its
-timing: a fifth of the busy samples were threads waiting on that lock, none on one connection. It does not show in
+timing: 14% of the busy samples were threads waiting on that lock (19% with taking and releasing it), none on
+one connection. It does not show in
 latency: at 16 connections Homeswift serves twice the requests because the
 work spreads over the cores while Node's single thread plateaus around 22 000 req/s, with a similar p99.
 
