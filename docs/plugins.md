@@ -347,6 +347,11 @@ settings it brings and reloads the plugin; the web UI's **Add accessories** page
   Excluded device is never an accessory: the runtime refuses its `add` and takes it off the bridge, and the plugin should
   stop polling it (`context.isExcluded`). A Homebridge-shaped block (a `devices` list, exclude lists) still loads: read
   both, the Setup's first.
+- **Parts.** A device that brings things a person may leave out (a UA Gate's side door, a door's position sensor, a
+  doorbell) lists them in `DiscoveredDevice.parts` (`DevicePart(id, name:, icon:, included:)`). Add accessories shows
+  each with a switch under its device; the choice goes in the device's Accessory Settings' `parts` (`{ "SideDoor": false }`),
+  and the plugin reloads and reads it from `context.allAccessorySettings` (UniFi Access turns each into a `Hub.<id>`
+  option of that device).
 
 ### Web pages
 

@@ -31,6 +31,9 @@ side door) and `AccessMethod.SeparateAccessory` the sensors, the doorbell, the s
 get tiles of their own (accessory ids
 `UniFi Access:<MAC>.<group>`); turning the option off brings them back to the hub.
 
+On Add accessories, a hub lists its parts (the side door, the wired door sensors, the doorbell), each with a switch: the
+choice goes in the hub's Accessory Settings (`parts`) and acts as that hub's `Hub.<part>` option.
+
 ## Configuration
 
 ```json

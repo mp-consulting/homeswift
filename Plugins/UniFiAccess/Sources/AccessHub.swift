@@ -287,6 +287,23 @@ actor AccessHub {
     }
 
     func isWired(_ input: SensorInput) -> Bool { isWired(catalog.sensors[input]) }
+
+    /// What the hub brings that a person can leave out (Add accessories' parts), each a `Hub.<id>` option: the side door
+    /// and its sensor, the wired terminal inputs, the doorbell. The main door is the hub itself.
+    var parts: [DevicePart] {
+        let main = mainDoorName.flatMap { $0.isEmpty ? nil : AccessSettings.sanitizeName($0) } ?? accessoryName
+        let side = sideDoorName.flatMap { $0.isEmpty ? nil : AccessSettings.sanitizeName($0) } ?? "\(main) Side Door"
+        var parts: [DevicePart] = []
+        if catalog.supportsSideDoor { parts.append(DevicePart("SideDoor", name: side, icon: "lock", included: hints.hasSideDoor)) }
+        for input in SensorInput.allCases where catalog.has(input) && isWired(input) {
+            parts.append(DevicePart(input.optionName, name: "\(main) \(input.label)", icon: "sensor", included: hints.hasWiring(input)))
+        }
+        if catalog.supportsSideDoor, isSideDoorDpsWired() {
+            parts.append(DevicePart("SideDoor.DPS", name: "\(side) Door Position Sensor", icon: "sensor", included: hints.hasWiringSideDoorDps))
+        }
+        if has(capability: "door_bell") { parts.append(DevicePart("Doorbell", name: "\(main) Doorbell", icon: "bell", included: hasFeature("Hub.Doorbell"))) }
+        return parts
+    }
     func isSideDoorDpsWired() -> Bool { isWired(catalog.sideDoor?.dps) }
 
     /// A terminal input as a contact sensor state.

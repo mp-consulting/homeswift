@@ -106,6 +106,19 @@ struct SetupTests {
         await host.stop()
     }
 
+    /// A part left out goes in the device's Accessory Settings, beside its other settings, and reads back as written.
+    @Test func aPartLeftOutIsKeptInTheDevicesAccessorySettings() async throws {
+        try await host.start()
+        defer { Task { await host.stop() } }
+        _ = try await catalog.setPart(platform: "Pairable", name: nil, deviceID: "lamp", part: "Night", included: false)
+        #expect(try block()?["_accessories"]?["lamp"]?["parts"] == ["Night": false])
+        let settings = AccessorySettings(json: try #require(try block()?["_accessories"]?["lamp"]))
+        #expect(settings.parts == ["Night": false] && settings.plugin.isEmpty)
+        #expect(settings.json == ["parts": ["Night": false]])
+        _ = try await catalog.setPart(platform: "Pairable", name: nil, deviceID: "lamp", part: "Night", included: true)
+        #expect(try block()?["_accessories"]?["lamp"]?["parts"] == ["Night": true])
+    }
+
     @Test func aButtonPressIsRetriedAndOutlivesAReloadOfThePlugin() async throws {
         try await host.start()
         let first = try await catalog.startSetup(platform: "Pairable", name: nil, deviceID: "hub")

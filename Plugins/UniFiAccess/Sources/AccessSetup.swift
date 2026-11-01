@@ -23,6 +23,14 @@ extension UniFiAccessPlugin {
         context.excludedDeviceIDs.filter(AccessSettings.isAccessIdentifier).sorted().map { "Disable.Device.\($0)" }
     }
 
+    /// The parts a person chose on Add accessories (Accessory Settings' `parts`), as the hub options of that device:
+    /// `{ "SideDoor": false }` is `Disable.Hub.SideDoor.<id>`. A device's own option wins over the block's.
+    static func partChoices(_ context: PluginContext) -> [String] {
+        context.allAccessorySettings.sorted { $0.key < $1.key }.flatMap { deviceID, settings in
+            settings.parts.sorted { $0.key < $1.key }.map { "\($0.value ? "Enable" : "Disable").Hub.\($0.key).\(deviceID)" }
+        }
+    }
+
     /// The controllers to run: those of `controllers`, with the login Setup kept for the same address in place of theirs,
     /// then those set up through Setup only (Accessory Settings with an `address`, and a login in the vault), unless
     /// Excluded.
@@ -59,7 +67,11 @@ extension UniFiAccessPlugin {
                 found.append(controllerDevice(mac: mac, name: await controller.name, address: settings.address, isSetUp: await controller.connected))
                 let hubs = await controller.hubs
                 for device in await controller.api.devices ?? [] {
-                    if let device = hubDevice(device, controller: mac, isSetUp: hubs["\(Self.platform):\(device.identifier.uppercased())"] != nil) { found.append(device) }
+                    let hub = hubs["\(Self.platform):\(device.identifier.uppercased())"]
+                    if var device = hubDevice(device, controller: mac, isSetUp: hub != nil) {
+                        device.parts = await hub?.parts ?? []
+                        found.append(device)
+                    }
                 }
             }
         } else {

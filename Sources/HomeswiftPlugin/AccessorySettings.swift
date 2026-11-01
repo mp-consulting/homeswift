@@ -15,14 +15,17 @@ public struct AccessorySettings: Sendable, Equatable {
     public var excluded: Bool
     /// The name the person gave it, in place of the device's own.
     public var name: String?
+    /// The parts a person included or left out (`DevicePart`), by the plugin's id: `{ "SideDoor": false }`.
+    public var parts: [String: Bool]
     /// The plugin's own settings for it.
     public var plugin: [String: JSONValue]
 
-    public static let coreKeys: Set<String> = ["excluded", "name"]
+    public static let coreKeys: Set<String> = ["excluded", "name", "parts"]
 
-    public init(excluded: Bool = false, name: String? = nil, plugin: [String: JSONValue] = [:]) {
+    public init(excluded: Bool = false, name: String? = nil, parts: [String: Bool] = [:], plugin: [String: JSONValue] = [:]) {
         self.excluded = excluded
         self.name = name
+        self.parts = parts
         self.plugin = plugin
     }
 
@@ -30,6 +33,7 @@ public struct AccessorySettings: Sendable, Equatable {
         let fields = json.objectValue ?? [:]
         excluded = fields["excluded"]?.boolValue ?? false
         name = fields["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        parts = (fields["parts"]?.objectValue ?? [:]).compactMapValues(\.boolValue)
         plugin = fields.filter { !Self.coreKeys.contains($0.key) }
     }
 
@@ -37,6 +41,7 @@ public struct AccessorySettings: Sendable, Equatable {
         var fields = plugin
         if excluded { fields["excluded"] = true }
         if let name { fields["name"] = .string(name) }
+        if !parts.isEmpty { fields["parts"] = .object(parts.mapValues(JSONValue.bool)) }
         return .object(fields)
     }
 

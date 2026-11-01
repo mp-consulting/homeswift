@@ -1854,6 +1854,7 @@ HomeswiftI18n.add("es", {
   "Also delete its vault entry": "Borrar también su entrada de la bóveda",
   "Also delete its {n} vault entries": "Borrar también sus {n} entradas de la bóveda",
   "The sign-ins and tokens it kept. Left there, adding it again finds them.": "Los inicios de sesión y tokens que guardó. Si se quedan, al añadirlo de nuevo los encuentra.",
+  "Parts of {name}": "Partes de {name}",
   "Your plugins": "Tus plugins",
   "Search your plugins": "Buscar en tus plugins",
   "Sort your plugins": "Ordenar tus plugins",

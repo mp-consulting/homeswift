@@ -31,6 +31,15 @@ extension UIServer {
                 let answer = try await catalog.setExcluded(platform: platform, name: name, deviceID: deviceID, excluded: excluded)
                 noteConfigChange(by: username)
                 return .json(answer)
+            case ["part"]:
+                guard !platform.isEmpty, let deviceID = body["deviceID"]?.stringValue, let part = body["part"]?.stringValue, !part.isEmpty,
+                      let included = body["included"]?.boolValue else {
+                    return .error(400, "platform, deviceID, part and included (true or false) are required")
+                }
+                logger.info("Web UI user \(username) \(included ? "included" : "left out") \(part) of \(platform):\(deviceID)")
+                let answer = try await catalog.setPart(platform: platform, name: name, deviceID: deviceID, part: part, included: included)
+                noteConfigChange(by: username)
+                return .json(answer)
             case let path where path.count == 2 && path[1] == "cancel":
                 return .json(["cancelled": .bool(catalog.cancelSetup(path[0]))])
             case let path where path.count == 1:

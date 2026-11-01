@@ -43,6 +43,11 @@ _Avoid_: MAC, serial, aid
 A device its plugin does not make into an accessory at all: not polled, not on the wall, not in Apple Home or Matter.
 _Avoid_: Ignored, disabled, removed, enabled: false
 
+**Part**:
+Something a device brings that a person can leave out while keeping the device, such as a gate's side door, a door's
+position sensor or a doorbell. A Core Accessory Setting keeps which parts are included.
+_Avoid_: Feature, sub-device, service, component
+
 **Not in Home**:
 An accessory the bridge has and shows on the wall, but leaves out of Apple Home.
 _Avoid_: Excluded, hidden from HomeKit

@@ -39,6 +39,9 @@ public struct DiscoveredDevice: Sendable, Codable, Equatable {
     /// Left out by one of the plugin's own settings (a Homebridge-shaped exclude list), not by its Accessory Settings: the
     /// person includes it again there.
     public var excludedBySettings: Bool
+    /// What it brings that a person can leave out on its own (GLOSSARY.md, "Part"): a gate's side door, a door's
+    /// position sensor, a doorbell. Its Accessory Settings' `parts` keep the choice.
+    public var parts: [DevicePart] = []
 
     public init(
         deviceID: String, name: String, model: String? = nil, address: String? = nil, authorization: AuthorizationMethod = .none, isSetUp: Bool = false,
@@ -51,6 +54,22 @@ public struct DiscoveredDevice: Sendable, Codable, Equatable {
         self.authorization = authorization
         self.isSetUp = isSetUp
         self.excludedBySettings = excludedBySettings
+    }
+}
+
+/// A part of a device (GLOSSARY.md, "Part"): an accessory or a service it brings, which a person can leave out while
+/// keeping the device. `id` is the plugin's (`SideDoor`, `DPS`); `icon` one of the web UI's (`lock`, `sensor`, `bell`).
+public struct DevicePart: Sendable, Codable, Equatable {
+    public var id: String
+    public var name: String
+    public var icon: String?
+    public var included: Bool
+
+    public init(_ id: String, name: String, icon: String? = nil, included: Bool) {
+        self.id = id
+        self.name = name
+        self.icon = icon
+        self.included = included
     }
 }
 

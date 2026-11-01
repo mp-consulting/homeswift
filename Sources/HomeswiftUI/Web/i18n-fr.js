@@ -1854,6 +1854,7 @@ HomeswiftI18n.add("fr", {
   "Also delete its vault entry": "Supprimer aussi son entrée du coffre",
   "Also delete its {n} vault entries": "Supprimer aussi ses {n} entrées du coffre",
   "The sign-ins and tokens it kept. Left there, adding it again finds them.": "Les connexions et jetons qu'il a gardés. S'ils restent, l'ajouter à nouveau les retrouve.",
+  "Parts of {name}": "Éléments de {name}",
   "Your plugins": "Vos plugins",
   "Search your plugins": "Rechercher dans vos plugins",
   "Sort your plugins": "Trier vos plugins",

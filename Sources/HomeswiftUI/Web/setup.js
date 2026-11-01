@@ -208,7 +208,16 @@
     const needs = device.status === "needsAuthorization";
     // The glyph the wall gives its accessory, once it has one.
     const glyph = HomeswiftWidgets.categoryIcon(device.category) ?? (needs ? methods[device.authorization]?.[1] : null) ?? "accessory";
-    return el("div", { class: `setup-device ${excluded ? "is-excluded" : ""}` },
+    // Its parts, switched here at once: the plugin reloads with them, or without.
+    const parts = !excluded && device.status === "setUp" ? partsList(device, {
+      onChange: async (part, included, box) => {
+        box.disabled = true;
+        try { await post("part", { platform: block.platform, name: block.name, deviceID: device.deviceID, part: part.id, included }); part.included = included; }
+        catch (e) { box.checked = !included; HomeswiftCommon.showAlert(e.message); }
+        finally { box.disabled = false; }
+      },
+    }) : null;
+    const row = el("div", { class: `setup-device ${excluded ? "is-excluded" : ""}` },
       tile(glyph, excluded ? "grey" : needs ? "orange" : "blue"),
       el("div", { class: "who" }, el("strong", { text: device.name }),
         el("div", { class: "muted", text: device.excludedBySettings ? t("Left out by its settings") : [device.model, device.address].filter(Boolean).join(" · ") || device.deviceID })),
@@ -217,6 +226,26 @@
         ? el("button", { class: "primary", actionIcon: "pair", text: t("Set up"), onclick: (event) => open({ block, plugin, device, known, trigger: event.currentTarget, after: reload }) })
         : el("span", { class: "setup-spacer" }),
       menuButton(t("Actions for {name}", { name: device.name }), () => items));
+    return parts ? el("div", { class: "setup-device-group" }, row, parts.node) : row;
+  }
+
+  /// A device's parts (a gate's side door, a door sensor, a doorbell), each with its switch: those switched off are left
+  /// out while the device stays. `onChange(part, included)` is told of each switch; `changes()` what differs from now.
+  function partsList(device, { disabled = false, onChange = null } = {}) {
+    const parts = device.parts ?? [];
+    if (!parts.length) return null;
+    const boxes = parts.map((part) => el("input", { type: "checkbox", checked: part.included, disabled, "aria-label": part.name }));
+    const node = el("div", { class: "setup-parts", role: "group", "aria-label": t("Parts of {name}", { name: device.name }) },
+      ...parts.map((part, index) => el("label", { class: "setup-part" },
+        el("span", { class: "setup-part-icon", "aria-hidden": "true" }, HomeswiftCommon.icon(part.icon ?? "accessory")),
+        el("span", { class: "setup-part-name", text: part.name }),
+        el("span", { class: "switch" }, boxes[index], el("span")))));
+    if (onChange) boxes.forEach((box, index) => box.addEventListener("change", () => onChange(parts[index], box.checked, box)));
+    return {
+      node,
+      enable: (on) => boxes.forEach((box) => { box.disabled = !on; }),
+      changes: () => parts.flatMap((part, index) => boxes[index].checked === part.included ? [] : [{ part: part.id, included: boxes[index].checked }]),
+    };
   }
 
   /// What an option is called: a country or a language in the reader's language, else its label translated.
@@ -334,22 +363,30 @@
           const picked = boxes.filter((box) => box.checked).length;
           submit.textContent = picked ? tn("Add one accessory", "Add {n} accessories", picked) : t("Add none");
         };
-        boxes.forEach((box) => box.addEventListener("change", count));
+        const partLists = found.map((one) => partsList(one));
+        boxes.forEach((box, index) => box.addEventListener("change", () => { count(); partLists[index]?.enable(box.checked); }));
         count();
         form.onsubmit = (event) => {
           event.preventDefault();
           HomeswiftCommon.busyButton(submit, async () => {
             const left = found.filter((one, index) => !boxes[index].checked);
             for (const one of left) await post("exclude", { platform: block.platform, name: block.name, deviceID: one.deviceID, excluded: true });
+            // The parts of the devices kept, as switched: the plugin builds them, or leaves them out.
+            for (const [index, one] of found.entries()) {
+              if (!boxes[index].checked) continue;
+              for (const change of partLists[index]?.changes() ?? []) await post("part", { platform: block.platform, name: block.name, deviceID: one.deviceID, ...change });
+            }
             finish(found.filter((one, index) => boxes[index].checked));
           });
         };
         fill(
           el("p", {}, el("strong", { text: tn("{plugin} found one device.", "{plugin} found {n} devices.", found.length, { plugin: owner }) })),
           el("p", { class: "muted", text: t("Choose those that go into the Home app. The others are excluded; you can include them later.") }),
-          el("div", { class: "setup-picks" }, ...found.map((one, index) => el("label", { class: "setup-pick" }, boxes[index],
-            tile(HomeswiftWidgets.categoryIcon(one.category) ?? glyph, "blue"),
-            el("span", { class: "who" }, el("strong", { text: one.name }), el("span", { class: "muted", text: [one.model, one.address].filter(Boolean).join(" · ") || one.deviceID }))))),
+          el("div", { class: "setup-picks" }, ...found.map((one, index) => el("div", { class: "setup-pick-group" },
+            el("label", { class: "setup-pick" }, boxes[index],
+              tile(HomeswiftWidgets.categoryIcon(one.category) ?? glyph, "blue"),
+              el("span", { class: "who" }, el("strong", { text: one.name }), el("span", { class: "muted", text: [one.model, one.address].filter(Boolean).join(" · ") || one.deviceID }))),
+            partLists[index]?.node ?? null))),
           el("div", { class: "actions" }, submit));
         submit.focus({ preventScroll: true });
       }

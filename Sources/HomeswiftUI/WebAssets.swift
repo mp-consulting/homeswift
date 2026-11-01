@@ -14140,6 +14140,7 @@ HomeswiftI18n.add("es", {
   "Also delete its vault entry": "Borrar también su entrada de la bóveda",
   "Also delete its {n} vault entries": "Borrar también sus {n} entradas de la bóveda",
   "The sign-ins and tokens it kept. Left there, adding it again finds them.": "Los inicios de sesión y tokens que guardó. Si se quedan, al añadirlo de nuevo los encuentra.",
+  "Parts of {name}": "Partes de {name}",
   "Your plugins": "Tus plugins",
   "Search your plugins": "Buscar en tus plugins",
   "Sort your plugins": "Ordenar tus plugins",
@@ -16827,6 +16828,7 @@ HomeswiftI18n.add("fr", {
   "Also delete its vault entry": "Supprimer aussi son entrée du coffre",
   "Also delete its {n} vault entries": "Supprimer aussi ses {n} entrées du coffre",
   "The sign-ins and tokens it kept. Left there, adding it again finds them.": "Les connexions et jetons qu'il a gardés. S'ils restent, l'ajouter à nouveau les retrouve.",
+  "Parts of {name}": "Éléments de {name}",
   "Your plugins": "Vos plugins",
   "Search your plugins": "Rechercher dans vos plugins",
   "Sort your plugins": "Trier vos plugins",
@@ -19514,6 +19516,7 @@ HomeswiftI18n.add("pt", {
   "Also delete its vault entry": "Eliminar também a sua entrada do cofre",
   "Also delete its {n} vault entries": "Eliminar também as suas {n} entradas do cofre",
   "The sign-ins and tokens it kept. Left there, adding it again finds them.": "As credenciais e tokens que guardou. Se ficarem, ao adicioná-lo de novo encontra-os.",
+  "Parts of {name}": "Partes de {name}",
   "Your plugins": "Os seus plugins",
   "Search your plugins": "Pesquisar nos seus plugins",
   "Sort your plugins": "Ordenar os seus plugins",
@@ -22792,7 +22795,16 @@ HomeswiftI18n.add("pt", {
     const needs = device.status === "needsAuthorization";
     // The glyph the wall gives its accessory, once it has one.
     const glyph = HomeswiftWidgets.categoryIcon(device.category) ?? (needs ? methods[device.authorization]?.[1] : null) ?? "accessory";
-    return el("div", { class: `setup-device ${excluded ? "is-excluded" : ""}` },
+    // Its parts, switched here at once: the plugin reloads with them, or without.
+    const parts = !excluded && device.status === "setUp" ? partsList(device, {
+      onChange: async (part, included, box) => {
+        box.disabled = true;
+        try { await post("part", { platform: block.platform, name: block.name, deviceID: device.deviceID, part: part.id, included }); part.included = included; }
+        catch (e) { box.checked = !included; HomeswiftCommon.showAlert(e.message); }
+        finally { box.disabled = false; }
+      },
+    }) : null;
+    const row = el("div", { class: `setup-device ${excluded ? "is-excluded" : ""}` },
       tile(glyph, excluded ? "grey" : needs ? "orange" : "blue"),
       el("div", { class: "who" }, el("strong", { text: device.name }),
         el("div", { class: "muted", text: device.excludedBySettings ? t("Left out by its settings") : [device.model, device.address].filter(Boolean).join(" · ") || device.deviceID })),
@@ -22801,6 +22813,26 @@ HomeswiftI18n.add("pt", {
         ? el("button", { class: "primary", actionIcon: "pair", text: t("Set up"), onclick: (event) => open({ block, plugin, device, known, trigger: event.currentTarget, after: reload }) })
         : el("span", { class: "setup-spacer" }),
       menuButton(t("Actions for {name}", { name: device.name }), () => items));
+    return parts ? el("div", { class: "setup-device-group" }, row, parts.node) : row;
+  }
+
+  /// A device's parts (a gate's side door, a door sensor, a doorbell), each with its switch: those switched off are left
+  /// out while the device stays. `onChange(part, included)` is told of each switch; `changes()` what differs from now.
+  function partsList(device, { disabled = false, onChange = null } = {}) {
+    const parts = device.parts ?? [];
+    if (!parts.length) return null;
+    const boxes = parts.map((part) => el("input", { type: "checkbox", checked: part.included, disabled, "aria-label": part.name }));
+    const node = el("div", { class: "setup-parts", role: "group", "aria-label": t("Parts of {name}", { name: device.name }) },
+      ...parts.map((part, index) => el("label", { class: "setup-part" },
+        el("span", { class: "setup-part-icon", "aria-hidden": "true" }, HomeswiftCommon.icon(part.icon ?? "accessory")),
+        el("span", { class: "setup-part-name", text: part.name }),
+        el("span", { class: "switch" }, boxes[index], el("span")))));
+    if (onChange) boxes.forEach((box, index) => box.addEventListener("change", () => onChange(parts[index], box.checked, box)));
+    return {
+      node,
+      enable: (on) => boxes.forEach((box) => { box.disabled = !on; }),
+      changes: () => parts.flatMap((part, index) => boxes[index].checked === part.included ? [] : [{ part: part.id, included: boxes[index].checked }]),
+    };
   }
 
   /// What an option is called: a country or a language in the reader's language, else its label translated.
@@ -22918,22 +22950,30 @@ HomeswiftI18n.add("pt", {
           const picked = boxes.filter((box) => box.checked).length;
           submit.textContent = picked ? tn("Add one accessory", "Add {n} accessories", picked) : t("Add none");
         };
-        boxes.forEach((box) => box.addEventListener("change", count));
+        const partLists = found.map((one) => partsList(one));
+        boxes.forEach((box, index) => box.addEventListener("change", () => { count(); partLists[index]?.enable(box.checked); }));
         count();
         form.onsubmit = (event) => {
           event.preventDefault();
           HomeswiftCommon.busyButton(submit, async () => {
             const left = found.filter((one, index) => !boxes[index].checked);
             for (const one of left) await post("exclude", { platform: block.platform, name: block.name, deviceID: one.deviceID, excluded: true });
+            // The parts of the devices kept, as switched: the plugin builds them, or leaves them out.
+            for (const [index, one] of found.entries()) {
+              if (!boxes[index].checked) continue;
+              for (const change of partLists[index]?.changes() ?? []) await post("part", { platform: block.platform, name: block.name, deviceID: one.deviceID, ...change });
+            }
             finish(found.filter((one, index) => boxes[index].checked));
           });
         };
         fill(
           el("p", {}, el("strong", { text: tn("{plugin} found one device.", "{plugin} found {n} devices.", found.length, { plugin: owner }) })),
           el("p", { class: "muted", text: t("Choose those that go into the Home app. The others are excluded; you can include them later.") }),
-          el("div", { class: "setup-picks" }, ...found.map((one, index) => el("label", { class: "setup-pick" }, boxes[index],
-            tile(HomeswiftWidgets.categoryIcon(one.category) ?? glyph, "blue"),
-            el("span", { class: "who" }, el("strong", { text: one.name }), el("span", { class: "muted", text: [one.model, one.address].filter(Boolean).join(" · ") || one.deviceID }))))),
+          el("div", { class: "setup-picks" }, ...found.map((one, index) => el("div", { class: "setup-pick-group" },
+            el("label", { class: "setup-pick" }, boxes[index],
+              tile(HomeswiftWidgets.categoryIcon(one.category) ?? glyph, "blue"),
+              el("span", { class: "who" }, el("strong", { text: one.name }), el("span", { class: "muted", text: [one.model, one.address].filter(Boolean).join(" · ") || one.deviceID }))),
+            partLists[index]?.node ?? null))),
           el("div", { class: "actions" }, submit));
         submit.focus({ preventScroll: true });
       }
@@ -26875,6 +26915,20 @@ select option:disabled { color: var(--muted); }
 .setup-pick .who { display: grid; min-width: 0; }
 .setup-pick .who > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .setup-pick .muted { font-size: var(--text-sm); }
+/* A device's parts under it (a gate's side door, a door sensor, a doorbell): each on its own line with its switch,
+   indented under the device's name. */
+.setup-pick-group, .setup-device-group { border-bottom: 1px solid var(--line); }
+.setup-pick-group > .setup-pick, .setup-device-group > .setup-device { border-bottom: 0; }
+.setup-device-group:last-child { border-bottom: 0; }
+.setup-parts { display: grid; margin: calc(-1 * var(--space-4)) 0 var(--space-10) 52px; }
+.setup-part { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--space-10); align-items: center; padding: var(--space-6) 0; cursor: pointer; }
+.setup-part-icon { width: 24px; height: 24px; border-radius: var(--radius-xs); display: grid; place-items: center; color: var(--muted); background: var(--material-thin); }
+.setup-part-icon svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.setup-part-name { font-size: var(--text-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.setup-part .switch { transform: scale(0.85); transform-origin: right center; }
+.setup-part:has(input:not(:checked)) .setup-part-name { color: var(--muted); }
+.setup-part:has(input:disabled) { opacity: 0.5; cursor: default; }
+
 /* What reached the Home app, one after the other. */
 .setup-added { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-6); }
 .setup-added li { display: flex; align-items: center; gap: var(--space-10); padding: var(--space-6) var(--space-10); border-radius: var(--radius-md); background: var(--material-thin); }

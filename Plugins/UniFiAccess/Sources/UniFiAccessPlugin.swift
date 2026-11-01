@@ -54,7 +54,7 @@ public actor UniFiAccessPlugin: HomeswiftPlugin {
         self.configuration = configuration
         self.context = context
         self.dependencies = dependencies
-        options = AccessOptions.make(Self.exclusions(context) + configuration.options)
+        options = AccessOptions.make(Self.exclusions(context) + configuration.options + Self.partChoices(context))
         configuredOptions = AccessOptions.make(configuration.options)
         let logger = dependencies.logger ?? context.logger
         self.logger = configuration.debugAll ? DebugAllLogHandler.promoting(logger) : logger

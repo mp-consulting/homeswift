@@ -82,6 +82,7 @@ extension HomeswiftCatalog {
                 ]
                 if let model = device.model { json["model"] = .string(model) }
                 if device.excludedBySettings { json["excludedBySettings"] = true }
+                if !device.parts.isEmpty { json["parts"] = (try? JSONValue(encoding: device.parts)) ?? [] }
                 // What kind of accessory it is on the bridge, for its glyph.
                 if let accessory = accessories[accessoryID] { json["category"] = .string("\(accessory.category)") }
                 if let address = device.address { json["address"] = .string(address) }
@@ -151,6 +152,14 @@ extension HomeswiftCatalog {
     public func setExcluded(platform: String, name: String?, deviceID: String, excluded: Bool) async throws -> JSONValue {
         try await editBlock(platform: platform, name: name, create: false, dryRun: false, checkSchemas: false) { block in
             Self.editAccessorySettings(&block, deviceID: deviceID) { $0.excluded = excluded }
+        }
+    }
+
+    /// Includes or leaves out one part of a device (`DevicePart`), in its Accessory Settings' `parts`: the plugin reloads
+    /// and builds the device's accessories without it, or with it.
+    public func setPart(platform: String, name: String?, deviceID: String, part: String, included: Bool) async throws -> JSONValue {
+        try await editBlock(platform: platform, name: name, create: false, dryRun: false, checkSchemas: false) { block in
+            Self.editAccessorySettings(&block, deviceID: deviceID) { $0.parts[part] = included }
         }
     }
 

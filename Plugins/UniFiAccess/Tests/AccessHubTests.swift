@@ -395,6 +395,24 @@ struct AccessHubTests {
         #expect(accessory(again, "\(gateID).SideDoor") == nil)
     }
 
+    /// A UA Gate lists its side door and its doorbell as parts; one left out on Add accessories is not built.
+    @Test func gatePartsAndOneLeftOut() async throws {
+        let host = try await environment.start(devices: [ugt()], doors: Self.gateDoors)
+        #expect(await eventually { accessory(host, gateID)?.name == "Main Gate" })
+        let hub = try #require(await environment.hub(id: gateID))
+        #expect(await hub.parts.first == DevicePart("SideDoor", name: "Portillon", icon: "lock", included: true))
+        await host.stop()
+
+        let again = try environment.host(settings: [
+            "controllers": [AccessTestEnvironment.controllerBlock], "_accessories": ["112233445566": ["parts": ["SideDoor": false]]],
+        ])
+        try await again.start()
+        defer { Task { await again.stop() } }
+        #expect(await eventually { accessory(again, gateID)?.service(.garageDoorOpener, nil) != nil })
+        #expect(await eventually { accessory(again, gateID)?.service(.lockMechanism, "Lock.Door.Side") == nil })
+        #expect(await environment.hub(id: gateID)?.parts.first?.included == false)
+    }
+
     @Test func gateDoorsByName() async throws {
         // No port settings: the door names decide.
         let doors: [JSONValue] = [
