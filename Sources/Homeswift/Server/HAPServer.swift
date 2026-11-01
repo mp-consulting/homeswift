@@ -41,9 +41,10 @@ public final class HAPServer: @unchecked Sendable {
         /// Interface names or IPv4 addresses the built-in responder advertises on (Homebridge's `bind`); empty
         /// for every interface.
         public var interfaces: [String] = []
-        /// How long a connection holds characteristic events to send them as one message (HAP-NodeJS's
-        /// `EVENT_COALESCING_DELAY`): a scene changing 30 lights sends a few events, not 30. Button presses go at once.
-        public var eventCoalescingDelay: TimeAmount = .milliseconds(250)
+        /// How long a connection holds characteristic events to send them as one message: a plugin updating 30 lights
+        /// sends a few events, not 30. Button presses go at once. HAP-NodeJS waits 250ms (`EVENT_COALESCING_DELAY`);
+        /// a burst arrives within a few milliseconds, and a quarter of a second shows on another iPhone.
+        public var eventCoalescingDelay: TimeAmount = .milliseconds(50)
         public var logger: Logger
 
         public init(
