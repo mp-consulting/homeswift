@@ -3715,6 +3715,11 @@ select option:disabled { color: var(--muted); }
 .setup-account .who .muted { white-space: normal; }
 .setup-account { background: color-mix(in srgb, var(--accent) 7%, transparent); margin: 0 calc(-1 * var(--space-12)); padding-inline: var(--space-12); border-radius: var(--radius-md); }
 .setup-loading, .setup-none { margin: var(--space-12) 0 0; }
+.setup-loading { display: flex; align-items: center; gap: var(--space-10); }
+.setup-loading .spinner { width: 16px; height: 16px; flex: none; }
+/* Searching again: the rows a new list may replace dim, after a moment so a quick answer does not flash them. */
+.setup-device { transition: opacity var(--normal) var(--ease-out); }
+.setup-instance.is-searching .setup-device { opacity: 0.55; transition-delay: 150ms; }
 .setup-sheet .setup-method { margin-top: calc(-1 * var(--space-6)); }
 .setup-step { display: grid; gap: var(--space-12); }
 .setup-step > p { margin: 0; }

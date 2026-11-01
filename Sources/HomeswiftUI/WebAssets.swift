@@ -22490,12 +22490,15 @@ HomeswiftI18n.add("pt", {
     await Promise.all(cards.map((card) => card.load()));
   }
 
+  /// A wait for a plugin, its ring turning beside what it is waiting for.
+  const loading = (text) => el("p", { class: "setup-loading muted" }, el("span", { class: "spinner", "aria-hidden": "true" }), el("span", { text }));
+
   /// One plugin instance: its account, when it has one, and the devices it finds.
   function instanceCard(block, plugin) {
-    const list = el("div", { class: "setup-devices", "aria-live": "polite" }, el("p", { class: "setup-loading muted", text: t("Looking for devices…") }));
+    const list = el("div", { class: "setup-devices", "aria-live": "polite" }, loading(t("Looking for devices…")));
     const action = accountActions[plugin.accountAuthorization];
     let accountSetUp = false;
-    const find = el("button", { actionIcon: "search", text: t("Find again"), onclick: (event) => HomeswiftCommon.busyButton(event.currentTarget, load) });
+    const find = el("button", { actionIcon: "search", text: t("Find again"), onclick: () => load() });
     // Once the account is set up, doing it again is in the menu: the list is what the card is for then.
     const again = action ? menuButton(t("Actions for {name}", { name: block.name }),
       () => [{ label: action[accountSetUp ? 1 : 0](), icon: action[2], onSelect: () => open({ block, plugin, after: load }) }]) : null;
@@ -22514,7 +22517,20 @@ HomeswiftI18n.add("pt", {
       el("span", { class: "pill status away", text: statuses.needsAuthorization[0]() }),
       el("button", { class: "primary", actionIcon: action[2], text: action[0](), onclick: (event) => open({ block, plugin, trigger: event.currentTarget, after: load }) }));
 
+    // A search in progress, whatever started it (the page, Find again, a Setup just done): the button turns and the
+    // rows it may replace dim, as a device on the network can take seconds to answer.
+    let searches = 0;
+    const searching = (on) => {
+      searches += on ? 1 : -1;
+      const busy = searches > 0;
+      node.classList.toggle("is-searching", busy);
+      list.toggleAttribute("aria-busy", busy);
+      find.classList.toggle("busy", busy);
+      find.disabled = busy;
+    };
+
     async function load() {
+      searching(true);
       try {
         const found = await post("discover", { platform: block.platform, name: block.name });
         accountSetUp = found.accountSetUp;
@@ -22525,6 +22541,8 @@ HomeswiftI18n.add("pt", {
         list.replaceChildren(...rows);
       } catch (e) {
         list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));
+      } finally {
+        searching(false);
       }
     }
     return { node, load };
@@ -22573,7 +22591,7 @@ HomeswiftI18n.add("pt", {
     let until = 0;
     const stop = () => { clearTimeout(poll); clearInterval(ticker); };
     app().openSheet((dismiss) => {
-      const body = el("div", { class: "setup-step" }, el("p", { class: "setup-loading muted", text: t("Asking the plugin…") }));
+      const body = el("div", { class: "setup-step" }, loading(t("Asking the plugin…")));
       const form = el("form", { class: "account-form setup-sheet", novalidate: true },
         el("h2", { id: "setup-title", text: title }),
         el("p", { class: "muted setup-method", text: subtitle }),
@@ -26405,6 +26423,11 @@ select option:disabled { color: var(--muted); }
 .setup-account .who .muted { white-space: normal; }
 .setup-account { background: color-mix(in srgb, var(--accent) 7%, transparent); margin: 0 calc(-1 * var(--space-12)); padding-inline: var(--space-12); border-radius: var(--radius-md); }
 .setup-loading, .setup-none { margin: var(--space-12) 0 0; }
+.setup-loading { display: flex; align-items: center; gap: var(--space-10); }
+.setup-loading .spinner { width: 16px; height: 16px; flex: none; }
+/* Searching again: the rows a new list may replace dim, after a moment so a quick answer does not flash them. */
+.setup-device { transition: opacity var(--normal) var(--ease-out); }
+.setup-instance.is-searching .setup-device { opacity: 0.55; transition-delay: 150ms; }
 .setup-sheet .setup-method { margin-top: calc(-1 * var(--space-6)); }
 .setup-step { display: grid; gap: var(--space-12); }
 .setup-step > p { margin: 0; }
