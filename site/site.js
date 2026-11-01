@@ -174,10 +174,10 @@
   // Benchmarks, each row on its own scale: the longer bar fills the track.
   // The numbers come from Benchmarks/README.md; the labels are L.rows, in the same order.
   const rows = [
-    [8.6, 76.1, 'MB', 8.8, L.less],
-    [59, 399, 'ms', 6.8, L.faster],
-    [0.57, 12.5, 'ms', 22, L.faster],
-    [0.30, 252.39, 'ms', 834, L.faster],
+    [10.5, 78.7, 'MB', 7.5, L.less],
+    [11, 168, 'ms', 15.3, L.faster],
+    [0.49, 9.56, 'ms', 19.6, L.faster],
+    [52.6, 253.4, 'ms', 4.8, L.faster],
   ];
   const bench = $('bench');
   for (const [i, [us, them, unit, ratio, word]] of rows.entries()) {
