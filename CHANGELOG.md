@@ -14,6 +14,9 @@ All notable changes to this project are documented here. The format follows
   automations stay. The Home app follows Configured Name; a rename made there is kept in config.json the same way.
 - UniFi Access: `Hub.SideDoor.SeparateAccessory` puts a UA Gate's side door (its lock, position sensor and trigger) on
   an accessory of its own, with its own tile, rather than a second lock on the gate's.
+- UniFi Access: a UA Gate's side door (its lock, position sensor and trigger) and each door sensor get an accessory of
+  their own, with their own tile, by default (`Hub.SideDoor.SeparateAccessory`, `Hub.Sensors.SeparateAccessory`; the
+  Homebridge plugin groups them on the hub's, and disabling the options does too).
 - Setup, one way to get a device into the bridge whatever its plugin: the web UI's **Add accessories** page (`/setup`)
   lists what each plugin finds and where each device stands, adds plugins, and sets up accounts and devices in one
   sheet (a hub's link button, a TV's PIN, a sign-in with its one-time code, a sign-in page's redirect, developer keys;

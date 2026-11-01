@@ -180,6 +180,9 @@ import Testing
         #expect(gate["modelKey"] == ["UA Gate"])
         #expect(hub.first { $0["name"] == "Door.UseGarageOpener" }?["modelKey"] == ["UA Hub Door Mini", "UA Ultra", "UA Hub"])
         #expect(hub.first { $0["name"] == "Sensors.SeparateAccessory" }?["modelKey"] == ["UA Hub Door Mini", "UA Ultra", "UA Hub", "UA Hub Enterprise", "UA Gate"])
+        // Homeswift gives the sensors and a UA Gate's side door tiles of their own by default.
+        #expect(hub.first { $0["name"] == "Sensors.SeparateAccessory" }?["default"] == true)
+        #expect(hub.first { $0["name"] == "SideDoor.SeparateAccessory" }?["default"] == true)
         #expect(json["options"]?["AccessMethod"]?[3]?["hasCapability"] == ["mobile_unlock_ver2", "support_mobile_unlock"])
     }
 }

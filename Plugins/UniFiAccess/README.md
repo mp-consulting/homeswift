@@ -83,11 +83,11 @@ log lists every device with its MAC at startup.
 | `Hub.Doorbell` | on | A doorbell for ring events |
 | `Hub.Doorbell.Trigger` | off | A switch reflecting (not triggering) rings |
 | `Hub.Doorbell.SeparateAccessory` | off | The doorbell and its trigger on an accessory of their own |
-| `Hub.Sensors.SeparateAccessory` | off | Each door sensor on an accessory of its own |
+| `Hub.Sensors.SeparateAccessory` | on | Each door sensor on an accessory of its own |
 | `Hub.DPS`, `Hub.REL`, `Hub.REN`, `Hub.REX` | on | Contact sensors for the terminal inputs (when wired) |
 | `Hub.SideDoor`, `Hub.SideDoor.DPS` | on | UA Gate: the side door lock and its position sensor |
 | `Hub.SideDoor.Lock.Trigger` | off | UA Gate: a switch for the side door lock |
-| `Hub.SideDoor.SeparateAccessory` | off | UA Gate: the side door, its sensor and trigger on an accessory of its own |
+| `Hub.SideDoor.SeparateAccessory` | on | UA Gate: the side door, its sensor and trigger on an accessory of its own |
 | `AccessMethod.SeparateAccessory` | off | The access method switches on an accessory of their own |
 | `AccessMethod.Face`, `.Hand`, `.Mobile`, `.NFC`, `.PIN`, `.QR`, `.TouchPass` | on | A switch per access method the reader supports |
 | `Log.Doorbell`, `Log.DPS`, `Log.REL`, `Log.REN`, `Log.REX`, `Log.Lock` | on | Log these events |
