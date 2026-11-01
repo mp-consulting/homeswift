@@ -281,6 +281,8 @@
       /// The end: what reached the Home app, when the sheet knows.
       function finish(added = null) {
         stage(stages.length - 1);
+        // The Setup is over: Done (or Return) closes the sheet, and nothing is sent again.
+        form.onsubmit = (event) => { event.preventDefault(); dismiss(); };
         fill(
           el("div", { class: "setup-done" }, el("span", { class: "setup-check", "aria-hidden": "true" }, HomeswiftCommon.icon("check")),
             el("p", {}, el("strong", { text: device ? t("{name} is set up.", { name: title })
@@ -288,7 +290,7 @@
             el("p", { class: "muted", text: added?.length ? t("They reach the Home app in a moment.") : t("Its accessories reach the Home app in a moment.") })),
           added?.length ? el("ul", { class: "setup-added" }, ...added.map((found, index) =>
             el("li", { style: `--index: ${Math.min(index, 8)}` }, tile(HomeswiftWidgets.categoryIcon(found.category) ?? glyph, "blue"), el("span", { text: found.name })))) : null,
-          el("div", { class: "actions" }, el("button", { class: "primary", actionIcon: "check", text: t("Done"), onclick: () => dismiss() })));
+          el("div", { class: "actions" }, el("button", { class: "primary", type: "submit", actionIcon: "check", text: t("Done") })));
         body.querySelector(".actions button")?.focus();
       }
 

@@ -393,6 +393,7 @@ HomeswiftI18n.add("fr", {
   "(running)": "(en cours)",
   "(secret, kept)": "(secret, conservé)",
   "{0} blocks have platform {1}; give the name": "{0} blocs ont la plateforme {1} ; indiquez le nom",
+  "No Setup in progress with id {0}: it ended or expired, start it again": "Aucune configuration en cours avec l'identifiant {0} : elle est terminée ou a expiré, recommencez-la",
   "{0} cannot do that now": "{0} ne peut pas faire cela maintenant",
   "{0} did not answer: the device may be off or out of reach": "{0} n'a pas répondu : l'appareil est peut-être éteint ou hors de portée",
   "{0} did not start: {1}": "{0} n'a pas démarré : {1}",

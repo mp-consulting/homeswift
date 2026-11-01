@@ -120,7 +120,7 @@ extension HomeswiftCatalog {
     /// Answers the prompt of a Setup Session and runs its next step. A secret field takes a `vault:` reference from an
     /// MCP client, never the secret itself.
     public func continueSetup(_ id: String, answers: [String: JSONValue], by writer: ConfigWriter = .person) async throws -> JSONValue {
-        guard let session = setupSessions.session(id) else { throw CatalogError("No Setup in progress with id \(id): it ended or expired; start_setup starts it again") }
+        guard let session = setupSessions.session(id) else { throw CatalogError("No Setup in progress with id \(id): it ended or expired, start it again") }
         var texts: [String: String] = [:]
         for field in session.prompt.fields {
             guard let value = answers[field.key], let text = value.stringValue ?? (value.isNull ? nil : value.text()), !text.isEmpty else {

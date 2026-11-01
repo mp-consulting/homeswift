@@ -12669,6 +12669,7 @@ HomeswiftI18n.add("es", {
   "(running)": "(en curso)",
   "(secret, kept)": "(secreto, se mantiene)",
   "{0} blocks have platform {1}; give the name": "{0} bloques tienen la plataforma {1}; indica el nombre",
+  "No Setup in progress with id {0}: it ended or expired, start it again": "No hay ninguna configuración en curso con el id {0}: terminó o caducó, empiézala de nuevo",
   "{0} cannot do that now": "{0} no puede hacer eso ahora",
   "{0} did not answer: the device may be off or out of reach": "{0} no ha respondido: puede que el dispositivo esté apagado o fuera de alcance",
   "{0} did not start: {1}": "{0} no se ha iniciado: {1}",
@@ -15352,6 +15353,7 @@ HomeswiftI18n.add("fr", {
   "(running)": "(en cours)",
   "(secret, kept)": "(secret, conservé)",
   "{0} blocks have platform {1}; give the name": "{0} blocs ont la plateforme {1} ; indiquez le nom",
+  "No Setup in progress with id {0}: it ended or expired, start it again": "Aucune configuration en cours avec l'identifiant {0} : elle est terminée ou a expiré, recommencez-la",
   "{0} cannot do that now": "{0} ne peut pas faire cela maintenant",
   "{0} did not answer: the device may be off or out of reach": "{0} n'a pas répondu : l'appareil est peut-être éteint ou hors de portée",
   "{0} did not start: {1}": "{0} n'a pas démarré : {1}",
@@ -18035,6 +18037,7 @@ HomeswiftI18n.add("pt", {
   "(running)": "(em curso)",
   "(secret, kept)": "(secreto, mantido)",
   "{0} blocks have platform {1}; give the name": "{0} blocos têm a plataforma {1}; indique o nome",
+  "No Setup in progress with id {0}: it ended or expired, start it again": "Não há nenhuma configuração em curso com o id {0}: terminou ou expirou, comece-a de novo",
   "{0} cannot do that now": "{0} não pode fazer isso agora",
   "{0} did not answer: the device may be off or out of reach": "{0} não respondeu: o dispositivo pode estar desligado ou fora de alcance",
   "{0} did not start: {1}": "{0} não arrancou: {1}",
@@ -22843,6 +22846,8 @@ HomeswiftI18n.add("pt", {
       /// The end: what reached the Home app, when the sheet knows.
       function finish(added = null) {
         stage(stages.length - 1);
+        // The Setup is over: Done (or Return) closes the sheet, and nothing is sent again.
+        form.onsubmit = (event) => { event.preventDefault(); dismiss(); };
         fill(
           el("div", { class: "setup-done" }, el("span", { class: "setup-check", "aria-hidden": "true" }, HomeswiftCommon.icon("check")),
             el("p", {}, el("strong", { text: device ? t("{name} is set up.", { name: title })
@@ -22850,7 +22855,7 @@ HomeswiftI18n.add("pt", {
             el("p", { class: "muted", text: added?.length ? t("They reach the Home app in a moment.") : t("Its accessories reach the Home app in a moment.") })),
           added?.length ? el("ul", { class: "setup-added" }, ...added.map((found, index) =>
             el("li", { style: `--index: ${Math.min(index, 8)}` }, tile(HomeswiftWidgets.categoryIcon(found.category) ?? glyph, "blue"), el("span", { text: found.name })))) : null,
-          el("div", { class: "actions" }, el("button", { class: "primary", actionIcon: "check", text: t("Done"), onclick: () => dismiss() })));
+          el("div", { class: "actions" }, el("button", { class: "primary", type: "submit", actionIcon: "check", text: t("Done") })));
         body.querySelector(".actions button")?.focus();
       }
 
