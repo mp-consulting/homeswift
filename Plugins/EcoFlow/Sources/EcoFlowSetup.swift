@@ -38,7 +38,9 @@ extension EcoFlowPlugin {
         guard let accessKey = request.answer("accessKey"), let secretKey = request.answer("secretKey") else {
             return .ask(SetupPrompt(message: "Enter the keys of your EcoFlow developer account, from developer.ecoflow.com.", fields: [
                 SetupField("accessKey", label: "Access key", kind: .secret), SetupField("secretKey", label: "Secret key", kind: .secret),
-                SetupField("region", label: "Region (us or eu)", optional: true),
+                .choice("region", label: "Region", options: [
+                    SetupOption("eu", label: "Europe"), SetupOption("us", label: "United States"),
+                ], value: configuration.region, optional: true),
             ]))
         }
         let region = request.answer("region")?.lowercased() ?? configuration.region

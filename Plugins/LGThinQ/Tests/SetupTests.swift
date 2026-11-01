@@ -14,7 +14,7 @@ struct SetupTests {
         try #require(host.context(platform: LGThinQPlugin.platform, name: "LG ThinQ"))
     }
 
-    /// The region first when the block has none, then LG's page and the address it ended on; the token LG accepts goes in
+    /// How to sign in first (LG's page picked, the block naming no other), the region when the block has none, then LG's page and the address it ended on; the token LG accepts goes in
     /// the vault and the block's `refresh_token` goes.
     @Test func signsInThroughLGsPage() async throws {
         let environment = LGTestEnvironment()
@@ -22,12 +22,17 @@ struct SetupTests {
         defer { Task { await host.stop() } }
         let plugin = try #require(environment.plugin)
         #expect(await plugin.accountAuthorized() == false)
-        guard case .ask(let region, _) = try await plugin.authorize(SetupRequest(target: .account)) else { Issue.record("expected the region"); return }
-        #expect(region.fields.map(\.key) == ["country", "language"])
-        await #expect(throws: SetupError("The country has two letters, such as US or FR")) {
-            _ = try await plugin.authorize(SetupRequest(target: .account, answers: ["country": "France", "language": "fr-FR"]))
+        guard case .ask(let method, _) = try await plugin.authorize(SetupRequest(target: .account)) else { Issue.record("expected the method"); return }
+        #expect(method.fields.first?.kind == .choice && method.fields.first?.options.map(\.value) == ["token", "account"] && method.fields.first?.value == "token")
+        guard case .ask(let region, let chosen) = try await plugin.authorize(SetupRequest(target: .account, answers: ["auth_mode": "token"])) else {
+            Issue.record("expected the region"); return
         }
-        guard case .ask(let page, let state) = try await plugin.authorize(SetupRequest(target: .account, answers: ["country": "fr", "language": "fr-FR"])) else {
+        #expect(region.fields.map(\.key) == ["country", "language"])
+        #expect(chosen["auth_mode"] == "token")
+        await #expect(throws: SetupError("The country has two letters, such as US or FR")) {
+            _ = try await plugin.authorize(SetupRequest(target: .account, answers: ["country": "France", "language": "fr-FR"], state: chosen))
+        }
+        guard case .ask(let page, let state) = try await plugin.authorize(SetupRequest(target: .account, answers: ["country": "fr", "language": "fr-FR"], state: chosen)) else {
             Issue.record("expected LG's page"); return
         }
         #expect(page.fields.map(\.key) == ["callbackUrl"] && page.fields.first?.kind == .url && page.fields.first?.optional == false)
@@ -41,10 +46,10 @@ struct SetupTests {
             Issue.record("expected done"); return
         }
         #expect(outcome.credentials == ["refreshToken": "direct"])
-        #expect(outcome.settings == ["country": "FR", "language": "fr-FR", "refresh_token": .null])
+        #expect(outcome.settings == ["auth_mode": "token", "country": "FR", "language": "fr-FR", "refresh_token": .null])
     }
 
-    /// `auth_mode: account` signs in with the account's email and password.
+    /// `auth_mode: account` signs in with the account's email and password, and is picked when Setup asks how.
     @Test func signsInWithTheAccount() async throws {
         let environment = LGTestEnvironment()
         environment.lg.override("lgemembers.com") { request in
@@ -62,7 +67,11 @@ struct SetupTests {
         let host = try await environment.start(settings: ["auth_mode": "account", "country": "US", "language": "en-US"])
         defer { Task { await host.stop() } }
         let plugin = try #require(environment.plugin)
-        guard case .ask(let prompt, let state) = try await plugin.authorize(SetupRequest(target: .account)) else { Issue.record("expected the account"); return }
+        guard case .ask(let method, _) = try await plugin.authorize(SetupRequest(target: .account)) else { Issue.record("expected the method"); return }
+        #expect(method.fields.first?.value == "account")
+        guard case .ask(let prompt, let state) = try await plugin.authorize(SetupRequest(target: .account, answers: ["auth_mode": "account"])) else {
+            Issue.record("expected the account"); return
+        }
         #expect(prompt.fields.map(\.key) == ["username", "password"] && prompt.fields[1].kind == .secret)
         await #expect(throws: SetupError("Wrong password")) {
             _ = try await plugin.authorize(SetupRequest(target: .account, answers: ["username": "me@example.com", "password": "bad"], state: state))
@@ -71,7 +80,7 @@ struct SetupTests {
             Issue.record("expected done"); return
         }
         #expect(outcome.credentials == ["refreshToken": "the-refresh-token"])
-        #expect(outcome.settings == ["username": "me@example.com", "refresh_token": .null])
+        #expect(outcome.settings == ["auth_mode": "account", "username": "me@example.com", "refresh_token": .null])
     }
 
     /// The vault's refresh token is the one the plugin signs in with, over the block's.

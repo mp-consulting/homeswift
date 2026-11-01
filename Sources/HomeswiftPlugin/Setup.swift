@@ -82,6 +82,8 @@ public struct SetupField: Sendable, Codable, Equatable {
         case code
         /// The address a browser was sent to after signing in.
         case url
+        /// One of `options`, by its value: how to sign in, a region.
+        case choice
     }
 
     public var key: String
@@ -89,12 +91,36 @@ public struct SetupField: Sendable, Codable, Equatable {
     public var label: String
     public var kind: Kind
     public var optional: Bool
+    /// A choice's options.
+    public var options: [SetupOption]
+    /// The answer chosen or typed already, when there is one (the block's): a choice's option shown as picked.
+    public var value: String?
 
-    public init(_ key: String, label: String, kind: Kind = .text, optional: Bool = false) {
+    public init(_ key: String, label: String, kind: Kind = .text, optional: Bool = false, options: [SetupOption] = [], value: String? = nil) {
         self.key = key
         self.label = label
         self.kind = kind
         self.optional = optional
+        self.options = options
+        self.value = value
+    }
+
+    /// A choice between `options`, `value` picked to begin with.
+    public static func choice(_ key: String, label: String, options: [SetupOption], value: String? = nil, optional: Bool = false) -> SetupField {
+        SetupField(key, label: label, kind: .choice, optional: optional, options: options, value: value)
+    }
+}
+
+/// One option of a choice: its value, what it is called and, for people, what it means. In English, as prompts are.
+public struct SetupOption: Sendable, Codable, Equatable {
+    public var value: String
+    public var label: String
+    public var detail: String?
+
+    public init(_ value: String, label: String, detail: String? = nil) {
+        self.value = value
+        self.label = label
+        self.detail = detail
     }
 }
 
@@ -159,6 +185,20 @@ public enum SetupStep: Sendable {
     /// between steps: a reload of the plugin, or a new instance, takes the Setup on from there.
     case ask(SetupPrompt, state: JSONValue = .null)
     case done(SetupOutcome)
+
+    /// The step with a choice made at the start kept: in the state of the steps that follow, and in the settings once
+    /// done (how to sign in, chosen first, is the block's from then on).
+    public func keeping(_ key: String, _ value: JSONValue) -> SetupStep {
+        switch self {
+        case .ask(let prompt, let state):
+            var kept = state.objectValue ?? [:]
+            kept[key] = value
+            return .ask(prompt, state: .object(kept))
+        case .done(var outcome):
+            outcome.settings[key] = value
+            return .done(outcome)
+        }
+    }
 }
 
 /// A step of Setup the bridge hands a plugin.
@@ -188,6 +228,12 @@ public struct SetupRequest: Sendable {
     public func answer(_ key: String) -> String? {
         guard let text = answers[key]?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
         return text
+    }
+
+    /// A choice made at the start, kept by `SetupStep.keeping`, or this step's answer to it; one of `values` only.
+    public func choice(_ key: String, among values: [String]) -> String? {
+        guard let chosen = state[key]?.stringValue ?? answer(key), values.contains(chosen) else { return nil }
+        return chosen
     }
 
     /// A secret answer (a password, a key) as typed: never trimmed, only nil when missing or empty.

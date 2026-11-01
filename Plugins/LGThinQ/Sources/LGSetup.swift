@@ -53,10 +53,24 @@ extension LGThinQPlugin {
         }
     }
 
-    /// The region when the block has none, then LG's page (or the account's email and password); the refresh token
+    /// How to sign in, then the region when the block has none, then LG's page (or the account's email and password); the refresh token
     /// goes in the vault once LG lists the account's appliances with it.
     public func authorize(_ request: SetupRequest) async throws -> SetupStep {
         try request.requireAccount("LG appliances come with the account: they need no setup of their own")
+        // How to sign in, asked first, the block's picked: it becomes the block's `auth_mode`.
+        guard let mode = request.choice("auth_mode", among: ["token", "account"]) else {
+            return .ask(SetupPrompt(message: "Choose how Homeswift signs in to LG ThinQ.", fields: [
+                .choice("auth_mode", label: "Sign in with", options: [
+                    SetupOption("token", label: "LG's sign-in page", detail: "Takes an LG, Google, Apple, Facebook or Amazon account, in your browser."),
+                    SetupOption("account", label: "Email and password", detail: "An LG account with a password of its own, typed here."),
+                ], value: configuration.auth_mode == "account" ? "account" : "token"),
+            ]))
+        }
+        let next = SetupRequest(target: request.target, answers: request.answers.filter { $0.key != "auth_mode" }, state: request.state)
+        return try await authorize(next, mode: mode).keeping("auth_mode", .string(mode))
+    }
+
+    private func authorize(_ request: SetupRequest, mode: String) async throws -> SetupStep {
         var region: [String: JSONValue] = request.state["region"]?.objectValue ?? [:]
         if region.isEmpty, let country = request.answer("country"), let language = request.answer("language") {
             guard country.count == 2, country.allSatisfy({ $0.isASCII && $0.isLetter }) else { throw SetupError("The country has two letters, such as US or FR") }
@@ -74,7 +88,7 @@ extension LGThinQPlugin {
         }
         let token: String
         var settings = region
-        if configuration.auth_mode == "account" {
+        if mode == "account" {
             guard let username = request.answer("username"), let password = request.secret("password") else {
                 return .ask(SetupPrompt(message: "Sign in with your LG account.", fields: [
                     SetupField("username", label: "Email"), SetupField("password", label: "Password", kind: .secret),

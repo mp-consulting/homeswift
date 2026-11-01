@@ -23,7 +23,21 @@ extension DaikinCloudPlugin {
 
     public func authorize(_ request: SetupRequest) async throws -> SetupStep {
         try request.requireAccount("Daikin devices come with the account: they need no setup of their own")
-        return settings.authMode == .mobileApp ? try await authorizeMobile(request) : try await authorizeDeveloperPortal(request)
+        // How to sign in, asked first, the block's picked: it becomes the block's `authMode`.
+        guard let chosen = request.choice("authMode", among: AuthMode.allCases.map(\.rawValue)), let mode = AuthMode(rawValue: chosen) else {
+            return .ask(SetupPrompt(message: "Choose how Homeswift signs in to Daikin.", fields: [
+                .choice("authMode", label: "Sign in with", options: [
+                    SetupOption(AuthMode.developerPortal.rawValue, label: "Daikin Developer Portal",
+                                detail: "An app you make on Daikin's portal, then Daikin's sign-in page: 200 requests a day."),
+                    SetupOption(AuthMode.mobileApp.rawValue, label: "Onecta app account",
+                                detail: "The email and password of the Onecta app: 3000 requests a day and live updates."),
+                ], value: settings.authMode.rawValue),
+            ]))
+        }
+        // The answer that chose is not one the next step reads.
+        let next = SetupRequest(target: request.target, answers: request.answers.filter { $0.key != "authMode" }, state: request.state)
+        let step = mode == .mobileApp ? try await authorizeMobile(next) : try await authorizeDeveloperPortal(next)
+        return step.keeping("authMode", .string(mode.rawValue))
     }
 
     private func authorizeMobile(_ request: SetupRequest) async throws -> SetupStep {
