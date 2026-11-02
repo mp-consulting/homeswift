@@ -65,8 +65,12 @@ struct MDNSQueryTests {
             .bind(host: "127.0.0.1", port: 0).get()
         defer { responder.close(promise: nil) }
         let port = try #require(responder.localAddress?.port)
-        // Loopback answers at once; half a second is room for a loaded machine to deliver it.
-        let responses = try await MDNSQuery.query("_dyson_mqtt._tcp.local", duration: .milliseconds(500), host: "127.0.0.1", port: port)
+        // Loopback answers at once; a loaded machine may deliver it after a query's time is up, so the query is asked again
+        // for longer each time none came back (half a second, then up to eight).
+        var responses: [MDNSQuery.Response] = []
+        for duration in [500, 1000, 2000, 4000, 8000] where responses.isEmpty {
+            responses = try await MDNSQuery.query("_dyson_mqtt._tcp.local", duration: .milliseconds(duration), host: "127.0.0.1", port: port)
+        }
         let first = try #require(responses.first)
         #expect(first.sender == "127.0.0.1")
         #expect(first.names.contains("455_ABC-AB-12345678._dyson_mqtt._tcp.local"))

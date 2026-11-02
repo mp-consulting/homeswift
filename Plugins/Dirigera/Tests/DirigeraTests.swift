@@ -39,7 +39,7 @@ final class FakeHub: HTTPSending, @unchecked Sendable {
         var body: String
     }
 
-    private let state = NIOLockedValueBox<(button: Bool, challenge: String?, sent: [Sent], refuse: Bool)>((false, nil, [], false))
+    private let state = NIOLockedValueBox<(button: Bool, challenge: String?, sent: [Sent], refuse: Bool, devices: JSONValue)>((false, nil, [], false, FakeHub.devices))
     let events = AsyncThrowingStream<JSONValue, any Error>.makeStream()
     static let token = "hub-token-1"
 
@@ -74,11 +74,32 @@ final class FakeHub: HTTPSending, @unchecked Sendable {
             guard request.header("Authorization") == "Bearer \(Self.token)", !snapshot.refuse else { return json(["error": "unauthorized"], status: 401) }
         }
         switch (request.method, path) {
-        case ("GET", "/v1/devices"): return json(Self.devices)
+        case ("GET", "/v1/devices"): return json(snapshot.devices)
+        case ("PATCH", let path) where path.hasPrefix("/v1/devices/"):
+            // As the hub does, a write is what it then reports: a read after it, a refresh after a reconnection, sees it.
+            apply(body, to: String(path.dropFirst("/v1/devices/".count)))
+            return json([:], status: 202)
         case ("GET", "/v1/scenes"): return json(Self.scenes)
         case ("GET", "/v1/rooms"): return json(Self.rooms)
         case ("POST", "/v1/scenes"): return json(["id": "scene-new"], status: 201)
         default: return json([:], status: 202)
+        }
+    }
+
+    /// A PATCH's attributes on the device it names; a white sets the colour mode to temperature, a hue to colour.
+    private func apply(_ body: String, to id: String) {
+        guard let writes = (try? JSONValue(data: Data(body.utf8)))?.arrayValue else { return }
+        state.withLockedValue { state in
+            guard var list = state.devices.arrayValue, let index = list.firstIndex(where: { $0["id"]?.stringValue == id }),
+                  var device = list[index].objectValue, var attributes = device["attributes"]?.objectValue else { return }
+            for write in writes {
+                for (key, value) in write["attributes"]?.objectValue ?? [:] { attributes[key] = value }
+                if write["attributes"]?["colorTemperature"] != nil { attributes["colorMode"] = "temperature" }
+                if write["attributes"]?["colorHue"] != nil { attributes["colorMode"] = "color" }
+            }
+            device["attributes"] = .object(attributes)
+            list[index] = .object(device)
+            state.devices = .array(list)
         }
     }
 

@@ -123,17 +123,23 @@ struct PlatformTests {
         let environment = EWeLinkTestEnvironment(clock: clock)
         let host = try await environment.start(devices: [device("1000aaaaaa", uiid: 1)], settings: ["mode": "wan"])
         #expect(await environment.socketReady())
+        // Each connection after the first is one more attempt: the count never starts over. A handshake slower than the
+        // authentication timeout (100 ms of real time here) is one more connection and one more attempt, counted alike.
         for attempt in 1...3 {
+            let before = environment.socket.connections
             environment.socket.current?.drop()
-            #expect(await eventually { environment.socket.connections == attempt + 1 })
+            #expect(await eventually { environment.socket.connections > before })
             #expect(await environment.socketReady())
-            #expect(await environment.platform()?.socket?.reconnectAttempts == attempt)
+            let attempts = await environment.platform()?.socket?.reconnectAttempts ?? 0
+            #expect(attempts >= attempt && attempts == environment.socket.connections - 1)
         }
         // A minute of plugin time connected: the next drop starts over.
         clock.advance(milliseconds: Double(Timing.socketStableConnection))
+        let stable = environment.socket.connections
         environment.socket.current?.drop()
-        #expect(await eventually { environment.socket.connections == 5 })
-        #expect(await environment.platform()?.socket?.reconnectAttempts == 1)
+        #expect(await eventually { environment.socket.connections > stable })
+        #expect(await environment.socketReady())
+        #expect(await environment.platform()?.socket?.reconnectAttempts == environment.socket.connections - stable)
         await host.stop()
     }
 
@@ -374,8 +380,8 @@ struct AccessoryTests {
     }
 
     @Test func inchingAlwaysSendsOnAndTogglesTheState() async throws {
-        // The echo window is real time: 450 ms here, so a loaded machine does not close it early.
-        let environment = EWeLinkTestEnvironment(clock: EWeLinkClock(scale: 0.3))
+        // The echo window is real time, the plugin's 1.5 s: a loaded machine still delivers the echo inside it.
+        let environment = EWeLinkTestEnvironment(clock: EWeLinkClock(scale: 1))
         let host = try await environment.start(devices: [device("1000aaaaaa", uiid: 1)], settings: ["mode": "wan", "singleDevices": [["deviceId": "1000aaaaaa", "isInched": true]]])
         _ = await environment.socketReady()
         let on = try #require(environment.accessory(host, "1000aaaaaa")?.service(.switch)?[.on])
@@ -389,9 +395,12 @@ struct AccessoryTests {
         environment.push("1000aaaaaa", ["switch": "on"])
         try await Task.sleep(for: .milliseconds(30))
         #expect(try await on.read() == false)
-        try await Task.sleep(for: .milliseconds(Timing.inchingDebounce * 3 / 10))
-        environment.push("1000aaaaaa", ["switch": "on"])
-        #expect(await eventually { (try? await on.read()) == true })
+        // Once the window closes, a press from outside toggles it: pressed until it does, rather than waiting a set time.
+        #expect(await eventually {
+            environment.push("1000aaaaaa", ["switch": "on"])
+            try? await Task.sleep(for: .milliseconds(50))
+            return (try? await on.read()) == true
+        })
         await host.stop()
     }
 

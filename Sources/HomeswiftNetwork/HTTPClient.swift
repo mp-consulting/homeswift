@@ -274,6 +274,9 @@ public final class HTTPClient: HTTPSending, Sendable {
             }
         do {
             return try await bootstrap.connect(host: host, port: port).get()
+        } catch ChannelError.connectTimeout {
+            // The request's time ran out while connecting (a busy host, a server that never accepts): it timed out.
+            throw HTTPClientError.timeout
         } catch {
             let (code, reason) = connectionFailure(error)
             throw HTTPClientError.cannotConnect(host: host, port: port, code: code, reason: reason)

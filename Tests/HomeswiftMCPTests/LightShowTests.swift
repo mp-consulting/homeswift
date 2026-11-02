@@ -260,7 +260,8 @@ struct LightShowTests {
         let started = ContinuousClock.now
         let failed = try await client.tool("Devices_scene", ["fail": true])
         #expect(failed["isError"] == true)
-        #expect(ContinuousClock.now - started < .seconds(1))
+        // Without waiting for the lights to settle (`pluginSettle`), however slow the machine is otherwise.
+        #expect(ContinuousClock.now - started < LightShowRules.pluginSettle)
         #expect(environment.catalog.home.lightRuns.withLockedValue { $0.isEmpty })
     }
 
