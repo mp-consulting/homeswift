@@ -2,66 +2,27 @@ import Foundation
 import Homeswift
 import HomeswiftPlugin
 
-/// The plugin page's requests: the Homebridge plugin's settings UI server (`homebridge-ui/server.js`),
-/// route for route, answered by the running instance.
+/// The plugin page's requests, after the Homebridge plugin's settings UI server (`homebridge-ui/server.js`), answered by
+/// the running instance. Signing in is Setup's (DaikinSetup.swift), which drives the logins below; the page leads there.
 ///
 /// | Route | What it does |
 /// |---|---|
 /// | `GET auth/status` | The token of either login: authenticated, expiry, refreshable |
-/// | `POST auth/start` | Starts the Developer Portal login and its HTTPS callback server |
-/// | `POST auth/callback` | Completes it from a pasted callback URL (code and state) |
-/// | `GET auth/poll` | The result the callback server caught |
-/// | `POST auth/stop-server` | Cancels the login and stops the callback server |
-/// | `POST auth/mobile-test` | Logs in with Onecta credentials and keeps the token |
 /// | `POST auth/revoke` | Revokes and deletes the tokens |
 /// | `POST auth/test` | Lists the devices with the saved token |
-/// | `POST config/validate` | The Developer Portal fields, checked as the plugin checks them |
 /// | `GET devices/list?mode=&refresh=` | The devices, reused for five minutes (or the instance's own) |
 /// | `GET rate-limit` | The quota the plugin recorded on its last call (no API call) |
-/// | `GET server/info` | This machine's addresses, to suggest the callback address |
 extension DaikinCloudPlugin {
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
         let body = request.body.objectValue ?? [:]
         switch (request.method, request.path) {
         case ("GET", "auth/status"): return PluginWebResponse(await authStatus())
-        case ("POST", "auth/start"):
-            do {
-                return PluginWebResponse(try await startAuthorization(body))
-            } catch {
-                return .error(400, message(of: error))
-            }
-        case ("POST", "auth/callback"):
-            do {
-                return PluginWebResponse(try await completeAuthorization(body))
-            } catch {
-                return .error(400, message(of: error))
-            }
-        case ("GET", "auth/poll"): return PluginWebResponse(await pollAuthorization())
-        case ("POST", "auth/stop-server"):
-            pendingAuth = nil
-            authAttempt += 1
-            authResult = nil
-            await callbackServer.stop()
-            return PluginWebResponse(["success": true])
-        case ("POST", "auth/mobile-test"): return PluginWebResponse(await testMobileLogin(body))
         case ("POST", "auth/revoke"): return PluginWebResponse(await revoke(body))
         case ("POST", "auth/test"): return PluginWebResponse(await testConnection())
-        case ("POST", "config/validate"):
-            var raw: [String: JSONValue] = ["platform": .string(Self.platform), "authMode": .string(AuthMode.developerPortal.rawValue)]
-            for key in ["clientId", "clientSecret", "callbackServerExternalAddress", "callbackServerPort"] { raw[key] = body[key] }
-            let validation = DaikinSettings.validate(raw)
-            return PluginWebResponse([
-                "valid": .bool(validation.valid), "errors": .array(validation.errors.map(JSONValue.string)), "warnings": .array(validation.warnings.map(JSONValue.string)),
-            ])
         case ("GET", "devices/list"):
             let mode = request.query["mode"].flatMap(AuthMode.init(rawValue:))
             return PluginWebResponse(await listDevices(mode: mode, refresh: request.query["refresh"] == "1" || request.query["refresh"] == "true"))
         case ("GET", "rate-limit"): return PluginWebResponse(await rateLimit())
-        case ("GET", "server/info"):
-            let addresses = dependencies.addresses()
-            return PluginWebResponse([
-                "ipAddresses": .array(addresses.map(JSONValue.string)), "primaryIp": addresses.first.map(JSONValue.string) ?? .null, "hostname": .string(NetworkInfo.hostName),
-            ])
         default:
             return .error(404, "nothing at \(request.method) \(request.path)")
         }
@@ -112,7 +73,7 @@ extension DaikinCloudPlugin {
         return .object(result)
     }
 
-    // MARK: The Developer Portal login
+    // MARK: The Developer Portal login (Setup's)
 
     func startAuthorization(_ body: [String: JSONValue]) async throws -> JSONValue {
         guard let clientID = DaikinSettings.nonEmpty(body["clientId"]), let clientSecret = DaikinSettings.nonEmpty(body["clientSecret"]) else {
@@ -240,7 +201,7 @@ extension DaikinCloudPlugin {
         if attempt == authAttempt, pendingAuth == nil { pendingAuth = pending }
     }
 
-    /// The callback URL pasted on the page, when the redirect could not reach this host.
+    /// The callback URL pasted in Setup, when the redirect could not reach this host.
     func completeAuthorization(_ body: [String: JSONValue]) async throws -> JSONValue {
         var code = body["code"]?.stringValue
         var state = body["state"]?.stringValue
@@ -292,7 +253,7 @@ extension DaikinCloudPlugin {
         return ["pending": true]
     }
 
-    // MARK: The Mobile App login
+    // MARK: The Mobile App login (Setup's)
 
     func testMobileLogin(_ body: [String: JSONValue]) async -> JSONValue {
         guard let email = DaikinSettings.nonEmpty(body["email"]), let password = DaikinSettings.nonEmpty(body["password"]) else {
