@@ -1876,9 +1876,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// `problems`: what a save changed that its plugin's schema refuses, each with its path (`ConfigSchemaError`).
   class ApiError extends Error { constructor(status, message, problems) { super(message); this.status = status; this.problems = problems; } }
 
-  async function api(path, { method = "GET", body, raw = false } = {}) {
+  async function api(path, { method = "GET", body, raw = false, signal } = {}) {
     // The Assistant answers in the page's language.
-    const options = { method, credentials: "same-origin", headers: { "Accept-Language": HomeswiftI18n.locale } };
+    const options = { method, credentials: "same-origin", headers: { "Accept-Language": HomeswiftI18n.locale }, signal };
     if (body !== undefined) { options.headers["Content-Type"] = "application/json"; options.body = typeof body === "string" ? body : JSON.stringify(body); }
     const response = await fetch(path, options);
     if (response.status === 401 && !path.startsWith("/api/auth/")) { showAuth(); throw new ApiError(401, "signed out"); }
@@ -1892,6 +1892,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       throw new ApiError(response.status, HomeswiftI18n.message(message || `HTTP ${response.status}`), problems);
     }
     return raw ? text : (text ? JSON.parse(text) : null);
+  }
+
+  /// For a view that loads again before its last load answered (a range chosen while another loads): each call aborts
+  /// the request before it and answers the new one's signal, so only the latest draws.
+  function latestLoad() {
+    let controller = null;
+    return () => { controller?.abort(); controller = new AbortController(); return controller.signal; };
   }
 
   // ---- Authentication ------------------------------------------------------
@@ -2252,7 +2259,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   async function finishRestart() {
     if (restartOverlay?.isConnected && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
       restartOverlay.classList.add("restart-leaving");
-      await new Promise((resolve) => setTimeout(resolve, 220));
+      await new Promise((resolve) => setTimeout(resolve, 120));
     }
     closeRestartOverlay();
     restartPolling = false;
@@ -2358,6 +2365,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // /config, /logs[/<accessory>]?since=…&level=…&q=…, /account. Pages below a section keep it lit in the header.
   const views = {};
   let leaveGuard = null;   // a page with unsaved changes: false keeps it
+  /// What the view shown does when the tab is shown again, given how long it was hidden (ms); set by the view as it
+  /// starts (`onReturn`), cleared by each new view. Without one, nothing.
+  let returnHook = null;
+  const onReturn = (hook) => { returnHook = hook; };
   /// The place a #hash names on the view drawn (/status#matter-<device>): opened when it unfolds, and brought into view.
   const reveal = (hash) => {
     let id = "";
@@ -2409,6 +2420,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const main = el("main", { id: "view" }, el("div", { class: "view-loading" }, spinner()));
     $("#view").replaceWith(main);
     leaveGuard = null;
+    returnHook = null;
     shownPath = location.pathname + location.search;
     return view(main, args).catch((e) => { if (e.status !== 401) main.replaceChildren(el("p", { class: "error", text: e.message })); });
   }
@@ -2598,6 +2610,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // /status?since=24h&bridge=<bridge>&accessory=<accessory>: the activity charts' range and whose durations they show,
   // as on the Logs page.
   views.status = async (main) => {
+    // Its values were frozen while the tab was hidden.
+    onReturn(() => route());
     const [status, accessories, firstMatter] = await Promise.all([
       api("/api/status"),
       api("/api/accessories").then((list) => withSlugs(list, "accessory")).catch(() => []),
@@ -3246,7 +3260,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const path = `${location.pathname}${query.size ? `?${query}` : ""}`;
       if (path !== location.pathname + location.search) history.replaceState(null, "", path);
     }
+    const nextLoad = latestLoad();
     async function load() {
+      const signal = nextLoad();
       clearTimeout(refresh);
       keepAddress();
       const [from, end] = range.span() ?? [new Date(Date.now() - 3600000), null];
@@ -3257,14 +3273,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       section.classList.add("loading");
       let history;
       try {
-        history = await api(`/api/metrics?${query}`);
+        history = await api(`/api/metrics?${query}`, { signal });
       } catch (e) {
+        if (signal.aborted) return;
         // A homeswift that records nothing (a library, a test) has no charts.
         if (e.status === 404) { section.remove(); return; }
         for (const chart of charts) chart.detail.textContent = e.message;
         section.classList.remove("loading");
         return;
       }
+      if (signal.aborted) return;
       section.classList.remove("loading");
       const points = history.points.map((point) => ({ ...point, time: new Date(point.time).getTime() }));
       shown = { points, latest: history.latest };
@@ -3412,7 +3430,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       chart.key = key;
       chart.view = HomeswiftChart.lineChart(chart.body, { title: chart.title, series, format, unit: (max) => max >= 1000 ? 1000 : 1, points, from, to, step, latest });
     }
+    const nextLoad = latestLoad();
     async function load() {
+      const signal = nextLoad();
       clearTimeout(refresh);
       keepAddress();
       const [from, end] = range.span() ?? [new Date(Date.now() - 86400000), null];
@@ -3420,13 +3440,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       section.classList.add("loading");
       let report;
       try {
-        report = await api(`/api/metrics/energy?${new URLSearchParams({ from: from.toISOString(), to: to.toISOString(), timeZone })}`);
+        report = await api(`/api/metrics/energy?${new URLSearchParams({ from: from.toISOString(), to: to.toISOString(), timeZone })}`, { signal });
       } catch (e) {
+        if (signal.aborted) return;
         if (e.status === 404) { section.remove(); return; }
         power.detail.textContent = e.message;
         section.classList.remove("loading");
         return;
       }
+      if (signal.aborted) return;
       section.classList.remove("loading");
       // No plugin records energy: the section stays hidden, and looks again with the next refresh.
       section.hidden = !report.roles.length;
@@ -3785,6 +3807,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   views.accessories = async (main, args = []) => {
     if (args[0] === "graph") return HomeswiftAdmin.graph(main, accessoryTabs("graph"));
+    // Again, unless the wall is being arranged.
+    onReturn(() => { if (!document.querySelector(".wall.editing")) route(); });
     const [list, saved, home] = await Promise.all([api("/api/accessories"), api("/api/layout").catch(() => null), api("/api/rooms").catch(() => ({ rooms: [] })),
       isAdmin() ? loadMatterOwn() : null]);
     const all = withSlugs(list, "accessory");
@@ -5906,9 +5930,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const submit = el("button", { class: "primary", type: "submit", actionIcon: user ? "check" : "plus", text: user ? t("Save") : t("Add user") });
       const form = el("form", { class: "account-form", onsubmit: async (event) => {
         event.preventDefault();
-        if (password.value && !(await gauge.acceptable())) { message.className = "status-line error"; message.textContent = t("The password is not strong enough yet: the gauge says what is missing."); return; }
-        submit.disabled = true;
-        try {
+        // Busy from before the strength check, which asks the bridge: a second Enter meanwhile adds no second user.
+        const refuse = (text) => { message.className = "status-line error"; message.textContent = text; };
+        await HomeswiftCommon.busyButton(submit, async () => {
+          if (password.value && !(await gauge.acceptable())) { refuse(t("The password is not strong enough yet: the gauge says what is missing.")); return; }
           if (user) {
             const body = { name: name.value, admin: admin.checked };
             if (password.value) body.password = password.value;
@@ -5917,7 +5942,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             await api("/api/users", { method: "POST", body: { username: username.value, name: name.value, password: password.value, admin: admin.checked } });
           }
           done(`user:${(user?.username ?? username.value).trim().toLowerCase()}`);
-        } catch (e) { message.className = "status-line error"; message.textContent = e.message; submit.disabled = false; }
+        }, { report: (e) => refuse(e.message) });
       } },
         el("h2", { id: "user-form-title", text: user ? t("Edit {name}", { name: user.name }) : t("Add a user") }),
         user ? null : field(t("Username"), username, t("What they sign in with: no spaces or colons.")),
@@ -6115,8 +6140,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           el("span", { class: "wallpaper-swatch", style: `background: url("/api/preferences/wallpaper/${encodeURIComponent(id)}") center / cover no-repeat` }), el("span", { text: name }));
         const remove = own.length > 1 ? t("Remove your image {n}", { n: index + 1 }) : t("Remove your image");
         return el("div", { class: "wallpaper-own" }, choice,
-          el("button", { type: "button", class: "wallpaper-remove", "aria-label": remove, title: remove, onclick: async () => {
-            try { preferences = HomeswiftCommon.applyPreferences(await api(`/api/preferences/wallpaper/${encodeURIComponent(id)}`, { method: "DELETE" })); draw(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
+          el("button", { type: "button", class: "wallpaper-remove", "aria-label": remove, title: remove, onclick: async (event) => {
+            const button = event.currentTarget;
+            if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete this image from the bridge?"), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
+            await HomeswiftCommon.busyButton(button, async () => {
+              preferences = HomeswiftCommon.applyPreferences(await api(`/api/preferences/wallpaper/${encodeURIComponent(id)}`, { method: "DELETE" }));
+              draw();
+            });
           } }, HomeswiftCommon.icon("close")));
       };
       body.replaceChildren(
@@ -6309,6 +6339,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // the range (latest, 1h, 6h, 24h, today, yesterday, 7d, or custom with from= and to=), the lowest level and the
   // text. The address follows what is chosen, so it can be kept or shared.
   views.logs = async (main, [wanted] = []) => {
+    // The live log missed what came while hidden: it reads its range again, unless it was away only a moment.
+    onReturn((away) => {
+      if ((logState?.live || logState?.failed) && document.body.contains(logState.output) && away > 10000) logState.reload?.();
+    });
     const [accessories, bridges, plugins] = await Promise.all([
       api("/api/accessories").then((list) => withSlugs(list, "accessory")).catch(() => []),
       api("/api/status").then((status) => withSlugs(status.bridges, "bridge")).catch(() => []),
@@ -6371,6 +6405,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
     };
     logState.updateCounts = updateLevelCounts;
+    logState.reload = load;
     const render = () => {
       updateLevelCounts();
       const shown = shownLines();
@@ -6403,7 +6438,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const path = `/logs${accessory ? `/${accessory.slug}` : ""}${query.size ? `?${query}` : ""}`;
       if (path !== location.pathname + location.search) history.replaceState(null, "", path);
     }
+    const nextLoad = latestLoad();
     async function load() {
+      const signal = nextLoad();
       keepAddress();
       const chosen = range.span();
       const query = new URLSearchParams();
@@ -6414,12 +6451,23 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       // The range loading: a spinner where its lines will be.
       count.textContent = "";
       output.replaceChildren(el("div", { class: "log-loading" }, spinner()));
+      let lines;
       try {
-        logState.lines = (await api(`/api/logs${query.size ? `?${query}` : ""}`)).map(prepared);
+        lines = (await api(`/api/logs${query.size ? `?${query}` : ""}`, { signal })).map(prepared);
       } catch (e) {
+        if (signal.aborted) return;
+        // Not left spinning: live lines wait while it does.
         count.textContent = e.message;
+        output.replaceChildren(el("p", { class: "muted empty-log", text: e.message }));
+        logState.lines = [];
+        // No live lines over the error; back in view, it tries again.
+        logState.live = false;
+        logState.failed = true;
         return;
       }
+      if (signal.aborted) return;
+      logState.failed = false;
+      logState.lines = lines;
       logState.live = !chosen?.[1];
       logState.cap = chosen ? rangeLines : latestLines;
       logState.capped = Boolean(chosen) && logState.lines.length >= rangeLines;
@@ -6573,7 +6621,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("span", { class: "label", text: line.label, title: line.label }),
       text);
     if (!line.details) return node;
-    const toggle = el("button", { type: "button", class: "log-details-toggle", text: "JSON", title: t("Show the payload") });
+    const toggle = el("button", { type: "button", class: "log-details-toggle", actionIcon: "code", text: "JSON", title: t("Show the payload") });
     const show = () => {
       toggle.setAttribute("aria-expanded", String(Boolean(line.open)));
       toggle.title = line.open ? t("Hide the payload") : t("Show the payload");
@@ -6611,12 +6659,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
 
   // A hidden tab keeps no stream open; back in view, the live pages reload their values.
+  let hiddenAt = 0;
   document.addEventListener("visibilitychange", () => {
     if (!(auth && auth.authenticated)) return;
-    if (document.hidden) { closeEvents(); return; }
+    if (document.hidden) { hiddenAt = Date.now(); closeEvents(); return; }
     openEvents();
-    if (location.pathname === "/accessories" && document.querySelector(".wall.editing")) return;
-    if (["/", "/status", "/accessories", "/quick"].includes(location.pathname)) route();
+    // An open dialog (an accessory's sheet, the group editor) keeps what the person was doing in it.
+    if (document.querySelector("dialog[open]")) return;
+    returnHook?.(Date.now() - hiddenAt);
   });
 
   // The views of home.js: rooms, Quick Controls, scenes, notifications.
@@ -6627,11 +6677,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   views.setup = (main) => window.HomeswiftSetup.view(main);
   views.welcome = (main) => window.HomeswiftImport.welcome(main);
   window.HomeswiftHome?.install({
-    views, api, show, pageHead, breadcrumb, accessoryCard, navigate, route: () => route(), isAdmin,
+    views, api, show, pageHead, breadcrumb, accessoryCard, navigate, route: () => route(), isAdmin, onReturn,
     enumLabels: HomeswiftWidgets.enumLabels, labelFor: HomeswiftWidgets.labelFor, withSlugs,
   });
   // The Settings pages (admin.js) draw with the same helpers.
-  window.HomeswiftApp = { api, navigate, route, finder, uniqueName, pageHead, breadcrumb, show, openSheet, savedText, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, assistantPage, configPage };
+  window.HomeswiftApp = { api, navigate, route, finder, uniqueName, pageHead, breadcrumb, show, openSheet, savedText, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, onReturn, assistantPage, configPage };
 
   loadAuth().catch((e) => { $("#auth").classList.remove("hidden"); $("#auth-error").textContent = e.message; });
 })();
@@ -6810,6 +6860,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     <img src="icon.svg" class="logo large" alt="">
     <h1 id="title" data-i18n>Connect to Homeswift</h1>
     <p id="lead" class="muted" data-i18n>Checking the request…</p>
+    <p id="leave" class="actions hidden"><a class="button" id="leave-link" rel="noreferrer"></a></p>
     <form id="login" class="hidden">
       <label data-i18n>Username <input name="username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required></label>
       <label data-i18n>Password <input name="password" type="password" autocomplete="current-password" required></label>
@@ -6866,6 +6917,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
   const stop = (message) => { $("#title").textContent = t("Cannot connect"); show(null, message); };
 
+  /// A request the bridge cannot answer goes back to the app only when the person clicks: anyone may register an app
+  /// and the address it returns to, so going there on its own would send them to any site under the bridge's name.
+  function refuse(request) {
+    stop(t("The app asked for something Homeswift cannot give ({reason}). Nothing was shared.", { reason: request.reason || request.error }));
+    const link = $("#leave-link");
+    link.href = request.redirect;
+    link.textContent = t("Return to {destination}", { destination: request.destination });
+    $("#leave").classList.remove("hidden");
+  }
+
   const scopes = {
     read: [t("Read"), t("See your accessories, rooms, scenes and the bridge's state. Changes nothing.")],
     control: [t("Control"), t("Also turn accessories on and off and run scenes. Locks, garage doors and alarms still ask you first.")],
@@ -6883,7 +6944,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     }
     let request;
     try { request = await api(`api/oauth/request?${new URLSearchParams(query)}`); } catch (e) { stop(e.message); return; }
-    if (request.redirect) { location.replace(request.redirect); return; }
+    if (request.redirect) { refuse(request); return; }
     $("#title").textContent = t("Connect {client}", { client: request.client });
     show("consent", state.mode === "form"
       ? t("{client} asks to use your bridge as {username}.", { client: request.client, username: request.username })
@@ -8058,6 +8119,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       running = false;
       renderControls();
       showError(e.message);
+      // Not sent: the words come back to try again, unless something new was typed meanwhile.
+      if (!panel.input.value) { panel.input.value = text; grow(); }
     }
   }
 
@@ -10422,7 +10485,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const update = () => {
           const chosen = selected.has(a.id);
           button.textContent = chosen ? '−' : '+';
-          button.setAttribute('aria-label', `${chosen ? t('Remove') : t('Add')}: ${a.displayName || a.name}`);
+          button.setAttribute('aria-label', t(chosen ? 'Remove {name}' : 'Add {name}', { name: a.displayName || a.name }));
           (chosen ? selectedList : list).append(row);
           row.hidden = false;
           selectedCount.textContent = String(selected.size);
@@ -10434,7 +10497,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         });
         update(); return row;
       });
-      const save = el('button', { type: 'submit', class: 'primary', text: t('Save') });
+      const save = el('button', { type: 'submit', class: 'primary', actionIcon: 'check', text: t('Save') });
       const dialog = el('dialog', { class: 'admin-dialog accessory-group-dialog', 'aria-label': t('Accessory group') });
       const search = el('input', { type: 'search', class: 'search', placeholder: t('Search accessories'), 'aria-label': t('Search accessories') });
       let activeType = '';
@@ -10478,7 +10541,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el('div', { class: 'group-picker-columns' },
           el('section', {}, el('h3', { text: t('Available') }), search, typeFilter, clearFilters, list, empty),
           el('section', {}, el('div', { class: 'group-selected-heading' }, el('h3', { text: t('Selected') }), selectedCount), selectedList, selectedEmpty)), message,
-        el('div', { class: 'actions' }, el('button', { type: 'button', text: t('Cancel'), onclick: () => dialog.close() }), save));
+        el('div', { class: 'actions' }, el('button', { type: 'button', actionIcon: 'close', text: t('Cancel'), onclick: () => dialog.close() }), save));
       const content = el('div', { class: 'group-dialog-content' });
       while (form.children.length > 1) content.append(form.firstElementChild);
       form.prepend(content);
@@ -10837,7 +10900,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         } catch (e) { HomeswiftCommon.showAlert(e.message); tileNode?.classList.remove("busy"); }
       }) },
       scene.picture ? { label: t("Remove the picture"), icon: "trash", onSelect: async () => {
-        try { await app.api(path, { method: "DELETE" }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
+        if (!(await HomeswiftAdmin.confirmAction({ title: t("Remove the picture of {name}? Its tile goes back to its colours.", { name: scene.name }), confirmLabel: t("Remove"), confirmIcon: "trash" }))) return;
+        tileNode?.classList.add("busy");
+        try { await app.api(path, { method: "DELETE" }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); tileNode?.classList.remove("busy"); }
       } } : null,
     ].filter(Boolean);
   }
@@ -12043,23 +12108,32 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       keepOn.value = targets.some((target) => target.hub === kept) ? kept : "";
       keepOn.hidden = !targets.length;
     };
+    const read = () => ({ name: name.value.trim(), artworkId, homeKit: homeKit.checked, actions: [...actions].flatMap((row) => row.read()), triggers: [...triggers].map((row) => row.read()), conditions: [...conditions].map((row) => row.read()), animation: animation.read() });
+    // What the editor holds, to tell unsaved changes: a row still being filled in reads as a change.
+    const snapshot = () => { try { return JSON.stringify(read()); } catch { return null; } };
+    let initial, saved = false;
+    const unchanged = () => saved || snapshot() === initial;
     const form = el("form", { class: "card scene-editor", onsubmit: async (event) => {
       event.preventDefault();
-      const body = { name: name.value.trim(), artworkId, homeKit: homeKit.checked, actions: [...actions].flatMap((row) => row.read()), triggers: [...triggers].map((row) => row.read()), conditions: [...conditions].map((row) => row.read()), animation: animation.read() };
+      const body = read();
       save.disabled = true;
       if (isNew && keepOn.value && !keepOn.hidden) {
         try {
           await app.api("/api/scenes/hub", { method: "POST", body: { hub: keepOn.value, name: body.name, actions: body.actions } });
+          saved = true;
           app.navigate("/scenes");
         } catch (e) { say(line, e.message, "error"); save.disabled = false; }
         return;
       }
       try {
-        const saved = await app.api(isNew ? "/api/scenes" : `/api/scenes/${encodeURIComponent(scene.id)}`, { method: isNew ? "POST" : "PUT", body });
-        const security = saved.actions.some((a) => a.security);
+        const answer = await app.api(isNew ? "/api/scenes" : `/api/scenes/${encodeURIComponent(scene.id)}`, { method: isNew ? "POST" : "PUT", body });
+        initial = snapshot();
+        saved = isNew;
+        const security = answer.actions.some((a) => a.security);
         if (security && body.triggers.some((trigger) => trigger.enabled !== false)) {
           say(line, t("Saved. Its lock, door or alarm actions run only when you run it here: automations leave them out."), "ok");
-          if (isNew) setTimeout(() => app.navigate(`/scenes/${encodeURIComponent(saved.id)}`, { replace: true }), 1500);
+          // Save stays off until its page opens: a second click would make another scene.
+          if (isNew) { setTimeout(() => app.navigate(`/scenes/${encodeURIComponent(answer.id)}`, { replace: true }), 1500); return; }
         } else {
           app.navigate("/scenes");
         }
@@ -12072,13 +12146,20 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         isNew ? null : el("span", { class: "spacer" }),
         isNew ? null : el("button", { actionIcon: "trash", type: "button", class: "danger", text: t("Delete"), onclick: async () => {
           if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete the scene {name}?", { name: scene.name }), text: t("This removes the scene and its automatic triggers. This cannot be undone."), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
-          try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); app.navigate("/scenes"); } catch (e) { say(line, e.message, "error"); }
+          try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); saved = true; app.navigate("/scenes"); } catch (e) { say(line, e.message, "error"); }
         } })),
       line);
     form.addEventListener("change", refreshTargets);
     form.addEventListener("click", () => setTimeout(refreshTargets));
     app.show(main, app.breadcrumb([t("Scenes"), "/scenes"], [isNew ? t("New scene") : scene.name]), form);
     refreshTargets();
+    // Leaving with changes not saved asks first; so does closing the tab. Only while this editor is the page shown.
+    initial = snapshot();
+    if (document.body.contains(main)) {
+      const guard = async () => unchanged() || await HomeswiftCommon.confirmDialog(t("Leave without saving your changes?"));
+      guard.quiet = unchanged;
+      window.HomeswiftApp?.setLeaveGuard(guard);
+    }
   }
 
   // ---- Notifications ---------------------------------------------------------------------------------
@@ -12235,8 +12316,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const line = statusLine();
     const others = el("div", {}, settings.subscriptions.map((sub) => el("div", { class: "control" },
       el("span", { text: `${sub.label}${sub.username ? ` · ${sub.username}` : ""}` }),
-      el("button", { actionIcon: "trash", class: "link", text: t("Remove"), onclick: async () => {
-        try { await app.api(`/api/notifications/push/subscriptions/${encodeURIComponent(sub.id)}`, { method: "DELETE" }); app.route(); } catch (e) { say(line, e.message, "error"); }
+      el("button", { actionIcon: "trash", class: "link", text: t("Remove"), onclick: async (event) => {
+        const button = event.currentTarget;
+        if (!(await HomeswiftAdmin.confirmAction({ title: t("Stop notifications on {device}?", { device: sub.label }), text: t("It gets no more notifications until it turns them on again."), confirmLabel: t("Remove"), confirmIcon: "trash" }))) return;
+        await HomeswiftCommon.busyButton(button, async () => {
+          await app.api(`/api/notifications/push/subscriptions/${encodeURIComponent(sub.id)}`, { method: "DELETE" });
+          app.route();
+        }, { report: (e) => say(line, e.message, "error") });
       } }))));
     if (!pushSupported()) {
       box.append(el("p", { class: "muted note", text: window.isSecureContext ? t("This browser cannot receive push notifications.") : t("Open this page over HTTPS (the HomeswiftUI block's https) or on localhost to turn them on here.") }), others);
@@ -12285,7 +12371,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       app = context;
       app.views.scenes = (main, [id]) => id ? sceneEditor(main, id) : scenesView(main);
       app.views.notifications = notificationsView;
-      app.views.quick = async (main) => app.show(main, app.pageHead(t("Quick controls"), t("Your favourite accessories and the scenes, at hand.")), quickSection(null, { standalone: true }));
+      app.views.quick = async (main) => {
+        // Its values were frozen while the tab was hidden.
+        app.onReturn(() => app.route());
+        app.show(main, app.pageHead(t("Quick controls"), t("Your favourite accessories and the scenes, at hand.")), quickSection(null, { standalone: true }));
+      };
     },
     layoutActions, moveGroupToRoom, groupByRoom, suggestRooms, quickSection, displayName,
   };
@@ -13066,6 +13156,8 @@ HomeswiftI18n.add("es", {
   "Candle flicker": "Vela parpadeante",
   "Candlelight": "Luz de velas",
   "Cannot connect": "No se puede conectar",
+  "The app asked for something Homeswift cannot give ({reason}). Nothing was shared.": "La app pidió algo que Homeswift no puede dar ({reason}). No se ha compartido nada.",
+  "Return to {destination}": "Volver a {destination}",
   "cannot read {0}": "no se puede leer {0}",
   "Cannot restore __REDACTED__ (no matching value in the current config) in {0}. Supply the real value, or keep the entry's identifying fields (platform, accessory, name) unchanged.": "No se puede restaurar __REDACTED__ (no hay ningún valor que coincida en la configuración actual) en {0}. Indica el valor real, o deja sin cambios los campos que identifican la entrada (platform, accessory, name).",
   "Carbon Dioxide Detected": "Dióxido de carbono detectado",
@@ -14680,6 +14772,10 @@ HomeswiftI18n.add("es", {
   "Change the picture…": "Cambiar la imagen…",
   "Choose a picture…": "Elegir una imagen…",
   "Remove the picture": "Quitar la imagen",
+  "Stop notifications on {device}?": "¿Dejar de enviar notificaciones a {device}?",
+  "It gets no more notifications until it turns them on again.": "No recibirá más hasta que las vuelva a activar.",
+  "Remove the picture of {name}? Its tile goes back to its colours.": "¿Quitar la imagen de {name}? Su mosaico vuelve a sus colores.",
+  "Delete this image from the bridge?": "¿Eliminar esta imagen del puente?",
   "Show in the Home app": "Mostrar en la app Casa",
   "Leave out of the Home app": "Quitar de la app Casa",
   "Import a Homebridge config": "Importar una config de Homebridge",
@@ -14928,6 +15024,9 @@ HomeswiftI18n.add("es", {
   "For devices none of yours reaches yet.": "Para los dispositivos que ninguno de los tuyos alcanza todavía.",
   "Start with the brand of your devices.": "Empieza por la marca de tus dispositivos.",
   "Looking for devices…": "Buscando dispositivos…",
+  "Could not look for devices": "No se pudieron buscar los dispositivos",
+  "Could not look for its devices: {error}": "No se pudieron buscar sus dispositivos: {error}",
+  "It is set up. Look again now, or later from this page.": "Ya está configurado. Vuelve a buscar ahora, o más tarde desde esta página.",
   "Find again": "Buscar de nuevo",
   "This plugin finds no devices by itself: its settings name them.": "Este plugin no encuentra dispositivos por sí mismo: sus ajustes los indican.",
   "Set up again": "Configurar de nuevo",
@@ -15788,6 +15887,8 @@ HomeswiftI18n.add("fr", {
   "Candle flicker": "Bougie vacillante",
   "Candlelight": "Aux chandelles",
   "Cannot connect": "Connexion impossible",
+  "The app asked for something Homeswift cannot give ({reason}). Nothing was shared.": "L’app a demandé ce que Homeswift ne peut pas donner ({reason}). Rien n’a été partagé.",
+  "Return to {destination}": "Revenir à {destination}",
   "cannot read {0}": "impossible de lire {0}",
   "Cannot restore __REDACTED__ (no matching value in the current config) in {0}. Supply the real value, or keep the entry's identifying fields (platform, accessory, name) unchanged.": "Impossible de restaurer __REDACTED__ (aucune valeur correspondante dans la config actuelle) dans {0}. Indiquez la vraie valeur, ou laissez inchangés les champs qui identifient l'entrée (platform, accessory, name).",
   "Carbon Dioxide Detected": "Dioxyde de carbone détecté",
@@ -17402,6 +17503,10 @@ HomeswiftI18n.add("fr", {
   "Change the picture…": "Changer l'image…",
   "Choose a picture…": "Choisir une image…",
   "Remove the picture": "Retirer l'image",
+  "Stop notifications on {device}?": "Arrêter les notifications sur {device} ?",
+  "It gets no more notifications until it turns them on again.": "Il n'en recevra plus jusqu'à ce qu'il les réactive.",
+  "Remove the picture of {name}? Its tile goes back to its colours.": "Retirer l'image de {name} ? Sa tuile reprend ses couleurs.",
+  "Delete this image from the bridge?": "Supprimer cette image du pont ?",
   "Show in the Home app": "Afficher dans l'app Maison",
   "Leave out of the Home app": "Retirer de l'app Maison",
   "Import a Homebridge config": "Importer une config Homebridge",
@@ -17650,6 +17755,9 @@ HomeswiftI18n.add("fr", {
   "For devices none of yours reaches yet.": "Pour les appareils qu’aucun des vôtres n’atteint encore.",
   "Start with the brand of your devices.": "Commencez par la marque de vos appareils.",
   "Looking for devices…": "Recherche d’appareils…",
+  "Could not look for devices": "Impossible de rechercher les appareils",
+  "Could not look for its devices: {error}": "Impossible de rechercher ses appareils : {error}",
+  "It is set up. Look again now, or later from this page.": "Il est configuré. Relancez la recherche maintenant, ou plus tard depuis cette page.",
   "Find again": "Chercher à nouveau",
   "This plugin finds no devices by itself: its settings name them.": "Ce plugin ne trouve pas d’appareils par lui-même : ses réglages les nomment.",
   "Set up again": "Configurer à nouveau",
@@ -18510,6 +18618,8 @@ HomeswiftI18n.add("pt", {
   "Candle flicker": "Vela tremeluzente",
   "Candlelight": "Luz de velas",
   "Cannot connect": "Não é possível ligar",
+  "The app asked for something Homeswift cannot give ({reason}). Nothing was shared.": "A app pediu algo que o Homeswift não pode dar ({reason}). Nada foi partilhado.",
+  "Return to {destination}": "Voltar a {destination}",
   "cannot read {0}": "não é possível ler {0}",
   "Cannot restore __REDACTED__ (no matching value in the current config) in {0}. Supply the real value, or keep the entry's identifying fields (platform, accessory, name) unchanged.": "Não é possível restaurar __REDACTED__ (nenhum valor correspondente na configuração atual) em {0}. Indique o valor real, ou mantenha inalterados os campos que identificam a entrada (platform, accessory, name).",
   "Carbon Dioxide Detected": "Dióxido de carbono detetado",
@@ -20124,6 +20234,10 @@ HomeswiftI18n.add("pt", {
   "Change the picture…": "Alterar a imagem…",
   "Choose a picture…": "Escolher uma imagem…",
   "Remove the picture": "Remover a imagem",
+  "Stop notifications on {device}?": "Parar as notificações em {device}?",
+  "It gets no more notifications until it turns them on again.": "Não receberá mais até as voltar a ativar.",
+  "Remove the picture of {name}? Its tile goes back to its colours.": "Remover a imagem de {name}? O seu mosaico volta às suas cores.",
+  "Delete this image from the bridge?": "Eliminar esta imagem da ponte?",
   "Show in the Home app": "Mostrar na app Casa",
   "Leave out of the Home app": "Retirar da app Casa",
   "Import a Homebridge config": "Importar uma configuração do Homebridge",
@@ -20372,6 +20486,9 @@ HomeswiftI18n.add("pt", {
   "For devices none of yours reaches yet.": "Para os dispositivos que nenhum dos seus alcança ainda.",
   "Start with the brand of your devices.": "Comece pela marca dos seus dispositivos.",
   "Looking for devices…": "À procura de dispositivos…",
+  "Could not look for devices": "Não foi possível procurar dispositivos",
+  "Could not look for its devices: {error}": "Não foi possível procurar os seus dispositivos: {error}",
+  "It is set up. Look again now, or later from this page.": "Já está configurado. Procure de novo agora, ou mais tarde a partir desta página.",
   "Find again": "Procurar de novo",
   "This plugin finds no devices by itself: its settings name them.": "Este plugin não encontra dispositivos sozinho: as suas definições indicam-nos.",
   "Set up again": "Configurar de novo",
@@ -21166,8 +21283,8 @@ HomeswiftI18n.add("pt", {
     <label data-i18n>Password <input name="password" type="password" autocomplete="current-password" required minlength="1"></label>
     <label id="auth-otp" class="hidden" data-i18n>Code from your authenticator app <input name="otp" inputmode="numeric" autocomplete="one-time-code" spellcheck="false" placeholder="123 456" maxlength="9"></label>
     <label id="auth-setup-code" class="hidden" data-i18n>Set-up code <input name="setupCode" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX"></label>
-    <p class="error" id="auth-error"></p>
-    <button type="submit" id="auth-submit" class="primary" data-i18n>Sign in</button>
+    <p class="error" id="auth-error" role="alert"></p>
+    <button type="submit" id="auth-submit" class="primary" data-i18n data-action-icon="user">Sign in</button>
   </form>
 </div>
 <div id="app" class="hidden">
@@ -22802,6 +22919,9 @@ HomeswiftI18n.add("pt", {
         if (start && action) { start = false; open({ block, plugin, firstTime: !accountSetUp, after: load }); }
       } catch (e) {
         list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));
+        // Not "no devices": the search itself failed.
+        summary.textContent = t("Could not look for devices");
+        summary.dataset.tone = "away";
       } finally {
         searching(false);
       }
@@ -22926,6 +23046,8 @@ HomeswiftI18n.add("pt", {
     const devicesStage = t("Devices");
     const stages = [device ? t("Set up") : accountActions[plugin?.accountAuthorization]?.[0]() ?? t("Sign in"), picking ? devicesStage : null, t("Done")].filter(Boolean);
     let session = null, poll = 0, ticker = 0, done = false, closed = false;
+    /// Counts what the sheet drew: a retry still under way when another answer is drawn leaves it alone.
+    let drawn = 0;
     // A Button Press's end: the retries keep it, so the countdown does not start over at each one.
     let until = 0;
     const stop = () => { clearTimeout(poll); clearInterval(ticker); };
@@ -22966,16 +23088,28 @@ HomeswiftI18n.add("pt", {
       /// excluded. A console's devices come once the plugin has connected to it: it is asked a few times.
       async function pick({ keep, tries = 1, owner = plugin?.name ?? block.name }) {
         fill(loading(t("Looking for devices…")));
-        let found = [];
+        let found = [], failure = null;
         for (let attempt = 0; attempt < tries && !closed; attempt++) {
           if (attempt) await new Promise((resume) => setTimeout(resume, 2000));
           try {
             found = (await post("discover", { platform: block.platform, name: block.name })).devices
               .filter((one) => ["setUp", "notResponding", "discovered"].includes(one.status) && keep(one));
-          } catch { found = []; }
+            failure = null;
+          } catch (e) { found = []; failure = e; }
           if (found.length) break;
         }
         if (closed) return;
+        // The search failed, which is not finding nothing: say why, and offer it again. The account or device is set up.
+        if (!found.length && failure) {
+          const again = el("button", { type: "button", class: "primary", actionIcon: "loop", text: t("Try again"), onclick: () => pick({ keep, tries, owner }) });
+          form.onsubmit = (event) => { event.preventDefault(); finish(); };
+          fill(
+            el("p", { class: "error", role: "alert", text: t("Could not look for its devices: {error}", { error: failure.message }) }),
+            el("p", { class: "muted", text: t("It is set up. Look again now, or later from this page.") }),
+            el("div", { class: "actions" }, again, el("button", { type: "submit", actionIcon: "check", text: t("Done") })));
+          again.focus({ preventScroll: true });
+          return;
+        }
         if (!found.length) { finish(); return; }
         if (!stages.includes(devicesStage)) stages.splice(stages.length - 1, 0, devicesStage);
         stage(stages.indexOf(devicesStage));
@@ -23017,6 +23151,7 @@ HomeswiftI18n.add("pt", {
         stop();
         // An answer that arrives after the sheet closed (a retry under way) draws nothing and starts nothing.
         if (closed) return;
+        const drawing = ++drawn;
         if (answer.status === "done") {
           done = true;
           session = null;
@@ -23049,7 +23184,8 @@ HomeswiftI18n.add("pt", {
             poll = setTimeout(async () => {
               let next;
               try { next = await step({}); } catch (e) { next = { ...answer, error: e.message }; }
-              if (closed) return;
+              // Closed, or another answer (the person's own) drawn while it was asked: it is out of date.
+              if (closed || drawing !== drawn) return;
               if (next.status === "asking" && !next.error && next.prompt.message === prompt.message) retry(); else draw(next);
             }, (prompt.retryAfter ?? 2) * 1000);
           };
@@ -23630,7 +23766,10 @@ button.add-button svg { width: 16px; height: 16px; fill: none; stroke: currentCo
 @media (hover: hover) and (pointer: fine) {
   button.add-button:hover { background: var(--accent-fill); color: var(--accent-text); }
 }
-@media (pointer: coarse) { button.add-button { position: relative; } button.add-button::after { content: ""; position: absolute; inset: -8px; } }
+@media (pointer: coarse) {
+  button.add-button, .log-details-toggle { position: relative; }
+  button.add-button::after, .log-details-toggle::after { content: ""; position: absolute; inset: -8px; }
+}
 .pill.status.admin { color: var(--accent-ink); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
 .pill.status.bad { color: var(--error); border-color: rgba(208, 56, 59, 0.4); }
 .section-head > div > h2 { margin: 0; }
@@ -24902,6 +25041,9 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 }
 @media (hover: hover) and (pointer: fine) { .log-details-toggle:hover { color: var(--text); } }
 .log-details-toggle[aria-expanded="true"] { color: var(--accent-ink); border-color: var(--accent); }
+.log-details-toggle.action-with-icon { gap: 3px; }
+.log-details-toggle.action-with-icon::before { width: 11px; height: 11px; }
+
 .log-line .log-details { grid-column: 1 / -1; margin: var(--space-4) 0 var(--space-6); max-height: 420px; overflow: auto; font-size: var(--text-xs); }
 .log-line.warning { background: rgba(201, 115, 26, 0.08); }
 .log-line.warning .text { color: var(--warn); }
@@ -27730,6 +27872,8 @@ self.addEventListener("notificationclick", (event) => {
   };
 
   const serviceKey = (service) => service.subtype || service.type;
+  /// The writes the page made to each characteristic: a refused write puts its value back only when it is the latest.
+  const writeCounts = new WeakMap();
   /// "Color Temperature" reads "Color temperature".
   const sentence = (type) => type.charAt(0) + type.slice(1).toLowerCase();
   /// A characteristic's name from HomeKit's definitions as a row reads it: translated when the catalog knows it,
@@ -27867,13 +28011,18 @@ self.addEventListener("notificationclick", (event) => {
         if (!await HomeswiftCommon.confirmDialog(t("Set {setting} of {name} to {value}?", { setting: typeName(characteristic.type).toLowerCase(), name: accessory.name, value: label }))) { ctx.paint(); return; }
       }
       const before = characteristic.value;
+      const write = (writeCounts.get(characteristic) || 0) + 1;
+      writeCounts.set(characteristic, write);
       characteristic.value = value;
       ctx.paint();
       try {
         await put(service, characteristic, value);
       } catch (e) {
         if (e.message === "signed out") return;
-        characteristic.value = before;
+        // Put back only what this write set: not when a later write (even of the same value) or the device's own
+        // report has changed it since.
+        if (writeCounts.get(characteristic) === write && characteristic.value === value) characteristic.value = before;
+        ctx.paint();
         ctx.flash(e.message);
       }
     };
