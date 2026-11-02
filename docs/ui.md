@@ -815,6 +815,10 @@ Plugins/<Name>/Web Plugins/<Name>/Sources/WebFiles.swift <Type>` (a test checks 
   block with a `devices` list keyed by MAC address there are `updateDevices`, `updateDevice`, `putDevice` and
   `findDevice`; `poll(refresh)` refreshes while the page is visible, and `renderKeyed` redraws only the cards whose item
   changed.
+- **Setup.** A page signs in and pairs nowhere: `homeswift.setupCard({ title, text, glyph, tone, start })` is a card
+  whose button opens the instance's row on Add accessories (`homeswift.setupAddress({ start })`, `/setup?start#<slug>`;
+  with `start`, its account's Setup sheet opens there), for a page whose account or hub is not set up yet or a "Sign in
+  again" or "Pair again" of its own.
 - **Accessories as the Accessories page draws them.** Load `/remote.js`, `/camera.js` and `/widgets.js` after
   `/common.js`, take the accessory from `/api/accessories`, add `HomeswiftWidgets.card(accessory, { size })` (`small`,
   `medium` or `large`; the kind's own size when left out) to a `.wall`, open every control with

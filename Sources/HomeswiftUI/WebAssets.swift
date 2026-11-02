@@ -13742,17 +13742,14 @@ HomeswiftI18n.add("es", {
   "Search plugins": "Buscar plugins",
   "{shown} of {total} plugins": "{shown} de {total} plugins",
   "No plugin matches the search.": "Ningún plugin coincide con la búsqueda.",
-  "Pairing…": "Emparejando…",
   "Not found": "No encontrado",
   "Not responding": "No responde",
   "Connected": "Conectado",
   "Address": "Dirección",
   "Find": "Buscar",
-  "Use": "Usar",
   "Pair": "Emparejar",
   "Pair again": "Volver a emparejar",
   "Waiting for the button… {seconds} s left.": "Esperando el botón… quedan {seconds} s.",
-  "Looking on the network…": "Buscando en la red…",
   "Not running": "Detenido",
   "not set": "sin definir",
   "not valid JSON: {0} at byte {1}": "JSON no válido: {0} en el byte {1}",
@@ -14157,6 +14154,25 @@ HomeswiftI18n.add("es", {
   "Status light switch": "Interruptor de la luz de estado",
   "Night vision dimmer": "Regulador de la visión nocturna",
   "Recording switch": "Interruptor de grabación",
+  "Invalid email or password": "Correo o contraseña incorrectos",
+  "User not found. Please check your email address.": "No se ha encontrado el usuario. Comprueba tu dirección de correo.",
+  "Please confirm your email address first": "Confirma primero tu dirección de correo",
+  "Invalid verification code": "Código de verificación incorrecto",
+  "Verification code has expired. Please try again.": "El código de verificación ha caducado. Vuelve a intentarlo.",
+  "MyDolphin authentication failed": "No se ha podido autenticar en MyDolphin",
+  "Maytronics API error: HTTP {0}": "Error de la API de Maytronics: HTTP {0}",
+  "Username and password are required": "Se necesitan el nombre de usuario y la contraseña",
+  "Login failed: too many region redirects [{0}]": "No se ha podido iniciar sesión: demasiadas redirecciones de región [{0}]",
+  "Login failed: unexpected response [{0}]": "No se ha podido iniciar sesión: respuesta inesperada [{0}]",
+  "Login failed: {0}": "No se ha podido iniciar sesión: {0}",
+  "Unknown region received: {0}": "Se ha recibido una región desconocida: {0}",
+  "Set up two-factor authentication in the MyDolphin app first": "Configura primero la verificación en dos pasos en la app MyDolphin",
+  "Enter the code": "Introduce el código",
+  "Maytronics sent no token": "Maytronics no ha enviado ningún token",
+  "Maytronics sent no refresh token": "Maytronics no ha enviado ningún token de actualización",
+  "Cognito service error: HTTP {0}": "Error del servicio Cognito: HTTP {0}",
+  "The country calling code is a number such as +1 or +44": "El prefijo del país es un número como +1 o +44",
+  "Set up in Add accessories": "Configurar en Añadir accesorios",
   "Open a plugin to set up its devices, or add one for another brand.": "Abre un plugin para configurar sus dispositivos, o añade uno para otra marca.",
   "Not set up yet": "Aún sin configurar",
   "No devices found": "No se encontraron dispositivos",
@@ -14941,7 +14957,9 @@ HomeswiftI18n.add("es", {
   "Enter the code sent to your email.": "Introduce el código enviado a tu correo.",
   "Waiting… {seconds} s left.": "Esperando… quedan {seconds} s.",
   "Sign in with the account of the Daikin Onecta app.": "Inicia sesión con la cuenta de la app Daikin Onecta.",
-  "Enter the app you made on the Daikin Developer Portal.": "Introduce la app que creaste en el Daikin Developer Portal.",
+  "Enter the app you made on the Daikin Developer Portal. Its redirect URI is {redirectURI}, unless you change the callback server's address or port.": "Introduce la app que creaste en el Daikin Developer Portal. Su URI de redirección es {redirectURI}, salvo que cambies la dirección o el puerto del servidor de retorno.",
+  "Callback server address": "Dirección del servidor de retorno",
+  "Callback server port": "Puerto del servidor de retorno",
   "Client ID": "Client ID",
   "Client Secret": "Client Secret",
   "Sign in with Daikin on the page that opens. If it does not come back here by itself, paste the address the browser ends on.": "Inicia sesión en Daikin en la página que se abre. Si no vuelve aquí por sí sola, pega la dirección en la que termina el navegador.",
@@ -16446,17 +16464,14 @@ HomeswiftI18n.add("fr", {
   "Search plugins": "Rechercher des plugins",
   "{shown} of {total} plugins": "{shown} plugins sur {total}",
   "No plugin matches the search.": "Aucun plugin ne correspond à la recherche.",
-  "Pairing…": "Jumelage…",
   "Not found": "Introuvable",
   "Not responding": "Ne répond pas",
   "Connected": "Connecté",
   "Address": "Adresse",
   "Find": "Rechercher",
-  "Use": "Utiliser",
   "Pair": "Jumeler",
   "Pair again": "Jumeler à nouveau",
   "Waiting for the button… {seconds} s left.": "En attente du bouton… encore {seconds} s.",
-  "Looking on the network…": "Recherche sur le réseau…",
   "Not running": "Arrêté",
   "not set": "non définie",
   "not valid JSON: {0} at byte {1}": "JSON non valide : {0} à l'octet {1}",
@@ -16861,6 +16876,25 @@ HomeswiftI18n.add("fr", {
   "Status light switch": "Interrupteur du voyant d'état",
   "Night vision dimmer": "Variateur de la vision nocturne",
   "Recording switch": "Interrupteur d'enregistrement",
+  "Invalid email or password": "E-mail ou mot de passe incorrect",
+  "User not found. Please check your email address.": "Utilisateur introuvable. Vérifiez votre adresse e-mail.",
+  "Please confirm your email address first": "Confirmez d'abord votre adresse e-mail",
+  "Invalid verification code": "Code de vérification incorrect",
+  "Verification code has expired. Please try again.": "Le code de vérification a expiré. Réessayez.",
+  "MyDolphin authentication failed": "Échec de l'authentification MyDolphin",
+  "Maytronics API error: HTTP {0}": "Erreur de l'API Maytronics : HTTP {0}",
+  "Username and password are required": "Le nom d'utilisateur et le mot de passe sont requis",
+  "Login failed: too many region redirects [{0}]": "Échec de la connexion : trop de redirections de région [{0}]",
+  "Login failed: unexpected response [{0}]": "Échec de la connexion : réponse inattendue [{0}]",
+  "Login failed: {0}": "Échec de la connexion : {0}",
+  "Unknown region received: {0}": "Région inconnue reçue : {0}",
+  "Set up two-factor authentication in the MyDolphin app first": "Activez d'abord la double authentification dans l'app MyDolphin",
+  "Enter the code": "Saisissez le code",
+  "Maytronics sent no token": "Maytronics n'a envoyé aucun jeton",
+  "Maytronics sent no refresh token": "Maytronics n'a envoyé aucun jeton d'actualisation",
+  "Cognito service error: HTTP {0}": "Erreur du service Cognito : HTTP {0}",
+  "The country calling code is a number such as +1 or +44": "L'indicatif du pays est un nombre comme +1 ou +44",
+  "Set up in Add accessories": "Configurer dans Ajouter des accessoires",
   "Open a plugin to set up its devices, or add one for another brand.": "Ouvrez un plugin pour configurer ses appareils, ou ajoutez-en un pour une autre marque.",
   "Not set up yet": "Pas encore configuré",
   "No devices found": "Aucun appareil trouvé",
@@ -17645,7 +17679,9 @@ HomeswiftI18n.add("fr", {
   "Enter the code sent to your email.": "Saisissez le code envoyé par e-mail.",
   "Waiting… {seconds} s left.": "En attente… encore {seconds} s.",
   "Sign in with the account of the Daikin Onecta app.": "Connectez-vous avec le compte de l’app Daikin Onecta.",
-  "Enter the app you made on the Daikin Developer Portal.": "Saisissez l’app que vous avez créée sur le Daikin Developer Portal.",
+  "Enter the app you made on the Daikin Developer Portal. Its redirect URI is {redirectURI}, unless you change the callback server's address or port.": "Saisissez l’app que vous avez créée sur le Daikin Developer Portal. Son URI de redirection est {redirectURI}, sauf si vous changez l’adresse ou le port du serveur de rappel.",
+  "Callback server address": "Adresse du serveur de rappel",
+  "Callback server port": "Port du serveur de rappel",
   "Client ID": "Client ID",
   "Client Secret": "Client Secret",
   "Sign in with Daikin on the page that opens. If it does not come back here by itself, paste the address the browser ends on.": "Connectez-vous à Daikin dans la page qui s’ouvre. Si elle ne revient pas ici d’elle-même, collez l’adresse sur laquelle le navigateur s’arrête.",
@@ -19150,17 +19186,14 @@ HomeswiftI18n.add("pt", {
   "Search plugins": "Procurar plugins",
   "{shown} of {total} plugins": "{shown} de {total} plugins",
   "No plugin matches the search.": "Nenhum plugin corresponde à pesquisa.",
-  "Pairing…": "A emparelhar…",
   "Not found": "Não encontrado",
   "Not responding": "Não responde",
   "Connected": "Ligado",
   "Address": "Endereço",
   "Find": "Procurar",
-  "Use": "Usar",
   "Pair": "Emparelhar",
   "Pair again": "Emparelhar novamente",
   "Waiting for the button… {seconds} s left.": "À espera do botão… faltam {seconds} s.",
-  "Looking on the network…": "A procurar na rede…",
   "Not running": "Parado",
   "not set": "não definida",
   "not valid JSON: {0} at byte {1}": "JSON inválido: {0} no byte {1}",
@@ -19565,6 +19598,25 @@ HomeswiftI18n.add("pt", {
   "Status light switch": "Interruptor da luz de estado",
   "Night vision dimmer": "Regulador da visão noturna",
   "Recording switch": "Interruptor de gravação",
+  "Invalid email or password": "E-mail ou palavra-passe incorretos",
+  "User not found. Please check your email address.": "Utilizador não encontrado. Verifique o endereço de e-mail.",
+  "Please confirm your email address first": "Confirme primeiro o endereço de e-mail",
+  "Invalid verification code": "Código de verificação incorreto",
+  "Verification code has expired. Please try again.": "O código de verificação expirou. Tente novamente.",
+  "MyDolphin authentication failed": "Falha na autenticação MyDolphin",
+  "Maytronics API error: HTTP {0}": "Erro da API Maytronics: HTTP {0}",
+  "Username and password are required": "São necessários o nome de utilizador e a palavra-passe",
+  "Login failed: too many region redirects [{0}]": "Não foi possível iniciar sessão: demasiados redirecionamentos de região [{0}]",
+  "Login failed: unexpected response [{0}]": "Não foi possível iniciar sessão: resposta inesperada [{0}]",
+  "Login failed: {0}": "Não foi possível iniciar sessão: {0}",
+  "Unknown region received: {0}": "Foi recebida uma região desconhecida: {0}",
+  "Set up two-factor authentication in the MyDolphin app first": "Configure primeiro a autenticação de dois fatores na app MyDolphin",
+  "Enter the code": "Introduza o código",
+  "Maytronics sent no token": "A Maytronics não enviou nenhum token",
+  "Maytronics sent no refresh token": "A Maytronics não enviou nenhum token de atualização",
+  "Cognito service error: HTTP {0}": "Erro do serviço Cognito: HTTP {0}",
+  "The country calling code is a number such as +1 or +44": "O indicativo do país é um número como +1 ou +44",
+  "Set up in Add accessories": "Configurar em Adicionar acessórios",
   "Open a plugin to set up its devices, or add one for another brand.": "Abra um plugin para configurar os seus dispositivos, ou adicione um para outra marca.",
   "Not set up yet": "Ainda não configurado",
   "No devices found": "Nenhum dispositivo encontrado",
@@ -20349,7 +20401,9 @@ HomeswiftI18n.add("pt", {
   "Enter the code sent to your email.": "Introduza o código enviado para o seu e-mail.",
   "Waiting… {seconds} s left.": "A aguardar… faltam {seconds} s.",
   "Sign in with the account of the Daikin Onecta app.": "Inicie sessão com a conta da app Daikin Onecta.",
-  "Enter the app you made on the Daikin Developer Portal.": "Introduza a app que criou no Daikin Developer Portal.",
+  "Enter the app you made on the Daikin Developer Portal. Its redirect URI is {redirectURI}, unless you change the callback server's address or port.": "Introduza a app que criou no Daikin Developer Portal. O seu URI de redirecionamento é {redirectURI}, a menos que altere o endereço ou a porta do servidor de retorno.",
+  "Callback server address": "Endereço do servidor de retorno",
+  "Callback server port": "Porta do servidor de retorno",
   "Client ID": "Client ID",
   "Client Secret": "Client Secret",
   "Sign in with Daikin on the page that opens. If it does not come back here by itself, paste the address the browser ends on.": "Inicie sessão na Daikin na página que se abre. Se não voltar aqui sozinha, cole o endereço em que o navegador termina.",
@@ -21889,142 +21943,16 @@ HomeswiftI18n.add("pt", {
     };
   }
 
-  /// The bridge card of the lighting pages, the same for a Hue Bridge and DIRIGERA hubs: a block per bridge (its tile,
-  /// name, address and state; its facts once paired, else the prompt to pair: Pair, then the countdown while its
-  /// button can be pressed), and the address form at the end of the card (Find lists the bridges on the network, a tap
-  /// fills the address in; the primary button uses it). The form is made once, so it stays open and keeps what was typed.
-  ///
-  /// `card` the element; `tone` the tile's colour once connected; `button` the icon on the drawn bridge button;
-  /// `texts`: `name` (a bridge without one), `pairTitle`, `pairHelp`, `press` (while pairing), `summary` (the form's),
-  /// `placeholder`, `addressHelp`, `none` (Find found nothing). `facts(bridge)` the [label, value] pairs of a paired
-  /// one; `menu(bridge)` more items of its ⋯ menu (Pair again is there once paired); `problem(bridge)` what
-  /// `explain` takes when it does not answer. `discover()` answers the hosts on the network, `use(host)` takes the
-  /// address, `pair(host)` pairs (resolves once paired, rejects otherwise), `refresh()` reads the state again.
-  ///
-  /// Answers `{ draw(bridges, { address }), pair(host) }`: `bridges` are `{ host, name, detail, paired, pairing,
-  /// pairingSecondsLeft, connected, error }` (`connected` false while connecting; `detail` replaces the address
-  /// under the name), `address` what the form shows until a person types.
-  function bridgePairing({ card, tone, button = "link", texts, facts = () => [], menu = () => [], problem, discover, use, pair, refresh }) {
-    // The end of each bridge's minute to press its button, by host: the bridge's own while it pairs (this page, another
-    // or the plugin at start), else the one this page's Pair started. A second's tick redraws meanwhile.
-    const pairingUntil = new Map();
-    const asking = new Set();
-    let bridges = [];
-    let address = "";
-    let ticker = 0;
-    const secondsLeft = (host) => Math.max(0, Math.ceil(((pairingUntil.get(host) ?? 0) - Date.now()) / 1000));
-    const isPairing = (bridge) => bridge.pairing || Date.now() < (pairingUntil.get(bridge.host) ?? 0);
-    const waiting = (host) => t("Waiting for the button… {seconds} s left.", { seconds: secondsLeft(host) });
+  /// Where this instance is set up: its row on the Add accessories page, and with `start` its account's Setup sheet
+  /// open there. A plugin's page signs in and pairs nowhere else (docs/plugins.md, "Setup").
+  const setupAddress = ({ start = false } = {}) => `/setup${start ? "?start" : ""}#${location.pathname.split("/")[2] || ""}`;
 
-    function follow() {
-      for (const bridge of bridges) {
-        if (bridge.pairing && bridge.pairingSecondsLeft != null) pairingUntil.set(bridge.host, Date.now() + bridge.pairingSecondsLeft * 1000);
-        else if (!bridge.pairing && !asking.has(bridge.host)) pairingUntil.delete(bridge.host);
-      }
-      const on = bridges.some(isPairing);
-      if (on && !ticker) ticker = setInterval(redraw, 1000);
-      if (!on && ticker) { clearInterval(ticker); ticker = 0; }
-    }
-
-    let typed = false;
-    const input = el("input", { type: "text", id: "bridge-address", placeholder: texts.placeholder, inputmode: "url", autocomplete: "off" });
-    input.addEventListener("input", () => { typed = true; });
-    const found = el("div", { class: "found" });
-    const form = el("details", { class: "address-box" },
-      el("summary", { text: texts.summary }),
-      // The title, then the input with its buttons on one row (so they line up at any width), then the help.
-      el("div", { class: "address" },
-        el("label", { class: "field-title", htmlFor: "bridge-address", text: t("Address") }),
-        el("div", { class: "address-row" }, input,
-          el("button", { actionIcon: "search", text: t("Find"), onclick: (event) => act(event.currentTarget, async () => {
-            const hosts = await discover();
-            found.replaceChildren(...(hosts.length
-              ? hosts.map((host) => el("button", { actionIcon: "bridge", text: host, onclick: () => { input.value = host; typed = true; } }))
-              : [el("span", { class: "muted", text: texts.none })]));
-          }) }),
-          el("button", { class: "primary", actionIcon: "check", text: t("Use"), onclick: (event) => act(event.currentTarget, async () => {
-            await use(input.value.trim());
-            typed = false;
-            found.replaceChildren();
-            await refresh();
-          }) })),
-        texts.addressHelp ? el("span", { class: "help", text: texts.addressHelp }) : null),
-      found);
-    const list = el("div", { class: "bridges" });
-    card.append(list, form);
-
-    /// The countdown texts of the bridges waiting for their button, by host: the second's tick updates only them.
-    const countdowns = new Map();
-
-    function block(bridge) {
-      const pairingNow = isPairing(bridge);
-      const [state, kind] = pairingNow ? [t("Pairing…"), "standby"] : !bridge.host ? [t("Not found"), "away"] : !bridge.paired ? [t("Not paired"), "away"]
-        : bridge.error ? [t("Not responding"), "away"] : bridge.connected === false ? [t("Connecting…"), "standby"] : [t("Connected"), "on"];
-      const items = [
-        bridge.paired && !pairingNow ? { label: t("Pair again"), icon: "pair", onSelect: () => start(null, bridge.host) } : null,
-        ...menu(bridge),
-      ].filter(Boolean);
-      const note = el("p", { class: "muted", text: pairingNow ? waiting(bridge.host) : texts.pairHelp });
-      if (pairingNow) countdowns.set(bridge.host, note);
-      const pairs = facts(bridge);
-      return el("div", { class: "bridge" },
-        el("div", { class: "server-head" },
-          tile("bridge", bridge.paired && !bridge.error ? tone : "grey"),
-          el("div", { class: "who" }, el("strong", { text: bridge.name || texts.name }),
-            el("div", { class: "muted", text: bridge.detail || bridge.host || t("Looking on the network…") })),
-          el("span", { class: `pill status ${kind}`, text: state }),
-          // The ⋯ menu only when it has something: a bridge pairing for the first time has nothing.
-          items.length ? HomeswiftCommon.menuButton(t("Actions for {name}", { name: [bridge.name || texts.name, bridge.host].filter(Boolean).join(" ") }), () => items) : null),
-        bridge.paired && bridge.host && !pairingNow && pairs.length ? el("div", { class: "facts" }, ...pairs.map(([label, value]) => fact(label, String(value)))) : null,
-        bridge.host && (!bridge.paired || pairingNow) ? el("div", { class: `pair-prompt ${pairingNow ? "pairing" : ""}` },
-          el("span", { class: "link-button", "aria-hidden": "true" }, icon(button)),
-          el("div", {},
-            el("p", {}, el("strong", { text: pairingNow ? texts.press : texts.pairTitle })),
-            note),
-          // At the row's end, on the drawn button's line.
-          pairingNow ? null : el("button", { class: "primary", actionIcon: "pair", text: t("Pair"), onclick: (event) => start(event.currentTarget, bridge.host) })) : null,
-        bridge.error && bridge.paired && !pairingNow && problem ? explain(problem(bridge)) : null);
-    }
-
-    /// The blocks, drawn again only when what they show changed; while a bridge pairs, the second's tick only counts down.
-    let key = "";
-    function redraw() {
-      if (!typed && document.activeElement !== input) input.value = address;
-      const next = JSON.stringify(bridges.map((bridge) => [{ ...bridge, pairingSecondsLeft: null }, isPairing(bridge)]));
-      if (next === key) {
-        for (const [host, text] of countdowns) text.textContent = waiting(host);
-        return;
-      }
-      key = next;
-      countdowns.clear();
-      list.replaceChildren(...bridges.map(block));
-    }
-
-    async function start(control, host) {
-      pairingUntil.set(host, Date.now() + 60000);
-      asking.add(host);
-      follow();
-      redraw();
-      try {
-        await (control ? act(control, () => pair(host), null) : pair(host));
-      } catch (e) {
-        HomeswiftCommon.showAlert(e.message);
-      } finally {
-        pairingUntil.delete(host);
-        asking.delete(host);
-        await refresh();
-      }
-    }
-
-    return {
-      draw(next, options = {}) {
-        bridges = next;
-        address = options.address ?? "";
-        follow();
-        redraw();
-      },
-      pair: (host) => start(null, host),
-    };
+  /// A card leading to Setup: `title` and `text` say what is set up there (an account, a hub, a TV), its button opens it.
+  function setupCard({ title, text, action = t("Set up in Add accessories"), start = true, glyph = "pair", tone = "orange" }) {
+    return el("section", { class: "card setup-handoff" },
+      tile(glyph, tone),
+      el("div", { class: "who" }, el("strong", { text: title }), text ? el("p", { class: "muted", text }) : null),
+      el("a", { class: "button primary", href: setupAddress({ start }), actionIcon: glyph, text: action }));
   }
 
   /// The names a block's list leaves out of the Home app, as buttons that bring one back (`onShow(name)`); drawn again
@@ -22191,7 +22119,8 @@ HomeswiftI18n.add("pt", {
   window.homeswift = {
     platform, name, request, home: "/plugins", $, el, icon, tile, fact, assistant, explain, ask, breadcrumb, api, act, formatTemperature, temperature,
     readBlock, updateBlock, updateDevices, updateDevice, putDevice, findDevice, setKey, toggleList, drawHidden, poll, renderKeyed,
-    canonicalMAC, isMAC, sameMAC, tabs, textStyle, speedScale, scenePictures, bridgePairing, finder,
+    canonicalMAC, isMAC, sameMAC, tabs, textStyle, speedScale, scenePictures, finder,
+    setupAddress, setupCard,
   };
 })();
 
@@ -22685,7 +22614,11 @@ HomeswiftI18n.add("pt", {
     const byPlatform = new Map(plugins.plugins.map((plugin) => [plugin.platform, plugin]));
     const blocks = plugins.blocks.filter((block) => !block.system && byPlatform.has(block.platform));
     const wanted = decodeURIComponent(location.hash.slice(1));
-    const cards = blocks.map((block) => instanceCard(block, byPlatform.get(block.platform), { open: blocks.length === 1 || block.slug === wanted }));
+    // From a plugin's page (/setup?start#<slug>): its account's Setup opens once the plugin has said where it stands.
+    const start = new URLSearchParams(location.search).has("start");
+    if (start) history.replaceState(history.state, "", `/setup${location.hash}`);
+    const cards = blocks.map((block) => instanceCard(block, byPlatform.get(block.platform),
+      { open: blocks.length === 1 || block.slug === wanted, start: start && block.slug === wanted }));
     // The plugins in use, one row each, and a way to add another; before any, the brands to start from.
     const add = el("button", { type: "button", class: "primary", actionIcon: "plus", text: t("Add a plugin"), onclick: (event) => pickPlugin(plugins, event.currentTarget) });
     // Or the Assistant does it: it finds the plugin, starts the Setup and hands the steps with a secret back to the sheet.
@@ -22794,7 +22727,7 @@ HomeswiftI18n.add("pt", {
 
   /// One plugin instance, one row: its name and where its devices stand. Opened, its account when it has one and the
   /// devices it finds, each with what can be done. One that needs someone opens and moves to the top of the list.
-  function instanceCard(block, plugin, { open: openAtFirst = false } = {}) {
+  function instanceCard(block, plugin, { open: openAtFirst = false, start = false } = {}) {
     const list = el("div", { class: "setup-devices", "aria-live": "polite" }, loading(t("Looking for devices…")));
     // Under the name, where its devices stand.
     const summary = el("span", { class: "muted", text: t("Looking for devices…") });
@@ -22863,6 +22796,8 @@ HomeswiftI18n.add("pt", {
         node.classList.toggle("needs-you", attention > 0);
         // What needs someone is shown, unless they closed it themselves.
         if (attention && !touched) setOpen(true);
+        // Asked for by the plugin's page: its account's sheet, once.
+        if (start && action) { start = false; open({ block, plugin, firstTime: !accountSetUp, after: load }); }
       } catch (e) {
         list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));
       } finally {
@@ -23092,7 +23027,7 @@ HomeswiftI18n.add("pt", {
         session = answer.session;
         const prompt = answer.prompt;
         if (!prompt.waitSeconds) until = 0;
-        const error = answer.error ? el("p", { class: "error", role: "alert", text: answer.error }) : null;
+        const error = answer.error ? el("p", { class: "error", role: "alert", text: HomeswiftI18n.message(answer.error) }) : null;
         const cancel = el("button", { type: "button", actionIcon: "close", text: t("Cancel"), onclick: () => dismiss() });
         // A wait (a Button Press, a sign-in in another tab): a countdown, and the step sent again every few seconds until
         // the plugin is done. A retry that brings the same prompt back leaves the sheet as it is, and what is typed in it.
@@ -26881,9 +26816,9 @@ select option:disabled { color: var(--muted); }
   }
 }
 
-/* ---- The lighting plugins' pages (Philips Hue, IKEA DIRIGERA): their tabs, a bridge's pairing with its button,
-   its address, scene tiles painted with their palette or a picture, the transition's speed scale and the save bar.
-   plugin.js has their pieces (tabs, bridgePairing, scenePictures, textStyle, speedScale). */
+/* ---- The lighting plugins' pages (Philips Hue, IKEA DIRIGERA): their tabs, a bridge's facts (its pairing is Setup's),
+   scene tiles painted with their palette or a picture, the transition's speed scale and the save bar.
+   plugin.js has their pieces (tabs, setupCard, scenePictures, textStyle, speedScale). */
 .main-tabs { margin: var(--space-18) 0 var(--space-14); }
 /* On a phone the tabs share the width, so four of them fit; longer names (a translation) scroll the bar sideways
    rather than be cut. */
@@ -26894,18 +26829,11 @@ select option:disabled { color: var(--muted); }
 }
 .tab-pane { animation: fade var(--normal) var(--ease-out); }
 
-/* The bridge card: a block per bridge (a line between two), its facts once paired, then the address form. */
+/* The bridge card: a block per bridge (a line between two), its facts once paired. */
 .bridge-card .bridge { padding: var(--space-14) 0; border-top: 1px solid var(--line); }
 .bridge-card .bridge:first-child { padding-top: 0; border-top: 0; }
 .bridge-card .bridge .who { flex: 1; min-width: 0; }
 .bridge-card .bridge .facts { margin-top: var(--space-14); }
-.bridge-card .bridges:not(:empty) + .address-box { padding-top: var(--space-14); border-top: 1px solid var(--line); }
-.bridge-card .found { display: flex; flex-wrap: wrap; gap: var(--space-6); margin-top: var(--space-10); }
-.bridge-card .found:empty { display: none; }
-
-/* Pairing: the bridge's button drawn, what to do, and Pair at the row's end; the drawn button pulses while the bridge waits. */
-.pair-prompt { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--space-16); align-items: center; margin-top: var(--space-14); padding: var(--space-14) var(--space-16); border-radius: var(--radius-lg); background: var(--material-thin); border: 1px solid var(--line); }
-.pair-prompt p { margin: 0; font-size: var(--text-md); }
 
 /* Add accessories (setup.js): a card per plugin, a row per device it finds, and one sheet for every Setup. */
 .setup-list { display: grid; gap: var(--space-16); }
@@ -26991,6 +26919,10 @@ select option:disabled { color: var(--muted); }
 .setup-device .status-dot { justify-self: end; }
 .setup-account .who .muted { white-space: normal; }
 .setup-account { background: color-mix(in srgb, var(--accent) 7%, transparent); margin: 0 calc(-1 * var(--space-12)); padding-inline: var(--space-12); border-radius: var(--radius-md); }
+/* A plugin page's way to its Setup: what is set up there, and the button. */
+.setup-handoff { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--space-12); align-items: center; }
+.setup-handoff .who p { margin: var(--space-4) 0 0; font-size: var(--text-sm); }
+@media (max-width: 620px) { .setup-handoff { grid-template-columns: auto minmax(0, 1fr); } .setup-handoff .button { grid-column: 1 / -1; justify-self: stretch; } }
 .setup-loading, .setup-none { margin: var(--space-12) 0 0; }
 .setup-loading { display: flex; align-items: center; gap: var(--space-10); }
 .setup-loading .spinner { width: 16px; height: 16px; flex: none; }
@@ -27100,15 +27032,6 @@ select option:disabled { color: var(--muted); }
   .setup-account > button.primary:last-child { grid-row: 2; grid-column: 3 / 5; }
   .setup-spacer { display: none; }
 }
-.link-button { width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; background: radial-gradient(circle at 50% 40%, #fff, #e6e8ee 70%); box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.15); color: #3d4352; }
-.link-button svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
-.pairing .link-button { animation: press 1.6s var(--ease-out) infinite; }
-@keyframes press { 0%, 100% { box-shadow: 0 0 0 0 rgba(124, 77, 219, 0.45), inset 0 -2px 0 rgba(0, 0, 0, 0.08); } 50% { box-shadow: 0 0 0 10px rgba(124, 77, 219, 0), inset 0 -2px 0 rgba(0, 0, 0, 0.08); } }
-.address { margin-top: var(--space-12); }
-.address-row { display: flex; gap: var(--space-8); align-items: center; }
-.address-row input { flex: 1; min-width: 0; width: auto; }
-.address-row button { flex: none; }
-.address .help { display: block; margin-top: var(--space-6); }
 
 /* Scene tiles: a scene's palette as a gradient, or its picture, under a scrim that keeps the name readable. */
 .scene-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 168px), 1fr)); gap: var(--space-10); margin-bottom: 28px; }
@@ -27149,12 +27072,9 @@ select option:disabled { color: var(--muted); }
 
 @media (max-width: 640px) {
   .speed-scale { display: none; }
-  .pair-prompt { grid-template-columns: auto minmax(0, 1fr); }
-  .pair-prompt > button { grid-column: 1 / -1; justify-self: end; }
 }
 @media (prefers-reduced-motion: reduce) {
   .tab-pane { animation: none; }
-  .pairing .link-button { animation: none; }
   .scene { transition: none; }
 }
 

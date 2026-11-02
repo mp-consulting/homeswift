@@ -8,7 +8,7 @@ extension PhilipsHuePlugin {
   "pluginAlias": "PhilipsHue",
   "pluginType": "platform",
   "singular": false,
-  "headerDisplay": "Philips Hue lights, scenes and effects through a Hue Bridge on your network (its local API v2). The first start pairs: press the bridge's link button when the log asks.",
+  "headerDisplay": "Philips Hue lights, scenes and effects through a Hue Bridge on your network (its local API v2). Pair it on Add accessories: press the bridge's link button when asked.",
   "schema": {
     "type": "object",
     "properties": {

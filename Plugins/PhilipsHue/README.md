@@ -25,10 +25,14 @@ authors.
 }
 ```
 
-That is enough: the plugin finds the bridge on the network (mDNS `_hue._tcp`, else Philips' discovery service) and,
-the first time, pairs with it. Press the round link button on top of the bridge when the log, or the plugin's page,
-asks; the application key is kept in the plugin's folder (`plugins/PhilipsHue-<name>/bridge.json`), never in
-config.json, with the bridge's certificate pinned on first use. One block per bridge.
+That is enough: the bridge is set up on the web UI's **Add accessories** page (Setup: the bridge is the instance's
+account, authorized by a Button Press), or by an AI agent through the MCP server's `start_setup`. Setup finds the
+bridge on the network (mDNS `_hue._tcp`, else Philips' discovery service), or asks for its address, then asks for a
+press on the round link button on top of the bridge within a minute. The plugin's page leads there while the bridge is
+not set up, and its ⋯ menu's **Pair again** once it is. The application key is kept sealed in the bridge's vault
+(`vault.json`, docs/vault-design.md; `plugins/PhilipsHue-<name>/bridge.json` before, which moves there when the plugin
+reads it), never in config.json, with the bridge's certificate pinned on first use. Without a key the plugin waits for
+Setup: it pairs nowhere else. One block per bridge.
 
 | Option | Default | What it does |
 |---|---|---|
@@ -99,8 +103,9 @@ flows as smoothly as in the Hue app; Off stops it. Flash uses the bridge's signa
 
 ## The web page
 
-With the web UI on, the plugin's page shows the bridge (its address, id, how many lights, sensors and scenes, **Pair**
-with a countdown for the link button, and its address to change), then four tabs:
+With the web UI on, the plugin's page shows the bridge (its address, id, how many lights, sensors and scenes, and
+**Pair again** in its ⋯ menu, which opens its Setup on Add accessories; until it is set up, a card leading there),
+then four tabs:
 
 - **Lights**: every light drawn by the Accessories page's own widgets (power, brightness, colours, white; effects and
   the rest in All controls), with **Identify**, **Leave out of the Home app** and its log in each widget's menu. They

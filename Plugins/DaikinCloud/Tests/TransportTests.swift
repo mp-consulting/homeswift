@@ -241,9 +241,16 @@ struct TransportTests {
         try await occupier.close()
         await #expect(throws: CallbackServer.Superseded.self) { try await start.value }
         #expect(!server.isRunning)
-        // The port is free: nothing bound it behind the stop.
-        let probe = try await ServerBootstrap(group: MultiThreadedEventLoopGroup.singleton).bind(host: "127.0.0.1", port: port).get()
-        try await probe.close()
+        // The port is free: nothing bound it behind the stop. On Linux the kernel can hand the freed port to another
+        // test's bind for a moment, so the probe tries again rather than failing on the first refusal.
+        #expect(server.port == nil)
+        #expect(await eventually(timeout: .seconds(5)) {
+            guard let probe = try? await ServerBootstrap(group: MultiThreadedEventLoopGroup.singleton)
+                .serverChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
+                .bind(host: "127.0.0.1", port: port).get() else { return false }
+            try? await probe.close()
+            return true
+        })
     }
 
     @Test func loopbackAndBindAddresses() {
