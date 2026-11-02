@@ -13,7 +13,7 @@ import Logging
 /// `transitionMs`, so moods and the Home app change colour and brightness together, as fast as the bridge allows.
 ///
 /// The bridge is the instance's account (Setup, `HueSetup.swift`): a Button Press on its link button, from the
-/// Add accessories page, the plugin's page or the log at first start; its application key is kept in the vault, never
+/// Add accessories page (or an AI agent's `start_setup`) or the log at first start; its application key is kept in the vault, never
 /// in config.json. Changes made elsewhere (the
 /// Hue app, a dimmer switch) are read every `pollingInterval` seconds in one request. See README.md in this directory.
 public actor PhilipsHuePlugin: HomeswiftPlugin {
@@ -103,7 +103,6 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     var snapshot = HueSnapshot()
     private(set) var lastError: String?
     private var pairing: Task<Bool, Never>?
-    private var pairingDeadline: ContinuousClock.Instant?
     /// The task that finds the bridge and polls it.
     private var poller: Task<Void, Never>?
     /// Counts reads of the bridge: a read that finishes after a later one began (the poll's, overtaken by the one after
@@ -216,13 +215,13 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     /// Finds the bridge, pairs when there is no key, then polls.
     private func run() async {
         guard let host = await bridgeHost() else {
-            lastError = "No Hue Bridge found on the network: set its address on the plugin's page."
-            logger.warning("No Hue Bridge found on the network; set host in the PhilipsHue block or on the plugin's page")
+            lastError = "No Hue Bridge found on the network: set it up on Add accessories."
+            logger.warning("No Hue Bridge found on the network; set it up on Add accessories, or set host in the PhilipsHue block")
             return
         }
         connect(host: host)
         if stored.applicationKey == nil {
-            logger.info("Press the link button on the Hue Bridge at \(host) to pair (the plugin waits a minute; its page can pair again)")
+            logger.info("Press the link button on the Hue Bridge at \(host) to pair (the plugin waits a minute; Add accessories can pair again)")
             guard await pair() else { return }
         }
         // The event stream beside the polls: button presses, and every change at once.
@@ -244,12 +243,12 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         if stored.host != host, stored.host != nil {
             // Another bridge, or the same one at a new address: its certificate is trusted again on first use. The key
             // is never sent to an address that is not already trusted (a bridge ID is public, so it proves nothing): the
-            // plugin pairs again from its page.
+            // bridge is set up again (Setup).
             if configuration.host != nil { trust.reset() }
             if stored.applicationKey != nil {
                 stored.applicationKey = nil
-                logger.warning("The Hue Bridge address changed to \(host): pair with it from the plugin's page")
-                lastError = "The Hue Bridge address changed: pair with it from the plugin's page."
+                logger.warning("The Hue Bridge address changed to \(host): set it up again on Add accessories")
+                lastError = "The Hue Bridge address changed: set it up again on Add accessories."
             }
         }
         stored.host = host
@@ -271,8 +270,8 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
 
     // MARK: Pairing
 
-    /// Asks the bridge for a key once: `linkButtonNotPressed` until its button is pressed. Setup (`HueSetup.swift`), the
-    /// page and the first start all pair through it.
+    /// Asks the bridge for a key once: `linkButtonNotPressed` until its button is pressed. Setup (`HueSetup.swift`) and
+    /// the first start both pair through it.
     static func requestKey(_ client: HueClient) async throws -> (key: String, bridgeID: String?) {
         let key = try await client.pair(deviceType: "homeswift#\(ProcessInfo.processInfo.hostName.prefix(19))")
         return (key, (try? await client.configuration())?["bridgeid"]?.stringValue)
@@ -294,8 +293,6 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     private func pairLoop() async -> Bool {
         guard let client else { return false }
         let deadline = ContinuousClock.now + Self.pairingWindow
-        pairingDeadline = deadline
-        defer { pairingDeadline = nil }
         while ContinuousClock.now < deadline, !Task.isCancelled {
             do {
                 let (key, bridgeID) = try await Self.requestKey(client)
@@ -314,8 +311,8 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
             try? await Task.sleep(for: dependencies.pairingRetryDelay)
         }
         if stored.applicationKey == nil {
-            lastError = "The link button was not pressed in time: pair again from the plugin's page."
-            logger.warning("The Hue Bridge's link button was not pressed in time; pair again from the plugin's page")
+            lastError = "The link button was not pressed in time: set the bridge up again on Add accessories."
+            logger.warning("The Hue Bridge's link button was not pressed in time; set it up again on Add accessories")
         }
         return stored.applicationKey != nil
     }
@@ -334,8 +331,8 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
             lastReadDropped = read != refreshes
             guard !lastReadDropped else { return }
         } catch HueClient.Failure.unauthorized {
-            lastError = "The Hue Bridge refused the application key: pair again from the plugin's page."
-            logger.warning("The Hue Bridge refused the application key; pair again from the plugin's page")
+            lastError = "The Hue Bridge refused the application key: set it up again on Add accessories."
+            logger.warning("The Hue Bridge refused the application key; set it up again on Add accessories")
             stored.applicationKey = nil
             await client.setApplicationKey(nil)
             save()
@@ -711,40 +708,6 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     // MARK: State for the page
 
     var storedBridge: StoredBridge { stored }
-    var isPairing: Bool { pairing != nil }
-    /// The seconds left to press the link button, whoever started the pairing (the page, or the plugin at start).
-    var pairingSecondsLeft: Int? {
-        guard let pairingDeadline else { return nil }
-        let left = (pairingDeadline - ContinuousClock.now).components
-        return max(0, Int(left.seconds) + (left.attoseconds > 0 ? 1 : 0))
-    }
-
-    /// Points the plugin at another bridge address (the page's), keeping the key when it is the same bridge.
-    func use(host: String) async {
-        poller?.cancel()
-        if stored.host != host {
-            trust.reset()
-            if stored.applicationKey != nil {
-                stored.applicationKey = nil
-                lastError = "The Hue Bridge address changed: pair with it from the plugin's page."
-            }
-        }
-        stored.host = host
-        save()
-        restart()
-    }
-
-    func startPairing() async -> Bool {
-        if client == nil, let host = await bridgeHost() { connect(host: host) }
-        let paired = await pair()
-        if paired {
-            await client?.setApplicationKey(stored.applicationKey)
-            restart()
-        }
-        return paired
-    }
-
-    func discoverHosts() async -> [String] { await dependencies.discover() }
 
     /// Makes a light or a sensor show itself (a light blinks, a sensor's LED flashes): its device's identify. `id` is
     /// a light's id or a sensor device's.

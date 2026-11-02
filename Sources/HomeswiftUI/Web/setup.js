@@ -456,7 +456,7 @@
         session = answer.session;
         const prompt = answer.prompt;
         if (!prompt.waitSeconds) until = 0;
-        const error = answer.error ? el("p", { class: "error", role: "alert", text: answer.error }) : null;
+        const error = answer.error ? el("p", { class: "error", role: "alert", text: HomeswiftI18n.message(answer.error) }) : null;
         const cancel = el("button", { type: "button", actionIcon: "close", text: t("Cancel"), onclick: () => dismiss() });
         // A wait (a Button Press, a sign-in in another tab): a countdown, and the step sent again every few seconds until
         // the plugin is done. A retry that brings the same prompt back leaves the sheet as it is, and what is typed in it.

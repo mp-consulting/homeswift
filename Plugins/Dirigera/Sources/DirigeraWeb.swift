@@ -3,9 +3,8 @@ import Homeswift
 import HomeswiftPlugin
 
 extension DirigeraPlugin {
-    /// The page's routes (`Web/`): `GET hubs` each hub with its state, `GET discover` the hubs on the network,
-    /// `POST pair` and `POST unpair` a hub, `GET devices` and `GET scenes`, `POST trigger` a scene, `POST identify` a
-    /// device; `GET scene-picture`, `POST scene-picture` and
+    /// The page's routes (`Web/`): `GET hubs` each hub with its state (paired through Setup, `DirigeraSetup.swift`, not
+    /// here), `GET devices` and `GET scenes`, `POST trigger` a scene, `POST identify` a device; `GET scene-picture`, `POST scene-picture` and
     /// `POST scene-picture-remove` the picture a person gave a scene.
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
         if let response = pictures.handle(request) { return response }
@@ -17,27 +16,11 @@ extension DirigeraPlugin {
                 let status = await hubStatus(host)
                 list.append([
                     "host": .string(host), "name": configuration.hubs?.first { $0.host == host }?.name.map(JSONValue.string) ?? .null,
-                    "paired": .bool(status.paired), "connected": .bool(status.connected), "pairing": .bool(status.pairing),
-                    "pairingSecondsLeft": status.pairingSecondsLeft.map { .number(Double($0)) } ?? .null,
+                    "paired": .bool(status.paired), "connected": .bool(status.connected),
                     "error": status.error.map(JSONValue.string) ?? .null, "devices": .number(Double(status.devices)), "scenes": .number(Double(status.scenes)),
-                    "inConfig": .bool(configuration.hubs?.contains { $0.host == host } ?? false),
                 ])
             }
             return PluginWebResponse(["hubs": .array(list)])
-        case ("GET", "discover"):
-            return PluginWebResponse(["hosts": .array(await discoverHosts().map(JSONValue.string))])
-        case ("POST", "pair"):
-            guard let host, !host.isEmpty else { return .error(400, "an address is required") }
-            do {
-                try await pair(host: host)
-            } catch DirigeraClient.Failure.buttonNotPressed {
-                return .error(409, "The action button was not pressed in time.")
-            }
-            return PluginWebResponse(["paired": .string(host)])
-        case ("POST", "unpair"):
-            guard let host else { return .error(400, "an address is required") }
-            await unpair(host: host)
-            return PluginWebResponse(["unpaired": .string(host)])
         case ("GET", "devices"):
             var list: [JSONValue] = []
             for (host, hub) in hubs.sorted(by: { $0.key < $1.key }) {

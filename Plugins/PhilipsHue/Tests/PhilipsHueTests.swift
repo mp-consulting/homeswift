@@ -42,6 +42,7 @@ final class FakeBridge: HueTransport, @unchecked Sendable {
     var sent: [Sent] { state.withLockedValue { $0.sent } }
     var puts: [Sent] { sent.filter { $0.method == "PUT" } }
     func pressLinkButton() { state.withLockedValue { $0.linkButton = true } }
+    func releaseLinkButton() { state.withLockedValue { $0.linkButton = false } }
     func refuseKey() { state.withLockedValue { $0.refuseKey = true } }
     /// Answers `/api/config` as another bridge would.
     func answer(asBridge id: String) { state.withLockedValue { $0.bridgeID = id } }
@@ -278,16 +279,18 @@ struct PhilipsHueTests {
 
     /// At a new address the key goes only to the same bridge: another one there loses it, and pairing starts over.
     /// A bridge ID is public, so an address that changes never gets the key: it is dropped, and no resource is read
-    /// with it until the page pairs again.
+    /// with it until Setup pairs again.
     @Test func aMovedBridgeLosesItsKeyUntilPairedAgain() async throws {
-        let host = try await environment.start()
-        _ = try await accessory(host, stripID)
+        let first = try await environment.start()
+        _ = try await accessory(first, stripID)
+        #expect(await eventually { await environment.plugin?.storedBridge.bridgeID != nil })
+        await first.stop()
+        environment.bridge.releaseLinkButton()
+        let host = try await environment.start(settings: ["host": "192.0.2.11"], paired: false)
         let plugin = try #require(environment.plugin)
-        #expect(await eventually { await plugin.storedBridge.bridgeID != nil })
-        await plugin.use(host: "192.0.2.11")
-        #expect(await eventually { await plugin.storedBridge.applicationKey == nil })
-        // Nothing the plugin sends to the new address carries the dropped key (it waits for Setup to pair again). A read
-        // already on its way to the old address may still land there, so only the new address's requests count: the
+        #expect(await eventually { await plugin.storedBridge.host == "192.0.2.11" })
+        #expect(await plugin.storedBridge.applicationKey == nil)
+        // Nothing the plugin sends to the new address carries the dropped key (it waits for the link button). The
         // window can miss a late request, never fail on an early one.
         try await Task.sleep(for: .milliseconds(500))
         #expect(!environment.bridge.sent.contains { $0.host == "192.0.2.11" && $0.key != nil })
@@ -654,6 +657,10 @@ struct PhilipsHueTests {
         let status = try await plugin.handleWebRequest(PluginWebRequest(method: "GET", path: "status", user: "admin"))
         #expect(status.json["paired"] == true)
         #expect(status.json["host"] == "192.0.2.10")
+        // Pairing is Setup's: the page has no route of its own for it.
+        for (method, path) in [("POST", "pair"), ("POST", "host"), ("GET", "discover")] {
+            #expect(try await plugin.handleWebRequest(PluginWebRequest(method: method, path: path, body: ["host": "192.0.2.11"], user: "admin")).status == 404)
+        }
         let lights = try await plugin.handleWebRequest(PluginWebRequest(method: "GET", path: "lights", user: "admin"))
         let strip = try #require(lights.json["lights"]?.arrayValue?.first { $0["id"] == "light-1" })
         #expect(strip["kind"] == "colour")
