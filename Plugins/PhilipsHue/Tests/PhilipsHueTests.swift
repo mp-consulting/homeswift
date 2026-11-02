@@ -369,7 +369,9 @@ struct PhilipsHueTests {
     /// A light with brightness and white temperature has Adaptive Lighting: the controller sets the white through the
     /// bridge, a read that finds that white keeps it, a colour set in the Hue app stops it.
     @Test func adaptiveLightingFollowsTheBridgeAndStopsOnChangesElsewhere() async throws {
-        let host = try await environment.start(settings: ["host": "192.0.2.10", "transitionMs": 0])
+        // No poll of its own: one landing between the write and the bridge taking it would read the old white as a change
+        // made elsewhere, on a slow machine.
+        let host = try await environment.start(settings: ["host": "192.0.2.10", "transitionMs": 0, "pollingInterval": 60])
         let bulb = try #require(try await accessory(host, deskID).service(.lightbulb))
         let controller = try #require(bulb.adaptiveLighting)
         try controller.activateForTesting()
@@ -805,7 +807,8 @@ struct HueSensorTests {
     /// A press on the event stream fires its switch once, the same press twice fires twice, and a read that sees the
     /// press again fires nothing more.
     @Test func theEventStreamFiresButtonsAndShowsMotion() async throws {
-        let host = try await environment.start()
+        // No poll of its own: one landing after an event, on a slow machine, would undo the motion it brought.
+        let host = try await environment.start(settings: ["host": "192.0.2.10", "pollingInterval": 60])
         let dimmer = try await accessory(host, dimmerID)
         let sensor = try await accessory(host, sensorID)
         #expect(await eventually { environment.bridge.openStreams > 0 })
