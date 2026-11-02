@@ -361,53 +361,17 @@ struct PluginTests {
         await host.stop()
     }
 
-    // MARK: The setup page
-
-    @Test func setupSignInWithACode() async throws {
-        environment.server.set("InitiateAuth", .init(body: ["ChallengeName": "CUSTOM_CHALLENGE", "Session": "cognito-session"]))
-        environment.server.set("RespondToAuthChallenge", .init(body: ["AuthenticationResult": ["IdToken": "id-token", "RefreshToken": "new-refresh", "AccessToken": "access"]]))
-        environment.server.set("/mobapi/serial-numbers/getRobotDetailsByRobotSN/", .init(body: [
-            "Status": "1", "Data": ["PARTDES": "Dolphin M400", "originalUrlImage": "https://images.example.com/m400.png"],
-        ]))
-        environment.server.set("/m400.png", .init(body: "image", headers: [("Content-Type", "image/png")]))
-        let host = try await environment.start(settings: [:])
-
-        let first = try await environment.request("POST", "authenticate", body: ["email": "owner@example.com"])
-        #expect(first.json == ["success": false, "requiresOtp": true, "challengeName": "CUSTOM_CHALLENGE", "message": "Please enter the verification code sent to your email"])
-        let initiate = try #require(environment.server.requests(to: "InitiateAuth").first.flatMap(environment.server.json(of:)))
-        #expect(initiate["AuthFlow"] == "CUSTOM_AUTH")
-        #expect(initiate["AuthParameters"] == ["USERNAME": "owner@example.com"])
-
-        let second = try await environment.request("POST", "verify-otp", body: ["email": "owner@example.com", "otpCode": "123456"])
-        #expect(second.json["success"] == true)
-        #expect(second.json["serialNumber"] == "E3086OFG2M")
-        #expect(second.json["robotName"] == "Pool Bot")
-        #expect(second.json["deviceType"] == 62)
-        #expect(second.json["model"] == "Dolphin M400")
-        #expect(second.json["robotImageUrl"] == "https://images.example.com/m400.png")
-        #expect(second.json["refreshToken"] == "new-refresh")
-        // The short-lived tokens stay on the server.
-        #expect(second.json["idToken"] == nil)
-        let respond = try #require(environment.server.requests(to: "RespondToAuthChallenge").first.flatMap(environment.server.json(of:)))
-        #expect(respond["ChallengeName"] == "CUSTOM_CHALLENGE")
-        #expect(respond["Session"] == "cognito-session")
-        #expect(respond["ChallengeResponses"] == ["USERNAME": "owner@example.com", "ANSWER": "123456"])
-
-        // The picture, kept for the page.
-        let image = try await environment.request("GET", "image", query: ["serial": "E3086OFG2M"])
-        #expect(image.json["dataURL"]?.stringValue?.hasPrefix("data:image/png;base64,") == true)
-
-        // The session is used up.
-        let again = try await environment.request("POST", "verify-otp", body: ["email": "owner@example.com", "otpCode": "123456"])
-        #expect(again.json["error"] == "No pending authentication. Please try again.")
-        await host.stop()
-    }
+    // MARK: Setup
 
     /// Setup: the email, then the code, with Cognito's session carried by the Setup rather than the plugin; the refresh
     /// token goes to the vault (the bridge saves the outcome's credentials), and the next launch signs in with it.
     @Test func setsUpTheAccountThroughSetup() async throws {
         environment.server.set("InitiateAuth", .init(body: ["ChallengeName": "CUSTOM_CHALLENGE", "Session": "cognito-session"]))
         environment.server.set("RespondToAuthChallenge", .init(body: ["AuthenticationResult": ["IdToken": "id-token", "RefreshToken": "new-refresh", "AccessToken": "access"]]))
+        environment.server.set("/mobapi/serial-numbers/getRobotDetailsByRobotSN/", .init(body: [
+            "Status": "1", "Data": ["PARTDES": "Dolphin M400", "originalUrlImage": "https://images.example.com/m400.png"],
+        ]))
+        environment.server.set("/m400.png", .init(body: "image", headers: [("Content-Type", "image/png")]))
         let host = try await environment.start(settings: [:])
         let plugin = try #require(environment.plugin)
         guard case .ask(let first, _) = try await plugin.authorize(SetupRequest(target: .account)) else { Issue.record("expected the email"); return }
@@ -416,14 +380,24 @@ struct PluginTests {
             Issue.record("expected the code"); return
         }
         #expect(code.fields.map(\.key) == ["code"])
+        #expect(code.message == "Enter the code sent to your email.")
         #expect(state["session"] == "cognito-session")
+        let initiate = try #require(environment.server.requests(to: "InitiateAuth").first.flatMap(environment.server.json(of:)))
+        #expect(initiate["AuthFlow"] == "CUSTOM_AUTH")
+        #expect(initiate["AuthParameters"] == ["USERNAME": "owner@example.com"])
         guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .account, answers: ["code": "123456"], state: state)) else {
             Issue.record("expected done"); return
         }
         #expect(outcome.credentials == ["refreshToken": "new-refresh"])
         #expect(outcome.settings == ["email": "owner@example.com"])
         let respond = try #require(environment.server.requests(to: "RespondToAuthChallenge").first.flatMap(environment.server.json(of:)))
+        #expect(respond["ChallengeName"] == "CUSTOM_CHALLENGE")
+        #expect(respond["Session"] == "cognito-session")
         #expect(respond["ChallengeResponses"] == ["USERNAME": "owner@example.com", "ANSWER": "123456"])
+
+        // The robot's picture, kept for the page.
+        let image = try await environment.request("GET", "image", query: ["serial": "E3086OFG2M"])
+        #expect(image.json["dataURL"]?.stringValue?.hasPrefix("data:image/png;base64,") == true)
 
         let context = try #require(host.context(platform: DolphinPoolCleanerPlugin.platform, name: host.platforms.first?.name))
         try context.saveCredentials(outcome.credentials ?? .null)
@@ -433,29 +407,44 @@ struct PluginTests {
 
     @Test func setupErrors() async throws {
         let host = try await environment.start(settings: [:])
-        #expect(try await environment.request("POST", "authenticate", body: [:]).json["error"] == "Email is required")
-        #expect(try await environment.request("POST", "verify-otp", body: ["email": "a@b.c"]).json["error"] == "Email and OTP code are required")
+        let plugin = try #require(environment.plugin)
+        func signIn(_ answers: [String: String] = ["email": "a@b.c"], state: JSONValue = .null) async throws -> SetupStep {
+            try await plugin.authorize(SetupRequest(target: .account, answers: answers, state: state))
+        }
 
         environment.server.cognitoError("InitiateAuth", type: "UserNotFoundException", message: "User does not exist.")
-        #expect(try await environment.request("POST", "authenticate", body: ["email": "a@b.c"]).json["error"] == "User not found. Please check your email address.")
+        await #expect(throws: SetupError("User not found. Please check your email address.")) { _ = try await signIn() }
 
         environment.server.set("InitiateAuth", .init(body: ["ChallengeName": "SMS_MFA", "Session": "s"]))
-        #expect(try await environment.request("POST", "authenticate", body: ["email": "a@b.c"]).json["message"] == "Please enter the verification code sent to your phone")
+        guard case .ask(let prompt, let state) = try await signIn() else { Issue.record("expected the code"); return }
+        #expect(prompt.message == "Enter the code sent to your phone.")
+        await #expect(throws: SetupError("Enter the code")) { _ = try await signIn([:], state: state) }
         environment.server.cognitoError("RespondToAuthChallenge", type: "CodeMismatchException", message: "Invalid code.")
-        #expect(try await environment.request("POST", "verify-otp", body: ["email": "a@b.c", "otpCode": "1"]).json["error"] == "Invalid verification code")
+        await #expect(throws: SetupError("Invalid verification code")) { _ = try await signIn(["code": "1"], state: state) }
         let sms = try #require(environment.server.requests(to: "RespondToAuthChallenge").last.flatMap(environment.server.json(of:)))
         #expect(sms["ChallengeResponses"]?["SMS_MFA_CODE"] == "1")
 
+        environment.server.set("InitiateAuth", .init(body: ["ChallengeName": "MFA_SETUP", "Session": "s"]))
+        await #expect(throws: SetupError("Set up two-factor authentication in the MyDolphin app first")) { _ = try await signIn() }
+
         environment.server.set("InitiateAuth", .init(status: 503, body: [:]))
-        #expect(try await environment.request("POST", "authenticate", body: ["email": "a@b.c"]).json["error"] == "Cognito service error: HTTP 503")
+        await #expect(throws: SetupError("Cognito service error: HTTP 503")) { _ = try await signIn() }
 
         environment.server.set("InitiateAuth", .init(body: ["AuthenticationResult": ["IdToken": "id"]]))
         environment.server.set("/mobapi/user/authenticate-user/", .init(body: ["Status": "0", "Alert": "No robot on this account"]))
-        #expect(try await environment.request("POST", "authenticate", body: ["email": "a@b.c"]).json["error"] == "No robot on this account")
+        await #expect(throws: SetupError("No robot on this account")) { _ = try await signIn() }
 
         environment.server.set("/mobapi/user/authenticate-user/", .init(status: 502, body: [:]))
-        #expect(try await environment.request("POST", "authenticate", body: ["email": "a@b.c"]).json["error"] == "Maytronics API error: HTTP 502")
+        await #expect(throws: SetupError("Maytronics API error: HTTP 502")) { _ = try await signIn() }
+        await host.stop()
+    }
 
+    /// The page reads; signing in is Setup's, so the Homebridge page's sign-in routes are gone.
+    @Test func pageRoutes() async throws {
+        let host = try await environment.start(settings: [:])
+        #expect(try await environment.request("POST", "authenticate", body: ["email": "a@b.c"]).status == 404)
+        #expect(try await environment.request("POST", "verify-otp", body: ["email": "a@b.c", "otpCode": "1"]).status == 404)
+        #expect(try await environment.request("GET", "robots").json["status"] == "notConfigured")
         #expect(try await environment.request("GET", "image", query: ["serial": "NONE"]).json["dataURL"] == .null)
         #expect(try await environment.request("GET", "image").status == 400)
         #expect(try await environment.request("GET", "nothing").status == 404)
@@ -496,10 +485,11 @@ struct AssistantActionTests {
         #expect(!background.isEmpty)
         #expect(!background.contains("Homebridge"))
         // The messages it names are the ones the port gives.
-        for message in ["Invalid email or password", "Verification code has expired. Please try again.", "Session expired. Please try again.",
+        for message in ["Invalid email or password", "Verification code has expired. Please try again.",
+                        "Set up two-factor authentication in the MyDolphin app first",
                         "Refresh token expired. Please re-authenticate through the plugin settings."] {
             #expect(background.contains(message))
         }
-        #expect(SetupWizard.errorMessages.allSatisfy { background.contains($0.message) })
+        #expect(SetupSignIn.errorMessages.allSatisfy { background.contains($0.message) })
     }
 }
