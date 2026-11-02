@@ -704,7 +704,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 }
 .ai-head { display: flex; align-items: center; gap: var(--space-8); margin-bottom: var(--space-8); font-size: var(--text-sm); color: var(--muted); }
 .ai-label { font-weight: var(--weight-semibold); letter-spacing: 0.01em; }
-.ai-close { padding: 0; width: 26px; height: 26px; display: grid; place-items: center; font-size: var(--text-lg); line-height: 1; border-radius: 50%; }
+.ai-close { padding: 0; width: 26px; height: 26px; min-height: 26px; display: grid; place-items: center; font-size: var(--text-lg); line-height: 1; border-radius: 50%; }
 .ai-thinking {
   margin: var(--space-4) 0 var(--space-6); font-weight: var(--weight-medium); background: linear-gradient(90deg, var(--muted) 20%, var(--text) 50%, var(--muted) 80%);
   background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: ai-shimmer 1.8s linear infinite;
@@ -1964,7 +1964,7 @@ dd { margin: 0; }
   font: inherit; white-space: pre-wrap; line-height: 1.4;
 }
 .chat-composer textarea:focus { box-shadow: none; }
-.chat-mic, .chat-send { flex: none; width: 34px; height: 34px; padding: 0; display: grid; place-items: center; border-radius: 50%; }
+.chat-mic, .chat-send { flex: none; width: 34px; height: 34px; min-height: 34px; padding: 0; display: grid; place-items: center; border-radius: 50%; }
 .chat-mic { border-color: transparent; background: none; box-shadow: none; color: var(--muted); }
 .chat-mic:hover { color: var(--text); background: var(--material-thin); }
 .chat-mic.unavailable { opacity: 0.45; }
@@ -2291,7 +2291,7 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
   transition: opacity var(--normal) var(--ease-out);
 }
 .camera-button {
-  display: inline-grid; place-items: center; width: 34px; height: 34px; padding: 0; border-radius: 50%; color: #fff;
+  display: inline-grid; place-items: center; width: 34px; height: 34px; min-height: 34px; padding: 0; border-radius: 50%; color: #fff;
   background: rgba(30, 32, 40, 0.42); -webkit-backdrop-filter: blur(14px) saturate(160%); backdrop-filter: blur(14px) saturate(160%);
   border: 1px solid rgba(255, 255, 255, 0.18); box-shadow: none;
 }
@@ -2311,7 +2311,7 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
   .camera-controls { opacity: 0; }
   .camera-view:hover > .camera-controls, .camera-view:focus-within > .camera-controls { opacity: 1; }
 }
-@media (pointer: coarse) { .camera-button { width: 40px; height: 40px; } }
+@media (pointer: coarse) { .camera-button { width: 40px; height: 40px; min-height: 40px; } }
 @media (max-width: 640px) { .camera-view { margin: -6px -8px 0; } }
 @media (prefers-reduced-motion: reduce) { .camera-badge.ring.fresh { animation: none; } .camera-view > video, .camera-controls { transition: none; } }
 @media (prefers-reduced-transparency: reduce) {
@@ -3741,6 +3741,10 @@ select option:disabled { color: var(--muted); }
 @media (prefers-reduced-motion: reduce) {
   .setup-instance.just-added { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); }
 }
+/* The page's two ways to add: each label on one line, the two side by side on a phone. */
+.setup-assistant, .page-head .tools > .primary { white-space: nowrap; }
+@media (max-width: 560px) { .page-head:has(.setup-assistant) .tools { width: 100%; } .page-head:has(.setup-assistant) .tools > button { flex: 1; } }
+
 /* A plugin in use: one row, its name and where its devices stand; the whole row opens it on its devices. */
 .setup-list > .setup-instance { padding: 0; }
 .setup-instance-head { display: flex; align-items: center; gap: var(--space-10); padding-right: var(--space-18); border-radius: inherit; }

@@ -14160,10 +14160,10 @@ HomeswiftI18n.add("es", {
   "Open a plugin to set up its devices, or add one for another brand.": "Abre un plugin para configurar sus dispositivos, o añade uno para otra marca.",
   "Not set up yet": "Aún sin configurar",
   "No devices found": "No se encontraron dispositivos",
-  "Set up with the Assistant": "Configurar con el Asistente",
   "Help me add my accessories: ": "Ayúdame a añadir mis accesorios: ",
   "This step continues in the Setup sheet.": "Este paso sigue en la ventana de configuración.",
   "Continue in the Setup sheet": "Continuar en la ventana de configuración",
+  "The Assistant is not set up yet: it needs an AI provider and its key. Set it up now?": "El Asistente aún no está configurado: necesita un proveedor de IA y su clave. ¿Configurarlo ahora?",
   "Your plugins": "Tus plugins",
   "Search your plugins": "Buscar en tus plugins",
   "Sort your plugins": "Ordenar tus plugins",
@@ -16864,10 +16864,10 @@ HomeswiftI18n.add("fr", {
   "Open a plugin to set up its devices, or add one for another brand.": "Ouvrez un plugin pour configurer ses appareils, ou ajoutez-en un pour une autre marque.",
   "Not set up yet": "Pas encore configuré",
   "No devices found": "Aucun appareil trouvé",
-  "Set up with the Assistant": "Configurer avec l'Assistant",
   "Help me add my accessories: ": "Aide-moi à ajouter mes accessoires : ",
   "This step continues in the Setup sheet.": "Cette étape se poursuit dans la fenêtre de configuration.",
   "Continue in the Setup sheet": "Continuer dans la fenêtre de configuration",
+  "The Assistant is not set up yet: it needs an AI provider and its key. Set it up now?": "L'Assistant n'est pas encore configuré : il lui faut un fournisseur d'IA et sa clé. Le configurer maintenant ?",
   "Your plugins": "Vos plugins",
   "Search your plugins": "Rechercher dans vos plugins",
   "Sort your plugins": "Trier vos plugins",
@@ -19568,10 +19568,10 @@ HomeswiftI18n.add("pt", {
   "Open a plugin to set up its devices, or add one for another brand.": "Abra um plugin para configurar os seus dispositivos, ou adicione um para outra marca.",
   "Not set up yet": "Ainda não configurado",
   "No devices found": "Nenhum dispositivo encontrado",
-  "Set up with the Assistant": "Configurar com o Assistente",
   "Help me add my accessories: ": "Ajuda-me a adicionar os meus acessórios: ",
   "This step continues in the Setup sheet.": "Este passo continua na janela de configuração.",
   "Continue in the Setup sheet": "Continuar na janela de configuração",
+  "The Assistant is not set up yet: it needs an AI provider and its key. Set it up now?": "O Assistente ainda não está configurado: precisa de um fornecedor de IA e da sua chave. Configurá-lo agora?",
   "Your plugins": "Os seus plugins",
   "Search your plugins": "Pesquisar nos seus plugins",
   "Sort your plugins": "Ordenar os seus plugins",
@@ -22688,8 +22688,11 @@ HomeswiftI18n.add("pt", {
     // The plugins in use, one row each, and a way to add another; before any, the brands to start from.
     const add = el("button", { type: "button", class: "primary", actionIcon: "plus", text: t("Add a plugin"), onclick: (event) => pickPlugin(plugins, event.currentTarget) });
     // Or the Assistant does it: it finds the plugin, starts the Setup and hands the steps with a secret back to the sheet.
-    const assistant = window.HomeswiftChat?.available()
-      ? el("button", { type: "button", actionIcon: "sparkle", text: t("Set up with the Assistant"), onclick: () => HomeswiftChat.ask(t("Help me add my accessories: ")) }) : null;
+    // Always shown: without an Assistant yet, it leads to setting one up (a provider and its key).
+    const assistant = el("button", { type: "button", actionIcon: "sparkle", class: "setup-assistant", text: t("Ask the Assistant"), onclick: async () => {
+      if (window.HomeswiftChat?.available()) { HomeswiftChat.ask(t("Help me add my accessories: ")); return; }
+      if (await HomeswiftCommon.confirmDialog(t("The Assistant is not set up yet: it needs an AI provider and its key. Set it up now?"))) app().navigate("/plugins/add/HomeswiftAiKit");
+    } });
     app().show(main,
       cards.length
         ? app().pageHead(t("Add accessories"), t("Open a plugin to set up its devices, or add one for another brand."), assistant, add)
@@ -23902,7 +23905,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 }
 .ai-head { display: flex; align-items: center; gap: var(--space-8); margin-bottom: var(--space-8); font-size: var(--text-sm); color: var(--muted); }
 .ai-label { font-weight: var(--weight-semibold); letter-spacing: 0.01em; }
-.ai-close { padding: 0; width: 26px; height: 26px; display: grid; place-items: center; font-size: var(--text-lg); line-height: 1; border-radius: 50%; }
+.ai-close { padding: 0; width: 26px; height: 26px; min-height: 26px; display: grid; place-items: center; font-size: var(--text-lg); line-height: 1; border-radius: 50%; }
 .ai-thinking {
   margin: var(--space-4) 0 var(--space-6); font-weight: var(--weight-medium); background: linear-gradient(90deg, var(--muted) 20%, var(--text) 50%, var(--muted) 80%);
   background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: ai-shimmer 1.8s linear infinite;
@@ -25162,7 +25165,7 @@ dd { margin: 0; }
   font: inherit; white-space: pre-wrap; line-height: 1.4;
 }
 .chat-composer textarea:focus { box-shadow: none; }
-.chat-mic, .chat-send { flex: none; width: 34px; height: 34px; padding: 0; display: grid; place-items: center; border-radius: 50%; }
+.chat-mic, .chat-send { flex: none; width: 34px; height: 34px; min-height: 34px; padding: 0; display: grid; place-items: center; border-radius: 50%; }
 .chat-mic { border-color: transparent; background: none; box-shadow: none; color: var(--muted); }
 .chat-mic:hover { color: var(--text); background: var(--material-thin); }
 .chat-mic.unavailable { opacity: 0.45; }
@@ -25489,7 +25492,7 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
   transition: opacity var(--normal) var(--ease-out);
 }
 .camera-button {
-  display: inline-grid; place-items: center; width: 34px; height: 34px; padding: 0; border-radius: 50%; color: #fff;
+  display: inline-grid; place-items: center; width: 34px; height: 34px; min-height: 34px; padding: 0; border-radius: 50%; color: #fff;
   background: rgba(30, 32, 40, 0.42); -webkit-backdrop-filter: blur(14px) saturate(160%); backdrop-filter: blur(14px) saturate(160%);
   border: 1px solid rgba(255, 255, 255, 0.18); box-shadow: none;
 }
@@ -25509,7 +25512,7 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
   .camera-controls { opacity: 0; }
   .camera-view:hover > .camera-controls, .camera-view:focus-within > .camera-controls { opacity: 1; }
 }
-@media (pointer: coarse) { .camera-button { width: 40px; height: 40px; } }
+@media (pointer: coarse) { .camera-button { width: 40px; height: 40px; min-height: 40px; } }
 @media (max-width: 640px) { .camera-view { margin: -6px -8px 0; } }
 @media (prefers-reduced-motion: reduce) { .camera-badge.ring.fresh { animation: none; } .camera-view > video, .camera-controls { transition: none; } }
 @media (prefers-reduced-transparency: reduce) {
@@ -26939,6 +26942,10 @@ select option:disabled { color: var(--muted); }
 @media (prefers-reduced-motion: reduce) {
   .setup-instance.just-added { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); }
 }
+/* The page's two ways to add: each label on one line, the two side by side on a phone. */
+.setup-assistant, .page-head .tools > .primary { white-space: nowrap; }
+@media (max-width: 560px) { .page-head:has(.setup-assistant) .tools { width: 100%; } .page-head:has(.setup-assistant) .tools > button { flex: 1; } }
+
 /* A plugin in use: one row, its name and where its devices stand; the whole row opens it on its devices. */
 .setup-list > .setup-instance { padding: 0; }
 .setup-instance-head { display: flex; align-items: center; gap: var(--space-10); padding-right: var(--space-18); border-radius: inherit; }

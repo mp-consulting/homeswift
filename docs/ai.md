@@ -153,7 +153,7 @@ run first; its answer goes on the page's confirmation card, and the user's choic
 elicitation. `docs/ui.md` describes the chat.
 
 The Assistant sets up accessories through Setup's tools (`discover_devices`, `start_setup`, `continue_setup`,
-`set_device_excluded`, `set_device_part`), from Add accessories' **Set up with the Assistant** or any message. A step it
+`set_device_excluded`, `set_device_part`), from Add accessories' **Ask the Assistant** or any message. A step it
 must not see or cannot do, a password or keys, a sign-in page, a button to press (`HomeswiftCatalog.needsThePage`), is
 handed to the page: `ChatToolbox` tells the conversation, which shows a card whose **Continue in the Setup sheet** opens
 that very Setup in the sheet (`/api/setup/<session>/state`), where the person types the secret; the model is told to

@@ -46,8 +46,11 @@
     // The plugins in use, one row each, and a way to add another; before any, the brands to start from.
     const add = el("button", { type: "button", class: "primary", actionIcon: "plus", text: t("Add a plugin"), onclick: (event) => pickPlugin(plugins, event.currentTarget) });
     // Or the Assistant does it: it finds the plugin, starts the Setup and hands the steps with a secret back to the sheet.
-    const assistant = window.HomeswiftChat?.available()
-      ? el("button", { type: "button", actionIcon: "sparkle", text: t("Set up with the Assistant"), onclick: () => HomeswiftChat.ask(t("Help me add my accessories: ")) }) : null;
+    // Always shown: without an Assistant yet, it leads to setting one up (a provider and its key).
+    const assistant = el("button", { type: "button", actionIcon: "sparkle", class: "setup-assistant", text: t("Ask the Assistant"), onclick: async () => {
+      if (window.HomeswiftChat?.available()) { HomeswiftChat.ask(t("Help me add my accessories: ")); return; }
+      if (await HomeswiftCommon.confirmDialog(t("The Assistant is not set up yet: it needs an AI provider and its key. Set it up now?"))) app().navigate("/plugins/add/HomeswiftAiKit");
+    } });
     app().show(main,
       cards.length
         ? app().pageHead(t("Add accessories"), t("Open a plugin to set up its devices, or add one for another brand."), assistant, add)

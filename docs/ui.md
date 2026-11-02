@@ -406,7 +406,7 @@ again. One that needs someone opens by itself and comes first, and when there is
 needs a code, a button or a sign-in, with **Set up**; then the devices set up, a quiet dot each, and those excluded.
 While a plugin looks for devices, its row says so and its devices dim.
 
-**Set up with the Assistant**, when the Assistant is configured, opens the chat for it: it finds the plugin, starts the
+**Ask the Assistant**, when the Assistant is configured, opens the chat for it: it finds the plugin, starts the
 Setup and answers what you tell it (a PIN), and hands a step with a password, a sign-in page or a button to press back to
 the Setup sheet through a card in the conversation.
 

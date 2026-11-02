@@ -24,7 +24,7 @@ All notable changes to this project are documented here. The format follows
   excluded). Removing a plugin offers to delete the vault entries it kept. A device's parts (a UA Gate's side door,
   its door sensors, a doorbell; a Protect camera's occupancy sensor, motion switch, status light switch, doorbell mute
   or package camera flashlight) each have a switch, kept in its Accessory Settings' `parts`. The Accessories page's
-  toolbar leads to it. The Assistant sets accessories up too (**Set up with the Assistant**): it starts the Setup,
+  toolbar leads to it. The Assistant sets accessories up too (**Ask the Assistant**): it starts the Setup,
   and a step with a password, a sign-in page or a button to press continues in the Setup sheet from a card in the chat.
   MCP clients get
   `discover_devices`, `start_setup`, `continue_setup`, `cancel_setup`, `set_device_excluded` and `set_device_part`; a secret field takes only a `vault:` reference.
