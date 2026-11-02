@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-11-02
+
 ### Added
 
 - Plugins' pages lead to Setup: a page whose account, hub or TV is not set up shows a card that opens it on Add
@@ -1603,7 +1605,8 @@ All notable changes to this project are documented here. The format follows
   SIGTERM; Homebrew formula `mp-consulting/tap/homeswift` with a `brew services` entry.
 - CI on macOS and Linux for every push and pull request.
 
-[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.18.1...HEAD
+[Unreleased]: https://github.com/mp-consulting/homeswift/compare/v0.19.0...HEAD
+[0.19.0]: https://github.com/mp-consulting/homeswift/compare/v0.18.1...v0.19.0
 [0.18.1]: https://github.com/mp-consulting/homeswift/compare/v0.18.0...v0.18.1
 [0.18.0]: https://github.com/mp-consulting/homeswift/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/mp-consulting/homeswift/compare/v0.16.0...v0.17.0
