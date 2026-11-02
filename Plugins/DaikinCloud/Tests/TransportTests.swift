@@ -227,9 +227,10 @@ struct TransportTests {
         #expect(written == accepted)
     }
 
-    /// A stop while the start waits for a busy port leaves nothing listening once the port frees up.
+    /// A stop while the start waits for a busy port leaves nothing listening once the port frees up. The port is not one
+    /// a `bind(port: 0)` hands out: freed, it could go to a test running in parallel, and the last bind would fail.
     @Test func aStopDuringTheStartLeavesNothingRunning() async throws {
-        let occupier = try await ServerBootstrap(group: MultiThreadedEventLoopGroup.singleton).bind(host: "127.0.0.1", port: 0).get()
+        let occupier = try await listenerOutsideEphemeralRange()
         let port = try #require(occupier.localAddress?.port)
         let server = CallbackServer(logger: testLogger)
         let directory = directory

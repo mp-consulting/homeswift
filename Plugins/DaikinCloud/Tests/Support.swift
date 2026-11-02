@@ -3,6 +3,7 @@ import HomeswiftNetwork
 import HomeswiftPlugin
 import Logging
 import NIOConcurrencyHelpers
+import NIOCore
 import NIOPosix
 import Testing
 
@@ -245,6 +246,20 @@ func freePort() async throws -> Int {
     let port = channel.localAddress?.port ?? 0
     try await channel.close()
     return port
+}
+
+/// A listener on a port outside every system's ephemeral range (Linux hands out 32768–60999 for port 0, macOS
+/// 49152–65535): once it closes, no test running in parallel can be given that port by a `bind(port: 0)`, so a test
+/// may bind it again afterwards to prove nothing else holds it.
+func listenerOutsideEphemeralRange() async throws -> any Channel {
+    for _ in 0..<64 {
+        do {
+            return try await ServerBootstrap(group: MultiThreadedEventLoopGroup.singleton).bind(host: "127.0.0.1", port: Int.random(in: 20000..<32000)).get()
+        } catch let error as IOError where error.errnoCode == EADDRINUSE {
+            continue
+        }
+    }
+    throw IOError(errnoCode: EADDRINUSE, reason: "no free port in 20000..<32000")
 }
 
 func temporaryDirectory(_ name: String = "daikin") -> URL {
