@@ -1,13 +1,48 @@
 // The Philips Ambilight TV page: the TVs the plugin instance knows, refreshed every two seconds while the
-// page is visible, with a remote; and the Homebridge plugin's pairing wizard (find the TV, type the PIN it
-// shows, confirm its details), which writes the TV's entry into this instance's block.
+// page is visible, with a remote, their inputs and an editor of their settings. A TV is found and paired on
+// Add accessories (Setup): the page leads there.
 (() => {
   "use strict";
   const {
-    $, el, tile, request, platform, explain, breadcrumb, api, act,
-    updateDevice, putDevice, findDevice, setKey, poll, renderKeyed, canonicalMAC, isMAC, sameMAC,
+    $, el, tile, request, platform, name: instance, explain, breadcrumb, api, act,
+    readBlock, updateBlock, setKey, poll, renderKeyed, canonicalMAC, isMAC, sameMAC, setupCard, setupAddress,
   } = homeswift;
   const { t, tn } = HomeswiftI18n;
+
+  // MARK: A TV's entry: in the block's `devices` (the Homebridge plugin's list), or its Accessory Settings
+  // (`_accessories`, by its MAC) once Setup paired it. Both hold the same settings; a TV Setup paired keeps its MAC,
+  // which keys its keys in the vault.
+
+  const accessoryKey = (block, mac) => Object.keys(block._accessories || {}).find((key) => sameMAC(key, mac));
+
+  /// The TV's entry, with `setUp` when it lives in its Accessory Settings; null when the block has neither.
+  async function findDevice(mac) {
+    const block = await readBlock();
+    const listed = (block.devices || []).find((device) => sameMAC(device.mac, mac));
+    if (listed) return { entry: listed, setUp: false };
+    const key = accessoryKey(block, mac);
+    if (!key) return null;
+    const { excluded, parts, ...settings } = block._accessories[key];
+    return { entry: { ...settings, mac: key }, setUp: true };
+  }
+
+  /// Changes the TV's entry: `change` edits it in place, or returns its replacement.
+  function updateDevice(mac, change) {
+    return updateBlock((block) => {
+      const devices = block.devices || [];
+      const index = devices.findIndex((device) => sameMAC(device.mac, mac));
+      if (index >= 0) {
+        devices[index] = change(devices[index]) ?? devices[index];
+        return;
+      }
+      const key = accessoryKey(block, mac);
+      if (!key) throw new Error(t("This TV is not in the configuration."));
+      const { excluded, parts, ...settings } = block._accessories[key];
+      const draft = { ...settings, mac: key };
+      const { mac: _, ...changed } = change(draft) ?? draft;
+      block._accessories[key] = { ...changed, ...(excluded ? { excluded } : {}), ...(parts ? { parts } : {}) };
+    });
+  }
 
   // MARK: Your TVs
 
@@ -87,7 +122,6 @@
           list.replaceChildren(el("div", { class: "card empty" },
             el("p", { class: "muted", text: t("No TV yet. Switch your TV on, then add it above.") })));
         }
-        if (!pairingOpened) openPairing(false);
         return;
       }
       // Only the card of a TV that changed is drawn again: keep the keyboard on the remote it was on.
@@ -376,7 +410,7 @@
     return select;
   }
 
-  // The Remote and Automations sections, shared by the editor and the last step of pairing.
+  // The editor's Remote and Automations sections.
   function remoteFields(schema, draft, changed) {
     return ["infoButtonKey", "backButtonKey", "playPauseButtonKey"].map((key) =>
       fieldRow(schema[key].title.replace(" Key", ""), selectFor(schema[key], draft[key], (value) => { setKey(draft, key, value, schema[key].default); changed(); }), schema[key].description));
@@ -405,9 +439,9 @@
     editorCard.replaceChildren(el("p", { class: "muted", text: t("Loading {name}…", { name: tv.name }) }));
     editorCard.scrollIntoView({ behavior: reducedMotion.matches ? "auto" : "smooth", block: "start" });
     try {
-      const [schema, device] = await Promise.all([deviceSchema(), findDevice(tv.mac)]);
-      if (!device) throw new Error(t("This TV is not in the configuration."));
-      editorState = { tv, schema, draft: structuredClone(device), saved: JSON.stringify(device), section: "general" };
+      const [schema, found] = await Promise.all([deviceSchema(), findDevice(tv.mac)]);
+      if (!found) throw new Error(t("This TV is not in the configuration."));
+      editorState = { tv, schema, setUp: found.setUp, draft: structuredClone(found.entry), saved: JSON.stringify(found.entry), section: "general" };
       renderEditor();
     } catch (e) {
       editorCard.replaceChildren(el("p", { class: "error", text: e.message }));
@@ -456,10 +490,13 @@
         el("div", { class: "fields" },
           fieldRow(t("Name in the Home app"), text("name", { maxLength: 64 })),
           fieldRow(t("Address"), text("ip", { inputmode: "decimal" }), t("The TV's IPv4 address. Give it a fixed address in your router.")),
-          fieldRow(t("MAC address"), (() => {
-            const input = text("mac");
-            return el("div", { class: "with-button" }, input, macButton(() => draft.ip, input, report));
-          })(), t("For Wake-on-LAN, which switches the TV on from deep standby.")),
+          // A TV Setup paired goes by its MAC, which keys its keys in the vault: it stays as Setup read it.
+          editorState.setUp
+            ? fieldRow(t("MAC address"), el("input", { type: "text", value: draft.mac, readOnly: true }), t("Read from the TV when it was paired. For Wake-on-LAN, which switches the TV on from deep standby."))
+            : fieldRow(t("MAC address"), (() => {
+              const input = text("mac");
+              return el("div", { class: "with-button" }, input, macButton(() => draft.ip, input, report));
+            })(), t("For Wake-on-LAN, which switches the TV on from deep standby.")),
           fieldRow(t("Ambilight style"), selectFor(schema.ambilightMode, draft.ambilightMode, (value) => { setKey(draft, "ambilightMode", value, schema.ambilightMode.default); changed(); }), schema.ambilightMode.description),
           fieldRow(t("Polling interval (ms)"), interval, schema.pollingInterval.description)),
         toggleRow(t("Switch Ambilight on whenever the TV comes on"), draft.ambilightOnStart === true, (on) => { setKey(draft, "ambilightOnStart", on, false); changed(); }),
@@ -467,7 +504,7 @@
         el("div", { class: "repair" },
           el("div", {}, el("strong", { text: t("Pairing") }),
             el("p", { class: "help", text: tv.pinned ? t("Paired, with the TV's certificate pinned. Pair again after a reset of the TV, when it refuses Homeswift.") : t("Paired without a pinned certificate. Pair again to pin it.") })),
-          el("button", { actionIcon: "restore", text: t("Pair again"), onclick: async () => { if (await closeEditor()) repair(tv); } })));
+          el("a", { class: "button", href: setupAddress(), actionIcon: "restore", text: t("Pair again") })));
       break;
     }
     case "remote":
@@ -559,7 +596,7 @@
     if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(draft.ip ?? "")) throw new Error(t("The address must be an IPv4 address, like 192.168.1.20."));
     if (!isMAC(draft.mac)) throw new Error(t("The MAC address must look like AA:BB:CC:DD:EE:FF."));
     draft.mac = canonicalMAC(draft.mac);
-    await updateDevice(tv.mac, () => draft);
+    await updateDevice(tv.mac, () => structuredClone(draft));
     editorState.saved = JSON.stringify(draft);
     editorState.tv = { ...tv, name: draft.name, mac: draft.mac };
     renderEditor();
@@ -569,270 +606,27 @@
   async function removeTV(tv) {
     if (!await HomeswiftCommon.confirmDialog(t("Remove {name}? It leaves the Home app, with its scenes and automations.", { name: tv.name }))) return;
     if (editingTV(tv) && (!(await closeSources()) || !(await closeEditor()))) return;
-    await updateDevice(tv.mac, () => null);
+    const found = await findDevice(tv.mac);
+    if (found?.setUp) {
+      // Paired through Setup: Excluded, as Add accessories does it, which can include it again.
+      await api("/api/setup/exclude", { method: "POST", body: { platform, name: instance, deviceID: found.entry.mac, excluded: true } });
+    } else {
+      await updateBlock((block) => {
+        block.devices = (block.devices || []).filter((device) => !sameMAC(device.mac, tv.mac));
+        if (!block.devices.length) delete block.devices;
+      });
+    }
     await refresh();
   }
   const editingTV = (tv) => (editing && sameMAC(editing.tv.mac, tv.mac)) || (editorState && sameMAC(editorState.tv.mac, tv.mac));
 
-  // MARK: Add a TV: find → PIN → confirm, one step at a time
+  // MARK: Adding a TV: Add accessories finds it (or takes the address in its settings) and pairs it with its PIN.
 
-  /// A sentence with a TV's name in bold: the translation's {name} becomes a <strong>.
-  const withName = (text, name) => text.split("{name}").flatMap((part, i) => (i ? [el("strong", { text: name }), part] : [part]));
+  $("#setup").replaceChildren(setupCard({
+    title: t("Add a TV"),
+    text: t("Add accessories finds the Philips TVs on this network and pairs them with the PIN they show. Switch the TV on first."),
+    glyph: "pair", tone: "blue", start: false,
+  }));
 
-  // The wizard opens from "Add a TV" next to the TVs' heading, as Homebridge's "Pair a TV" does; on its own
-  // while there is no TV yet, and for "Pair again".
-  const pairing = $("#pairing");
-  const addButton = $("#add-tv");
-  let pairingOpened = false;
-  function openPairing(scroll = true) {
-    pairingOpened = true;
-    pairing.classList.remove("hidden");
-    addButton.setAttribute("aria-expanded", "true");
-    if (scroll) pairing.scrollIntoView({ behavior: reducedMotion.matches ? "auto" : "smooth", block: "start" });
-  }
-  function closePairing() {
-    reset();
-    pairing.classList.add("hidden");
-    addButton.setAttribute("aria-expanded", "false");
-    addButton.focus();
-  }
-  addButton.addEventListener("click", () => {
-    if (pairing.classList.contains("hidden")) {
-      openPairing();
-      findButton.focus({ preventScroll: true });
-    } else {
-      closePairing();
-    }
-  });
-  const stepNames = [t("Find"), t("PIN"), t("Confirm")];
-  const steps = el("ol", { class: "steps" }, stepNames.map((label, i) => el("li", { "data-n": String(i + 1), text: label })));
-  const status = el("p", { class: "status-line muted", role: "status" });
-  const say = (message, kind = "muted") => { status.textContent = message; status.className = `status-line ${kind}`; };
-  let target = null;   // { ip, name } of the TV being paired
-  let device = null;   // what the TV handed out: ip, username, password, certFingerprint, mac
-  let attempt = null;  // the TV last asked for a PIN, for the failure's Wake and Explain
-  let repairing = null;   // the MAC of a configured TV paired again: its entry gets the new keys
-  /// An error, with Explain when there is an Assistant, and Wake for the TV being paired (a TV in deep standby
-  /// answers nothing until a Wake-on-LAN packet reaches it): a known TV by its MAC address, another by the MAC
-  /// address this machine's ARP table has for its address.
-  function fail(message) {
-    say(message, "error");
-    const known = attempt && tvs.find((tv) => tv.ip === attempt.ip);
-    const sleeper = known ?? (attempt ? { name: attempt.name ?? attempt.ip, ip: attempt.ip } : null);
-    status.append(
-      sleeper ? el("button", { actionIcon: "power", class: "link", text: t("Wake {name}", { name: sleeper.name }), onclick: (event) => act(event.currentTarget, async () => {
-        const address = sleeper.mac ?? (await request(`mac?ip=${encodeURIComponent(sleeper.ip)}`)).mac;
-        await request("wake", { method: "POST", body: { mac: address, ip: sleeper.ip } });
-        say(t("Sent. Give {name} a few seconds to start, then pair again.", { name: sleeper.name }), "ok");
-      }, fail) }) : null,
-      explain({ error: message, context: "Pairing a Philips Android TV from the Homeswift plugin page: POST pair/request on port 1926, the TV shows a PIN, then pair/grant with an HMAC of the PIN.", device: { model: "Philips Android TV with Ambilight" } }));
-  }
-
-  // Step 1: find the TV, or type its address.
-  const found = el("div", { class: "found" });
-  const address = el("input", { type: "text", placeholder: "192.168.1.20", inputmode: "decimal", autocomplete: "off", spellcheck: false, "aria-label": t("TV address") });
-  const findButton = el("button", { actionIcon: "search", text: t("Find TVs"), onclick: (event) => act(event.currentTarget, discover, fail) });
-  const find = el("div", { class: "step" },
-    el("p", { class: "muted", text: t("Switch the TV on: it has to be on and on this network. Homeswift looks for it for five seconds.") }),
-    findButton, found,
-    el("div", { class: "or", text: t("or enter its address") }),
-    el("form", { class: "manual", onsubmit: (event) => { event.preventDefault(); act(event.submitter ?? manualPair, () => pair({ ip: address.value.trim() }), fail); } },
-      address, el("button", { actionIcon: "key", type: "submit", text: t("Pair") })));
-  const manualPair = find.querySelector(".manual button");
-
-  // Step 2: the PIN the TV shows, a box per digit.
-  const digits = [0, 1, 2, 3].map((i) => el("input", { type: "text", inputmode: "numeric", maxlength: 1, autocomplete: i === 0 ? "one-time-code" : "off", "aria-label": t("PIN digit {n}", { n: i + 1 }) }));
-  const pinPrompt = el("p", {});
-  const confirmPin = el("button", { actionIcon: "check", class: "primary", text: t("Confirm PIN"), onclick: (event) => act(event.currentTarget, grant, fail) });
-  const pinStep = el("div", { class: "step" },
-    pinPrompt, el("div", { class: "pin" }, digits),
-    el("div", { class: "actions" }, confirmPin, el("button", { actionIcon: "close", class: "link", text: t("Cancel"), onclick: reset })));
-
-  // Step 3: the details of the TV's entry.
-  const tvName = el("input", { type: "text", maxlength: 64, autocomplete: "off", placeholder: t("Living Room TV") });
-  const ipField = el("input", { type: "text", readOnly: true, tabIndex: -1 });
-  const mac = el("input", { type: "text", placeholder: "AA:BB:CC:DD:EE:FF", autocomplete: "off", spellcheck: false });
-  const macHelp = el("p", { class: "help", text: t("For Wake-on-LAN, which switches the TV on from deep standby.") });
-  const modeField = el("div", { class: "wide" }, el("label", { text: t("Ambilight style when switched on from HomeKit") }));
-  const onStart = el("input", { type: "checkbox", id: "ambilight-on-start" });
-  const entryText = el("pre", { class: "json" });
-  let options = {};   // what is chosen for the TV being added, from the schema: Ambilight style, remote, automations
-  const moreOptions = el("details", { class: "group-box" }, el("summary", { text: t("Remote and automations") }));
-  async function renderOptions() {
-    options = {};
-    const schema = await deviceSchema();
-    modeField.replaceChildren(modeField.firstChild,
-      selectFor(schema.ambilightMode, undefined, (value) => { setKey(options, "ambilightMode", value, schema.ambilightMode.default); showEntry(); }));
-    moreOptions.replaceChildren(moreOptions.firstChild,
-      el("div", { class: "fields" }, remoteFields(schema, options, showEntry)),
-      automationFields(schema, options, showEntry));
-  }
-  const confirmStep = el("div", { class: "step" },
-    el("div", { class: "form" },
-      el("div", { class: "wide" }, el("label", { text: t("Name in the Home app") }), tvName),
-      el("div", {}, el("label", { text: t("Address") }), ipField),
-      el("div", {}, el("label", { text: t("MAC address") }), el("div", { class: "with-button" }, mac, macButton(() => ipField.value, mac, fail)), macHelp),
-      modeField),
-    el("div", { class: "check" }, el("label", { class: "switch" }, onStart, el("span", {})), el("label", { htmlFor: "ambilight-on-start", text: t("Switch Ambilight on whenever the TV comes on") })),
-    moreOptions,
-    el("div", { class: "actions" },
-      el("button", { actionIcon: "plus", class: "primary", text: t("Add TV"), onclick: (event) => act(event.currentTarget, addToConfiguration, fail) }),
-      el("button", { actionIcon: "close", class: "link", text: t("Cancel"), onclick: reset })),
-    el("details", {}, el("summary", { text: t("The entry for config.json") }), entryText,
-      el("button", { actionIcon: "copy", class: "link", text: t("Copy"), onclick: (event) => act(event.currentTarget, async () => { await HomeswiftCommon.copyText(entryText.textContent); say(t("Copied."), "ok"); }, fail) })));
-
-  // After saving: the plugin reloads with the TV at once.
-  const doneText = el("p", {});
-  const done = el("div", { class: "step" },
-    doneText,
-    el("div", { class: "actions" }, el("button", { actionIcon: "check", class: "primary", text: t("Done"), onclick: closePairing }), el("button", { actionIcon: "plus", text: t("Add another TV"), onclick: reset })));
-
-  const bodies = [find, pinStep, confirmStep, done];
-  pairing.replaceChildren(
-    el("div", { class: "panel-head" }, el("h2", { id: "add-title", text: t("Add a TV") }), el("button", { actionIcon: "close", class: "link", text: t("Close"), onclick: closePairing })),
-    steps, ...bodies, status);
-
-  function show(step) {
-    bodies.forEach((body, i) => body.classList.toggle("hidden", i !== step));
-    [...steps.children].forEach((item, i) => {
-      item.classList.toggle("current", i === Math.min(step, 2) && step < 3);
-      item.classList.toggle("done", i < step);
-    });
-  }
-
-  function reset() {
-    target = null;
-    device = null;
-    attempt = null;
-    repairing = null;
-    stepNames.forEach((label, i) => { steps.children[i].textContent = label; });
-    digits.forEach((digit) => { digit.value = ""; });
-    say("");
-    show(0);
-  }
-
-  async function discover() {
-    found.replaceChildren();
-    say(t("Looking for TVs…"));
-    const answer = await request("discover");
-    const known = new Set(tvs.map((tv) => tv.ip));
-    const fresh = answer.tvs.filter((tv) => !known.has(tv.host));
-    say(fresh.length ? "" : answer.tvs.length ? t("Every TV that answered is already added.") : t("No TV announced itself. Check it is on, or enter its address."));
-    found.replaceChildren(...fresh.map((tv) => el("div", { class: "item" },
-      el("div", {}, el("strong", { text: tv.name }), el("div", { class: "muted", text: tv.host })),
-      el("button", { actionIcon: "key", class: "primary", text: t("Pair"), onclick: (event) => act(event.currentTarget, () => pair({ ip: tv.host, name: tv.name }), fail) }))));
-  }
-
-  /// Pairs a configured TV again (after a reset of the TV, or to pin its certificate): its entry keeps its
-  /// settings and gets the new keys.
-  async function repair(tv) {
-    reset();
-    repairing = tv.mac;
-    steps.children[2].textContent = t("Done");
-    openPairing();
-    await act(manualPair, () => pair({ ip: tv.ip, name: tv.name }), fail);
-  }
-
-  async function pair(tv) {
-    if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(tv.ip)) throw new Error(t("Enter the TV's IPv4 address, like 192.168.1.20."));
-    attempt = tv;
-    say(t("Asking the TV for a PIN…"));
-    const answer = await request("pair", { method: "POST", body: { ip: tv.ip, name: "Homeswift" } });
-    target = tv;
-    pinPrompt.replaceChildren(...withName(t("Type the PIN {name} shows on screen."), tv.name ?? tv.ip));
-    say(answer.certificateSeen ? "" : t("The TV answered over plain HTTP, so its certificate cannot be pinned."));
-    digits.forEach((digit) => { digit.value = ""; });
-    show(1);
-    digits[0].focus();
-  }
-
-  // The digit boxes: one digit each, typing moves on, Backspace moves back, a pasted PIN fills them all,
-  // and the fourth digit confirms.
-  digits.forEach((digit, i) => {
-    digit.addEventListener("input", () => {
-      const typed = digit.value.replace(/\D/g, "");
-      if (typed.length > 1) return fill(typed);
-      digit.value = typed;
-      if (typed && i < 3) digits[i + 1].focus();
-      if (pin().length === 4) confirmPin.click();
-    });
-    digit.addEventListener("keydown", (event) => {
-      if (event.key === "Backspace" && !digit.value && i > 0) { digits[i - 1].focus(); digits[i - 1].value = ""; event.preventDefault(); }
-      if (event.key === "Enter" && pin().length === 4) confirmPin.click();
-    });
-    digit.addEventListener("paste", (event) => { event.preventDefault(); fill((event.clipboardData?.getData("text") ?? "").replace(/\D/g, "")); });
-    digit.addEventListener("focus", () => digit.select());
-  });
-  const pin = () => digits.map((digit) => digit.value).join("");
-  function fill(text) {
-    digits.forEach((digit, i) => { digit.value = text[i] ?? ""; });
-    digits[Math.min(text.length, 3)].focus();
-    if (pin().length === 4) confirmPin.click();
-  }
-
-  async function grant() {
-    if (pin().length !== 4) throw new Error(t("The PIN has four digits."));
-    try {
-      const answer = await request("pair/grant", { method: "POST", body: { ip: target.ip, pin: pin() } });
-      device = answer.device;
-      if (repairing) {
-        await updateDevice(repairing, (entry) => {
-          entry.username = device.username;
-          entry.password = device.password;
-          if (device.certFingerprint) entry.certFingerprint = device.certFingerprint; else delete entry.certFingerprint;
-        });
-        doneText.replaceChildren(...withName(answer.certificatePinned ? t("{name} is paired again, with its certificate pinned.") : t("{name} is paired again."), target.name ?? target.ip));
-        show(3);
-        say("");
-        repairing = null;
-        setTimeout(refresh, 600);
-        return;
-      }
-      tvName.value = target.name ?? "";
-      ipField.value = device.ip;
-      mac.value = device.mac ?? "";
-      onStart.checked = false;
-      await renderOptions().catch(() => {});
-      checkMAC();
-      showEntry();
-      show(2);
-      say(answer.certificatePinned ? t("Paired, and the TV's certificate is pinned.") : t("Paired."), "ok");
-      tvName.focus();
-    } catch (e) {
-      digits.forEach((digit) => { digit.value = ""; });
-      digits[0].focus();
-      throw e;
-    }
-  }
-
-  function checkMAC() {
-    const missing = !isMAC(mac.value);
-    mac.classList.toggle("needs", missing);
-    macHelp.textContent = missing && !mac.value.trim()
-      ? t("The TV did not give it. Its network settings show it (Settings › Network › View network settings).")
-      : t("For Wake-on-LAN, which switches the TV on from deep standby.");
-  }
-
-  function entry() {
-    const result = { name: tvName.value.trim() || "Philips TV", ...device, ...options };
-    if (mac.value.trim()) result.mac = canonicalMAC(mac.value); else delete result.mac;
-    if (onStart.checked) result.ambilightOnStart = true;
-    return result;
-  }
-  const showEntry = () => { if (device) entryText.replaceChildren(HomeswiftCommon.jsonHighlight(JSON.stringify(entry(), null, 2))); };
-  [tvName, mac].forEach((field) => field.addEventListener("input", () => { if (field === mac) checkMAC(); showEntry(); }));
-  onStart.addEventListener("change", showEntry);
-
-  async function addToConfiguration() {
-    const tv = entry();
-    if (!isMAC(tv.mac)) { mac.focus(); throw new Error(t("A MAC address is needed to switch the TV on.")); }
-    await putDevice(tv);
-    doneText.replaceChildren(...withName(t("{name} is added. In the Home app, add it with the bridge's setup code: Add Accessory › More options, then the TV's name."), tv.name));
-    say("");
-    show(3);
-    await refresh();
-  }
-
-  show(0);
   poll(refresh);
 })();
