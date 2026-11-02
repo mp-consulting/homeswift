@@ -24,8 +24,8 @@ extension PhilipsHuePlugin {
         return lights + sensors
     }
 
-    /// The bridge's address (asked when none is set or found), then its link button, tried every two seconds by the page
-    /// for a minute. The key, the bridge ID and the address go in the vault.
+    /// The bridge's address (asked when none is set or found), then its link button, tried every two seconds by the Setup
+    /// sheet for a minute. The key, the bridge ID and the address go in the vault.
     public func authorize(_ request: SetupRequest) async throws -> SetupStep {
         try request.requireAccount("Hue lights and sensors need no setup of their own")
         let typed = request.answer("host")

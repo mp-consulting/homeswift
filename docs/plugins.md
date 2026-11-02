@@ -352,6 +352,10 @@ settings it brings and reloads the plugin; the web UI's **Add accessories** page
   each with a switch under its device; the choice goes in the device's Accessory Settings' `parts` (`{ "SideDoor": false }`),
   and the plugin reloads and reads it from `context.allAccessorySettings` (UniFi Access turns each into a `Hub.<id>`
   option of that device).
+- **A device the network does not show** (Bonjour blocked, another subnet): an entry with only its address in the
+  block's own list (a TV's `ip`, a Wingman's `host`) is a device `discover()` lists by that address, and its Setup
+  keeps it under the Device Id the Authorization reads.
+- **Its page** leads to Setup (`homeswift.setupCard`, docs/ui.md) rather than signing in or pairing itself.
 
 ### Web pages
 

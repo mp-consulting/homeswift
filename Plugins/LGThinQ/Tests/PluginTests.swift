@@ -182,54 +182,35 @@ import _CryptoExtras
 
 @Suite(.timeLimit(.minutes(1)))
 struct WebPageTests {
-    @Test func signsInAndListsDevicesForThePage() async throws {
+    /// The page reads the sign-in's state; signing in is Setup's, so it has no route for it.
+    @Test func showsTheSignInAndLeavesItToSetup() async throws {
         let environment = LGTestEnvironment()
-        environment.lg.override("lgemembers.com") { request in
-            let url = request.url.absoluteString
-            if url.contains("signInAct") {
-                return request.bodyText.contains("userPw=\(Auth.sha512Hex("good"))")
-                    ? FakeLG.json(["account": ["loginSessionID": "s", "userID": "u", "userIDType": "LGE"]])
-                    : FakeLG.json(["error": ["code": "MS.001.02", "message": "Wrong password"]])
-            }
-            if url.contains("signInComplete") { return FakeLG.json(["code": "SUCCESS"]) }
-            if url.contains("/oauth") { return FakeLG.json(["redirect_uri": "lgaccount.lgsmartthinq:/?code=c"]) }
-            return FakeLG.json([:])
-        }
-        environment.lg.override("lgeapi.com/oauth") { _ in FakeLG.json(["access_token": "a", "refresh_token": "the-refresh-token", "expires_in": 3600]) }
-        environment.lg.add(device: ["deviceId": .string(acID), "deviceType": 401, "alias": "AC", "online": true], model: [:])
-        environment.lg.add(device: ["deviceId": .string(stylerID), "deviceType": 12345, "alias": "Thing", "online": false], model: [:])
-        // A block without credentials still runs, so the page can sign in.
+        // A block without credentials still runs, so Setup can sign in.
         let host = try await environment.start(settings: ["country": "FR", "language": "fr-FR"])
         defer { Task { await host.stop() } }
-        func call(_ path: String, _ body: JSONValue) async throws -> PluginWebResponse? {
-            try await host.handleWebRequest(platform: "LGThinQ", name: "LG ThinQ", PluginWebRequest(method: "POST", path: path, body: body, user: "admin"))
+        func call(_ method: String, _ path: String) async throws -> PluginWebResponse? {
+            try await host.handleWebRequest(platform: "LGThinQ", name: "LG ThinQ", PluginWebRequest(method: method, path: path, body: [:], user: "admin"))
         }
-        let missing = try #require(try await call("login-by-user-pass", ["username": "me"]))
-        #expect(missing.status == 400 && missing.json["error"] == "Missing required fields: password, country, language")
-        let wrong = try #require(try await call("login-by-user-pass", ["username": "me", "password": "bad", "country": "FR", "language": "fr-FR"]))
-        #expect(wrong.json["success"] == false && wrong.json["error"] == "Wrong password")
-        let login = try #require(try await call("login-by-user-pass", ["username": "me", "password": "good", "country": "FR", "language": "fr-FR"]))
-        #expect(login.json["success"] == true && login.json["token"] == "the-refresh-token")
-
-        let devices = try #require(try await call("get-all-devices", ["refresh_token": "the-refresh-token", "country": "FR", "language": "fr-FR"]))
-        #expect(devices.json["success"] == true)
-        #expect(devices.json["devices"] == [
-            ["id": .string(acID), "name": "AC", "type": "AC", "online": true],
-            ["id": .string(stylerID), "name": "Thing", "type": 12345, "online": false],
-        ])
-        // LG's own page, for accounts of Google, Apple and others.
-        let page = try #require(try await host.handleWebRequest(platform: "LGThinQ", name: "LG ThinQ",
-            PluginWebRequest(method: "GET", path: "login-url", query: ["country": "FR", "language": "fr-FR"], user: "admin")))
-        let url = try #require(page.json["url"]?.stringValue.flatMap(URLComponents.init(string:)))
+        let account = try #require(try await call("GET", "account"))
+        #expect(account.json == ["authorized": false, "authMode": "token", "country": "FR", "language": "fr-FR", "username": .null])
+        for (method, path) in [("POST", "login-by-user-pass"), ("POST", "login-by-redirect"), ("GET", "login-url"), ("POST", "get-all-devices"), ("GET", "nope")] {
+            #expect(try await call(method, path)?.status == 404)
+        }
+        // LG's own page Setup opens, for accounts of Google, Apple and others: its redirect is one the person can copy.
+        let plugin = try #require(environment.plugin)
+        guard case .ask(let page, _) = try await plugin.authorize(SetupRequest(target: .account, answers: ["auth_mode": "token"])) else {
+            Issue.record("expected LG's page"); return
+        }
+        let url = try #require(page.url.flatMap(URLComponents.init(string:)))
         #expect(url.host == "us.m.lgaccount.com" && url.path == "/spx/login/signIn")
         #expect(url.queryItems?.first { $0.name == "redirect_uri" }?.value == "https://fake-spx.lgaccount.test/login/iabClose")
         #expect(url.queryItems?.first { $0.name == "division" }?.value == "ha")
-        let direct = try #require(try await call("login-by-redirect", ["url": "https://x.test/login/iabClose?refresh_token=direct", "country": "FR", "language": "fr-FR"]))
-        #expect(direct.json["token"] == "direct")
-        let invalid = try #require(try await call("login-by-redirect", ["url": "https://x.test/login/iabClose?user_id=a", "country": "FR", "language": "fr-FR"]))
-        #expect(invalid.json["success"] == false)
-        let unknown = try await host.handleWebRequest(platform: "LGThinQ", name: "LG ThinQ", PluginWebRequest(method: "GET", path: "nope", user: "admin"))
-        #expect(unknown?.status == 404)
+
+        let signedIn = LGTestEnvironment()
+        let other = try await signedIn.start(settings: LGTestEnvironment.defaultSettings)
+        defer { Task { await other.stop() } }
+        let state = try #require(try await other.handleWebRequest(platform: "LGThinQ", name: "LG ThinQ", PluginWebRequest(method: "GET", path: "account", user: "admin")))
+        #expect(state.json["authorized"] == true)
     }
 }
 
@@ -242,10 +223,8 @@ struct AssistantActionTests {
 
     @Test func describesOnlyReadingRoutes() {
         let actions = LGThinQPlugin.assistantActions
-        #expect(actions.map(\.name) == ["list_devices", "list_account_devices", "login_url"])
+        #expect(actions.map(\.name) == ["list_devices", "list_account_devices"])
         #expect(actions.allSatisfy { $0.access == .read && $0.method == "GET" && !$0.confirm })
-        // The sign-ins that take a password or LG's redirected address stay on the page.
-        #expect(!actions.contains { ["login-by-user-pass", "login-by-redirect", "get-all-devices"].contains($0.path) })
     }
 
     @Test func eachActionReachesItsRoute() async throws {
@@ -279,9 +258,6 @@ struct AssistantActionTests {
         // The refresh token is not in the answer.
         #expect(!account.json.text().contains("refresh-1"))
 
-        let page = try await call(host, "login_url", ["country": "FR", "language": "fr-FR"])
-        #expect(page.status == 200)
-        #expect(page.json["url"]?.stringValue.flatMap(URLComponents.init(string:))?.host == "us.m.lgaccount.com")
     }
 
     @Test func theAccountNeedsASignIn() async throws {

@@ -7,8 +7,8 @@
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/style.css">
 <style>
-  /* The Homebridge plugin's settings page on the UI's materials: sign in to the LG account (step 1), pick the
-     devices and their options (step 2, with a Settings tab for the account and sync), done (step 3). */
+  /* The Homebridge plugin's settings page on the UI's materials: the LG account (step 1: its sign-in, which Setup
+     does), pick the devices and their options (step 2, with a Settings tab for the sync), done (step 3). */
 
   .step { animation: materialize var(--normal) var(--ease-out); }
   .step-head { display: flex; align-items: center; gap: 12px; margin: 22px 0 12px; }
@@ -18,14 +18,8 @@
     background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: var(--accent-text);
   }
   .step-number.done { background: linear-gradient(180deg, #4cd07d, #1f9d55); }
-  .notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
-  .notice p { margin: 2px 0 0; }
-  .form { display: grid; gap: 2px; max-width: 520px; }
-  .form .actions { margin-top: 14px; }
-  #third-party { margin-top: 14px; }
-  #third-party .help { margin: 4px 0 0; }
-  .wiki { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 0.8125rem; }
-  .wiki a { color: var(--accent); text-decoration: none; font-weight: 500; }
+  .account { display: grid; gap: 12px; }
+  .account .actions { margin: 0; }
   .problem { margin-top: 14px; }
   .problem .error { margin: 0; }
 
@@ -90,28 +84,18 @@
     </div>
   </div>
 
-  <section id="step-login" class="step">
-    <div class="step-head"><span class="step-number">1</span><h2 data-i18n>Connect your LG account</h2></div>
-    <div id="session-notice" class="card notice hidden">
-      <div><strong data-i18n>Active session</strong><p class="muted" data-i18n>Using the refresh token saved in this plugin's settings.</p></div>
-      <button id="new-login" data-i18n>Sign in with another account</button>
+  <section id="step-account" class="step">
+    <div class="step-head"><span class="step-number">1</span><h2 data-i18n>Your LG account</h2></div>
+    <div id="account-setup"></div>
+    <div id="account" class="card account hidden">
+      <div class="facts">
+        <div class="fact"><span data-i18n>Region</span><b id="account-region">—</b></div>
+        <div class="fact"><span data-i18n>Signed in with</span><b id="account-mode">—</b></div>
+        <div class="fact hidden" id="account-email-row"><span data-i18n>Email</span><b id="account-email"></b></div>
+      </div>
+      <div class="actions"><a id="sign-in-again" class="button" href="/setup?start" data-i18n data-action-icon="key">Sign in again</a></div>
     </div>
-    <form id="login-form" class="card form" autocomplete="on" novalidate>
-      <label class="field"><span class="field-title" data-i18n>Country / language</span><select id="country-language"></select><span class="help" data-i18n>The region of your LG account.</span></label>
-      <label class="field"><span class="field-title" data-i18n>Email</span><input type="email" id="username" placeholder="your@email.com" autocomplete="username" autocapitalize="none" spellcheck="false"><span class="help" data-i18n>Your LG ThinQ account's email.</span></label>
-      <label class="field"><span class="field-title" data-i18n>Password</span><input type="password" id="password" autocomplete="current-password" enterkeyhint="go"></label>
-      <label class="toggle"><span class="switch"><input type="checkbox" id="remember"><span></span></span><span><span class="field-title" data-i18n>Remember the email and password</span><span class="help" data-i18n>Optional: the sign-in keeps only a refresh token otherwise.</span></span></label>
-      <div class="actions"><button type="submit" id="login" class="primary" data-i18n data-action-icon="key">Connect account</button></div>
-      <p class="wiki muted">Signing in to LG with Google, Apple, Facebook or Amazon? <a href="https://github.com/mp-consulting/homebridge-lg-thinq/wiki/Plugin-Authorization-Setting" target="_blank" rel="noopener" data-i18n>See the authorization guide</a>, or use LG's own sign-in page below.</p>
-    </form>
-    <div id="third-party" class="card form">
-      <strong data-i18n>Sign in with Google, Apple, Facebook or Amazon</strong>
-      <p class="help">Open LG's sign-in page, sign in, then paste the address of the page it ends on (it starts with the LG account site and contains <span class="mono">iabClose</span>).</p>
-      <div class="actions"><button id="open-lg" type="button" data-i18n>Open LG's sign-in page</button></div>
-      <label class="field"><span class="field-title" data-i18n>Address after signing in</span><input type="url" id="redirect-url" placeholder="https://…/login/iabClose?…" spellcheck="false" autocapitalize="none"></label>
-      <div class="actions"><button id="redirect-login" type="button" class="primary" data-i18n>Use this sign-in</button></div>
-    </div>
-    <div id="login-problem" class="problem hidden"></div>
+    <div id="account-problem" class="problem hidden"></div>
   </section>
 
   <section id="step-devices" class="step hidden">
@@ -125,7 +109,7 @@
       <div class="card">
         <div class="list-head">
           <h3 data-i18n>Devices in your account <span id="device-count" class="pill count">0</span></h3>
-          <div class="actions"><button id="select-all" data-i18n>Select all</button><button id="refresh" data-i18n data-action-icon="restore">Refresh</button></div>
+          <div class="actions"><button id="select-all" data-i18n data-action-icon="check">Select all</button><button id="refresh" data-i18n data-action-icon="restore">Refresh</button></div>
         </div>
         <div id="devices-problem" class="problem hidden"></div>
         <ul id="device-list" class="devices"></ul>
@@ -136,20 +120,6 @@
     </div>
 
     <div id="pane-settings" class="settings hidden" role="tabpanel" aria-labelledby="tab-settings">
-      <div class="card">
-        <h3 data-i18n>Authentication</h3>
-        <label class="field"><span class="field-title" data-i18n>Auth mode</span>
-          <select id="auth-mode"><option value="account" data-i18n>LG account (email and password)</option><option value="token" data-i18n>Refresh token</option></select></label>
-        <label id="token-field" class="field"><span class="field-title" data-i18n>Refresh token</span><input type="password" id="refresh-token" data-i18n placeholder="Paste your refresh token" autocomplete="off" autocapitalize="none" spellcheck="false" class="mono"></label>
-        <div class="actions"><button id="switch-account" class="link" data-i18n>Sign in with another account</button></div>
-      </div>
-      <div class="card">
-        <h3 data-i18n>Region</h3>
-        <div class="columns">
-          <label class="field"><span class="field-title" data-i18n>Country</span><input type="text" id="country" placeholder="US" maxlength="2" autocapitalize="characters"></label>
-          <label class="field"><span class="field-title" data-i18n>Language</span><input type="text" id="language" placeholder="en-US" autocapitalize="none"></label>
-        </div>
-      </div>
       <div class="card">
         <h3 data-i18n>Sync</h3>
         <label class="toggle"><span class="switch"><input type="checkbox" id="thinq1"><span></span></span><span><span class="field-title" data-i18n>ThinQ1 support</span><span class="help" data-i18n>Adds the account's older ThinQ v1 devices, which are polled.</span></span></label>
@@ -170,7 +140,6 @@
 <script src="/common.js"></script>
 <script src="/plugin.js"></script>
 <script src="i18n.js"></script>
-<script src="countries.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

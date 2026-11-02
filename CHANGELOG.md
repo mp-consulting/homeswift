@@ -8,6 +8,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Plugins' pages lead to Setup: a page whose account, hub or TV is not set up shows a card that opens it on Add
+  accessories (`/setup?start#<plugin>` opens the account's Setup sheet at once; `homeswift.setupCard` for plugin
+  authors). Philips Hue, IKEA DIRIGERA, Philips Ambilight TV, Wingman, Daikin Cloud, LG ThinQ, Dolphin Pool Cleaner and
+  eWeLink no longer sign in or pair on their own pages: their pairing and sign-in routes, `homeswift.bridgePairing`, and
+  the MCP tools `PhilipsAmbilightTV_pair`, `PhilipsAmbilightTV_pair_grant`, `PhilipsAmbilightTV_discover`,
+  `Wingman_pair`, `Wingman_discover`, `LGThinQ_login_url` and `DaikinCloud_server_info` are removed (`discover_devices`
+  and `start_setup` do it). Setup finds a TV or a Wingman typed by its address in the block, shows Daikin's redirect URI
+  and takes its callback server's address and port, offers LG's own countries and languages, and its sheet translates a
+  plugin's errors. A DIRIGERA hub is no longer removed from its page. Philips Hue no longer waits for the link button at its first start without a key: it waits for Setup.
 - Rename an accessory, in the Home app too: **Rename** in a widget's ⋯ menu on the Accessories page, and the MCP tool
   `rename_accessory`. The name goes in its plugin's block (`_accessories`, by Device Id) and the bridge puts it on the
   accessory's Name and Configured Name, without reloading the plugin and with its aids and iids, so its room, scenes and
@@ -59,6 +68,20 @@ All notable changes to this project are documented here. The format follows
 
 - The Assistant's chat gives the model a tool's structured answer inside the `<untrusted-data>` wrapper the tool's text
   has (a Setup's answer, a hub's automations), where before it went out unwrapped.
+- The web UI's OAuth sign-in page no longer sends the browser on its own to a client's redirect URI when the request
+  is one it cannot answer: it says why and offers a **Return to** link. Anyone may register a client, so the bridge's
+  name could otherwise front a redirect to any site.
+- Logs, and the Status page's metrics and energy charts: a range chosen while another loads cancels it, so the older
+  range no longer draws over the newer one; a log that fails to load says so instead of spinning, and the live log
+  reads what it missed after the tab was hidden. Coming back to the tab no longer closes an open sheet or dialog.
+- A failed write puts an accessory's card back only when no later write changed it; the chat keeps a message it
+  could not send; a new scene, or a user, is no longer saved twice by a quick second click.
+- The scene editor asks before you leave it, or close the tab, with changes not saved. Setup says when looking for
+  devices failed rather than that it found none, and a retry still under way no longer draws over your answer. Each
+  page decides what it does when the tab is shown again (Status, Accessories and Quick Controls reload, the live log
+  reads what it missed), and a refused write puts its value back only when it was the card's latest.
+- Removing another device's notifications, an uploaded wallpaper or a scene's picture asks first. Sign-in errors are
+  announced to screen readers, the log's JSON button is easier to tap, and a few buttons gained their icons.
 - UniFi Access and Protect: Add accessories leaves out the consoles that do not run the app (asked without signing in,
   they answer with their web page), and signing in to one says so, rather than "Unable to parse response".
 - UniFi Access and Protect: Add accessories lists only the UniFi OS consoles (gateways, Cloud Keys, recorders) to

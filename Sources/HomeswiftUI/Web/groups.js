@@ -55,7 +55,7 @@
         const update = () => {
           const chosen = selected.has(a.id);
           button.textContent = chosen ? '−' : '+';
-          button.setAttribute('aria-label', `${chosen ? t('Remove') : t('Add')}: ${a.displayName || a.name}`);
+          button.setAttribute('aria-label', t(chosen ? 'Remove {name}' : 'Add {name}', { name: a.displayName || a.name }));
           (chosen ? selectedList : list).append(row);
           row.hidden = false;
           selectedCount.textContent = String(selected.size);
@@ -67,7 +67,7 @@
         });
         update(); return row;
       });
-      const save = el('button', { type: 'submit', class: 'primary', text: t('Save') });
+      const save = el('button', { type: 'submit', class: 'primary', actionIcon: 'check', text: t('Save') });
       const dialog = el('dialog', { class: 'admin-dialog accessory-group-dialog', 'aria-label': t('Accessory group') });
       const search = el('input', { type: 'search', class: 'search', placeholder: t('Search accessories'), 'aria-label': t('Search accessories') });
       let activeType = '';
@@ -111,7 +111,7 @@
         el('div', { class: 'group-picker-columns' },
           el('section', {}, el('h3', { text: t('Available') }), search, typeFilter, clearFilters, list, empty),
           el('section', {}, el('div', { class: 'group-selected-heading' }, el('h3', { text: t('Selected') }), selectedCount), selectedList, selectedEmpty)), message,
-        el('div', { class: 'actions' }, el('button', { type: 'button', text: t('Cancel'), onclick: () => dialog.close() }), save));
+        el('div', { class: 'actions' }, el('button', { type: 'button', actionIcon: 'close', text: t('Cancel'), onclick: () => dialog.close() }), save));
       const content = el('div', { class: 'group-dialog-content' });
       while (form.children.length > 1) content.append(form.firstElementChild);
       form.prepend(content);
