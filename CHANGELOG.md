@@ -12,6 +12,11 @@ All notable changes to this project are documented here. The format follows
   `rename_accessory`. The name goes in its plugin's block (`_accessories`, by Device Id) and the bridge puts it on the
   accessory's Name and Configured Name, without reloading the plugin and with its aids and iids, so its room, scenes and
   automations stay. The Home app follows Configured Name; a rename made there is kept in config.json the same way.
+- Wingman: Apple Home's rooms, scenes and automations, from a Wingman that serves them (docs/apple-home-design.md). A
+  room renamed in Homeswift is renamed in Apple Home with **Rename on the hubs too**; Apple Home's scenes are listed,
+  run, renamed, updated from their lights, created and deleted like a Hue Bridge's; automations are listed and turned
+  on or off, renamed, retimed, given new scenes or actions, or deleted. Plugins get `automations()`,
+  `updateAutomation(id:change:)` and `deleteAutomation(id:)` (`PluginAutomation`) for a hub's own automations.
 
 ### Fixed
 

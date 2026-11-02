@@ -64,6 +64,26 @@ reachability lags for Matter devices on a Mac, and HomeKit answers a write the d
 
 The MCP tools are `Wingman_list_wingmen`, `Wingman_discover` and `Wingman_pair`.
 
+## Rooms, scenes and automations
+
+A Wingman that serves Apple Home's structure (its `/info` lists the `structure` feature; docs/apple-home-design.md)
+also gives Homeswift:
+
+- **Rooms**: with **Rename on the hubs too** on, a room renamed in Homeswift is renamed in Apple Home. The other way, a
+  room renamed in the Home app moves its mirrored accessories that have no room set in Homeswift; Homeswift's own rooms
+  keep their names.
+- **Scenes**: Apple Home's scenes join **Scenes from your hubs**, in the room of their accessories when they share one.
+  Run them, and from their ⋯ menu rename them, keep their lights as they are (their other actions stay) or delete them.
+  A new scene of lights that are all in one Apple Home home can be kept there. Built-in scenes (Good Morning and the
+  like) are not renamed or deleted; a scene with an action Wingman cannot show (a shortcut) keeps its actions.
+- **Automations**: listed with their triggers, conditions, scenes and actions; turned on or off, renamed, given a new
+  time (a time trigger), new scenes or new actions, or deleted. Their conditions and accessory triggers are shown, not
+  changed: the Home app edits those.
+
+Each edit needs **Let bridges edit rooms, scenes and automations** on in Wingman's settings (off by default) and the
+Mac's user to administer the home; otherwise scenes are only run and nothing else is offered. A change made in the Home
+app reaches Homeswift at once (Wingman's `scenes` and `automations` events). An older Wingman gives none of it.
+
 ## Dashboard controls
 
 Wingman accessories can join [dashboard groups](../../docs/widgets.md#accessory-groups) with compatible native

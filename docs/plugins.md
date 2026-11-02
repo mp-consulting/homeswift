@@ -358,7 +358,16 @@ on the hubs too**), a room renamed in Homeswift is renamed on the hubs. `rooms()
 (its id, name, and `place` when the instance has several hubs or homes); Homeswift calls it only on a rename, so it may
 ask the hub. `renameRoom(id:name:)` renames one; Homeswift picks those named as the room was, case and accents aside,
 and logs what each did. Hue (`HueRooms.swift`, rooms but not zones), DIRIGERA (`DirigeraRooms.swift`, from
-lpgera/dirigera, the room's icon and colour kept) and eWeLink (`EWeLinkRooms.swift`, `PUT /v2/family/room`) do.
+lpgera/dirigera, the room's icon and colour kept), eWeLink (`EWeLinkRooms.swift`, `PUT /v2/family/room`) and Wingman
+(`Structure.swift`, Apple Home's rooms) do.
+
+A hub that keeps automations of its own lists them with `automations()` as `PluginAutomation`s: when they start
+(`triggers`, any of them: a time or sunrise and sunset with an offset, an accessory's value or range, presence), what
+ends them (`endTriggers`), their `conditions`, the plugin's scenes they run (`sceneIDs`) and their own `actions`, with
+accessories named by Homeswift's ids and characteristic types and `names` for those Homeswift does not have.
+`updateAutomation(id:change:)` applies a `PluginAutomationChange` (enabled, name, time, scenes, actions; nil leaves a
+part as it is) and `deleteAutomation(id:)` removes one; list what each allows in `capabilities`. The hub stays the only
+keeper, as for scenes. Wingman (`Structure.swift`, Apple Home's automations; docs/apple-home-design.md) does.
 
 ### What the Assistant can do
 

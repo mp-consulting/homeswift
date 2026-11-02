@@ -132,6 +132,16 @@ public protocol HomeswiftPlugin: Sendable {
 
     /// Renames one of `rooms()` by its `PluginRoom.id` on the hub. Defaults to throwing.
     func renameRoom(id: String, name: String) async throws
+
+    /// The automations the plugin's hub keeps (`PluginAutomation`), such as Apple Home's through Wingman. Defaults to
+    /// none.
+    func automations() async -> [PluginAutomation]
+
+    /// Changes an automation on the hub: what its `PluginAutomation.capabilities` allow. Defaults to throwing.
+    func updateAutomation(id: String, change: PluginAutomationChange) async throws
+
+    /// Removes an automation from the hub (`delete` capability). Defaults to throwing.
+    func deleteAutomation(id: String) async throws
 }
 
 extension HomeswiftPlugin {

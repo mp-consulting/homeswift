@@ -30,8 +30,9 @@ Security follows the existing rule: a scene that writes a lock, a garage door or
 scene's actions before `executeActionSet`, not just the request.
 
 HomeKit itself refuses structural edits from a user who is not an administrator of the home
-(`home.homeAccessControl(for: home.currentUser).isAdministrator`). Wingman reports it per home as
-`editable`, so the plugin offers no edit HomeKit would refuse.
+(`home.homeAccessControl(for: home.currentUser).isAdministrator`). Wingman reports it on each home of `GET /homes`
+as `editable`, beside the home's `id` and its `rooms` (`[{"id", "name"}]`), so the plugin offers no edit HomeKit would
+refuse.
 
 `GET /info` gains `"features": ["structure"]` (and `"structure": true|false`, the setting now), so a bridge knows whether
 the endpoints exist without a new API version: everything is additive, `api` stays `"1"`.
@@ -86,13 +87,11 @@ drop them.
 
 ```json
 {"automations": [{
-  "id": "…", "home": "…", "name": "Lights at sunset", "enabled": true, "editable": true,
+  "id": "…", "home": "…", "name": "Lights at sunset", "enabled": true,
   "lastFired": "2026-11-01T17:12:03Z",
   "trigger": {"kind": "time", "time": {"significant": "sunset", "offsetMinutes": -15, "weekdays": [1,2,3,4,5]}},
-  "events": [],
-  "endEvents": [],
-  "conditions": [{"kind": "time", "after": "sunset", "before": "23:00"}],
-  "conditionsText": "…",
+  "endEvents": [{"kind": "duration", "seconds": 600}],
+  "conditions": [{"kind": "time", "after": {"significant": "sunset"}, "before": {"hour": 23, "minute": 0}}],
   "executeOnce": false,
   "scenes": ["…"],
   "actions": [{"accessory": "…", "characteristic": "…", "type": "…", "value": true}],
@@ -102,17 +101,20 @@ drop them.
 
 - `trigger.kind` is `time` for an `HMTimerTrigger` (`fireDate`, `recurrence` as weekdays or a calendar interval,
   `timeZone`) and for an `HMEventTrigger` whose only event is an `HMSignificantTimeEvent` or an `HMCalendarEvent`;
-  `event` for the other event triggers, whose `events` list each one:
+  `event` for the other event triggers, whose `trigger.events` list each one (any of them starts it):
   `{"kind": "characteristic", "accessory", "characteristic", "type", "value"}` (`HMCharacteristicEvent`),
   `{"kind": "threshold", …, "min", "max"}` (`HMCharacteristicThresholdRangeEvent`), `{"kind": "presence", "who":
   "anyone|me|everyone", "arriving": true}` (`HMPresenceEvent`), `{"kind": "location", "arriving": true}`
   (`HMLocationEvent`, the region left out: it is where the person lives), `{"kind": "duration", "seconds"}` as an end
-  event (`HMDurationEvent`, "Turn off after"), and `{"kind": "other", "text"}` for anything else.
+  event (`HMDurationEvent`, "Turn off after"), `{"kind": "time", "time"}` for a significant or calendar event among
+  others, and `{"kind": "other", "text"}` for anything else. A time is `{"hour", "minute"}` or `{"significant":
+  "sunrise|sunset", "offsetMinutes"}`, with `"weekdays"` (1 is Sunday; none is every day).
 - `conditions` come from the trigger's `predicate`. HomeKit keeps it as an `NSPredicate`; Wingman recognises the shapes
   the Home app and `HMEventTrigger`'s own builders make (a time window by significant events or date components, a
-  characteristic compared with a value, presence) and lists anything else as `{"kind": "other", "text":
-  predicateFormat}`, with the whole `predicateFormat` in `conditionsText` for display.
-- `editable` is false when the Mac's user is not an administrator of the home.
+  characteristic compared with a value, presence) as `{"kind": "time", "after", "before"}` (times as above, either
+  open), `{"kind": "characteristic", "accessory", "characteristic", "type", "comparison", "value"}` and `{"kind":
+  "presence", "who", "home"}`, and lists anything else as `{"kind": "other", "text": predicateFormat}`.
+- Whether it can be edited is its home's `editable`.
 
 ### What can be edited
 
@@ -141,9 +143,11 @@ a second after a burst):
 - `"kind": "scenes"`: `didAdd`/`didRemove` an action set, `didUpdateNameFor`, `didUpdateActionsFor` an action set;
 - `"kind": "automations"`: `didAdd`/`didRemove` a trigger, `didUpdateNameFor`, `didUpdate` a trigger (enabled,
   fire date, events), `didUpdateActionSetsFor` a trigger;
-- room renames already make a `homes` event.
+- room renames already make a `homes` event;
+- `"kind": "settings"`: the owner turned **Let bridges edit rooms, scenes and automations** on or off. The bridge asks
+  `/info` again for `structure`.
 
-An older bridge ignores kinds it does not know (`Link.follow` reads again only on `homes`), so these are additive.
+An older bridge ignores kinds it does not know (it read the homes again only on `homes`), so these are additive.
 The menu bar panel's activity list shows them as it shows `homes`.
 
 ### Demo mode
@@ -198,25 +202,27 @@ adds one, shaped like `PluginScenes` (the hub keeps them, Homeswift asks each ti
 
 ```swift
 public struct PluginAutomation: Sendable, Equatable {
-    public enum Capability: String, Sendable, CaseIterable { case enable, rename, retime, rescene, reaction, delete }
+    public enum Capability: String, Sendable, CaseIterable { case enable, rename, time, scenes, actions, delete }
 
     public var id: String              // the hub's, without a `/`
     public var name: String
     public var enabled: Bool
     public var place: String?          // the home, for an instance with several
-    public var trigger: PluginAutomationTrigger
-    public var endTrigger: PluginAutomationTrigger?   // "Turn off after 10 minutes"
+    public var triggers: [PluginAutomationTrigger]      // any of them starts it
+    public var endTriggers: [PluginAutomationTrigger]   // "Turn off after 10 minutes"
     public var conditions: [PluginAutomationCondition]
     public var sceneIDs: [String]      // the plugin's own `PluginScene` ids it runs
     public var actions: [PluginAutomationAction]      // its own actions
+    public var names: [String: String] // the hub's names of the accessories it mentions, by Homeswift id
     public var lastRun: Date?
     public var capabilities: Set<Capability>
 }
 
 public enum PluginAutomationTrigger: Sendable, Equatable {
     case time(PluginAutomationTime)                // at a time or sunrise/sunset ± minutes, on weekdays
-    case accessory(accessoryID: String, characteristic: String, value: JSONValue?, range: ClosedRange<Double>?)
+    case accessory(accessoryID: String, characteristic: String, value: JSONValue?, minimum: Double?, maximum: Double?)
     case presence(who: String, arriving: Bool)
+    case duration(seconds: Int)                    // an end trigger
     case other(String)                             // shown as written
 }
 
@@ -253,7 +259,7 @@ extension HomeswiftPlugin {
 types, so the web UI draws a trigger or an action with the accessory's own name and widgets; a Wingman accessory left
 out of Homeswift (excluded, or Homeswift's own) shows by the name Wingman gives.
 
-The Wingman plugin maps `/automations` onto it: `trigger.kind` and `events` onto `PluginAutomationTrigger`,
+The Wingman plugin maps `/automations` onto it: `trigger` and `endEvents` onto `PluginAutomationTrigger`s,
 `conditions` onto `PluginAutomationCondition`, `scenes` onto `sceneIDs`, and the capabilities from `structure`,
 `editable` and `unsupported`. `updateAutomation` posts only the endpoints the change needs (`enable`, `rename`, `time`,
 `scenes`, `actions`), in that order, and stops at the first refusal.
@@ -277,17 +283,17 @@ The Wingman plugin maps `/automations` onto it: `trigger.kind` and `events` onto
 ### Tests
 
 `FakeWingman` gains rooms with ids on its home, `/scenes` and `/automations` answered from in-memory state, the edit
-endpoints applying to it (with `structure` and `editable` switchable, and the security refusal), and `scenes` and
+endpoints applying to it (with `structure`, the owner's setting and `editable` switchable), and `scenes` and
 `automations` events. The tests cover: rooms listed and renamed through the host's `renameRoom` with `syncRoomNames`;
 scenes listed with their capabilities, run, renamed, updated from lights (other actions kept), created and deleted;
-automations listed with each trigger and condition kind, enabled, retimed, rescened and deleted; the cache read again on
+automations listed with each trigger and condition kind, enabled, given a new time and new scenes, and deleted; the cache read again on
 events; an older Wingman without `structure` giving none of it; Wingman's `403` reported as the error the UI shows.
 
 ## Slices
 
 1. This note.
 2. Homeswift: `PluginAutomations` in `HomeswiftPlugin`, and the Wingman plugin's rooms, scenes and automations against
-   `FakeWingman`, with tests.
+   `FakeWingman`, with tests. Done; it does nothing until a Wingman serves the endpoints.
 3. Wingman: the setting, the endpoints, the events and `DemoStore`, with its tests on synthetic data. Built, signed and
    tried against a real home by its owner.
 4. Homeswift: the MCP tools and the web UI's automations section, translations, docs and screenshots.

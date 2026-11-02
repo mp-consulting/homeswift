@@ -288,6 +288,8 @@ actor Link {
     private var since = 0
     private var phase = Phase.connecting
     private var lastContact: Date?
+    /// Apple Home's rooms, scenes and automations; nil when this Wingman does not serve them.
+    private(set) var structure: Structure?
 
     init(device: WingmanPlugin.Configuration.Device, token: String, plugin: WingmanPlugin) {
         self.device = device
@@ -303,7 +305,7 @@ actor Link {
 
     /// The accessories of the last read of the homes; nil before the first.
     var loadedIDs: Set<String>? { snapshot.map { Set($0.mirrors.values.map(\.accessory.id)) } }
-    private var name: String { device.name ?? device.id }
+    var name: String { device.name ?? device.id }
 
     /// Bonjour announced Wingman at another address: the next request goes there.
     func moved(to host: String, port: Int) {
@@ -342,6 +344,7 @@ actor Link {
     func refresh() async throws {
         guard !client.host.isEmpty else { throw WingmanError.unreachable("no address yet: waiting for Bonjour") }
         guard let plugin else { return }
+        let info = try await client.info().info
         // Changes from now on, counted before the read: one made while the homes are read comes as an event too.
         since = try await client.events(since: Int.max - 1, wait: 0).last ?? 0
         let homes = try await client.homes()
@@ -382,6 +385,16 @@ actor Link {
         snapshot = Snapshot(mirrors: mirrors, homes: homes.map(\.name), leftOut: leftOut)
         phase = .connected
         lastContact = Date()
+        if info.servesStructure {
+            var structure = Structure(allowed: info.structure == true, homes: homes, mirrored: Set(mirrors.keys))
+            // What the last read gave, until this one's scenes and automations come.
+            structure.scenes = self.structure?.scenes ?? []
+            structure.automations = self.structure?.automations ?? []
+            self.structure = structure
+            await reload(scenes: true, automations: true)
+        } else {
+            structure = nil
+        }
         for mirror in changed { plugin.publish(mirror.accessory) }
         await plugin.prune()
     }
@@ -400,11 +413,17 @@ actor Link {
         if let last = answer.last, last < since { return true }
         if let first = answer.first, first > since + 1 { return true }
         var readAgain = false
+        var scenes = false, automations = false, settings = false
         for event in answer.events {
             if let seq = event.seq { since = max(since, seq) }
-            if event.kind == "homes" {
+            switch event.kind {
+            case "homes":
                 readAgain = true
                 continue
+            case "scenes": scenes = true; continue
+            case "automations": automations = true; continue
+            case "settings": settings = true; continue
+            default: break
             }
             guard let accessoryID = event.accessoryID, let characteristicID = event.characteristicID,
                   let mirror = snapshot?.mirrors[accessoryID] else { continue }
@@ -417,7 +436,50 @@ actor Link {
             answered(accessoryID)
         }
         if let last = answer.last { since = max(since, last) }
+        // A read of the homes reads the rest too.
+        if !readAgain, structure != nil {
+            if settings, let info = try? await client.info().info { structure?.allowed = info.structure == true }
+            await reload(scenes: scenes, automations: automations)
+        }
         return readAgain
+    }
+
+    // MARK: Rooms, scenes and automations
+
+    enum Reload { case nothing, scenes, automations }
+
+    /// Reads Apple Home's scenes, automations or both again; a failure keeps what was read before.
+    func reload(scenes: Bool, automations: Bool) async {
+        guard structure != nil else { return }
+        do {
+            if scenes { structure?.scenes = try await client.scenes() }
+            if automations { structure?.automations = try await client.automations() }
+        } catch {
+            logger.warning("Could not read Apple Home's scenes and automations: \(error)", metadata: ["wingman": "\(name)"])
+        }
+    }
+
+    /// A structural edit (docs/apple-home-design.md), then what it changed read again: Wingman's event would come too,
+    /// but the person who asked sees the result at once.
+    @discardableResult
+    func edit(_ path: String, _ body: JSONValue, reload what: Reload = .nothing) async throws -> JSONValue {
+        do {
+            let answer = try await client.edit(path, body)
+            await reload(scenes: what == .scenes, automations: what == .automations)
+            return answer
+        } catch {
+            logger.warning("Wingman refused \(path): \(error)", metadata: ["wingman": "\(name)"])
+            throw error
+        }
+    }
+
+    /// A room renamed through this Wingman: listed so until the "homes" event's read.
+    func renamedRoom(_ id: String, to name: String) {
+        guard var structure else { return }
+        for index in structure.homes.indices {
+            if let room = structure.homes[index].rooms.firstIndex(where: { $0.id == id }) { structure.homes[index].rooms[room].name = name }
+        }
+        self.structure = structure
     }
 
     private func lost(_ error: any Error) {
