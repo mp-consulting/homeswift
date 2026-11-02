@@ -74,8 +74,8 @@ A Wingman that serves Apple Home's structure (its `/info` lists the `structure` 
 also gives Homeswift:
 
 - **Rooms**: with **Rename on the hubs too** on, a room renamed in Homeswift is renamed in Apple Home. The other way, a
-  room renamed in the Home app moves its mirrored accessories that have no room set in Homeswift; Homeswift's own rooms
-  keep their names.
+  room renamed in the Home app renames Homeswift's room of the old name (and the other hubs' with it), with the same
+  switch on.
 - **Scenes**: Apple Home's scenes join **Scenes from your hubs**, in the room of their accessories when they share one.
   Run them, and from their ⋯ menu rename them, keep their lights as they are (their other actions stay) or delete them.
   A new scene of lights that are all in one Apple Home home can be kept there. Built-in scenes (Good Morning and the

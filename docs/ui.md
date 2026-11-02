@@ -176,9 +176,10 @@ screenshots, and what a plugin does to get good ones.
   that room, or out of any into **No room**; every room shows there, empty ones too, to take a drop. The **Rooms** menu orders the rooms (drag them) and renames
   one too (choose it). Its **Rename on the hubs too** switch, off until turned on (`syncRoomNames` in
   `accessory-layout.json`), makes a renamed room's new name reach the plugins' hubs: every room of a Philips Hue Bridge,
-  an IKEA DIRIGERA hub or an eWeLink home named as the room was, case and accents aside, is renamed with it, and the
-  log says so (`Room "Salon" renamed "Lounge" on Hue`). It goes one way: a room renamed in the Hue app stays as Homeswift
-  has it. Govee keeps no rooms its API can reach. A hub that refuses says why under the page; the room is renamed in
+  an IKEA DIRIGERA hub, an eWeLink home or Apple Home (through Wingman) named as the room was, case and accents aside,
+  is renamed with it, and the log says so (`Room "Salon" renamed "Lounge" on Hue`). From Apple Home it goes both ways:
+  a room renamed in the Home app renames Homeswift's room of the old name, and the other hubs' with it. A room renamed
+  in the Hue, IKEA or eWeLink app stays as Homeswift has it. Govee keeps no rooms its API can reach. A hub that refuses says why under the page; the room is renamed in
   Homeswift all the same.
 - **Suggest rooms**, with the Assistant on, asks it for rooms and clearer names for every accessory
   (`AssistantService.suggestOrganization`; the ids reach the model as aliases) and shows them to review: untick what you

@@ -2407,7 +2407,7 @@
     let syncRoomNames = home.syncRoomNames === true;
     async function renameRoom(name) {
       const answer = await HomeswiftCommon.promptDialog(t("A new name for {room}.", { room: name })
-        + (syncRoomNames ? `\n\n${t("Rooms of this name on your Philips Hue, IKEA and eWeLink hubs are renamed too.")}` : ""), name);
+        + (syncRoomNames ? `\n\n${t("Rooms of this name on your Philips Hue, IKEA and eWeLink hubs and in Apple Home are renamed too.")}` : ""), name);
       await applyRoomName(name, answer);
     }
     /// Renames a room (to the trimmed `answer`, unless empty or unchanged); answers whether it was.

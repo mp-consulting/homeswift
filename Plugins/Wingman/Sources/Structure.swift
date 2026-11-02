@@ -55,6 +55,18 @@ struct Structure: Sendable {
 
     func home(_ id: String) -> Home? { homes.first { $0.id == id } }
 
+    /// The rooms whose name changed between two reads, by HomeKit id: none on the first read.
+    static func renamedRooms(from old: Structure?, to new: Structure) -> [(id: String, home: String, from: String, to: String)] {
+        guard let old else { return [] }
+        let before = Dictionary(old.homes.flatMap(\.rooms).map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+        return new.homes.flatMap { home in
+            home.rooms.compactMap { room in
+                guard let name = before[room.id], name != room.name else { return nil }
+                return (room.id, home.name, name, room.name)
+            }
+        }
+    }
+
     /// Whether an edit of this home would go through: the owner allows it and this Mac's user administers the home.
     func editable(home id: String) -> Bool { allowed && home(id)?.editable == true }
 
@@ -285,7 +297,7 @@ extension WingmanPlugin {
         return found
     }
 
-    private nonisolated func includesHome(_ name: String) -> Bool {
+    nonisolated func includesHome(_ name: String) -> Bool {
         guard let homes = configuration.homes, !homes.isEmpty else { return true }
         return homes.contains { $0.caseInsensitiveCompare(name) == .orderedSame }
     }
@@ -320,8 +332,7 @@ extension WingmanPlugin {
         guard let (link, _) = await owner({ $0.homes.contains { $0.rooms.contains { $0.id == id } } }) else {
             throw PluginRoomError("Apple Home has no room \(id)")
         }
-        try await link.edit("rooms/rename", ["room": .string(id), "name": .string(name)])
-        await link.renamedRoom(id, to: name)
+        try await link.renameRoom(id, to: name)
     }
 
     // Scenes

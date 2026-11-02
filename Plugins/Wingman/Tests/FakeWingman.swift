@@ -74,6 +74,15 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
     /// This Mac's user is not an administrator of the home.
     func notAdministrator() { state.withLockedValue { $0.administrator = false } }
 
+    /// A room renamed in the Home app: a "homes" event, `/homes` with the new name.
+    func renameRoomInAppleHome(_ id: String, to name: String) {
+        state.withLockedValue { state in
+            state.roomNames[id] = name
+            state.seq += 1
+            state.events.append(["seq": state.seq, "kind": "homes", "home": "Maison"])
+        }
+    }
+
     /// A scene renamed in the Home app: a "scenes" event.
     func renameSceneInAppleHome(_ id: String, to name: String) {
         state.withLockedValue { state in

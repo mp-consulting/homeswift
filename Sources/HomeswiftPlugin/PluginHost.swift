@@ -189,6 +189,7 @@ public final class PluginHost: @unchecked Sendable {
     /// Each plugin's latest energy import report, by plugin key.
     private let energyProgress = NIOLockedValueBox<[String: EnergyImportProgress]>([:])
     private let renameHandler = NIOLockedValueBox<(@Sendable (String, String) async -> Void)?>(nil)
+    private let hubRoomRenameHandler = NIOLockedValueBox<(@Sendable (PlatformInstance, String, String) async -> Void)?>(nil)
     // The tail of the reloads, so two quick saves apply one after the other.
     let reloadTail = NIOLockedValueBox<Task<Void, Never>?>(nil)
 
@@ -502,6 +503,12 @@ public final class PluginHost: @unchecked Sendable {
         renameHandler.withLockedValue { $0 = handler }
     }
 
+    /// Calls `handler` with the instance and the old and new names when a plugin says a room of its hub was renamed
+    /// there (`PluginContext.hubRoomRenamed`); the MCP catalog renames its room of that name. One handler; nil removes it.
+    public func handleHubRoomRenames(_ handler: (@Sendable (_ instance: PlatformInstance, _ from: String, _ to: String) async -> Void)?) {
+        hubRoomRenameHandler.withLockedValue { $0 = handler }
+    }
+
     /// The name the plugin gave an accessory renamed in `_accessories`; nil for one that was not.
     public func pluginName(of accessoryID: String) -> String? {
         for instance in instances {
@@ -616,6 +623,12 @@ public final class PluginHost: @unchecked Sendable {
             guard let handler = self?.renameHandler.withLockedValue({ $0 }) else { return }
             logger.info("Renamed in HomeKit: \(id) is now \(name)")
             Task { await handler(id, name) }
+        }
+        context.onHubRoomRenamed = { [weak self, platform = block.platform, name = block.name] from, to in
+            guard let self, let handler = self.hubRoomRenameHandler.withLockedValue({ $0 }),
+                  let instance = self.runningPlugins().first(where: { $0.instance.context.platform == platform && $0.instance.context.name == name })?.instance.described
+            else { return }
+            Task { await handler(instance, from, to) }
         }
         context.accessorySettingsBox.withLockedValue { $0 = block.accessorySettings }
         context.ownDeviceIDBox.withLockedValue { $0 = entry.deviceIDOfAccessory }

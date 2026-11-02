@@ -15,7 +15,8 @@ All notable changes to this project are documented here. The format follows
 - Wingman: Apple Home's rooms, scenes and automations, from a Wingman that serves them (docs/apple-home-design.md). A
   room renamed in Homeswift is renamed in Apple Home with **Rename on the hubs too**; Apple Home's scenes are listed,
   run, renamed, updated from their lights, created and deleted like a Hue Bridge's; automations are listed and turned
-  on or off, renamed, retimed, given new scenes or actions, or deleted. Plugins get `automations()`,
+  on or off, renamed, retimed, given new scenes or actions, or deleted. With the same switch on, a room renamed in the
+  Home app renames Homeswift's room too (`PluginContext.hubRoomRenamed`). Plugins get `automations()`,
   `updateAutomation(id:change:)` and `deleteAutomation(id:)` (`PluginAutomation`) for a hub's own automations.
 - A Homeswift scene shown in the Home app as a switch has its name there: the switch carries it in Configured Name, so
   renaming the scene renames the switch in the Home app, and renaming the switch in the Home app renames the scene.

@@ -2,8 +2,9 @@ import Foundation
 import HomeswiftPlugin
 
 // A room renamed in Homeswift, renamed on the plugins' hubs too when the layout's `syncRoomNames` is on: every hub room
-// named as the room was, case and accents aside (as a hub scene's room is matched), takes the new name. One way only:
-// a room renamed on a hub stays as Homeswift has it. docs/ui.md, "Rooms on the hubs".
+// named as the room was, case and accents aside (as a hub scene's room is matched), takes the new name. The other way
+// only for a hub that says so (`PluginContext.hubRoomRenamed`, Wingman for the Home app): `followHubRoomRename`. docs/ui.md,
+// "Rooms on the hubs".
 
 extension HomeswiftCatalog {
     /// Renames, on every running plugin's hub, the rooms named `from` (`HomeswiftPlugin.rooms()`); answers what each
@@ -36,6 +37,21 @@ extension HomeswiftCatalog {
             var done: [(Int, JSONValue)] = []
             for await result in group { done.append(result) }
             return done.sorted { $0.0 < $1.0 }.map(\.1)
+        }
+    }
+
+    /// A room renamed on a plugin's hub (in the Home app, through Wingman), followed when `syncRoomNames` is on: the
+    /// layout's room of the old name takes the new one, and so do the other hubs' (`updateLayout(_:by:)`). The hub that
+    /// made it already has the new name, so nothing goes back to it. A layout without that room, or with a room of the
+    /// new name already, is left as it is.
+    func followHubRoomRename(on instance: PluginHost.PlatformInstance, from: String, to: String) async {
+        guard home.layout.value.syncRoomNames == true, from != to,
+              let room = home.layout.value.rooms.first(where: { Self.sameRoomName($0, from) }) else { return }
+        do {
+            _ = try await updateLayout(["renameRoom": ["from": .string(room), "to": .string(to)]], by: instance.name)
+            logger.info("Room \"\(room)\" renamed \"\(to)\" as on \(instance.name)")
+        } catch {
+            logger.warning("Room \"\(room)\" not renamed \"\(to)\" as on \(instance.name): \(error)")
         }
     }
 

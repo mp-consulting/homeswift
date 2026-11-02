@@ -1,5 +1,6 @@
 import Foundation
 import HomeswiftPlugin
+import NIOConcurrencyHelpers
 import Testing
 
 @testable import Homeswift
@@ -39,6 +40,18 @@ struct StructureTests {
         #expect(await plugin.rooms().first?.name == "Séjour")
         // The "homes" event Wingman makes moves the mirrored light to the renamed room.
         #expect(await eventually { host.mainBridge.server.accessories.first { $0.id == "Wingman:light-1" }?.suggestedRoom == "Séjour" })
+        await host.stop()
+    }
+
+    /// A room renamed in the Home app is said to Homeswift once; one Homeswift renamed is not said back.
+    @Test func aRoomRenamedInAppleHomeIsSaidToHomeswift() async throws {
+        let (host, plugin) = try await start()
+        let renames = NIOLockedValueBox<[String]>([])
+        host.handleHubRoomRenames { instance, from, to in renames.withLockedValue { $0.append("\(instance.platform) \(from)→\(to)") } }
+        try await plugin.renameRoom(id: "room-bureau", name: "Atelier")
+        environment.wingman.renameRoomInAppleHome("room-cave", to: "Cellier")
+        #expect(await eventually { renames.withLockedValue { $0 } == ["Wingman Cave→Cellier"] })
+        #expect(await plugin.rooms().map(\.name) == ["Salon", "Atelier", "Cellier", "Entrée"])
         await host.stop()
     }
 

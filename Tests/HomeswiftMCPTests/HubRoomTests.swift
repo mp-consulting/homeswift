@@ -66,4 +66,29 @@ import Testing
         #expect(environment.catalog.home.layout.value.syncRoomNames == nil)
         #expect(throws: CatalogError.self) { try environment.catalog.updateLayout(["syncRoomNames": "yes"]) }
     }
+
+    /// The other way: a room renamed on a hub (in the Home app, through Wingman) renames the layout's room of the old
+    /// name when `syncRoomNames` is on, and nothing goes back to the hub, which has the name already.
+    @Test func followsARoomRenamedOnAHub() async throws {
+        let environment = try MCPTestEnvironment()
+        try await environment.start()
+        defer { Task { await environment.stop() } }
+        _ = try environment.catalog.updateLayout(["rooms": ["kitchen", "Bedroom"]])
+        let instance = try #require(await environment.host.pluginRooms().first?.instance)
+        environment.hubRooms.withLockedValue { $0["r2"] = "Cuisine" }
+
+        // Off: Homeswift keeps its name.
+        await environment.catalog.followHubRoomRename(on: instance, from: "Kitchen", to: "Cuisine")
+        #expect(environment.catalog.home.layout.value.rooms == ["kitchen", "Bedroom"])
+
+        _ = try environment.catalog.updateLayout(["syncRoomNames": true])
+        await environment.catalog.followHubRoomRename(on: instance, from: "Kitchen", to: "Cuisine")
+        #expect(environment.catalog.home.layout.value.rooms == ["Cuisine", "Bedroom"])
+        #expect(hubRooms(environment) == ["r1": "Séjour", "r2": "Cuisine", "r3": "Bedroom"])
+
+        // A room Homeswift does not have, or a name another room has, changes nothing.
+        await environment.catalog.followHubRoomRename(on: instance, from: "Garage", to: "Atelier")
+        await environment.catalog.followHubRoomRename(on: instance, from: "Cuisine", to: "bedroom")
+        #expect(environment.catalog.home.layout.value.rooms == ["Cuisine", "Bedroom"])
+    }
 }

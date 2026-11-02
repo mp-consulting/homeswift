@@ -172,6 +172,12 @@ is on, every hub room named as the Homeswift room was: Apple Home becomes one of
 this name on your Philips Hue, IKEA and eWeLink hubs are renamed too" becomes "… on your hubs and in Apple Home …",
 in the four languages. The mirrored accessories take the new room from the `homes` event that follows.
 
+The other way, a room renamed in the Home app: on each read of the homes the link compares the rooms' names by HomeKit
+id with the last read, and tells Homeswift of each change (`PluginContext.hubRoomRenamed(from:to:)`). With
+`syncRoomNames` on, the catalog renames its room of the old name as the web UI does, which renames the other hubs' too;
+the Apple Home room has the new name already, so nothing goes back. A rename the link asked for itself is remembered
+until the read that shows it, and not said back.
+
 **Scenes** (`PluginScenes`): `scenes()` answers each action set:
 
 | `PluginScene` | From |

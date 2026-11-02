@@ -300,7 +300,7 @@ HomeswiftI18n.add("pt", {
   "Pack the widgets together": "Juntar os widgets",
   "Rename on the hubs too": "Mudar o nome também nos hubs",
   "A new name for {room}.": "Um novo nome para {room}.",
-  "Rooms of this name on your Philips Hue, IKEA and eWeLink hubs are renamed too.": "As divisões com este nome nos seus hubs Philips Hue, IKEA e eWeLink também mudam de nome.",
+  "Rooms of this name on your Philips Hue, IKEA and eWeLink hubs and in Apple Home are renamed too.": "As divisões com este nome nos seus hubs Philips Hue, IKEA e eWeLink e na Apple Home também mudam de nome.",
   "Not renamed on {hub}: {error}": "Nome não mudado em {hub}: {error}",
   "Show hidden": "Mostrar ocultos",
   "Clear filters": "Limpar filtros",

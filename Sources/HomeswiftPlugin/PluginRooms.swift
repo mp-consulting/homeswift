@@ -3,7 +3,8 @@ import Foundation
 /// A room a plugin's hub or cloud keeps (a Hue Bridge's room, a DIRIGERA hub's, an eWeLink home's), listed by
 /// `HomeswiftPlugin.rooms()` so a room renamed in Homeswift is renamed there too when `syncRoomNames` is on: Homeswift
 /// renames, with `HomeswiftPlugin.renameRoom(id:name:)`, the hub rooms named as the room was (case and accents aside).
-/// The sync goes one way, Homeswift to the hubs; a room renamed on a hub stays as Homeswift has it.
+/// A hub that learns of its own renames (Wingman, from the Home app) tells Homeswift with `PluginContext.hubRoomRenamed`,
+/// which renames Homeswift's room too; on the others a room renamed on the hub stays as Homeswift has it.
 ///
 /// ```swift
 /// func rooms() async -> [PluginRoom] {

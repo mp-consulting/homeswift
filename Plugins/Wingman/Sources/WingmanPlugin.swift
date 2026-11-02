@@ -331,6 +331,9 @@ actor Link {
     private var lastContact: Date?
     /// Apple Home's rooms, scenes and automations; nil when this Wingman does not serve them.
     private(set) var structure: Structure?
+    /// Rooms Homeswift renamed through this Wingman, by HomeKit id: the read that shows the new name is not a rename
+    /// made in the Home app.
+    private var ownRoomRenames: [String: String] = [:]
 
     init(device: WingmanPlugin.Configuration.Device, token: String, plugin: WingmanPlugin) {
         self.device = device
@@ -431,7 +434,21 @@ actor Link {
             // What the last read gave, until this one's scenes and automations come.
             structure.scenes = self.structure?.scenes ?? []
             structure.automations = self.structure?.automations ?? []
+            let renamed = Structure.renamedRooms(from: self.structure, to: structure)
             self.structure = structure
+            // Renamed in the Home app: Homeswift follows. A rename Homeswift asked for is not said back.
+            for (id, home, from, to) in renamed {
+                if ownRoomRenames[id] == to {
+                    ownRoomRenames[id] = nil
+                    continue
+                }
+                guard plugin.includesHome(home) else { continue }
+                logger.info("Room renamed in Apple Home", metadata: ["wingman": "\(name)", "from": "\(from)", "to": "\(to)"])
+                plugin.context.hubRoomRenamed(from: from, to: to)
+            }
+            // Those Apple Home now shows are done.
+            let current = Dictionary(structure.homes.flatMap(\.rooms).map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+            ownRoomRenames = ownRoomRenames.filter { current[$0.key] != $0.value }
             await reload(scenes: true, automations: true)
         } else {
             structure = nil
@@ -514,8 +531,19 @@ actor Link {
         }
     }
 
-    /// A room renamed through this Wingman: listed so until the "homes" event's read.
-    func renamedRoom(_ id: String, to name: String) {
+    /// Renames a room in Apple Home; listed so until the "homes" event's read, which is not said back to Homeswift.
+    func renameRoom(_ id: String, to name: String) async throws {
+        ownRoomRenames[id] = name
+        do {
+            try await edit("rooms/rename", ["room": .string(id), "name": .string(name)])
+        } catch {
+            ownRoomRenames[id] = nil
+            throw error
+        }
+        renamedRoom(id, to: name)
+    }
+
+    private func renamedRoom(_ id: String, to name: String) {
         guard var structure else { return }
         for index in structure.homes.indices {
             if let room = structure.homes[index].rooms.firstIndex(where: { $0.id == id }) { structure.homes[index].rooms[room].name = name }

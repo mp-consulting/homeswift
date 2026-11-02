@@ -473,6 +473,20 @@ public final class PluginContext: @unchecked Sendable {
     }
     private let publishedBox = NIOLockedValueBox<@Sendable () -> [Accessory]>({ [] })
 
+    /// Tells Homeswift a room of the plugin's hub was renamed there (in the Home app, through Wingman): with the
+    /// layout's `syncRoomNames` on, Homeswift renames its room of the old name too, and the other hubs' (docs/ui.md,
+    /// "Rooms on the hubs"). Say it only for a rename the hub made, not one Homeswift asked for with `renameRoom`.
+    public func hubRoomRenamed(from: String, to: String) {
+        hubRoomRenamedBox.withLockedValue { $0 }?(from, to)
+    }
+
+    /// Set by `PluginHost`.
+    var onHubRoomRenamed: (@Sendable (_ from: String, _ to: String) -> Void)? {
+        get { hubRoomRenamedBox.withLockedValue { $0 } }
+        set { hubRoomRenamedBox.withLockedValue { $0 = newValue } }
+    }
+    private let hubRoomRenamedBox = NIOLockedValueBox<(@Sendable (_ from: String, _ to: String) -> Void)?>(nil)
+
     /// The serial numbers of every accessory Homeswift itself publishes to HomeKit, on any bridge or on its own, mirrored
     /// ones left out: a plugin that reads another controller's view of the home (Wingman reads the Home app's, which has
     /// Homeswift's accessories too) knows which are Homeswift's own.
