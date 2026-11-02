@@ -7,9 +7,9 @@
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/style.css">
 <style>
-  /* The page's own pieces, on the UI's materials: a heading with the plugin's tile, one card per TV with its
-     state and a remote grouped the way a remote is (power, navigation, volume, Ambilight), and the pairing
-     wizard of the Homebridge plugin (find, PIN, confirm) with one step showing at a time. */
+  /* The page's own pieces, on the UI's materials: a heading with the plugin's tile, the card to Add accessories,
+     and one card per TV with its state and a remote grouped the way a remote is (power, navigation, volume,
+     Ambilight). */
 
   .tvs { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 460px), 1fr)); gap: 14px; }
   .tv { margin: 0; display: grid; gap: 16px; animation: materialize var(--normal) var(--ease-out); }
@@ -57,8 +57,6 @@
   .empty-list { margin: 0; padding: 14px; border-radius: 14px; border: 1px dashed var(--line); text-align: center; font-size: 0.8125rem; }
   .off-note p { margin: 0; }
   .off-note .explain { margin-top: 4px; }
-  .status-line .link { margin-left: 10px; padding: 0; }
-  .status-line .explain { display: block; }
 
   /* The TV editor: the Homebridge plugin's sections as tabs. */
   .tabs { align-self: start; flex-wrap: wrap; }
@@ -74,53 +72,18 @@
   .add-box .actions { margin-top: 10px; }
   .save-bar.dirty > .muted { color: var(--warn); font-weight: 500; }
 
-  .steps { display: flex; gap: 6px; list-style: none; margin: 0 0 18px; padding: 0; flex-wrap: wrap; }
-  .steps li { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px 5px 5px; border-radius: 999px; color: var(--muted); font-weight: 500; }
-  .steps li::before {
-    content: attr(data-n); width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 0.8125rem;
-    background: var(--material-thin); border: 1px solid var(--edge); font-variant-numeric: tabular-nums;
-  }
-  .steps li.current { color: var(--text); background: var(--material-thin); }
-  .steps li.current::before { background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: var(--accent-text); border-color: transparent; }
-  .steps li.done::before { content: "✓"; color: var(--ok); }
-  .step { animation: fade var(--normal) var(--ease-out); }
-  /* The pairing wizard opens under its button, above the TVs, as the material arriving. */
-  .pairing { margin-bottom: 16px; animation: materialize var(--normal) var(--ease-out); scroll-margin-top: 90px; }
-  .pairing .panel-head { margin-bottom: 14px; }
-  .pairing .panel-head h2 { margin: 0; }
-  .step > p:first-child { margin-top: 0; }
-  .found { display: grid; gap: 8px; margin: 14px 0 0; }
-  .found .item { display: flex; align-items: center; gap: 12px; margin: 0; padding: 10px 10px 10px 14px; }
-  .found .item div { flex: 1; min-width: 0; }
-  .found .item .muted { font-size: 0.8125rem; }
-  .manual { display: flex; gap: 10px; align-items: center; margin-top: 6px; }
-  .manual input { flex: 1; max-width: 260px; font-variant-numeric: tabular-nums; }
-  .or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 0.8125rem; margin: 18px 0 4px; }
-  .or::before, .or::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
-
-  .pin { display: flex; gap: 10px; margin: 6px 0 4px; }
-  .pin input { width: 54px; height: 62px; padding: 0; text-align: center; font-size: 1.625rem; font-weight: 600; font-variant-numeric: tabular-nums; border-radius: 16px; }
-  .form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 16px; }
-  .form .wide { grid-column: 1 / -1; }
-  .form input[readonly] { color: var(--muted); }
+  #setup { margin-bottom: 16px; }
   /* A MAC address field with its "Get MAC" button. */
   .with-button { display: flex; gap: 8px; align-items: center; }
   .with-button input { flex: 1; min-width: 0; }
   .head-actions { display: flex; gap: 14px; align-items: center; flex-shrink: 0; }
-  .check { display: flex; align-items: center; gap: 12px; margin: 14px 0 0; }
-  .check label { margin: 0; }
-  .needs { border-color: var(--warn) !important; }
-  details { margin-top: 14px; }
-  details pre { font-family: var(--mono); font-size: 0.78rem; margin: 6px 0 0; padding: 12px 14px; border-radius: 14px; background: var(--material-thin); border: 1px solid var(--line); overflow: auto; }
 
   @media (prefers-reduced-motion: reduce) {
-    .tv, .step, .pairing { animation: none; }
+    .tv { animation: none; }
     .source { transition: none; }
   }
   @media (max-width: 640px) {
-    .form { grid-template-columns: 1fr; }
     .original { display: none; }
-    .pin input { width: 48px; height: 56px; }
   }
 </style>
 </head>
@@ -135,8 +98,8 @@
     </div>
   </div>
 
-  <div class="section-head"><h2 data-i18n>Your TVs</h2><button id="add-tv" class="primary" data-i18n aria-expanded="false" aria-controls="pairing" data-action-icon="plus">Add a TV</button></div>
-  <section id="pairing" class="card pairing hidden" aria-labelledby="add-title"></section>
+  <div id="setup"></div>
+  <div class="section-head"><h2 data-i18n>Your TVs</h2></div>
   <div id="tvs" class="tvs"></div>
   <div id="sources" class="card panel hidden"></div>
   <div id="tv-editor" class="card panel hidden"></div>

@@ -157,29 +157,6 @@ struct PairingTests {
         #expect(await environment.tv.challenges == 3)   // one per grant: the TV challenges every new connection
     }
 
-    @Test func pairsFromTheWebPage() async throws {
-        let host = try await environment.start(settings: ["devices": []])
-        let plugin = try #require(environment.plugin)
-        let started = try await plugin.handleWebRequest(.init(method: "POST", path: "pair", body: ["ip": "192.168.1.20"], user: "admin"))
-        #expect(started.status == 200 && started.json["certificateSeen"] == true)
-        let wrong = try await plugin.handleWebRequest(.init(method: "POST", path: "pair/grant", body: ["ip": "192.168.1.20", "pin": "9999"], user: "admin"))
-        #expect(wrong.status == 502)
-        await environment.tv.set(wrongPINStatus: 401)
-        let rejected = try await plugin.handleWebRequest(.init(method: "POST", path: "pair/grant", body: ["ip": "192.168.1.20", "pin": "9999"], user: "admin"))
-        #expect(rejected.status == 502 && rejected.json["error"]?.stringValue?.hasPrefix("Invalid PIN code.") == true)
-        await environment.tv.set(wrongPINStatus: nil)
-        let granted = try await plugin.handleWebRequest(.init(method: "POST", path: "pair/grant", body: ["ip": "192.168.1.20", "pin": "1234"], user: "admin"))
-        #expect(granted.status == 200)
-        #expect(granted.json["device"]?["mac"] == "AA:BB:CC:DD:EE:FF")
-        // The keys are in the vault under the TV's MAC, not in the entry the page writes into config.json.
-        #expect(granted.json["device"]?["password"] == nil && granted.json["device"]?["username"] == nil)
-        let keys = host.context(platform: PhilipsAmbilightTVPlugin.platform, name: "Philips TVs")?.credentials(for: "AA:BB:CC:DD:EE:FF")
-        #expect(keys?["password"] == "key-from-tv")
-        #expect(keys?["certFingerprint"]?.stringValue == FakeTV.fingerprint)
-        let found = try await plugin.handleWebRequest(.init(method: "GET", path: "discover", user: "admin"))
-        #expect(found.json["tvs"]?[0]?["host"] == "192.168.1.20")
-    }
-
     /// Setup: the TV found on the network asks for its PIN, a wrong one is asked again, and the paired TV goes under its
     /// MAC with its keys in the vault; once there, the plugin runs it from its Accessory Settings.
     @Test func setsUpATVFoundOnTheNetwork() async throws {
@@ -212,14 +189,64 @@ struct PairingTests {
         await host.stop()
     }
 
-    /// Pairs from the web page and returns the MAC address the entry carries.
-    private func pairedMAC() async throws -> JSONValue? {
+    /// A TV Bonjour does not reach: an entry with only its name and address waits for Setup, which pairs it at that
+    /// address; the TV then runs with the MAC and the keys Setup kept, and its entry's settings.
+    @Test func setsUpATVTypedInTheSettingsByItsAddress() async throws {
+        let entry: [String: Any] = ["name": "Bedroom TV", "ip": "192.168.1.20", "pollingInterval": 1000, "wakeOnLanEnabled": false]
+        let host = try await environment.start(settings: ["devices": [entry]])
+        let plugin = try #require(environment.plugin)
+        #expect(await plugin.devices.isEmpty)
+        let found = try await plugin.discover()
+        // Bonjour's TV at the same address counts once.
+        #expect(found.count == 1)
+        let tv = try #require(found.first)
+        #expect(tv.deviceID == "ip:192.168.1.20" && tv.name == "Bedroom TV" && tv.authorization == .deviceCode && !tv.isSetUp)
+        guard case .ask(_, let state) = try await plugin.authorize(SetupRequest(target: .device(tv))) else { Issue.record("expected the PIN"); return }
+        guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .device(tv), answers: ["pin": "1234"], state: state)) else {
+            Issue.record("expected done"); return
+        }
+        #expect(outcome.deviceID == "AA:BB:CC:DD:EE:FF")
+
+        let context = try #require(host.context(platform: PhilipsAmbilightTVPlugin.platform, name: "Philips TVs"))
+        try context.saveCredentials(outcome.credentials ?? .null, for: "AA:BB:CC:DD:EE:FF")
+        let block = try HomeswiftConfiguration.Platform(
+            platform: PhilipsAmbilightTVPlugin.platform, name: "Philips TVs",
+            settings: ["devices": [entry], "_accessories": ["AA:BB:CC:DD:EE:FF": ["name": "Bedroom TV", "ip": "192.168.1.20"]]])
+        await host.apply(HomeswiftConfiguration(bridge: .init(port: 0), platforms: [block]))
+        #expect(await eventually { host.platforms.first?.accessoryIDs.contains(tvID) == true })
+        let running = try #require(environment.plugin)
+        let devices = await running.configuredDevices()
+        #expect(devices.count == 1)
+        #expect(devices.first?.mac == "AA:BB:CC:DD:EE:FF" && devices.first?.pollingInterval == 1000 && devices.first?.password == "key-from-tv")
+        #expect(try await running.discover().map(\.deviceID) == ["AA:BB:CC:DD:EE:FF"])
+        await host.stop()
+    }
+
+    /// A TV listed by its MAC keeps it when it is paired again, whatever interface it answers on.
+    @Test func pairingAgainKeepsTheTVsMAC() async throws {
+        await environment.tv.set(networkDevices: [["id": "eth0", "mac": "11:22:33:44:55:66", "ip": "192.168.1.20", "type": "Ethernet"]])
+        let host = try await environment.start(settings: ["devices": [livingRoom]])
+        let plugin = try #require(environment.plugin)
+        let tv = try #require(try await plugin.discover().first { $0.deviceID == "AA:BB:CC:DD:EE:FF" })
+        #expect(tv.isSetUp)
+        guard case .ask(_, let state) = try await plugin.authorize(SetupRequest(target: .device(tv))) else { Issue.record("expected the PIN"); return }
+        guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .device(tv), answers: ["pin": "1234"], state: state)) else {
+            Issue.record("expected done"); return
+        }
+        #expect(outcome.deviceID == "AA:BB:CC:DD:EE:FF")
+        await host.stop()
+    }
+
+    /// Sets up the TV Bonjour finds and returns the MAC address Setup keeps it under; nil when Setup asks for it.
+    private func pairedMAC() async throws -> String? {
         _ = try await environment.start(settings: ["devices": []])
         let plugin = try #require(environment.plugin)
-        _ = try await plugin.handleWebRequest(.init(method: "POST", path: "pair", body: ["ip": "192.168.1.20"], user: "admin"))
-        let granted = try await plugin.handleWebRequest(.init(method: "POST", path: "pair/grant", body: ["ip": "192.168.1.20", "pin": "1234"], user: "admin"))
-        #expect(granted.status == 200)
-        return granted.json["device"]?["mac"]
+        let tv = try #require(try await plugin.discover().first)
+        guard case .ask(_, let state) = try await plugin.authorize(SetupRequest(target: .device(tv))) else { Issue.record("expected the PIN"); return nil }
+        let step = try await plugin.authorize(SetupRequest(target: .device(tv), answers: ["pin": "1234"], state: state))
+        if case .done(let outcome) = step { return outcome.deviceID }
+        if case .ask(let prompt, _) = step { #expect(prompt.fields.map(\.key) == ["mac"]) }
+        return nil
     }
 
     @Test func prefersTheInterfaceThatAnswers() async throws {

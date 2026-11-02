@@ -2,7 +2,7 @@ import HomeswiftPlugin
 
 extension EWeLinkPlugin {
     /// The page's routes for the Assistant: the connection's state, the account's devices, a test command.
-    /// Signing in (`POST login`) takes the account's password, so it stays the page's.
+    /// Signing in is Setup's (`start_setup` for an AI agent), never a route of the page.
     public static let assistantActions: [AssistantAction] = [
         AssistantAction(
             name: "status", title: "Check the connection",
@@ -15,7 +15,7 @@ extension EWeLinkPlugin {
             description: "The devices of the eWeLink account, from the cloud, with what a 3-second mDNS scan finds on the LAN: deviceId, name, "
                 + "brand, model, uiid, online, lanEnabled, lanIp and lanPort. RF remotes and sensors an RF Bridge learned follow their "
                 + "bridge as <bridge id>SW<n> (isRfSubdevice, parentDeviceId, buttons). Uses the instance's own session; it answers 401 "
-                + "when the instance never signed in (the user then signs in on the plugin's page). The deviceId is what singleDevices, "
+                + "when the instance never signed in (the user then signs in on Add accessories, or an AI agent through start_setup). The deviceId is what singleDevices, "
                 + "multiDevices and ignoredDevices take in config.json.",
             path: "devices", access: .read),
         AssistantAction(

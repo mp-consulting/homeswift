@@ -12,9 +12,6 @@ extension PhilipsAmbilightTVPlugin {
   "customUi": true,
   "schema": {
     "type": "object",
-    "required": [
-      "devices"
-    ],
     "additionalProperties": false,
     "properties": {
       "name": {
@@ -26,18 +23,14 @@ extension PhilipsAmbilightTVPlugin {
       },
       "devices": {
         "title": "TV Devices",
-        "description": "The Philips TVs to control from HomeKit. Pair each TV once to get its username and password.",
+        "description": "The Philips TVs to control from HomeKit. Add accessories pairs them and keeps their keys in the vault: a TV Bonjour does not find needs only its name and IP address here to be paired there.",
         "type": "array",
-        "minItems": 1,
         "items": {
           "type": "object",
           "title": "TV",
           "required": [
             "name",
-            "mac",
-            "ip",
-            "username",
-            "password"
+            "ip"
           ],
           "additionalProperties": false,
           "properties": {
@@ -572,7 +565,7 @@ extension PhilipsAmbilightTVPlugin {
       "Teletext": "Télétexte",
       "The IP address of the TV on the local network.": "L'adresse IP du téléviseur sur le réseau local.",
       "The MAC address of the TV (required for Wake-on-LAN).": "L'adresse MAC du téléviseur (nécessaire pour Wake-on-LAN).",
-      "The Philips TVs to control from HomeKit. Pair each TV once to get its username and password.": "Les téléviseurs Philips à contrôler depuis HomeKit. Jumelez chaque téléviseur une fois pour obtenir son nom d'utilisateur et son mot de passe.",
+      "The Philips TVs to control from HomeKit. Add accessories pairs them and keeps their keys in the vault: a TV Bonjour does not find needs only its name and IP address here to be paired there.": "Les téléviseurs Philips à contrôler depuis HomeKit. Ajouter des accessoires les jumelle et garde leurs clés dans le coffre : un téléviseur que Bonjour ne trouve pas n'a besoin ici que de son nom et de son adresse IP pour y être jumelé.",
       "The TV key that the HomeKit remote's back button sends.": "La touche du téléviseur qu'envoie le bouton Retour de la télécommande HomeKit.",
       "The TV key that the HomeKit remote's information button sends.": "La touche du téléviseur qu'envoie le bouton d'information de la télécommande HomeKit.",
       "The TV key that the HomeKit remote's play/pause button sends.": "La touche du téléviseur qu'envoie le bouton lecture/pause de la télécommande HomeKit.",
@@ -711,7 +704,7 @@ extension PhilipsAmbilightTVPlugin {
       "Teletext": "Teletexto",
       "The IP address of the TV on the local network.": "La dirección IP del televisor en la red local.",
       "The MAC address of the TV (required for Wake-on-LAN).": "La dirección MAC del televisor (necesaria para Wake-on-LAN).",
-      "The Philips TVs to control from HomeKit. Pair each TV once to get its username and password.": "Los televisores Philips que se controlan desde HomeKit. Empareja cada televisor una vez para obtener su nombre de usuario y su contraseña.",
+      "The Philips TVs to control from HomeKit. Add accessories pairs them and keeps their keys in the vault: a TV Bonjour does not find needs only its name and IP address here to be paired there.": "Los televisores Philips que se controlan desde HomeKit. Añadir accesorios los empareja y guarda sus claves en la bóveda: un televisor que Bonjour no encuentra solo necesita aquí su nombre y su dirección IP para emparejarse allí.",
       "The TV key that the HomeKit remote's back button sends.": "La tecla del televisor que envía el botón Atrás del mando de HomeKit.",
       "The TV key that the HomeKit remote's information button sends.": "La tecla del televisor que envía el botón de información del mando de HomeKit.",
       "The TV key that the HomeKit remote's play/pause button sends.": "La tecla del televisor que envía el botón de reproducir/pausa del mando de HomeKit.",
@@ -850,7 +843,7 @@ extension PhilipsAmbilightTVPlugin {
       "Teletext": "Teletexto",
       "The IP address of the TV on the local network.": "O endereço IP do televisor na rede local.",
       "The MAC address of the TV (required for Wake-on-LAN).": "O endereço MAC do televisor (necessário para o Wake-on-LAN).",
-      "The Philips TVs to control from HomeKit. Pair each TV once to get its username and password.": "Os televisores Philips a controlar a partir do HomeKit. Emparelhe cada televisor uma vez para obter o nome de utilizador e a palavra-passe.",
+      "The Philips TVs to control from HomeKit. Add accessories pairs them and keeps their keys in the vault: a TV Bonjour does not find needs only its name and IP address here to be paired there.": "Os televisores Philips a controlar a partir do HomeKit. Adicionar acessórios emparelha-os e guarda as suas chaves no cofre: um televisor que o Bonjour não encontra só precisa aqui do nome e do endereço IP para ser emparelhado lá.",
       "The TV key that the HomeKit remote's back button sends.": "A tecla do televisor que o botão Voltar do comando do HomeKit envia.",
       "The TV key that the HomeKit remote's information button sends.": "A tecla do televisor que o botão de informação do comando do HomeKit envia.",
       "The TV key that the HomeKit remote's play/pause button sends.": "A tecla do televisor que o botão de reproduzir/pausa do comando do HomeKit envia.",

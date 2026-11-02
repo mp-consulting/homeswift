@@ -230,7 +230,8 @@ a page to keep on a phone's home screen.
 Scenes are kept in `scenes.json` next to config.json (owner-only), with each one's last run. The editor's **A switch
 in the Home app** makes the scene a switch of one **Homeswift Scenes** accessory on the bridge: turning it on runs the
 scene, leaving out its locks, doors and alarms; turning it off puts the lights back, and it shows whether the scene is
-on.
+on. The switch has the scene's name in the Home app: renaming the scene renames it there, and renaming it in the Home
+app renames the scene.
 
 ![A scene as a switch in the Home app](images/ui/scene-homekit.png) A scene's card says its
 room when its accessories share one, and **Scene active** while every value it sets is what its accessories show.
@@ -814,6 +815,10 @@ Plugins/<Name>/Web Plugins/<Name>/Sources/WebFiles.swift <Type>` (a test checks 
   block with a `devices` list keyed by MAC address there are `updateDevices`, `updateDevice`, `putDevice` and
   `findDevice`; `poll(refresh)` refreshes while the page is visible, and `renderKeyed` redraws only the cards whose item
   changed.
+- **Setup.** A page signs in and pairs nowhere: `homeswift.setupCard({ title, text, glyph, tone, start })` is a card
+  whose button opens the instance's row on Add accessories (`homeswift.setupAddress({ start })`, `/setup?start#<slug>`;
+  with `start`, its account's Setup sheet opens there), for a page whose account or hub is not set up yet or a "Sign in
+  again" or "Pair again" of its own.
 - **Accessories as the Accessories page draws them.** Load `/remote.js`, `/camera.js` and `/widgets.js` after
   `/common.js`, take the accessory from `/api/accessories`, add `HomeswiftWidgets.card(accessory, { size })` (`small`,
   `medium` or `large`; the kind's own size when left out) to a `.wall`, open every control with
