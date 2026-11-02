@@ -2365,6 +2365,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // /config, /logs[/<accessory>]?since=…&level=…&q=…, /account. Pages below a section keep it lit in the header.
   const views = {};
   let leaveGuard = null;   // a page with unsaved changes: false keeps it
+  /// What the view shown does when the tab is shown again, given how long it was hidden (ms); set by the view as it
+  /// starts (`onReturn`), cleared by each new view. Without one, nothing.
+  let returnHook = null;
+  const onReturn = (hook) => { returnHook = hook; };
   /// The place a #hash names on the view drawn (/status#matter-<device>): opened when it unfolds, and brought into view.
   const reveal = (hash) => {
     let id = "";
@@ -2416,6 +2420,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const main = el("main", { id: "view" }, el("div", { class: "view-loading" }, spinner()));
     $("#view").replaceWith(main);
     leaveGuard = null;
+    returnHook = null;
     shownPath = location.pathname + location.search;
     return view(main, args).catch((e) => { if (e.status !== 401) main.replaceChildren(el("p", { class: "error", text: e.message })); });
   }
@@ -2605,6 +2610,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // /status?since=24h&bridge=<bridge>&accessory=<accessory>: the activity charts' range and whose durations they show,
   // as on the Logs page.
   views.status = async (main) => {
+    // Its values were frozen while the tab was hidden.
+    onReturn(() => route());
     const [status, accessories, firstMatter] = await Promise.all([
       api("/api/status"),
       api("/api/accessories").then((list) => withSlugs(list, "accessory")).catch(() => []),
@@ -3800,6 +3807,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   views.accessories = async (main, args = []) => {
     if (args[0] === "graph") return HomeswiftAdmin.graph(main, accessoryTabs("graph"));
+    // Again, unless the wall is being arranged.
+    onReturn(() => { if (!document.querySelector(".wall.editing")) route(); });
     const [list, saved, home] = await Promise.all([api("/api/accessories"), api("/api/layout").catch(() => null), api("/api/rooms").catch(() => ({ rooms: [] })),
       isAdmin() ? loadMatterOwn() : null]);
     const all = withSlugs(list, "accessory");
@@ -6330,6 +6339,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // the range (latest, 1h, 6h, 24h, today, yesterday, 7d, or custom with from= and to=), the lowest level and the
   // text. The address follows what is chosen, so it can be kept or shared.
   views.logs = async (main, [wanted] = []) => {
+    // The live log missed what came while hidden: it reads its range again, unless it was away only a moment.
+    onReturn((away) => {
+      if ((logState?.live || logState?.failed) && document.body.contains(logState.output) && away > 10000) logState.reload?.();
+    });
     const [accessories, bridges, plugins] = await Promise.all([
       api("/api/accessories").then((list) => withSlugs(list, "accessory")).catch(() => []),
       api("/api/status").then((status) => withSlugs(status.bridges, "bridge")).catch(() => []),
@@ -6653,13 +6666,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     openEvents();
     // An open dialog (an accessory's sheet, the group editor) keeps what the person was doing in it.
     if (document.querySelector("dialog[open]")) return;
-    if (location.pathname === "/accessories" && document.querySelector(".wall.editing")) return;
-    // The live log missed what came while hidden: it reads its range again, unless it was away only a moment.
-    if (location.pathname.startsWith("/logs") && (logState?.live || logState?.failed) && document.body.contains(logState.output)) {
-      if (Date.now() - hiddenAt > 10000) logState.reload?.();
-      return;
-    }
-    if (["/", "/status", "/accessories", "/quick"].includes(location.pathname)) route();
+    returnHook?.(Date.now() - hiddenAt);
   });
 
   // The views of home.js: rooms, Quick Controls, scenes, notifications.
@@ -6670,11 +6677,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   views.setup = (main) => window.HomeswiftSetup.view(main);
   views.welcome = (main) => window.HomeswiftImport.welcome(main);
   window.HomeswiftHome?.install({
-    views, api, show, pageHead, breadcrumb, accessoryCard, navigate, route: () => route(), isAdmin,
+    views, api, show, pageHead, breadcrumb, accessoryCard, navigate, route: () => route(), isAdmin, onReturn,
     enumLabels: HomeswiftWidgets.enumLabels, labelFor: HomeswiftWidgets.labelFor, withSlugs,
   });
   // The Settings pages (admin.js) draw with the same helpers.
-  window.HomeswiftApp = { api, navigate, route, finder, uniqueName, pageHead, breadcrumb, show, openSheet, savedText, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, assistantPage, configPage };
+  window.HomeswiftApp = { api, navigate, route, finder, uniqueName, pageHead, breadcrumb, show, openSheet, savedText, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, onReturn, assistantPage, configPage };
 
   loadAuth().catch((e) => { $("#auth").classList.remove("hidden"); $("#auth-error").textContent = e.message; });
 })();
@@ -12101,24 +12108,32 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       keepOn.value = targets.some((target) => target.hub === kept) ? kept : "";
       keepOn.hidden = !targets.length;
     };
+    const read = () => ({ name: name.value.trim(), artworkId, homeKit: homeKit.checked, actions: [...actions].flatMap((row) => row.read()), triggers: [...triggers].map((row) => row.read()), conditions: [...conditions].map((row) => row.read()), animation: animation.read() });
+    // What the editor holds, to tell unsaved changes: a row still being filled in reads as a change.
+    const snapshot = () => { try { return JSON.stringify(read()); } catch { return null; } };
+    let initial, saved = false;
+    const unchanged = () => saved || snapshot() === initial;
     const form = el("form", { class: "card scene-editor", onsubmit: async (event) => {
       event.preventDefault();
-      const body = { name: name.value.trim(), artworkId, homeKit: homeKit.checked, actions: [...actions].flatMap((row) => row.read()), triggers: [...triggers].map((row) => row.read()), conditions: [...conditions].map((row) => row.read()), animation: animation.read() };
+      const body = read();
       save.disabled = true;
       if (isNew && keepOn.value && !keepOn.hidden) {
         try {
           await app.api("/api/scenes/hub", { method: "POST", body: { hub: keepOn.value, name: body.name, actions: body.actions } });
+          saved = true;
           app.navigate("/scenes");
         } catch (e) { say(line, e.message, "error"); save.disabled = false; }
         return;
       }
       try {
-        const saved = await app.api(isNew ? "/api/scenes" : `/api/scenes/${encodeURIComponent(scene.id)}`, { method: isNew ? "POST" : "PUT", body });
-        const security = saved.actions.some((a) => a.security);
+        const answer = await app.api(isNew ? "/api/scenes" : `/api/scenes/${encodeURIComponent(scene.id)}`, { method: isNew ? "POST" : "PUT", body });
+        initial = snapshot();
+        saved = isNew;
+        const security = answer.actions.some((a) => a.security);
         if (security && body.triggers.some((trigger) => trigger.enabled !== false)) {
           say(line, t("Saved. Its lock, door or alarm actions run only when you run it here: automations leave them out."), "ok");
           // Save stays off until its page opens: a second click would make another scene.
-          if (isNew) { setTimeout(() => app.navigate(`/scenes/${encodeURIComponent(saved.id)}`, { replace: true }), 1500); return; }
+          if (isNew) { setTimeout(() => app.navigate(`/scenes/${encodeURIComponent(answer.id)}`, { replace: true }), 1500); return; }
         } else {
           app.navigate("/scenes");
         }
@@ -12131,13 +12146,20 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         isNew ? null : el("span", { class: "spacer" }),
         isNew ? null : el("button", { actionIcon: "trash", type: "button", class: "danger", text: t("Delete"), onclick: async () => {
           if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete the scene {name}?", { name: scene.name }), text: t("This removes the scene and its automatic triggers. This cannot be undone."), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
-          try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); app.navigate("/scenes"); } catch (e) { say(line, e.message, "error"); }
+          try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); saved = true; app.navigate("/scenes"); } catch (e) { say(line, e.message, "error"); }
         } })),
       line);
     form.addEventListener("change", refreshTargets);
     form.addEventListener("click", () => setTimeout(refreshTargets));
     app.show(main, app.breadcrumb([t("Scenes"), "/scenes"], [isNew ? t("New scene") : scene.name]), form);
     refreshTargets();
+    // Leaving with changes not saved asks first; so does closing the tab. Only while this editor is the page shown.
+    initial = snapshot();
+    if (document.body.contains(main)) {
+      const guard = async () => unchanged() || await HomeswiftCommon.confirmDialog(t("Leave without saving your changes?"));
+      guard.quiet = unchanged;
+      window.HomeswiftApp?.setLeaveGuard(guard);
+    }
   }
 
   // ---- Notifications ---------------------------------------------------------------------------------
@@ -12349,7 +12371,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       app = context;
       app.views.scenes = (main, [id]) => id ? sceneEditor(main, id) : scenesView(main);
       app.views.notifications = notificationsView;
-      app.views.quick = async (main) => app.show(main, app.pageHead(t("Quick controls"), t("Your favourite accessories and the scenes, at hand.")), quickSection(null, { standalone: true }));
+      app.views.quick = async (main) => {
+        // Its values were frozen while the tab was hidden.
+        app.onReturn(() => app.route());
+        app.show(main, app.pageHead(t("Quick controls"), t("Your favourite accessories and the scenes, at hand.")), quickSection(null, { standalone: true }));
+      };
     },
     layoutActions, moveGroupToRoom, groupByRoom, suggestRooms, quickSection, displayName,
   };
@@ -14998,6 +15024,9 @@ HomeswiftI18n.add("es", {
   "For devices none of yours reaches yet.": "Para los dispositivos que ninguno de los tuyos alcanza todavía.",
   "Start with the brand of your devices.": "Empieza por la marca de tus dispositivos.",
   "Looking for devices…": "Buscando dispositivos…",
+  "Could not look for devices": "No se pudieron buscar los dispositivos",
+  "Could not look for its devices: {error}": "No se pudieron buscar sus dispositivos: {error}",
+  "It is set up. Look again now, or later from this page.": "Ya está configurado. Vuelve a buscar ahora, o más tarde desde esta página.",
   "Find again": "Buscar de nuevo",
   "This plugin finds no devices by itself: its settings name them.": "Este plugin no encuentra dispositivos por sí mismo: sus ajustes los indican.",
   "Set up again": "Configurar de nuevo",
@@ -17726,6 +17755,9 @@ HomeswiftI18n.add("fr", {
   "For devices none of yours reaches yet.": "Pour les appareils qu’aucun des vôtres n’atteint encore.",
   "Start with the brand of your devices.": "Commencez par la marque de vos appareils.",
   "Looking for devices…": "Recherche d’appareils…",
+  "Could not look for devices": "Impossible de rechercher les appareils",
+  "Could not look for its devices: {error}": "Impossible de rechercher ses appareils : {error}",
+  "It is set up. Look again now, or later from this page.": "Il est configuré. Relancez la recherche maintenant, ou plus tard depuis cette page.",
   "Find again": "Chercher à nouveau",
   "This plugin finds no devices by itself: its settings name them.": "Ce plugin ne trouve pas d’appareils par lui-même : ses réglages les nomment.",
   "Set up again": "Configurer à nouveau",
@@ -20454,6 +20486,9 @@ HomeswiftI18n.add("pt", {
   "For devices none of yours reaches yet.": "Para os dispositivos que nenhum dos seus alcança ainda.",
   "Start with the brand of your devices.": "Comece pela marca dos seus dispositivos.",
   "Looking for devices…": "À procura de dispositivos…",
+  "Could not look for devices": "Não foi possível procurar dispositivos",
+  "Could not look for its devices: {error}": "Não foi possível procurar os seus dispositivos: {error}",
+  "It is set up. Look again now, or later from this page.": "Já está configurado. Procure de novo agora, ou mais tarde a partir desta página.",
   "Find again": "Procurar de novo",
   "This plugin finds no devices by itself: its settings name them.": "Este plugin não encontra dispositivos sozinho: as suas definições indicam-nos.",
   "Set up again": "Configurar de novo",
@@ -22884,6 +22919,9 @@ HomeswiftI18n.add("pt", {
         if (start && action) { start = false; open({ block, plugin, firstTime: !accountSetUp, after: load }); }
       } catch (e) {
         list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));
+        // Not "no devices": the search itself failed.
+        summary.textContent = t("Could not look for devices");
+        summary.dataset.tone = "away";
       } finally {
         searching(false);
       }
@@ -23008,6 +23046,8 @@ HomeswiftI18n.add("pt", {
     const devicesStage = t("Devices");
     const stages = [device ? t("Set up") : accountActions[plugin?.accountAuthorization]?.[0]() ?? t("Sign in"), picking ? devicesStage : null, t("Done")].filter(Boolean);
     let session = null, poll = 0, ticker = 0, done = false, closed = false;
+    /// Counts what the sheet drew: a retry still under way when another answer is drawn leaves it alone.
+    let drawn = 0;
     // A Button Press's end: the retries keep it, so the countdown does not start over at each one.
     let until = 0;
     const stop = () => { clearTimeout(poll); clearInterval(ticker); };
@@ -23048,16 +23088,28 @@ HomeswiftI18n.add("pt", {
       /// excluded. A console's devices come once the plugin has connected to it: it is asked a few times.
       async function pick({ keep, tries = 1, owner = plugin?.name ?? block.name }) {
         fill(loading(t("Looking for devices…")));
-        let found = [];
+        let found = [], failure = null;
         for (let attempt = 0; attempt < tries && !closed; attempt++) {
           if (attempt) await new Promise((resume) => setTimeout(resume, 2000));
           try {
             found = (await post("discover", { platform: block.platform, name: block.name })).devices
               .filter((one) => ["setUp", "notResponding", "discovered"].includes(one.status) && keep(one));
-          } catch { found = []; }
+            failure = null;
+          } catch (e) { found = []; failure = e; }
           if (found.length) break;
         }
         if (closed) return;
+        // The search failed, which is not finding nothing: say why, and offer it again. The account or device is set up.
+        if (!found.length && failure) {
+          const again = el("button", { type: "button", class: "primary", actionIcon: "loop", text: t("Try again"), onclick: () => pick({ keep, tries, owner }) });
+          form.onsubmit = (event) => { event.preventDefault(); finish(); };
+          fill(
+            el("p", { class: "error", role: "alert", text: t("Could not look for its devices: {error}", { error: failure.message }) }),
+            el("p", { class: "muted", text: t("It is set up. Look again now, or later from this page.") }),
+            el("div", { class: "actions" }, again, el("button", { type: "submit", actionIcon: "check", text: t("Done") })));
+          again.focus({ preventScroll: true });
+          return;
+        }
         if (!found.length) { finish(); return; }
         if (!stages.includes(devicesStage)) stages.splice(stages.length - 1, 0, devicesStage);
         stage(stages.indexOf(devicesStage));
@@ -23099,6 +23151,7 @@ HomeswiftI18n.add("pt", {
         stop();
         // An answer that arrives after the sheet closed (a retry under way) draws nothing and starts nothing.
         if (closed) return;
+        const drawing = ++drawn;
         if (answer.status === "done") {
           done = true;
           session = null;
@@ -23131,7 +23184,8 @@ HomeswiftI18n.add("pt", {
             poll = setTimeout(async () => {
               let next;
               try { next = await step({}); } catch (e) { next = { ...answer, error: e.message }; }
-              if (closed) return;
+              // Closed, or another answer (the person's own) drawn while it was asked: it is out of date.
+              if (closed || drawing !== drawn) return;
               if (next.status === "asking" && !next.error && next.prompt.message === prompt.message) retry(); else draw(next);
             }, (prompt.retryAfter ?? 2) * 1000);
           };
@@ -27818,6 +27872,8 @@ self.addEventListener("notificationclick", (event) => {
   };
 
   const serviceKey = (service) => service.subtype || service.type;
+  /// The writes the page made to each characteristic: a refused write puts its value back only when it is the latest.
+  const writeCounts = new WeakMap();
   /// "Color Temperature" reads "Color temperature".
   const sentence = (type) => type.charAt(0) + type.slice(1).toLowerCase();
   /// A characteristic's name from HomeKit's definitions as a row reads it: translated when the catalog knows it,
@@ -27955,14 +28011,17 @@ self.addEventListener("notificationclick", (event) => {
         if (!await HomeswiftCommon.confirmDialog(t("Set {setting} of {name} to {value}?", { setting: typeName(characteristic.type).toLowerCase(), name: accessory.name, value: label }))) { ctx.paint(); return; }
       }
       const before = characteristic.value;
+      const write = (writeCounts.get(characteristic) || 0) + 1;
+      writeCounts.set(characteristic, write);
       characteristic.value = value;
       ctx.paint();
       try {
         await put(service, characteristic, value);
       } catch (e) {
         if (e.message === "signed out") return;
-        // Put back only what this write set: a later one that went through keeps its value.
-        if (characteristic.value === value) characteristic.value = before;
+        // Put back only what this write set: not when a later write (even of the same value) or the device's own
+        // report has changed it since.
+        if (writeCounts.get(characteristic) === write && characteristic.value === value) characteristic.value = before;
         ctx.paint();
         ctx.flash(e.message);
       }

@@ -54,6 +54,8 @@
   };
 
   const serviceKey = (service) => service.subtype || service.type;
+  /// The writes the page made to each characteristic: a refused write puts its value back only when it is the latest.
+  const writeCounts = new WeakMap();
   /// "Color Temperature" reads "Color temperature".
   const sentence = (type) => type.charAt(0) + type.slice(1).toLowerCase();
   /// A characteristic's name from HomeKit's definitions as a row reads it: translated when the catalog knows it,
@@ -191,14 +193,17 @@
         if (!await HomeswiftCommon.confirmDialog(t("Set {setting} of {name} to {value}?", { setting: typeName(characteristic.type).toLowerCase(), name: accessory.name, value: label }))) { ctx.paint(); return; }
       }
       const before = characteristic.value;
+      const write = (writeCounts.get(characteristic) || 0) + 1;
+      writeCounts.set(characteristic, write);
       characteristic.value = value;
       ctx.paint();
       try {
         await put(service, characteristic, value);
       } catch (e) {
         if (e.message === "signed out") return;
-        // Put back only what this write set: a later one that went through keeps its value.
-        if (characteristic.value === value) characteristic.value = before;
+        // Put back only what this write set: not when a later write (even of the same value) or the device's own
+        // report has changed it since.
+        if (writeCounts.get(characteristic) === write && characteristic.value === value) characteristic.value = before;
         ctx.paint();
         ctx.flash(e.message);
       }
