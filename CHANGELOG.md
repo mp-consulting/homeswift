@@ -17,6 +17,8 @@ All notable changes to this project are documented here. The format follows
   run, renamed, updated from their lights, created and deleted like a Hue Bridge's; automations are listed and turned
   on or off, renamed, retimed, given new scenes or actions, or deleted. Plugins get `automations()`,
   `updateAutomation(id:change:)` and `deleteAutomation(id:)` (`PluginAutomation`) for a hub's own automations.
+- A Homeswift scene shown in the Home app as a switch has its name there: the switch carries it in Configured Name, so
+  renaming the scene renames the switch in the Home app, and renaming the switch in the Home app renames the scene.
 - UniFi Access: a UA Gate's side door (its lock, position sensor and trigger) and each door sensor get an accessory of
   their own, with their own tile, by default (`Hub.SideDoor.SeparateAccessory`, `Hub.Sensors.SeparateAccessory`; the
   Homebridge plugin groups them on the hub's, and disabling the options does too).
