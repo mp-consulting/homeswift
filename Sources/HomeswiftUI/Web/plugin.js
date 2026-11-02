@@ -629,6 +629,18 @@
   /// Answers `{ draw(bridges, { address }), pair(host) }`: `bridges` are `{ host, name, detail, paired, pairing,
   /// pairingSecondsLeft, connected, error }` (`connected` false while connecting; `detail` replaces the address
   /// under the name), `address` what the form shows until a person types.
+  /// Where this instance is set up: its row on the Add accessories page, and with `start` its account's Setup sheet
+  /// open there. A plugin's page signs in and pairs nowhere else (docs/plugins.md, "Setup").
+  const setupAddress = ({ start = false } = {}) => `/setup${start ? "?start" : ""}#${location.pathname.split("/")[2] || ""}`;
+
+  /// A card leading to Setup: `title` and `text` say what is set up there (an account, a hub, a TV), its button opens it.
+  function setupCard({ title, text, action = t("Set up in Add accessories"), start = true, glyph = "pair", tone = "orange" }) {
+    return el("section", { class: "card setup-handoff" },
+      tile(glyph, tone),
+      el("div", { class: "who" }, el("strong", { text: title }), text ? el("p", { class: "muted", text }) : null),
+      el("a", { class: "button primary", href: setupAddress({ start }), actionIcon: glyph, text: action }));
+  }
+
   function bridgePairing({ card, tone, button = "link", texts, facts = () => [], menu = () => [], problem, discover, use, pair, refresh }) {
     // The end of each bridge's minute to press its button, by host: the bridge's own while it pairs (this page, another
     // or the plugin at start), else the one this page's Pair started. A second's tick redraws meanwhile.
@@ -917,5 +929,6 @@
     platform, name, request, home: "/plugins", $, el, icon, tile, fact, assistant, explain, ask, breadcrumb, api, act, formatTemperature, temperature,
     readBlock, updateBlock, updateDevices, updateDevice, putDevice, findDevice, setKey, toggleList, drawHidden, poll, renderKeyed,
     canonicalMAC, isMAC, sameMAC, tabs, textStyle, speedScale, scenePictures, bridgePairing, finder,
+    setupAddress, setupCard,
   };
 })();

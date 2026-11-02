@@ -14157,6 +14157,7 @@ HomeswiftI18n.add("es", {
   "Status light switch": "Interruptor de la luz de estado",
   "Night vision dimmer": "Regulador de la visión nocturna",
   "Recording switch": "Interruptor de grabación",
+  "Set up in Add accessories": "Configurar en Añadir accesorios",
   "Open a plugin to set up its devices, or add one for another brand.": "Abre un plugin para configurar sus dispositivos, o añade uno para otra marca.",
   "Not set up yet": "Aún sin configurar",
   "No devices found": "No se encontraron dispositivos",
@@ -16861,6 +16862,7 @@ HomeswiftI18n.add("fr", {
   "Status light switch": "Interrupteur du voyant d'état",
   "Night vision dimmer": "Variateur de la vision nocturne",
   "Recording switch": "Interrupteur d'enregistrement",
+  "Set up in Add accessories": "Configurer dans Ajouter des accessoires",
   "Open a plugin to set up its devices, or add one for another brand.": "Ouvrez un plugin pour configurer ses appareils, ou ajoutez-en un pour une autre marque.",
   "Not set up yet": "Pas encore configuré",
   "No devices found": "Aucun appareil trouvé",
@@ -19565,6 +19567,7 @@ HomeswiftI18n.add("pt", {
   "Status light switch": "Interruptor da luz de estado",
   "Night vision dimmer": "Regulador da visão noturna",
   "Recording switch": "Interruptor de gravação",
+  "Set up in Add accessories": "Configurar em Adicionar acessórios",
   "Open a plugin to set up its devices, or add one for another brand.": "Abra um plugin para configurar os seus dispositivos, ou adicione um para outra marca.",
   "Not set up yet": "Ainda não configurado",
   "No devices found": "Nenhum dispositivo encontrado",
@@ -21904,6 +21907,18 @@ HomeswiftI18n.add("pt", {
   /// Answers `{ draw(bridges, { address }), pair(host) }`: `bridges` are `{ host, name, detail, paired, pairing,
   /// pairingSecondsLeft, connected, error }` (`connected` false while connecting; `detail` replaces the address
   /// under the name), `address` what the form shows until a person types.
+  /// Where this instance is set up: its row on the Add accessories page, and with `start` its account's Setup sheet
+  /// open there. A plugin's page signs in and pairs nowhere else (docs/plugins.md, "Setup").
+  const setupAddress = ({ start = false } = {}) => `/setup${start ? "?start" : ""}#${location.pathname.split("/")[2] || ""}`;
+
+  /// A card leading to Setup: `title` and `text` say what is set up there (an account, a hub, a TV), its button opens it.
+  function setupCard({ title, text, action = t("Set up in Add accessories"), start = true, glyph = "pair", tone = "orange" }) {
+    return el("section", { class: "card setup-handoff" },
+      tile(glyph, tone),
+      el("div", { class: "who" }, el("strong", { text: title }), text ? el("p", { class: "muted", text }) : null),
+      el("a", { class: "button primary", href: setupAddress({ start }), actionIcon: glyph, text: action }));
+  }
+
   function bridgePairing({ card, tone, button = "link", texts, facts = () => [], menu = () => [], problem, discover, use, pair, refresh }) {
     // The end of each bridge's minute to press its button, by host: the bridge's own while it pairs (this page, another
     // or the plugin at start), else the one this page's Pair started. A second's tick redraws meanwhile.
@@ -22192,6 +22207,7 @@ HomeswiftI18n.add("pt", {
     platform, name, request, home: "/plugins", $, el, icon, tile, fact, assistant, explain, ask, breadcrumb, api, act, formatTemperature, temperature,
     readBlock, updateBlock, updateDevices, updateDevice, putDevice, findDevice, setKey, toggleList, drawHidden, poll, renderKeyed,
     canonicalMAC, isMAC, sameMAC, tabs, textStyle, speedScale, scenePictures, bridgePairing, finder,
+    setupAddress, setupCard,
   };
 })();
 
@@ -22685,7 +22701,11 @@ HomeswiftI18n.add("pt", {
     const byPlatform = new Map(plugins.plugins.map((plugin) => [plugin.platform, plugin]));
     const blocks = plugins.blocks.filter((block) => !block.system && byPlatform.has(block.platform));
     const wanted = decodeURIComponent(location.hash.slice(1));
-    const cards = blocks.map((block) => instanceCard(block, byPlatform.get(block.platform), { open: blocks.length === 1 || block.slug === wanted }));
+    // From a plugin's page (/setup?start#<slug>): its account's Setup opens once the plugin has said where it stands.
+    const start = new URLSearchParams(location.search).has("start");
+    if (start) history.replaceState(history.state, "", `/setup${location.hash}`);
+    const cards = blocks.map((block) => instanceCard(block, byPlatform.get(block.platform),
+      { open: blocks.length === 1 || block.slug === wanted, start: start && block.slug === wanted }));
     // The plugins in use, one row each, and a way to add another; before any, the brands to start from.
     const add = el("button", { type: "button", class: "primary", actionIcon: "plus", text: t("Add a plugin"), onclick: (event) => pickPlugin(plugins, event.currentTarget) });
     // Or the Assistant does it: it finds the plugin, starts the Setup and hands the steps with a secret back to the sheet.
@@ -22794,7 +22814,7 @@ HomeswiftI18n.add("pt", {
 
   /// One plugin instance, one row: its name and where its devices stand. Opened, its account when it has one and the
   /// devices it finds, each with what can be done. One that needs someone opens and moves to the top of the list.
-  function instanceCard(block, plugin, { open: openAtFirst = false } = {}) {
+  function instanceCard(block, plugin, { open: openAtFirst = false, start = false } = {}) {
     const list = el("div", { class: "setup-devices", "aria-live": "polite" }, loading(t("Looking for devices…")));
     // Under the name, where its devices stand.
     const summary = el("span", { class: "muted", text: t("Looking for devices…") });
@@ -22863,6 +22883,8 @@ HomeswiftI18n.add("pt", {
         node.classList.toggle("needs-you", attention > 0);
         // What needs someone is shown, unless they closed it themselves.
         if (attention && !touched) setOpen(true);
+        // Asked for by the plugin's page: its account's sheet, once.
+        if (start && action) { start = false; open({ block, plugin, firstTime: !accountSetUp, after: load }); }
       } catch (e) {
         list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));
       } finally {
@@ -26991,6 +27013,10 @@ select option:disabled { color: var(--muted); }
 .setup-device .status-dot { justify-self: end; }
 .setup-account .who .muted { white-space: normal; }
 .setup-account { background: color-mix(in srgb, var(--accent) 7%, transparent); margin: 0 calc(-1 * var(--space-12)); padding-inline: var(--space-12); border-radius: var(--radius-md); }
+/* A plugin page's way to its Setup: what is set up there, and the button. */
+.setup-handoff { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--space-12); align-items: center; }
+.setup-handoff .who p { margin: var(--space-4) 0 0; font-size: var(--text-sm); }
+@media (max-width: 620px) { .setup-handoff { grid-template-columns: auto minmax(0, 1fr); } .setup-handoff .button { grid-column: 1 / -1; justify-self: stretch; } }
 .setup-loading, .setup-none { margin: var(--space-12) 0 0; }
 .setup-loading { display: flex; align-items: center; gap: var(--space-10); }
 .setup-loading .spinner { width: 16px; height: 16px; flex: none; }

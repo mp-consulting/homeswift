@@ -3787,6 +3787,10 @@ select option:disabled { color: var(--muted); }
 .setup-device .status-dot { justify-self: end; }
 .setup-account .who .muted { white-space: normal; }
 .setup-account { background: color-mix(in srgb, var(--accent) 7%, transparent); margin: 0 calc(-1 * var(--space-12)); padding-inline: var(--space-12); border-radius: var(--radius-md); }
+/* A plugin page's way to its Setup: what is set up there, and the button. */
+.setup-handoff { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--space-12); align-items: center; }
+.setup-handoff .who p { margin: var(--space-4) 0 0; font-size: var(--text-sm); }
+@media (max-width: 620px) { .setup-handoff { grid-template-columns: auto minmax(0, 1fr); } .setup-handoff .button { grid-column: 1 / -1; justify-self: stretch; } }
 .setup-loading, .setup-none { margin: var(--space-12) 0 0; }
 .setup-loading { display: flex; align-items: center; gap: var(--space-10); }
 .setup-loading .spinner { width: 16px; height: 16px; flex: none; }

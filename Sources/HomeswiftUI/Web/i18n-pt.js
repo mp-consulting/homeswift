@@ -1864,6 +1864,7 @@ HomeswiftI18n.add("pt", {
   "Status light switch": "Interruptor da luz de estado",
   "Night vision dimmer": "Regulador da visão noturna",
   "Recording switch": "Interruptor de gravação",
+  "Set up in Add accessories": "Configurar em Adicionar acessórios",
   "Open a plugin to set up its devices, or add one for another brand.": "Abra um plugin para configurar os seus dispositivos, ou adicione um para outra marca.",
   "Not set up yet": "Ainda não configurado",
   "No devices found": "Nenhum dispositivo encontrado",
