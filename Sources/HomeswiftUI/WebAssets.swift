@@ -1876,9 +1876,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// `problems`: what a save changed that its plugin's schema refuses, each with its path (`ConfigSchemaError`).
   class ApiError extends Error { constructor(status, message, problems) { super(message); this.status = status; this.problems = problems; } }
 
-  async function api(path, { method = "GET", body, raw = false } = {}) {
+  async function api(path, { method = "GET", body, raw = false, signal } = {}) {
     // The Assistant answers in the page's language.
-    const options = { method, credentials: "same-origin", headers: { "Accept-Language": HomeswiftI18n.locale } };
+    const options = { method, credentials: "same-origin", headers: { "Accept-Language": HomeswiftI18n.locale }, signal };
     if (body !== undefined) { options.headers["Content-Type"] = "application/json"; options.body = typeof body === "string" ? body : JSON.stringify(body); }
     const response = await fetch(path, options);
     if (response.status === 401 && !path.startsWith("/api/auth/")) { showAuth(); throw new ApiError(401, "signed out"); }
@@ -1892,6 +1892,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       throw new ApiError(response.status, HomeswiftI18n.message(message || `HTTP ${response.status}`), problems);
     }
     return raw ? text : (text ? JSON.parse(text) : null);
+  }
+
+  /// For a view that loads again before its last load answered (a range chosen while another loads): each call aborts
+  /// the request before it and answers the new one's signal, so only the latest draws.
+  function latestLoad() {
+    let controller = null;
+    return () => { controller?.abort(); controller = new AbortController(); return controller.signal; };
   }
 
   // ---- Authentication ------------------------------------------------------
@@ -2252,7 +2259,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   async function finishRestart() {
     if (restartOverlay?.isConnected && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
       restartOverlay.classList.add("restart-leaving");
-      await new Promise((resolve) => setTimeout(resolve, 220));
+      await new Promise((resolve) => setTimeout(resolve, 120));
     }
     closeRestartOverlay();
     restartPolling = false;
@@ -2358,6 +2365,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // /config, /logs[/<accessory>]?since=…&level=…&q=…, /account. Pages below a section keep it lit in the header.
   const views = {};
   let leaveGuard = null;   // a page with unsaved changes: false keeps it
+  /// What the view shown does when the tab is shown again, given how long it was hidden (ms); set by the view as it
+  /// starts (`onReturn`), cleared by each new view. Without one, nothing.
+  let returnHook = null;
+  const onReturn = (hook) => { returnHook = hook; };
   /// The place a #hash names on the view drawn (/status#matter-<device>): opened when it unfolds, and brought into view.
   const reveal = (hash) => {
     let id = "";
@@ -2409,6 +2420,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const main = el("main", { id: "view" }, el("div", { class: "view-loading" }, spinner()));
     $("#view").replaceWith(main);
     leaveGuard = null;
+    returnHook = null;
     shownPath = location.pathname + location.search;
     return view(main, args).catch((e) => { if (e.status !== 401) main.replaceChildren(el("p", { class: "error", text: e.message })); });
   }
@@ -2598,6 +2610,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // /status?since=24h&bridge=<bridge>&accessory=<accessory>: the activity charts' range and whose durations they show,
   // as on the Logs page.
   views.status = async (main) => {
+    // Its values were frozen while the tab was hidden.
+    onReturn(() => route());
     const [status, accessories, firstMatter] = await Promise.all([
       api("/api/status"),
       api("/api/accessories").then((list) => withSlugs(list, "accessory")).catch(() => []),
@@ -3246,7 +3260,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const path = `${location.pathname}${query.size ? `?${query}` : ""}`;
       if (path !== location.pathname + location.search) history.replaceState(null, "", path);
     }
+    const nextLoad = latestLoad();
     async function load() {
+      const signal = nextLoad();
       clearTimeout(refresh);
       keepAddress();
       const [from, end] = range.span() ?? [new Date(Date.now() - 3600000), null];
@@ -3257,14 +3273,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       section.classList.add("loading");
       let history;
       try {
-        history = await api(`/api/metrics?${query}`);
+        history = await api(`/api/metrics?${query}`, { signal });
       } catch (e) {
+        if (signal.aborted) return;
         // A homeswift that records nothing (a library, a test) has no charts.
         if (e.status === 404) { section.remove(); return; }
         for (const chart of charts) chart.detail.textContent = e.message;
         section.classList.remove("loading");
         return;
       }
+      if (signal.aborted) return;
       section.classList.remove("loading");
       const points = history.points.map((point) => ({ ...point, time: new Date(point.time).getTime() }));
       shown = { points, latest: history.latest };
@@ -3412,7 +3430,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       chart.key = key;
       chart.view = HomeswiftChart.lineChart(chart.body, { title: chart.title, series, format, unit: (max) => max >= 1000 ? 1000 : 1, points, from, to, step, latest });
     }
+    const nextLoad = latestLoad();
     async function load() {
+      const signal = nextLoad();
       clearTimeout(refresh);
       keepAddress();
       const [from, end] = range.span() ?? [new Date(Date.now() - 86400000), null];
@@ -3420,13 +3440,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       section.classList.add("loading");
       let report;
       try {
-        report = await api(`/api/metrics/energy?${new URLSearchParams({ from: from.toISOString(), to: to.toISOString(), timeZone })}`);
+        report = await api(`/api/metrics/energy?${new URLSearchParams({ from: from.toISOString(), to: to.toISOString(), timeZone })}`, { signal });
       } catch (e) {
+        if (signal.aborted) return;
         if (e.status === 404) { section.remove(); return; }
         power.detail.textContent = e.message;
         section.classList.remove("loading");
         return;
       }
+      if (signal.aborted) return;
       section.classList.remove("loading");
       // No plugin records energy: the section stays hidden, and looks again with the next refresh.
       section.hidden = !report.roles.length;
@@ -3785,6 +3807,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   views.accessories = async (main, args = []) => {
     if (args[0] === "graph") return HomeswiftAdmin.graph(main, accessoryTabs("graph"));
+    // Again, unless the wall is being arranged.
+    onReturn(() => { if (!document.querySelector(".wall.editing")) route(); });
     const [list, saved, home] = await Promise.all([api("/api/accessories"), api("/api/layout").catch(() => null), api("/api/rooms").catch(() => ({ rooms: [] })),
       isAdmin() ? loadMatterOwn() : null]);
     const all = withSlugs(list, "accessory");
@@ -4819,7 +4843,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const dirty = () => snapshot() !== saved;
     const message = el("span", { class: "muted" });
     const save = el("button", { class: "primary settings-action" }, HomeswiftCommon.icon("check"), el("span", { text: isNew ? t("Add") : t("Save") }));
-    const force = el("button", { class: "hidden", text: isNew ? t("Add anyway") : t("Save anyway"), title: t("Save what the plugin's schema refuses: for a value the plugin accepts that its schema does not list") });
+    const force = el("button", { actionIcon: "check", class: "hidden", text: isNew ? t("Add anyway") : t("Save anyway"), title: t("Save what the plugin's schema refuses: for a value the plugin accepts that its schema does not list") });
     const revert = el("button", { class: "settings-action" }, HomeswiftCommon.icon("restore"), el("span", { text: isNew ? t("Cancel") : t("Revert") }));
     // The JSON on screen is checked as it is typed: a syntax error marks its line, and Save waits for it.
     const jsonShown = () => textarea.isConnected && !textarea.closest(".hidden");
@@ -4939,7 +4963,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       // A plugin with its own page does the everyday work there (pairing, devices); this is the raw block.
       hasPage ? el("div", { class: "card page-note" },
         el("p", {}, el("strong", { text: t("Expert.") }), " ", t("Every setting of the block, as config.json keeps it, including what {plugin}'s page does not show. A save reloads the plugin.", { plugin: plugin.name })),
-        el("a", { class: "button", href: pluginPage(block), text: t("Back to its page") })) : null,
+        el("a", { class: "button", href: pluginPage(block), actionIcon: "back", text: t("Back to its page") })) : null,
       platform === "HomeswiftAiKit" && useSuggestion && !isNew ? assistantSettings({
         formValue: () => { try { return { ...getValue(), platform }; } catch { return { ...current, platform }; } },
         useValue: useSuggestion, save, dirty }) : null,
@@ -5707,7 +5731,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("div", { class: "account" }, profile, form, twoFactorCard(state), connectedAppsCard(apps),
         state.admin ? el("div", { class: "card" }, el("h2", { text: t("Users and API tokens") }),
           el("p", { class: "muted", text: t("Add people who may use this web UI, choose who administers it, and make tokens for scripts.") }),
-          el("a", { class: "button", href: "/users", text: t("Open Users") })) : null),
+          el("a", { class: "button", href: "/users", actionIcon: "users", text: t("Open Users") })) : null),
       appearanceLink());
   };
 
@@ -5903,12 +5927,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const [roleLabel, roleNote, admin] = checkbox(t("Administrator"), user ? user.admin : false, roleHelp);
       if (user?.admin && admins < 2) { admin.disabled = true; roleNote.textContent = t("The last administrator stays one: make another user an administrator first."); }
       const message = el("p", { class: "status-line muted", role: "status" });
-      const submit = el("button", { class: "primary", type: "submit", text: user ? t("Save") : t("Add user") });
+      const submit = el("button", { class: "primary", type: "submit", actionIcon: user ? "check" : "plus", text: user ? t("Save") : t("Add user") });
       const form = el("form", { class: "account-form", onsubmit: async (event) => {
         event.preventDefault();
-        if (password.value && !(await gauge.acceptable())) { message.className = "status-line error"; message.textContent = t("The password is not strong enough yet: the gauge says what is missing."); return; }
-        submit.disabled = true;
-        try {
+        // Busy from before the strength check, which asks the bridge: a second Enter meanwhile adds no second user.
+        const refuse = (text) => { message.className = "status-line error"; message.textContent = text; };
+        await HomeswiftCommon.busyButton(submit, async () => {
+          if (password.value && !(await gauge.acceptable())) { refuse(t("The password is not strong enough yet: the gauge says what is missing.")); return; }
           if (user) {
             const body = { name: name.value, admin: admin.checked };
             if (password.value) body.password = password.value;
@@ -5917,7 +5942,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             await api("/api/users", { method: "POST", body: { username: username.value, name: name.value, password: password.value, admin: admin.checked } });
           }
           done(`user:${(user?.username ?? username.value).trim().toLowerCase()}`);
-        } catch (e) { message.className = "status-line error"; message.textContent = e.message; submit.disabled = false; }
+        }, { report: (e) => refuse(e.message) });
       } },
         el("h2", { id: "user-form-title", text: user ? t("Edit {name}", { name: user.name }) : t("Add a user") }),
         user ? null : field(t("Username"), username, t("What they sign in with: no spaces or colons.")),
@@ -6115,8 +6140,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           el("span", { class: "wallpaper-swatch", style: `background: url("/api/preferences/wallpaper/${encodeURIComponent(id)}") center / cover no-repeat` }), el("span", { text: name }));
         const remove = own.length > 1 ? t("Remove your image {n}", { n: index + 1 }) : t("Remove your image");
         return el("div", { class: "wallpaper-own" }, choice,
-          el("button", { type: "button", class: "wallpaper-remove", "aria-label": remove, title: remove, onclick: async () => {
-            try { preferences = HomeswiftCommon.applyPreferences(await api(`/api/preferences/wallpaper/${encodeURIComponent(id)}`, { method: "DELETE" })); draw(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
+          el("button", { type: "button", class: "wallpaper-remove", "aria-label": remove, title: remove, onclick: async (event) => {
+            const button = event.currentTarget;
+            if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete this image from the bridge?"), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
+            await HomeswiftCommon.busyButton(button, async () => {
+              preferences = HomeswiftCommon.applyPreferences(await api(`/api/preferences/wallpaper/${encodeURIComponent(id)}`, { method: "DELETE" }));
+              draw();
+            });
           } }, HomeswiftCommon.icon("close")));
       };
       body.replaceChildren(
@@ -6191,6 +6221,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       else { check.className = "error"; check.replaceChildren(...lineLink(result, editor), result.message); }
       save.disabled = !dirty || !valid;
       revert.disabled = !dirty;
+      format.disabled = !valid;
     };
     const doSave = async (anyway = false) => {
       if (save.disabled) return;
@@ -6242,7 +6273,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       secretsNote.textContent = detail.secrets ? tn("{n} secret shown, the rest folded", "{n} secrets shown, the rest folded", detail.secrets) : t("No secrets in this file");
       secretsBanner.hidden = !detail.secretsOnly;
     });
-    format.addEventListener("click", () => { try { textarea.value = JSON.stringify(JSON.parse(textarea.value), null, 2); editor.repaint(); update(); } catch {} });
+    // Offered only while the text parses (`update`).
+    format.addEventListener("click", () => { textarea.value = JSON.stringify(JSON.parse(textarea.value), null, 2); editor.repaint(); update(); });
     update();
     show(main,
       pageHead(t("Settings"), t("The whole config.json. Saving validates it, keeps a backup of the previous file (the last 20 under backups/), and applies it at once.")),
@@ -6307,6 +6339,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // the range (latest, 1h, 6h, 24h, today, yesterday, 7d, or custom with from= and to=), the lowest level and the
   // text. The address follows what is chosen, so it can be kept or shared.
   views.logs = async (main, [wanted] = []) => {
+    // The live log missed what came while hidden: it reads its range again, unless it was away only a moment.
+    onReturn((away) => {
+      if ((logState?.live || logState?.failed) && document.body.contains(logState.output) && away > 10000) logState.reload?.();
+    });
     const [accessories, bridges, plugins] = await Promise.all([
       api("/api/accessories").then((list) => withSlugs(list, "accessory")).catch(() => []),
       api("/api/status").then((status) => withSlugs(status.bridges, "bridge")).catch(() => []),
@@ -6369,6 +6405,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
     };
     logState.updateCounts = updateLevelCounts;
+    logState.reload = load;
     const render = () => {
       updateLevelCounts();
       const shown = shownLines();
@@ -6401,7 +6438,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const path = `/logs${accessory ? `/${accessory.slug}` : ""}${query.size ? `?${query}` : ""}`;
       if (path !== location.pathname + location.search) history.replaceState(null, "", path);
     }
+    const nextLoad = latestLoad();
     async function load() {
+      const signal = nextLoad();
       keepAddress();
       const chosen = range.span();
       const query = new URLSearchParams();
@@ -6412,12 +6451,23 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       // The range loading: a spinner where its lines will be.
       count.textContent = "";
       output.replaceChildren(el("div", { class: "log-loading" }, spinner()));
+      let lines;
       try {
-        logState.lines = (await api(`/api/logs${query.size ? `?${query}` : ""}`)).map(prepared);
+        lines = (await api(`/api/logs${query.size ? `?${query}` : ""}`, { signal })).map(prepared);
       } catch (e) {
+        if (signal.aborted) return;
+        // Not left spinning: live lines wait while it does.
         count.textContent = e.message;
+        output.replaceChildren(el("p", { class: "muted empty-log", text: e.message }));
+        logState.lines = [];
+        // No live lines over the error; back in view, it tries again.
+        logState.live = false;
+        logState.failed = true;
         return;
       }
+      if (signal.aborted) return;
+      logState.failed = false;
+      logState.lines = lines;
       logState.live = !chosen?.[1];
       logState.cap = chosen ? rangeLines : latestLines;
       logState.capped = Boolean(chosen) && logState.lines.length >= rangeLines;
@@ -6571,7 +6621,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("span", { class: "label", text: line.label, title: line.label }),
       text);
     if (!line.details) return node;
-    const toggle = el("button", { type: "button", class: "log-details-toggle", text: "JSON", title: t("Show the payload") });
+    const toggle = el("button", { type: "button", class: "log-details-toggle", actionIcon: "code", text: "JSON", title: t("Show the payload") });
     const show = () => {
       toggle.setAttribute("aria-expanded", String(Boolean(line.open)));
       toggle.title = line.open ? t("Hide the payload") : t("Show the payload");
@@ -6609,12 +6659,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
 
   // A hidden tab keeps no stream open; back in view, the live pages reload their values.
+  let hiddenAt = 0;
   document.addEventListener("visibilitychange", () => {
     if (!(auth && auth.authenticated)) return;
-    if (document.hidden) { closeEvents(); return; }
+    if (document.hidden) { hiddenAt = Date.now(); closeEvents(); return; }
     openEvents();
-    if (location.pathname === "/accessories" && document.querySelector(".wall.editing")) return;
-    if (["/", "/status", "/accessories", "/quick"].includes(location.pathname)) route();
+    // An open dialog (an accessory's sheet, the group editor) keeps what the person was doing in it.
+    if (document.querySelector("dialog[open]")) return;
+    returnHook?.(Date.now() - hiddenAt);
   });
 
   // The views of home.js: rooms, Quick Controls, scenes, notifications.
@@ -6625,11 +6677,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   views.setup = (main) => window.HomeswiftSetup.view(main);
   views.welcome = (main) => window.HomeswiftImport.welcome(main);
   window.HomeswiftHome?.install({
-    views, api, show, pageHead, breadcrumb, accessoryCard, navigate, route: () => route(), isAdmin,
+    views, api, show, pageHead, breadcrumb, accessoryCard, navigate, route: () => route(), isAdmin, onReturn,
     enumLabels: HomeswiftWidgets.enumLabels, labelFor: HomeswiftWidgets.labelFor, withSlugs,
   });
   // The Settings pages (admin.js) draw with the same helpers.
-  window.HomeswiftApp = { api, navigate, route, finder, uniqueName, pageHead, breadcrumb, show, openSheet, savedText, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, assistantPage, configPage };
+  window.HomeswiftApp = { api, navigate, route, finder, uniqueName, pageHead, breadcrumb, show, openSheet, savedText, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, onReturn, assistantPage, configPage };
 
   loadAuth().catch((e) => { $("#auth").classList.remove("hidden"); $("#auth-error").textContent = e.message; });
 })();
@@ -6808,6 +6860,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     <img src="icon.svg" class="logo large" alt="">
     <h1 id="title" data-i18n>Connect to Homeswift</h1>
     <p id="lead" class="muted" data-i18n>Checking the request…</p>
+    <p id="leave" class="actions hidden"><a class="button" id="leave-link" rel="noreferrer"></a></p>
     <form id="login" class="hidden">
       <label data-i18n>Username <input name="username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required></label>
       <label data-i18n>Password <input name="password" type="password" autocomplete="current-password" required></label>
@@ -6864,6 +6917,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
   const stop = (message) => { $("#title").textContent = t("Cannot connect"); show(null, message); };
 
+  /// A request the bridge cannot answer goes back to the app only when the person clicks: anyone may register an app
+  /// and the address it returns to, so going there on its own would send them to any site under the bridge's name.
+  function refuse(request) {
+    stop(t("The app asked for something Homeswift cannot give ({reason}). Nothing was shared.", { reason: request.reason || request.error }));
+    const link = $("#leave-link");
+    link.href = request.redirect;
+    link.textContent = t("Return to {destination}", { destination: request.destination });
+    $("#leave").classList.remove("hidden");
+  }
+
   const scopes = {
     read: [t("Read"), t("See your accessories, rooms, scenes and the bridge's state. Changes nothing.")],
     control: [t("Control"), t("Also turn accessories on and off and run scenes. Locks, garage doors and alarms still ask you first.")],
@@ -6881,7 +6944,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     }
     let request;
     try { request = await api(`api/oauth/request?${new URLSearchParams(query)}`); } catch (e) { stop(e.message); return; }
-    if (request.redirect) { location.replace(request.redirect); return; }
+    if (request.redirect) { refuse(request); return; }
     $("#title").textContent = t("Connect {client}", { client: request.client });
     show("consent", state.mode === "form"
       ? t("{client} asks to use your bridge as {username}.", { client: request.client, username: request.username })
@@ -8056,6 +8119,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       running = false;
       renderControls();
       showError(e.message);
+      // Not sent: the words come back to try again, unless something new was typed meanwhile.
+      if (!panel.input.value) { panel.input.value = text; grow(); }
     }
   }
 
@@ -10420,7 +10485,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const update = () => {
           const chosen = selected.has(a.id);
           button.textContent = chosen ? '−' : '+';
-          button.setAttribute('aria-label', `${chosen ? t('Remove') : t('Add')}: ${a.displayName || a.name}`);
+          button.setAttribute('aria-label', t(chosen ? 'Remove {name}' : 'Add {name}', { name: a.displayName || a.name }));
           (chosen ? selectedList : list).append(row);
           row.hidden = false;
           selectedCount.textContent = String(selected.size);
@@ -10432,7 +10497,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         });
         update(); return row;
       });
-      const save = el('button', { type: 'submit', class: 'primary', text: t('Save') });
+      const save = el('button', { type: 'submit', class: 'primary', actionIcon: 'check', text: t('Save') });
       const dialog = el('dialog', { class: 'admin-dialog accessory-group-dialog', 'aria-label': t('Accessory group') });
       const search = el('input', { type: 'search', class: 'search', placeholder: t('Search accessories'), 'aria-label': t('Search accessories') });
       let activeType = '';
@@ -10476,7 +10541,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el('div', { class: 'group-picker-columns' },
           el('section', {}, el('h3', { text: t('Available') }), search, typeFilter, clearFilters, list, empty),
           el('section', {}, el('div', { class: 'group-selected-heading' }, el('h3', { text: t('Selected') }), selectedCount), selectedList, selectedEmpty)), message,
-        el('div', { class: 'actions' }, el('button', { type: 'button', text: t('Cancel'), onclick: () => dialog.close() }), save));
+        el('div', { class: 'actions' }, el('button', { type: 'button', actionIcon: 'close', text: t('Cancel'), onclick: () => dialog.close() }), save));
       const content = el('div', { class: 'group-dialog-content' });
       while (form.children.length > 1) content.append(form.firstElementChild);
       form.prepend(content);
@@ -10835,7 +10900,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         } catch (e) { HomeswiftCommon.showAlert(e.message); tileNode?.classList.remove("busy"); }
       }) },
       scene.picture ? { label: t("Remove the picture"), icon: "trash", onSelect: async () => {
-        try { await app.api(path, { method: "DELETE" }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
+        if (!(await HomeswiftAdmin.confirmAction({ title: t("Remove the picture of {name}? Its tile goes back to its colours.", { name: scene.name }), confirmLabel: t("Remove"), confirmIcon: "trash" }))) return;
+        tileNode?.classList.add("busy");
+        try { await app.api(path, { method: "DELETE" }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); tileNode?.classList.remove("busy"); }
       } } : null,
     ].filter(Boolean);
   }
@@ -12041,23 +12108,32 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       keepOn.value = targets.some((target) => target.hub === kept) ? kept : "";
       keepOn.hidden = !targets.length;
     };
+    const read = () => ({ name: name.value.trim(), artworkId, homeKit: homeKit.checked, actions: [...actions].flatMap((row) => row.read()), triggers: [...triggers].map((row) => row.read()), conditions: [...conditions].map((row) => row.read()), animation: animation.read() });
+    // What the editor holds, to tell unsaved changes: a row still being filled in reads as a change.
+    const snapshot = () => { try { return JSON.stringify(read()); } catch { return null; } };
+    let initial, saved = false;
+    const unchanged = () => saved || snapshot() === initial;
     const form = el("form", { class: "card scene-editor", onsubmit: async (event) => {
       event.preventDefault();
-      const body = { name: name.value.trim(), artworkId, homeKit: homeKit.checked, actions: [...actions].flatMap((row) => row.read()), triggers: [...triggers].map((row) => row.read()), conditions: [...conditions].map((row) => row.read()), animation: animation.read() };
+      const body = read();
       save.disabled = true;
       if (isNew && keepOn.value && !keepOn.hidden) {
         try {
           await app.api("/api/scenes/hub", { method: "POST", body: { hub: keepOn.value, name: body.name, actions: body.actions } });
+          saved = true;
           app.navigate("/scenes");
         } catch (e) { say(line, e.message, "error"); save.disabled = false; }
         return;
       }
       try {
-        const saved = await app.api(isNew ? "/api/scenes" : `/api/scenes/${encodeURIComponent(scene.id)}`, { method: isNew ? "POST" : "PUT", body });
-        const security = saved.actions.some((a) => a.security);
+        const answer = await app.api(isNew ? "/api/scenes" : `/api/scenes/${encodeURIComponent(scene.id)}`, { method: isNew ? "POST" : "PUT", body });
+        initial = snapshot();
+        saved = isNew;
+        const security = answer.actions.some((a) => a.security);
         if (security && body.triggers.some((trigger) => trigger.enabled !== false)) {
           say(line, t("Saved. Its lock, door or alarm actions run only when you run it here: automations leave them out."), "ok");
-          if (isNew) setTimeout(() => app.navigate(`/scenes/${encodeURIComponent(saved.id)}`, { replace: true }), 1500);
+          // Save stays off until its page opens: a second click would make another scene.
+          if (isNew) { setTimeout(() => app.navigate(`/scenes/${encodeURIComponent(answer.id)}`, { replace: true }), 1500); return; }
         } else {
           app.navigate("/scenes");
         }
@@ -12070,13 +12146,20 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         isNew ? null : el("span", { class: "spacer" }),
         isNew ? null : el("button", { actionIcon: "trash", type: "button", class: "danger", text: t("Delete"), onclick: async () => {
           if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete the scene {name}?", { name: scene.name }), text: t("This removes the scene and its automatic triggers. This cannot be undone."), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
-          try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); app.navigate("/scenes"); } catch (e) { say(line, e.message, "error"); }
+          try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); saved = true; app.navigate("/scenes"); } catch (e) { say(line, e.message, "error"); }
         } })),
       line);
     form.addEventListener("change", refreshTargets);
     form.addEventListener("click", () => setTimeout(refreshTargets));
     app.show(main, app.breadcrumb([t("Scenes"), "/scenes"], [isNew ? t("New scene") : scene.name]), form);
     refreshTargets();
+    // Leaving with changes not saved asks first; so does closing the tab. Only while this editor is the page shown.
+    initial = snapshot();
+    if (document.body.contains(main)) {
+      const guard = async () => unchanged() || await HomeswiftCommon.confirmDialog(t("Leave without saving your changes?"));
+      guard.quiet = unchanged;
+      window.HomeswiftApp?.setLeaveGuard(guard);
+    }
   }
 
   // ---- Notifications ---------------------------------------------------------------------------------
@@ -12233,8 +12316,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const line = statusLine();
     const others = el("div", {}, settings.subscriptions.map((sub) => el("div", { class: "control" },
       el("span", { text: `${sub.label}${sub.username ? ` · ${sub.username}` : ""}` }),
-      el("button", { actionIcon: "trash", class: "link", text: t("Remove"), onclick: async () => {
-        try { await app.api(`/api/notifications/push/subscriptions/${encodeURIComponent(sub.id)}`, { method: "DELETE" }); app.route(); } catch (e) { say(line, e.message, "error"); }
+      el("button", { actionIcon: "trash", class: "link", text: t("Remove"), onclick: async (event) => {
+        const button = event.currentTarget;
+        if (!(await HomeswiftAdmin.confirmAction({ title: t("Stop notifications on {device}?", { device: sub.label }), text: t("It gets no more notifications until it turns them on again."), confirmLabel: t("Remove"), confirmIcon: "trash" }))) return;
+        await HomeswiftCommon.busyButton(button, async () => {
+          await app.api(`/api/notifications/push/subscriptions/${encodeURIComponent(sub.id)}`, { method: "DELETE" });
+          app.route();
+        }, { report: (e) => say(line, e.message, "error") });
       } }))));
     if (!pushSupported()) {
       box.append(el("p", { class: "muted note", text: window.isSecureContext ? t("This browser cannot receive push notifications.") : t("Open this page over HTTPS (the HomeswiftUI block's https) or on localhost to turn them on here.") }), others);
@@ -12283,7 +12371,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       app = context;
       app.views.scenes = (main, [id]) => id ? sceneEditor(main, id) : scenesView(main);
       app.views.notifications = notificationsView;
-      app.views.quick = async (main) => app.show(main, app.pageHead(t("Quick controls"), t("Your favourite accessories and the scenes, at hand.")), quickSection(null, { standalone: true }));
+      app.views.quick = async (main) => {
+        // Its values were frozen while the tab was hidden.
+        app.onReturn(() => app.route());
+        app.show(main, app.pageHead(t("Quick controls"), t("Your favourite accessories and the scenes, at hand.")), quickSection(null, { standalone: true }));
+      };
     },
     layoutActions, moveGroupToRoom, groupByRoom, suggestRooms, quickSection, displayName,
   };
@@ -13064,6 +13156,8 @@ HomeswiftI18n.add("es", {
   "Candle flicker": "Vela parpadeante",
   "Candlelight": "Luz de velas",
   "Cannot connect": "No se puede conectar",
+  "The app asked for something Homeswift cannot give ({reason}). Nothing was shared.": "La app pidió algo que Homeswift no puede dar ({reason}). No se ha compartido nada.",
+  "Return to {destination}": "Volver a {destination}",
   "cannot read {0}": "no se puede leer {0}",
   "Cannot restore __REDACTED__ (no matching value in the current config) in {0}. Supply the real value, or keep the entry's identifying fields (platform, accessory, name) unchanged.": "No se puede restaurar __REDACTED__ (no hay ningún valor que coincida en la configuración actual) en {0}. Indica el valor real, o deja sin cambios los campos que identifican la entrada (platform, accessory, name).",
   "Carbon Dioxide Detected": "Dióxido de carbono detectado",
@@ -13742,17 +13836,14 @@ HomeswiftI18n.add("es", {
   "Search plugins": "Buscar plugins",
   "{shown} of {total} plugins": "{shown} de {total} plugins",
   "No plugin matches the search.": "Ningún plugin coincide con la búsqueda.",
-  "Pairing…": "Emparejando…",
   "Not found": "No encontrado",
   "Not responding": "No responde",
   "Connected": "Conectado",
   "Address": "Dirección",
   "Find": "Buscar",
-  "Use": "Usar",
   "Pair": "Emparejar",
   "Pair again": "Volver a emparejar",
   "Waiting for the button… {seconds} s left.": "Esperando el botón… quedan {seconds} s.",
-  "Looking on the network…": "Buscando en la red…",
   "Not running": "Detenido",
   "not set": "sin definir",
   "not valid JSON: {0} at byte {1}": "JSON no válido: {0} en el byte {1}",
@@ -14157,6 +14248,25 @@ HomeswiftI18n.add("es", {
   "Status light switch": "Interruptor de la luz de estado",
   "Night vision dimmer": "Regulador de la visión nocturna",
   "Recording switch": "Interruptor de grabación",
+  "Invalid email or password": "Correo o contraseña incorrectos",
+  "User not found. Please check your email address.": "No se ha encontrado el usuario. Comprueba tu dirección de correo.",
+  "Please confirm your email address first": "Confirma primero tu dirección de correo",
+  "Invalid verification code": "Código de verificación incorrecto",
+  "Verification code has expired. Please try again.": "El código de verificación ha caducado. Vuelve a intentarlo.",
+  "MyDolphin authentication failed": "No se ha podido autenticar en MyDolphin",
+  "Maytronics API error: HTTP {0}": "Error de la API de Maytronics: HTTP {0}",
+  "Username and password are required": "Se necesitan el nombre de usuario y la contraseña",
+  "Login failed: too many region redirects [{0}]": "No se ha podido iniciar sesión: demasiadas redirecciones de región [{0}]",
+  "Login failed: unexpected response [{0}]": "No se ha podido iniciar sesión: respuesta inesperada [{0}]",
+  "Login failed: {0}": "No se ha podido iniciar sesión: {0}",
+  "Unknown region received: {0}": "Se ha recibido una región desconocida: {0}",
+  "Set up two-factor authentication in the MyDolphin app first": "Configura primero la verificación en dos pasos en la app MyDolphin",
+  "Enter the code": "Introduce el código",
+  "Maytronics sent no token": "Maytronics no ha enviado ningún token",
+  "Maytronics sent no refresh token": "Maytronics no ha enviado ningún token de actualización",
+  "Cognito service error: HTTP {0}": "Error del servicio Cognito: HTTP {0}",
+  "The country calling code is a number such as +1 or +44": "El prefijo del país es un número como +1 o +44",
+  "Set up in Add accessories": "Configurar en Añadir accesorios",
   "Open a plugin to set up its devices, or add one for another brand.": "Abre un plugin para configurar sus dispositivos, o añade uno para otra marca.",
   "Not set up yet": "Aún sin configurar",
   "No devices found": "No se encontraron dispositivos",
@@ -14662,6 +14772,10 @@ HomeswiftI18n.add("es", {
   "Change the picture…": "Cambiar la imagen…",
   "Choose a picture…": "Elegir una imagen…",
   "Remove the picture": "Quitar la imagen",
+  "Stop notifications on {device}?": "¿Dejar de enviar notificaciones a {device}?",
+  "It gets no more notifications until it turns them on again.": "No recibirá más hasta que las vuelva a activar.",
+  "Remove the picture of {name}? Its tile goes back to its colours.": "¿Quitar la imagen de {name}? Su mosaico vuelve a sus colores.",
+  "Delete this image from the bridge?": "¿Eliminar esta imagen del puente?",
   "Show in the Home app": "Mostrar en la app Casa",
   "Leave out of the Home app": "Quitar de la app Casa",
   "Import a Homebridge config": "Importar una config de Homebridge",
@@ -14910,6 +15024,9 @@ HomeswiftI18n.add("es", {
   "For devices none of yours reaches yet.": "Para los dispositivos que ninguno de los tuyos alcanza todavía.",
   "Start with the brand of your devices.": "Empieza por la marca de tus dispositivos.",
   "Looking for devices…": "Buscando dispositivos…",
+  "Could not look for devices": "No se pudieron buscar los dispositivos",
+  "Could not look for its devices: {error}": "No se pudieron buscar sus dispositivos: {error}",
+  "It is set up. Look again now, or later from this page.": "Ya está configurado. Vuelve a buscar ahora, o más tarde desde esta página.",
   "Find again": "Buscar de nuevo",
   "This plugin finds no devices by itself: its settings name them.": "Este plugin no encuentra dispositivos por sí mismo: sus ajustes los indican.",
   "Set up again": "Configurar de nuevo",
@@ -14941,7 +15058,9 @@ HomeswiftI18n.add("es", {
   "Enter the code sent to your email.": "Introduce el código enviado a tu correo.",
   "Waiting… {seconds} s left.": "Esperando… quedan {seconds} s.",
   "Sign in with the account of the Daikin Onecta app.": "Inicia sesión con la cuenta de la app Daikin Onecta.",
-  "Enter the app you made on the Daikin Developer Portal.": "Introduce la app que creaste en el Daikin Developer Portal.",
+  "Enter the app you made on the Daikin Developer Portal. Its redirect URI is {redirectURI}, unless you change the callback server's address or port.": "Introduce la app que creaste en el Daikin Developer Portal. Su URI de redirección es {redirectURI}, salvo que cambies la dirección o el puerto del servidor de retorno.",
+  "Callback server address": "Dirección del servidor de retorno",
+  "Callback server port": "Puerto del servidor de retorno",
   "Client ID": "Client ID",
   "Client Secret": "Client Secret",
   "Sign in with Daikin on the page that opens. If it does not come back here by itself, paste the address the browser ends on.": "Inicia sesión en Daikin en la página que se abre. Si no vuelve aquí por sí sola, pega la dirección en la que termina el navegador.",
@@ -15768,6 +15887,8 @@ HomeswiftI18n.add("fr", {
   "Candle flicker": "Bougie vacillante",
   "Candlelight": "Aux chandelles",
   "Cannot connect": "Connexion impossible",
+  "The app asked for something Homeswift cannot give ({reason}). Nothing was shared.": "L’app a demandé ce que Homeswift ne peut pas donner ({reason}). Rien n’a été partagé.",
+  "Return to {destination}": "Revenir à {destination}",
   "cannot read {0}": "impossible de lire {0}",
   "Cannot restore __REDACTED__ (no matching value in the current config) in {0}. Supply the real value, or keep the entry's identifying fields (platform, accessory, name) unchanged.": "Impossible de restaurer __REDACTED__ (aucune valeur correspondante dans la config actuelle) dans {0}. Indiquez la vraie valeur, ou laissez inchangés les champs qui identifient l'entrée (platform, accessory, name).",
   "Carbon Dioxide Detected": "Dioxyde de carbone détecté",
@@ -16446,17 +16567,14 @@ HomeswiftI18n.add("fr", {
   "Search plugins": "Rechercher des plugins",
   "{shown} of {total} plugins": "{shown} plugins sur {total}",
   "No plugin matches the search.": "Aucun plugin ne correspond à la recherche.",
-  "Pairing…": "Jumelage…",
   "Not found": "Introuvable",
   "Not responding": "Ne répond pas",
   "Connected": "Connecté",
   "Address": "Adresse",
   "Find": "Rechercher",
-  "Use": "Utiliser",
   "Pair": "Jumeler",
   "Pair again": "Jumeler à nouveau",
   "Waiting for the button… {seconds} s left.": "En attente du bouton… encore {seconds} s.",
-  "Looking on the network…": "Recherche sur le réseau…",
   "Not running": "Arrêté",
   "not set": "non définie",
   "not valid JSON: {0} at byte {1}": "JSON non valide : {0} à l'octet {1}",
@@ -16861,6 +16979,25 @@ HomeswiftI18n.add("fr", {
   "Status light switch": "Interrupteur du voyant d'état",
   "Night vision dimmer": "Variateur de la vision nocturne",
   "Recording switch": "Interrupteur d'enregistrement",
+  "Invalid email or password": "E-mail ou mot de passe incorrect",
+  "User not found. Please check your email address.": "Utilisateur introuvable. Vérifiez votre adresse e-mail.",
+  "Please confirm your email address first": "Confirmez d'abord votre adresse e-mail",
+  "Invalid verification code": "Code de vérification incorrect",
+  "Verification code has expired. Please try again.": "Le code de vérification a expiré. Réessayez.",
+  "MyDolphin authentication failed": "Échec de l'authentification MyDolphin",
+  "Maytronics API error: HTTP {0}": "Erreur de l'API Maytronics : HTTP {0}",
+  "Username and password are required": "Le nom d'utilisateur et le mot de passe sont requis",
+  "Login failed: too many region redirects [{0}]": "Échec de la connexion : trop de redirections de région [{0}]",
+  "Login failed: unexpected response [{0}]": "Échec de la connexion : réponse inattendue [{0}]",
+  "Login failed: {0}": "Échec de la connexion : {0}",
+  "Unknown region received: {0}": "Région inconnue reçue : {0}",
+  "Set up two-factor authentication in the MyDolphin app first": "Activez d'abord la double authentification dans l'app MyDolphin",
+  "Enter the code": "Saisissez le code",
+  "Maytronics sent no token": "Maytronics n'a envoyé aucun jeton",
+  "Maytronics sent no refresh token": "Maytronics n'a envoyé aucun jeton d'actualisation",
+  "Cognito service error: HTTP {0}": "Erreur du service Cognito : HTTP {0}",
+  "The country calling code is a number such as +1 or +44": "L'indicatif du pays est un nombre comme +1 ou +44",
+  "Set up in Add accessories": "Configurer dans Ajouter des accessoires",
   "Open a plugin to set up its devices, or add one for another brand.": "Ouvrez un plugin pour configurer ses appareils, ou ajoutez-en un pour une autre marque.",
   "Not set up yet": "Pas encore configuré",
   "No devices found": "Aucun appareil trouvé",
@@ -17366,6 +17503,10 @@ HomeswiftI18n.add("fr", {
   "Change the picture…": "Changer l'image…",
   "Choose a picture…": "Choisir une image…",
   "Remove the picture": "Retirer l'image",
+  "Stop notifications on {device}?": "Arrêter les notifications sur {device} ?",
+  "It gets no more notifications until it turns them on again.": "Il n'en recevra plus jusqu'à ce qu'il les réactive.",
+  "Remove the picture of {name}? Its tile goes back to its colours.": "Retirer l'image de {name} ? Sa tuile reprend ses couleurs.",
+  "Delete this image from the bridge?": "Supprimer cette image du pont ?",
   "Show in the Home app": "Afficher dans l'app Maison",
   "Leave out of the Home app": "Retirer de l'app Maison",
   "Import a Homebridge config": "Importer une config Homebridge",
@@ -17614,6 +17755,9 @@ HomeswiftI18n.add("fr", {
   "For devices none of yours reaches yet.": "Pour les appareils qu’aucun des vôtres n’atteint encore.",
   "Start with the brand of your devices.": "Commencez par la marque de vos appareils.",
   "Looking for devices…": "Recherche d’appareils…",
+  "Could not look for devices": "Impossible de rechercher les appareils",
+  "Could not look for its devices: {error}": "Impossible de rechercher ses appareils : {error}",
+  "It is set up. Look again now, or later from this page.": "Il est configuré. Relancez la recherche maintenant, ou plus tard depuis cette page.",
   "Find again": "Chercher à nouveau",
   "This plugin finds no devices by itself: its settings name them.": "Ce plugin ne trouve pas d’appareils par lui-même : ses réglages les nomment.",
   "Set up again": "Configurer à nouveau",
@@ -17645,7 +17789,9 @@ HomeswiftI18n.add("fr", {
   "Enter the code sent to your email.": "Saisissez le code envoyé par e-mail.",
   "Waiting… {seconds} s left.": "En attente… encore {seconds} s.",
   "Sign in with the account of the Daikin Onecta app.": "Connectez-vous avec le compte de l’app Daikin Onecta.",
-  "Enter the app you made on the Daikin Developer Portal.": "Saisissez l’app que vous avez créée sur le Daikin Developer Portal.",
+  "Enter the app you made on the Daikin Developer Portal. Its redirect URI is {redirectURI}, unless you change the callback server's address or port.": "Saisissez l’app que vous avez créée sur le Daikin Developer Portal. Son URI de redirection est {redirectURI}, sauf si vous changez l’adresse ou le port du serveur de rappel.",
+  "Callback server address": "Adresse du serveur de rappel",
+  "Callback server port": "Port du serveur de rappel",
   "Client ID": "Client ID",
   "Client Secret": "Client Secret",
   "Sign in with Daikin on the page that opens. If it does not come back here by itself, paste the address the browser ends on.": "Connectez-vous à Daikin dans la page qui s’ouvre. Si elle ne revient pas ici d’elle-même, collez l’adresse sur laquelle le navigateur s’arrête.",
@@ -18472,6 +18618,8 @@ HomeswiftI18n.add("pt", {
   "Candle flicker": "Vela tremeluzente",
   "Candlelight": "Luz de velas",
   "Cannot connect": "Não é possível ligar",
+  "The app asked for something Homeswift cannot give ({reason}). Nothing was shared.": "A app pediu algo que o Homeswift não pode dar ({reason}). Nada foi partilhado.",
+  "Return to {destination}": "Voltar a {destination}",
   "cannot read {0}": "não é possível ler {0}",
   "Cannot restore __REDACTED__ (no matching value in the current config) in {0}. Supply the real value, or keep the entry's identifying fields (platform, accessory, name) unchanged.": "Não é possível restaurar __REDACTED__ (nenhum valor correspondente na configuração atual) em {0}. Indique o valor real, ou mantenha inalterados os campos que identificam a entrada (platform, accessory, name).",
   "Carbon Dioxide Detected": "Dióxido de carbono detetado",
@@ -19150,17 +19298,14 @@ HomeswiftI18n.add("pt", {
   "Search plugins": "Procurar plugins",
   "{shown} of {total} plugins": "{shown} de {total} plugins",
   "No plugin matches the search.": "Nenhum plugin corresponde à pesquisa.",
-  "Pairing…": "A emparelhar…",
   "Not found": "Não encontrado",
   "Not responding": "Não responde",
   "Connected": "Ligado",
   "Address": "Endereço",
   "Find": "Procurar",
-  "Use": "Usar",
   "Pair": "Emparelhar",
   "Pair again": "Emparelhar novamente",
   "Waiting for the button… {seconds} s left.": "À espera do botão… faltam {seconds} s.",
-  "Looking on the network…": "A procurar na rede…",
   "Not running": "Parado",
   "not set": "não definida",
   "not valid JSON: {0} at byte {1}": "JSON inválido: {0} no byte {1}",
@@ -19565,6 +19710,25 @@ HomeswiftI18n.add("pt", {
   "Status light switch": "Interruptor da luz de estado",
   "Night vision dimmer": "Regulador da visão noturna",
   "Recording switch": "Interruptor de gravação",
+  "Invalid email or password": "E-mail ou palavra-passe incorretos",
+  "User not found. Please check your email address.": "Utilizador não encontrado. Verifique o endereço de e-mail.",
+  "Please confirm your email address first": "Confirme primeiro o endereço de e-mail",
+  "Invalid verification code": "Código de verificação incorreto",
+  "Verification code has expired. Please try again.": "O código de verificação expirou. Tente novamente.",
+  "MyDolphin authentication failed": "Falha na autenticação MyDolphin",
+  "Maytronics API error: HTTP {0}": "Erro da API Maytronics: HTTP {0}",
+  "Username and password are required": "São necessários o nome de utilizador e a palavra-passe",
+  "Login failed: too many region redirects [{0}]": "Não foi possível iniciar sessão: demasiados redirecionamentos de região [{0}]",
+  "Login failed: unexpected response [{0}]": "Não foi possível iniciar sessão: resposta inesperada [{0}]",
+  "Login failed: {0}": "Não foi possível iniciar sessão: {0}",
+  "Unknown region received: {0}": "Foi recebida uma região desconhecida: {0}",
+  "Set up two-factor authentication in the MyDolphin app first": "Configure primeiro a autenticação de dois fatores na app MyDolphin",
+  "Enter the code": "Introduza o código",
+  "Maytronics sent no token": "A Maytronics não enviou nenhum token",
+  "Maytronics sent no refresh token": "A Maytronics não enviou nenhum token de atualização",
+  "Cognito service error: HTTP {0}": "Erro do serviço Cognito: HTTP {0}",
+  "The country calling code is a number such as +1 or +44": "O indicativo do país é um número como +1 ou +44",
+  "Set up in Add accessories": "Configurar em Adicionar acessórios",
   "Open a plugin to set up its devices, or add one for another brand.": "Abra um plugin para configurar os seus dispositivos, ou adicione um para outra marca.",
   "Not set up yet": "Ainda não configurado",
   "No devices found": "Nenhum dispositivo encontrado",
@@ -20070,6 +20234,10 @@ HomeswiftI18n.add("pt", {
   "Change the picture…": "Alterar a imagem…",
   "Choose a picture…": "Escolher uma imagem…",
   "Remove the picture": "Remover a imagem",
+  "Stop notifications on {device}?": "Parar as notificações em {device}?",
+  "It gets no more notifications until it turns them on again.": "Não receberá mais até as voltar a ativar.",
+  "Remove the picture of {name}? Its tile goes back to its colours.": "Remover a imagem de {name}? O seu mosaico volta às suas cores.",
+  "Delete this image from the bridge?": "Eliminar esta imagem da ponte?",
   "Show in the Home app": "Mostrar na app Casa",
   "Leave out of the Home app": "Retirar da app Casa",
   "Import a Homebridge config": "Importar uma configuração do Homebridge",
@@ -20318,6 +20486,9 @@ HomeswiftI18n.add("pt", {
   "For devices none of yours reaches yet.": "Para os dispositivos que nenhum dos seus alcança ainda.",
   "Start with the brand of your devices.": "Comece pela marca dos seus dispositivos.",
   "Looking for devices…": "À procura de dispositivos…",
+  "Could not look for devices": "Não foi possível procurar dispositivos",
+  "Could not look for its devices: {error}": "Não foi possível procurar os seus dispositivos: {error}",
+  "It is set up. Look again now, or later from this page.": "Já está configurado. Procure de novo agora, ou mais tarde a partir desta página.",
   "Find again": "Procurar de novo",
   "This plugin finds no devices by itself: its settings name them.": "Este plugin não encontra dispositivos sozinho: as suas definições indicam-nos.",
   "Set up again": "Configurar de novo",
@@ -20349,7 +20520,9 @@ HomeswiftI18n.add("pt", {
   "Enter the code sent to your email.": "Introduza o código enviado para o seu e-mail.",
   "Waiting… {seconds} s left.": "A aguardar… faltam {seconds} s.",
   "Sign in with the account of the Daikin Onecta app.": "Inicie sessão com a conta da app Daikin Onecta.",
-  "Enter the app you made on the Daikin Developer Portal.": "Introduza a app que criou no Daikin Developer Portal.",
+  "Enter the app you made on the Daikin Developer Portal. Its redirect URI is {redirectURI}, unless you change the callback server's address or port.": "Introduza a app que criou no Daikin Developer Portal. O seu URI de redirecionamento é {redirectURI}, a menos que altere o endereço ou a porta do servidor de retorno.",
+  "Callback server address": "Endereço do servidor de retorno",
+  "Callback server port": "Porta do servidor de retorno",
   "Client ID": "Client ID",
   "Client Secret": "Client Secret",
   "Sign in with Daikin on the page that opens. If it does not come back here by itself, paste the address the browser ends on.": "Inicie sessão na Daikin na página que se abre. Se não voltar aqui sozinha, cole o endereço em que o navegador termina.",
@@ -21110,8 +21283,8 @@ HomeswiftI18n.add("pt", {
     <label data-i18n>Password <input name="password" type="password" autocomplete="current-password" required minlength="1"></label>
     <label id="auth-otp" class="hidden" data-i18n>Code from your authenticator app <input name="otp" inputmode="numeric" autocomplete="one-time-code" spellcheck="false" placeholder="123 456" maxlength="9"></label>
     <label id="auth-setup-code" class="hidden" data-i18n>Set-up code <input name="setupCode" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX"></label>
-    <p class="error" id="auth-error"></p>
-    <button type="submit" id="auth-submit" class="primary" data-i18n>Sign in</button>
+    <p class="error" id="auth-error" role="alert"></p>
+    <button type="submit" id="auth-submit" class="primary" data-i18n data-action-icon="user">Sign in</button>
   </form>
 </div>
 <div id="app" class="hidden">
@@ -21889,142 +22062,16 @@ HomeswiftI18n.add("pt", {
     };
   }
 
-  /// The bridge card of the lighting pages, the same for a Hue Bridge and DIRIGERA hubs: a block per bridge (its tile,
-  /// name, address and state; its facts once paired, else the prompt to pair: Pair, then the countdown while its
-  /// button can be pressed), and the address form at the end of the card (Find lists the bridges on the network, a tap
-  /// fills the address in; the primary button uses it). The form is made once, so it stays open and keeps what was typed.
-  ///
-  /// `card` the element; `tone` the tile's colour once connected; `button` the icon on the drawn bridge button;
-  /// `texts`: `name` (a bridge without one), `pairTitle`, `pairHelp`, `press` (while pairing), `summary` (the form's),
-  /// `placeholder`, `addressHelp`, `none` (Find found nothing). `facts(bridge)` the [label, value] pairs of a paired
-  /// one; `menu(bridge)` more items of its ⋯ menu (Pair again is there once paired); `problem(bridge)` what
-  /// `explain` takes when it does not answer. `discover()` answers the hosts on the network, `use(host)` takes the
-  /// address, `pair(host)` pairs (resolves once paired, rejects otherwise), `refresh()` reads the state again.
-  ///
-  /// Answers `{ draw(bridges, { address }), pair(host) }`: `bridges` are `{ host, name, detail, paired, pairing,
-  /// pairingSecondsLeft, connected, error }` (`connected` false while connecting; `detail` replaces the address
-  /// under the name), `address` what the form shows until a person types.
-  function bridgePairing({ card, tone, button = "link", texts, facts = () => [], menu = () => [], problem, discover, use, pair, refresh }) {
-    // The end of each bridge's minute to press its button, by host: the bridge's own while it pairs (this page, another
-    // or the plugin at start), else the one this page's Pair started. A second's tick redraws meanwhile.
-    const pairingUntil = new Map();
-    const asking = new Set();
-    let bridges = [];
-    let address = "";
-    let ticker = 0;
-    const secondsLeft = (host) => Math.max(0, Math.ceil(((pairingUntil.get(host) ?? 0) - Date.now()) / 1000));
-    const isPairing = (bridge) => bridge.pairing || Date.now() < (pairingUntil.get(bridge.host) ?? 0);
-    const waiting = (host) => t("Waiting for the button… {seconds} s left.", { seconds: secondsLeft(host) });
+  /// Where this instance is set up: its row on the Add accessories page, and with `start` its account's Setup sheet
+  /// open there. A plugin's page signs in and pairs nowhere else (docs/plugins.md, "Setup").
+  const setupAddress = ({ start = false } = {}) => `/setup${start ? "?start" : ""}#${location.pathname.split("/")[2] || ""}`;
 
-    function follow() {
-      for (const bridge of bridges) {
-        if (bridge.pairing && bridge.pairingSecondsLeft != null) pairingUntil.set(bridge.host, Date.now() + bridge.pairingSecondsLeft * 1000);
-        else if (!bridge.pairing && !asking.has(bridge.host)) pairingUntil.delete(bridge.host);
-      }
-      const on = bridges.some(isPairing);
-      if (on && !ticker) ticker = setInterval(redraw, 1000);
-      if (!on && ticker) { clearInterval(ticker); ticker = 0; }
-    }
-
-    let typed = false;
-    const input = el("input", { type: "text", id: "bridge-address", placeholder: texts.placeholder, inputmode: "url", autocomplete: "off" });
-    input.addEventListener("input", () => { typed = true; });
-    const found = el("div", { class: "found" });
-    const form = el("details", { class: "address-box" },
-      el("summary", { text: texts.summary }),
-      // The title, then the input with its buttons on one row (so they line up at any width), then the help.
-      el("div", { class: "address" },
-        el("label", { class: "field-title", htmlFor: "bridge-address", text: t("Address") }),
-        el("div", { class: "address-row" }, input,
-          el("button", { actionIcon: "search", text: t("Find"), onclick: (event) => act(event.currentTarget, async () => {
-            const hosts = await discover();
-            found.replaceChildren(...(hosts.length
-              ? hosts.map((host) => el("button", { actionIcon: "bridge", text: host, onclick: () => { input.value = host; typed = true; } }))
-              : [el("span", { class: "muted", text: texts.none })]));
-          }) }),
-          el("button", { class: "primary", actionIcon: "check", text: t("Use"), onclick: (event) => act(event.currentTarget, async () => {
-            await use(input.value.trim());
-            typed = false;
-            found.replaceChildren();
-            await refresh();
-          }) })),
-        texts.addressHelp ? el("span", { class: "help", text: texts.addressHelp }) : null),
-      found);
-    const list = el("div", { class: "bridges" });
-    card.append(list, form);
-
-    /// The countdown texts of the bridges waiting for their button, by host: the second's tick updates only them.
-    const countdowns = new Map();
-
-    function block(bridge) {
-      const pairingNow = isPairing(bridge);
-      const [state, kind] = pairingNow ? [t("Pairing…"), "standby"] : !bridge.host ? [t("Not found"), "away"] : !bridge.paired ? [t("Not paired"), "away"]
-        : bridge.error ? [t("Not responding"), "away"] : bridge.connected === false ? [t("Connecting…"), "standby"] : [t("Connected"), "on"];
-      const items = [
-        bridge.paired && !pairingNow ? { label: t("Pair again"), icon: "pair", onSelect: () => start(null, bridge.host) } : null,
-        ...menu(bridge),
-      ].filter(Boolean);
-      const note = el("p", { class: "muted", text: pairingNow ? waiting(bridge.host) : texts.pairHelp });
-      if (pairingNow) countdowns.set(bridge.host, note);
-      const pairs = facts(bridge);
-      return el("div", { class: "bridge" },
-        el("div", { class: "server-head" },
-          tile("bridge", bridge.paired && !bridge.error ? tone : "grey"),
-          el("div", { class: "who" }, el("strong", { text: bridge.name || texts.name }),
-            el("div", { class: "muted", text: bridge.detail || bridge.host || t("Looking on the network…") })),
-          el("span", { class: `pill status ${kind}`, text: state }),
-          // The ⋯ menu only when it has something: a bridge pairing for the first time has nothing.
-          items.length ? HomeswiftCommon.menuButton(t("Actions for {name}", { name: [bridge.name || texts.name, bridge.host].filter(Boolean).join(" ") }), () => items) : null),
-        bridge.paired && bridge.host && !pairingNow && pairs.length ? el("div", { class: "facts" }, ...pairs.map(([label, value]) => fact(label, String(value)))) : null,
-        bridge.host && (!bridge.paired || pairingNow) ? el("div", { class: `pair-prompt ${pairingNow ? "pairing" : ""}` },
-          el("span", { class: "link-button", "aria-hidden": "true" }, icon(button)),
-          el("div", {},
-            el("p", {}, el("strong", { text: pairingNow ? texts.press : texts.pairTitle })),
-            note),
-          // At the row's end, on the drawn button's line.
-          pairingNow ? null : el("button", { class: "primary", actionIcon: "pair", text: t("Pair"), onclick: (event) => start(event.currentTarget, bridge.host) })) : null,
-        bridge.error && bridge.paired && !pairingNow && problem ? explain(problem(bridge)) : null);
-    }
-
-    /// The blocks, drawn again only when what they show changed; while a bridge pairs, the second's tick only counts down.
-    let key = "";
-    function redraw() {
-      if (!typed && document.activeElement !== input) input.value = address;
-      const next = JSON.stringify(bridges.map((bridge) => [{ ...bridge, pairingSecondsLeft: null }, isPairing(bridge)]));
-      if (next === key) {
-        for (const [host, text] of countdowns) text.textContent = waiting(host);
-        return;
-      }
-      key = next;
-      countdowns.clear();
-      list.replaceChildren(...bridges.map(block));
-    }
-
-    async function start(control, host) {
-      pairingUntil.set(host, Date.now() + 60000);
-      asking.add(host);
-      follow();
-      redraw();
-      try {
-        await (control ? act(control, () => pair(host), null) : pair(host));
-      } catch (e) {
-        HomeswiftCommon.showAlert(e.message);
-      } finally {
-        pairingUntil.delete(host);
-        asking.delete(host);
-        await refresh();
-      }
-    }
-
-    return {
-      draw(next, options = {}) {
-        bridges = next;
-        address = options.address ?? "";
-        follow();
-        redraw();
-      },
-      pair: (host) => start(null, host),
-    };
+  /// A card leading to Setup: `title` and `text` say what is set up there (an account, a hub, a TV), its button opens it.
+  function setupCard({ title, text, action = t("Set up in Add accessories"), start = true, glyph = "pair", tone = "orange" }) {
+    return el("section", { class: "card setup-handoff" },
+      tile(glyph, tone),
+      el("div", { class: "who" }, el("strong", { text: title }), text ? el("p", { class: "muted", text }) : null),
+      el("a", { class: "button primary", href: setupAddress({ start }), actionIcon: glyph, text: action }));
   }
 
   /// The names a block's list leaves out of the Home app, as buttons that bring one back (`onShow(name)`); drawn again
@@ -22191,7 +22238,8 @@ HomeswiftI18n.add("pt", {
   window.homeswift = {
     platform, name, request, home: "/plugins", $, el, icon, tile, fact, assistant, explain, ask, breadcrumb, api, act, formatTemperature, temperature,
     readBlock, updateBlock, updateDevices, updateDevice, putDevice, findDevice, setKey, toggleList, drawHidden, poll, renderKeyed,
-    canonicalMAC, isMAC, sameMAC, tabs, textStyle, speedScale, scenePictures, bridgePairing, finder,
+    canonicalMAC, isMAC, sameMAC, tabs, textStyle, speedScale, scenePictures, finder,
+    setupAddress, setupCard,
   };
 })();
 
@@ -22685,7 +22733,11 @@ HomeswiftI18n.add("pt", {
     const byPlatform = new Map(plugins.plugins.map((plugin) => [plugin.platform, plugin]));
     const blocks = plugins.blocks.filter((block) => !block.system && byPlatform.has(block.platform));
     const wanted = decodeURIComponent(location.hash.slice(1));
-    const cards = blocks.map((block) => instanceCard(block, byPlatform.get(block.platform), { open: blocks.length === 1 || block.slug === wanted }));
+    // From a plugin's page (/setup?start#<slug>): its account's Setup opens once the plugin has said where it stands.
+    const start = new URLSearchParams(location.search).has("start");
+    if (start) history.replaceState(history.state, "", `/setup${location.hash}`);
+    const cards = blocks.map((block) => instanceCard(block, byPlatform.get(block.platform),
+      { open: blocks.length === 1 || block.slug === wanted, start: start && block.slug === wanted }));
     // The plugins in use, one row each, and a way to add another; before any, the brands to start from.
     const add = el("button", { type: "button", class: "primary", actionIcon: "plus", text: t("Add a plugin"), onclick: (event) => pickPlugin(plugins, event.currentTarget) });
     // Or the Assistant does it: it finds the plugin, starts the Setup and hands the steps with a secret back to the sheet.
@@ -22794,7 +22846,7 @@ HomeswiftI18n.add("pt", {
 
   /// One plugin instance, one row: its name and where its devices stand. Opened, its account when it has one and the
   /// devices it finds, each with what can be done. One that needs someone opens and moves to the top of the list.
-  function instanceCard(block, plugin, { open: openAtFirst = false } = {}) {
+  function instanceCard(block, plugin, { open: openAtFirst = false, start = false } = {}) {
     const list = el("div", { class: "setup-devices", "aria-live": "polite" }, loading(t("Looking for devices…")));
     // Under the name, where its devices stand.
     const summary = el("span", { class: "muted", text: t("Looking for devices…") });
@@ -22863,8 +22915,13 @@ HomeswiftI18n.add("pt", {
         node.classList.toggle("needs-you", attention > 0);
         // What needs someone is shown, unless they closed it themselves.
         if (attention && !touched) setOpen(true);
+        // Asked for by the plugin's page: its account's sheet, once.
+        if (start && action) { start = false; open({ block, plugin, firstTime: !accountSetUp, after: load }); }
       } catch (e) {
         list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));
+        // Not "no devices": the search itself failed.
+        summary.textContent = t("Could not look for devices");
+        summary.dataset.tone = "away";
       } finally {
         searching(false);
       }
@@ -22989,6 +23046,8 @@ HomeswiftI18n.add("pt", {
     const devicesStage = t("Devices");
     const stages = [device ? t("Set up") : accountActions[plugin?.accountAuthorization]?.[0]() ?? t("Sign in"), picking ? devicesStage : null, t("Done")].filter(Boolean);
     let session = null, poll = 0, ticker = 0, done = false, closed = false;
+    /// Counts what the sheet drew: a retry still under way when another answer is drawn leaves it alone.
+    let drawn = 0;
     // A Button Press's end: the retries keep it, so the countdown does not start over at each one.
     let until = 0;
     const stop = () => { clearTimeout(poll); clearInterval(ticker); };
@@ -23029,16 +23088,28 @@ HomeswiftI18n.add("pt", {
       /// excluded. A console's devices come once the plugin has connected to it: it is asked a few times.
       async function pick({ keep, tries = 1, owner = plugin?.name ?? block.name }) {
         fill(loading(t("Looking for devices…")));
-        let found = [];
+        let found = [], failure = null;
         for (let attempt = 0; attempt < tries && !closed; attempt++) {
           if (attempt) await new Promise((resume) => setTimeout(resume, 2000));
           try {
             found = (await post("discover", { platform: block.platform, name: block.name })).devices
               .filter((one) => ["setUp", "notResponding", "discovered"].includes(one.status) && keep(one));
-          } catch { found = []; }
+            failure = null;
+          } catch (e) { found = []; failure = e; }
           if (found.length) break;
         }
         if (closed) return;
+        // The search failed, which is not finding nothing: say why, and offer it again. The account or device is set up.
+        if (!found.length && failure) {
+          const again = el("button", { type: "button", class: "primary", actionIcon: "loop", text: t("Try again"), onclick: () => pick({ keep, tries, owner }) });
+          form.onsubmit = (event) => { event.preventDefault(); finish(); };
+          fill(
+            el("p", { class: "error", role: "alert", text: t("Could not look for its devices: {error}", { error: failure.message }) }),
+            el("p", { class: "muted", text: t("It is set up. Look again now, or later from this page.") }),
+            el("div", { class: "actions" }, again, el("button", { type: "submit", actionIcon: "check", text: t("Done") })));
+          again.focus({ preventScroll: true });
+          return;
+        }
         if (!found.length) { finish(); return; }
         if (!stages.includes(devicesStage)) stages.splice(stages.length - 1, 0, devicesStage);
         stage(stages.indexOf(devicesStage));
@@ -23080,6 +23151,7 @@ HomeswiftI18n.add("pt", {
         stop();
         // An answer that arrives after the sheet closed (a retry under way) draws nothing and starts nothing.
         if (closed) return;
+        const drawing = ++drawn;
         if (answer.status === "done") {
           done = true;
           session = null;
@@ -23092,7 +23164,7 @@ HomeswiftI18n.add("pt", {
         session = answer.session;
         const prompt = answer.prompt;
         if (!prompt.waitSeconds) until = 0;
-        const error = answer.error ? el("p", { class: "error", role: "alert", text: answer.error }) : null;
+        const error = answer.error ? el("p", { class: "error", role: "alert", text: HomeswiftI18n.message(answer.error) }) : null;
         const cancel = el("button", { type: "button", actionIcon: "close", text: t("Cancel"), onclick: () => dismiss() });
         // A wait (a Button Press, a sign-in in another tab): a countdown, and the step sent again every few seconds until
         // the plugin is done. A retry that brings the same prompt back leaves the sheet as it is, and what is typed in it.
@@ -23112,7 +23184,8 @@ HomeswiftI18n.add("pt", {
             poll = setTimeout(async () => {
               let next;
               try { next = await step({}); } catch (e) { next = { ...answer, error: e.message }; }
-              if (closed) return;
+              // Closed, or another answer (the person's own) drawn while it was asked: it is out of date.
+              if (closed || drawing !== drawn) return;
               if (next.status === "asking" && !next.error && next.prompt.message === prompt.message) retry(); else draw(next);
             }, (prompt.retryAfter ?? 2) * 1000);
           };
@@ -23385,7 +23458,7 @@ nav a {
   color: var(--text); text-decoration: none; padding: 7px var(--space-14); border-radius: var(--radius-pill); touch-action: manipulation;
   transition: background-color var(--fast) var(--ease-out), transform var(--fast) var(--ease-out);
 }
-nav a:hover { background-color: var(--material-thin); }
+@media (hover: hover) and (pointer: fine) { nav a:hover { background-color: var(--material-thin); } }
 nav a:active { transform: scale(0.96); }
 /* The current section: a white pill, its icon in the accent. */
 nav a.active { background: var(--control); color: var(--text); font-weight: var(--weight-semibold); box-shadow: var(--shadow-control), inset 0 0 0 1px var(--edge); }
@@ -23487,7 +23560,7 @@ header nav a svg { display: none; }
 .expert .page-note { flex-wrap: wrap; }
 /* A plugin card's name opens its page; Pause sits at the right of a plugin page's breadcrumb. */
 .card-title { color: inherit; text-decoration: none; }
-.card-title:hover strong { text-decoration: underline; }
+@media (hover: hover) and (pointer: fine) { .card-title:hover strong { text-decoration: underline; } }
 button.small.pause-toggle { flex: none; min-height: 0; height: 28px; padding: 0 11px; gap: var(--space-6); font-size: var(--text-xs); }
 button.small.pause-toggle.action-with-icon::before { width: 12px; height: 12px; }
 
@@ -23522,7 +23595,7 @@ button.small.pause-toggle.action-with-icon::before { width: 12px; height: 12px; 
 .danger-zone { display: flex; align-items: center; justify-content: space-between; gap: var(--space-16); margin: 32px 0 0; }
 .danger-zone p { margin: var(--space-4) 0 0; font-size: var(--text-md); }
 button.danger { color: var(--error); border-color: rgba(208, 56, 59, 0.35); }
-button.danger:hover:not(:disabled) { background: rgba(208, 56, 59, 0.08); }
+@media (hover: hover) and (pointer: fine) { button.danger:hover:not(:disabled) { background: rgba(208, 56, 59, 0.08); } }
 
 /* Forms stay calm: list entries (lights, TVs) are rows that open to edit, and options left unset wait under
    "More options". */
@@ -23693,7 +23766,10 @@ button.add-button svg { width: 16px; height: 16px; fill: none; stroke: currentCo
 @media (hover: hover) and (pointer: fine) {
   button.add-button:hover { background: var(--accent-fill); color: var(--accent-text); }
 }
-@media (pointer: coarse) { button.add-button { position: relative; } button.add-button::after { content: ""; position: absolute; inset: -8px; } }
+@media (pointer: coarse) {
+  button.add-button, .log-details-toggle { position: relative; }
+  button.add-button::after, .log-details-toggle::after { content: ""; position: absolute; inset: -8px; }
+}
 .pill.status.admin { color: var(--accent-ink); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
 .pill.status.bad { color: var(--error); border-color: rgba(208, 56, 59, 0.4); }
 .section-head > div > h2 { margin: 0; }
@@ -23701,7 +23777,7 @@ button.add-button svg { width: 16px; height: 16px; fill: none; stroke: currentCo
 .section-head .actions { margin: 0; }
 .section-head code, .account-form .help code { font-family: var(--mono); font-size: 0.92em; }
 .card-foot a:not(.button) { color: var(--accent-ink); text-decoration: none; font-weight: var(--weight-medium); }
-.card-foot a:not(.button):hover { text-decoration: underline; }
+@media (hover: hover) and (pointer: fine) { .card-foot a:not(.button):hover { text-decoration: underline; } }
 .strength-panel {
   padding: var(--space-16) var(--space-18); border-radius: calc(var(--radius) - var(--radius-xs));
   background: var(--material-thin); box-shadow: inset 0 0 0 1px var(--line);
@@ -23821,7 +23897,7 @@ label > input, label > select { margin-top: 5px; }
 .breadcrumb li { display: inline-flex; align-items: center; gap: var(--space-6); min-width: 0; }
 .breadcrumb li + li::before { content: "›"; color: var(--muted); }
 .breadcrumb a { color: var(--accent-ink); text-decoration: none; font-weight: var(--weight-medium); }
-.breadcrumb a:hover { text-decoration: underline; }
+@media (hover: hover) and (pointer: fine) { .breadcrumb a:hover { text-decoration: underline; } }
 .breadcrumb [aria-current] span { color: var(--text); font-weight: var(--weight-medium); }
 
 /* Page heads: the title, one line on what the page is for, and the page's tools on the right. */
@@ -23841,7 +23917,7 @@ label > input, label > select { margin-top: 5px; }
   margin: -3px calc(-1 * var(--space-8)); padding: 2px var(--space-8); border: 1px dashed var(--line); border-radius: var(--radius-xs);
   background: transparent; transition: border-color var(--fast) var(--ease-out), background-color var(--fast) var(--ease-out);
 }
-.room-name-input:hover { border-color: var(--muted); }
+@media (hover: hover) and (pointer: fine) { .room-name-input:hover { border-color: var(--muted); } }
 .room-name-input:focus { outline: none; border-style: solid; border-color: var(--accent); background: var(--field); }
 .room-name-input:disabled { opacity: .6; }
 .section-head .muted { font-size: var(--text-sm); }
@@ -23956,7 +24032,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
   background: var(--material-thin); border: 1px solid var(--edge); box-shadow: inset 0 1px 0 var(--edge-light);
 }
 .group button { border: 0; background: none; box-shadow: none; padding: 5px 13px; white-space: nowrap; transition: background-color var(--fast) var(--ease-out), transform var(--fast) var(--ease-out); }
-.group button:hover:not(:disabled):not(.on) { background: var(--material-thin); }
+@media (hover: hover) and (pointer: fine) { .group button:hover:not(:disabled):not(.on) { background: var(--material-thin); } }
 .group button.on { background: var(--control); color: var(--text); box-shadow: var(--shadow-control); }
 /* A segmented control whose choices carry a glyph before their name (a phone shows the glyph alone). */
 
@@ -23976,7 +24052,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .pad:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .mini-remote.failed .pad { border-color: var(--error); }
 .pad-key { border: 0; background: none; box-shadow: none; padding: 0; border-radius: var(--radius-md); display: grid; place-items: center; color: var(--muted); }
-.pad-key:hover:not(:disabled) { color: var(--text); }
+@media (hover: hover) and (pointer: fine) { .pad-key:hover:not(:disabled) { color: var(--text); } }
 .pad-key.up { grid-area: 1 / 2; } .pad-key.left { grid-area: 2 / 1; } .pad-key.right { grid-area: 2 / 3; } .pad-key.down { grid-area: 3 / 2; }
 .pad-ok {
   grid-area: 2 / 2; place-self: center; width: 48px; height: 48px; padding: 0; border-radius: 50%; display: grid; place-items: center;
@@ -24119,7 +24195,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
    alike, firmer under the pointer and while its menu is open. */
 .widget:not(.widget-full) .menu-button { width: 28px; height: 28px; background: color-mix(in srgb, currentColor 10%, transparent); border-color: transparent; box-shadow: none; color: inherit;
   transition: background-color var(--fast) var(--ease-out), transform var(--fast) var(--ease-out); }
-.widget:not(.widget-full) .menu-button:hover { background: color-mix(in srgb, currentColor 17%, transparent); }
+@media (hover: hover) and (pointer: fine) { .widget:not(.widget-full) .menu-button:hover { background: color-mix(in srgb, currentColor 17%, transparent); } }
 .widget:not(.widget-full) .menu-button[aria-expanded="true"] { background: color-mix(in srgb, currentColor 22%, transparent); }
 .widget:not(.widget-full) .menu-button svg { width: 18px; height: 18px; }
 @media (prefers-contrast: more) { .widget:not(.widget-full) .menu-button { border: 1px solid currentColor; } }
@@ -24261,7 +24337,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .edit-bar { position: absolute; z-index: 3; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; gap: 0; padding: var(--space-4); border-radius: var(--radius-pill); max-width: calc(100% - 8px); width: max-content;
   background: var(--material-thick); border: 1px solid var(--edge); box-shadow: var(--shadow-thick); }
 .edit-bar button { min-width: 0; width: 26px; flex: 1 1 26px; height: 28px; padding: 0 2px; border: 0; background: none; box-shadow: none; border-radius: var(--radius-pill); font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--muted); }
-.edit-bar button:hover { color: var(--text); }
+@media (hover: hover) and (pointer: fine) { .edit-bar button:hover { color: var(--text); } }
 .edit-bar button[aria-pressed="true"] { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); }
 /* Dragged: the widget lifts over the page and follows the pointer; a dashed slot shows where it will land. In
    Edit, a finger on a widget drags it rather than scrolling the page. */
@@ -24475,7 +24551,7 @@ textarea.short { min-height: 220px; }
 .menu .menu-choice-badge { display: grid; place-items: center; height: 32px; min-height: 0; padding: 0; border: 0; border-radius: calc(var(--radius-md) - 3px);
   background: none; box-shadow: none; color: var(--muted); font-weight: var(--weight-semibold); font-size: var(--text-md); text-align: center; cursor: pointer;
   transition: background-color var(--fast) var(--ease-out), color var(--fast) var(--ease-out), transform var(--fast) var(--ease-out); }
-.menu .menu-choice-badge:hover { background: var(--material-thin); color: var(--text); }
+@media (hover: hover) and (pointer: fine) { .menu .menu-choice-badge:hover { background: var(--material-thin); color: var(--text); } }
 .menu .menu-choice-badge:active { transform: scale(0.96); }
 .menu .menu-choice-badge[aria-checked="true"] { background: var(--control); color: var(--text); box-shadow: var(--shadow-control); }
 .menu .menu-choice-badge:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
@@ -24562,7 +24638,7 @@ textarea.short { min-height: 220px; }
 /* On GitHub, opposite What's new and as quiet: its glyph, the same size and white, underlined only under the pointer. */
 .update-hero-link { display: inline-flex; align-items: center; gap: var(--space-6); font-size: var(--text-sm); font-weight: var(--weight-medium); text-decoration: none; }
 .update-hero-link svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.update-hero-card .update-hero-link:hover { color: #fff; text-decoration: underline; text-underline-offset: 3px; }
+@media (hover: hover) and (pointer: fine) { .update-hero-card .update-hero-link:hover { color: #fff; text-decoration: underline; text-underline-offset: 3px; } }
 .update-hero-card details.more-options > summary { font-size: var(--text-sm); font-weight: var(--weight-medium); }
 .update-hero-card .update-command code { background: rgba(255, 255, 255, 0.08); color: #fff; }
 .update-hero-card .update-command button { background: rgba(255, 255, 255, 0.1); color: #fff; border-color: rgba(255, 255, 255, 0.16); }
@@ -24646,7 +24722,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
   font-size: var(--text-md); font-variant-numeric: tabular-nums; position: relative; z-index: 0;
 }
 .range-day::after { content: ""; position: absolute; inset: 2px; border-radius: 50%; z-index: -1; transition: background-color var(--fast) var(--ease-out); }
-.range-day:hover:not(:disabled)::after { background: var(--material-thin); }
+@media (hover: hover) and (pointer: fine) { .range-day:hover:not(:disabled)::after { background: var(--material-thin); } }
 .range-day.outside { color: var(--muted); }
 .range-day:disabled { opacity: 0.35; }
 .range-day.today::after { box-shadow: inset 0 0 0 1.5px var(--accent); }
@@ -24832,13 +24908,14 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .chart-table tbody th.time { text-align: left; font-weight: var(--weight-medium); color: var(--text); }
 .chart-table td.empty { color: var(--muted); opacity: 0.55; }
 .chart-table tbody tr:last-child > * { border-bottom: 0; }
-.chart-table tbody tr:hover > * { background: var(--material-thin); }
+@media (hover: hover) and (pointer: fine) { .chart-table tbody tr:hover > * { background: var(--material-thin); } }
 .servers { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: var(--space-14); }
 .server { margin: 0; display: grid; gap: var(--space-14); align-content: start; }
 .servers .server, .card.server { animation: materialize var(--normal) var(--ease-out); }
 .server-head { display: flex; align-items: center; gap: var(--space-12); min-width: 0; }
 .server-head strong { display: block; font-size: var(--text-xl); letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.server-head .muted { font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A card's subtitle: a status stays on its line, a sentence that says what the card is for gets a second one. */
+.server-head .muted { font-size: var(--text-sm); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 .setup { display: flex; gap: var(--space-16); align-items: center; padding-top: var(--space-14); border-top: 1px solid var(--line); }
 .setup p { margin: 0 0 var(--space-6); }
 .setup .code { margin: 0; }
@@ -24953,7 +25030,7 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 .log-card .log { border: 0; border-radius: 0; box-shadow: none; background: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
 .log { font-size: var(--text-sm); line-height: 1.45; padding: var(--space-6) 0; height: calc(100vh - 290px); height: calc(100dvh - 290px); min-height: 320px; overflow: auto; overscroll-behavior: contain; }
 .log-line { display: grid; grid-template-columns: auto minmax(0, 11em) minmax(0, 1fr); gap: var(--space-12); padding: 3px var(--space-16); align-items: baseline; }
-.log-line:hover { background: var(--material-thin); }
+@media (hover: hover) and (pointer: fine) { .log-line:hover { background: var(--material-thin); } }
 .log-line time { font-family: var(--mono); font-size: var(--text-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
 .log-line .label { color: var(--muted); font-weight: var(--weight-medium); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .log-line .text { overflow-wrap: anywhere; white-space: pre-wrap; }
@@ -24962,8 +25039,11 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
   padding: 0 7px; margin: 0; border-radius: var(--radius-xs); font: 600 0.6875rem/1.5 var(--mono); letter-spacing: 0.02em; vertical-align: baseline;
   color: var(--muted); background: var(--material-thin); border: 1px solid var(--line); box-shadow: none;
 }
-.log-details-toggle:hover { color: var(--text); }
+@media (hover: hover) and (pointer: fine) { .log-details-toggle:hover { color: var(--text); } }
 .log-details-toggle[aria-expanded="true"] { color: var(--accent-ink); border-color: var(--accent); }
+.log-details-toggle.action-with-icon { gap: 3px; }
+.log-details-toggle.action-with-icon::before { width: 11px; height: 11px; }
+
 .log-line .log-details { grid-column: 1 / -1; margin: var(--space-4) 0 var(--space-6); max-height: 420px; overflow: auto; font-size: var(--text-xs); }
 .log-line.warning { background: rgba(201, 115, 26, 0.08); }
 .log-line.warning .text { color: var(--warn); }
@@ -25080,7 +25160,7 @@ dd { margin: 0; }
 }
 .chat-tools { flex: none; display: inline-flex; gap: 2px; padding: 3px; border-radius: var(--radius-pill); background: var(--material-thin); border: 1px solid var(--edge); }
 .chat-tools .chat-icon, .chat-head > .chat-icon { background: none; border: 0; box-shadow: none; color: var(--muted); }
-.chat-tools .chat-icon:hover, .chat-head > .chat-icon:hover { background: var(--control); color: var(--text); }
+@media (hover: hover) and (pointer: fine) { .chat-tools .chat-icon:hover, .chat-head > .chat-icon:hover { background: var(--control); color: var(--text); } }
 /* The settings cog is a link styled as a button: its button padding would leave the glyph no room. */
 .chat-tools a.chat-icon { display: grid; padding: 0; }
 .chat-tools .chat-icon svg { flex: none; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
@@ -25170,7 +25250,7 @@ dd { margin: 0; }
 .chat-composer textarea:focus { box-shadow: none; }
 .chat-mic, .chat-send { flex: none; width: 34px; height: 34px; min-height: 34px; padding: 0; display: grid; place-items: center; border-radius: 50%; }
 .chat-mic { border-color: transparent; background: none; box-shadow: none; color: var(--muted); }
-.chat-mic:hover { color: var(--text); background: var(--material-thin); }
+@media (hover: hover) and (pointer: fine) { .chat-mic:hover { color: var(--text); background: var(--material-thin); } }
 .chat-mic.unavailable { opacity: 0.45; }
 .chat.listening .chat-mic {
   color: #fff; background: conic-gradient(from var(--ai-angle), var(--ai-colors)); animation: ai-turn 2s linear infinite;
@@ -25303,7 +25383,7 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
   border: 1.5px dashed var(--line); color: var(--muted); font-size: var(--text-sm); text-align: center; cursor: pointer;
   transition: border-color var(--fast) var(--ease-out), background-color var(--fast) var(--ease-out), transform var(--fast) var(--ease-out);
 }
-.drop-zone:hover { border-color: var(--accent); color: var(--text); }
+@media (hover: hover) and (pointer: fine) { .drop-zone:hover { border-color: var(--accent); color: var(--text); } }
 .drop-zone.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); color: var(--text); transform: scale(1.01); }
 .drop-zone.ok { border-style: solid; border-color: var(--ok); color: var(--ok); }
 .drop-zone.error { border-color: var(--error); color: var(--error); }
@@ -25499,7 +25579,7 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
   background: rgba(30, 32, 40, 0.42); -webkit-backdrop-filter: blur(14px) saturate(160%); backdrop-filter: blur(14px) saturate(160%);
   border: 1px solid rgba(255, 255, 255, 0.18); box-shadow: none;
 }
-.camera-button:hover { background: rgba(30, 32, 40, 0.62); }
+@media (hover: hover) and (pointer: fine) { .camera-button:hover { background: rgba(30, 32, 40, 0.62); } }
 .camera-button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .camera-message {
   position: absolute; inset: 0; display: grid; place-items: center; padding: 48px var(--space-16); text-align: center; z-index: 1;
@@ -25684,7 +25764,7 @@ pre.diff .diff-same { display: block; opacity: 0.7; }
    history sheets, the audit table. */
 a.link { color: var(--accent-ink); text-decoration: none; padding: var(--space-4) var(--space-6); }
 a.button.primary { background: linear-gradient(180deg, var(--accent-fill-top), var(--accent-fill)); color: var(--accent-text); border-color: rgba(255, 255, 255, 0.4); box-shadow: 0 8px 20px color-mix(in srgb, var(--accent) 35%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.5); }
-a.link:hover { text-decoration: underline; }
+@media (hover: hover) and (pointer: fine) { a.link:hover { text-decoration: underline; } }
 .subnav { margin: -6px 0 var(--space-18); max-width: 100%; overflow-x: auto; scrollbar-width: none; }
 .subnav::-webkit-scrollbar { display: none; }
 /* Where tabs are scrolled out of sight, the row fades: the way it scrolls, without a bar. */
@@ -25692,7 +25772,7 @@ a.link:hover { text-decoration: underline; }
 .subnav[data-more-start] { mask-image: linear-gradient(to left, #000 calc(100% - 40px), transparent); }
 .subnav[data-more-start][data-more-end] { mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent); }
 .group a { color: var(--text); text-decoration: none; padding: 5px 13px; border-radius: var(--radius-pill); white-space: nowrap; transition: background-color var(--fast) var(--ease-out); }
-.group a:hover:not(.on) { background: var(--material-thin); }
+@media (hover: hover) and (pointer: fine) { .group a:hover:not(.on) { background: var(--material-thin); } }
 .group a.on { background: var(--control); color: var(--text); box-shadow: var(--shadow-control); }
 .group a.on svg, .group button.on svg { color: var(--accent-ink); }
 .subnav a { display: inline-flex; align-items: center; gap: var(--space-6); }
@@ -25770,7 +25850,7 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
   display: grid; place-items: center; background: var(--control); color: var(--text);
 }
 .wallpaper-remove svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; }
-.wallpaper-remove:hover:not(:disabled) { color: var(--error); }
+@media (hover: hover) and (pointer: fine) { .wallpaper-remove:hover:not(:disabled) { color: var(--error); } }
 /* A finger's worth of target around the small badge. */
 .wallpaper-remove::after { content: ""; position: absolute; inset: -8px; border-radius: 50%; }
 .appearance { display: grid; gap: var(--space-16); }
@@ -25870,7 +25950,7 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 @media (prefers-reduced-motion: reduce) { .menu-toggle, .menu-toggle > span { transition: none; } }
 
 .menu-drag-handle { flex: none; width: 24px; text-align: center; font-size: 23px; line-height: 24px; color: var(--muted); cursor: grab; touch-action: none; user-select: none; }
-.menu [role]:hover > .menu-drag-handle { color: inherit; }
+@media (hover: hover) and (pointer: fine) { .menu [role]:hover > .menu-drag-handle { color: inherit; } }
 .menu .menu-dragging { background: var(--material-solid); outline: 1px solid var(--accent); cursor: grabbing; }
 
 /* Notifications: delivery setup and event preferences have distinct, scannable columns. */
@@ -25946,7 +26026,7 @@ pre.diff .diff-fold { display: block; color: var(--muted); font-style: italic; }
 .vault-card .status-line:empty { display: none; }
 /* The vault's cards explain themselves: their line under the title wraps instead of being cut. */
 .vault-card .server-head { align-items: flex-start; }
-.vault-card .server-head .muted { margin-top: var(--space-4); line-height: 1.5; white-space: normal; overflow: visible; }
+.vault-card .server-head .muted { display: block; margin-top: var(--space-4); line-height: 1.5; overflow: visible; }
 /* An entry's kind and who uses it, on one line; the count of users opens where config.json names it. */
 .vault-detail { display: flex; align-items: center; gap: var(--space-6); min-width: 0; }
 .vault-detail > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -26024,7 +26104,7 @@ span.warning, .vault-problem .warning { color: var(--warn); }
 .backup-actions-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: var(--space-20); margin: var(--space-24) 0 32px; }
 .backup-actions-grid > .card { margin: 0; padding: var(--space-24); min-width: 0; }
 .backup-create .server-head { align-items: flex-start; }
-.backup-create .server-head .muted { margin-top: var(--space-6); line-height: 1.6; white-space: normal; overflow: visible; }
+.backup-create .server-head .muted { display: block; margin-top: var(--space-6); line-height: 1.6; overflow: visible; }
 .backup-create .facts { margin: 22px 0; gap: var(--space-16); }
 .backup-create .fact.wide { padding-top: var(--space-16); border-top: 1px solid var(--line); }
 .backup-create .fact.wide b { overflow-wrap: anywhere; }
@@ -26049,7 +26129,7 @@ span.warning, .vault-problem .warning { color: var(--warn); }
 .audit-results { padding: 0; overflow: hidden; }
 .audit-results .data-table th, .audit-results .data-table td { padding: var(--space-16); }
 .audit-results .data-table th { z-index: 1; font-size: var(--text-xs); }
-.audit-results .data-table tbody tr:hover { background: var(--material-thin); }
+@media (hover: hover) and (pointer: fine) { .audit-results .data-table tbody tr:hover { background: var(--material-thin); } }
 .audit-results .data-table td.mono { overflow-wrap: anywhere; min-width: 160px; }
 .audit-results .data-table td .muted { margin-top: var(--space-4); }
 .audit-results .note { padding: var(--space-12) var(--space-16); margin: 0; overflow-wrap: anywhere; font-size: var(--text-xs); }
@@ -26143,7 +26223,7 @@ input[type="checkbox"]:not(.switch input):not(.day input):disabled { opacity: .4
 .log-card > .log-action-bar > :not(.count, .spacer) { flex-shrink: 0; }
 .log-action-bar label.toggle { margin: 0; white-space: nowrap; }
 .log-card .log { padding: var(--space-18) var(--space-20); line-height: 1.65; }
-.log-card .log > :hover { background: rgba(255, 255, 255, .04); }
+@media (hover: hover) and (pointer: fine) { .log-card .log > :hover { background: rgba(255, 255, 255, .04); } }
 /* A level's count beside its name: lighter, digits of one width so the buttons do not shift as lines arrive. */
 .log-level-row .log-level-count { margin-inline-start: var(--space-6); font-size: var(--text-sm); font-variant-numeric: tabular-nums; opacity: .6; }
 .log-level-row .group button.on .log-level-count { opacity: .85; }
@@ -26269,7 +26349,7 @@ select:disabled { opacity: .5; cursor: not-allowed; }
 .scene-grid .scene-card { padding: var(--space-18); gap: var(--space-12); }
 .scene-card .server-head { align-items: flex-start; }
 .scene-card .server-head .who { min-width: 0; }
-.scene-card .server-head .muted { white-space: normal; line-height: 1.5; margin-top: 5px; }
+.scene-card .server-head .muted { display: block; line-height: 1.5; margin-top: 5px; }
 .scene-card .controls { padding: var(--space-4) var(--space-12); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--material-thin); }
 .scene-card .control { gap: var(--space-12); padding: 9px 0; }
 .scene-card .control > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -26496,8 +26576,8 @@ fieldset > .help { margin-bottom: var(--space-10); }
 .restart-confirm-actions { display: flex; gap: var(--space-12); margin-top: 26px; }
 .restart-confirm-actions button { flex: 1; min-height: 42px; }
 
-.restart-overlay.restart-leaving { animation: restart-dialog-out 220ms ease-in forwards; }
-.restart-overlay.restart-leaving::backdrop { animation: restart-backdrop-out 220ms ease-in forwards; }
+.restart-overlay.restart-leaving { animation: restart-dialog-out var(--fast) var(--ease-out) forwards; }
+.restart-overlay.restart-leaving::backdrop { animation: restart-backdrop-out var(--fast) var(--ease-out) forwards; }
 @keyframes restart-dialog-out { to { opacity: 0; transform: translateY(6px) scale(.98); } }
 @keyframes restart-backdrop-out { to { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) {
@@ -26881,9 +26961,9 @@ select option:disabled { color: var(--muted); }
   }
 }
 
-/* ---- The lighting plugins' pages (Philips Hue, IKEA DIRIGERA): their tabs, a bridge's pairing with its button,
-   its address, scene tiles painted with their palette or a picture, the transition's speed scale and the save bar.
-   plugin.js has their pieces (tabs, bridgePairing, scenePictures, textStyle, speedScale). */
+/* ---- The lighting plugins' pages (Philips Hue, IKEA DIRIGERA): their tabs, a bridge's facts (its pairing is Setup's),
+   scene tiles painted with their palette or a picture, the transition's speed scale and the save bar.
+   plugin.js has their pieces (tabs, setupCard, scenePictures, textStyle, speedScale). */
 .main-tabs { margin: var(--space-18) 0 var(--space-14); }
 /* On a phone the tabs share the width, so four of them fit; longer names (a translation) scroll the bar sideways
    rather than be cut. */
@@ -26894,18 +26974,11 @@ select option:disabled { color: var(--muted); }
 }
 .tab-pane { animation: fade var(--normal) var(--ease-out); }
 
-/* The bridge card: a block per bridge (a line between two), its facts once paired, then the address form. */
+/* The bridge card: a block per bridge (a line between two), its facts once paired. */
 .bridge-card .bridge { padding: var(--space-14) 0; border-top: 1px solid var(--line); }
 .bridge-card .bridge:first-child { padding-top: 0; border-top: 0; }
 .bridge-card .bridge .who { flex: 1; min-width: 0; }
 .bridge-card .bridge .facts { margin-top: var(--space-14); }
-.bridge-card .bridges:not(:empty) + .address-box { padding-top: var(--space-14); border-top: 1px solid var(--line); }
-.bridge-card .found { display: flex; flex-wrap: wrap; gap: var(--space-6); margin-top: var(--space-10); }
-.bridge-card .found:empty { display: none; }
-
-/* Pairing: the bridge's button drawn, what to do, and Pair at the row's end; the drawn button pulses while the bridge waits. */
-.pair-prompt { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--space-16); align-items: center; margin-top: var(--space-14); padding: var(--space-14) var(--space-16); border-radius: var(--radius-lg); background: var(--material-thin); border: 1px solid var(--line); }
-.pair-prompt p { margin: 0; font-size: var(--text-md); }
 
 /* Add accessories (setup.js): a card per plugin, a row per device it finds, and one sheet for every Setup. */
 .setup-list { display: grid; gap: var(--space-16); }
@@ -26991,6 +27064,10 @@ select option:disabled { color: var(--muted); }
 .setup-device .status-dot { justify-self: end; }
 .setup-account .who .muted { white-space: normal; }
 .setup-account { background: color-mix(in srgb, var(--accent) 7%, transparent); margin: 0 calc(-1 * var(--space-12)); padding-inline: var(--space-12); border-radius: var(--radius-md); }
+/* A plugin page's way to its Setup: what is set up there, and the button. */
+.setup-handoff { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--space-12); align-items: center; }
+.setup-handoff .who p { margin: var(--space-4) 0 0; font-size: var(--text-sm); }
+@media (max-width: 620px) { .setup-handoff { grid-template-columns: auto minmax(0, 1fr); } .setup-handoff .button { grid-column: 1 / -1; justify-self: stretch; } }
 .setup-loading, .setup-none { margin: var(--space-12) 0 0; }
 .setup-loading { display: flex; align-items: center; gap: var(--space-10); }
 .setup-loading .spinner { width: 16px; height: 16px; flex: none; }
@@ -27100,15 +27177,6 @@ select option:disabled { color: var(--muted); }
   .setup-account > button.primary:last-child { grid-row: 2; grid-column: 3 / 5; }
   .setup-spacer { display: none; }
 }
-.link-button { width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; background: radial-gradient(circle at 50% 40%, #fff, #e6e8ee 70%); box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.15); color: #3d4352; }
-.link-button svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
-.pairing .link-button { animation: press 1.6s var(--ease-out) infinite; }
-@keyframes press { 0%, 100% { box-shadow: 0 0 0 0 rgba(124, 77, 219, 0.45), inset 0 -2px 0 rgba(0, 0, 0, 0.08); } 50% { box-shadow: 0 0 0 10px rgba(124, 77, 219, 0), inset 0 -2px 0 rgba(0, 0, 0, 0.08); } }
-.address { margin-top: var(--space-12); }
-.address-row { display: flex; gap: var(--space-8); align-items: center; }
-.address-row input { flex: 1; min-width: 0; width: auto; }
-.address-row button { flex: none; }
-.address .help { display: block; margin-top: var(--space-6); }
 
 /* Scene tiles: a scene's palette as a gradient, or its picture, under a scrim that keeps the name readable. */
 .scene-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 168px), 1fr)); gap: var(--space-10); margin-bottom: 28px; }
@@ -27149,12 +27217,9 @@ select option:disabled { color: var(--muted); }
 
 @media (max-width: 640px) {
   .speed-scale { display: none; }
-  .pair-prompt { grid-template-columns: auto minmax(0, 1fr); }
-  .pair-prompt > button { grid-column: 1 / -1; justify-self: end; }
 }
 @media (prefers-reduced-motion: reduce) {
   .tab-pane { animation: none; }
-  .pairing .link-button { animation: none; }
   .scene { transition: none; }
 }
 
@@ -27807,6 +27872,8 @@ self.addEventListener("notificationclick", (event) => {
   };
 
   const serviceKey = (service) => service.subtype || service.type;
+  /// The writes the page made to each characteristic: a refused write puts its value back only when it is the latest.
+  const writeCounts = new WeakMap();
   /// "Color Temperature" reads "Color temperature".
   const sentence = (type) => type.charAt(0) + type.slice(1).toLowerCase();
   /// A characteristic's name from HomeKit's definitions as a row reads it: translated when the catalog knows it,
@@ -27944,13 +28011,18 @@ self.addEventListener("notificationclick", (event) => {
         if (!await HomeswiftCommon.confirmDialog(t("Set {setting} of {name} to {value}?", { setting: typeName(characteristic.type).toLowerCase(), name: accessory.name, value: label }))) { ctx.paint(); return; }
       }
       const before = characteristic.value;
+      const write = (writeCounts.get(characteristic) || 0) + 1;
+      writeCounts.set(characteristic, write);
       characteristic.value = value;
       ctx.paint();
       try {
         await put(service, characteristic, value);
       } catch (e) {
         if (e.message === "signed out") return;
-        characteristic.value = before;
+        // Put back only what this write set: not when a later write (even of the same value) or the device's own
+        // report has changed it since.
+        if (writeCounts.get(characteristic) === write && characteristic.value === value) characteristic.value = before;
+        ctx.paint();
         ctx.flash(e.message);
       }
     };

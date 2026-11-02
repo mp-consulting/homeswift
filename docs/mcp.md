@@ -160,7 +160,9 @@ sequenceDiagram
    It shows the app's name, where approving sends you (claude.ai), and the scopes your role allows, with
    Control picked. Nothing is focused, and Allow and Deny wait a moment, so a keypress meant for the sign-in never
    approves. Deny sends `access_denied` back; a client or redirect URI the bridge does not know is shown on the
-   page and never redirected to.
+   page and never redirected to. A known client's request the bridge cannot answer (no PKCE, another
+   `response_type`) shows why with a **Return to** link, and goes back only when you click it: anyone may register a
+   client, so the bridge never sends a browser to one on its own.
 4. **Code for tokens.** Allow redirects the browser to claude.ai with a code good for five minutes, bound to the
    app, the redirect URI, your username, the scope and the PKCE challenge. claude.ai's servers trade it at
    `/oauth/token` with the verifier for an access token (an hour) and a refresh token.

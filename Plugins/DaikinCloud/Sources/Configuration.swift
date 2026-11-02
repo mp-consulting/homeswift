@@ -193,8 +193,8 @@ struct DaikinSettings: Sendable {
     }
 
     /// Checks a raw block, with the Homebridge plugin's messages. Errors are blocks the plugin cannot work
-    /// with; out-of-range numbers are warnings, since they are clamped. The settings page validates the
-    /// Developer Portal wizard with it too.
+    /// with; out-of-range numbers are warnings, since they are clamped. Setup checks the callback server's address
+    /// and port it is given with it too.
     static func validate(_ raw: [String: JSONValue]) -> Validation {
         var result = Validation()
         let mode = authMode(raw)

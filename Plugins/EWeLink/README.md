@@ -91,33 +91,41 @@ A light with brightness and colour temperature has Adaptive Lighting, which a co
 
 Every other key of the Homebridge plugin's types (`ipAddress`, `deviceModel`, `overrideLogging`, `language`, `hideDevFromHB`...) is accepted and, as there, has no effect.
 
+## Signing in
+
+The account is signed in to on **Add accessories** (Setup, docs/plugins.md): the email or phone number, the password
+and the country code, checked with a login. The password goes in the bridge's vault, not in `config.json`, and the
+session the login gives in the plugin's own vault entry. An AI agent does the same through the MCP server's
+`start_setup` and `continue_setup`. A block with a `username` and a `password`, pasted from Homebridge, signs in by
+itself.
+
 ## The page
 
-**Open** on the Plugins page shows the Homebridge plugin's settings page: connect the account (or use the session
-the plugin logged in with), the account's devices with their LAN address (a 3 s mDNS scan runs while the cloud
-answers), the RF sub-devices under their bridge with their buttons, online, LAN and RF badges, and an **Explain**
-for offline devices and devices missing on the LAN when the Assistant is set up; the connection mode, debug and
-`offlineAsOff`; **Save configuration** writes the instance's block and the plugin reloads with it. When the block
-changes elsewhere (the Expert editor, another tab, the Assistant), the page fills the settings in again the next time
-it comes into view, as the Homebridge page does on `configChanged`.
+**Open** on the Plugins page shows the Homebridge plugin's settings page, without its login: while the account is not
+signed in, a card leads to its Setup on Add accessories; once it is, the account with **Sign in again**, the account's
+devices with their LAN address (a 3 s mDNS scan runs while the cloud answers), the RF sub-devices under their bridge
+with their buttons, online, LAN and RF badges, and an **Explain** for offline devices and devices missing on the LAN
+when the Assistant is set up; the connection mode, debug and `offlineAsOff`; **Save configuration** writes the
+instance's block and the plugin reloads with it. When the block changes elsewhere (the Expert editor, another tab,
+the Assistant), the page fills the settings in again the next time it comes into view, as the Homebridge page does
+on `configChanged`.
 
-The page's requests: `POST login`, `GET session`, `GET devices`, `POST test-device`, `GET accessories` (the
-instance's accessories with their kept values, Homebridge's `/getCachedAccessories`), `GET status`.
+The page's requests: `GET devices`, `POST test-device`, `GET accessories` (the instance's accessories with their kept
+values, Homebridge's `/getCachedAccessories`), `GET status`. They use the session the plugin logged in with.
 
 The Assistant (the web UI's chat, MCP clients) can call three of them as tools: `eWeLink_status`,
-`eWeLink_list_devices` and `eWeLink_test_device` (admin, confirmed first). Signing in stays on the page: it
-takes the account's password.
+`eWeLink_list_devices` and `eWeLink_test_device` (admin, confirmed first). Signing in is Setup's.
 
 ## Files
 
-Under the instance's directory (`~/.homeswift/plugins/eWeLink-<name>/`), owner-only: `ewelink-tokens.json` (the
-session, reused for a day), `devices.json` (the last discovery, for offline-first launches) and
-`accessory-context.json` (covers' positions, thermostats' targets, valves' durations).
+Under the instance's directory (`~/.homeswift/plugins/eWeLink-<name>/`), owner-only: `devices.json` (the last discovery, for offline-first launches) and
+`accessory-context.json` (covers' positions, thermostats' targets, valves' durations). The session, reused for a day, is
+sealed in the vault (`plugin.<instance>.ewelink-tokens.json`).
 
 ## What differs from the Homebridge plugin
 
-- The settings page keeps the session in the plugin: the browser never receives an access token (the Homebridge
-  page passed it back with every request). "Describe your setup" is the Homeswift UI's own Assistant.
+- Signing in is Setup's, and the session stays in the plugin: the browser never receives an access token (the
+  Homebridge page passed it back with every request). "Describe your setup" is the Homeswift UI's own Assistant.
 - `hideChannels` hides the channels it names (by number or full id), and `inchChannels` the master channel; the
   Homebridge plugin only logged them.
 - Ignored devices leave HomeKit; Homebridge kept their cached tile.
