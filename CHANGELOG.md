@@ -12,6 +12,8 @@ All notable changes to this project are documented here. The format follows
   `rename_accessory`. The name goes in its plugin's block (`_accessories`, by Device Id) and the bridge puts it on the
   accessory's Name and Configured Name, without reloading the plugin and with its aids and iids, so its room, scenes and
   automations stay. The Home app follows Configured Name; a rename made there is kept in config.json the same way.
+- A Homeswift scene shown in the Home app as a switch has its name there: the switch carries it in Configured Name, so
+  renaming the scene renames the switch in the Home app, and renaming the switch in the Home app renames the scene.
 - UniFi Access: a UA Gate's side door (its lock, position sensor and trigger) and each door sensor get an accessory of
   their own, with their own tile, by default (`Hub.SideDoor.SeparateAccessory`, `Hub.Sensors.SeparateAccessory`; the
   Homebridge plugin groups them on the hub's, and disabling the options does too).
