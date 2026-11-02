@@ -237,7 +237,10 @@ actor ProtectAPI {
             return retry ? await bootstrapController(retry: false) : false
         }
         guard let data = try? JSONValue(data: response.body), data.objectValue != nil else {
-            apiError("Unable to parse response from UniFi Protect. Will retry again later.")
+            // A console without the app answers its proxy's paths with its own web page.
+            apiError(response.header("content-type")?.lowercased().hasPrefix("text/html") == true
+                ? "UniFi Protect does not run on this console: it answered with its web page. Set up the console that runs UniFi Protect."
+                : "Unable to parse response from UniFi Protect. Will retry again later.")
             return retry ? await bootstrapController(retry: false) : false
         }
         let isFirstRun = bootstrap == nil

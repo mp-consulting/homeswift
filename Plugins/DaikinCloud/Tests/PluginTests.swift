@@ -459,6 +459,51 @@ struct PluginTests {
         #expect(try await environment.request("POST", "auth/stop-server", body: [:]).json["success"] == true)
     }
 
+    /// Setup: the Developer Portal login is a Browser Redirect whose page and paste field come with a wait; the callback
+    /// server's catch ends it on the next retry, with the tokens where the plugin keeps them.
+    @Test func setsUpTheDeveloperPortalLoginThroughSetup() async throws {
+        let environment = DaikinEnvironment()
+        let port = try await freePort()
+        var block = developerBlock
+        block["callbackServerPort"] = port
+        block["oidcCallbackServerBindAddr"] = "127.0.0.1"
+        let host = try await environment.start(block)
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        // How to sign in first, the block's picked; the client is the block's, so Daikin's page comes next.
+        guard case .ask(let method, _) = try await plugin.authorize(SetupRequest(target: .account)) else { Issue.record("expected the method"); return }
+        #expect(method.fields.first?.options.map(\.value) == ["developer_portal", "mobile_app"] && method.fields.first?.value == "developer_portal")
+        guard case .ask(let prompt, let state) = try await plugin.authorize(SetupRequest(target: .account, answers: ["authMode": "developer_portal"])) else {
+            Issue.record("expected the sign-in page"); return
+        }
+        let url = try #require(prompt.url)
+        #expect(prompt.waitSeconds == 600 && prompt.fields.map(\.key) == ["callbackUrl"] && prompt.fields.first?.optional == true)
+        // Not signed in yet: the same prompt again.
+        guard case .ask = try await plugin.authorize(SetupRequest(target: .account, state: state)) else { Issue.record("expected the wait"); return }
+        let code = try #require(URLQuery.parameter("state", in: url))
+        #expect(await plugin.callbackRequest("/?code=good-code&state=\(code)").status == 200)
+        guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .account, state: state)) else { Issue.record("expected done"); return }
+        #expect(outcome.credentials == nil && outcome.settings == ["authMode": "developer_portal"])
+        #expect(await plugin.accountAuthorized() == true)
+    }
+
+    /// A block on the Developer Portal can pick the Onecta app's login when Setup asks how: its email and password
+    /// come next, and the choice is kept for every step after.
+    @Test func setupPicksTheOnectaLoginOverTheBlocksMode() async throws {
+        let environment = DaikinEnvironment()
+        let host = try await environment.start(developerBlock)
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        // An answer that is none of the options asks again.
+        guard case .ask(let again, _) = try await plugin.authorize(SetupRequest(target: .account, answers: ["authMode": "other"])) else { Issue.record("expected the method"); return }
+        #expect(again.fields.first?.kind == .choice)
+        guard case .ask(let prompt, let state) = try await plugin.authorize(SetupRequest(target: .account, answers: ["authMode": "mobile_app"])) else {
+            Issue.record("expected the account"); return
+        }
+        #expect(prompt.fields.map(\.key) == ["email", "password"])
+        #expect(state["authMode"] == "mobile_app")
+    }
+
     /// Two requests with the pending state at once (a browser retry, the URL pasted as well): one exchange.
     @Test func theSameCallbackTwiceExchangesTheCodeOnce() async throws {
         let environment = DaikinEnvironment()

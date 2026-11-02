@@ -26,9 +26,13 @@ by default; leave them off unless you want that. Homeswift's own surfaces treat 
 user confirmed, and the web UI asks first.
 
 Names follow the controller (`Device.SyncName`), including a UA Gate's door names. With
-`Hub.Sensors.SeparateAccessory`, `Hub.Doorbell.SeparateAccessory` and `AccessMethod.SeparateAccessory` the
-sensors, the doorbell and the access method switches get tiles of their own (accessory ids
+`Hub.Sensors.SeparateAccessory`, `Hub.Doorbell.SeparateAccessory`, `Hub.SideDoor.SeparateAccessory` (a UA Gate's
+side door) and `AccessMethod.SeparateAccessory` the sensors, the doorbell, the side door and the access method switches
+get tiles of their own (accessory ids
 `UniFi Access:<MAC>.<group>`); turning the option off brings them back to the hub.
+
+On Add accessories, a hub lists its parts (the side door, the wired door sensors, the doorbell), each with a switch: the
+choice goes in the hub's Accessory Settings (`parts`) and acts as that hub's `Hub.<part>` option.
 
 ## Configuration
 
@@ -79,10 +83,11 @@ log lists every device with its MAC at startup.
 | `Hub.Doorbell` | on | A doorbell for ring events |
 | `Hub.Doorbell.Trigger` | off | A switch reflecting (not triggering) rings |
 | `Hub.Doorbell.SeparateAccessory` | off | The doorbell and its trigger on an accessory of their own |
-| `Hub.Sensors.SeparateAccessory` | off | Each door sensor on an accessory of its own |
+| `Hub.Sensors.SeparateAccessory` | on | Each door sensor on an accessory of its own |
 | `Hub.DPS`, `Hub.REL`, `Hub.REN`, `Hub.REX` | on | Contact sensors for the terminal inputs (when wired) |
 | `Hub.SideDoor`, `Hub.SideDoor.DPS` | on | UA Gate: the side door lock and its position sensor |
 | `Hub.SideDoor.Lock.Trigger` | off | UA Gate: a switch for the side door lock |
+| `Hub.SideDoor.SeparateAccessory` | on | UA Gate: the side door, its sensor and trigger on an accessory of its own |
 | `AccessMethod.SeparateAccessory` | off | The access method switches on an accessory of their own |
 | `AccessMethod.Face`, `.Hand`, `.Mobile`, `.NFC`, `.PIN`, `.QR`, `.TouchPass` | on | A switch per access method the reader supports |
 | `Log.Doorbell`, `Log.DPS`, `Log.REL`, `Log.REN`, `Log.REX`, `Log.Lock` | on | Log these events |
@@ -96,6 +101,16 @@ ring ends), `lock` (`true` locked), `dps`, `rel`, `ren`, `rex` (`true` open), fo
 (`doorbell`, `dps`, `lock`, `sidedoor/lock`, `sidedoor/dps`) publishes the current state; `true` or `false` on
 `lock/set` and `sidedoor/lock/set` locks or unlocks. Anyone who can publish to the broker can therefore open the
 doors: use a broker that requires a login (and `mqtts://` off the local network).
+
+## Setup
+
+The **Add accessories** page lists each controller as a device, by its MAC: the configured ones, and the UniFi
+consoles discovery finds on the network. A console not set up asks for an **Account Login**, a local account of
+the console that can use UniFi Access; the login is checked before it is kept, in the vault under the controller's
+MAC, and its address goes in its Accessory Settings. A controller of `controllers` keeps its password there,
+sealed in config.json; a login Setup kept for the same address replaces it. The controller's hubs and readers need
+nothing more. Excluding one there is the same as `Disable.Device.<MAC>` in `options`, which Setup shows as
+left out by the plugin's own settings.
 
 ## The web page
 

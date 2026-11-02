@@ -355,7 +355,8 @@ Every platform block of config.json, with whether it runs, is paused, and on whi
 plugins compiled into this homeswift, with a search and a sort.
 
 - **A card's ⋯** opens the plugin's page, its Expert form or JSON, pauses or resumes it, and removes it; its name opens
-  its page.
+  its page. Removing a plugin that kept sign-ins or tokens in the vault offers to delete them too (off by default: left
+  there, adding the plugin again finds them; they are the entries its namespace owns, not those a person made).
 - **Pause** (also at the top right of a plugin's page) stops the plugin's calls to its devices, for when an app sharing
   the account would be signed out by them. Its accessories stay in the Home app, showing No Response, and the page
   offers **Resume**.
@@ -391,6 +392,52 @@ changes against the plugin's schema (a type, a bound, a choice outside the list,
 show under the editor with their lines marked, **Line 12** puts the caret there, and **Save anyway** keeps a value the
 plugin accepts that its schema does not list. Settings left as they were are not checked, so an old mistake never stops
 another change; a plugin's own page and **Pause** write without the check.
+
+### Add accessories
+
+![Add accessories: what each plugin finds, and a bridge to pair](images/ui/setup.png)
+
+`/setup`, from the Accessories page's **Add accessories** (a plus alone on a phone), an empty wall, and a plugin card's
+⋯ (`/setup#<slug>`), for administrators.
+
+Each plugin in use is one row: its name and where its devices stand ("10 set up · 1 excluded", or "Needs you once" in
+orange). A row opens on its devices; its ⋯ beside the chevron looks for devices again (**Find again**) and signs in to its account
+again. One that needs someone opens by itself and comes first, and when there is only one plugin it is open. Opened, a plugin whose account is not set up yet
+(a hub not paired, a cloud not signed in) leads with that row, as nothing else works before it; then each device that
+needs a code, a button or a sign-in, with **Set up**; then the devices set up, a quiet dot each (**Not responding** for one set up that its plugin cannot reach now, such as a
+UniFi console that is off), and those excluded.
+While a plugin looks for devices, its row says so and its devices dim.
+
+**Ask the Assistant**, when the Assistant is configured, opens the chat for it: it finds the plugin, starts the
+Setup and answers what you tell it (a PIN), and hands a step with a password, a sign-in page or a button to press back to
+the Setup sheet through a card in the conversation.
+
+![The Assistant's chat handing the Hue Bridge's link button to the Setup sheet](images/ui/setup-assistant.png)
+
+**Add a plugin**, at the top right, opens a sheet listing the plugins compiled in, those not in use first, each with
+what it reaches, and a search. A plugin with an account opens its Setup at once, and its block is saved when the Setup
+is done; one without an account is added as it is, and the page scrolls to its row, open. Before any plugin is set up,
+the page shows the brands themselves, two a row on a phone, with how each connects (a sign-in, keys, a button on a hub,
+nothing to sign in to).
+
+**Set up** opens one sheet, the same for every plugin, with the plugin's tile, its name and where the Setup stands: the
+sign-in (or the pairing), the devices, done. It draws what the plugin asks ([Setup](plugins.md#setup)): the link button to
+press, a ring calling for it and a bar for the time left while it retries; a PIN the TV shows; an email then the code sent
+to it; keys; or a sign-in page to open while the sheet waits for its redirect (or for its address, pasted). A plugin with
+more than one way to sign in (Daikin's Developer Portal or the Onecta app, LG's page or a password, EcoFlow's developer
+API, app or both) asks which first, the block's own picked. An answer that did not work is asked again; Cancel ends the
+Setup. What it gives goes in the vault, and the plugin reloads with it.
+
+An account set up for the first time then lists what the plugin finds, every device switched on: those switched off are
+excluded (they can be included later), and the sheet ends on the accessories added. A device that brings devices of its
+own (a UniFi console: its cameras, doors and sensors) lists those the same way once the plugin reaches them. Another
+device's Setup, or an account signed in again, ends at done.
+
+![The sheet pairing a Hue Bridge: its link button, and the time left](images/ui/setup-pair.png)
+
+A device's ⋯ **Exclude**s it (its Accessory Settings' `excluded`: the plugin makes no accessory of it, in the Home app or
+Matter) or **Include**s it again; one excluded by the plugin's own settings (a Homebridge exclude list) opens them
+instead. **Find again** asks the plugin again.
 
 ### Logs
 

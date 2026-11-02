@@ -7,6 +7,21 @@ import HomeswiftPlugin
 extension HomeswiftCatalog {
     public var vault: CredentialVault { CredentialVault(storage: storageDirectory) }
 
+    /// The vault's entries a plugin instance wrote, in its namespace (`<platform>/<name>`): its tokens and the logins its
+    /// Setup kept. Entries a person made, which a block names with `vault:`, are not among them.
+    public func vaultEntryNames(ownedBy platform: String, name: String) -> [String] {
+        ((try? vault.entries()) ?? [:]).filter { $0.value.owner == "\(platform)/\(name)" }.keys.sorted()
+    }
+
+    /// Removes the entries a plugin instance wrote (`vaultEntryNames(ownedBy:name:)`), with the block it leaves; how many.
+    @discardableResult
+    public func removeVaultEntries(ownedBy platform: String, name: String) throws -> Int {
+        let names = vaultEntryNames(ownedBy: platform, name: name)
+        for entry in names { try vault.remove(entry) }
+        if !names.isEmpty { logger.info("Removed a plugin's vault entries", metadata: ["platform": "\(platform)", "name": "\(name)", "entries": "\(names.count)"]) }
+        return names.count
+    }
+
     /// What moving config.json's secrets into the vault would do, as it is now (`VaultMigration.plan`). Nothing is
     /// written.
     public func vaultMigrationPlan(_ choices: VaultMigration.Choices = .init()) throws -> VaultMigration {

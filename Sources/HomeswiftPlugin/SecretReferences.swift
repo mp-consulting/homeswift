@@ -24,6 +24,12 @@ public enum SecretReference: Equatable, Sendable, CustomStringConvertible {
         }
     }
 
+    /// A reference to an entry of the bridge's vault.
+    public var isVault: Bool {
+        if case .vault = self { return true }
+        return false
+    }
+
     public var description: String {
         switch self {
         case .vault(let name, let field): "vault:\(name)" + (field.map { "#\($0)" } ?? "")

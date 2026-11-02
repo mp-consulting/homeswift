@@ -64,8 +64,8 @@ enum AccessOptions {
                 description: "Put the doorbell, and its automation trigger if you use one, on a HomeKit accessory of their own so that they get their own tile instead of sharing one with the lock. The doorbell is the primary service of whichever accessory it sits on, so leaving it here is what makes the hub tile a doorbell rather than a lock. Enabling this changes the identity of the doorbell in HomeKit, so any automations, room assignments, or names you have set for it will need to be set again.",
                 group: "Doorbell", hasCapability: ["door_bell"]),
             FeatureOptionEntry(
-                "Sensors.SeparateAccessory", default: false,
-                description: "Give each door sensor its own HomeKit accessory so that it appears as a dedicated tile, instead of grouping the sensors with the lock on a single tile. Enabling this changes the identity of the sensors in HomeKit, so any automations, room assignments, or names you have set for them will need to be set again.",
+                "Sensors.SeparateAccessory", default: true,
+                description: "Give each door sensor its own HomeKit accessory so that it appears as a dedicated tile, instead of grouping the sensors with the lock on a single tile (on by default in Homeswift; the Homebridge plugin groups them). Changing this changes the identity of the sensors in HomeKit, so any automations, room assignments, or names you have set for them will need to be set again.",
                 modelKey: DeviceCatalog.modelsSensors),
             FeatureOptionEntry("DPS", default: true, description: "Add a contact sensor accessory for the door position sensor.", modelKey: DeviceCatalog.modelsDps),
             FeatureOptionEntry("REL", default: true, description: "Add a contact sensor accessory for the remote release.", modelKey: DeviceCatalog.modelsRel),
@@ -77,6 +77,10 @@ enum AccessOptions {
             FeatureOptionEntry(
                 "SideDoor.DPS", default: true, description: "Add a contact sensor accessory for the side door position sensor.", group: "SideDoor",
                 modelKey: DeviceCatalog.modelsSideDoor),
+            FeatureOptionEntry(
+                "SideDoor.SeparateAccessory", default: true,
+                description: "Put the side door, with its position sensor and lock trigger, on a HomeKit accessory of its own so that it gets its own tile instead of sharing the gate's (on by default). Changing this changes the identity of the side door in HomeKit, so any automations, room assignments, or names you have set for it will need to be set again.",
+                group: "SideDoor", modelKey: DeviceCatalog.modelsSideDoor),
             FeatureOptionEntry(
                 "SideDoor.Lock.Trigger", default: false,
                 description: "Add a switch accessory to control the side door lock. This can be useful in automation scenarios where you want to work around HomeKit's security restrictions for controlling locks.",

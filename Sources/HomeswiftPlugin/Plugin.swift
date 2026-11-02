@@ -132,6 +132,29 @@ public protocol HomeswiftPlugin: Sendable {
 
     /// Renames one of `rooms()` by its `PluginRoom.id` on the hub. Defaults to throwing.
     func renameRoom(id: String, name: String) async throws
+
+    /// What the instance's account asks before the plugin may use it (Setup, `Setup.swift`): a cloud's login, a
+    /// developer portal's keys. Defaults to `.none`: no account, or one whose settings the form takes as they are.
+    static var accountAuthorization: AuthorizationMethod { get }
+
+    /// The devices the plugin can find now, set up or not (GLOSSARY.md, "Discovered Device"): on the network, in the
+    /// account, at the addresses its settings name. It may run on an instance that was not started, created only to set
+    /// up; it should answer within a few seconds. Defaults to none.
+    func discover() async throws -> [DiscoveredDevice]
+
+    /// Answers one step of the Authorization of the account (`accountAuthorization`) or of a device (its
+    /// `DiscoveredDevice.authorization`). It may run on an instance that was not started, and on another instance than
+    /// the step before: keep what the next step needs in `SetupStep.ask`'s state. Throw `SetupError` for an answer that
+    /// did not work. Defaults to done, with nothing to keep.
+    func authorize(_ request: SetupRequest) async throws -> SetupStep
+
+    /// Whether the account is Authorized, for a plugin that keeps what its Authorization gave itself (tokens it refreshes
+    /// in its own vault entries). Defaults to nil: the bridge looks for the account's credentials (`context.credentials()`).
+    func accountAuthorized() async -> Bool?
+
+    /// The Device Id of an accessory whose id, after `<platform>:`, is not the Device Id or the Device Id followed by `:` or
+    /// `.` (eWeLink's channels, `<deviceID>SW<n>`), so Excluded reaches it. Defaults to nil: those two forms only.
+    static func deviceID(ofAccessory suffix: String) -> String?
 }
 
 extension HomeswiftPlugin {
@@ -145,6 +168,11 @@ extension HomeswiftPlugin {
     public func stop() async {}
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse { .error(404, "\(Self.name) has no web API") }
     public func liveFeed(accessoryID: String) async throws -> CameraLiveFeed? { nil }
+    public static var accountAuthorization: AuthorizationMethod { .none }
+    public func discover() async throws -> [DiscoveredDevice] { [] }
+    public func authorize(_ request: SetupRequest) async throws -> SetupStep { .done(SetupOutcome()) }
+    public func accountAuthorized() async -> Bool? { nil }
+    public static func deviceID(ofAccessory suffix: String) -> String? { nil }
 }
 
 /// One route of a plugin's `handleWebRequest` that the Assistant may call, as the tool
@@ -369,6 +397,11 @@ public final class PluginContext: @unchecked Sendable {
         progress.updated = Date()
         energyProgressSink(progress)
     }
+    /// The plugin's `deviceID(ofAccessory:)`.
+    var ownDeviceID: (@Sendable (String) -> String?)? { ownDeviceIDBox.withLockedValue { $0 } }
+    let ownDeviceIDBox = NIOLockedValueBox<(@Sendable (String) -> String?)?>(nil)
+    /// The block's `_accessories` as the plugin was launched with it: Accessory Settings by Device Id.
+    let accessorySettingsBox = NIOLockedValueBox<[String: AccessorySettings]>([:])
     // Mutable state is behind the lock; the class is otherwise immutable.
     private let list = NIOLockedValueBox<Entries>(Entries())
     /// A save of the cache is due: changes in a burst (a plugin adding its devices at launch) write it once.
@@ -455,6 +488,11 @@ public final class PluginContext: @unchecked Sendable {
     /// Adds an accessory to the bridge, or replaces the one with the same `id`. HomeKit sees the change
     /// through the configuration number; the aid and iids stay, so rooms and automations survive.
     public func add(_ accessory: Accessory) throws {
+        // An Excluded device is never an accessory, whether or not the plugin checked.
+        if isExcluded(accessoryID: accessory.id) {
+            logger.debug("Not adding \(accessory.name): its device is Excluded")
+            return
+        }
         try bridge.claim(accessory.id, for: key, name: name)
         // Every light with what Adaptive Lighting needs gets a controller (CONTRIBUTING.md); a mirrored one keeps its
         // controller's. Said at debug level, which a plugin's check on a throwaway bridge shows.
@@ -487,6 +525,10 @@ public final class PluginContext: @unchecked Sendable {
     /// again replaces the accessory under the same identity, so a television whose inputs changed keeps
     /// its pairing. The id must still be unique on the bridge.
     public func publishExternal(_ accessory: Accessory) async throws {
+        if isExcluded(accessoryID: accessory.id) {
+            logger.debug("Not publishing \(accessory.name): its device is Excluded")
+            return
+        }
         try bridge.claim(accessory.id, for: key, name: name)
         if self.accessory(id: accessory.id) != nil, !isExternal(id: accessory.id) {
             try bridge.server.remove(accessory)
@@ -560,6 +602,7 @@ public final class PluginContext: @unchecked Sendable {
             }
         }
         for (accessory, external) in cached ?? [] {
+            if isExcluded(accessoryID: accessory.id) { continue }
             do {
                 try bridge.claim(accessory.id, for: key, name: name)
                 naming.apply(to: accessory)

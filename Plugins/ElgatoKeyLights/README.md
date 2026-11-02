@@ -42,7 +42,7 @@ Per light, keyed by MAC address (`id` in the light's Bonjour record; the log pri
 | `mac` | The light's MAC address, in any usual spelling |
 | `displayName` | The name in HomeKit, instead of the one the light reports |
 | `ip`, `host`, `port` | Reach the light here without Bonjour, e.g. in a container without multicast; `ip` wins over `host`, the port defaults to 9123 |
-| `enabled` | `false` keeps the light out of HomeKit, and removes it if it was there |
+| `enabled` | `false` keeps the light out of HomeKit, and removes it if it was there (Excluding the light by its MAC on the web UI's **Add accessories** page does the same) |
 | `powerOnBehavior`, `powerOnBrightness`, `powerOnTemperature` | Override the platform's values for this light; `powerOnBehavior: 0` means the platform's, `powerOnTemperature: 0` the light's own |
 
 ```json

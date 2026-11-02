@@ -1,0 +1,212 @@
+import Foundation
+import Homeswift
+import HomeswiftNetwork
+import HomeswiftPlugin
+
+// Setup (GLOSSARY.md, "Setup"): each controller is a device whose Device Id is its MAC (`001122334455`, as Protect
+// gives it and its own accessories carry it: `<MAC>.NVRSystemInfo`, `<MAC>.Security`), authorized with an Account Login:
+// a local account of the console. The instance has no account of its own: one block runs several controllers, each with
+// its own login, and the Homebridge plugin already treats a controller as a device (`Disable.Device.<NVR MAC>` turns it
+// off). The login goes in the vault under the controller's MAC and its address in its Accessory Settings, as Philips
+// Ambilight's TVs; the block's `controllers` still work as they were, their passwords sealed in config.json. Cameras,
+// lights, sensors, chimes and viewers come with their controller and need nothing more; `Disable.Device.<MAC>` is their
+// exclusion of the block's own, and an Excluded device is one more `Disable.Device.<MAC>` before the block's options
+// (docs/adr/0001-canonical-accessory-settings.md). UniFi Access does the same in AccessSetup.swift.
+extension UniFiProtectPlugin {
+    /// A controller's local account, kept in the vault under its MAC.
+    struct ControllerLogin: Codable, Sendable, Equatable {
+        var username: String
+        var password: String
+    }
+
+    /// A `Disable.Device.<MAC>` for each Excluded device, to go before the block's options.
+    static func exclusions(_ context: PluginContext) -> [String] {
+        context.excludedDeviceIDs.filter { !$0.hasPrefix("address:") }.sorted().map { "Disable.Device.\($0)" }
+    }
+
+    /// The parts a person chose on Add accessories (Accessory Settings' `parts`), as that device's feature options:
+    /// `{ "Motion.OccupancySensor": true }` is `Enable.Motion.OccupancySensor.<MAC>`. A device's own option wins over the
+    /// block's.
+    static func partChoices(_ context: PluginContext) -> [String] {
+        context.allAccessorySettings.sorted { $0.key < $1.key }.flatMap { deviceID, settings in
+            settings.parts.sorted { $0.key < $1.key }.map { "\($0.value ? "Enable" : "Disable").\($0.key).\(deviceID)" }
+        }
+    }
+
+    /// What a camera, a light or a sensor brings that a person can add or leave out (Add accessories' parts), each a
+    /// feature option of the device, offered as the plugin's settings page offers it: only what the device supports.
+    static func parts(of device: JSONValue, category: String, test: (String) -> Bool) -> [DevicePart] {
+        let flags = { (name: String) in device.bool("featureFlags.\(name)") }
+        let thirdParty = device.bool("isThirdPartyCamera")
+        var parts: [DevicePart] = []
+        func add(_ option: String, _ name: String, _ icon: String, when: Bool = true) {
+            if when { parts.append(DevicePart(option, name: name, icon: icon, included: test(option))) }
+        }
+        switch category {
+        case "camera":
+            let doorbell = flags("isDoorbell")
+            add("Doorbell.PackageCamera.Flashlight", "Package camera flashlight", "bulb", when: flags("hasPackageCamera"))
+            add("Doorbell.Mute", "Doorbell mute switch", "bell", when: doorbell)
+            add("Doorbell.PhysicalChime", "Chime switches", "bell", when: flags("hasChime"))
+            add("Doorbell.AuthSensor", "Fingerprint and NFC sensor", "sensor", when: flags("hasFingerprintSensor"))
+            add("Motion.OccupancySensor", "Occupancy sensor", "sensor", when: !thirdParty)
+            add("Motion.Switch", "Motion detection switch", "switch", when: !thirdParty)
+            add("Device.StatusLed.Switch", "Status light switch", "switch", when: flags("hasLedStatus"))
+            add("Device.NightVision.Dimmer", "Night vision dimmer", "bulb", when: flags("hasLedIr"))
+            add("Video.HKSV.Recording.Switch", "Recording switch", "camera", when: !thirdParty)
+        case "light":
+            add("Motion.OccupancySensor", "Occupancy sensor", "sensor")
+            add("Motion.Switch", "Motion detection switch", "switch")
+            add("Device.StatusLed.Switch", "Status light switch", "switch")
+        case "sensor":
+            add("Motion.OccupancySensor", "Occupancy sensor", "sensor", when: device.at("motionSettings") != nil)
+            add("Device.StatusLed.Switch", "Status light switch", "switch")
+        default:
+            break
+        }
+        return parts
+    }
+
+    /// The controllers to run: those of `controllers`, with the login Setup kept for the same address in place of theirs,
+    /// then those set up through Setup only (Accessory Settings with an `address`, and a login in the vault), unless
+    /// Excluded.
+    func controllerEntries() -> [Configuration.Controller] {
+        var setUp: [Configuration.Controller] = []
+        for (_, settings, login) in context.setUpDevices(credentials: ControllerLogin.self) {
+            guard settings.plugin["address"]?.stringValue?.trimmingCharacters(in: .whitespaces).isEmpty == false,
+                  let controller = settings.decode(Configuration.Controller.self, adding: ["username": .string(login.username), "password": .string(login.password)]) else { continue }
+            setUp.append(controller)
+        }
+        func key(_ controller: Configuration.Controller) -> String { controller.address.trimmingCharacters(in: .whitespaces).lowercased() }
+        var entries = configuration.controllers.map { entry -> Configuration.Controller in
+            guard let kept = setUp.first(where: { key($0) == key(entry) }) else { return entry }
+            var entry = entry
+            entry.username = kept.username
+            entry.password = kept.password
+            return entry
+        }
+        let listed = Set(entries.map(key))
+        entries += setUp.filter { !listed.contains(key($0)) }
+        return entries
+    }
+
+    /// The block's feature options, with the Excluded devices (`exclusions`) or without them.
+    func featureOptions(excluding: Bool) -> FeatureOptions {
+        FeatureOptions(categories: FeatureOptionCatalog.categories, options: FeatureOptionCatalog.options,
+                       configuredOptions: (excluding ? Self.exclusions(context) : []) + configuration.options + Self.partChoices(context), dottedIdentifiers: controllerEntries().map(\.address))
+    }
+
+    /// The controllers, those running with their devices, and the UniFi consoles on the network that are not set up,
+    /// which need a login. An instance that runs none reads each configured controller once.
+    public func discover() async throws -> [DiscoveredDevice] {
+        let configured = featureOptions(excluding: false)
+        var found: [DiscoveredDevice] = []
+        var addresses = Set<String>()
+        func add(_ bootstrap: JSONValue, address: String, name: String?, connected: Bool, isSetUp: (String, [String]) -> Bool) {
+            let mac = bootstrap.at("nvr")?.string("mac")?.nonEmpty
+            let scopes = [mac, address].compactMap { $0 }
+            found.append(controllerDevice(mac: mac, name: bootstrap.at("nvr")?.string("name") ?? name ?? address, address: address,
+                                          isSetUp: connected && mac.map { isSetUp($0, scopes) } != false,
+                                          excludedBySettings: mac.map { !configured.test("Device", device: $0, controllers: scopes) } ?? false))
+            for category in ProtectNVR.deviceCategories {
+                for device in bootstrap.array(category + "s") where device.bool("isAdopted") && !device.bool("isAdoptedByOther") {
+                    guard let deviceMAC = device.string("mac")?.nonEmpty else { continue }
+                    var discovered = DiscoveredDevice(
+                        deviceID: deviceMAC, name: device.string("name") ?? device.string("marketName") ?? deviceMAC, model: device.string("marketName"),
+                        isSetUp: isSetUp(deviceMAC, scopes), excludedBySettings: !configured.test("Device", device: deviceMAC, controllers: scopes))
+                    discovered.parts = Self.parts(of: device, category: category) { configured.test($0, device: deviceMAC, controllers: scopes) }
+                    found.append(discovered)
+                }
+            }
+        }
+        if !controllers.isEmpty {
+            for nvr in controllers {
+                let state = await nvr.setupState()
+                addresses.insert(state.address.lowercased())
+                guard let bootstrap = state.bootstrap else {
+                    // Running without a bootstrap: set up, but the console has not answered.
+                    var console = controllerDevice(mac: state.mac.nonEmpty, name: state.name, address: state.address, isSetUp: true, excludedBySettings: false)
+                    console.isReachable = false
+                    found.append(console)
+                    continue
+                }
+                add(bootstrap, address: state.address, name: state.name, connected: true) { mac, _ in
+                    mac == state.mac ? state.enabled : state.published.contains(ProtectPlatform.accessoryID(mac))
+                }
+            }
+        } else {
+            let options = featureOptions(excluding: true)
+            for entry in controllerEntries() where !entry.address.isEmpty {
+                addresses.insert(entry.address.lowercased())
+                guard case .read(let bootstrap) = await read(address: entry.address, username: entry.username, password: entry.password, verifyTls: entry.verifyTls == true) else {
+                    found.append(controllerDevice(mac: nil, name: entry.name ?? entry.address, address: entry.address, isSetUp: false, excludedBySettings: false))
+                    continue
+                }
+                add(bootstrap, address: entry.address, name: entry.name, connected: true) { mac, scopes in options.test("Device", device: mac, controllers: scopes) }
+            }
+        }
+        let known = Set(found.map(\.deviceID))
+        for console in await dependencies.discover(ProtectLog(logger: logger)) where !addresses.contains(console.ip.lowercased()) {
+            let deviceID = console.mac.isEmpty ? "address:\(console.ip)" : Self.normalizedMAC(console.mac)
+            guard !known.contains(deviceID) else { continue }
+            found.append(DiscoveredDevice(deviceID: deviceID, name: console.name.isEmpty ? console.ip : console.name, model: console.modelLong.nonEmpty,
+                                          address: console.ip, authorization: .accountLogin))
+        }
+        return found
+    }
+
+    /// `aa:bb:cc:dd:ee:ff` as Protect writes MACs: `AABBCCDDEEFF`.
+    static func normalizedMAC(_ mac: String) -> String { mac.replacingOccurrences(of: ":", with: "").replacingOccurrences(of: "-", with: "").uppercased() }
+
+    /// A controller as a device: by its MAC once it is known, else by its address.
+    /// The Device Id Setup kept for a controller at `address` (its MAC, in Accessory Settings with that `address`): a
+    /// controller not reached yet is still the one set up, not a console asking for a login.
+    func setUpDeviceID(address: String) -> String? {
+        context.allAccessorySettings.first { $0.value.plugin["address"]?.stringValue?.trimmingCharacters(in: .whitespaces).lowercased() == address.lowercased() }?.key
+    }
+
+    private func controllerDevice(mac: String?, name: String, address: String, isSetUp: Bool, excludedBySettings: Bool) -> DiscoveredDevice {
+        DiscoveredDevice(deviceID: mac ?? setUpDeviceID(address: address) ?? "address:\(address)", name: name, model: "UniFi Protect", address: address, authorization: .accountLogin,
+                         isSetUp: isSetUp, excludedBySettings: excludedBySettings)
+    }
+
+    /// A controller: the user name and password of a local account of its console, checked with a login and a bootstrap
+    /// before they are kept. Its MAC, read from the bootstrap, is its Device Id. Its devices need nothing.
+    public func authorize(_ request: SetupRequest) async throws -> SetupStep {
+        let device = try request.device()
+        guard device.authorization == .accountLogin else { return .done(SetupOutcome()) }
+        guard let address = device.address?.nonEmpty else { throw SetupError("The controller has no address: find it again") }
+        guard let username = request.answer("username"), let password = request.secret("password") else {
+            return .ask(SetupPrompt(message: "Sign in to the UniFi console with a local account that can use UniFi Protect.", fields: [
+                SetupField("username", label: "User name"), SetupField("password", label: "Password", kind: .secret),
+            ]))
+        }
+        let bootstrap: JSONValue
+        switch await read(address: address, username: username, password: password, verifyTls: false) {
+        case .read(let read): bootstrap = read
+        case .failed(let message): throw SetupError("The controller at \(address) refused the sign-in: \(message)")
+        }
+        let mac = bootstrap.at("nvr")?.string("mac")?.nonEmpty ?? device.deviceID
+        logger.info("Signed in to the controller at \(address) through Setup.")
+        let login = try JSONValue(encoding: ControllerLogin(username: username, password: password))
+        return .done(SetupOutcome(credentials: login, settings: ["address": .string(address)], deviceID: mac))
+    }
+}
+
+extension ProtectNVR {
+    /// What Setup lists of a running controller: its bootstrap once it has one, whether it is on (`Disable.Device`), and
+    /// the accessory ids of the devices it published.
+    struct SetupState: Sendable {
+        var mac: String
+        var name: String
+        var address: String
+        var bootstrap: JSONValue?
+        var enabled: Bool
+        var published: Set<String>
+    }
+
+    func setupState() async -> SetupState {
+        SetupState(mac: mac, name: ufp.string("name") ?? config.name ?? config.address, address: config.address, bootstrap: await api.bootstrap,
+                   enabled: hasFeature("Device") && hasFeature("Device", device: mac), published: Set(configuredDevices.keys))
+    }
+}

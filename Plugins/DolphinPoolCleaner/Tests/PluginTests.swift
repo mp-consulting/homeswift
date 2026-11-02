@@ -403,6 +403,34 @@ struct PluginTests {
         await host.stop()
     }
 
+    /// Setup: the email, then the code, with Cognito's session carried by the Setup rather than the plugin; the refresh
+    /// token goes to the vault (the bridge saves the outcome's credentials), and the next launch signs in with it.
+    @Test func setsUpTheAccountThroughSetup() async throws {
+        environment.server.set("InitiateAuth", .init(body: ["ChallengeName": "CUSTOM_CHALLENGE", "Session": "cognito-session"]))
+        environment.server.set("RespondToAuthChallenge", .init(body: ["AuthenticationResult": ["IdToken": "id-token", "RefreshToken": "new-refresh", "AccessToken": "access"]]))
+        let host = try await environment.start(settings: [:])
+        let plugin = try #require(environment.plugin)
+        guard case .ask(let first, _) = try await plugin.authorize(SetupRequest(target: .account)) else { Issue.record("expected the email"); return }
+        #expect(first.fields.map(\.key) == ["email"])
+        guard case .ask(let code, let state) = try await plugin.authorize(SetupRequest(target: .account, answers: ["email": "owner@example.com"])) else {
+            Issue.record("expected the code"); return
+        }
+        #expect(code.fields.map(\.key) == ["code"])
+        #expect(state["session"] == "cognito-session")
+        guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .account, answers: ["code": "123456"], state: state)) else {
+            Issue.record("expected done"); return
+        }
+        #expect(outcome.credentials == ["refreshToken": "new-refresh"])
+        #expect(outcome.settings == ["email": "owner@example.com"])
+        let respond = try #require(environment.server.requests(to: "RespondToAuthChallenge").first.flatMap(environment.server.json(of:)))
+        #expect(respond["ChallengeResponses"] == ["USERNAME": "owner@example.com", "ANSWER": "123456"])
+
+        let context = try #require(host.context(platform: DolphinPoolCleanerPlugin.platform, name: host.platforms.first?.name))
+        try context.saveCredentials(outcome.credentials ?? .null)
+        #expect(await environment.plugin?.storedRefreshToken == "new-refresh")
+        await host.stop()
+    }
+
     @Test func setupErrors() async throws {
         let host = try await environment.start(settings: [:])
         #expect(try await environment.request("POST", "authenticate", body: [:]).json["error"] == "Email is required")

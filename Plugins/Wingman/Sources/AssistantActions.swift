@@ -17,8 +17,8 @@ extension WingmanPlugin {
         AssistantAction(
             name: "pair", title: "Pair a Wingman",
             description: "Pairs with the Wingman at host and port, with the 6-digit code its menu shows and the fingerprint discover answered "
-                + "(pinned). Answers its entry for devices (id, host, token, fingerprint): add it with put_list_entry (platform Wingman, "
-                + "list devices, match id), keeping every value as given.",
+                + "(pinned), and keeps its token and certificate in the vault. Answers its entry for devices (id, host, name): add it with "
+                + "put_list_entry (platform Wingman, list devices, match id), keeping every value as given.",
             method: "POST", path: "pair", access: .configure,
             inputSchema: [
                 "type": "object", "required": ["host", "code", "fingerprint"],

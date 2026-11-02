@@ -182,7 +182,14 @@ final class ChatConversation: Sendable {
             }
         }
         // Built once: the tools and the user's scope do not change while the conversation lasts.
-        let tools = toolbox.agentTools { [weak self] confirmation in await self?.ask(confirmation) ?? false }
+        let tools = toolbox.agentTools(confirm: { [weak self] confirmation in await self?.ask(confirmation) ?? false }, handOff: { [weak self] answer in
+            // A card that opens the Setup in the sheet, where the person types the secret or presses the button.
+            guard let session = answer["session"]?.stringValue else { return }
+            var card: [String: JSONValue] = ["kind": "setup", "session": .string(session), "platform": answer["platform"] ?? .null, "name": answer["name"] ?? .null,
+                                             "message": answer["prompt"]?["message"] ?? .null, "values": answer["prompt"]?["values"] ?? .null]
+            if let deviceID = answer["deviceID"] { card["deviceID"] = deviceID }
+            self?.showSetup(.object(card))
+        })
         state.withLockedValue { $0.tools = tools }
     }
 
@@ -310,6 +317,12 @@ final class ChatConversation: Sendable {
                 if let summary, outcome != .declined { item["summary"] = .string(summary) }
             }
         }
+    }
+
+    /// Shows a card that hands a Setup over to the page.
+    private func showSetup(_ card: JSONValue) {
+        closeMessage()
+        append(card)
     }
 
     /// Shows a confirmation card and waits for the user's answer.

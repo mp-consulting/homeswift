@@ -103,8 +103,8 @@ extension GoveePlugin {
             throw MissingCredentials.incomplete
         }
         if let account, let token = await account.token { return (account.api, token) }
-        guard let username = configuration.username, let password = configuration.password else { throw MissingCredentials.none }
-        return try await authenticate(PageCredentials(username: username, password: password, code: configuration.code))
+        guard let login = accountLogin() else { throw MissingCredentials.none }
+        return try await authenticate(PageCredentials(username: login.username, password: login.password, code: login.code))
     }
 
     private func discover(_ body: JSONValue) async -> PluginWebResponse {
@@ -158,23 +158,18 @@ extension GoveePlugin {
         discovered.isEmpty ? discoveredFile.load() ?? [] : discovered
     }
 
-    /// Forgets the kept login, the IoT certificate, the discovered devices and the devices' state.
+    /// Forgets the kept token, the IoT certificate, the discovered devices and the devices' state.
     private func clearCache() -> JSONValue {
         var errors: [String] = []
         let directory = context.storageDirectory
-        for name in ["credentials.json", "discovered-devices.json", "device-state.json"] {
+        for name in ["discovered-devices.json", "device-state.json"] {
             let url = directory.appendingPathComponent(name)
             guard FileManager.default.fileExists(atPath: url.path) else { continue }
             do { try FileManager.default.removeItem(at: url) } catch { errors.append("Failed to clear cache: \(error.localizedDescription)") }
         }
-        var credentialsCleared = true
-        let certificate = directory.appendingPathComponent("govee.pfx")
-        if FileManager.default.fileExists(atPath: certificate.path) {
-            do { try FileManager.default.removeItem(at: certificate) } catch {
-                credentialsCleared = false
-                errors.append("Failed to clear credentials: \(error.localizedDescription)")
-            }
-        }
+        // The token and the certificate, in the vault; a password Setup kept stays.
+        CredentialStore.clear(context)
+        let credentialsCleared = CredentialStore.stored(context)?.credentials == nil
         pageSession = nil
         // What the running instance holds in memory goes too, or the next change (a light's address) would
         // write the devices' state back, and the page would still list the discovered devices.

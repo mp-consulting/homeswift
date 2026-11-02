@@ -135,6 +135,11 @@ final class LGThinQPlatform {
                 logger.debug("Thinq1 device is skipped: \(device.description)")
                 continue
             }
+            // Excluded (GLOSSARY.md): not set up, not polled; the runtime would refuse its accessory.
+            if context.isExcluded(device.id) {
+                logger.info("Device excluded: \(device.id)")
+                continue
+            }
             let block = configuredDevices.first { $0.id == device.id }
             if !configuredDevices.isEmpty, block == nil {
                 logger.info("Device skipped: \(device.id)")

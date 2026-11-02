@@ -28,7 +28,7 @@ extension DirigeraPlugin {
     /// What the Assistant knows about the plugin with every request from the page.
     public static let assistantBackground: String? = [
         "The Homeswift IKEA DIRIGERA plugin talks to DIRIGERA hubs on the local network (https://<hub>:8443/v1), without the cloud.",
-        "It pairs with the action button under the hub (OAuth with PKCE) and keeps the token in its own folder. Lights, outlets and",
+        "It pairs with the action button under the hub (OAuth with PKCE) and keeps the token sealed in the vault. Lights, outlets and",
         "PARASOLL sensors become HomeKit accessories, each hub's user scenes switches on one accessory (on runs, off within 30 s undoes).",
         "Never ask the user for passwords, tokens or keys.",
     ].joined(separator: " ")
