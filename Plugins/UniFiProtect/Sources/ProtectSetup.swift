@@ -124,7 +124,10 @@ extension UniFiProtectPlugin {
                 let state = await nvr.setupState()
                 addresses.insert(state.address.lowercased())
                 guard let bootstrap = state.bootstrap else {
-                    found.append(controllerDevice(mac: nil, name: state.name, address: state.address, isSetUp: false, excludedBySettings: false))
+                    // Running without a bootstrap: set up, but the console has not answered.
+                    var console = controllerDevice(mac: state.mac.nonEmpty, name: state.name, address: state.address, isSetUp: true, excludedBySettings: false)
+                    console.isReachable = false
+                    found.append(console)
                     continue
                 }
                 add(bootstrap, address: state.address, name: state.name, connected: true) { mac, _ in

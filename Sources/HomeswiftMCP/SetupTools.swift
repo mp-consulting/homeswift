@@ -282,7 +282,7 @@ extension HomeswiftCatalog {
                 name: "discover_devices", title: "Find devices",
                 description: "Asks a plugin which devices it finds now (on the network, in its account, at the addresses its settings name), each with "
                     + "its deviceID, its accessoryID, the Authorization it needs (none, buttonPress, deviceCode, accountLogin, browserRedirect, apiKey) and its "
-                    + "status: setUp, needsAuthorization (start_setup with its deviceID), discovered (the plugin publishes it by itself) or excluded "
+                    + "status: setUp, notResponding (set up, but the plugin cannot reach it now), needsAuthorization (start_setup with its deviceID), discovered (the plugin publishes it by itself) or excluded "
                     + "(excludedBySettings: by the plugin's own settings, which get_plugin_config_schema describes). "
                     + "accountAuthorization says what the plugin's account needs (start_setup without a deviceID).",
                 inputSchema: ["type": "object", "required": ["platform"], "properties": .object(instance)],

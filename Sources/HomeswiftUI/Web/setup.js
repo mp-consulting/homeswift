@@ -32,6 +32,7 @@
   /// A device's status: its words and tone. Set up is the usual state, a quiet dot; the others say so in words.
   const statuses = {
     setUp: [() => t("Set up"), "on"],
+    notResponding: [() => t("Not responding"), "away"],
     discovered: [() => t("Ready"), "on"],
     needsAuthorization: [() => t("Needs setup"), "away"],
     excluded: [() => t("Excluded"), "paused"],
@@ -233,6 +234,8 @@
   function deviceRow(block, plugin, device, reload, known) {
     const [state, tone] = (statuses[device.status] ?? statuses.discovered);
     const excluded = device.status === "excluded";
+    // Set up, whether it answers now or not.
+    const setUp = device.status === "setUp" || device.status === "notResponding";
     const toggle = (value) => async () => {
       try {
         await post("exclude", { platform: block.platform, name: block.name, deviceID: device.deviceID, excluded: value });
@@ -240,7 +243,7 @@
       } catch (e) { HomeswiftCommon.showAlert(e.message); }
     };
     const items = [
-      device.status === "setUp" && device.authorization !== "none" ? { label: t("Set up again"), icon: "pair", onSelect: () => open({ block, plugin, device, known, after: reload }) } : null,
+      setUp && device.authorization !== "none" ? { label: t("Set up again"), icon: "pair", onSelect: () => open({ block, plugin, device, known, after: reload }) } : null,
       // Left out by the plugin's own settings: included again there, not here.
       device.excludedBySettings ? { label: t("Open its settings"), icon: "gear", href: `/plugins/${encodeURIComponent(block.slug)}/expert` }
         : excluded ? { label: t("Include"), icon: "plus", onSelect: toggle(false) } : { label: t("Exclude"), icon: "minus", onSelect: toggle(true) },
@@ -249,7 +252,7 @@
     // The glyph the wall gives its accessory, once it has one.
     const glyph = HomeswiftWidgets.categoryIcon(device.category) ?? (needs ? methods[device.authorization]?.[1] : null) ?? "accessory";
     // Its parts, switched here at once: the plugin reloads with them, or without.
-    const parts = !excluded && device.status === "setUp" ? partsList(device, {
+    const parts = !excluded && setUp ? partsList(device, {
       onChange: async (part, included, box) => {
         box.disabled = true;
         try { await post("part", { platform: block.platform, name: block.name, deviceID: device.deviceID, part: part.id, included }); part.included = included; }
@@ -389,7 +392,7 @@
           if (attempt) await new Promise((resume) => setTimeout(resume, 2000));
           try {
             found = (await post("discover", { platform: block.platform, name: block.name })).devices
-              .filter((one) => (one.status === "setUp" || one.status === "discovered") && keep(one));
+              .filter((one) => ["setUp", "notResponding", "discovered"].includes(one.status) && keep(one));
           } catch { found = []; }
           if (found.length) break;
         }

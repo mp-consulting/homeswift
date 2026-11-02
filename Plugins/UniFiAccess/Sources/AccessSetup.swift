@@ -64,7 +64,10 @@ extension UniFiAccessPlugin {
                 let mac = await controller.id
                 let settings = controller.settings
                 addresses.insert(settings.address.lowercased())
-                found.append(controllerDevice(mac: mac, name: await controller.name, address: settings.address, isSetUp: await controller.connected))
+                // A running controller is set up; one that has not answered since shows as not responding.
+                var console = controllerDevice(mac: mac, name: await controller.name, address: settings.address, isSetUp: true)
+                console.isReachable = await controller.connected
+                found.append(console)
                 let hubs = await controller.hubs
                 for device in await controller.api.devices ?? [] {
                     let hub = hubs["\(Self.platform):\(device.identifier.uppercased())"]

@@ -48,6 +48,17 @@ import Testing
         #expect(await plugin.setUpDeviceID(address: "10.0.0.8") == nil)
     }
 
+    /// A running controller whose console does not answer is set up but not responding, not a console asking for a login.
+    @Test func aControllerThatDoesNotAnswerIsNotResponding() async throws {
+        environment.controller.override("/api/auth/login") { _ in HTTPResponse(status: 503, body: Data("{}".utf8)) }
+        let host = try environment.host(settings: ["controllers": [AccessTestEnvironment.controllerBlock]])
+        try await host.start()
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        let controller = try #require(try await plugin.discover().first { $0.address == "10.0.0.1" })
+        #expect(controller.isSetUp && !controller.isReachable && controller.status == .notResponding)
+    }
+
     @Test func signsInToAConsole() async throws {
         let host = try environment.host(settings: [:])
         try await host.start()

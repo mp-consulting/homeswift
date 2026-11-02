@@ -50,6 +50,18 @@ import Testing
         #expect(UniFiProtectPlugin.partChoices(try context(host)) == ["Enable.Motion.OccupancySensor.\(Fixtures.cameraMAC)"])
     }
 
+    /// A running controller whose console does not answer is set up but not responding, not a console asking for a login.
+    @Test func aControllerThatDoesNotAnswerIsNotResponding() async throws {
+        let environment = ProtectTestEnvironment()
+        environment.controller.update { $0.failEverything = 503 }
+        let host = try environment.host(settings: ProtectTestEnvironment.block())
+        try await host.start()
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        let nvr = try #require(try await plugin.discover().first { $0.address == "192.168.1.1" })
+        #expect(nvr.isSetUp && !nvr.isReachable && nvr.status == .notResponding)
+    }
+
     /// A console's login: asked, refused with an error the person answers again, then kept for the NVR's MAC with its
     /// address.
     @Test func signsInToAConsole() async throws {

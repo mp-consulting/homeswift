@@ -403,12 +403,15 @@ Each plugin in use is one row: its name and where its devices stand ("10 set up 
 orange). A row opens on its devices; its ⋯ beside the chevron looks for devices again (**Find again**) and signs in to its account
 again. One that needs someone opens by itself and comes first, and when there is only one plugin it is open. Opened, a plugin whose account is not set up yet
 (a hub not paired, a cloud not signed in) leads with that row, as nothing else works before it; then each device that
-needs a code, a button or a sign-in, with **Set up**; then the devices set up, a quiet dot each, and those excluded.
+needs a code, a button or a sign-in, with **Set up**; then the devices set up, a quiet dot each (**Not responding** for one set up that its plugin cannot reach now, such as a
+UniFi console that is off), and those excluded.
 While a plugin looks for devices, its row says so and its devices dim.
 
 **Ask the Assistant**, when the Assistant is configured, opens the chat for it: it finds the plugin, starts the
 Setup and answers what you tell it (a PIN), and hands a step with a password, a sign-in page or a button to press back to
 the Setup sheet through a card in the conversation.
+
+![The Assistant's chat handing the Hue Bridge's link button to the Setup sheet](images/ui/setup-assistant.png)
 
 **Add a plugin**, at the top right, opens a sheet listing the plugins compiled in, those not in use first, each with
 what it reaches, and a search. A plugin with an account opens its Setup at once, and its block is saved when the Setup

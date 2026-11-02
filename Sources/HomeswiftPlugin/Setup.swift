@@ -39,6 +39,9 @@ public struct DiscoveredDevice: Sendable, Codable, Equatable {
     /// Left out by one of the plugin's own settings (a Homebridge-shaped exclude list), not by its Accessory Settings: the
     /// person includes it again there.
     public var excludedBySettings: Bool
+    /// Whether it answered when last asked: false for one set up that the plugin cannot reach now (a console asleep, a
+    /// hub unplugged), which Setup shows as not responding rather than set up.
+    public var isReachable = true
     /// What it brings that a person can leave out on its own (GLOSSARY.md, "Part"): a gate's side door, a door's
     /// position sensor, a doorbell. Its Accessory Settings' `parts` keep the choice.
     public var parts: [DevicePart] = []
@@ -76,11 +79,11 @@ public struct DevicePart: Sendable, Codable, Equatable {
 extension DiscoveredDevice {
     /// Where it stands, as the Add accessories page and MCP clients show it.
     public enum Status: String, Sendable {
-        case setUp, needsAuthorization, discovered, excluded
+        case setUp, notResponding, needsAuthorization, discovered, excluded
     }
 
     public var status: Status {
-        isExcluded || excludedBySettings ? .excluded : isSetUp ? .setUp : authorization == .none ? .discovered : .needsAuthorization
+        isExcluded || excludedBySettings ? .excluded : isSetUp ? (isReachable ? .setUp : .notResponding) : authorization == .none ? .discovered : .needsAuthorization
     }
 }
 

@@ -322,7 +322,7 @@ settings it brings and reloads the plugin; the web UI's **Add accessories** page
   `apiKey`.
 - **`discover()`**: the devices the plugin can find now (on the network, in the account, at the addresses its
   settings name), each a `DiscoveredDevice` with its Device Id (the part of its accessory's id after `<platform>:`), the
-  Authorization it needs, whether it is set up, and `excludedBySettings` for one the plugin's own Homebridge-shaped
+  Authorization it needs, whether it is set up (and `isReachable: false` for one set up that does not answer now: Not responding), and `excludedBySettings` for one the plugin's own Homebridge-shaped
   lists leave out. It may run on an instance made for Setup and never started: answer within a few seconds.
 - **`authorize(_:)`**: one step at a time, for the account (`request.target == .account`) or a device. Answer
   `.ask(SetupPrompt(message:fields:url:waitSeconds:retryAfter:), state:)` for more, or `.done(SetupOutcome)`; throw
