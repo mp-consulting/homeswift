@@ -62,8 +62,6 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
         var transport: @Sendable (HTTPClient.TrustOnFirstUse) -> any HueTransport = { PinningTransport(trust: $0) }
         /// Bridges on the network: addresses from mDNS (`_hue._tcp`), else Philips' discovery service.
         var discover: @Sendable () async -> [String] = HueDiscovery.find
-        /// How long to wait before asking again whether the bridge's link button was pressed.
-        var pairingRetryDelay: Duration = .seconds(2)
         /// How long after a command a light's own values are left alone (`settleTime`).
         var settleTime: Duration = PhilipsHuePlugin.settleTime
     }
@@ -79,7 +77,7 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     static let defaultTransition = 100
     /// How long a poll leaves alone a light just written: the bridge may still report the old values.
     static let settleTime = Duration.seconds(2)
-    /// How long pairing waits for the link button.
+    /// How long Setup waits for the link button.
     static let pairingWindow = Duration.seconds(60)
     static let flashDuration = 5000
     /// How often the bridge is read while its event stream is open: the stream brings changes, the read only what an
@@ -102,7 +100,6 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     private(set) var client: HueClient?
     var snapshot = HueSnapshot()
     private(set) var lastError: String?
-    private var pairing: Task<Bool, Never>?
     /// The task that finds the bridge and polls it.
     private var poller: Task<Void, Never>?
     /// Counts reads of the bridge: a read that finishes after a later one began (the poll's, overtaken by the one after
@@ -207,12 +204,11 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
     }
 
     public func stop() async {
-        pairing?.cancel()
         poller?.cancel()
         tasks.cancelAll()
     }
 
-    /// Finds the bridge, pairs when there is no key, then polls.
+    /// Finds the bridge and polls it; without a key it waits for Setup, which pairs and starts the plugin again.
     private func run() async {
         guard let host = await bridgeHost() else {
             lastError = "No Hue Bridge found on the network: set it up on Add accessories."
@@ -220,9 +216,10 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
             return
         }
         connect(host: host)
-        if stored.applicationKey == nil {
-            logger.info("Press the link button on the Hue Bridge at \(host) to pair (the plugin waits a minute; Add accessories can pair again)")
-            guard await pair() else { return }
+        guard stored.applicationKey != nil else {
+            lastError = "The Hue Bridge is not paired: set it up on Add accessories."
+            logger.info("The Hue Bridge at \(host) is not paired yet: set it up on Add accessories")
+            return
         }
         // The event stream beside the polls: button presses, and every change at once.
         let listener = Task { [weak self] in await self?.listen() }
@@ -270,51 +267,11 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
 
     // MARK: Pairing
 
-    /// Asks the bridge for a key once: `linkButtonNotPressed` until its button is pressed. Setup (`HueSetup.swift`) and
-    /// the first start both pair through it.
+    /// Asks the bridge for a key once: `linkButtonNotPressed` until its button is pressed. Setup (`HueSetup.swift`) pairs
+    /// through it.
     static func requestKey(_ client: HueClient) async throws -> (key: String, bridgeID: String?) {
         let key = try await client.pair(deviceType: "homeswift#\(ProcessInfo.processInfo.hostName.prefix(19))")
         return (key, (try? await client.configuration())?["bridgeid"]?.stringValue)
-    }
-
-    /// Asks the bridge for a key every two seconds until its link button is pressed or `pairingWindow` passes.
-    @discardableResult
-    func pair() async -> Bool {
-        if let pairing { return await pairing.value }
-        // A fresh pairing starts from no pin: a certificate pinned earlier (a bad first connection) is not kept.
-        trust.reset()
-        let task = Task { await self.pairLoop() }
-        pairing = task
-        let paired = await task.value
-        pairing = nil
-        return paired
-    }
-
-    private func pairLoop() async -> Bool {
-        guard let client else { return false }
-        let deadline = ContinuousClock.now + Self.pairingWindow
-        while ContinuousClock.now < deadline, !Task.isCancelled {
-            do {
-                let (key, bridgeID) = try await Self.requestKey(client)
-                stored.applicationKey = key
-                if let bridgeID { stored.bridgeID = bridgeID }
-                save()
-                lastError = nil
-                logger.info("Paired with the Hue Bridge at \(client.host)")
-                return true
-            } catch HueClient.Failure.linkButtonNotPressed {
-                lastError = "Press the link button on the Hue Bridge."
-            } catch {
-                lastError = "\(error)"
-                logger.debug("Pairing: \(error)")
-            }
-            try? await Task.sleep(for: dependencies.pairingRetryDelay)
-        }
-        if stored.applicationKey == nil {
-            lastError = "The link button was not pressed in time: set the bridge up again on Add accessories."
-            logger.warning("The Hue Bridge's link button was not pressed in time; set it up again on Add accessories")
-        }
-        return stored.applicationKey != nil
     }
 
     // MARK: Polling

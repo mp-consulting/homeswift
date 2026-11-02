@@ -31,8 +31,8 @@ bridge on the network (mDNS `_hue._tcp`, else Philips' discovery service), or as
 press on the round link button on top of the bridge within a minute. The plugin's page leads there while the bridge is
 not set up, and its ⋯ menu's **Pair again** once it is. The application key is kept sealed in the bridge's vault
 (`vault.json`, docs/vault-design.md; `plugins/PhilipsHue-<name>/bridge.json` before, which moves there when the plugin
-reads it), never in config.json, with the bridge's certificate pinned on first use. At its first start without a key
-the plugin also waits a minute for the link button, as the log says. One block per bridge.
+reads it), never in config.json, with the bridge's certificate pinned on first use. Without a key the plugin waits for
+Setup: it pairs nowhere else. One block per bridge.
 
 | Option | Default | What it does |
 |---|---|---|
