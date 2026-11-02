@@ -102,6 +102,9 @@ private let ignoreSIGPIPEOnce: Void = {
 }()
 
 #if canImport(Glibc) || canImport(Musl)
+/// Serialises `Process.run` (see its use).
+private let launching = NSLock()
+
 /// Runs `body` with the signals that stop a process unblocked on this thread. posix_spawn gives the child the
 /// calling thread's signal mask, Foundation's `Process` does not reset it on Linux, and the threads Swift's
 /// concurrency and libdispatch run on block signals: FFmpeg started from one would ignore SIGTERM and only end
@@ -208,6 +211,10 @@ final class Subprocess: @unchecked Sendable {
         }
         do {
             #if canImport(Glibc) || canImport(Musl)
+            // One launch at a time: Linux Foundation's `Process.run` sets up its run loop sources and dispatch sources
+            // without guarding them, and two processes started at once on two threads crashed in libdispatch.
+            launching.lock()
+            defer { launching.unlock() }
             try withStopSignalsUnblocked { try process.run() }
             #else
             try process.run()

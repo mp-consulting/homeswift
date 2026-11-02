@@ -670,10 +670,13 @@ public final class UIServer: Sendable {
             case ["plugins"]:
                 let platforms = catalog.host.configuration.platforms
                 let slugs = Slug.unique(platforms.map(\.name), fallback: "plugin")
+                let owned = caller.isAdmin ? ((try? catalog.vault.entries()) ?? [:]) : [:]
                 let blocks = platforms.enumerated().map { index, block -> JSONValue in
                     ["index": .number(Double(index)), "platform": .string(block.platform), "name": .string(block.name), "childBridge": .bool(block.childBridge != nil),
                      "system": .bool(HomeswiftCatalog.systemPlatforms.contains(block.platform)), "slug": .string(slugs[index]),
-                     "icon": catalog.pluginIcon(platform: block.platform).map(JSONValue.string) ?? .null]
+                     "icon": catalog.pluginIcon(platform: block.platform).map(JSONValue.string) ?? .null,
+                     // What removing it can take from the vault too: the entries it wrote.
+                     "vaultEntries": .number(Double(owned.filter { $0.value.owner == "\(block.platform)/\(block.name)" }.count))]
                 }
                 var plugins = catalog.pluginsJSON().objectValue ?? [:]
                 plugins["blocks"] = .array(blocks)
@@ -908,6 +911,7 @@ public final class UIServer: Sendable {
                 return .json(result)
             }
         case .POST:
+            if route.first == "setup", let reply = try await setupRoute(Array(route.dropFirst()), body: body, username: username) { return reply }
             if route == ["updates", "check"] {
                 guard let releases = options.releases else { return .error(503, "update checking is unavailable") }
                 await releases.check()
@@ -1010,7 +1014,8 @@ public final class UIServer: Sendable {
                 return .json(JSONValue.object([:]))
             }
             if route.count == 3, route[0] == "config", route[1] == "platforms" {
-                return try await replacePlatformBlock(at: route[2], with: nil, username: username)
+                // `?vault=true`: the entries the block's plugin wrote in the vault go with it.
+                return try await replacePlatformBlock(at: route[2], with: nil, removingVaultEntries: request.query["vault"] == "true", username: username)
             }
         default:
             break
@@ -1260,8 +1265,10 @@ public final class UIServer: Sendable {
     /// Replaces (or appends, at the next index) a platform block; nil removes it.
     private struct NoSuchBlock: Error { let index: Int }
 
-    private func replacePlatformBlock(at indexText: String, with block: JSONValue?, checkSchemas: Bool = true, username: String) async throws -> Reply {
+    private func replacePlatformBlock(at indexText: String, with block: JSONValue?, checkSchemas: Bool = true, removingVaultEntries: Bool = false,
+                                      username: String) async throws -> Reply {
         guard let index = Int(indexText) else { return .error(400, "bad index") }
+        var removed: (platform: String, name: String)?
         do {
             let result = try await catalog.editPlatforms(dryRun: false, checkSchemas: checkSchemas) { platforms in
                 if let block {
@@ -1275,10 +1282,12 @@ public final class UIServer: Sendable {
                     }
                 } else {
                     guard platforms.indices.contains(index) else { throw NoSuchBlock(index: index) }
+                    if let platform = platforms[index]["platform"]?.stringValue { removed = (platform, platforms[index]["name"]?.stringValue ?? platform) }
                     platforms.remove(at: index)
                 }
             }
             noteConfigChange(by: username)
+            if removingVaultEntries, let removed { try catalog.removeVaultEntries(ownedBy: removed.platform, name: removed.name) }
             return .json(result)
         } catch let missing as NoSuchBlock {
             return .error(404, "no block \(missing.index)")
@@ -1522,7 +1531,7 @@ public final class UIServer: Sendable {
     }
 
     /// Who changed config.json; the host's own line says what applied.
-    private func noteConfigChange(by username: String) {
+    func noteConfigChange(by username: String) {
         logger.info("config.json changed from the web UI", metadata: ["user": "\(username)"])
     }
 }

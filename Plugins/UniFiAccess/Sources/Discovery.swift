@@ -17,6 +17,15 @@ struct DiscoveredConsole: Sendable, Equatable {
     var modelLong: String = ""
     var firmware: String = ""
 
+    /// A UniFi OS console, which runs UniFi Access and Protect (a gateway, a Cloud Key, a recorder), rather than one of
+    /// the access points, chimes, hubs or cameras that answer the probe too: a console reports a UniFi OS version as its
+    /// firmware (`5.1.34`) where a device reports its own (`UP.esp32.v1.7.20…`), and a console's model code.
+    var isConsole: Bool {
+        let code = model.uppercased().replacingOccurrences(of: "-", with: "")
+        return ["UDM", "UDR", "UDW", "UCG", "UCK", "UNVR", "ENVR", "EFG"].contains { code.hasPrefix($0) }
+            || firmware.range(of: #"^\d+\.\d+(\.\d+)*$"#, options: .regularExpression) != nil
+    }
+
     var json: JSONValue {
         ["ip": .string(ip), "mac": .string(mac), "name": .string(name), "model": .string(model), "modelLong": .string(modelLong), "firmware": .string(firmware)]
     }
@@ -98,6 +107,32 @@ enum UbiquitiDiscovery {
         return (broadcasts, unicast)
     }
 
+    /// Whether the console at `address` runs the app whose API answers at `path`. Asked without signing in, a console
+    /// with the app answers from its API (a 401, in JSON); one without answers its own web page. One that does not
+    /// answer is kept: signing in says what is wrong.
+    static func runsApp(at path: String, on address: String,
+                        send: @Sendable (HTTPRequest) async throws -> HTTPResponse = { try await HTTPClient(tls: .any).send($0) }) async -> Bool {
+        // An answer can claim any address: not this machine's own, nor link-local ones (a cloud's metadata).
+        guard !["0.", "127.", "169.254."].contains(where: address.hasPrefix) else { return false }
+        guard let url = URL(string: "https://\(address)\(path)"), let response = try? await send(HTTPRequest(method: "GET", url: url, timeout: .seconds(5))) else {
+            return true
+        }
+        return response.header("content-type")?.lowercased().hasPrefix("text/html") != true
+    }
+
+    /// The consoles that run the app at `path`, asked all at once.
+    static func running<Found: Sendable>(_ consoles: [Found], app path: String, address: (Found) -> String,
+                                         send: @escaping @Sendable (HTTPRequest) async throws -> HTTPResponse = { try await HTTPClient(tls: .any).send($0) }) async -> [Found] {
+        let addresses = consoles.map(address)
+        let answers = await withTaskGroup(of: (Int, Bool).self) { group in
+            for (index, address) in addresses.enumerated() { group.addTask { (index, await runsApp(at: path, on: address, send: send)) } }
+            var runs = [Bool](repeating: true, count: addresses.count)
+            for await (index, answer) in group { runs[index] = answer }
+            return runs
+        }
+        return consoles.indices.filter { answers[$0] }.map { consoles[$0] }
+    }
+
     static func discover(logger: Logger, timeout: Duration = timeout) async -> [DiscoveredConsole] {
         let socket: UDPSocket
         do {
@@ -110,7 +145,9 @@ enum UbiquitiDiscovery {
         let collect = Task {
             var found: [DiscoveredConsole] = []
             for await datagram in datagrams {
-                guard let console = parse(Array(datagram.data)), !found.contains(where: { $0.ip == console.ip }) else { continue }
+                // A console can first answer with a stub of no model or firmware (`uum_controller`, from another port): only
+                // console answers count, so the stub does not take the place of the real one.
+                guard let console = parse(Array(datagram.data)), console.isConsole, !found.contains(where: { $0.ip == console.ip }) else { continue }
                 found.append(console)
             }
             return found
@@ -120,7 +157,13 @@ enum UbiquitiDiscovery {
         for address in broadcasts + unicast { try? await socket.send(Data(probe), to: address, port: port) }
         try? await Task.sleep(for: timeout)
         await socket.close()
-        return await collect.value
+        // Only consoles have a login to set up; one with several networks answers from each of its addresses.
+        var consoles: [DiscoveredConsole] = []
+        for console in await collect.value where !consoles.contains(where: { !$0.mac.isEmpty && $0.mac == console.mac }) {
+            consoles.append(console)
+        }
+        // Not those without UniFi Access: a gateway beside a recorder that runs it, say.
+        return await running(consoles, app: "/proxy/access/api/v2/access/info", address: \.ip)
     }
 
     /// Whether the controller answers HTTPS on its address within five seconds (`/checkStatus`). The name is

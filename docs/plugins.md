@@ -288,6 +288,9 @@ Passwords, keys and tokens go through the bridge's vault (docs/vault-design.md);
   the plugin always receives the plain value: the runtime opens and resolves the block before `init`, and masks the
   value in logs, MCP replies and the Assistant's prompts. Keep the Homebridge plugin's option names; a secret under
   another name (Govee's `localKey`) is neither sealed nor resolved, so say so in the README.
+- **What a Setup gives** (a hub's key, a TV's password, a cloud's refresh token) goes in the vault through
+  `SetupOutcome.credentials` and comes back with `context.credentials(for:as:)` ([Setup](#setup)); `legacyFile:` moves a
+  file the plugin kept it in before.
 - **Tokens the plugin gets at run time** (a cloud's session, a hub's token, a client key) go in
   `context.secretFile(_:as:)`, never `jsonFile` or `PersistedDictionary`: `load()`, `save(_:)` and `remove()` as
   `jsonFile`, sealed in the vault as `plugin.<instance>.<file>`, an entry only that instance's block can read. Give it
@@ -303,6 +306,52 @@ Passwords, keys and tokens go through the bridge's vault (docs/vault-design.md);
   permission), or write a secret anywhere else on disk.
 - **Tests** run `secretFile` on a temporary storage directory (the vault's key is made on the first save); a test
   config that names `vault:` entries adds them first with `CredentialVault(storage:).set(_:_:)`.
+
+### Setup
+
+Setup (GLOSSARY.md) is how a device gets into the bridge, the same for every plugin: the plugin finds its devices, says
+what each one, and its instance's account, asks before the bridge may talk to it, and answers the steps of that
+Authorization. The bridge holds each Setup in progress, keeps what an Authorization gives in the vault, writes the
+settings it brings and reloads the plugin; the web UI's **Add accessories** page and the MCP tools `discover_devices`,
+`start_setup`, `continue_setup` and `cancel_setup` draw the same steps. `Setup.swift` has the types,
+`Plugins/PhilipsHue/Sources/HueSetup.swift` is the example.
+
+- **`static let accountAuthorization`**: what the instance's account asks, one of the Authorization Methods: `none`
+  (the default), `buttonPress` (a hub's link button), `deviceCode` (a PIN a device shows), `accountLogin` (an email or
+  user name and password, perhaps a one-time code), `browserRedirect` (a sign-in page whose redirect comes back) or
+  `apiKey`.
+- **`discover()`**: the devices the plugin can find now (on the network, in the account, at the addresses its
+  settings name), each a `DiscoveredDevice` with its Device Id (the part of its accessory's id after `<platform>:`), the
+  Authorization it needs, whether it is set up (and `isReachable: false` for one set up that does not answer now: Not responding), and `excludedBySettings` for one the plugin's own Homebridge-shaped
+  lists leave out. It may run on an instance made for Setup and never started: answer within a few seconds.
+- **`authorize(_:)`**: one step at a time, for the account (`request.target == .account`) or a device. Answer
+  `.ask(SetupPrompt(message:fields:url:waitSeconds:retryAfter:), state:)` for more, or `.done(SetupOutcome)`; throw
+  `SetupError` for an answer that did not work, and the person is asked again. A step may run on another instance than
+  the one before, so keep what the next one needs in `state` (it stays on the bridge, never reaches a page or a model).
+  A field of kind `secret` is a password or a key: a person types it in the web UI, an MCP client may only pass a
+  `vault:` reference. A wait (`waitSeconds`) is sent again with no answers every `retryAfter` seconds.
+  A plugin with more than one way to sign in (Daikin's Developer Portal or Onecta login, LG's page or a password,
+  EcoFlow's developer API, app or both) asks
+  which first, with `SetupField.choice(_:label:options:value:)` (the block's current one as `value`), reads it with
+  `request.choice(_:among:)`, and returns each later step `.keeping` it, so the steps after know it and the block
+  keeps it once done. A short list of fixed answers (EcoFlow's region) is a choice too, not text to type. A country or a language is a
+  choice of `SetupOption.countries()` (each country's ISO code, or what the plugin sends for it, such as eWeLink's
+  calling codes) or `SetupOption.languages()`: the web UI shows a long choice as a menu, named in the reader's language.
+- **What it gives**: `SetupOutcome.credentials` (tokens, keys, a device's password) go to the vault, read back with
+  `context.credentials(for:as:)`; `settings` are merged into the block for the account (a `null` takes a key out,
+  one the credentials now hold) or into the device's Accessory Settings; `deviceID` names the device when the
+  Authorization is what tells it (a TV's MAC, read once paired). Credentials kept means Authorized: keep none for an
+  account or a device that is not, or answer `accountAuthorized()` when the plugin keeps its tokens itself.
+- **Accessory Settings** live in the block's `_accessories`, by Device Id (docs/adr/0001-canonical-accessory-settings.md):
+  `excluded` and `name` for every plugin, the rest the plugin's own (`context.accessorySettings(for:)`, `decode`). An
+  Excluded device is never an accessory: the runtime refuses its `add` and takes it off the bridge, and the plugin should
+  stop polling it (`context.isExcluded`). A Homebridge-shaped block (a `devices` list, exclude lists) still loads: read
+  both, the Setup's first.
+- **Parts.** A device that brings things a person may leave out (a UA Gate's side door, a door's position sensor, a
+  doorbell) lists them in `DiscoveredDevice.parts` (`DevicePart(id, name:, icon:, included:)`). Add accessories shows
+  each with a switch under its device; the choice goes in the device's Accessory Settings' `parts` (`{ "SideDoor": false }`),
+  and the plugin reloads and reads it from `context.allAccessorySettings` (UniFi Access turns each into a `Hub.<id>`
+  option of that device).
 
 ### Web pages
 

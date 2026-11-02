@@ -44,7 +44,7 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
     let configuration: Configuration
     let context: PluginContext
     let dependencies: Dependencies
-    private var logger: Logger { context.logger }
+    var logger: Logger { context.logger }
     private(set) var devices: [String: TVDevice] = [:]
     private var pairings: [String: JointSpacePairing.Session] = [:]
 
@@ -60,7 +60,7 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
 
     public func start() async throws {
         var settings: [TVSettings] = []
-        for (index, device) in (configuration.devices ?? []).enumerated() {
+        for (index, device) in configuredDevices().enumerated() {
             do {
                 let checked = try TVSettings(device)
                 for warning in checked.warnings { logger.warning("TV \"\(checked.name)\": \(warning)") }
@@ -262,9 +262,18 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
                     ip: ip, username: credentials.username, password: credentials.password, certificateFingerprint: credentials.certFingerprint,
                     transports: dependencies.transports, logger: logger)
                 let mac = await lookUpMAC(ip: ip, client: client)
-                var block: [String: JSONValue] = ["ip": .string(ip), "username": .string(credentials.username), "password": .string(credentials.password)]
-                if let fingerprint = credentials.certFingerprint { block["certFingerprint"] = .string(fingerprint) }
-                if let mac { block["mac"] = .string(mac) }
+                var block: [String: JSONValue] = ["ip": .string(ip)]
+                let keys = TVCredentials(username: credentials.username, password: credentials.password, certFingerprint: credentials.certFingerprint)
+                if let mac, (try? context.saveCredentials(keys, for: mac)) != nil {
+                    // The keys in the vault under the TV's MAC, as Setup keeps them; the entry for `devices` gets the rest.
+                    block["mac"] = .string(mac)
+                } else {
+                    // No MAC to keep them under: the entry carries them (the runtime seals them in config.json).
+                    block["username"] = .string(credentials.username)
+                    block["password"] = .string(credentials.password)
+                    if let fingerprint = credentials.certFingerprint { block["certFingerprint"] = .string(fingerprint) }
+                    if let mac { block["mac"] = .string(mac) }
+                }
                 return PluginWebResponse(["device": .object(block), "certificatePinned": .bool(credentials.certFingerprint != nil)])
             } catch let error as JointSpaceError {
                 if case .certificateMismatch = error { pairings[ip] = nil }
@@ -293,7 +302,7 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
 
     /// The TV's own `network/devices` first, preferring the interface that answers on `ip`; then this machine's
     /// ARP table, which has the TV since pairing just talked to it (what the Homebridge plugin reads).
-    private func lookUpMAC(ip: String, client: JointSpaceClient) async -> String? {
+    func lookUpMAC(ip: String, client: JointSpaceClient) async -> String? {
         do {
             let devices = try await client.networkDevices().filter { $0.mac.flatMap(MACAddress.canonical) != nil }
             let wireless = devices.first { $0.type?.lowercased().contains("wifi") == true || $0.type?.lowercased().contains("wireless") == true }

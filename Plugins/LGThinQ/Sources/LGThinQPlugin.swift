@@ -34,15 +34,16 @@ public actor LGThinQPlugin: HomeswiftPlugin {
     let configuration: Configuration
     let context: PluginContext
     let dependencies: Dependencies
-    private var platformInstance: LGThinQPlatform?
-    private var logger: Logger { context.logger }
+    private(set) var platformInstance: LGThinQPlatform?
+    var logger: Logger { context.logger }
 
     public init(configuration: Configuration, context: PluginContext) {
         self.init(configuration: configuration, context: context, dependencies: Dependencies())
     }
 
     public init(configuration: Configuration, context: PluginContext, dependencies: Dependencies) {
-        self.configuration = configuration
+        // The refresh token Setup keeps in the vault (LGSetup.swift) in place of the block's.
+        self.configuration = Self.withStoredToken(configuration, context)
         self.context = context
         self.dependencies = dependencies
     }

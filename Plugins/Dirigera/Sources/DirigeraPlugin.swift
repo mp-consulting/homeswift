@@ -16,8 +16,9 @@ import Logging
 /// websocket, so the Home app follows the IKEA app and the remotes at once.
 ///
 /// The block is homebridge-dirigera's (`hubs`, each with `host` and an optional `token`). A hub without a token pairs
-/// from the plugin's page: the page asks for the hub's action button, and the token is kept sealed in the vault
-/// (`hubs.json` in the plugin's directory before, moved there when read), never in config.json. See README.md here.
+/// through Setup (the instance's account, a Button Press: DirigeraSetup.swift) or from the plugin's page: both ask for
+/// the hub's action button, and the token is kept sealed in the vault (`hubs.json` in the plugin's directory before,
+/// moved there when read), never in config.json; it wins over a `token` config.json still has. See README.md here.
 public actor DirigeraPlugin: HomeswiftPlugin {
     public struct Configuration: Decodable, Sendable {
         public struct Hub: Decodable, Sendable {
@@ -76,10 +77,10 @@ public actor DirigeraPlugin: HomeswiftPlugin {
     let dependencies: Dependencies
     private let tasks = TaskBag()
     var logger: Logger { context.logger }
-    private let store: SecretFile<[String: StoredHub]>
+    let store: SecretFile<[String: StoredHub]>
     /// The pictures people gave scenes on the page, by scene id.
     let pictures: PluginPictures
-    private var stored: [String: StoredHub]
+    var stored: [String: StoredHub]
 
     /// One hub's connection and what it shows.
     final class Hub: @unchecked Sendable {
@@ -163,26 +164,44 @@ public actor DirigeraPlugin: HomeswiftPlugin {
         tasks.cancelAll()
     }
 
-    private func token(for host: String) -> String? {
-        configuration.hubs?.first { $0.host == host }?.token?.nonEmpty ?? stored[host]?.token
+    /// The hub's token: the one pairing kept in the vault, else config.json's.
+    func token(for host: String) -> String? {
+        stored[host]?.token ?? configuration.hubs?.first { $0.host == host }?.token?.nonEmpty
     }
 
-    @discardableResult
-    private func open(_ host: String) -> Hub {
-        if let hub = hubs[host] { return hub }
+    /// A trust on first use for the hub, pinned to the certificate kept with its token and saving the one it learns.
+    func trust(for host: String) -> HTTPClient.TrustOnFirstUse {
         let store = store
-        let trust = HTTPClient.TrustOnFirstUse(pinned: stored[host]?.fingerprint) { fingerprint in
+        return HTTPClient.TrustOnFirstUse(pinned: stored[host]?.fingerprint) { fingerprint in
             var hubs = store.load() ?? [:]
             hubs[host, default: StoredHub()].fingerprint = fingerprint
             try? store.save(hubs)
         }
+    }
+
+    /// Keeps a token pairing gave (the page's or Setup's), with the certificate it was paired over when known.
+    func keep(token: String, fingerprint: String?, for host: String) {
+        // What the trust saved on its own since (a fingerprint) is kept.
+        stored = store.load() ?? stored
+        stored[host, default: StoredHub()].token = token
+        if let fingerprint { stored[host]?.fingerprint = fingerprint }
+        save()
+    }
+
+    /// The name the bridge pairs under, shown in the IKEA app's list of integrations.
+    static var clientName: String { "homeswift-\(ProcessInfo.processInfo.hostName.prefix(20))" }
+
+    @discardableResult
+    private func open(_ host: String) -> Hub {
+        if let hub = hubs[host] { return hub }
+        let trust = trust(for: host)
         let hub = Hub(host: host, client: DirigeraClient(host: host, token: token(for: host), transport: dependencies.transport(trust)), trust: trust)
         hubs[host] = hub
         if token(for: host) != nil { tasks.add { [weak self] in await self?.run(hub) } }
         return hub
     }
 
-    private func save() {
+    func save() {
         do { try store.save(stored) } catch { logger.warning("Could not save the hubs to the vault: \(error)") }
     }
 
@@ -284,12 +303,29 @@ public actor DirigeraPlugin: HomeswiftPlugin {
 
     // MARK: Accessories
 
+    /// Left out by `excludeDevices` (a name or an id) or Excluded in its Accessory Settings.
     func isExcluded(_ device: DirigeraDevice) -> Bool {
+        excludedBySettings(device) || context.isExcluded(device.id)
+    }
+
+    /// Left out by `excludeDevices`, by its name or its id.
+    func excludedBySettings(_ device: DirigeraDevice) -> Bool {
         excludedDevices.contains(device.name.lowercased()) || excludedDevices.contains(device.id.lowercased())
     }
 
+    /// The hub's scenes shown as switches: runnable, not in `excludeScenes`, and none when the hub's scenes accessory
+    /// (`scenes:<host>`) is Excluded.
     func visibleScenes(_ hub: Hub) -> [DirigeraScene] {
-        hub.scenes.filter { $0.isRunnable && !excludedScenes.contains($0.name.lowercased()) && !excludedScenes.contains($0.id.lowercased()) }
+        context.isExcluded("scenes:\(hub.host)") ? [] : visibleScenes(hub.scenes)
+    }
+
+    func visibleScenes(_ scenes: [DirigeraScene]) -> [DirigeraScene] {
+        scenes.filter { $0.isRunnable && !excludedScenes.contains($0.name.lowercased()) && !excludedScenes.contains($0.id.lowercased()) }
+    }
+
+    /// The name of a hub's scenes accessory: the hub's name in config.json, with Scenes.
+    func sceneAccessoryName(host: String) -> String {
+        configuration.hubs?.first { $0.host == host }?.name?.nonEmpty.map { "\($0) Scenes" } ?? "IKEA Scenes"
     }
 
     private func show(_ hub: Hub) async {
@@ -443,7 +479,7 @@ public actor DirigeraPlugin: HomeswiftPlugin {
             switches[scene.id] = service
             services.append(service)
         }
-        let name = configuration.hubs?.first { $0.host == hub.host }?.name?.nonEmpty.map { "\($0) Scenes" } ?? "IKEA Scenes"
+        let name = sceneAccessoryName(host: hub.host)
         let accessory = Accessory(
             id: Self.sceneAccessoryID(host: hub.host), name: name, manufacturer: "IKEA of Sweden", model: "DIRIGERA scenes",
             serialNumber: hub.host, category: .switch, services: services)
@@ -476,12 +512,10 @@ public actor DirigeraPlugin: HomeswiftPlugin {
         let code = try await hub.client.authorize(verifier: verifier)
         let deadline = ContinuousClock.now + Self.pairingWindow
         hub.pairingDeadline = deadline
-        let name = "homeswift-\(ProcessInfo.processInfo.hostName.prefix(20))"
         while ContinuousClock.now < deadline {
             do {
-                let token = try await hub.client.token(code: code, verifier: verifier, name: name)
-                stored[host, default: StoredHub()].token = token
-                save()
+                let token = try await hub.client.token(code: code, verifier: verifier, name: Self.clientName)
+                keep(token: token, fingerprint: nil, for: host)
                 hub.error = nil
                 logger.info("Paired with the DIRIGERA hub at \(host)")
                 tasks.add { [weak self] in await self?.run(hub) }
@@ -499,7 +533,7 @@ public actor DirigeraPlugin: HomeswiftPlugin {
         await hubs[host]?.client.setToken(nil)
     }
 
-    func discover() async -> [String] { await dependencies.discover() }
+    func discoverHosts() async -> [String] { await dependencies.discover() }
 
     /// A hub's state for the page; its devices are counted as the page draws them, a product's parts once.
     func hubStatus(_ host: String) async -> (paired: Bool, connected: Bool, pairing: Bool, pairingSecondsLeft: Int?, error: String?, devices: Int, scenes: Int) {

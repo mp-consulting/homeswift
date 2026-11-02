@@ -516,6 +516,12 @@
         el("span", { class: "visually-hidden", text: ` ${{ running: t("(running)"), failed: t("(failed)"), declined: t("(not allowed)") }[item.state] ?? t("(done)")}` }));
     case "confirm":
       return confirmCard(item);
+    case "setup":
+      // A Setup the Assistant started, at a step the person finishes in the sheet: a password, a sign-in page, a button.
+      return el("div", { class: "chat-setup" },
+        el("p", { text: item.message ? t(item.message, item.values ?? {}) : t("This step continues in the Setup sheet.") }),
+        el("button", { type: "button", class: "primary", actionIcon: "forward", text: t("Continue in the Setup sheet"),
+          onclick: () => window.HomeswiftSetup?.resume(item) }));
     default:
       return el("p", { class: "chat-error", role: "alert", text: HomeswiftI18n.message(item.text) });
     }
@@ -531,6 +537,7 @@
       case "user": lines.push(`**${t("You")}:** ${item.text}`, ""); break;
       case "assistant": lines.push(`**${t("Assistant")}:** ${item.text}`, ""); break;
       case "tool": lines.push(`- ${item.title}${item.summary ? ` · ${item.summary}` : ""} \`${item.name}\` ${status[item.state] ?? t("(done)")}`); break;
+      case "setup": lines.push(`- ${t("Continue in the Setup sheet")}: ${item.message ? t(item.message, item.values ?? {}) : ""}`.trimEnd()); break;
       case "confirm": lines.push(`- ${describe(item)} ${item.state === "pending" ? "" : item.state === "allowed" ? t("Allowed") : t("Not allowed")}`.trimEnd()); break;
       default: lines.push(`> ${HomeswiftI18n.message(item.text)}`, "");
       }

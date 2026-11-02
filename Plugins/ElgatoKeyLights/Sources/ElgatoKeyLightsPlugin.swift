@@ -8,7 +8,8 @@ import Logging
 /// listed in config.json, controlled over their HTTP API, polled for changes made elsewhere.
 ///
 /// The configuration is the one of `@mp-consulting/homebridge-elgato-key-lights`, so a Homebridge block
-/// works unchanged. See README.md in this directory.
+/// works unchanged. Each light is a device of Setup by its MAC (ElgatoSetup.swift): nothing to authorize, and left out
+/// by its Accessory Settings (Excluded) or `enabled: false`. See README.md in this directory.
 public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
     public struct Configuration: Decodable, Sendable {
         public struct Device: Decodable, Sendable {
@@ -82,6 +83,8 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
         var arp: @Sendable (String) async -> String? = HostResolution.arpAddress(forMAC:)
         /// The shortest polling interval taken, in milliseconds (`minimumPollingRate`; tests go lower).
         var minimumPollingRate = ElgatoKeyLightsPlugin.minimumPollingRate
+        /// How long Setup's discovery browses on an instance that is not running (ElgatoSetup.swift).
+        var discoveryWindow: Duration = .seconds(3)
     }
 
     public static let platform = "ElgatoKeyLights"
@@ -100,18 +103,20 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
     private var logger: Logger { context.logger }
 
     private enum Status: String { case initializing, ready, failed }
-    private var devices: [String: KeyLightDevice] = [:]
+    private(set) var devices: [String: KeyLightDevice] = [:]
     /// Each light's Adaptive Lighting, by MAC: kept here, as the lightbulb holds it only weakly.
     private var adaptiveLighting: [String: AdaptiveLightingController] = [:]
     private var status: [String: Status] = [:]
     /// Lights with an `ip` or `host` in config.json: announcements never move them.
     private var pinned: Set<String> = []
     /// Every light Bonjour announced, by MAC, for the page's list of lights on the network.
-    private var announced: [String: DiscoveredLight] = [:]
+    private(set) var announced: [String: DiscoveredLight] = [:]
     /// Where each light was last tried and why it failed, for the page's offline lights.
     private var attempts: [String: DiscoveredLight] = [:]
     private var failures: [String: String] = [:]
     private var discoveryTask: Task<Void, Never>?
+    /// Whether the plugin browses all the time (started), so `announced` is what the network has.
+    var isBrowsing: Bool { discoveryTask != nil }
     /// The connection in progress or last made to each light, by MAC: one per light, however often it is retried.
     private var initializations: [String: Task<Void, Never>] = [:]
 
@@ -304,6 +309,11 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
             logger.debug("Ignoring disabled light", metadata: ["light": "\(light.name)"])
             return
         }
+        // Excluded in its Accessory Settings: never polled (the runtime would not add it anyway).
+        if context.isExcluded(light.mac) {
+            logger.debug("Ignoring excluded light", metadata: ["light": "\(light.name)"])
+            return
+        }
         status[light.mac] = .initializing
         attempts[light.mac] = light
         failures[light.mac] = nil
@@ -340,7 +350,8 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
 
         let deviceConfiguration = self.deviceConfiguration(mac: light.mac)
         let reportedName = await device.displayName
-        let name = deviceConfiguration?.displayName?.trimmingCharacters(in: .whitespaces).nonEmpty ?? reportedName
+        // The name its Accessory Settings give it, else `displayName`, else the light's own.
+        let name = context.accessorySettings(for: light.mac).name ?? deviceConfiguration?.displayName?.trimmingCharacters(in: .whitespaces).nonEmpty ?? reportedName
         await device.applySettings(settings(for: device, configuration: deviceConfiguration))
 
         let (accessory, adaptiveLighting) = await KeyLightAccessory.make(device: device, name: name, idPrefix: Self.platform, logger: logger)

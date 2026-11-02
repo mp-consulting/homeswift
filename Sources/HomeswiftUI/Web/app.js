@@ -474,7 +474,7 @@
   // As Glass UI's: a user who is not an administrator sees Status and Accessories (and controls accessories); the
   // plugins, config.json, the log and the users are an administrator's. The server refuses the rest anyway.
 
-  const adminSections = new Set(["plugins", "logs", "settings", "users", "import", "welcome"]);
+  const adminSections = new Set(["plugins", "logs", "settings", "users", "import", "welcome", "setup"]);
   const isAdmin = () => Boolean(auth && auth.admin);
 
   /// Shows the header's and the tab bar's sections the user may open.
@@ -2587,6 +2587,8 @@
       else if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
       navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
     };
+    // Setup, in view whatever the wall holds; the empty wall has its own, larger.
+    const addButton = isAdmin() && all.length ? el("a", { class: "button primary accessories-add", href: "/setup", actionIcon: "plus", "aria-label": t("Add accessories"), title: t("Add accessories"), text: t("Add accessories") }) : null;
     const fullScreenButton = el("button", { type: "button", class: "icon-button accessory-options-button", "aria-label": t("Full screen"), title: t("Full screen"),
       onclick: () => setFullScreen(true) }, HomeswiftCommon.icon("expand"));
     // The chrome over the full-screen wall: Close, and when grouped the dots and, with a mouse, the side arrows.
@@ -2678,10 +2680,11 @@
       pageHead(t("Accessories"), !accessories.length ? "" : from ? t("{count} from {source}, which HomeKit has already. Changes here reach your devices.", { count: accessories.length, source: t(from) })
         : servers === 1 ? t("{count} on one server, as the Home app sees them. Changes here reach your devices.", { count: accessories.length })
         : t("{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.", { count: accessories.length, servers }),
-        el("div", { class: "accessories-toolbar" }, search, filters, accessories.length ? edit : null, roomOrderButton, more, accessories.length ? fullScreenButton : null)),
+        el("div", { class: "accessories-toolbar" }, search, filters, accessories.length ? edit : null, roomOrderButton, more, accessories.length ? fullScreenButton : null, addButton)),
       accessoryTabs(""),
       note,
-      accessories.length ? [content, none, fullScreen ? chrome : null] : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("bulb")), el("p", { class: "muted", text: all.length ? t("Every accessory is hidden.") : t("No accessories yet. Plugins add them once they reach their devices.") })));
+      accessories.length ? [content, none, fullScreen ? chrome : null] : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("bulb")), el("p", { class: "muted", text: all.length ? t("Every accessory is hidden.") : t("No accessories yet. Plugins add them once they reach their devices.") }),
+        !all.length && isAdmin() ? el("a", { class: "button primary", href: "/setup", actionIcon: "plus", text: t("Add accessories") }) : null));
   };
 
   /// Accessories by plugin: [name, accessories] pairs by the plugin's name, each list by name; those of no
@@ -2741,6 +2744,7 @@
       };
       return [
         plugin && plugin.hasPages && instance && !instance.paused ? { label: t("Open its page"), icon: "open", href: pluginPage(block) } : null,
+        plugin ? { label: t("Add accessories"), icon: "plus", href: `/setup#${encodeURIComponent(block.slug)}` } : null,
         { label: t("Edit settings (Expert)"), icon: "edit", href: expertLink(block) },
         { label: t("Edit as JSON (Expert)"), icon: "code", href: expertLink(block, "json") },
         instance && !instance.paused ? { label: t("Pause"), icon: "pause", onSelect: () => toggle(true) } : null,
@@ -2816,8 +2820,13 @@
 
   /// Takes a block out of config.json, after asking: its accessories leave the Home app.
   async function removeBlock(block, after = () => route()) {
-    if (!await HomeswiftCommon.confirmDialog(t("Remove \"{name}\" from config.json? Its accessories leave the Home app.", { name: block.name }))) return;
-    try { await api(`/api/config/platforms/${block.index}`, { method: "DELETE" }); leaveGuard = null; after(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
+    // The vault's entries the plugin wrote (its sign-ins, its tokens) stay unless asked: added again, it finds them.
+    const entries = block.vaultEntries ?? 0;
+    const answer = await HomeswiftCommon.confirmDialog(t("Remove \"{name}\" from config.json? Its accessories leave the Home app.", { name: block.name }),
+      entries ? { toggle: { label: tn("Also delete its vault entry", "Also delete its {n} vault entries", entries), help: t("The sign-ins and tokens it kept. Left there, adding it again finds them.") } } : {});
+    if (!answer) return;
+    const vault = answer.checked ? "?vault=true" : "";
+    try { await api(`/api/config/platforms/${block.index}${vault}`, { method: "DELETE" }); leaveGuard = null; after(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
   }
 
   /// A block's address: its plugin's own page when it has one, else its settings. `expertLink` is always the form
@@ -4749,13 +4758,14 @@
   const accessoryCard = (accessory) => HomeswiftWidgets.card(accessory, { size: HomeswiftWidgets.kindOf(accessory).size, actions: accessoryActions });
   // The Homebridge import (import.js): its page at /import and the welcome page at /welcome.
   views.import = (main) => window.HomeswiftImport.view(main);
+  views.setup = (main) => window.HomeswiftSetup.view(main);
   views.welcome = (main) => window.HomeswiftImport.welcome(main);
   window.HomeswiftHome?.install({
     views, api, show, pageHead, breadcrumb, accessoryCard, navigate, route: () => route(), isAdmin,
     enumLabels: HomeswiftWidgets.enumLabels, labelFor: HomeswiftWidgets.labelFor, withSlugs,
   });
   // The Settings pages (admin.js) draw with the same helpers.
-  window.HomeswiftApp = { api, navigate, route, finder, pageHead, breadcrumb, show, openSheet, savedText, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, assistantPage, configPage };
+  window.HomeswiftApp = { api, navigate, route, finder, uniqueName, pageHead, breadcrumb, show, openSheet, savedText, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, assistantPage, configPage };
 
   loadAuth().catch((e) => { $("#auth").classList.remove("hidden"); $("#auth-error").textContent = e.message; });
 })();

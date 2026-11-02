@@ -13,7 +13,7 @@ notices are in [THIRD-PARTY-NOTICES.md](../../THIRD-PARTY-NOTICES.md). The platf
 
 - **Govee's cloud**: the plugin logs in to the Govee app's account API with your email and password, lists the
   account's devices, and reads sensor values from that list every `httpRefreshTime`. The login also yields the
-  account's AWS IoT certificate (kept, owner-only, as `govee.pfx` in the plugin's directory): commands and
+  account's AWS IoT certificate (kept in the vault with the login): commands and
   real-time status go over **AWS IoT** (MQTT over TLS with that certificate), and every minute each device is
   asked for its status.
 - **LAN**: models with the LAN API turned on in the Govee app are found by a multicast scan
@@ -48,7 +48,8 @@ The Plugins page has an **Open** button for this plugin, with the Homebridge plu
   the plugin when Govee cannot be reached; each scene picked becomes a switch in HomeKit) and **Music Mode**.
   Tabs Govee says the light lacks are hidden.
 - **Settings**: the account with **Test Connection**, the general options, and the three connections.
-- **Tools**: **Clear Cache** (the kept login and certificate, the discovered devices, the devices' state).
+- **Tools**: **Clear Cache** (the kept login and certificate, the discovered devices, the devices' state; a password
+  Setup kept stays, and the next start signs in with it).
 
 **Save Configuration** writes this instance's block; the plugin restarts with it at once. With the Assistant
 on, **Explain** sits next to errors.
@@ -116,9 +117,14 @@ Each device type has its list: `lightDevices`, `switchDevices`, `thermoDevices`,
 
 ## What differs from the Homebridge plugin
 
-- **Files**: the login is kept in `credentials.json` and the certificate in `govee.pfx`, both owner-only,
-  under `~/.homeswift/plugins/Govee-<name>/`, with the discovered devices, the devices' state and the Eve
-  histories. A first start without a kept login imports the Homebridge plugin's, once, so Govee does not ask for
+- **Setup**: the account is signed in to from the **Add accessories** page (an Account Login: the email and
+  password, then the code Govee emails for a new device). The login, the AWS IoT certificate and the password go in
+  the vault, and `password` and `code` leave the block; a block's `username` and `password` still work. Devices
+  found only on the LAN are published once added there (they get Accessory Settings), and a device Excluded there
+  is left out as `ignoreDevice` leaves it out.
+- **Files**: the login and the certificate are kept in the vault (`credentials.json` and `govee.pfx`, kept before,
+  move there at the next start); `~/.homeswift/plugins/Govee-<name>/` holds the discovered devices, the devices'
+  state and the Eve histories. A first start without a kept login imports the Homebridge plugin's, once, so Govee does not ask for
   a verification code again: node-persist's file for `Govee_All_Devices_temp` in `govee_cache` and
   `persist/govee.pfx` of `homebridgeStoragePath`, else `~/.homebridge`, when it is the same account.
 - **Bluetooth** on Linux finds devices by MAC address as the Homebridge plugin does, but does not reset the

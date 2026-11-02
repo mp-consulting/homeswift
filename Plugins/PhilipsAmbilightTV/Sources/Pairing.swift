@@ -30,7 +30,7 @@ enum JointSpacePairing {
     }
 
     /// What `pair/request` produced: enough for the grant, and the certificate the TV showed.
-    struct Session: Sendable, Equatable {
+    struct Session: Codable, Sendable, Equatable {
         var ip: String
         var device: Device
         var authKey: String

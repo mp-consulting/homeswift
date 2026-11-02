@@ -17,9 +17,46 @@ All notable changes to this project are documented here. The format follows
   run, renamed, updated from their lights, created and deleted like a Hue Bridge's; automations are listed and turned
   on or off, renamed, retimed, given new scenes or actions, or deleted. Plugins get `automations()`,
   `updateAutomation(id:change:)` and `deleteAutomation(id:)` (`PluginAutomation`) for a hub's own automations.
+- UniFi Access: a UA Gate's side door (its lock, position sensor and trigger) and each door sensor get an accessory of
+  their own, with their own tile, by default (`Hub.SideDoor.SeparateAccessory`, `Hub.Sensors.SeparateAccessory`; the
+  Homebridge plugin groups them on the hub's, and disabling the options does too).
+- Setup, one way to get a device into the bridge whatever its plugin: the web UI's **Add accessories** page (`/setup`)
+  lists what each plugin finds and where each device stands, adds plugins, and sets up accounts and devices in one
+  sheet (a hub's link button, a TV's PIN, a sign-in with its one-time code, a sign-in page's redirect, developer keys;
+  Daikin, LG ThinQ and EcoFlow ask which way to sign in; Dyson, LG ThinQ and eWeLink offer their countries and
+  languages in a menu). Plugins to add are cards with a search; the sheet shows where the Setup stands and, for a new
+  account, or a UniFi console just signed in, lets you pick the devices that go into the Home app (the others are
+  excluded); a UniFi console set up that does not answer shows as Not responding. Removing a plugin offers to delete the vault entries it kept. A device's parts (a UA Gate's side door,
+  its door sensors, a doorbell; a Protect camera's occupancy sensor, motion switch, status light switch, doorbell mute
+  or package camera flashlight) each have a switch, kept in its Accessory Settings' `parts`. The Accessories page's
+  toolbar leads to it. The Assistant sets accessories up too (**Ask the Assistant**): it starts the Setup,
+  and a step with a password, a sign-in page or a button to press continues in the Setup sheet from a card in the chat.
+  MCP clients get
+  `discover_devices`, `start_setup`, `continue_setup`, `cancel_setup`, `set_device_excluded` and `set_device_part`; a secret field takes only a `vault:` reference.
+  What an Authorization gives goes in the vault, never config.json. See GLOSSARY.md and docs/plugins.md, "Setup".
+- Accessory Settings in a block's `_accessories`, by Device Id: **Exclude** a device from its row (it never becomes an
+  accessory, in the Home app or Matter), and plugins' own settings per device. Homebridge-shaped blocks still load
+  (docs/adr/0001-canonical-accessory-settings.md).
+
+### Changed
+
+- Every plugin sets up through Setup, and what it pairs or signs in with is kept in the vault: Philips Hue's bridge key
+  (`bridge.json` moves there), Philips Ambilight TV's and Wingman's keys (out of `devices`), IKEA DIRIGERA's hub token,
+  MyDolphin's, LG ThinQ's refresh tokens, Govee's login and certificate (`credentials.json` and `govee.pfx` move there),
+  eWeLink's password, Dyson's local credentials, EcoFlow's developer keys and the UniFi consoles' logins Setup adds;
+  Daikin's sign-ins run through it. A block's own secret keys still work, the vault's winning.
+- Each plugin lists its devices for Setup and skips an Excluded one, eWeLink's channels and UniFi's child accessories
+  with it.
 
 ### Fixed
 
+- UniFi Access and Protect: Add accessories leaves out the consoles that do not run the app (asked without signing in,
+  they answer with their web page), and signing in to one says so, rather than "Unable to parse response".
+- UniFi Access and Protect: Add accessories lists only the UniFi OS consoles (gateways, Cloud Keys, recorders) to
+  sign in to, not every access point, chime or hub that answers the discovery probe, and a console with several
+  networks once.
+- Govee: commands reach lights through the cloud while another bridge (or Homebridge) is signed in to the same
+  account. Both used the same AWS IoT client id, so each knocked the other off every second; each run now has its own.
 - The HTTP client reports a connection that could not be made in the request's time as a timeout, not as "cannot
   connect": UniFi Protect logs that the controller is taking too long, and Daikin Cloud says ETIMEDOUT, not ECONNREFUSED.
 - Web UI: behind Cloudflare or another reverse proxy, installing an update showed the proxy's 502 page, its HTML, in an
@@ -74,6 +111,27 @@ All notable changes to this project are documented here. The format follows
 - HAP: a request finds the characteristics it names in a lookup built once and kept apart from the server's state
   lock, which it took for every characteristic: with 16 controllers' connections busy, 14% of the server's time went
   to waiting on that lock. Timing observers have a lock of their own too.
+- Setup, one way to get a device into the bridge whatever its plugin: the web UI's **Add accessories** page (`/setup`)
+  lists what each plugin finds and where each device stands, and sets up accounts and devices in one sheet (a hub's
+  link button, a TV's PIN, a sign-in with its one-time code, a sign-in page's redirect, developer keys). MCP clients get
+  `discover_devices`, `start_setup`, `continue_setup`, `cancel_setup`, `set_device_excluded` and `set_device_part`; a secret field takes only a `vault:` reference.
+  What an Authorization gives goes in the vault, never config.json. See GLOSSARY.md and docs/plugins.md, "Setup".
+- Accessory Settings in a block's `_accessories`, by Device Id: **Exclude** a device from its row (it never becomes an
+  accessory, in the Home app or Matter), and plugins' own settings per device. Homebridge-shaped blocks still load
+  (docs/adr/0001-canonical-accessory-settings.md).
+- Philips Hue keeps its bridge's key in the vault (`bridge.json` moves there), Philips Ambilight TV its TVs' keys,
+  MyDolphin its refresh token and EcoFlow its developer keys (the block's `accessKey` and `secretKey` go once they are
+  kept); Daikin's sign-ins run through Setup.
+
+### Changed
+
+- Every plugin sets up through Setup, and what it pairs or signs in with is kept in the vault: Philips Hue's bridge key
+  (`bridge.json` moves there), Philips Ambilight TV's and Wingman's keys (out of `devices`), IKEA DIRIGERA's hub token,
+  MyDolphin's, LG ThinQ's refresh tokens, Govee's login and certificate (`credentials.json` and `govee.pfx` move there),
+  eWeLink's password, Dyson's local credentials, EcoFlow's developer keys and the UniFi consoles' logins Setup adds;
+  Daikin's sign-ins run through it. A block's own secret keys still work, the vault's winning.
+- Each plugin lists its devices for Setup and skips an Excluded one, eWeLink's channels and UniFi's child accessories
+  with it.
 
 ### Fixed
 

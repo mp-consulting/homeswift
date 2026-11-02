@@ -25,11 +25,14 @@ sensors; the other kinds, writes, scenes and events against a fake hub in the te
 }
 ```
 
-A hub without a `token` pairs from the plugin's page: **Pair** (on a hub found on the network, or an address), then
+A hub without a `token` pairs from the web UI's **Add accessories** page (Setup: the hubs are the instance's account,
+authorized by a Button Press) or from the plugin's page: **Pair** (on a hub found on the network, or an address), then
 press the action button under the hub within a minute. The token is kept sealed in the bridge's vault (`vault.json`,
 docs/vault-design.md; `plugins/Dirigera-<name>/hubs.json` before, which moves there when the plugin reads it), never in
 config.json, with the hub's certificate pinned on first use. A token
-from homebridge-dirigera in `token` works as it is.
+from homebridge-dirigera in `token` works as it is; a token pairing kept wins over it. Setup lists each light, outlet,
+sensor group and the scenes accessory (`scenes:<host>`) by its accessory's id; Excluding one there, or naming it in
+`excludeDevices` or `excludeScenes`, keeps it out.
 
 | Option | Default | What it does |
 |---|---|---|

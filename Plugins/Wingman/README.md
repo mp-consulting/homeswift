@@ -19,7 +19,11 @@ On the plugin's page in the web UI:
 2. **Pair** opens under the Wingman's row. In Wingman's menu, choose **Pair a Homeswift Bridge**: it shows a 6-digit
    code for ten minutes. Check that the certificate the page shows starts as the one in Wingman's window (Bridges tab),
    then type the code: the sixth digit pairs.
-3. The page writes the Wingman's entry in `devices` and the plugin reloads with it.
+3. The token and the pinned certificate go in the bridge's vault under the Wingman's id; the page writes the Wingman's
+   entry in `devices` (its id, address and name) and the plugin reloads with it.
+
+The web UI's **Add accessories** page (Setup) does the same: it lists the Wingmen Bonjour finds, shows the certificate
+to compare, and asks for the code; the address then goes in the Wingman's Accessory Settings rather than `devices`.
 
 The certificate is pinned from the pairing on; the token is Wingman's to revoke (its Paired Bridges). Pairing trusts
 the network for those ten minutes, as a first connection does: the fingerprint check is what guards it.
@@ -31,7 +35,7 @@ the network for those ten minutes, as a first connection does: the fingerprint c
   "platform": "Wingman",
   "name": "Wingman",
   "devices": [
-    { "id": "…", "name": "Mac mini", "host": "192.168.1.20", "token": "…", "fingerprint": "…" }
+    { "id": "…", "name": "Mac mini", "host": "192.168.1.20" }
   ],
   "homes": ["Home"],
   "exclude": ["Christmas Lights"],
@@ -42,7 +46,7 @@ the network for those ten minutes, as a first connection does: the fingerprint c
 
 | Key | What it does |
 |---|---|
-| `devices` | The paired Wingmen, written by the page: `id` (Wingman's), `host` and `port` (Bonjour moves them), `token`, `fingerprint` (pinned) |
+| `devices` | The paired Wingmen, written by the page: `id` (Wingman's), `host` and `port` (Bonjour moves them); a `token` and `fingerprint` (pinned) written there before move into the vault |
 | `homes` | Only these homes, by name; all of them without it |
 | `exclude` | Accessories left out, by name or HomeKit id |
 | `excludeBridges` | Bridges whose accessories are left out, by name; Homeswift's own are always left out |

@@ -708,6 +708,15 @@ public actor __NAME__Plugin: HomeswiftPlugin {
         tasks.cancelAll()
     }
 
+    // Setup (docs/plugins.md, "Setup"): what the Add accessories page and MCP clients list for this instance. When the
+    // account or a device asks for something (a login, a key, a button press, a PIN), say so with
+    // `static let accountAuthorization` or the device's `authorization`, and answer the steps in `authorize(_:)`.
+    public func discover() async throws -> [DiscoveredDevice] {
+        try await dependencies.api.devices().map { device in
+            DiscoveredDevice(deviceID: device.id, name: configuration.devices?.first { $0.id == device.id }?.name ?? device.name, isSetUp: true)
+        }
+    }
+
     /// Adds an accessory for each new device and shows the values of the others.
     func refresh() async {
         let reported: [__NAME__Device]
@@ -717,7 +726,8 @@ public actor __NAME__Plugin: HomeswiftPlugin {
             logger.warning("Could not list the devices: \(error)")
             return
         }
-        for device in reported {
+        // An Excluded device (its Accessory Settings) is not polled; the runtime would not add its accessory anyway.
+        for device in reported where !context.isExcluded(device.id) {
             if let services = devices[device.id] {
                 Self.show(device.state, on: services)
                 continue

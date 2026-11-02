@@ -229,7 +229,12 @@ actor AccessAPI {
                 return nil
             }
             guard let json = try? JSONValue(data: response.body) else {
-                logError("Unable to parse response from UniFi Access. Will retry again later.")
+                // A console without the app answers its proxy's paths with its own web page.
+                if response.header("content-type")?.lowercased().hasPrefix("text/html") == true {
+                    logError("UniFi Access does not run on this console: it answered with its web page. Set up the console that runs UniFi Access.")
+                } else {
+                    logError("Unable to parse response from UniFi Access. Will retry again later.")
+                }
                 return nil
             }
             return json

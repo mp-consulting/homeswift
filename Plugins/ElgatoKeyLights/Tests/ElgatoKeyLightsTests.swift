@@ -31,6 +31,7 @@ actor FakeLight: KeyLightTransport {
     /// Hosts where nothing answers.
     var unreachableHosts: Set<String> = []
     private(set) var identifyCount = 0
+    private(set) var requestCount = 0
     private(set) var lightWrites: [LightState] = []
 
     func set(state: LightState) { self.state = self.state.merging(state) }
@@ -40,6 +41,7 @@ actor FakeLight: KeyLightTransport {
     func set(macAddress: String?) { info.macAddress = macAddress }
 
     func send(_ request: KeyLightRequest) async throws -> KeyLightResponse {
+        requestCount += 1
         guard reachable, !unreachableHosts.contains(request.url.host ?? "") else { throw FakeError.unreachable }
         let path = request.url.path.replacingOccurrences(of: "/elgato/", with: "")
         let encoder = JSONEncoder()
@@ -95,7 +97,8 @@ final class ElgatoTestEnvironment: @unchecked Sendable {
             let plugin = ElgatoKeyLightsPlugin(
                 configuration: configuration, context: context,
                 dependencies: .init(
-                    transport: self.light, discover: { _ in discovered }, arp: { mac in self.arpTable.withLockedValue { $0[mac] } }, minimumPollingRate: 20))
+                    transport: self.light, discover: { _ in discovered }, arp: { mac in self.arpTable.withLockedValue { $0[mac] } }, minimumPollingRate: 20,
+                    discoveryWindow: .milliseconds(300)))
             self.plugins.withLockedValue { $0.append(plugin) }
             return plugin
         }
@@ -452,6 +455,58 @@ struct ElgatoKeyLightsTests {
         let discovered = try #require(answer.json["discovered"]?[0])
         #expect(discovered["mac"] == "AA:BB:CC:DD:EE:FF" && discovered["model"] == "Elgato Key Light Air")
         #expect(discovered["address"] == "10.0.0.5" && discovered["running"] == true)
+    }
+
+    // MARK: Setup
+
+    /// Setup lists the lights by MAC: the announced ones set up as they are, one `enabled: false` left out by its
+    /// settings, and nothing to authorize.
+    @Test func setUpListsTheLightsByMAC() async throws {
+        let host = try await environment.start(settings: [
+            "devices": [["mac": "11:22:33:44:55:66", "enabled": false, "name": "Spare"]],
+        ])
+        environment.discover.yield(.init(name: "Elgato Key Light Air 1234", mac: "aa:bb:cc:dd:ee:ff", host: "10.0.0.5", port: 9123, model: "Elgato Key Light Air"))
+        #expect(await eventually { host.mainBridge.server.accessories.count == 2 })
+        let devices = try await host.discover(platform: ElgatoKeyLightsPlugin.platform, name: "Elgato Key Lights").devices
+        let light = try #require(devices.first { $0.deviceID == "AA:BB:CC:DD:EE:FF" })
+        #expect(light.isSetUp && !light.excludedBySettings && light.authorization == .none)
+        #expect(light.name == "Studio Light" && light.address == "10.0.0.5")
+        let spare = try #require(devices.first { $0.deviceID == "11:22:33:44:55:66" })
+        #expect(spare.excludedBySettings && !spare.isSetUp && spare.name == "Spare")
+        let plugin = try #require(environment.plugin)
+        guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .device(light))) else { Issue.record("expected done"); return }
+        #expect(outcome.credentials == nil && outcome.settings.isEmpty)
+        await host.stop()
+    }
+
+    /// An instance made only for Setup (not started) browses Bonjour for a moment and lists what it heard.
+    @Test func setUpBrowsesOnAnInstanceThatIsNotRunning() async throws {
+        let host = try environment.host(settings: [:])
+        environment.discover.yield(.init(name: "Elgato Ring Light", mac: "aa:bb:cc:00:11:22", host: "ring.local", port: 9123, addresses: ["10.0.0.9"], model: "Elgato Ring Light"))
+        let devices = try await host.discover(platform: ElgatoKeyLightsPlugin.platform, name: "Elgato Key Lights").devices
+        #expect(devices == [DiscoveredDevice(deviceID: "AA:BB:CC:00:11:22", name: "Elgato Ring Light", model: "Elgato Ring Light", address: "10.0.0.9", isSetUp: true)])
+        #expect(await environment.light.requestCount == 0)
+    }
+
+    /// A light Excluded in its Accessory Settings is never reached nor added, and Setup shows it as not set up.
+    @Test func anExcludedLightIsNotReached() async throws {
+        let host = try await environment.start(settings: [
+            "devices": [configuredLight], "_accessories": ["3C:6A:9D:04:0A:0B": ["excluded": true]],
+        ])
+        #expect(host.mainBridge.server.accessories.map(\.id) == ["bridge"])
+        #expect(await environment.light.requestCount == 0)
+        let devices = try await host.discover(platform: ElgatoKeyLightsPlugin.platform, name: "Elgato Key Lights").devices
+        #expect(devices.first { $0.deviceID == "3C:6A:9D:04:0A:0B" }?.isSetUp == false)
+        await host.stop()
+    }
+
+    /// The name an Accessory Setting gives a light wins over the one it reports.
+    @Test func theAccessorySettingsNameNamesTheLight() async throws {
+        let host = try await environment.start(settings: [
+            "devices": [configuredLight], "_accessories": ["3C:6A:9D:04:0A:0B": ["name": "Desk"]],
+        ])
+        #expect(host.mainBridge.server.accessories.first { $0.id == lightID }?.name == "Desk")
+        await host.stop()
     }
 
     @Test func assistantBackgroundDescribesThePort() throws {

@@ -53,6 +53,11 @@ says why).
   block unchanged. Every option is optional, with the defaults applied in code.
 - **Stable accessory ids** prefixed with the platform name (`ElgatoKeyLights:<MAC>`). A changing id makes HomeKit
   forget the accessory's room, scenes and automations.
+- **Setup:** the plugin finds its devices (`discover`), says what its account and each device ask
+  (`accountAuthorization`, `DiscoveredDevice.authorization`) and answers the steps (`authorize`), so the Add accessories
+  page and MCP clients set it up like every other ([docs/plugins.md, "Setup"](docs/plugins.md#setup)); a pairing or a
+  login only on its own page is not enough. What the Authorization gives goes in the vault, and its devices' settings
+  in `_accessories` by Device Id.
 - **Adaptive Lighting on every light that can have it:** a Lightbulb with Brightness and Color Temperature gets an
   `AdaptiveLightingController` from `context.adaptiveLighting(for:accessoryID:)` before the accessory is added, and the
   plugin passes the device's reports of its colour to `disableIfChangedElsewhere(mireds:)`, which turns it off for a

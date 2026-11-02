@@ -44,6 +44,7 @@ final class TestEnvironment: Sendable {
             dependencies.retry = Backoff(initial: .milliseconds(50), maximum: .milliseconds(200))
             dependencies.rereadGap = self.rereadGap
             dependencies.bridgeName = "Homeswift on test"
+            dependencies.discoveryDuration = .milliseconds(200)
             let plugin = WingmanPlugin(configuration: configuration, context: context, dependencies: dependencies)
             self.plugins.withLockedValue { $0.append(plugin) }
             return plugin
@@ -383,12 +384,102 @@ struct WingmanTests {
         #expect(paired.status == 200)
         let device = try #require(paired.json["device"])
         #expect(device["id"] == "wm-1")
-        #expect(device["token"]?.stringValue == FakeWingman.token)
-        #expect(device["fingerprint"]?.stringValue == FakeWingman.fingerprint)
         #expect(device["host"] == "10.0.0.5")
         #expect(device["name"] == "Mac mini")
         #expect(environment.wingman.tlsModes.last == .pinned(FakeWingman.fingerprint))
+        // The token and the certificate go in the vault under Wingman's id, not in the entry for config.json.
+        #expect(device["token"] == nil && device["fingerprint"] == nil)
+        let context = try #require(host.context(platform: WingmanPlugin.platform, name: WingmanPlugin.name))
+        #expect(context.credentials(for: "wm-1", as: WingmanPlugin.Credentials.self) == .init(token: FakeWingman.token, fingerprint: FakeWingman.fingerprint))
         await host.stop()
+    }
+
+    // MARK: Setup
+
+    /// Setup lists the Wingman Bonjour finds as needing its code, shows the certificate to check, refuses a wrong code,
+    /// and hands the token and the certificate to the bridge's vault, the address to its Accessory Settings.
+    @Test func setUpPairsAWingmanWithItsCode() async throws {
+        let host = try await environment.start(settings: [:])
+        let plugin = try #require(environment.plugin)
+        #expect(await eventually { await !plugin.announced.isEmpty })
+        let devices = try await host.discover(platform: WingmanPlugin.platform, name: WingmanPlugin.name).devices
+        let found = try #require(devices.first)
+        #expect(devices.count == 1)
+        #expect(found == DiscoveredDevice(deviceID: "wm-1", name: "Mac mini", model: "Homeswift Wingman", address: "10.0.0.5", authorization: .deviceCode))
+
+        guard case .ask(let prompt, let state) = try await plugin.authorize(SetupRequest(target: .device(found))) else { Issue.record("expected the code"); return }
+        #expect(prompt.fields == [SetupField("code", label: "Code", kind: .code)])
+        #expect(prompt.text.contains("3F:9A:0C:71:3F:9A") && prompt.values["fingerprint"] == "3F:9A:0C:71:3F:9A")
+        #expect(state["fingerprint"]?.stringValue == FakeWingman.fingerprint)
+        await #expect(throws: SetupError("Wingman turned the code down: check it and try again")) {
+            _ = try await plugin.authorize(SetupRequest(target: .device(found), answers: ["code": "111111"], state: state))
+        }
+        await #expect(throws: SetupError("The code has six digits")) {
+            _ = try await plugin.authorize(SetupRequest(target: .device(found), answers: ["code": "4829"], state: state))
+        }
+        guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .device(found), answers: ["code": "482 913"], state: state)) else {
+            Issue.record("expected done"); return
+        }
+        #expect(outcome.credentials == ["token": .string(FakeWingman.token), "fingerprint": .string(FakeWingman.fingerprint)])
+        #expect(outcome.settings == ["host": "10.0.0.5", "name": "Mac mini"])
+        #expect(outcome.deviceID == nil)
+        #expect(environment.wingman.tlsModes.last == .pinned(FakeWingman.fingerprint))
+        await host.stop()
+    }
+
+    /// A Wingman set up through Setup (its address in its Accessory Settings, its keys in the vault) is mirrored like one
+    /// of `devices`, and shows as set up.
+    @Test func aWingmanSetUpThroughSetupIsMirrored() async throws {
+        let host = try await environment.start(settings: ["_accessories": ["wm-1": ["host": "10.0.0.5", "name": "Mac mini"]]])
+        let context = try #require(host.context(platform: WingmanPlugin.platform, name: WingmanPlugin.name))
+        try context.saveCredentials(WingmanPlugin.Credentials(token: FakeWingman.token, fingerprint: FakeWingman.fingerprint), for: "wm-1")
+        await host.relaunch(platform: WingmanPlugin.platform, name: WingmanPlugin.name)
+        _ = try await accessory(host, "light-1")
+        let devices = try await host.discover(platform: WingmanPlugin.platform, name: WingmanPlugin.name).devices
+        #expect(devices.map(\.deviceID) == ["wm-1"])
+        #expect(devices.first?.isSetUp == true && devices.first?.name == "Mac mini")
+        await host.stop()
+    }
+
+    /// A token and a certificate `devices` still has move into the vault; the vault's win over the entry's after that.
+    @Test func aDevicesEntrysTokenMovesIntoTheVault() async throws {
+        let host = try await environment.start()
+        let context = try #require(host.context(platform: WingmanPlugin.platform, name: WingmanPlugin.name))
+        #expect(context.credentials(for: "wm-1", as: WingmanPlugin.Credentials.self) == .init(token: FakeWingman.token, fingerprint: FakeWingman.fingerprint))
+        try context.saveCredentials(WingmanPlugin.Credentials(token: "token-2", fingerprint: FakeWingman.fingerprint), for: "wm-1")
+        let plugin = try #require(environment.plugin)
+        #expect(plugin.configuredDevices().first?.token == "token-2")
+        await host.stop()
+    }
+
+    /// A Wingman Excluded in its Accessory Settings is not reached.
+    @Test func anExcludedWingmanIsNotReached() async throws {
+        let host = try await environment.start(settings: ["devices": [TestEnvironment.paired], "_accessories": ["wm-1": ["excluded": true]]])
+        #expect(await environment.plugin?.links.isEmpty == true)
+        #expect(!environment.wingman.requests.contains("homes"))
+        let devices = try await host.discover(platform: WingmanPlugin.platform, name: WingmanPlugin.name).devices
+        #expect(devices.first { $0.deviceID == "wm-1" }?.isSetUp == false)
+        await host.stop()
+    }
+
+    /// An instance made only for Setup, never started, looks on the network for a moment.
+    @Test func setUpLooksForWingmenFromAnInstanceThatIsNotRunning() async throws {
+        let host = try await environment.start(settings: [:])
+        let block: JSONValue = ["platform": "Wingman", "name": "Another Wingman"]
+        let devices = try await host.discover(platform: WingmanPlugin.platform, name: "Another Wingman", block: block).devices
+        #expect(devices.map(\.deviceID) == ["wm-1"])
+        await host.stop()
+    }
+
+    @Test func addressesKeepTheirPort() {
+        #expect(WingmanPlugin.address(host: "10.0.0.5", port: 8619) == "10.0.0.5")
+        #expect(WingmanPlugin.address(host: "10.0.0.5", port: 9000) == "10.0.0.5:9000")
+        #expect(WingmanPlugin.address(host: "fe80::1", port: 9000) == "[fe80::1]:9000")
+        #expect(WingmanPlugin.endpoint("10.0.0.5")! == ("10.0.0.5", 8619))
+        #expect(WingmanPlugin.endpoint("10.0.0.5:9000")! == ("10.0.0.5", 9000))
+        #expect(WingmanPlugin.endpoint("[fe80::1]:9000")! == ("fe80::1", 9000))
+        #expect(WingmanPlugin.endpoint("fe80::1")! == ("fe80::1", 8619))
+        #expect(WingmanPlugin.formatFingerprint(FakeWingman.fingerprint) == "3F:9A:0C:71:3F:9A")
     }
 
     /// The plugin's directory, from this file's.

@@ -2338,7 +2338,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // As Glass UI's: a user who is not an administrator sees Status and Accessories (and controls accessories); the
   // plugins, config.json, the log and the users are an administrator's. The server refuses the rest anyway.
 
-  const adminSections = new Set(["plugins", "logs", "settings", "users", "import", "welcome"]);
+  const adminSections = new Set(["plugins", "logs", "settings", "users", "import", "welcome", "setup"]);
   const isAdmin = () => Boolean(auth && auth.admin);
 
   /// Shows the header's and the tab bar's sections the user may open.
@@ -4451,6 +4451,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       else if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
       navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
     };
+    // Setup, in view whatever the wall holds; the empty wall has its own, larger.
+    const addButton = isAdmin() && all.length ? el("a", { class: "button primary accessories-add", href: "/setup", actionIcon: "plus", "aria-label": t("Add accessories"), title: t("Add accessories"), text: t("Add accessories") }) : null;
     const fullScreenButton = el("button", { type: "button", class: "icon-button accessory-options-button", "aria-label": t("Full screen"), title: t("Full screen"),
       onclick: () => setFullScreen(true) }, HomeswiftCommon.icon("expand"));
     // The chrome over the full-screen wall: Close, and when grouped the dots and, with a mouse, the side arrows.
@@ -4542,10 +4544,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       pageHead(t("Accessories"), !accessories.length ? "" : from ? t("{count} from {source}, which HomeKit has already. Changes here reach your devices.", { count: accessories.length, source: t(from) })
         : servers === 1 ? t("{count} on one server, as the Home app sees them. Changes here reach your devices.", { count: accessories.length })
         : t("{count} on {servers} servers, as the Home app sees them. Changes here reach your devices.", { count: accessories.length, servers }),
-        el("div", { class: "accessories-toolbar" }, search, filters, accessories.length ? edit : null, roomOrderButton, more, accessories.length ? fullScreenButton : null)),
+        el("div", { class: "accessories-toolbar" }, search, filters, accessories.length ? edit : null, roomOrderButton, more, accessories.length ? fullScreenButton : null, addButton)),
       accessoryTabs(""),
       note,
-      accessories.length ? [content, none, fullScreen ? chrome : null] : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("bulb")), el("p", { class: "muted", text: all.length ? t("Every accessory is hidden.") : t("No accessories yet. Plugins add them once they reach their devices.") })));
+      accessories.length ? [content, none, fullScreen ? chrome : null] : el("div", { class: "card empty" }, el("span", { class: "empty-glyph" }, HomeswiftCommon.icon("bulb")), el("p", { class: "muted", text: all.length ? t("Every accessory is hidden.") : t("No accessories yet. Plugins add them once they reach their devices.") }),
+        !all.length && isAdmin() ? el("a", { class: "button primary", href: "/setup", actionIcon: "plus", text: t("Add accessories") }) : null));
   };
 
   /// Accessories by plugin: [name, accessories] pairs by the plugin's name, each list by name; those of no
@@ -4605,6 +4608,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       };
       return [
         plugin && plugin.hasPages && instance && !instance.paused ? { label: t("Open its page"), icon: "open", href: pluginPage(block) } : null,
+        plugin ? { label: t("Add accessories"), icon: "plus", href: `/setup#${encodeURIComponent(block.slug)}` } : null,
         { label: t("Edit settings (Expert)"), icon: "edit", href: expertLink(block) },
         { label: t("Edit as JSON (Expert)"), icon: "code", href: expertLink(block, "json") },
         instance && !instance.paused ? { label: t("Pause"), icon: "pause", onSelect: () => toggle(true) } : null,
@@ -4680,8 +4684,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   /// Takes a block out of config.json, after asking: its accessories leave the Home app.
   async function removeBlock(block, after = () => route()) {
-    if (!await HomeswiftCommon.confirmDialog(t("Remove \"{name}\" from config.json? Its accessories leave the Home app.", { name: block.name }))) return;
-    try { await api(`/api/config/platforms/${block.index}`, { method: "DELETE" }); leaveGuard = null; after(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
+    // The vault's entries the plugin wrote (its sign-ins, its tokens) stay unless asked: added again, it finds them.
+    const entries = block.vaultEntries ?? 0;
+    const answer = await HomeswiftCommon.confirmDialog(t("Remove \"{name}\" from config.json? Its accessories leave the Home app.", { name: block.name }),
+      entries ? { toggle: { label: tn("Also delete its vault entry", "Also delete its {n} vault entries", entries), help: t("The sign-ins and tokens it kept. Left there, adding it again finds them.") } } : {});
+    if (!answer) return;
+    const vault = answer.checked ? "?vault=true" : "";
+    try { await api(`/api/config/platforms/${block.index}${vault}`, { method: "DELETE" }); leaveGuard = null; after(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
   }
 
   /// A block's address: its plugin's own page when it has one, else its settings. `expertLink` is always the form
@@ -6613,13 +6622,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const accessoryCard = (accessory) => HomeswiftWidgets.card(accessory, { size: HomeswiftWidgets.kindOf(accessory).size, actions: accessoryActions });
   // The Homebridge import (import.js): its page at /import and the welcome page at /welcome.
   views.import = (main) => window.HomeswiftImport.view(main);
+  views.setup = (main) => window.HomeswiftSetup.view(main);
   views.welcome = (main) => window.HomeswiftImport.welcome(main);
   window.HomeswiftHome?.install({
     views, api, show, pageHead, breadcrumb, accessoryCard, navigate, route: () => route(), isAdmin,
     enumLabels: HomeswiftWidgets.enumLabels, labelFor: HomeswiftWidgets.labelFor, withSlugs,
   });
   // The Settings pages (admin.js) draw with the same helpers.
-  window.HomeswiftApp = { api, navigate, route, finder, pageHead, breadcrumb, show, openSheet, savedText, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, assistantPage, configPage };
+  window.HomeswiftApp = { api, navigate, route, finder, uniqueName, pageHead, breadcrumb, show, openSheet, savedText, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, assistantPage, configPage };
 
   loadAuth().catch((e) => { $("#auth").classList.remove("hidden"); $("#auth-error").textContent = e.message; });
 })();
@@ -8227,6 +8237,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el("span", { class: "visually-hidden", text: ` ${{ running: t("(running)"), failed: t("(failed)"), declined: t("(not allowed)") }[item.state] ?? t("(done)")}` }));
     case "confirm":
       return confirmCard(item);
+    case "setup":
+      // A Setup the Assistant started, at a step the person finishes in the sheet: a password, a sign-in page, a button.
+      return el("div", { class: "chat-setup" },
+        el("p", { text: item.message ? t(item.message, item.values ?? {}) : t("This step continues in the Setup sheet.") }),
+        el("button", { type: "button", class: "primary", actionIcon: "forward", text: t("Continue in the Setup sheet"),
+          onclick: () => window.HomeswiftSetup?.resume(item) }));
     default:
       return el("p", { class: "chat-error", role: "alert", text: HomeswiftI18n.message(item.text) });
     }
@@ -8242,6 +8258,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       case "user": lines.push(`**${t("You")}:** ${item.text}`, ""); break;
       case "assistant": lines.push(`**${t("Assistant")}:** ${item.text}`, ""); break;
       case "tool": lines.push(`- ${item.title}${item.summary ? ` · ${item.summary}` : ""} \`${item.name}\` ${status[item.state] ?? t("(done)")}`); break;
+      case "setup": lines.push(`- ${t("Continue in the Setup sheet")}: ${item.message ? t(item.message, item.values ?? {}) : ""}`.trimEnd()); break;
       case "confirm": lines.push(`- ${describe(item)} ${item.state === "pending" ? "" : item.state === "allowed" ? t("Allowed") : t("Not allowed")}`.trimEnd()); break;
       default: lines.push(`> ${HomeswiftI18n.message(item.text)}`, "");
       }
@@ -10288,22 +10305,27 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   // Queue modal messages so simultaneous failures never stack focus traps.
   let dialogQueue = Promise.resolve();
   let dialogSequence = 0;
-  function messageDialog(message, { kind = "alert", value = "" } = {}) {
+  /// `toggle`, for a confirmation: a switch under the message, off to begin with (`{ label, help }`); the answer is then
+  /// false, or `{ checked }`.
+  function messageDialog(message, { kind = "alert", value = "", toggle = null } = {}) {
     const show = () => new Promise((resolve) => {
       const previousFocus = document.activeElement;
       const id = `message-dialog-${++dialogSequence}`;
       const input = kind === "prompt" ? el("input", { type: "text", value, "aria-labelledby": `${id}-body` }) : null;
+      const box = toggle ? el("input", { type: "checkbox" }) : null;
+      const choice = box ? el("label", { class: "toggle" }, el("span", { class: "switch" }, box, el("span")),
+        el("span", {}, el("span", { class: "field-title", text: toggle.label }), toggle.help ? el("span", { class: "muted help", text: toggle.help }) : null)) : null;
       const cancel = kind !== "alert" ? el("button", { type: "button", actionIcon: "close", text: t("Cancel"), onclick: () => dialog.close("cancel") }) : null;
       const ok = el("button", { type: "submit", class: "primary", actionIcon: "check", text: kind === "confirm" ? t("Continue") : t("OK") });
       const form = el("form", { method: "dialog" },
         el("h2", { id: `${id}-title`, text: kind === "alert" ? t("Message") : kind === "prompt" ? t("Enter a value") : t("Confirm") }),
-        el("p", { id: `${id}-body`, class: "dialog-message", text: String(message) }), input,
+        el("p", { id: `${id}-body`, class: "dialog-message", text: String(message) }), input, choice,
         el("div", { class: "actions" }, cancel, ok));
       const dialog = el("dialog", { class: "admin-dialog card message-dialog", "aria-labelledby": `${id}-title`, "aria-describedby": `${id}-body` }, form);
       form.addEventListener("submit", (event) => { event.preventDefault(); dialog.close("ok"); });
       dialog.addEventListener("close", () => {
         const result = dialog.returnValue === "ok";
-        const answer = input ? (result ? input.value : null) : result;
+        const answer = input ? (result ? input.value : null) : box ? (result && { checked: box.checked }) : result;
         dialog.remove();
         if (previousFocus?.isConnected) previousFocus.focus();
         resolve(answer);
@@ -10318,7 +10340,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return result;
   }
   const showAlert = (message) => messageDialog(message);
-  const confirmDialog = (message) => messageDialog(message, { kind: "confirm" });
+  const confirmDialog = (message, options = {}) => messageDialog(message, { kind: "confirm", ...options });
   const promptDialog = (message, value = "") => messageDialog(message, { kind: "prompt", value });
 
   /// A `<details>` that opens as a popover (the side menu's Homeswift section): a click outside it or Escape folds it,
@@ -12664,6 +12686,7 @@ HomeswiftI18n.add("es", {
   "(running)": "(en curso)",
   "(secret, kept)": "(secreto, se mantiene)",
   "{0} blocks have platform {1}; give the name": "{0} bloques tienen la plataforma {1}; indica el nombre",
+  "No Setup in progress with id {0}: it ended or expired, start it again": "No hay ninguna configuración en curso con el id {0}: terminó o caducó, empiézala de nuevo",
   "{0} cannot do that now": "{0} no puede hacer eso ahora",
   "{0} did not answer: the device may be off or out of reach": "{0} no ha respondido: puede que el dispositivo esté apagado o fuera de alcance",
   "{0} did not start: {1}": "{0} no se ha iniciado: {1}",
@@ -14101,6 +14124,46 @@ HomeswiftI18n.add("es", {
   "Status Low Battery": "Batería baja",
   "Status Tampered": "Manipulado",
   "{names}: no plugin compiled into this homeswift runs these blocks, so they are ignored.": "{names}: ningún plugin compilado en este homeswift ejecuta estos bloques, así que se ignoran.",
+  "Add another {name}": "Añadir otro {name}",
+  "Nothing to sign in to": "Sin inicio de sesión",
+  "No plugin matches.": "Ningún plugin coincide.",
+  "{n} set up": "{n} configurado",
+  "{n} set up [plural]": "{n} configurados",
+  "{n} excluded": "{n} excluido",
+  "{n} excluded [plural]": "{n} excluidos",
+  "Needs you once": "Una acción pendiente",
+  "Needs you {n} times": "{n} acciones pendientes",
+  "Step {at} of {count}": "Paso {at} de {count}",
+  "Devices": "Dispositivos",
+  "One accessory added.": "Un accesorio añadido.",
+  "{n} accessories added.": "{n} accesorios añadidos.",
+  "Add one accessory": "Añadir un accesorio",
+  "Add {n} accessories": "Añadir {n} accesorios",
+  "Add none": "No añadir ninguno",
+  "{plugin} found one device.": "{plugin} encontró un dispositivo.",
+  "{plugin} found {n} devices.": "{plugin} encontró {n} dispositivos.",
+  "Choose those that go into the Home app. The others are excluded; you can include them later.": "Elige los que van a la app Casa. Los demás quedan excluidos; puedes incluirlos más tarde.",
+  "They reach the Home app in a moment.": "Llegan a la app Casa en un momento.",
+  "Also delete its vault entry": "Borrar también su entrada de la bóveda",
+  "Also delete its {n} vault entries": "Borrar también sus {n} entradas de la bóveda",
+  "The sign-ins and tokens it kept. Left there, adding it again finds them.": "Los inicios de sesión y tokens que guardó. Si se quedan, al añadirlo de nuevo los encuentra.",
+  "Parts of {name}": "Partes de {name}",
+  "Package camera flashlight": "Linterna de la cámara de paquetes",
+  "Doorbell mute switch": "Interruptor de silencio del timbre",
+  "Chime switches": "Interruptores del carillón",
+  "Fingerprint and NFC sensor": "Sensor de huella y NFC",
+  "Occupancy sensor": "Sensor de ocupación",
+  "Motion detection switch": "Interruptor de detección de movimiento",
+  "Status light switch": "Interruptor de la luz de estado",
+  "Night vision dimmer": "Regulador de la visión nocturna",
+  "Recording switch": "Interruptor de grabación",
+  "Open a plugin to set up its devices, or add one for another brand.": "Abre un plugin para configurar sus dispositivos, o añade uno para otra marca.",
+  "Not set up yet": "Aún sin configurar",
+  "No devices found": "No se encontraron dispositivos",
+  "Help me add my accessories: ": "Ayúdame a añadir mis accesorios: ",
+  "This step continues in the Setup sheet.": "Este paso sigue en la ventana de configuración.",
+  "Continue in the Setup sheet": "Continuar en la ventana de configuración",
+  "The Assistant is not set up yet: it needs an AI provider and its key. Set it up now?": "El Asistente aún no está configurado: necesita un proveedor de IA y su clave. ¿Configurarlo ahora?",
   "Your plugins": "Tus plugins",
   "Search your plugins": "Buscar en tus plugins",
   "Sort your plugins": "Ordenar tus plugins",
@@ -14834,6 +14897,100 @@ HomeswiftI18n.add("es", {
   "Not checked yet": "Aún no se ha comprobado",
   "Checked {when}": "Comprobado {when}",
   "No plugins yet. Add one, then give it a HomeKit bridge of its own here.": "Aún no hay plugins. Añade uno y luego dale aquí su propio puente HomeKit.",
+  "Nothing to set up": "Nada que configurar",
+  "Press a button": "Pulsar un botón",
+  "Enter a code": "Introducir un código",
+  "Sign in with a browser": "Iniciar sesión en un navegador",
+  "Enter keys": "Introducir claves",
+  "Ready": "Listo",
+  "Needs setup": "Por configurar",
+  "Excluded": "Excluido",
+  "Add accessories": "Añadir accesorios",
+  "What each plugin finds now. Set up the devices that ask for a code, a button or a sign-in; exclude those you do not want in the Home app.": "Lo que cada plugin encuentra ahora. Configura los dispositivos que piden un código, un botón o un inicio de sesión; excluye los que no quieras en la app Casa.",
+  "For devices none of yours reaches yet.": "Para los dispositivos que ninguno de los tuyos alcanza todavía.",
+  "Start with the brand of your devices.": "Empieza por la marca de tus dispositivos.",
+  "Looking for devices…": "Buscando dispositivos…",
+  "Find again": "Buscar de nuevo",
+  "This plugin finds no devices by itself: its settings name them.": "Este plugin no encuentra dispositivos por sí mismo: sus ajustes los indican.",
+  "Set up again": "Configurar de nuevo",
+  "Include": "Incluir",
+  "Exclude": "Excluir",
+  "Asking the plugin…": "Consultando al plugin…",
+  "Account of {name}": "Cuenta de {name}",
+  "{name} is set up.": "{name} está configurado.",
+  "The account is set up.": "La cuenta está configurada.",
+  "Its accessories reach the Home app in a moment.": "Sus accesorios llegan a la app Casa en un momento.",
+  "Time is up. Try again when you are ready.": "Se acabó el tiempo. Inténtalo de nuevo cuando estés listo.",
+  "Open the sign-in page": "Abrir la página de inicio de sesión",
+  "Sign in again": "Volver a iniciar sesión",
+  "Change keys": "Cambiar las claves",
+  "{plugin} needs this before it can reach its devices.": "{plugin} lo necesita para llegar a sus dispositivos.",
+  "Its devices show here once it is set up.": "Sus dispositivos aparecen aquí una vez configurado.",
+  "Left out by its settings": "Excluido por sus ajustes",
+  "Press the link button on the Hue Bridge.": "Pulsa el botón de enlace del puente Hue.",
+  "No Hue Bridge answered on the network. Enter its address, from the Hue app's settings.": "Ningún puente Hue respondió en la red. Introduce su dirección, en los ajustes de la app Hue.",
+  "Enter the PIN the TV shows.": "Introduce el PIN que muestra el televisor.",
+  "PIN": "PIN",
+  "The TV did not give its MAC address. Enter it, from the TV's network settings.": "El televisor no dio su dirección MAC. Introdúcela, desde sus ajustes de red.",
+  "MAC address": "Dirección MAC",
+  "Sign in with your MyDolphin account: Maytronics sends you a code.": "Inicia sesión con tu cuenta MyDolphin: Maytronics te envía un código.",
+  "Email": "Correo electrónico",
+  "Code": "Código",
+  "Enter the code sent to your phone.": "Introduce el código enviado a tu teléfono.",
+  "Enter the code from your authenticator app.": "Introduce el código de tu app de autenticación.",
+  "Enter the code sent to your email.": "Introduce el código enviado a tu correo.",
+  "Waiting… {seconds} s left.": "Esperando… quedan {seconds} s.",
+  "Sign in with the account of the Daikin Onecta app.": "Inicia sesión con la cuenta de la app Daikin Onecta.",
+  "Enter the app you made on the Daikin Developer Portal.": "Introduce la app que creaste en el Daikin Developer Portal.",
+  "Client ID": "Client ID",
+  "Client Secret": "Client Secret",
+  "Sign in with Daikin on the page that opens. If it does not come back here by itself, paste the address the browser ends on.": "Inicia sesión en Daikin en la página que se abre. Si no vuelve aquí por sí sola, pega la dirección en la que termina el navegador.",
+  "Address the browser ended on": "Dirección en la que terminó el navegador",
+  "Enter the keys of your EcoFlow developer account, from developer.ecoflow.com.": "Introduce las claves de tu cuenta de desarrollador de EcoFlow, de developer.ecoflow.com.",
+  "Access key": "Clave de acceso",
+  "Secret key": "Clave secreta",
+  "Choose how Homeswift signs in to Daikin.": "Elige cómo Homeswift inicia sesión en Daikin.",
+  "Choose how Homeswift signs in to LG ThinQ.": "Elige cómo Homeswift inicia sesión en LG ThinQ.",
+  "Sign in with": "Iniciar sesión con",
+  "Daikin Developer Portal": "Daikin Developer Portal",
+  "An app you make on Daikin's portal, then Daikin's sign-in page: 200 requests a day.": "Una app que creas en el portal de Daikin y luego la página de inicio de sesión de Daikin: 200 solicitudes al día.",
+  "Onecta app account": "Cuenta de la app Onecta",
+  "The email and password of the Onecta app: 3000 requests a day and live updates.": "El correo y la contraseña de la app Onecta: 3000 solicitudes al día y actualizaciones en directo.",
+  "LG's sign-in page": "La página de inicio de sesión de LG",
+  "Takes an LG, Google, Apple, Facebook or Amazon account, in your browser.": "Acepta una cuenta de LG, Google, Apple, Facebook o Amazon, en tu navegador.",
+  "Email and password": "Correo y contraseña",
+  "An LG account with a password of its own, typed here.": "Una cuenta de LG con contraseña propia, escrita aquí.",
+  "Region": "Región",
+  "Europe": "Europa",
+  "United States": "Estados Unidos",
+  "Choose how Homeswift reads your EcoFlow devices.": "Elige cómo Homeswift lee tus dispositivos EcoFlow.",
+  "Read through": "Leer mediante",
+  "Developer API and EcoFlow app": "API para desarrolladores y app EcoFlow",
+  "Each device through whichever reads it, and the energy history.": "Cada dispositivo mediante la que lo lee, y el historial de energía.",
+  "Developer API": "API para desarrolladores",
+  "Keys from developer.ecoflow.com. Reads the devices EcoFlow's developer API offers, such as a STREAM.": "Claves de developer.ecoflow.com. Lee los dispositivos que ofrece la API para desarrolladores de EcoFlow, como un STREAM.",
+  "EcoFlow app account": "Cuenta de la app EcoFlow",
+  "The app's email and password. Reads every device the app shows, live, and imports the energy history.": "El correo y la contraseña de la app. Lee en directo cada dispositivo que muestra la app e importa el historial de energía.",
+  "Sign in with the account of the EcoFlow app.": "Inicia sesión con la cuenta de la app EcoFlow.",
+  "No DIRIGERA hub answered on the network. Enter its address, from your router or the IKEA Home smart app.": "Ningún hub DIRIGERA respondió en la red. Introduce su dirección, desde tu router o la app IKEA Home smart.",
+  "Press the action button on the back of the DIRIGERA hub.": "Pulsa el botón de acción en la parte trasera del hub DIRIGERA.",
+  "In Wingman's menu, choose Pair a Homeswift Bridge. Check that the certificate in Wingman's window (Bridges tab) starts with {fingerprint}, then enter the code it shows.": "En el menú de Wingman, elige Pair a Homeswift Bridge. Comprueba que el certificado en la ventana de Wingman (pestaña Bridges) empieza por {fingerprint} e introduce el código que muestra.",
+  "Sign in with your Govee account.": "Inicia sesión con tu cuenta Govee.",
+  "Govee emailed you a verification code. Enter it.": "Govee te ha enviado un código de verificación por correo. Introdúcelo.",
+  "Sign in to the UniFi console with a local account that can use UniFi Access.": "Inicia sesión en la consola UniFi con una cuenta local que pueda usar UniFi Access.",
+  "Sign in to the UniFi console with a local account that can use UniFi Protect.": "Inicia sesión en la consola UniFi con una cuenta local que pueda usar UniFi Protect.",
+  "User name": "Nombre de usuario",
+  "Sign in with your Dyson account: Dyson emails you a code.": "Inicia sesión con tu cuenta Dyson: Dyson te envía un código por correo.",
+  "Sign in with your Dyson account to read this device's credential: Dyson emails you a code.": "Inicia sesión con tu cuenta Dyson para leer la credencial de este dispositivo: Dyson te envía un código por correo.",
+  "Enter your Dyson password and the code Dyson emailed you.": "Introduce tu contraseña de Dyson y el código que te envió por correo.",
+  "Choose the country and the language of your LG account.": "Elige el país y el idioma de tu cuenta LG.",
+  "Sign in with your LG account.": "Inicia sesión con tu cuenta LG.",
+  "Sign in on LG's page that opens. When it ends on a blank page, paste the address the browser shows (it contains iabClose).": "Inicia sesión en la página de LG que se abre. Cuando termine en una página en blanco, pega la dirección que muestra el navegador (contiene iabClose).",
+  "Sign in with your eWeLink account.": "Inicia sesión con tu cuenta eWeLink.",
+  "Country": "País",
+  "Not chosen": "Sin elegir",
+  "Choose…": "Elegir…",
+  "Email or phone number": "Correo electrónico o número de teléfono",
 });
 
 """#),
@@ -15233,6 +15390,7 @@ HomeswiftI18n.add("fr", {
   "(running)": "(en cours)",
   "(secret, kept)": "(secret, conservé)",
   "{0} blocks have platform {1}; give the name": "{0} blocs ont la plateforme {1} ; indiquez le nom",
+  "No Setup in progress with id {0}: it ended or expired, start it again": "Aucune configuration en cours avec l'identifiant {0} : elle est terminée ou a expiré, recommencez-la",
   "{0} cannot do that now": "{0} ne peut pas faire cela maintenant",
   "{0} did not answer: the device may be off or out of reach": "{0} n'a pas répondu : l'appareil est peut-être éteint ou hors de portée",
   "{0} did not start: {1}": "{0} n'a pas démarré : {1}",
@@ -16670,6 +16828,46 @@ HomeswiftI18n.add("fr", {
   "Status Low Battery": "Batterie faible",
   "Status Tampered": "Manipulé",
   "{names}: no plugin compiled into this homeswift runs these blocks, so they are ignored.": "{names} : aucun plugin compilé dans ce homeswift n’exécute ces blocs, ils sont donc ignorés.",
+  "Add another {name}": "Ajouter un autre {name}",
+  "Nothing to sign in to": "Aucune connexion requise",
+  "No plugin matches.": "Aucun plugin ne correspond.",
+  "{n} set up": "{n} configuré",
+  "{n} set up [plural]": "{n} configurés",
+  "{n} excluded": "{n} exclu",
+  "{n} excluded [plural]": "{n} exclus",
+  "Needs you once": "Une action requise",
+  "Needs you {n} times": "{n} actions requises",
+  "Step {at} of {count}": "Étape {at} sur {count}",
+  "Devices": "Appareils",
+  "One accessory added.": "Un accessoire ajouté.",
+  "{n} accessories added.": "{n} accessoires ajoutés.",
+  "Add one accessory": "Ajouter un accessoire",
+  "Add {n} accessories": "Ajouter {n} accessoires",
+  "Add none": "N'en ajouter aucun",
+  "{plugin} found one device.": "{plugin} a trouvé un appareil.",
+  "{plugin} found {n} devices.": "{plugin} a trouvé {n} appareils.",
+  "Choose those that go into the Home app. The others are excluded; you can include them later.": "Choisissez ceux qui vont dans l'app Maison. Les autres sont exclus ; vous pourrez les inclure plus tard.",
+  "They reach the Home app in a moment.": "Ils arrivent dans l'app Maison dans un instant.",
+  "Also delete its vault entry": "Supprimer aussi son entrée du coffre",
+  "Also delete its {n} vault entries": "Supprimer aussi ses {n} entrées du coffre",
+  "The sign-ins and tokens it kept. Left there, adding it again finds them.": "Les connexions et jetons qu'il a gardés. S'ils restent, l'ajouter à nouveau les retrouve.",
+  "Parts of {name}": "Éléments de {name}",
+  "Package camera flashlight": "Lampe de la caméra à colis",
+  "Doorbell mute switch": "Interrupteur de sourdine de la sonnette",
+  "Chime switches": "Interrupteurs du carillon",
+  "Fingerprint and NFC sensor": "Capteur d'empreinte et NFC",
+  "Occupancy sensor": "Détecteur de présence",
+  "Motion detection switch": "Interrupteur de détection de mouvement",
+  "Status light switch": "Interrupteur du voyant d'état",
+  "Night vision dimmer": "Variateur de la vision nocturne",
+  "Recording switch": "Interrupteur d'enregistrement",
+  "Open a plugin to set up its devices, or add one for another brand.": "Ouvrez un plugin pour configurer ses appareils, ou ajoutez-en un pour une autre marque.",
+  "Not set up yet": "Pas encore configuré",
+  "No devices found": "Aucun appareil trouvé",
+  "Help me add my accessories: ": "Aide-moi à ajouter mes accessoires : ",
+  "This step continues in the Setup sheet.": "Cette étape se poursuit dans la fenêtre de configuration.",
+  "Continue in the Setup sheet": "Continuer dans la fenêtre de configuration",
+  "The Assistant is not set up yet: it needs an AI provider and its key. Set it up now?": "L'Assistant n'est pas encore configuré : il lui faut un fournisseur d'IA et sa clé. Le configurer maintenant ?",
   "Your plugins": "Vos plugins",
   "Search your plugins": "Rechercher dans vos plugins",
   "Sort your plugins": "Trier vos plugins",
@@ -17403,6 +17601,100 @@ HomeswiftI18n.add("fr", {
   "Not checked yet": "Pas encore vérifié",
   "Checked {when}": "Vérifié {when}",
   "No plugins yet. Add one, then give it a HomeKit bridge of its own here.": "Aucun plugin pour l’instant. Ajoutez-en un, puis donnez-lui ici son propre pont HomeKit.",
+  "Nothing to set up": "Rien à configurer",
+  "Press a button": "Appuyer sur un bouton",
+  "Enter a code": "Saisir un code",
+  "Sign in with a browser": "Se connecter dans un navigateur",
+  "Enter keys": "Saisir des clés",
+  "Ready": "Prêt",
+  "Needs setup": "À configurer",
+  "Excluded": "Exclu",
+  "Add accessories": "Ajouter des accessoires",
+  "What each plugin finds now. Set up the devices that ask for a code, a button or a sign-in; exclude those you do not want in the Home app.": "Ce que chaque plugin trouve en ce moment. Configurez les appareils qui demandent un code, un bouton ou une connexion ; excluez ceux que vous ne voulez pas dans l'app Maison.",
+  "For devices none of yours reaches yet.": "Pour les appareils qu’aucun des vôtres n’atteint encore.",
+  "Start with the brand of your devices.": "Commencez par la marque de vos appareils.",
+  "Looking for devices…": "Recherche d’appareils…",
+  "Find again": "Chercher à nouveau",
+  "This plugin finds no devices by itself: its settings name them.": "Ce plugin ne trouve pas d’appareils par lui-même : ses réglages les nomment.",
+  "Set up again": "Configurer à nouveau",
+  "Include": "Inclure",
+  "Exclude": "Exclure",
+  "Asking the plugin…": "Le plugin répond…",
+  "Account of {name}": "Compte de {name}",
+  "{name} is set up.": "{name} est configuré.",
+  "The account is set up.": "Le compte est configuré.",
+  "Its accessories reach the Home app in a moment.": "Ses accessoires arrivent dans l'app Maison dans un instant.",
+  "Time is up. Try again when you are ready.": "Le temps est écoulé. Réessayez quand vous êtes prêt.",
+  "Open the sign-in page": "Ouvrir la page de connexion",
+  "Sign in again": "Se reconnecter",
+  "Change keys": "Changer les clés",
+  "{plugin} needs this before it can reach its devices.": "{plugin} en a besoin pour joindre ses appareils.",
+  "Its devices show here once it is set up.": "Ses appareils s’affichent ici une fois configuré.",
+  "Left out by its settings": "Exclu par ses réglages",
+  "Press the link button on the Hue Bridge.": "Appuyez sur le bouton de liaison du pont Hue.",
+  "No Hue Bridge answered on the network. Enter its address, from the Hue app's settings.": "Aucun pont Hue n’a répondu sur le réseau. Saisissez son adresse, dans les réglages de l’app Hue.",
+  "Enter the PIN the TV shows.": "Saisissez le code PIN affiché par le téléviseur.",
+  "PIN": "PIN",
+  "The TV did not give its MAC address. Enter it, from the TV's network settings.": "Le téléviseur n’a pas donné son adresse MAC. Saisissez-la, depuis ses réglages réseau.",
+  "MAC address": "Adresse MAC",
+  "Sign in with your MyDolphin account: Maytronics sends you a code.": "Connectez-vous avec votre compte MyDolphin : Maytronics vous envoie un code.",
+  "Email": "E-mail",
+  "Code": "Code",
+  "Enter the code sent to your phone.": "Saisissez le code envoyé sur votre téléphone.",
+  "Enter the code from your authenticator app.": "Saisissez le code de votre app d’authentification.",
+  "Enter the code sent to your email.": "Saisissez le code envoyé par e-mail.",
+  "Waiting… {seconds} s left.": "En attente… encore {seconds} s.",
+  "Sign in with the account of the Daikin Onecta app.": "Connectez-vous avec le compte de l’app Daikin Onecta.",
+  "Enter the app you made on the Daikin Developer Portal.": "Saisissez l’app que vous avez créée sur le Daikin Developer Portal.",
+  "Client ID": "Client ID",
+  "Client Secret": "Client Secret",
+  "Sign in with Daikin on the page that opens. If it does not come back here by itself, paste the address the browser ends on.": "Connectez-vous à Daikin dans la page qui s’ouvre. Si elle ne revient pas ici d’elle-même, collez l’adresse sur laquelle le navigateur s’arrête.",
+  "Address the browser ended on": "Adresse où le navigateur s’est arrêté",
+  "Enter the keys of your EcoFlow developer account, from developer.ecoflow.com.": "Saisissez les clés de votre compte développeur EcoFlow, depuis developer.ecoflow.com.",
+  "Access key": "Clé d’accès",
+  "Secret key": "Clé secrète",
+  "Choose how Homeswift signs in to Daikin.": "Choisissez comment Homeswift se connecte à Daikin.",
+  "Choose how Homeswift signs in to LG ThinQ.": "Choisissez comment Homeswift se connecte à LG ThinQ.",
+  "Sign in with": "Se connecter avec",
+  "Daikin Developer Portal": "Daikin Developer Portal",
+  "An app you make on Daikin's portal, then Daikin's sign-in page: 200 requests a day.": "Une app que vous créez sur le portail de Daikin, puis la page de connexion de Daikin : 200 requêtes par jour.",
+  "Onecta app account": "Compte de l’app Onecta",
+  "The email and password of the Onecta app: 3000 requests a day and live updates.": "L’e-mail et le mot de passe de l’app Onecta : 3000 requêtes par jour et des mises à jour en direct.",
+  "LG's sign-in page": "La page de connexion de LG",
+  "Takes an LG, Google, Apple, Facebook or Amazon account, in your browser.": "Accepte un compte LG, Google, Apple, Facebook ou Amazon, dans votre navigateur.",
+  "Email and password": "E-mail et mot de passe",
+  "An LG account with a password of its own, typed here.": "Un compte LG avec son propre mot de passe, saisi ici.",
+  "Region": "Région",
+  "Europe": "Europe",
+  "United States": "États-Unis",
+  "Choose how Homeswift reads your EcoFlow devices.": "Choisissez comment Homeswift lit vos appareils EcoFlow.",
+  "Read through": "Lire par",
+  "Developer API and EcoFlow app": "API développeur et app EcoFlow",
+  "Each device through whichever reads it, and the energy history.": "Chaque appareil par celle qui le lit, et l’historique d’énergie.",
+  "Developer API": "API développeur",
+  "Keys from developer.ecoflow.com. Reads the devices EcoFlow's developer API offers, such as a STREAM.": "Des clés de developer.ecoflow.com. Lit les appareils que propose l’API développeur d’EcoFlow, comme un STREAM.",
+  "EcoFlow app account": "Compte de l’app EcoFlow",
+  "The app's email and password. Reads every device the app shows, live, and imports the energy history.": "L’e-mail et le mot de passe de l’app. Lit en direct chaque appareil que l’app affiche, et importe l’historique d’énergie.",
+  "Sign in with the account of the EcoFlow app.": "Connectez-vous avec le compte de l’app EcoFlow.",
+  "No DIRIGERA hub answered on the network. Enter its address, from your router or the IKEA Home smart app.": "Aucun hub DIRIGERA n’a répondu sur le réseau. Saisissez son adresse, depuis votre routeur ou l’app IKEA Home smart.",
+  "Press the action button on the back of the DIRIGERA hub.": "Appuyez sur le bouton d’action au dos du hub DIRIGERA.",
+  "In Wingman's menu, choose Pair a Homeswift Bridge. Check that the certificate in Wingman's window (Bridges tab) starts with {fingerprint}, then enter the code it shows.": "Dans le menu de Wingman, choisissez Pair a Homeswift Bridge. Vérifiez que le certificat dans la fenêtre de Wingman (onglet Bridges) commence par {fingerprint}, puis saisissez le code affiché.",
+  "Sign in with your Govee account.": "Connectez-vous avec votre compte Govee.",
+  "Govee emailed you a verification code. Enter it.": "Govee vous a envoyé un code de vérification par e-mail. Saisissez-le.",
+  "Sign in to the UniFi console with a local account that can use UniFi Access.": "Connectez-vous à la console UniFi avec un compte local autorisé pour UniFi Access.",
+  "Sign in to the UniFi console with a local account that can use UniFi Protect.": "Connectez-vous à la console UniFi avec un compte local autorisé pour UniFi Protect.",
+  "User name": "Nom d'utilisateur",
+  "Sign in with your Dyson account: Dyson emails you a code.": "Connectez-vous avec votre compte Dyson : Dyson vous envoie un code par e-mail.",
+  "Sign in with your Dyson account to read this device's credential: Dyson emails you a code.": "Connectez-vous avec votre compte Dyson pour lire l’identifiant de cet appareil : Dyson vous envoie un code par e-mail.",
+  "Enter your Dyson password and the code Dyson emailed you.": "Saisissez votre mot de passe Dyson et le code reçu par e-mail.",
+  "Choose the country and the language of your LG account.": "Choisissez le pays et la langue de votre compte LG.",
+  "Sign in with your LG account.": "Connectez-vous avec votre compte LG.",
+  "Sign in on LG's page that opens. When it ends on a blank page, paste the address the browser shows (it contains iabClose).": "Connectez-vous sur la page LG qui s’ouvre. Quand elle se termine sur une page vide, collez l’adresse affichée par le navigateur (elle contient iabClose).",
+  "Sign in with your eWeLink account.": "Connectez-vous avec votre compte eWeLink.",
+  "Country": "Pays",
+  "Not chosen": "Non choisi",
+  "Choose…": "Choisir…",
+  "Email or phone number": "E-mail ou numéro de téléphone",
 });
 
 """#),
@@ -17802,6 +18094,7 @@ HomeswiftI18n.add("pt", {
   "(running)": "(em curso)",
   "(secret, kept)": "(secreto, mantido)",
   "{0} blocks have platform {1}; give the name": "{0} blocos têm a plataforma {1}; indique o nome",
+  "No Setup in progress with id {0}: it ended or expired, start it again": "Não há nenhuma configuração em curso com o id {0}: terminou ou expirou, comece-a de novo",
   "{0} cannot do that now": "{0} não pode fazer isso agora",
   "{0} did not answer: the device may be off or out of reach": "{0} não respondeu: o dispositivo pode estar desligado ou fora de alcance",
   "{0} did not start: {1}": "{0} não arrancou: {1}",
@@ -19239,6 +19532,46 @@ HomeswiftI18n.add("pt", {
   "Status Low Battery": "Bateria fraca",
   "Status Tampered": "Manipulado",
   "{names}: no plugin compiled into this homeswift runs these blocks, so they are ignored.": "{names}: nenhum plugin compilado neste homeswift executa estes blocos, por isso são ignorados.",
+  "Add another {name}": "Adicionar outro {name}",
+  "Nothing to sign in to": "Sem início de sessão",
+  "No plugin matches.": "Nenhum plugin corresponde.",
+  "{n} set up": "{n} configurado",
+  "{n} set up [plural]": "{n} configurados",
+  "{n} excluded": "{n} excluído",
+  "{n} excluded [plural]": "{n} excluídos",
+  "Needs you once": "Uma ação pendente",
+  "Needs you {n} times": "{n} ações pendentes",
+  "Step {at} of {count}": "Passo {at} de {count}",
+  "Devices": "Dispositivos",
+  "One accessory added.": "Um acessório adicionado.",
+  "{n} accessories added.": "{n} acessórios adicionados.",
+  "Add one accessory": "Adicionar um acessório",
+  "Add {n} accessories": "Adicionar {n} acessórios",
+  "Add none": "Não adicionar nenhum",
+  "{plugin} found one device.": "{plugin} encontrou um dispositivo.",
+  "{plugin} found {n} devices.": "{plugin} encontrou {n} dispositivos.",
+  "Choose those that go into the Home app. The others are excluded; you can include them later.": "Escolha os que vão para a app Casa. Os outros ficam excluídos; pode incluí-los mais tarde.",
+  "They reach the Home app in a moment.": "Chegam à app Casa num instante.",
+  "Also delete its vault entry": "Eliminar também a sua entrada do cofre",
+  "Also delete its {n} vault entries": "Eliminar também as suas {n} entradas do cofre",
+  "The sign-ins and tokens it kept. Left there, adding it again finds them.": "As credenciais e tokens que guardou. Se ficarem, ao adicioná-lo de novo encontra-os.",
+  "Parts of {name}": "Partes de {name}",
+  "Package camera flashlight": "Lanterna da câmara de encomendas",
+  "Doorbell mute switch": "Interruptor de silêncio da campainha",
+  "Chime switches": "Interruptores do carrilhão",
+  "Fingerprint and NFC sensor": "Sensor de impressão digital e NFC",
+  "Occupancy sensor": "Sensor de ocupação",
+  "Motion detection switch": "Interruptor de deteção de movimento",
+  "Status light switch": "Interruptor da luz de estado",
+  "Night vision dimmer": "Regulador da visão noturna",
+  "Recording switch": "Interruptor de gravação",
+  "Open a plugin to set up its devices, or add one for another brand.": "Abra um plugin para configurar os seus dispositivos, ou adicione um para outra marca.",
+  "Not set up yet": "Ainda não configurado",
+  "No devices found": "Nenhum dispositivo encontrado",
+  "Help me add my accessories: ": "Ajuda-me a adicionar os meus acessórios: ",
+  "This step continues in the Setup sheet.": "Este passo continua na janela de configuração.",
+  "Continue in the Setup sheet": "Continuar na janela de configuração",
+  "The Assistant is not set up yet: it needs an AI provider and its key. Set it up now?": "O Assistente ainda não está configurado: precisa de um fornecedor de IA e da sua chave. Configurá-lo agora?",
   "Your plugins": "Os seus plugins",
   "Search your plugins": "Pesquisar nos seus plugins",
   "Sort your plugins": "Ordenar os seus plugins",
@@ -19972,6 +20305,100 @@ HomeswiftI18n.add("pt", {
   "Not checked yet": "Ainda não verificado",
   "Checked {when}": "Verificado {when}",
   "No plugins yet. Add one, then give it a HomeKit bridge of its own here.": "Ainda não há plugins. Adicione um e depois dê-lhe aqui uma ponte HomeKit própria.",
+  "Nothing to set up": "Nada a configurar",
+  "Press a button": "Premir um botão",
+  "Enter a code": "Introduzir um código",
+  "Sign in with a browser": "Iniciar sessão num navegador",
+  "Enter keys": "Introduzir chaves",
+  "Ready": "Pronto",
+  "Needs setup": "Por configurar",
+  "Excluded": "Excluído",
+  "Add accessories": "Adicionar acessórios",
+  "What each plugin finds now. Set up the devices that ask for a code, a button or a sign-in; exclude those you do not want in the Home app.": "O que cada plugin encontra agora. Configure os dispositivos que pedem um código, um botão ou um início de sessão; exclua os que não quer na app Casa.",
+  "For devices none of yours reaches yet.": "Para os dispositivos que nenhum dos seus alcança ainda.",
+  "Start with the brand of your devices.": "Comece pela marca dos seus dispositivos.",
+  "Looking for devices…": "À procura de dispositivos…",
+  "Find again": "Procurar de novo",
+  "This plugin finds no devices by itself: its settings name them.": "Este plugin não encontra dispositivos sozinho: as suas definições indicam-nos.",
+  "Set up again": "Configurar de novo",
+  "Include": "Incluir",
+  "Exclude": "Excluir",
+  "Asking the plugin…": "A consultar o plugin…",
+  "Account of {name}": "Conta de {name}",
+  "{name} is set up.": "{name} está configurado.",
+  "The account is set up.": "A conta está configurada.",
+  "Its accessories reach the Home app in a moment.": "Os seus acessórios chegam à app Casa num instante.",
+  "Time is up. Try again when you are ready.": "O tempo acabou. Tente de novo quando estiver pronto.",
+  "Open the sign-in page": "Abrir a página de início de sessão",
+  "Sign in again": "Iniciar sessão de novo",
+  "Change keys": "Alterar as chaves",
+  "{plugin} needs this before it can reach its devices.": "{plugin} precisa disto para chegar aos seus dispositivos.",
+  "Its devices show here once it is set up.": "Os seus dispositivos aparecem aqui depois de configurado.",
+  "Left out by its settings": "Excluído pelas suas definições",
+  "Press the link button on the Hue Bridge.": "Prima o botão de ligação da ponte Hue.",
+  "No Hue Bridge answered on the network. Enter its address, from the Hue app's settings.": "Nenhuma ponte Hue respondeu na rede. Introduza o endereço, nas definições da app Hue.",
+  "Enter the PIN the TV shows.": "Introduza o PIN que o televisor mostra.",
+  "PIN": "PIN",
+  "The TV did not give its MAC address. Enter it, from the TV's network settings.": "O televisor não deu o seu endereço MAC. Introduza-o, a partir das definições de rede.",
+  "MAC address": "Endereço MAC",
+  "Sign in with your MyDolphin account: Maytronics sends you a code.": "Inicie sessão com a sua conta MyDolphin: a Maytronics envia-lhe um código.",
+  "Email": "E-mail",
+  "Code": "Código",
+  "Enter the code sent to your phone.": "Introduza o código enviado para o seu telefone.",
+  "Enter the code from your authenticator app.": "Introduza o código da sua app de autenticação.",
+  "Enter the code sent to your email.": "Introduza o código enviado para o seu e-mail.",
+  "Waiting… {seconds} s left.": "A aguardar… faltam {seconds} s.",
+  "Sign in with the account of the Daikin Onecta app.": "Inicie sessão com a conta da app Daikin Onecta.",
+  "Enter the app you made on the Daikin Developer Portal.": "Introduza a app que criou no Daikin Developer Portal.",
+  "Client ID": "Client ID",
+  "Client Secret": "Client Secret",
+  "Sign in with Daikin on the page that opens. If it does not come back here by itself, paste the address the browser ends on.": "Inicie sessão na Daikin na página que se abre. Se não voltar aqui sozinha, cole o endereço em que o navegador termina.",
+  "Address the browser ended on": "Endereço em que o navegador terminou",
+  "Enter the keys of your EcoFlow developer account, from developer.ecoflow.com.": "Introduza as chaves da sua conta de programador EcoFlow, de developer.ecoflow.com.",
+  "Access key": "Chave de acesso",
+  "Secret key": "Chave secreta",
+  "Choose how Homeswift signs in to Daikin.": "Escolha como o Homeswift inicia sessão na Daikin.",
+  "Choose how Homeswift signs in to LG ThinQ.": "Escolha como o Homeswift inicia sessão no LG ThinQ.",
+  "Sign in with": "Iniciar sessão com",
+  "Daikin Developer Portal": "Daikin Developer Portal",
+  "An app you make on Daikin's portal, then Daikin's sign-in page: 200 requests a day.": "Uma app que cria no portal da Daikin e depois a página de início de sessão da Daikin: 200 pedidos por dia.",
+  "Onecta app account": "Conta da app Onecta",
+  "The email and password of the Onecta app: 3000 requests a day and live updates.": "O email e a palavra-passe da app Onecta: 3000 pedidos por dia e atualizações em direto.",
+  "LG's sign-in page": "A página de início de sessão da LG",
+  "Takes an LG, Google, Apple, Facebook or Amazon account, in your browser.": "Aceita uma conta LG, Google, Apple, Facebook ou Amazon, no seu navegador.",
+  "Email and password": "Email e palavra-passe",
+  "An LG account with a password of its own, typed here.": "Uma conta LG com palavra-passe própria, escrita aqui.",
+  "Region": "Região",
+  "Europe": "Europa",
+  "United States": "Estados Unidos",
+  "Choose how Homeswift reads your EcoFlow devices.": "Escolha como o Homeswift lê os seus dispositivos EcoFlow.",
+  "Read through": "Ler através de",
+  "Developer API and EcoFlow app": "API para programadores e app EcoFlow",
+  "Each device through whichever reads it, and the energy history.": "Cada dispositivo através da que o lê, e o histórico de energia.",
+  "Developer API": "API para programadores",
+  "Keys from developer.ecoflow.com. Reads the devices EcoFlow's developer API offers, such as a STREAM.": "Chaves de developer.ecoflow.com. Lê os dispositivos que a API para programadores da EcoFlow oferece, como um STREAM.",
+  "EcoFlow app account": "Conta da app EcoFlow",
+  "The app's email and password. Reads every device the app shows, live, and imports the energy history.": "O email e a palavra-passe da app. Lê em direto cada dispositivo que a app mostra e importa o histórico de energia.",
+  "Sign in with the account of the EcoFlow app.": "Inicie sessão com a conta da app EcoFlow.",
+  "No DIRIGERA hub answered on the network. Enter its address, from your router or the IKEA Home smart app.": "Nenhum hub DIRIGERA respondeu na rede. Introduza o endereço, a partir do router ou da app IKEA Home smart.",
+  "Press the action button on the back of the DIRIGERA hub.": "Prima o botão de ação na parte de trás do hub DIRIGERA.",
+  "In Wingman's menu, choose Pair a Homeswift Bridge. Check that the certificate in Wingman's window (Bridges tab) starts with {fingerprint}, then enter the code it shows.": "No menu do Wingman, escolha Pair a Homeswift Bridge. Verifique que o certificado na janela do Wingman (separador Bridges) começa por {fingerprint} e introduza o código apresentado.",
+  "Sign in with your Govee account.": "Inicie sessão com a sua conta Govee.",
+  "Govee emailed you a verification code. Enter it.": "A Govee enviou-lhe um código de verificação por e-mail. Introduza-o.",
+  "Sign in to the UniFi console with a local account that can use UniFi Access.": "Inicie sessão na consola UniFi com uma conta local que possa usar o UniFi Access.",
+  "Sign in to the UniFi console with a local account that can use UniFi Protect.": "Inicie sessão na consola UniFi com uma conta local que possa usar o UniFi Protect.",
+  "User name": "Nome de utilizador",
+  "Sign in with your Dyson account: Dyson emails you a code.": "Inicie sessão com a sua conta Dyson: a Dyson envia-lhe um código por e-mail.",
+  "Sign in with your Dyson account to read this device's credential: Dyson emails you a code.": "Inicie sessão com a sua conta Dyson para ler a credencial deste dispositivo: a Dyson envia-lhe um código por e-mail.",
+  "Enter your Dyson password and the code Dyson emailed you.": "Introduza a sua palavra-passe Dyson e o código que recebeu por e-mail.",
+  "Choose the country and the language of your LG account.": "Escolha o país e o idioma da sua conta LG.",
+  "Sign in with your LG account.": "Inicie sessão com a sua conta LG.",
+  "Sign in on LG's page that opens. When it ends on a blank page, paste the address the browser shows (it contains iabClose).": "Inicie sessão na página da LG que se abre. Quando terminar numa página em branco, cole o endereço que o navegador mostra (contém iabClose).",
+  "Sign in with your eWeLink account.": "Inicie sessão com a sua conta eWeLink.",
+  "Country": "País",
+  "Not chosen": "Não escolhido",
+  "Choose…": "Escolher…",
+  "Email or phone number": "E-mail ou número de telefone",
 });
 
 """#),
@@ -20721,6 +21148,7 @@ HomeswiftI18n.add("pt", {
 <script src="/home.js"></script>
 <script src="/admin.js"></script>
 <script src="/import.js"></script>
+<script src="/setup.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>
@@ -22211,6 +22639,568 @@ HomeswiftI18n.add("pt", {
 ]
 
 """#),
+        "setup.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
+// Setup (GLOSSARY.md, "Setup"): /setup lists what each plugin finds, with where each device stands, and sets up the
+// devices and accounts that ask for a code, a button press, a sign-in or keys, in one sheet whatever the plugin. The
+// server holds each Setup in progress (POST /api/setup/…, SetupRoutes.swift); this page only draws its prompts.
+// app.js routes /setup here and lends its helpers (HomeswiftApp) when the view is drawn.
+(() => {
+  "use strict";
+
+  const { el, tile, menuButton } = HomeswiftCommon;
+  const { t, tn } = HomeswiftI18n;
+  const app = () => window.HomeswiftApp;
+  const api = (...args) => app().api(...args);
+  const post = (path, body) => api(`/api/setup/${path}`, { method: "POST", body });
+  const bare = (name) => name.replace(/[\s_-]+/g, "").toLowerCase();
+
+  /// What each Authorization Method is called, and the glyph its rows and the sheet show.
+  const methods = {
+    none: [() => t("Nothing to set up"), "check"],
+    buttonPress: [() => t("Press a button"), "pair"],
+    deviceCode: [() => t("Enter a code"), "key"],
+    accountLogin: [() => t("Sign in"), "user"],
+    browserRedirect: [() => t("Sign in with a browser"), "browser"],
+    apiKey: [() => t("Enter keys"), "key"],
+  };
+  /// What the account's button says, by its Authorization Method.
+  const accountActions = {
+    buttonPress: [() => t("Pair"), () => t("Pair again"), "pair"],
+    deviceCode: [() => t("Pair"), () => t("Pair again"), "pair"],
+    accountLogin: [() => t("Sign in"), () => t("Sign in again"), "user"],
+    browserRedirect: [() => t("Sign in"), () => t("Sign in again"), "browser"],
+    apiKey: [() => t("Enter keys"), () => t("Change keys"), "key"],
+  };
+  /// A device's status: its words and tone. Set up is the usual state, a quiet dot; the others say so in words.
+  const statuses = {
+    setUp: [() => t("Set up"), "on"],
+    notResponding: [() => t("Not responding"), "away"],
+    discovered: [() => t("Ready"), "on"],
+    needsAuthorization: [() => t("Needs setup"), "away"],
+    excluded: [() => t("Excluded"), "paused"],
+  };
+
+  async function view(main) {
+    const plugins = await api("/api/plugins");
+    const byPlatform = new Map(plugins.plugins.map((plugin) => [plugin.platform, plugin]));
+    const blocks = plugins.blocks.filter((block) => !block.system && byPlatform.has(block.platform));
+    const wanted = decodeURIComponent(location.hash.slice(1));
+    const cards = blocks.map((block) => instanceCard(block, byPlatform.get(block.platform), { open: blocks.length === 1 || block.slug === wanted }));
+    // The plugins in use, one row each, and a way to add another; before any, the brands to start from.
+    const add = el("button", { type: "button", class: "primary", actionIcon: "plus", text: t("Add a plugin"), onclick: (event) => pickPlugin(plugins, event.currentTarget) });
+    // Or the Assistant does it: it finds the plugin, starts the Setup and hands the steps with a secret back to the sheet.
+    // Always shown: without an Assistant yet, it leads to setting one up (a provider and its key).
+    const assistant = el("button", { type: "button", actionIcon: "sparkle", class: "setup-assistant", text: t("Ask the Assistant"), onclick: async () => {
+      if (window.HomeswiftChat?.available()) { HomeswiftChat.ask(t("Help me add my accessories: ")); return; }
+      if (await HomeswiftCommon.confirmDialog(t("The Assistant is not set up yet: it needs an AI provider and its key. Set it up now?"))) app().navigate("/plugins/add/HomeswiftAiKit");
+    } });
+    app().show(main,
+      cards.length
+        ? app().pageHead(t("Add accessories"), t("Open a plugin to set up its devices, or add one for another brand."), assistant, add)
+        : app().pageHead(t("Add accessories"), t("Start with the brand of your devices."), assistant),
+      cards.length ? el("div", { class: "setup-list" }, ...cards.map((card) => card.node)) : brandGrid(plugins));
+    // From a plugin's menu (/setup#<slug>): its card in view, open.
+    const card = wanted ? document.getElementById(`setup-${wanted}`) : null;
+    const reveal = () => card?.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    reveal();
+    // A plugin just added: its card says it is the one, for a moment.
+    if (card && history.state?.added === wanted) {
+      card.classList.add("just-added");
+      setTimeout(() => card.classList.remove("just-added"), 2200);
+      history.replaceState(null, "", location.href);
+    }
+    // Every plugin looks at once: a slow cloud does not hold the others back.
+    // A card that turns out to need someone moves to the top of the list: the one asked for is followed there.
+    await Promise.all(cards.map((one) => one.load().then(() => { if (one.node === card) reveal(); })));
+  }
+
+  /// The plugins compiled in that can be added: one with an account opens its Setup at once (the block is saved when it
+  /// is done), one without is added as it is and its card looks for devices. Those not in use yet come first.
+  const addablePlugins = (plugins) => {
+    const used = (plugin) => plugins.blocks.some((block) => block.platform === plugin.platform);
+    // System platforms (the Assistant) have no Setup: their settings are elsewhere.
+    return plugins.plugins.filter((plugin) => plugin.accountAuthorization)
+      .map((plugin) => ({ plugin, used: used(plugin) }))
+      .sort((a, b) => Number(a.used) - Number(b.used) || a.plugin.name.localeCompare(b.plugin.name));
+  };
+
+  async function addPlugin(plugins, plugin, trigger) {
+    const block = { platform: plugin.platform, name: app().uniqueName(plugin.name, plugins.blocks) };
+    // Drawn again with the new plugin's card in view, open.
+    const redraw = () => {
+      const slug = HomeswiftCommon.slug(block.name);
+      history.replaceState({ added: slug }, "", `/setup#${encodeURIComponent(slug)}`);
+      app().route();
+    };
+    if (plugin.accountAuthorization !== "none") { open({ block, plugin, draft: true, firstTime: true, trigger, after: redraw }); return; }
+    try {
+      await api(`/api/config/block/${encodeURIComponent(block.platform)}/${encodeURIComponent(block.name)}`, { method: "POST", body: {} });
+      redraw();
+    } catch (e) { HomeswiftCommon.showAlert(e.message); }
+  }
+
+  /// How a plugin connects, in a few words: a sign-in, a button on a hub, nothing.
+  const howItConnects = (plugin) => plugin.accountAuthorization === "none" ? t("Nothing to sign in to") : methods[plugin.accountAuthorization][0]();
+
+  /// A search over a list of plugins: hides those that do not match every word, and says when none does.
+  function searchOver(items, text) {
+    const none = el("p", { class: "muted setup-none", hidden: true, text: t("No plugin matches.") });
+    const search = el("input", { type: "search", class: "search setup-search", placeholder: t("Search plugins"), "aria-label": t("Search plugins"),
+      oninput: () => {
+        const words = search.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+        let shown = 0;
+        for (const [index, item] of items.entries()) shown += (item.hidden = !words.every((word) => text[index].includes(word))) ? 0 : 1;
+        none.hidden = shown > 0;
+      } });
+    return { search, none };
+  }
+  const searchText = (plugin) => `${plugin.name} ${t(plugin.summary ?? "")} ${plugin.summary ?? ""}`.toLowerCase();
+
+  /// Before any plugin: the brands, each a card with its name and how it connects.
+  function brandGrid(plugins) {
+    const addable = addablePlugins(plugins);
+    const cards = addable.map(({ plugin }) => el("button", { type: "button", class: "setup-brand", title: plugin.summary ? t(plugin.summary) : "",
+      onclick: (event) => addPlugin(plugins, plugin, event.currentTarget), "aria-label": t("Add {name}", { name: plugin.name }) },
+      tile(plugin.icon ?? "plugin", "orange"),
+      el("span", { class: "setup-brand-name", text: plugin.name }),
+      el("span", { class: "setup-brand-how muted", text: howItConnects(plugin) })));
+    const { search, none } = searchOver(cards, addable.map(({ plugin }) => searchText(plugin)));
+    return el("section", { class: "setup-catalog", "aria-label": t("Add a plugin") }, search, el("div", { class: "setup-brands" }, ...cards), none);
+  }
+
+  /// Adding a plugin once some are in use: a sheet listing the brands, with a search; the one picked starts its Setup.
+  function pickPlugin(plugins, trigger) {
+    const addable = addablePlugins(plugins);
+    app().openSheet((dismiss) => {
+      const rows = addable.map(({ plugin, used }) => el("button", { type: "button", class: "setup-plugin-row", onclick: () => dismiss(plugin) },
+        tile(plugin.icon ?? "plugin", "orange"),
+        el("span", { class: "who" }, el("strong", {}, plugin.name, used ? el("span", { class: "setup-brand-used", text: t("In use [used]") }) : null),
+          el("span", { class: "muted", text: plugin.summary ? t(plugin.summary) : howItConnects(plugin) })),
+        el("span", { class: "setup-chevron", "aria-hidden": "true" })));
+      const { search, none } = searchOver(rows, addable.map(({ plugin }) => searchText(plugin)));
+      queueMicrotask(() => search.focus());
+      return el("div", { class: "account-form setup-picker" },
+        el("h2", { id: "setup-picker-title", text: t("Add a plugin") }),
+        search, el("div", { class: "setup-plugin-rows" }, ...rows), none);
+    }, "setup-picker-title", {
+      returnFocus: trigger,
+      // The picked plugin's Setup opens once this sheet has gone.
+      onClose: (plugin) => { if (plugin) addPlugin(plugins, plugin, trigger); else trigger?.focus(); },
+    });
+  }
+
+  /// A wait for a plugin, its ring turning beside what it is waiting for.
+  const loading = (text) => el("p", { class: "setup-loading muted" }, el("span", { class: "spinner", "aria-hidden": "true" }), el("span", { text }));
+
+  /// One plugin instance, one row: its name and where its devices stand. Opened, its account when it has one and the
+  /// devices it finds, each with what can be done. One that needs someone opens and moves to the top of the list.
+  function instanceCard(block, plugin, { open: openAtFirst = false } = {}) {
+    const list = el("div", { class: "setup-devices", "aria-live": "polite" }, loading(t("Looking for devices…")));
+    // Under the name, where its devices stand.
+    const summary = el("span", { class: "muted", text: t("Looking for devices…") });
+    const action = accountActions[plugin.accountAuthorization];
+    let accountSetUp = false;
+    // Looking again, and the account's sign-in once it is set up, are in the menu: the row stays one line.
+    const menu = menuButton(t("Actions for {name}", { name: block.name }), () => [
+      { label: t("Find again"), icon: "search", onSelect: () => { setOpen(true); load(); } },
+      action ? { label: action[accountSetUp ? 1 : 0](), icon: action[2], onSelect: () => open({ block, plugin, firstTime: !accountSetUp, after: load }) } : null,
+    ].filter(Boolean));
+    const bodyID = `setup-${block.slug}-devices`;
+    // The row opens and closes it; its menu sits beside the chevron.
+    const toggle = el("button", { type: "button", class: "setup-instance-toggle", "aria-expanded": "false", "aria-controls": bodyID },
+      tile(block.icon ?? plugin.icon ?? "plugin", "orange"),
+      el("span", { class: "who" }, el("strong", { text: block.name }), summary));
+    const chevron = el("span", { class: "setup-chevron", "aria-hidden": "true" });
+    const head = el("div", { class: "setup-instance-head" }, toggle, menu, chevron);
+    const body = el("div", { class: "setup-instance-body", id: bodyID, hidden: true }, list);
+    const node = el("section", { class: "card setup-instance", id: `setup-${block.slug}`, "aria-label": block.name }, head, body);
+    const setOpen = (on) => { body.hidden = !on; toggle.setAttribute("aria-expanded", String(on)); node.classList.toggle("is-open", on); };
+    let touched = false;
+    toggle.addEventListener("click", () => { touched = true; setOpen(body.hidden); });
+    chevron.addEventListener("click", () => toggle.click());
+    setOpen(openAtFirst);
+
+    /// The account's row, first, while it is not set up: nothing else works before it.
+    const accountRow = () => el("div", { class: "setup-device setup-account" },
+      tile(action[2], "orange"),
+      el("div", { class: "who" }, el("strong", { text: methods[plugin.accountAuthorization][0]() }),
+        el("div", { class: "muted", text: t("{plugin} needs this before it can reach its devices.", { plugin: plugin.name }) })),
+      el("span", { class: "pill status away", text: statuses.needsAuthorization[0]() }),
+      el("button", { class: "primary", actionIcon: action[2], text: action[0](), onclick: (event) => open({ block, plugin, firstTime: true, trigger: event.currentTarget, after: load }) }));
+
+    // A search in progress, whatever started it (the page, Find again, a Setup just done): the button turns and the
+    // rows it may replace dim, as a device on the network can take seconds to answer.
+    let searches = 0;
+    const searching = (on) => {
+      searches += on ? 1 : -1;
+      const busy = searches > 0;
+      node.classList.toggle("is-searching", busy);
+      list.toggleAttribute("aria-busy", busy);
+      if (busy) { summary.textContent = t("Looking for devices…"); summary.dataset.tone = ""; }
+    };
+
+    async function load() {
+      searching(true);
+      try {
+        const found = await post("discover", { platform: block.platform, name: block.name });
+        accountSetUp = found.accountSetUp;
+        const needs = (device) => device.status === "needsAuthorization";
+        const waiting = found.devices.filter(needs), settled = found.devices.filter((device) => !needs(device));
+        // What the plugin found before a device's Setup: what is new after it came with that device (a console's cameras).
+        const known = new Set(found.devices.map((device) => device.deviceID));
+        const rows = waiting.map((device) => deviceRow(block, plugin, device, load, known));
+        if (action && !accountSetUp) rows.unshift(accountRow());
+        rows.push(...settled.map((device) => deviceRow(block, plugin, device, load, known)));
+        const excluded = settled.filter((device) => device.status === "excluded").length;
+        if (!found.devices.length) rows.push(el("p", { class: "muted setup-none", text: action && !accountSetUp
+          ? t("Its devices show here once it is set up.") : t("This plugin finds no devices by itself: its settings name them.") }));
+        list.replaceChildren(...rows);
+        const attention = waiting.length + (action && !accountSetUp ? 1 : 0);
+        summary.textContent = attention ? tn("Needs you once", "Needs you {n} times", attention)
+          : settled.length ? [tn("{n} set up", "{n} set up [plural]", settled.length - excluded), excluded ? tn("{n} excluded", "{n} excluded [plural]", excluded) : null].filter(Boolean).join(" · ")
+          : action && !accountSetUp ? t("Not set up yet") : t("No devices found");
+        summary.dataset.tone = attention ? "away" : "";
+        node.classList.toggle("needs-you", attention > 0);
+        // What needs someone is shown, unless they closed it themselves.
+        if (attention && !touched) setOpen(true);
+      } catch (e) {
+        list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));
+      } finally {
+        searching(false);
+      }
+    }
+    return { node, load };
+  }
+
+  /// A device: what it is, where it stands, and what can be done with it.
+  function deviceRow(block, plugin, device, reload, known) {
+    const [state, tone] = (statuses[device.status] ?? statuses.discovered);
+    const excluded = device.status === "excluded";
+    // Set up, whether it answers now or not.
+    const setUp = device.status === "setUp" || device.status === "notResponding";
+    const toggle = (value) => async () => {
+      try {
+        await post("exclude", { platform: block.platform, name: block.name, deviceID: device.deviceID, excluded: value });
+        await reload();
+      } catch (e) { HomeswiftCommon.showAlert(e.message); }
+    };
+    const items = [
+      setUp && device.authorization !== "none" ? { label: t("Set up again"), icon: "pair", onSelect: () => open({ block, plugin, device, known, after: reload }) } : null,
+      // Left out by the plugin's own settings: included again there, not here.
+      device.excludedBySettings ? { label: t("Open its settings"), icon: "gear", href: `/plugins/${encodeURIComponent(block.slug)}/expert` }
+        : excluded ? { label: t("Include"), icon: "plus", onSelect: toggle(false) } : { label: t("Exclude"), icon: "minus", onSelect: toggle(true) },
+    ].filter(Boolean);
+    const needs = device.status === "needsAuthorization";
+    // The glyph the wall gives its accessory, once it has one.
+    const glyph = HomeswiftWidgets.categoryIcon(device.category) ?? (needs ? methods[device.authorization]?.[1] : null) ?? "accessory";
+    // Its parts, switched here at once: the plugin reloads with them, or without.
+    const parts = !excluded && setUp ? partsList(device, {
+      onChange: async (part, included, box) => {
+        box.disabled = true;
+        try { await post("part", { platform: block.platform, name: block.name, deviceID: device.deviceID, part: part.id, included }); part.included = included; }
+        catch (e) { box.checked = !included; HomeswiftCommon.showAlert(e.message); }
+        finally { box.disabled = false; }
+      },
+    }) : null;
+    const row = el("div", { class: `setup-device ${excluded ? "is-excluded" : ""}` },
+      tile(glyph, excluded ? "grey" : needs ? "orange" : "blue"),
+      el("div", { class: "who" }, el("strong", { text: device.name }),
+        el("div", { class: "muted", text: device.excludedBySettings ? t("Left out by its settings") : [device.model, device.address].filter(Boolean).join(" · ") || device.deviceID })),
+      tone === "on" ? el("span", { class: "status-dot", role: "img", "aria-label": state(), title: state() }) : el("span", { class: `pill status ${tone}`, text: state() }),
+      needs
+        ? el("button", { class: "primary", actionIcon: "pair", text: t("Set up"), onclick: (event) => open({ block, plugin, device, known, trigger: event.currentTarget, after: reload }) })
+        : el("span", { class: "setup-spacer" }),
+      menuButton(t("Actions for {name}", { name: device.name }), () => items));
+    return parts ? el("div", { class: "setup-device-group" }, row, parts.node) : row;
+  }
+
+  /// A device's parts (a gate's side door, a door sensor, a doorbell), each with its switch: those switched off are left
+  /// out while the device stays. `onChange(part, included)` is told of each switch; `changes()` what differs from now.
+  function partsList(device, { disabled = false, onChange = null } = {}) {
+    const parts = device.parts ?? [];
+    if (!parts.length) return null;
+    const boxes = parts.map((part) => el("input", { type: "checkbox", checked: part.included, disabled, "aria-label": t(part.name) }));
+    const node = el("div", { class: "setup-parts", role: "group", "aria-label": t("Parts of {name}", { name: device.name }) },
+      ...parts.map((part, index) => el("label", { class: "setup-part" },
+        el("span", { class: "setup-part-icon", "aria-hidden": "true" }, HomeswiftCommon.icon(part.icon ?? "accessory")),
+        el("span", { class: "setup-part-name", text: t(part.name) }),
+        el("span", { class: "switch" }, boxes[index], el("span")))));
+    if (onChange) boxes.forEach((box, index) => box.addEventListener("change", () => onChange(parts[index], box.checked, box)));
+    return {
+      node,
+      enable: (on) => boxes.forEach((box) => { box.disabled = !on; }),
+      changes: () => parts.flatMap((part, index) => boxes[index].checked === part.included ? [] : [{ part: part.id, included: boxes[index].checked }]),
+    };
+  }
+
+  /// What an option is called: a country or a language in the reader's language, else its label translated.
+  const regionNames = new Intl.DisplayNames([HomeswiftI18n.language, "en"], { type: "region" });
+  const languageNames = new Intl.DisplayNames([HomeswiftI18n.language, "en"], { type: "language" });
+  const optionName = (option) => {
+    try {
+      if (option.country) return regionNames.of(option.country) ?? option.label;
+      if (option.language) return languageNames.of(option.language) ?? option.label;
+    } catch { /* a code the browser does not know */ }
+    return t(option.label);
+  };
+
+  /// A long list to pick from (a country, a language): a menu sorted by name, the block's answer picked, else the
+  /// browser's own country or language, else nothing yet.
+  function menu(field) {
+    const options = field.options.map((option) => ({ option, name: optionName(option) }))
+      .sort((a, b) => a.name.localeCompare(b.name, HomeswiftI18n.language));
+    const browser = navigator.language ?? "";
+    const picked = field.options.find((option) => option.value === field.value)
+      ?? field.options.find((option) => option.language === browser)
+      ?? field.options.find((option) => option.country && option.country === browser.split("-")[1]?.toUpperCase());
+    return el("select", { name: field.key, id: `setup-${field.key}`, required: !field.optional },
+      el("option", { value: "", text: field.optional ? t("Not chosen") : t("Choose…"), disabled: !field.optional, selected: !picked }),
+      ...options.map(({ option, name }) => el("option", { value: option.value, text: name, selected: option === picked })));
+  }
+
+  /// A choice (how to sign in, a region): its options as radio buttons, each with what it means, the one the block has
+  /// picked; a long one without meanings to read is a menu. It reads as an input does: `value`, the option picked or
+  /// "", and `focus()`.
+  function choice(field) {
+    if (field.options.length > 4 && !field.options.some((option) => option.detail)) return menu(field);
+    const radios = field.options.map((option) => el("input", { type: "radio", name: `setup-${field.key}`, value: option.value, checked: option.value === field.value }));
+    const node = el("fieldset", { class: "field setup-choice", id: `setup-${field.key}` },
+      el("legend", { class: "field-title", text: t(field.label) }),
+      ...field.options.map((option, index) => el("label", { class: "setup-option" }, radios[index],
+        el("span", {}, el("strong", { text: t(option.label) }), option.detail ? el("span", { class: "muted", text: t(option.detail) }) : null))));
+    Object.defineProperty(node, "value", { get: () => radios.find((radio) => radio.checked)?.value ?? "" });
+    node.focus = () => (radios.find((radio) => radio.checked) ?? radios[0])?.focus();
+    return node;
+  }
+
+  /// A wait with nothing to type or open: a button to press on the device.
+  const pressing = (prompt) => Boolean(prompt.waitSeconds) && !prompt.fields.length && !prompt.url;
+
+  /// The sheet of one Setup: it starts the session, then draws each prompt the plugin sends until it is done. An
+  /// account set up for the first time then lists what the plugin finds, to pick those that go into the Home app (the
+  /// others are excluded); then what was added. Its header names where it stands: signing in, the devices, done.
+  function open({ block, plugin = null, device = null, known = null, draft = false, firstTime = false, resume = null, trigger = null, after }) {
+    const title = device?.name ?? block.name;
+    // Under the title, a device's Authorization, or the plugin when the instance's name does not say it (an account's
+    // way to sign in may be the person's choice, asked in the sheet).
+    const subtitle = device ? methods[device.authorization]?.[0]() ?? "" : plugin && bare(plugin.name) !== bare(block.name) ? plugin.name : "";
+    const glyph = device ? methods[device.authorization]?.[1] ?? "accessory" : block.icon ?? plugin?.icon ?? "plugin";
+    const picking = firstTime && !device;
+    const devicesStage = t("Devices");
+    const stages = [device ? t("Set up") : accountActions[plugin?.accountAuthorization]?.[0]() ?? t("Sign in"), picking ? devicesStage : null, t("Done")].filter(Boolean);
+    let session = null, poll = 0, ticker = 0, done = false, closed = false;
+    // A Button Press's end: the retries keep it, so the countdown does not start over at each one.
+    let until = 0;
+    const stop = () => { clearTimeout(poll); clearInterval(ticker); };
+    app().openSheet((dismiss) => {
+      const body = el("div", { class: "setup-step" }, loading(t("Asking the plugin…")));
+      const steps = el("ol", { class: "setup-stages" });
+      const stage = (at) => {
+        steps.setAttribute("aria-label", t("Step {at} of {count}", { at: at + 1, count: stages.length }));
+        steps.replaceChildren(...stages.map((name, index) => el("li", { class: index < at ? "done" : index === at ? "current" : "", "aria-current": index === at ? "step" : null },
+          el("span", { class: "setup-stage-dot", "aria-hidden": "true" }, index < at ? HomeswiftCommon.icon("check") : String(index + 1)), el("span", { text: name }))));
+      };
+      stage(0);
+      const form = el("form", { class: "account-form setup-sheet", novalidate: true },
+        el("div", { class: "setup-sheet-head" }, tile(glyph, "orange"),
+          el("div", {}, el("h2", { id: "setup-title", text: title }), subtitle ? el("p", { class: "muted setup-method", text: subtitle }) : null)),
+        stages.length > 1 ? steps : null,
+        body);
+      form.addEventListener("submit", (event) => event.preventDefault());
+      const fill = (...nodes) => { body.replaceChildren(...nodes.filter(Boolean)); body.classList.remove("entering"); void body.offsetWidth; body.classList.add("entering"); };
+
+      /// The end: what reached the Home app, when the sheet knows.
+      function finish(added = null) {
+        stage(stages.length - 1);
+        // The Setup is over: Done (or Return) closes the sheet, and nothing is sent again.
+        form.onsubmit = (event) => { event.preventDefault(); dismiss(); };
+        fill(
+          el("div", { class: "setup-done" }, el("span", { class: "setup-check", "aria-hidden": "true" }, HomeswiftCommon.icon("check")),
+            el("p", {}, el("strong", { text: device ? t("{name} is set up.", { name: title })
+              : added?.length ? tn("One accessory added.", "{n} accessories added.", added.length) : t("The account is set up.") })),
+            el("p", { class: "muted", text: added?.length ? t("They reach the Home app in a moment.") : t("Its accessories reach the Home app in a moment.") })),
+          added?.length ? el("ul", { class: "setup-added" }, ...added.map((found, index) =>
+            el("li", { style: `--index: ${Math.min(index, 8)}` }, tile(HomeswiftWidgets.categoryIcon(found.category) ?? glyph, "blue"), el("span", { text: found.name })))) : null,
+          el("div", { class: "actions" }, el("button", { class: "primary", type: "submit", actionIcon: "check", text: t("Done") })));
+        body.querySelector(".actions button")?.focus();
+      }
+
+      /// What the account, or a device just set up (a console), reaches, to pick: every device ticked; those left out are
+      /// excluded. A console's devices come once the plugin has connected to it: it is asked a few times.
+      async function pick({ keep, tries = 1, owner = plugin?.name ?? block.name }) {
+        fill(loading(t("Looking for devices…")));
+        let found = [];
+        for (let attempt = 0; attempt < tries && !closed; attempt++) {
+          if (attempt) await new Promise((resume) => setTimeout(resume, 2000));
+          try {
+            found = (await post("discover", { platform: block.platform, name: block.name })).devices
+              .filter((one) => ["setUp", "notResponding", "discovered"].includes(one.status) && keep(one));
+          } catch { found = []; }
+          if (found.length) break;
+        }
+        if (closed) return;
+        if (!found.length) { finish(); return; }
+        if (!stages.includes(devicesStage)) stages.splice(stages.length - 1, 0, devicesStage);
+        stage(stages.indexOf(devicesStage));
+        const boxes = found.map((one) => el("input", { type: "checkbox", checked: true, value: one.deviceID }));
+        const submit = el("button", { class: "primary", type: "submit", actionIcon: "plus" });
+        const count = () => {
+          const picked = boxes.filter((box) => box.checked).length;
+          submit.textContent = picked ? tn("Add one accessory", "Add {n} accessories", picked) : t("Add none");
+        };
+        const partLists = found.map((one) => partsList(one));
+        boxes.forEach((box, index) => box.addEventListener("change", () => { count(); partLists[index]?.enable(box.checked); }));
+        count();
+        form.onsubmit = (event) => {
+          event.preventDefault();
+          HomeswiftCommon.busyButton(submit, async () => {
+            const left = found.filter((one, index) => !boxes[index].checked);
+            for (const one of left) await post("exclude", { platform: block.platform, name: block.name, deviceID: one.deviceID, excluded: true });
+            // The parts of the devices kept, as switched: the plugin builds them, or leaves them out.
+            for (const [index, one] of found.entries()) {
+              if (!boxes[index].checked) continue;
+              for (const change of partLists[index]?.changes() ?? []) await post("part", { platform: block.platform, name: block.name, deviceID: one.deviceID, ...change });
+            }
+            finish(found.filter((one, index) => boxes[index].checked));
+          });
+        };
+        fill(
+          el("p", {}, el("strong", { text: tn("{plugin} found one device.", "{plugin} found {n} devices.", found.length, { plugin: owner }) })),
+          el("p", { class: "muted", text: t("Choose those that go into the Home app. The others are excluded; you can include them later.") }),
+          el("div", { class: "setup-picks" }, ...found.map((one, index) => el("div", { class: "setup-pick-group" },
+            el("label", { class: "setup-pick" }, boxes[index],
+              tile(HomeswiftWidgets.categoryIcon(one.category) ?? glyph, "blue"),
+              el("span", { class: "who" }, el("strong", { text: one.name }), el("span", { class: "muted", text: [one.model, one.address].filter(Boolean).join(" · ") || one.deviceID }))),
+            partLists[index]?.node ?? null))),
+          el("div", { class: "actions" }, submit));
+        submit.focus({ preventScroll: true });
+      }
+
+      function draw(answer) {
+        stop();
+        // An answer that arrives after the sheet closed (a retry under way) draws nothing and starts nothing.
+        if (closed) return;
+        if (answer.status === "done") {
+          done = true;
+          session = null;
+          if (picking) pick({ keep: () => true });
+          // A console signed in: the cameras, doors and sensors it brings, not the devices that were there already.
+          else if (device && known) pick({ keep: (one) => one.authorization === "none" && !known.has(one.deviceID) && one.deviceID !== device.deviceID, tries: 5, owner: title });
+          else finish();
+          return;
+        }
+        session = answer.session;
+        const prompt = answer.prompt;
+        if (!prompt.waitSeconds) until = 0;
+        const error = answer.error ? el("p", { class: "error", role: "alert", text: answer.error }) : null;
+        const cancel = el("button", { type: "button", actionIcon: "close", text: t("Cancel"), onclick: () => dismiss() });
+        // A wait (a Button Press, a sign-in in another tab): a countdown, and the step sent again every few seconds until
+        // the plugin is done. A retry that brings the same prompt back leaves the sheet as it is, and what is typed in it.
+        let left = null;
+        if (prompt.waitSeconds) {
+          if (!until) until = Date.now() + prompt.waitSeconds * 1000;
+          left = el("p", { class: "muted setup-countdown" });
+          const tick = () => {
+            const seconds = Math.max(0, Math.ceil((until - Date.now()) / 1000));
+            left.textContent = seconds ? (pressing(prompt) ? t("Waiting for the button… {seconds} s left.", { seconds }) : t("Waiting… {seconds} s left.", { seconds }))
+              : t("Time is up. Try again when you are ready.");
+            if (!seconds) stop();
+          };
+          tick();
+          const retry = () => {
+            if (closed || Date.now() >= until) return;
+            poll = setTimeout(async () => {
+              let next;
+              try { next = await step({}); } catch (e) { next = { ...answer, error: e.message }; }
+              if (closed) return;
+              if (next.status === "asking" && !next.error && next.prompt.message === prompt.message) retry(); else draw(next);
+            }, (prompt.retryAfter ?? 2) * 1000);
+          };
+          ticker = setInterval(tick, 1000);
+          retry();
+        }
+        if (pressing(prompt)) {
+          // The time left as a bar that empties, from where the wait stands now.
+          const total = prompt.waitSeconds * 1000;
+          const bar = el("span", { class: "setup-wait-bar", "aria-hidden": "true" },
+            el("span", { style: `animation-duration: ${total}ms; animation-delay: -${Math.max(0, total - (until - Date.now()))}ms` }));
+          fill(
+            el("div", { class: "setup-press" }, el("span", { class: "setup-ring", "aria-hidden": "true" }, HomeswiftCommon.icon("pair")),
+              el("p", {}, el("strong", { text: t(prompt.message, prompt.values ?? {}) })), bar, left),
+            error,
+            el("div", { class: "actions" }, cancel));
+          return;
+        }
+        const inputs = prompt.fields.map((field) => {
+          if (field.kind === "choice") return [field, choice(field)];
+          const input = el("input", {
+            name: field.key, id: `setup-${field.key}`, required: !field.optional, spellcheck: false,
+            class: field.kind === "code" ? "setup-code" : "",
+            type: field.kind === "secret" ? "password" : field.kind === "url" ? "url" : "text",
+            autocomplete: field.kind === "secret" ? "current-password" : field.kind === "code" ? "one-time-code" : "off",
+            inputmode: field.kind === "code" ? "numeric" : undefined,
+          });
+          return [field, input];
+        });
+        const submit = inputs.length ? el("button", { class: "primary", type: "submit", actionIcon: "forward", text: t("Continue") }) : null;
+        form.onsubmit = (event) => {
+          event.preventDefault();
+          if (!submit) return;
+          const missing = inputs.find(([field, input]) => !field.optional && !input.value.trim());
+          if (missing) { missing[1].focus(); return; }
+          stop();
+          HomeswiftCommon.busyButton(submit, async () => draw(await step(Object.fromEntries(inputs.map(([field, input]) => [field.key, input.value])))));
+        };
+        const link = /^https?:\/\//i.test(prompt.url ?? "")
+          ? el("a", { class: `button ${inputs.length ? "" : "primary"}`, href: prompt.url, target: "_blank", rel: "noopener noreferrer", actionIcon: "open", text: t("Open the sign-in page") }) : null;
+        fill(
+          el("p", { text: t(prompt.message, prompt.values ?? {}) }),
+          link,
+          ...inputs.map(([field, input]) => input.tagName === "FIELDSET" ? input
+            : el("label", { class: "field", htmlFor: input.id }, el("span", { class: "field-title", text: t(field.label) }), input)),
+          left,
+          error,
+          el("div", { class: "actions" }, cancel, submit));
+        (inputs.find(([, input]) => !input.value)?.[1] ?? submit ?? link ?? cancel).focus();
+      }
+
+      const step = (answers) => post(session, { answers });
+      // A plugin added from the catalog: its block is saved once its Setup is done.
+      // A Setup the Assistant started is taken over where it stands; the others start here.
+      (resume ? post(`${resume}/state`, {}) : post("start", { platform: block.platform, name: block.name, deviceID: device?.deviceID, block: draft ? block : undefined }))
+        .then(draw)
+        .catch((e) => fill(el("p", { class: "error", role: "alert", text: e.message }),
+          el("div", { class: "actions" }, el("button", { type: "button", actionIcon: "close", text: t("Close"), onclick: () => dismiss() }))));
+      return form;
+    }, "setup-title", {
+      returnFocus: trigger,
+      onClose: () => {
+        closed = true;
+        stop();
+        // A Setup left half way ends on the server too; one that is done shows its device as set up.
+        if (session) post(`${session}/cancel`, {}).catch(() => {});
+        if (done) after();
+        if (trigger?.isConnected) trigger.focus();
+      },
+    });
+  }
+
+  /// A Setup the Assistant started, opened in the sheet at the step it stands at (a password, a sign-in page, a button
+  /// to press): the chat's card calls it. The page, when it is open, is drawn again once it is done.
+  async function resume({ session, platform, name }) {
+    try {
+      const plugins = await api("/api/plugins");
+      const plugin = plugins.plugins.find((one) => one.platform === platform) ?? null;
+      const block = plugins.blocks.find((one) => one.platform === platform && one.name === name) ?? { platform, name: name ?? platform };
+      const isNew = !plugins.blocks.some((one) => one.platform === platform && one.name === name);
+      open({ block, plugin, resume: session, firstTime: isNew, after: () => { if (location.pathname === "/setup") app().route(); } });
+    } catch (e) { HomeswiftCommon.showAlert(e.message); }
+  }
+
+  window.HomeswiftSetup = { view, resume };
+})();
+
+"""#),
         "style.css": WebFile(contentType: "text/css; charset=utf-8", body: #"""
 /* Apricot frost: frosted glass over an apricot-to-stone backdrop (Ember, a warm charcoal, in dark mode), after
    Apple's fluid-interface guidance: materials of three weights (thick chrome, regular cards, thin chips) with solid
@@ -22918,7 +23908,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 }
 .ai-head { display: flex; align-items: center; gap: var(--space-8); margin-bottom: var(--space-8); font-size: var(--text-sm); color: var(--muted); }
 .ai-label { font-weight: var(--weight-semibold); letter-spacing: 0.01em; }
-.ai-close { padding: 0; width: 26px; height: 26px; display: grid; place-items: center; font-size: var(--text-lg); line-height: 1; border-radius: 50%; }
+.ai-close { padding: 0; width: 26px; height: 26px; min-height: 26px; display: grid; place-items: center; font-size: var(--text-lg); line-height: 1; border-radius: 50%; }
 .ai-thinking {
   margin: var(--space-4) 0 var(--space-6); font-weight: var(--weight-medium); background: linear-gradient(90deg, var(--muted) 20%, var(--text) 50%, var(--muted) 80%);
   background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: ai-shimmer 1.8s linear infinite;
@@ -24178,7 +25168,7 @@ dd { margin: 0; }
   font: inherit; white-space: pre-wrap; line-height: 1.4;
 }
 .chat-composer textarea:focus { box-shadow: none; }
-.chat-mic, .chat-send { flex: none; width: 34px; height: 34px; padding: 0; display: grid; place-items: center; border-radius: 50%; }
+.chat-mic, .chat-send { flex: none; width: 34px; height: 34px; min-height: 34px; padding: 0; display: grid; place-items: center; border-radius: 50%; }
 .chat-mic { border-color: transparent; background: none; box-shadow: none; color: var(--muted); }
 .chat-mic:hover { color: var(--text); background: var(--material-thin); }
 .chat-mic.unavailable { opacity: 0.45; }
@@ -24505,7 +25495,7 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
   transition: opacity var(--normal) var(--ease-out);
 }
 .camera-button {
-  display: inline-grid; place-items: center; width: 34px; height: 34px; padding: 0; border-radius: 50%; color: #fff;
+  display: inline-grid; place-items: center; width: 34px; height: 34px; min-height: 34px; padding: 0; border-radius: 50%; color: #fff;
   background: rgba(30, 32, 40, 0.42); -webkit-backdrop-filter: blur(14px) saturate(160%); backdrop-filter: blur(14px) saturate(160%);
   border: 1px solid rgba(255, 255, 255, 0.18); box-shadow: none;
 }
@@ -24525,7 +25515,7 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
   .camera-controls { opacity: 0; }
   .camera-view:hover > .camera-controls, .camera-view:focus-within > .camera-controls { opacity: 1; }
 }
-@media (pointer: coarse) { .camera-button { width: 40px; height: 40px; } }
+@media (pointer: coarse) { .camera-button { width: 40px; height: 40px; min-height: 40px; } }
 @media (max-width: 640px) { .camera-view { margin: -6px -8px 0; } }
 @media (prefers-reduced-motion: reduce) { .camera-badge.ring.fresh { animation: none; } .camera-view > video, .camera-controls { transition: none; } }
 @media (prefers-reduced-transparency: reduce) {
@@ -25435,6 +26425,8 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 .accessories-toolbar .accessory-options-button svg { fill: none; stroke: currentColor; stroke-width: 1.6; width: 19px; height: 19px; }
 @media (max-width: 650px) { .group-picker-columns { grid-template-columns: 1fr; gap: var(--space-16); } .group-picker-columns .group-member-list { max-height: 25vh; } }
 @media (max-width: 600px) { .accessories-toolbar { width: 100%; } .accessories-toolbar .search { flex: 1 1 100%; width: 100%; } }
+/* Add accessories: its words where there is room, its plus alone beside the other round buttons on a phone. */
+@media (max-width: 600px) { .accessories-toolbar .accessories-add { width: 40px; height: 40px; min-height: 40px; padding: 0; gap: 0; font-size: 0; flex: none; } }
 
 /* Toolbar glyphs stay lighter than their labels. */
 .accessories-toolbar button > svg,
@@ -25914,6 +26906,200 @@ select option:disabled { color: var(--muted); }
 /* Pairing: the bridge's button drawn, what to do, and Pair at the row's end; the drawn button pulses while the bridge waits. */
 .pair-prompt { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--space-16); align-items: center; margin-top: var(--space-14); padding: var(--space-14) var(--space-16); border-radius: var(--radius-lg); background: var(--material-thin); border: 1px solid var(--line); }
 .pair-prompt p { margin: 0; font-size: var(--text-md); }
+
+/* Add accessories (setup.js): a card per plugin, a row per device it finds, and one sheet for every Setup. */
+.setup-list { display: grid; gap: var(--space-16); }
+.setup-list > .card { margin-bottom: 0; }
+/* The plugins to add: a card per brand, what it reaches and how it connects; the whole card adds it. */
+.setup-search { width: 100%; max-width: 420px; margin-bottom: var(--space-12); }
+.setup-brands { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--space-12); }
+.setup-brand {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--space-12); row-gap: 2px; align-items: start; align-content: start;
+  height: auto; min-height: 0; padding: var(--space-14); text-align: left; font: inherit; color: var(--text); white-space: normal;
+  border-radius: var(--radius-lg); background: var(--material-thick); border: 1px solid var(--edge); box-shadow: var(--shadow-control);
+  transition: transform 160ms var(--ease-out), border-color 160ms var(--ease-out);
+}
+.setup-brand[hidden] { display: none; }
+.setup-brand > .tile { grid-row: span 2; }
+.setup-brand-name { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-6); font-weight: var(--weight-semibold); }
+.setup-brand-used { font-size: var(--text-2xs); font-weight: var(--weight-medium); color: var(--muted); padding: 1px var(--space-6); border: 1px solid var(--line); border-radius: var(--radius-pill); }
+.setup-brand-how { display: inline-flex; align-items: center; gap: 5px; margin-top: var(--space-4); font-size: var(--text-xs); }
+.setup-brand-how svg { width: 13px; height: 13px; flex: none; }
+@media (hover: hover) and (pointer: fine) { .setup-brand:hover { border-color: color-mix(in srgb, var(--accent) 45%, transparent); } }
+.setup-brand:active { transform: scale(0.97); }
+/* A phone: two brands a row, their name and how they connect; what they reach is a tap away. */
+@media (max-width: 560px) {
+  .setup-brands { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-8); }
+  .setup-brand { grid-template-columns: minmax(0, 1fr); padding: var(--space-12); row-gap: var(--space-4); }
+  .setup-brand > .tile { grid-row: auto; width: 34px; height: 34px; margin-bottom: var(--space-4); }
+  .setup-brand > .tile svg { width: 19px; height: 19px; }
+  .setup-brand-how { margin-top: 0; }
+}
+/* A plugin that needs someone comes first; its devices set up or excluded fold under their count. */
+.setup-instance.needs-you { order: -1; }
+/* A plugin just added: its card glows once, where the page scrolled to. */
+@media (prefers-reduced-motion: no-preference) {
+  .setup-instance.just-added { animation: setup-added 1.6s var(--ease-out) 300ms; }
+  @keyframes setup-added { 0%, 30% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent); } }
+}
+@media (prefers-reduced-motion: reduce) {
+  .setup-instance.just-added { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); }
+}
+/* The page's two ways to add: each label on one line, the two side by side on a phone. */
+.setup-assistant, .page-head .tools > .primary { white-space: nowrap; }
+@media (max-width: 560px) { .page-head:has(.setup-assistant) .tools { width: 100%; } .page-head:has(.setup-assistant) .tools > button { flex: 1; } }
+
+/* A plugin in use: one row, its name and where its devices stand; the whole row opens it on its devices. */
+.setup-list > .setup-instance { padding: 0; }
+.setup-instance-head { display: flex; align-items: center; gap: var(--space-10); padding-right: var(--space-18); border-radius: inherit; }
+.setup-instance-toggle {
+  flex: 1; min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-12); align-items: center;
+  min-height: 0; padding: var(--space-14) 0 var(--space-14) var(--space-18); border: 0; border-radius: inherit; background: none; box-shadow: none;
+  font: inherit; color: var(--text); text-align: left; white-space: normal;
+}
+.setup-instance-toggle .who { display: grid; gap: 2px; min-width: 0; }
+.setup-instance-toggle .who strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.setup-instance-toggle .who .muted { font-size: var(--text-sm); }
+.setup-instance-toggle .who .muted[data-tone="away"] { color: var(--warn); font-weight: var(--weight-medium); }
+@media (hover: hover) and (pointer: fine) { .setup-instance-head:has(.setup-instance-toggle:hover) { background: var(--material-thin); } }
+.setup-chevron { flex: none; width: 8px; height: 8px; margin: 0 var(--space-4); border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
+  transform: rotate(-45deg); transition: transform 200ms var(--ease-out); cursor: pointer; }
+.setup-instance.is-open .setup-chevron { transform: rotate(45deg); }
+.setup-instance-body { padding: 0 var(--space-18) var(--space-12); }
+.setup-instance-body > .setup-devices { margin-top: 0; }
+/* Adding a plugin: the brands in a sheet, one row each, with what they reach. */
+.setup-picker > h2 { margin-bottom: var(--space-12); }
+.setup-picker .setup-search { max-width: none; }
+.setup-plugin-rows { display: grid; }
+.setup-plugin-row {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--space-12); align-items: center; width: 100%; min-height: 0;
+  padding: var(--space-10) var(--space-6); border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: none; box-shadow: none;
+  font: inherit; color: var(--text); text-align: left; white-space: normal;
+}
+.setup-plugin-row[hidden] { display: none; }
+.setup-plugin-row .who { display: grid; gap: 2px; min-width: 0; }
+.setup-plugin-row .who strong { display: flex; align-items: center; gap: var(--space-6); }
+.setup-plugin-row .who .muted { font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (hover: hover) and (pointer: fine) { .setup-plugin-row:hover { background: var(--material-thin); } }
+.setup-plugin-row:active { background: var(--material-thin); }
+.setup-devices { display: grid; margin-top: var(--space-12); border-top: 1px solid var(--line); }
+.setup-device { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto; gap: var(--space-12); align-items: center; padding: var(--space-10) 0; border-bottom: 1px solid var(--line); }
+.setup-device:last-child { border-bottom: 0; }
+.setup-device .who strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.setup-device .who .muted { font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.setup-device.is-excluded .who { opacity: 0.6; }
+.setup-device .status-dot { justify-self: end; }
+.setup-account .who .muted { white-space: normal; }
+.setup-account { background: color-mix(in srgb, var(--accent) 7%, transparent); margin: 0 calc(-1 * var(--space-12)); padding-inline: var(--space-12); border-radius: var(--radius-md); }
+.setup-loading, .setup-none { margin: var(--space-12) 0 0; }
+.setup-loading { display: flex; align-items: center; gap: var(--space-10); }
+.setup-loading .spinner { width: 16px; height: 16px; flex: none; }
+/* Searching again: the rows a new list may replace dim, after a moment so a quick answer does not flash them. */
+.setup-device { transition: opacity var(--normal) var(--ease-out); }
+.setup-instance.is-searching .setup-device { opacity: 0.55; transition-delay: 150ms; }
+.setup-step { display: grid; gap: var(--space-12); }
+.setup-step > p { margin: 0; }
+.setup-choice { border: 0; margin: 0; padding: 0; display: grid; gap: var(--space-8); }
+.setup-choice legend { padding: 0; margin-bottom: var(--space-8); }
+.setup-option { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-10); align-items: start; padding: var(--space-12); border: 1px solid var(--line); border-radius: var(--radius-md); cursor: pointer; transition: border-color 160ms var(--ease-out), background-color 160ms var(--ease-out); }
+.setup-option:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.setup-option input { margin: 3px 0 0; accent-color: var(--accent); }
+.setup-option > span { display: grid; gap: var(--space-4); }
+.setup-option .muted { font-size: var(--text-sm); }
+/* The sheet's head: what is being set up, and where it stands (a stage per screen: signing in, the devices, done). */
+.setup-sheet-head { display: flex; align-items: center; gap: var(--space-12); margin-bottom: var(--space-12); }
+.admin-dialog.sheet .setup-sheet-head h2 { margin: 0; font-size: var(--text-2xl); letter-spacing: -0.015em; }
+.setup-sheet .setup-sheet-head .setup-method { margin: 2px 0 0; }
+.setup-stages { list-style: none; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); margin: 0 0 var(--space-18); padding: 0; }
+.setup-stages li { display: flex; align-items: center; gap: var(--space-6); font-size: var(--text-xs); color: var(--muted); }
+.setup-stages li + li::before { content: ""; width: 16px; height: 1px; background: var(--line); }
+.setup-stage-dot { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: var(--text-2xs); font-weight: var(--weight-semibold);
+  border: 1px solid var(--line); background: var(--material-thin); transition: background-color 200ms var(--ease-out), color 200ms var(--ease-out); }
+.setup-stage-dot svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.setup-stages li.current { color: var(--text); font-weight: var(--weight-medium); }
+.setup-stages li.current .setup-stage-dot { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.setup-stages li.done .setup-stage-dot { background: color-mix(in srgb, var(--ok) 16%, transparent); border-color: transparent; color: var(--ok); }
+/* Each new screen of the sheet comes up from just below; a retry that changes nothing does not move. */
+@media (prefers-reduced-motion: no-preference) {
+  .setup-step.entering > * { animation: setup-enter 220ms var(--ease-out) both; }
+  @keyframes setup-enter { from { opacity: 0; transform: translateY(6px); } }
+}
+.setup-code { font-size: var(--text-3xl); letter-spacing: 0.3em; font-variant-numeric: tabular-nums; max-width: 220px; }
+/* A Button Press: a ring that keeps calling for the press, and the time left as a bar that empties. */
+.setup-press { display: grid; justify-items: center; text-align: center; gap: var(--space-8); padding: var(--space-12) 0 var(--space-4); }
+.setup-press p { margin: 0; }
+.setup-ring { position: relative; width: 72px; height: 72px; border-radius: 50%; display: grid; place-items: center; margin-bottom: var(--space-6);
+  background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent-ink, var(--accent)); }
+.setup-ring svg { width: 30px; height: 30px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.setup-ring::after { content: ""; position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--accent); opacity: 0; }
+.setup-wait-bar { width: 100%; max-width: 260px; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; margin-top: var(--space-6); }
+.setup-wait-bar > span { display: block; height: 100%; background: var(--accent); transform-origin: left; animation: setup-wait linear both; }
+@keyframes setup-wait { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+@media (prefers-reduced-motion: no-preference) {
+  .setup-ring::after { animation: setup-call 1.6s var(--ease-out) infinite; }
+  @keyframes setup-call { from { transform: scale(1); opacity: 0.6; } to { transform: scale(1.45); opacity: 0; } }
+}
+/* The devices an account reaches, ticked to go into the Home app. */
+.setup-picks { display: grid; border-top: 1px solid var(--line); }
+.setup-pick { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--space-12); align-items: center; padding: var(--space-10) 0;
+  border-bottom: 1px solid var(--line); cursor: pointer; }
+.setup-pick > .tile { grid-column: 1; grid-row: 1; transition: filter 160ms var(--ease-out), opacity 160ms var(--ease-out); }
+.setup-pick > input { grid-column: 3; grid-row: 1; }
+.setup-pick > .who { grid-column: 2; grid-row: 1; }
+.setup-pick:not(:has(input:checked)) .tile { filter: grayscale(1); opacity: 0.55; }
+.setup-pick:not(:has(input:checked)) .who { opacity: 0.6; }
+/* The sheet's buttons stay in reach under a long list. */
+.setup-step > .actions:last-child { position: sticky; bottom: calc(-1 * var(--space-20)); margin-bottom: calc(-1 * var(--space-20)); padding: var(--space-14) 0 var(--space-20);
+  background: linear-gradient(to bottom, transparent, var(--material-solid) 30%); }
+.setup-pick input { margin: 0; }
+.setup-pick .who { display: grid; min-width: 0; }
+.setup-pick .who > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.setup-pick .muted { font-size: var(--text-sm); }
+/* The chat handing a Setup over to the sheet: what the step asks, and the way there. */
+.chat-setup { display: grid; gap: var(--space-8); justify-items: start; padding: var(--space-12) var(--space-14); border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.chat-setup p { margin: 0; }
+
+/* A device's parts under it (a gate's side door, a door sensor, a doorbell): each on its own line with its switch,
+   indented under the device's name. */
+.setup-pick-group, .setup-device-group { border-bottom: 1px solid var(--line); }
+.setup-pick-group > .setup-pick, .setup-device-group > .setup-device { border-bottom: 0; }
+.setup-device-group:last-child { border-bottom: 0; }
+.setup-parts { display: grid; margin: calc(-1 * var(--space-4)) 0 var(--space-10) 52px; }
+.setup-part { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--space-10); align-items: center; padding: var(--space-6) 0; cursor: pointer; }
+.setup-part-icon { width: 24px; height: 24px; border-radius: var(--radius-xs); display: grid; place-items: center; color: var(--muted); background: var(--material-thin); }
+.setup-part-icon svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.setup-part-name { font-size: var(--text-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.setup-part .switch { transform: scale(0.85); transform-origin: right center; }
+.setup-part:has(input:not(:checked)) .setup-part-name { color: var(--muted); }
+.setup-part:has(input:disabled) { opacity: 0.5; cursor: default; }
+
+/* What reached the Home app, one after the other. */
+.setup-added { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-6); }
+.setup-added li { display: flex; align-items: center; gap: var(--space-10); padding: var(--space-6) var(--space-10); border-radius: var(--radius-md); background: var(--material-thin); }
+.setup-added .tile { width: 28px; height: 28px; border-radius: var(--radius-xs); }
+.setup-added .tile svg { width: 15px; height: 15px; }
+@media (prefers-reduced-motion: no-preference) {
+  .setup-step.entering .setup-added li { animation: setup-enter 240ms var(--ease-out) both; animation-delay: calc(var(--index) * 45ms + 120ms); }
+}
+.setup-done { display: grid; justify-items: center; text-align: center; gap: var(--space-6); padding: var(--space-12) 0; }
+.setup-done p { margin: 0; }
+.setup-check { width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
+.setup-check svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+@media (prefers-reduced-motion: no-preference) {
+  .setup-check { animation: setup-check-in 320ms var(--ease-out) both; }
+  @keyframes setup-check-in { from { opacity: 0; transform: scale(0.85); } }
+}
+@media (max-width: 640px) {
+  /* The dot and the menu stay on the name's line; a pill and a button go under the name. */
+  .setup-device { grid-template-columns: auto minmax(0, 1fr) auto auto; row-gap: var(--space-8); }
+  .setup-device > .status-dot { grid-row: 1; grid-column: 3; }
+  .setup-device > :last-child { grid-row: 1; grid-column: 4; }
+  .setup-device > .pill { grid-row: 2; grid-column: 2; justify-self: start; }
+  .setup-device > button.primary { grid-row: 2; grid-column: 3 / 5; justify-self: end; }
+  .setup-account > button.primary:last-child { grid-row: 2; grid-column: 3 / 5; }
+  .setup-spacer { display: none; }
+}
 .link-button { width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; background: radial-gradient(circle at 50% 40%, #fff, #e6e8ee 70%); box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.15); color: #3d4352; }
 .link-button svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 .pairing .link-button { animation: press 1.6s var(--ease-out) infinite; }
@@ -26399,7 +27585,9 @@ select option:disabled { color: var(--muted); }
 
 .message-dialog { max-width: min(560px, calc(100vw - 32px)); }
 .dialog-message { white-space: pre-wrap; overflow-wrap: anywhere; }
-.message-dialog input { width: 100%; min-width: 0; }
+.message-dialog input:not([type="checkbox"]) { width: 100%; min-width: 0; }
+.message-dialog .toggle { margin: var(--space-4) 0 var(--space-6); }
+.message-dialog .toggle .help { display: block; font-size: var(--text-sm); margin-top: 2px; }
 
 /* The Accessories wall full screen (?full=1): the widgets alone over the backdrop, for a wall tablet. Grouped by room
    or plugin, each group is a page of a strip that snaps, swiped with the finger's momentum (or the arrow keys, the dots,

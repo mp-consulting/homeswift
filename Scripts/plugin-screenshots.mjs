@@ -93,6 +93,8 @@ const hueResources = [
 ];
 const hue = createServer(tls, (request, response) => {
   const json = (value, status = 200) => { response.writeHead(status, { "Content-Type": "application/json" }); response.end(JSON.stringify(value)); };
+  // A pairing: the link button is never pressed, so a bridge set up on the Add accessories page waits for it.
+  if (request.method === "POST" && request.url === "/api") return json([{ error: { type: 101, description: "link button not pressed" } }]);
   if (request.url === "/api/config") return json({ bridgeid: "001788FFFE000001", name: "Hue Bridge" });
   if (request.headers["hue-application-key"] !== "demo-key") return json({ errors: [{ description: "unauthorized user" }] }, 403);
   if (request.url === "/clip/v2/resource") return json({ errors: [], data: hueResources });
@@ -144,7 +146,11 @@ writeFileSync(join(storage, "config.json"), JSON.stringify({
   platforms: [
     { platform: "HomeswiftUI", name: "Web UI", port: uiPort, host: "127.0.0.1", auth: "none", checkForUpdates: false, scheduledBackupDisable: true },
     { platform: "PhilipsHue", name: "Philips Hue", host: `127.0.0.1:${huePort}`, transitionMs: 400 },
+    // A second bridge not paired yet, for the Add accessories page's Pair row.
+    { platform: "PhilipsHue", name: "Upstairs Hue", host: `127.0.0.1:${huePort}` },
     { platform: "Dirigera", name: "IKEA DIRIGERA", hubs: [{ host: "127.0.0.1", token: "demo-token", name: "Home" }] },
+    // An Assistant that reaches no provider: the chat shows the conversation below, and nothing is asked again.
+    { platform: "HomeswiftAiKit", name: "Assistant", provider: "openai-compatible", baseUrl: "http://127.0.0.1:9/v1", model: "demo" },
   ],
 }, null, 2));
 // Two saved scenes on the living room's lights, for the Scenes page's cards.
@@ -158,6 +164,15 @@ writeFileSync(join(storage, "scenes.json"), JSON.stringify({ version: 1, scenes:
     triggers: [{ type: "schedule", time: "19:30", days: [1, 2, 3, 4, 5], enabled: true }],
     actions: [action("l2", "On", true), action("l2", "Brightness", 60), action("l3", "On", true), action("l3", "Brightness", 45)] },
 ] }));
+// A conversation where the Assistant started pairing the second bridge and handed the button press to the Setup sheet.
+const now = new Date().toISOString();
+writeFileSync(join(storage, "ui-chats.json"), JSON.stringify({ local: { current: { id: "c0ffee0000000001", created: now, updated: now, messages: [], items: [
+  { kind: "user", text: "Add my Hue Bridge upstairs" },
+  { kind: "tool", id: "t1", name: "discover_devices", title: "Find devices", summary: "Philips Hue · Upstairs Hue", state: "done" },
+  { kind: "tool", id: "t2", name: "start_setup", title: "Set up a device", summary: "Upstairs Hue", state: "done" },
+  { kind: "setup", session: "5e7up0000000001", platform: "PhilipsHue", name: "Upstairs Hue", message: "Press the link button on the Hue Bridge." },
+  { kind: "assistant", text: "I found the Hue Bridge at 192.168.1.20. Press its link button, then continue in the Setup sheet: it pairs the bridge and adds its lights." },
+] } } }));
 const bridge = spawn(binary, ["-U", storage], { stdio: "ignore" });
 /// Stops the bridge and the fake devices and removes the scratch folder, whatever stops the script.
 async function stop() {
@@ -355,6 +370,13 @@ try {
     }
   };
   const toUI = into(templates), toStatus = into(join(root, "docs/images/status"));
+  // The Add accessories page (docs/ui.md), and its sheet pairing the second bridge.
+  await shot("setup", "/setup", { ready: ".setup-account", tall: 1700 }).then(() => toUI("setup"));
+  await shot("setup-pair", "/setup", { ready: ".setup-account button.primary", viewport: true, height: 720,
+    prepare: `document.querySelector(".setup-account button.primary").click(); await new Promise((done) => setTimeout(done, 1500));` }).then(() => toUI("setup-pair"));
+  // The Assistant's chat handing a Setup to the sheet (docs/ui.md, "Add accessories").
+  await shot("setup-assistant", "/setup", { ready: ".setup-account", viewport: true, height: 760,
+    prepare: `HomeswiftChat.open(); await new Promise((done) => setTimeout(done, 1500));` }).then(() => toUI("setup-assistant"));
   const step = (title) => `[...document.querySelectorAll(".scene-flow-nav")].find((b) => b.textContent.includes(${literal(title)}))?.click();`;
   // A phone's fixed save bar and menu button would land mid-picture in a capture taller than the screen.
   const unpinned = `const style = document.createElement("style"); style.textContent = ".save-bar, nav.tabbar { display: none !important; }"; document.head.append(style);`;

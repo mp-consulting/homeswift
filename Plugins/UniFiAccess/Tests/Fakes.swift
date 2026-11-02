@@ -293,7 +293,10 @@ final class AccessTestEnvironment: @unchecked Sendable {
     /// Starts a host with these devices and options, and waits for the hubs to be in HomeKit.
     func start(devices: [[String: JSONValue]], doors: [JSONValue] = [], options: [String] = [], extra: [String: Any] = [:], expecting count: Int? = nil) async throws -> PluginHost {
         controller.setDevices(devices, doors: doors)
-        var settings: [String: Any] = ["controllers": [Self.controllerBlock.merging(extra) { $1 }], "options": options]
+        // The tests were written for one accessory per hub: the sensors and a UA Gate's side door, on tiles of their own by
+        // default, stay on it unless a test asks.
+        let grouped = ["Hub.Sensors.SeparateAccessory", "Hub.SideDoor.SeparateAccessory"].filter { name in !options.contains { $0.contains(name) } }
+        var settings: [String: Any] = ["controllers": [Self.controllerBlock.merging(extra) { $1 }], "options": grouped.map { "Disable.\($0)" } + options]
         settings["ringDelay"] = extra["ringDelay"]
         settings["debugAll"] = extra["debugAll"]
         let host = try host(settings: settings)

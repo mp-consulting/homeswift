@@ -193,6 +193,31 @@ import Testing
 
     static let pluginDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
 
+    /// A console without the app answers with its web page and is left out; one that does not answer stays, for
+    /// signing in to say what is wrong; an answer claiming this machine's own address is not asked.
+    @Test func discoveryKeepsConsolesRunningTheApp() async {
+        let send: @Sendable (HTTPRequest) async throws -> HTTPResponse = { request in
+            switch request.url.host {
+            case "10.0.0.1": return HTTPResponse(status: 200, headers: [("Content-Type", "text/html")], body: Data("<!doctype html>".utf8))
+            case "10.0.0.2": return HTTPResponse(status: 401, headers: [("Content-Type", "application/json")], body: Data("{}".utf8))
+            default: throw URLError(.timedOut)
+            }
+        }
+        let kept = await UbiquitiDiscovery.running(["10.0.0.1", "10.0.0.2", "10.0.0.3", "127.0.0.1"], app: "/proxy/access/api/v2/access/info", address: { $0 }, send: send)
+        #expect(kept == ["10.0.0.2", "10.0.0.3"])
+    }
+
+    /// Consoles have a login to set up; access points, chimes and hubs answer the probe too, and have none.
+    @Test func discoveryKeepsConsoles() {
+        let answer = { (model: String, firmware: String) in DiscoveredConsole(ip: "192.168.1.2", name: model, model: model, firmware: firmware) }
+        #expect(answer("UCGF", "5.1.34").isConsole && answer("UNVR", "6.0.11").isConsole && answer("UDM-Pro", "").isConsole)
+        #expect(!answer("UP Chime", "UP.esp32.v1.7.20.0.402a5ff.240910.0648").isConsole)
+        #expect(!answer("UA-Hub-Gate", "GT.mt7621.v2.6.13.0.g9bb4ebd.260911.1710").isConsole)
+        // The stub a recorder sends first, from another port.
+        #expect(!answer("", "").isConsole)
+        #expect(!answer("UFP-UAP-B", "UFP-UAP-B.Maple.v1.1.0.4.2fed14f36e.260126.1409").isConsole)
+    }
+
     @Test func discoveryAnswers() {
         // Header, MAC+IP, hostname, short model, firmware.
         var packet: [UInt8] = [0x01, 0x00, 0x00, 0x30]
