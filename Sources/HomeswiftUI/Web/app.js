@@ -12,9 +12,9 @@
   /// `problems`: what a save changed that its plugin's schema refuses, each with its path (`ConfigSchemaError`).
   class ApiError extends Error { constructor(status, message, problems) { super(message); this.status = status; this.problems = problems; } }
 
-  async function api(path, { method = "GET", body, raw = false } = {}) {
+  async function api(path, { method = "GET", body, raw = false, signal } = {}) {
     // The Assistant answers in the page's language.
-    const options = { method, credentials: "same-origin", headers: { "Accept-Language": HomeswiftI18n.locale } };
+    const options = { method, credentials: "same-origin", headers: { "Accept-Language": HomeswiftI18n.locale }, signal };
     if (body !== undefined) { options.headers["Content-Type"] = "application/json"; options.body = typeof body === "string" ? body : JSON.stringify(body); }
     const response = await fetch(path, options);
     if (response.status === 401 && !path.startsWith("/api/auth/")) { showAuth(); throw new ApiError(401, "signed out"); }
@@ -28,6 +28,13 @@
       throw new ApiError(response.status, HomeswiftI18n.message(message || `HTTP ${response.status}`), problems);
     }
     return raw ? text : (text ? JSON.parse(text) : null);
+  }
+
+  /// For a view that loads again before its last load answered (a range chosen while another loads): each call aborts
+  /// the request before it and answers the new one's signal, so only the latest draws.
+  function latestLoad() {
+    let controller = null;
+    return () => { controller?.abort(); controller = new AbortController(); return controller.signal; };
   }
 
   // ---- Authentication ------------------------------------------------------
@@ -388,7 +395,7 @@
   async function finishRestart() {
     if (restartOverlay?.isConnected && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
       restartOverlay.classList.add("restart-leaving");
-      await new Promise((resolve) => setTimeout(resolve, 220));
+      await new Promise((resolve) => setTimeout(resolve, 180));
     }
     closeRestartOverlay();
     restartPolling = false;
@@ -1382,7 +1389,9 @@
       const path = `${location.pathname}${query.size ? `?${query}` : ""}`;
       if (path !== location.pathname + location.search) history.replaceState(null, "", path);
     }
+    const nextLoad = latestLoad();
     async function load() {
+      const signal = nextLoad();
       clearTimeout(refresh);
       keepAddress();
       const [from, end] = range.span() ?? [new Date(Date.now() - 3600000), null];
@@ -1393,14 +1402,16 @@
       section.classList.add("loading");
       let history;
       try {
-        history = await api(`/api/metrics?${query}`);
+        history = await api(`/api/metrics?${query}`, { signal });
       } catch (e) {
+        if (signal.aborted) return;
         // A homeswift that records nothing (a library, a test) has no charts.
         if (e.status === 404) { section.remove(); return; }
         for (const chart of charts) chart.detail.textContent = e.message;
         section.classList.remove("loading");
         return;
       }
+      if (signal.aborted) return;
       section.classList.remove("loading");
       const points = history.points.map((point) => ({ ...point, time: new Date(point.time).getTime() }));
       shown = { points, latest: history.latest };
@@ -1548,7 +1559,9 @@
       chart.key = key;
       chart.view = HomeswiftChart.lineChart(chart.body, { title: chart.title, series, format, unit: (max) => max >= 1000 ? 1000 : 1, points, from, to, step, latest });
     }
+    const nextLoad = latestLoad();
     async function load() {
+      const signal = nextLoad();
       clearTimeout(refresh);
       keepAddress();
       const [from, end] = range.span() ?? [new Date(Date.now() - 86400000), null];
@@ -1556,13 +1569,15 @@
       section.classList.add("loading");
       let report;
       try {
-        report = await api(`/api/metrics/energy?${new URLSearchParams({ from: from.toISOString(), to: to.toISOString(), timeZone })}`);
+        report = await api(`/api/metrics/energy?${new URLSearchParams({ from: from.toISOString(), to: to.toISOString(), timeZone })}`, { signal });
       } catch (e) {
+        if (signal.aborted) return;
         if (e.status === 404) { section.remove(); return; }
         power.detail.textContent = e.message;
         section.classList.remove("loading");
         return;
       }
+      if (signal.aborted) return;
       section.classList.remove("loading");
       // No plugin records energy: the section stays hidden, and looks again with the next refresh.
       section.hidden = !report.roles.length;
@@ -2955,7 +2970,7 @@
     const dirty = () => snapshot() !== saved;
     const message = el("span", { class: "muted" });
     const save = el("button", { class: "primary settings-action" }, HomeswiftCommon.icon("check"), el("span", { text: isNew ? t("Add") : t("Save") }));
-    const force = el("button", { class: "hidden", text: isNew ? t("Add anyway") : t("Save anyway"), title: t("Save what the plugin's schema refuses: for a value the plugin accepts that its schema does not list") });
+    const force = el("button", { actionIcon: "check", class: "hidden", text: isNew ? t("Add anyway") : t("Save anyway"), title: t("Save what the plugin's schema refuses: for a value the plugin accepts that its schema does not list") });
     const revert = el("button", { class: "settings-action" }, HomeswiftCommon.icon("restore"), el("span", { text: isNew ? t("Cancel") : t("Revert") }));
     // The JSON on screen is checked as it is typed: a syntax error marks its line, and Save waits for it.
     const jsonShown = () => textarea.isConnected && !textarea.closest(".hidden");
@@ -4039,12 +4054,13 @@
       const [roleLabel, roleNote, admin] = checkbox(t("Administrator"), user ? user.admin : false, roleHelp);
       if (user?.admin && admins < 2) { admin.disabled = true; roleNote.textContent = t("The last administrator stays one: make another user an administrator first."); }
       const message = el("p", { class: "status-line muted", role: "status" });
-      const submit = el("button", { class: "primary", type: "submit", text: user ? t("Save") : t("Add user") });
+      const submit = el("button", { class: "primary", type: "submit", actionIcon: user ? "check" : "plus", text: user ? t("Save") : t("Add user") });
       const form = el("form", { class: "account-form", onsubmit: async (event) => {
         event.preventDefault();
-        if (password.value && !(await gauge.acceptable())) { message.className = "status-line error"; message.textContent = t("The password is not strong enough yet: the gauge says what is missing."); return; }
-        submit.disabled = true;
-        try {
+        // Busy from before the strength check, which asks the bridge: a second Enter meanwhile adds no second user.
+        const refuse = (text) => { message.className = "status-line error"; message.textContent = text; };
+        await HomeswiftCommon.busyButton(submit, async () => {
+          if (password.value && !(await gauge.acceptable())) { refuse(t("The password is not strong enough yet: the gauge says what is missing.")); return; }
           if (user) {
             const body = { name: name.value, admin: admin.checked };
             if (password.value) body.password = password.value;
@@ -4053,7 +4069,7 @@
             await api("/api/users", { method: "POST", body: { username: username.value, name: name.value, password: password.value, admin: admin.checked } });
           }
           done(`user:${(user?.username ?? username.value).trim().toLowerCase()}`);
-        } catch (e) { message.className = "status-line error"; message.textContent = e.message; submit.disabled = false; }
+        }, { report: (e) => refuse(e.message) });
       } },
         el("h2", { id: "user-form-title", text: user ? t("Edit {name}", { name: user.name }) : t("Add a user") }),
         user ? null : field(t("Username"), username, t("What they sign in with: no spaces or colons.")),
@@ -4251,8 +4267,13 @@
           el("span", { class: "wallpaper-swatch", style: `background: url("/api/preferences/wallpaper/${encodeURIComponent(id)}") center / cover no-repeat` }), el("span", { text: name }));
         const remove = own.length > 1 ? t("Remove your image {n}", { n: index + 1 }) : t("Remove your image");
         return el("div", { class: "wallpaper-own" }, choice,
-          el("button", { type: "button", class: "wallpaper-remove", "aria-label": remove, title: remove, onclick: async () => {
-            try { preferences = HomeswiftCommon.applyPreferences(await api(`/api/preferences/wallpaper/${encodeURIComponent(id)}`, { method: "DELETE" })); draw(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
+          el("button", { type: "button", class: "wallpaper-remove", "aria-label": remove, title: remove, onclick: async (event) => {
+            const button = event.currentTarget;
+            if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete this image from the bridge?"), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
+            await HomeswiftCommon.busyButton(button, async () => {
+              preferences = HomeswiftCommon.applyPreferences(await api(`/api/preferences/wallpaper/${encodeURIComponent(id)}`, { method: "DELETE" }));
+              draw();
+            });
           } }, HomeswiftCommon.icon("close")));
       };
       body.replaceChildren(
@@ -4505,6 +4526,7 @@
       }
     };
     logState.updateCounts = updateLevelCounts;
+    logState.reload = load;
     const render = () => {
       updateLevelCounts();
       const shown = shownLines();
@@ -4537,7 +4559,9 @@
       const path = `/logs${accessory ? `/${accessory.slug}` : ""}${query.size ? `?${query}` : ""}`;
       if (path !== location.pathname + location.search) history.replaceState(null, "", path);
     }
+    const nextLoad = latestLoad();
     async function load() {
+      const signal = nextLoad();
       keepAddress();
       const chosen = range.span();
       const query = new URLSearchParams();
@@ -4548,12 +4572,23 @@
       // The range loading: a spinner where its lines will be.
       count.textContent = "";
       output.replaceChildren(el("div", { class: "log-loading" }, spinner()));
+      let lines;
       try {
-        logState.lines = (await api(`/api/logs${query.size ? `?${query}` : ""}`)).map(prepared);
+        lines = (await api(`/api/logs${query.size ? `?${query}` : ""}`, { signal })).map(prepared);
       } catch (e) {
+        if (signal.aborted) return;
+        // Not left spinning: live lines wait while it does.
         count.textContent = e.message;
+        output.replaceChildren(el("p", { class: "muted empty-log", text: e.message }));
+        logState.lines = [];
+        // No live lines over the error; back in view, it tries again.
+        logState.live = false;
+        logState.failed = true;
         return;
       }
+      if (signal.aborted) return;
+      logState.failed = false;
+      logState.lines = lines;
       logState.live = !chosen?.[1];
       logState.cap = chosen ? rangeLines : latestLines;
       logState.capped = Boolean(chosen) && logState.lines.length >= rangeLines;
@@ -4707,7 +4742,7 @@
       el("span", { class: "label", text: line.label, title: line.label }),
       text);
     if (!line.details) return node;
-    const toggle = el("button", { type: "button", class: "log-details-toggle", text: "JSON", title: t("Show the payload") });
+    const toggle = el("button", { type: "button", class: "log-details-toggle", actionIcon: "code", text: "JSON", title: t("Show the payload") });
     const show = () => {
       toggle.setAttribute("aria-expanded", String(Boolean(line.open)));
       toggle.title = line.open ? t("Hide the payload") : t("Show the payload");
@@ -4745,11 +4780,19 @@
   }
 
   // A hidden tab keeps no stream open; back in view, the live pages reload their values.
+  let hiddenAt = 0;
   document.addEventListener("visibilitychange", () => {
     if (!(auth && auth.authenticated)) return;
-    if (document.hidden) { closeEvents(); return; }
+    if (document.hidden) { hiddenAt = Date.now(); closeEvents(); return; }
     openEvents();
+    // An open dialog (an accessory's sheet, the group editor) keeps what the person was doing in it.
+    if (document.querySelector("dialog[open]")) return;
     if (location.pathname === "/accessories" && document.querySelector(".wall.editing")) return;
+    // The live log missed what came while hidden: it reads its range again, unless it was away only a moment.
+    if (location.pathname.startsWith("/logs") && (logState?.live || logState?.failed) && document.body.contains(logState.output)) {
+      if (Date.now() - hiddenAt > 10000) logState.reload?.();
+      return;
+    }
     if (["/", "/status", "/accessories", "/quick"].includes(location.pathname)) route();
   });
 

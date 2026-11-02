@@ -489,7 +489,10 @@ button.add-button svg { width: 16px; height: 16px; fill: none; stroke: currentCo
 @media (hover: hover) and (pointer: fine) {
   button.add-button:hover { background: var(--accent-fill); color: var(--accent-text); }
 }
-@media (pointer: coarse) { button.add-button { position: relative; } button.add-button::after { content: ""; position: absolute; inset: -8px; } }
+@media (pointer: coarse) {
+  button.add-button, .log-details-toggle { position: relative; }
+  button.add-button::after, .log-details-toggle::after { content: ""; position: absolute; inset: -8px; }
+}
 .pill.status.admin { color: var(--accent-ink); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
 .pill.status.bad { color: var(--error); border-color: rgba(208, 56, 59, 0.4); }
 .section-head > div > h2 { margin: 0; }
@@ -1760,6 +1763,9 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 }
 .log-details-toggle:hover { color: var(--text); }
 .log-details-toggle[aria-expanded="true"] { color: var(--accent-ink); border-color: var(--accent); }
+.log-details-toggle.action-with-icon { gap: 3px; }
+.log-details-toggle.action-with-icon::before { width: 11px; height: 11px; }
+
 .log-line .log-details { grid-column: 1 / -1; margin: var(--space-4) 0 var(--space-6); max-height: 420px; overflow: auto; font-size: var(--text-xs); }
 .log-line.warning { background: rgba(201, 115, 26, 0.08); }
 .log-line.warning .text { color: var(--warn); }
@@ -3292,8 +3298,8 @@ fieldset > .help { margin-bottom: var(--space-10); }
 .restart-confirm-actions { display: flex; gap: var(--space-12); margin-top: 26px; }
 .restart-confirm-actions button { flex: 1; min-height: 42px; }
 
-.restart-overlay.restart-leaving { animation: restart-dialog-out 220ms ease-in forwards; }
-.restart-overlay.restart-leaving::backdrop { animation: restart-backdrop-out 220ms ease-in forwards; }
+.restart-overlay.restart-leaving { animation: restart-dialog-out 180ms var(--ease-out) forwards; }
+.restart-overlay.restart-leaving::backdrop { animation: restart-backdrop-out 180ms var(--ease-out) forwards; }
 @keyframes restart-dialog-out { to { opacity: 0; transform: translateY(6px) scale(.98); } }
 @keyframes restart-backdrop-out { to { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) {

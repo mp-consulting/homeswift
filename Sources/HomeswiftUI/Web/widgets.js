@@ -197,7 +197,9 @@
         await put(service, characteristic, value);
       } catch (e) {
         if (e.message === "signed out") return;
-        characteristic.value = before;
+        // Put back only what this write set: a later one that went through keeps its value.
+        if (characteristic.value === value) characteristic.value = before;
+        ctx.paint();
         ctx.flash(e.message);
       }
     };

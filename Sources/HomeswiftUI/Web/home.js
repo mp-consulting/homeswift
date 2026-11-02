@@ -193,7 +193,9 @@
         } catch (e) { HomeswiftCommon.showAlert(e.message); tileNode?.classList.remove("busy"); }
       }) },
       scene.picture ? { label: t("Remove the picture"), icon: "trash", onSelect: async () => {
-        try { await app.api(path, { method: "DELETE" }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
+        if (!(await HomeswiftAdmin.confirmAction({ title: t("Remove the picture of {name}? Its tile goes back to its colours.", { name: scene.name }), confirmLabel: t("Remove"), confirmIcon: "trash" }))) return;
+        tileNode?.classList.add("busy");
+        try { await app.api(path, { method: "DELETE" }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); tileNode?.classList.remove("busy"); }
       } } : null,
     ].filter(Boolean);
   }
@@ -1415,7 +1417,8 @@
         const security = saved.actions.some((a) => a.security);
         if (security && body.triggers.some((trigger) => trigger.enabled !== false)) {
           say(line, t("Saved. Its lock, door or alarm actions run only when you run it here: automations leave them out."), "ok");
-          if (isNew) setTimeout(() => app.navigate(`/scenes/${encodeURIComponent(saved.id)}`, { replace: true }), 1500);
+          // Save stays off until its page opens: a second click would make another scene.
+          if (isNew) { setTimeout(() => app.navigate(`/scenes/${encodeURIComponent(saved.id)}`, { replace: true }), 1500); return; }
         } else {
           app.navigate("/scenes");
         }
@@ -1591,8 +1594,13 @@
     const line = statusLine();
     const others = el("div", {}, settings.subscriptions.map((sub) => el("div", { class: "control" },
       el("span", { text: `${sub.label}${sub.username ? ` · ${sub.username}` : ""}` }),
-      el("button", { actionIcon: "trash", class: "link", text: t("Remove"), onclick: async () => {
-        try { await app.api(`/api/notifications/push/subscriptions/${encodeURIComponent(sub.id)}`, { method: "DELETE" }); app.route(); } catch (e) { say(line, e.message, "error"); }
+      el("button", { actionIcon: "trash", class: "link", text: t("Remove"), onclick: async (event) => {
+        const button = event.currentTarget;
+        if (!(await HomeswiftAdmin.confirmAction({ title: t("Stop notifications on {device}?", { device: sub.label }), text: t("It gets no more notifications until it turns them on again."), confirmLabel: t("Remove"), confirmIcon: "trash" }))) return;
+        await HomeswiftCommon.busyButton(button, async () => {
+          await app.api(`/api/notifications/push/subscriptions/${encodeURIComponent(sub.id)}`, { method: "DELETE" });
+          app.route();
+        }, { report: (e) => say(line, e.message, "error") });
       } }))));
     if (!pushSupported()) {
       box.append(el("p", { class: "muted note", text: window.isSecureContext ? t("This browser cannot receive push notifications.") : t("Open this page over HTTPS (the HomeswiftUI block's https) or on localhost to turn them on here.") }), others);

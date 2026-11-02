@@ -1876,9 +1876,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// `problems`: what a save changed that its plugin's schema refuses, each with its path (`ConfigSchemaError`).
   class ApiError extends Error { constructor(status, message, problems) { super(message); this.status = status; this.problems = problems; } }
 
-  async function api(path, { method = "GET", body, raw = false } = {}) {
+  async function api(path, { method = "GET", body, raw = false, signal } = {}) {
     // The Assistant answers in the page's language.
-    const options = { method, credentials: "same-origin", headers: { "Accept-Language": HomeswiftI18n.locale } };
+    const options = { method, credentials: "same-origin", headers: { "Accept-Language": HomeswiftI18n.locale }, signal };
     if (body !== undefined) { options.headers["Content-Type"] = "application/json"; options.body = typeof body === "string" ? body : JSON.stringify(body); }
     const response = await fetch(path, options);
     if (response.status === 401 && !path.startsWith("/api/auth/")) { showAuth(); throw new ApiError(401, "signed out"); }
@@ -1892,6 +1892,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       throw new ApiError(response.status, HomeswiftI18n.message(message || `HTTP ${response.status}`), problems);
     }
     return raw ? text : (text ? JSON.parse(text) : null);
+  }
+
+  /// For a view that loads again before its last load answered (a range chosen while another loads): each call aborts
+  /// the request before it and answers the new one's signal, so only the latest draws.
+  function latestLoad() {
+    let controller = null;
+    return () => { controller?.abort(); controller = new AbortController(); return controller.signal; };
   }
 
   // ---- Authentication ------------------------------------------------------
@@ -2252,7 +2259,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   async function finishRestart() {
     if (restartOverlay?.isConnected && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
       restartOverlay.classList.add("restart-leaving");
-      await new Promise((resolve) => setTimeout(resolve, 220));
+      await new Promise((resolve) => setTimeout(resolve, 180));
     }
     closeRestartOverlay();
     restartPolling = false;
@@ -3246,7 +3253,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const path = `${location.pathname}${query.size ? `?${query}` : ""}`;
       if (path !== location.pathname + location.search) history.replaceState(null, "", path);
     }
+    const nextLoad = latestLoad();
     async function load() {
+      const signal = nextLoad();
       clearTimeout(refresh);
       keepAddress();
       const [from, end] = range.span() ?? [new Date(Date.now() - 3600000), null];
@@ -3257,14 +3266,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       section.classList.add("loading");
       let history;
       try {
-        history = await api(`/api/metrics?${query}`);
+        history = await api(`/api/metrics?${query}`, { signal });
       } catch (e) {
+        if (signal.aborted) return;
         // A homeswift that records nothing (a library, a test) has no charts.
         if (e.status === 404) { section.remove(); return; }
         for (const chart of charts) chart.detail.textContent = e.message;
         section.classList.remove("loading");
         return;
       }
+      if (signal.aborted) return;
       section.classList.remove("loading");
       const points = history.points.map((point) => ({ ...point, time: new Date(point.time).getTime() }));
       shown = { points, latest: history.latest };
@@ -3412,7 +3423,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       chart.key = key;
       chart.view = HomeswiftChart.lineChart(chart.body, { title: chart.title, series, format, unit: (max) => max >= 1000 ? 1000 : 1, points, from, to, step, latest });
     }
+    const nextLoad = latestLoad();
     async function load() {
+      const signal = nextLoad();
       clearTimeout(refresh);
       keepAddress();
       const [from, end] = range.span() ?? [new Date(Date.now() - 86400000), null];
@@ -3420,13 +3433,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       section.classList.add("loading");
       let report;
       try {
-        report = await api(`/api/metrics/energy?${new URLSearchParams({ from: from.toISOString(), to: to.toISOString(), timeZone })}`);
+        report = await api(`/api/metrics/energy?${new URLSearchParams({ from: from.toISOString(), to: to.toISOString(), timeZone })}`, { signal });
       } catch (e) {
+        if (signal.aborted) return;
         if (e.status === 404) { section.remove(); return; }
         power.detail.textContent = e.message;
         section.classList.remove("loading");
         return;
       }
+      if (signal.aborted) return;
       section.classList.remove("loading");
       // No plugin records energy: the section stays hidden, and looks again with the next refresh.
       section.hidden = !report.roles.length;
@@ -4819,7 +4834,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const dirty = () => snapshot() !== saved;
     const message = el("span", { class: "muted" });
     const save = el("button", { class: "primary settings-action" }, HomeswiftCommon.icon("check"), el("span", { text: isNew ? t("Add") : t("Save") }));
-    const force = el("button", { class: "hidden", text: isNew ? t("Add anyway") : t("Save anyway"), title: t("Save what the plugin's schema refuses: for a value the plugin accepts that its schema does not list") });
+    const force = el("button", { actionIcon: "check", class: "hidden", text: isNew ? t("Add anyway") : t("Save anyway"), title: t("Save what the plugin's schema refuses: for a value the plugin accepts that its schema does not list") });
     const revert = el("button", { class: "settings-action" }, HomeswiftCommon.icon("restore"), el("span", { text: isNew ? t("Cancel") : t("Revert") }));
     // The JSON on screen is checked as it is typed: a syntax error marks its line, and Save waits for it.
     const jsonShown = () => textarea.isConnected && !textarea.closest(".hidden");
@@ -5903,12 +5918,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const [roleLabel, roleNote, admin] = checkbox(t("Administrator"), user ? user.admin : false, roleHelp);
       if (user?.admin && admins < 2) { admin.disabled = true; roleNote.textContent = t("The last administrator stays one: make another user an administrator first."); }
       const message = el("p", { class: "status-line muted", role: "status" });
-      const submit = el("button", { class: "primary", type: "submit", text: user ? t("Save") : t("Add user") });
+      const submit = el("button", { class: "primary", type: "submit", actionIcon: user ? "check" : "plus", text: user ? t("Save") : t("Add user") });
       const form = el("form", { class: "account-form", onsubmit: async (event) => {
         event.preventDefault();
-        if (password.value && !(await gauge.acceptable())) { message.className = "status-line error"; message.textContent = t("The password is not strong enough yet: the gauge says what is missing."); return; }
-        submit.disabled = true;
-        try {
+        // Busy from before the strength check, which asks the bridge: a second Enter meanwhile adds no second user.
+        const refuse = (text) => { message.className = "status-line error"; message.textContent = text; };
+        await HomeswiftCommon.busyButton(submit, async () => {
+          if (password.value && !(await gauge.acceptable())) { refuse(t("The password is not strong enough yet: the gauge says what is missing.")); return; }
           if (user) {
             const body = { name: name.value, admin: admin.checked };
             if (password.value) body.password = password.value;
@@ -5917,7 +5933,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             await api("/api/users", { method: "POST", body: { username: username.value, name: name.value, password: password.value, admin: admin.checked } });
           }
           done(`user:${(user?.username ?? username.value).trim().toLowerCase()}`);
-        } catch (e) { message.className = "status-line error"; message.textContent = e.message; submit.disabled = false; }
+        }, { report: (e) => refuse(e.message) });
       } },
         el("h2", { id: "user-form-title", text: user ? t("Edit {name}", { name: user.name }) : t("Add a user") }),
         user ? null : field(t("Username"), username, t("What they sign in with: no spaces or colons.")),
@@ -6115,8 +6131,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           el("span", { class: "wallpaper-swatch", style: `background: url("/api/preferences/wallpaper/${encodeURIComponent(id)}") center / cover no-repeat` }), el("span", { text: name }));
         const remove = own.length > 1 ? t("Remove your image {n}", { n: index + 1 }) : t("Remove your image");
         return el("div", { class: "wallpaper-own" }, choice,
-          el("button", { type: "button", class: "wallpaper-remove", "aria-label": remove, title: remove, onclick: async () => {
-            try { preferences = HomeswiftCommon.applyPreferences(await api(`/api/preferences/wallpaper/${encodeURIComponent(id)}`, { method: "DELETE" })); draw(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
+          el("button", { type: "button", class: "wallpaper-remove", "aria-label": remove, title: remove, onclick: async (event) => {
+            const button = event.currentTarget;
+            if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete this image from the bridge?"), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
+            await HomeswiftCommon.busyButton(button, async () => {
+              preferences = HomeswiftCommon.applyPreferences(await api(`/api/preferences/wallpaper/${encodeURIComponent(id)}`, { method: "DELETE" }));
+              draw();
+            });
           } }, HomeswiftCommon.icon("close")));
       };
       body.replaceChildren(
@@ -6369,6 +6390,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
     };
     logState.updateCounts = updateLevelCounts;
+    logState.reload = load;
     const render = () => {
       updateLevelCounts();
       const shown = shownLines();
@@ -6401,7 +6423,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const path = `/logs${accessory ? `/${accessory.slug}` : ""}${query.size ? `?${query}` : ""}`;
       if (path !== location.pathname + location.search) history.replaceState(null, "", path);
     }
+    const nextLoad = latestLoad();
     async function load() {
+      const signal = nextLoad();
       keepAddress();
       const chosen = range.span();
       const query = new URLSearchParams();
@@ -6412,12 +6436,23 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       // The range loading: a spinner where its lines will be.
       count.textContent = "";
       output.replaceChildren(el("div", { class: "log-loading" }, spinner()));
+      let lines;
       try {
-        logState.lines = (await api(`/api/logs${query.size ? `?${query}` : ""}`)).map(prepared);
+        lines = (await api(`/api/logs${query.size ? `?${query}` : ""}`, { signal })).map(prepared);
       } catch (e) {
+        if (signal.aborted) return;
+        // Not left spinning: live lines wait while it does.
         count.textContent = e.message;
+        output.replaceChildren(el("p", { class: "muted empty-log", text: e.message }));
+        logState.lines = [];
+        // No live lines over the error; back in view, it tries again.
+        logState.live = false;
+        logState.failed = true;
         return;
       }
+      if (signal.aborted) return;
+      logState.failed = false;
+      logState.lines = lines;
       logState.live = !chosen?.[1];
       logState.cap = chosen ? rangeLines : latestLines;
       logState.capped = Boolean(chosen) && logState.lines.length >= rangeLines;
@@ -6571,7 +6606,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("span", { class: "label", text: line.label, title: line.label }),
       text);
     if (!line.details) return node;
-    const toggle = el("button", { type: "button", class: "log-details-toggle", text: "JSON", title: t("Show the payload") });
+    const toggle = el("button", { type: "button", class: "log-details-toggle", actionIcon: "code", text: "JSON", title: t("Show the payload") });
     const show = () => {
       toggle.setAttribute("aria-expanded", String(Boolean(line.open)));
       toggle.title = line.open ? t("Hide the payload") : t("Show the payload");
@@ -6609,11 +6644,19 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
 
   // A hidden tab keeps no stream open; back in view, the live pages reload their values.
+  let hiddenAt = 0;
   document.addEventListener("visibilitychange", () => {
     if (!(auth && auth.authenticated)) return;
-    if (document.hidden) { closeEvents(); return; }
+    if (document.hidden) { hiddenAt = Date.now(); closeEvents(); return; }
     openEvents();
+    // An open dialog (an accessory's sheet, the group editor) keeps what the person was doing in it.
+    if (document.querySelector("dialog[open]")) return;
     if (location.pathname === "/accessories" && document.querySelector(".wall.editing")) return;
+    // The live log missed what came while hidden: it reads its range again, unless it was away only a moment.
+    if (location.pathname.startsWith("/logs") && (logState?.live || logState?.failed) && document.body.contains(logState.output)) {
+      if (Date.now() - hiddenAt > 10000) logState.reload?.();
+      return;
+    }
     if (["/", "/status", "/accessories", "/quick"].includes(location.pathname)) route();
   });
 
@@ -6808,6 +6851,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     <img src="icon.svg" class="logo large" alt="">
     <h1 id="title" data-i18n>Connect to Homeswift</h1>
     <p id="lead" class="muted" data-i18n>Checking the request…</p>
+    <p id="leave" class="actions hidden"><a class="button" id="leave-link" rel="noreferrer"></a></p>
     <form id="login" class="hidden">
       <label data-i18n>Username <input name="username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required></label>
       <label data-i18n>Password <input name="password" type="password" autocomplete="current-password" required></label>
@@ -6864,6 +6908,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
   const stop = (message) => { $("#title").textContent = t("Cannot connect"); show(null, message); };
 
+  /// A request the bridge cannot answer goes back to the app only when the person clicks: anyone may register an app
+  /// and the address it returns to, so going there on its own would send them to any site under the bridge's name.
+  function refuse(request) {
+    stop(t("The app asked for something Homeswift cannot give ({reason}). Nothing was shared.", { reason: request.reason || request.error }));
+    const link = $("#leave-link");
+    link.href = request.redirect;
+    link.textContent = t("Return to {destination}", { destination: request.destination });
+    $("#leave").classList.remove("hidden");
+  }
+
   const scopes = {
     read: [t("Read"), t("See your accessories, rooms, scenes and the bridge's state. Changes nothing.")],
     control: [t("Control"), t("Also turn accessories on and off and run scenes. Locks, garage doors and alarms still ask you first.")],
@@ -6881,7 +6935,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     }
     let request;
     try { request = await api(`api/oauth/request?${new URLSearchParams(query)}`); } catch (e) { stop(e.message); return; }
-    if (request.redirect) { location.replace(request.redirect); return; }
+    if (request.redirect) { refuse(request); return; }
     $("#title").textContent = t("Connect {client}", { client: request.client });
     show("consent", state.mode === "form"
       ? t("{client} asks to use your bridge as {username}.", { client: request.client, username: request.username })
@@ -8056,6 +8110,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       running = false;
       renderControls();
       showError(e.message);
+      // Not sent: the words come back to try again, unless something new was typed meanwhile.
+      if (!panel.input.value) { panel.input.value = text; grow(); }
     }
   }
 
@@ -10420,7 +10476,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const update = () => {
           const chosen = selected.has(a.id);
           button.textContent = chosen ? '−' : '+';
-          button.setAttribute('aria-label', `${chosen ? t('Remove') : t('Add')}: ${a.displayName || a.name}`);
+          button.setAttribute('aria-label', t(chosen ? 'Remove {name}' : 'Add {name}', { name: a.displayName || a.name }));
           (chosen ? selectedList : list).append(row);
           row.hidden = false;
           selectedCount.textContent = String(selected.size);
@@ -10432,7 +10488,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         });
         update(); return row;
       });
-      const save = el('button', { type: 'submit', class: 'primary', text: t('Save') });
+      const save = el('button', { type: 'submit', class: 'primary', actionIcon: 'check', text: t('Save') });
       const dialog = el('dialog', { class: 'admin-dialog accessory-group-dialog', 'aria-label': t('Accessory group') });
       const search = el('input', { type: 'search', class: 'search', placeholder: t('Search accessories'), 'aria-label': t('Search accessories') });
       let activeType = '';
@@ -10476,7 +10532,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         el('div', { class: 'group-picker-columns' },
           el('section', {}, el('h3', { text: t('Available') }), search, typeFilter, clearFilters, list, empty),
           el('section', {}, el('div', { class: 'group-selected-heading' }, el('h3', { text: t('Selected') }), selectedCount), selectedList, selectedEmpty)), message,
-        el('div', { class: 'actions' }, el('button', { type: 'button', text: t('Cancel'), onclick: () => dialog.close() }), save));
+        el('div', { class: 'actions' }, el('button', { type: 'button', actionIcon: 'close', text: t('Cancel'), onclick: () => dialog.close() }), save));
       const content = el('div', { class: 'group-dialog-content' });
       while (form.children.length > 1) content.append(form.firstElementChild);
       form.prepend(content);
@@ -10835,7 +10891,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         } catch (e) { HomeswiftCommon.showAlert(e.message); tileNode?.classList.remove("busy"); }
       }) },
       scene.picture ? { label: t("Remove the picture"), icon: "trash", onSelect: async () => {
-        try { await app.api(path, { method: "DELETE" }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
+        if (!(await HomeswiftAdmin.confirmAction({ title: t("Remove the picture of {name}? Its tile goes back to its colours.", { name: scene.name }), confirmLabel: t("Remove"), confirmIcon: "trash" }))) return;
+        tileNode?.classList.add("busy");
+        try { await app.api(path, { method: "DELETE" }); app.route(); } catch (e) { HomeswiftCommon.showAlert(e.message); tileNode?.classList.remove("busy"); }
       } } : null,
     ].filter(Boolean);
   }
@@ -12057,7 +12115,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const security = saved.actions.some((a) => a.security);
         if (security && body.triggers.some((trigger) => trigger.enabled !== false)) {
           say(line, t("Saved. Its lock, door or alarm actions run only when you run it here: automations leave them out."), "ok");
-          if (isNew) setTimeout(() => app.navigate(`/scenes/${encodeURIComponent(saved.id)}`, { replace: true }), 1500);
+          // Save stays off until its page opens: a second click would make another scene.
+          if (isNew) { setTimeout(() => app.navigate(`/scenes/${encodeURIComponent(saved.id)}`, { replace: true }), 1500); return; }
         } else {
           app.navigate("/scenes");
         }
@@ -12233,8 +12292,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const line = statusLine();
     const others = el("div", {}, settings.subscriptions.map((sub) => el("div", { class: "control" },
       el("span", { text: `${sub.label}${sub.username ? ` · ${sub.username}` : ""}` }),
-      el("button", { actionIcon: "trash", class: "link", text: t("Remove"), onclick: async () => {
-        try { await app.api(`/api/notifications/push/subscriptions/${encodeURIComponent(sub.id)}`, { method: "DELETE" }); app.route(); } catch (e) { say(line, e.message, "error"); }
+      el("button", { actionIcon: "trash", class: "link", text: t("Remove"), onclick: async (event) => {
+        const button = event.currentTarget;
+        if (!(await HomeswiftAdmin.confirmAction({ title: t("Stop notifications on {device}?", { device: sub.label }), text: t("It gets no more notifications until it turns them on again."), confirmLabel: t("Remove"), confirmIcon: "trash" }))) return;
+        await HomeswiftCommon.busyButton(button, async () => {
+          await app.api(`/api/notifications/push/subscriptions/${encodeURIComponent(sub.id)}`, { method: "DELETE" });
+          app.route();
+        }, { report: (e) => say(line, e.message, "error") });
       } }))));
     if (!pushSupported()) {
       box.append(el("p", { class: "muted note", text: window.isSecureContext ? t("This browser cannot receive push notifications.") : t("Open this page over HTTPS (the HomeswiftUI block's https) or on localhost to turn them on here.") }), others);
@@ -13064,6 +13128,8 @@ HomeswiftI18n.add("es", {
   "Candle flicker": "Vela parpadeante",
   "Candlelight": "Luz de velas",
   "Cannot connect": "No se puede conectar",
+  "The app asked for something Homeswift cannot give ({reason}). Nothing was shared.": "La app pidió algo que Homeswift no puede dar ({reason}). No se ha compartido nada.",
+  "Return to {destination}": "Volver a {destination}",
   "cannot read {0}": "no se puede leer {0}",
   "Cannot restore __REDACTED__ (no matching value in the current config) in {0}. Supply the real value, or keep the entry's identifying fields (platform, accessory, name) unchanged.": "No se puede restaurar __REDACTED__ (no hay ningún valor que coincida en la configuración actual) en {0}. Indica el valor real, o deja sin cambios los campos que identifican la entrada (platform, accessory, name).",
   "Carbon Dioxide Detected": "Dióxido de carbono detectado",
@@ -14662,6 +14728,10 @@ HomeswiftI18n.add("es", {
   "Change the picture…": "Cambiar la imagen…",
   "Choose a picture…": "Elegir una imagen…",
   "Remove the picture": "Quitar la imagen",
+  "Stop notifications on {device}?": "¿Dejar de enviar notificaciones a {device}?",
+  "It gets no more notifications until it turns them on again.": "No recibirá más hasta que las vuelva a activar.",
+  "Remove the picture of {name}? Its tile goes back to its colours.": "¿Quitar la imagen de {name}? Su mosaico vuelve a sus colores.",
+  "Delete this image from the bridge?": "¿Eliminar esta imagen del puente?",
   "Show in the Home app": "Mostrar en la app Casa",
   "Leave out of the Home app": "Quitar de la app Casa",
   "Import a Homebridge config": "Importar una config de Homebridge",
@@ -15768,6 +15838,8 @@ HomeswiftI18n.add("fr", {
   "Candle flicker": "Bougie vacillante",
   "Candlelight": "Aux chandelles",
   "Cannot connect": "Connexion impossible",
+  "The app asked for something Homeswift cannot give ({reason}). Nothing was shared.": "L’app a demandé ce que Homeswift ne peut pas donner ({reason}). Rien n’a été partagé.",
+  "Return to {destination}": "Revenir à {destination}",
   "cannot read {0}": "impossible de lire {0}",
   "Cannot restore __REDACTED__ (no matching value in the current config) in {0}. Supply the real value, or keep the entry's identifying fields (platform, accessory, name) unchanged.": "Impossible de restaurer __REDACTED__ (aucune valeur correspondante dans la config actuelle) dans {0}. Indiquez la vraie valeur, ou laissez inchangés les champs qui identifient l'entrée (platform, accessory, name).",
   "Carbon Dioxide Detected": "Dioxyde de carbone détecté",
@@ -17366,6 +17438,10 @@ HomeswiftI18n.add("fr", {
   "Change the picture…": "Changer l'image…",
   "Choose a picture…": "Choisir une image…",
   "Remove the picture": "Retirer l'image",
+  "Stop notifications on {device}?": "Arrêter les notifications sur {device} ?",
+  "It gets no more notifications until it turns them on again.": "Il n'en recevra plus jusqu'à ce qu'il les réactive.",
+  "Remove the picture of {name}? Its tile goes back to its colours.": "Retirer l'image de {name} ? Sa tuile reprend ses couleurs.",
+  "Delete this image from the bridge?": "Supprimer cette image du pont ?",
   "Show in the Home app": "Afficher dans l'app Maison",
   "Leave out of the Home app": "Retirer de l'app Maison",
   "Import a Homebridge config": "Importer une config Homebridge",
@@ -18472,6 +18548,8 @@ HomeswiftI18n.add("pt", {
   "Candle flicker": "Vela tremeluzente",
   "Candlelight": "Luz de velas",
   "Cannot connect": "Não é possível ligar",
+  "The app asked for something Homeswift cannot give ({reason}). Nothing was shared.": "A app pediu algo que o Homeswift não pode dar ({reason}). Nada foi partilhado.",
+  "Return to {destination}": "Voltar a {destination}",
   "cannot read {0}": "não é possível ler {0}",
   "Cannot restore __REDACTED__ (no matching value in the current config) in {0}. Supply the real value, or keep the entry's identifying fields (platform, accessory, name) unchanged.": "Não é possível restaurar __REDACTED__ (nenhum valor correspondente na configuração atual) em {0}. Indique o valor real, ou mantenha inalterados os campos que identificam a entrada (platform, accessory, name).",
   "Carbon Dioxide Detected": "Dióxido de carbono detetado",
@@ -20070,6 +20148,10 @@ HomeswiftI18n.add("pt", {
   "Change the picture…": "Alterar a imagem…",
   "Choose a picture…": "Escolher uma imagem…",
   "Remove the picture": "Remover a imagem",
+  "Stop notifications on {device}?": "Parar as notificações em {device}?",
+  "It gets no more notifications until it turns them on again.": "Não receberá mais até as voltar a ativar.",
+  "Remove the picture of {name}? Its tile goes back to its colours.": "Remover a imagem de {name}? O seu mosaico volta às suas cores.",
+  "Delete this image from the bridge?": "Eliminar esta imagem da ponte?",
   "Show in the Home app": "Mostrar na app Casa",
   "Leave out of the Home app": "Retirar da app Casa",
   "Import a Homebridge config": "Importar uma configuração do Homebridge",
@@ -21110,8 +21192,8 @@ HomeswiftI18n.add("pt", {
     <label data-i18n>Password <input name="password" type="password" autocomplete="current-password" required minlength="1"></label>
     <label id="auth-otp" class="hidden" data-i18n>Code from your authenticator app <input name="otp" inputmode="numeric" autocomplete="one-time-code" spellcheck="false" placeholder="123 456" maxlength="9"></label>
     <label id="auth-setup-code" class="hidden" data-i18n>Set-up code <input name="setupCode" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX"></label>
-    <p class="error" id="auth-error"></p>
-    <button type="submit" id="auth-submit" class="primary" data-i18n>Sign in</button>
+    <p class="error" id="auth-error" role="alert"></p>
+    <button type="submit" id="auth-submit" class="primary" data-i18n data-action-icon="user">Sign in</button>
   </form>
 </div>
 <div id="app" class="hidden">
@@ -23693,7 +23775,10 @@ button.add-button svg { width: 16px; height: 16px; fill: none; stroke: currentCo
 @media (hover: hover) and (pointer: fine) {
   button.add-button:hover { background: var(--accent-fill); color: var(--accent-text); }
 }
-@media (pointer: coarse) { button.add-button { position: relative; } button.add-button::after { content: ""; position: absolute; inset: -8px; } }
+@media (pointer: coarse) {
+  button.add-button, .log-details-toggle { position: relative; }
+  button.add-button::after, .log-details-toggle::after { content: ""; position: absolute; inset: -8px; }
+}
 .pill.status.admin { color: var(--accent-ink); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
 .pill.status.bad { color: var(--error); border-color: rgba(208, 56, 59, 0.4); }
 .section-head > div > h2 { margin: 0; }
@@ -24964,6 +25049,9 @@ a.stat:active { transform: scale(0.97); transition-duration: 80ms; }
 }
 .log-details-toggle:hover { color: var(--text); }
 .log-details-toggle[aria-expanded="true"] { color: var(--accent-ink); border-color: var(--accent); }
+.log-details-toggle.action-with-icon { gap: 3px; }
+.log-details-toggle.action-with-icon::before { width: 11px; height: 11px; }
+
 .log-line .log-details { grid-column: 1 / -1; margin: var(--space-4) 0 var(--space-6); max-height: 420px; overflow: auto; font-size: var(--text-xs); }
 .log-line.warning { background: rgba(201, 115, 26, 0.08); }
 .log-line.warning .text { color: var(--warn); }
@@ -26496,8 +26584,8 @@ fieldset > .help { margin-bottom: var(--space-10); }
 .restart-confirm-actions { display: flex; gap: var(--space-12); margin-top: 26px; }
 .restart-confirm-actions button { flex: 1; min-height: 42px; }
 
-.restart-overlay.restart-leaving { animation: restart-dialog-out 220ms ease-in forwards; }
-.restart-overlay.restart-leaving::backdrop { animation: restart-backdrop-out 220ms ease-in forwards; }
+.restart-overlay.restart-leaving { animation: restart-dialog-out 180ms var(--ease-out) forwards; }
+.restart-overlay.restart-leaving::backdrop { animation: restart-backdrop-out 180ms var(--ease-out) forwards; }
 @keyframes restart-dialog-out { to { opacity: 0; transform: translateY(6px) scale(.98); } }
 @keyframes restart-backdrop-out { to { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) {
@@ -27950,7 +28038,9 @@ self.addEventListener("notificationclick", (event) => {
         await put(service, characteristic, value);
       } catch (e) {
         if (e.message === "signed out") return;
-        characteristic.value = before;
+        // Put back only what this write set: a later one that went through keeps its value.
+        if (characteristic.value === value) characteristic.value = before;
+        ctx.paint();
         ctx.flash(e.message);
       }
     };
