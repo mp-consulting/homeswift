@@ -76,7 +76,8 @@ The AI composes a scene and runs it without saving it, as moods did:
   `save_scene` takes a `description`.
 - **HomeKit:** a Homeswift scene can be a switch, chosen per scene (`homeKit`), on one "Homeswift Scenes" accessory
   (`Homeswift:scenes`, a switch per scene with subtype `scene:<id>`; `SceneSwitches.swift`); the plugins' scene
-  switches stay as they are.
+  switches stay as they are. A switch carries the scene's name in Name and Configured Name, which the Home app follows:
+  renaming the scene renames the switch there, and renaming the switch in the Home app renames the scene.
 - **Govee** provides the scenes picked on its page; the library stays a place to pick from.
 - **Removed:** `list_moods`, `start_mood`, `stop_mood`, `/api/moods/*`, `held-moods.json`, `design-mood.md`;
   `stop_scene` and `undo_scene` are added.
