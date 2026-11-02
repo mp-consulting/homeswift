@@ -19,7 +19,9 @@ All notable changes to this project are documented here. The format follows
   `PluginContext.hubAccessoryMoved`). Apple Home's scenes are listed, run, renamed, updated from their lights, created
   and deleted like a Hue Bridge's; automations are listed and turned on or off, renamed, retimed, given new scenes or
   actions, or deleted. Plugins get `automations()`, `updateAutomation(id:change:)` and `deleteAutomation(id:)`
-  (`PluginAutomation`) for a hub's own automations.
+  (`PluginAutomation`) for a hub's own automations. The Assistant and MCP clients reach all of it: the hub scene tools
+  and `set_accessory_layout` cover Apple Home's scenes and rooms, and `list_hub_automations`, `update_hub_automation`
+  and `delete_hub_automation` (destructive: it asks first) its automations; the chat's prompt says when to use them.
 - A Homeswift scene shown in the Home app as a switch has its name there: the switch carries it in Configured Name, so
   renaming the scene renames the switch in the Home app, and renaming the switch in the Home app renames the scene.
 - UniFi Access: a UA Gate's side door (its lock, position sensor and trigger) and each door sensor get an accessory of
@@ -55,6 +57,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- The Assistant's chat gives the model a tool's structured answer inside the `<untrusted-data>` wrapper the tool's text
+  has (a Setup's answer, a hub's automations), where before it went out unwrapped.
 - UniFi Access and Protect: Add accessories leaves out the consoles that do not run the app (asked without signing in,
   they answer with their web page), and signing in to one says so, rather than "Unable to parse response".
 - UniFi Access and Protect: Add accessories lists only the UniFi OS consoles (gateways, Cloud Keys, recorders) to
