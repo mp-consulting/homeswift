@@ -34,7 +34,7 @@ struct StructureTests {
         let rooms = await plugin.rooms()
         #expect(rooms.map(\.name) == ["Salon", "Bureau", "Cave", "Entrée"])
         #expect(rooms.first?.place == "Maison")
-        // Through the host, as "Rename on the hubs too" does.
+        // Through the host, as "Sync rooms with the hubs" does.
         try await host.renameRoom(platform: "Wingman", name: "Wingman", id: "room-salon", to: "Séjour")
         #expect(environment.wingman.edits.last == .init(path: "rooms/rename", body: ["room": "room-salon", "name": "Séjour"]))
         #expect(await plugin.rooms().first?.name == "Séjour")
@@ -47,11 +47,56 @@ struct StructureTests {
     @Test func aRoomRenamedInAppleHomeIsSaidToHomeswift() async throws {
         let (host, plugin) = try await start()
         let renames = NIOLockedValueBox<[String]>([])
-        host.handleHubRoomRenames { instance, from, to in renames.withLockedValue { $0.append("\(instance.platform) \(from)→\(to)") } }
+        host.handleHubRoomChanges { instance, change in
+            if case .renamed(let from, let to) = change { renames.withLockedValue { $0.append("\(instance.platform) \(from)→\(to)") } }
+        }
         try await plugin.renameRoom(id: "room-bureau", name: "Atelier")
         environment.wingman.renameRoomInAppleHome("room-cave", to: "Cellier")
         #expect(await eventually { renames.withLockedValue { $0 } == ["Wingman Cave→Cellier"] })
         #expect(await plugin.rooms().map(\.name) == ["Salon", "Atelier", "Cellier", "Entrée"])
+        await host.stop()
+    }
+
+    /// Homeswift's own plug, as the host publishes it: Apple Home knows it by its serial number.
+    func publishPlug(_ host: PluginHost) throws {
+        try host.mainBridge.server.add(Accessory(
+            id: "Meross:plug", name: "Plug", serialNumber: "PLUG-SERIAL", category: .outlet, services: [Service(.outlet, isPrimary: true)]))
+    }
+
+    /// An accessory moved in Homeswift moves in Apple Home: a mirror by its id, one of Homeswift's own by its serial
+    /// number, to a room Apple Home adds when it has none; one Apple Home does not have is not Wingman's.
+    @Test func anAccessoryMovedInHomeswiftMovesInAppleHome() async throws {
+        let (host, plugin) = try await start()
+        try publishPlug(host)
+        let changes = NIOLockedValueBox<[HubRoomChange]>([])
+        host.handleHubRoomChanges { _, change in changes.withLockedValue { $0.append(change) } }
+
+        #expect(try await plugin.moveAccessory(id: "Wingman:light-1", toRoom: "Bureau"))
+        #expect(environment.wingman.edits.last == .init(path: "accessories/room", body: ["accessory": "light-1", "room": "Bureau"]))
+        #expect(try await plugin.moveAccessory(id: "Meross:plug", toRoom: "Garage"))
+        #expect(environment.wingman.edits.last == .init(path: "accessories/room", body: ["accessory": "homeswift-switch", "room": "Garage"]))
+        #expect(try await !plugin.moveAccessory(id: "Elgato:lamp", toRoom: "Garage"))
+        // Already there: nothing sent.
+        #expect(try await plugin.moveAccessory(id: "Meross:plug", toRoom: "garage"))
+        #expect(environment.wingman.edits.count == 2)
+
+        // Wingman's "homes" event shows both moves; neither is said back.
+        #expect(await eventually { await plugin.rooms().contains { $0.name == "Garage" } })
+        #expect(await eventually { host.mainBridge.server.accessories.first { $0.id == "Wingman:light-1" }?.suggestedRoom == "Bureau" })
+        #expect(changes.withLockedValue { $0 }.isEmpty)
+        await host.stop()
+    }
+
+    /// An accessory moved in the Home app is said to Homeswift by Homeswift's id: a mirror's, or its own plug's.
+    @Test func anAccessoryMovedInAppleHomeIsSaidToHomeswift() async throws {
+        let (host, _) = try await start()
+        try publishPlug(host)
+        let changes = NIOLockedValueBox<[HubRoomChange]>([])
+        host.handleHubRoomChanges { _, change in changes.withLockedValue { $0.append(change) } }
+        environment.wingman.moveInAppleHome("homeswift-switch", to: "Cave")
+        #expect(await eventually { changes.withLockedValue { $0 } == [.moved(accessoryID: "Meross:plug", room: "Cave")] })
+        environment.wingman.moveInAppleHome("light-1", to: "Cave")
+        #expect(await eventually { changes.withLockedValue { $0 }.last == .moved(accessoryID: "Wingman:light-1", room: "Cave") })
         await host.stop()
     }
 

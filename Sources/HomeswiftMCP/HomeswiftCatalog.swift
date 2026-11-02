@@ -69,7 +69,7 @@ public struct HomeswiftCatalog: Sendable {
         self.logger = logger
         home = HomeState(directory: configURL.deletingLastPathComponent())
         host.handleRenames { [self] id, name in await self.storeHomeRename(of: id, to: name) }
-        host.handleHubRoomRenames { [self] instance, from, to in await self.followHubRoomRename(on: instance, from: from, to: to) }
+        host.handleHubRoomChanges { [self] instance, change in await self.followHubRoomChange(on: instance, change) }
     }
 
     /// Runs the restart hook once the current reply has left. False when this process cannot restart itself.

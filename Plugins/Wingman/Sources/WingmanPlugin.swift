@@ -334,6 +334,8 @@ actor Link {
     /// Rooms Homeswift renamed through this Wingman, by HomeKit id: the read that shows the new name is not a rename
     /// made in the Home app.
     private var ownRoomRenames: [String: String] = [:]
+    /// Accessories Homeswift moved through this Wingman, by HomeKit id, likewise.
+    private var ownMoves: [String: String] = [:]
 
     init(device: WingmanPlugin.Configuration.Device, token: String, plugin: WingmanPlugin) {
         self.device = device
@@ -435,6 +437,7 @@ actor Link {
             structure.scenes = self.structure?.scenes ?? []
             structure.automations = self.structure?.automations ?? []
             let renamed = Structure.renamedRooms(from: self.structure, to: structure)
+            let moved = Structure.movedAccessories(from: self.structure, to: structure)
             self.structure = structure
             // Renamed in the Home app: Homeswift follows. A rename Homeswift asked for is not said back.
             for (id, home, from, to) in renamed {
@@ -446,9 +449,21 @@ actor Link {
                 logger.info("Room renamed in Apple Home", metadata: ["wingman": "\(name)", "from": "\(from)", "to": "\(to)"])
                 plugin.context.hubRoomRenamed(from: from, to: to)
             }
+            // Moved in the Home app: Homeswift follows, for the accessories it has.
+            for (id, home, room) in moved {
+                if ownMoves[id] == room {
+                    ownMoves[id] = nil
+                    continue
+                }
+                guard plugin.includesHome(home),
+                      let accessoryID = structure.homeswiftID(of: id, publishedID: plugin.context.publishedAccessoryID(serialNumber:)) else { continue }
+                logger.info("Accessory moved in Apple Home", metadata: ["wingman": "\(name)", "accessory": "\(accessoryID)", "room": "\(room)"])
+                plugin.context.hubAccessoryMoved(accessoryID: accessoryID, room: room)
+            }
             // Those Apple Home now shows are done.
             let current = Dictionary(structure.homes.flatMap(\.rooms).map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
             ownRoomRenames = ownRoomRenames.filter { current[$0.key] != $0.value }
+            ownMoves = ownMoves.filter { structure.devices[$0.key]?.room != $0.value }
             await reload(scenes: true, automations: true)
         } else {
             structure = nil
@@ -541,6 +556,19 @@ actor Link {
             throw error
         }
         renamedRoom(id, to: name)
+    }
+
+    /// Moves an accessory to the room of that name in its home (Wingman adds the room when there is none); the read
+    /// that shows it is not said back to Homeswift.
+    func moveAccessory(_ id: String, to room: String) async throws {
+        ownMoves[id] = room
+        do {
+            try await edit("accessories/room", ["accessory": .string(id), "room": .string(room)])
+        } catch {
+            ownMoves[id] = nil
+            throw error
+        }
+        structure?.devices[id]?.room = room
     }
 
     private func renamedRoom(_ id: String, to name: String) {

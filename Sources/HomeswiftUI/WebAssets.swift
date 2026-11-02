@@ -4320,7 +4320,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         ...rooms.map((name) => ({ key: name, label: name, icon: "room", onSelect: () => renameRoom(name) })),
         { separator: true },
         { label: t("Reset room order"), icon: "restore", disabled: () => rooms.every((name, index) => index === 0 || rooms[index - 1].localeCompare(name, HomeswiftI18n.locale) <= 0), onSelect: () => saveRoomOrder([...rooms].sort((a, b) => a.localeCompare(b, HomeswiftI18n.locale))) },
-        { label: t("Rename on the hubs too"), icon: "bridge", checked: syncRoomNames, checkbox: true, toggle: true, keepOpen: true, onSelect: async () => {
+        { label: t("Sync rooms with the hubs"), icon: "bridge", checked: syncRoomNames, checkbox: true, toggle: true, keepOpen: true, onSelect: async () => {
           try {
             syncRoomNames = (await api("/api/rooms", { method: "PUT", body: { syncRoomNames: !syncRoomNames } })).syncRoomNames === true;
           } catch (e) { HomeswiftCommon.showAlert(e.message); }
@@ -12591,7 +12591,7 @@ HomeswiftI18n.add("es", {
   "Name of {room}": "Nombre de {room}",
   "Rename the room": "Cambiar el nombre de la habitación",
   "Pack the widgets together": "Agrupar los widgets",
-  "Rename on the hubs too": "Cambiar el nombre también en los hubs",
+  "Sync rooms with the hubs": "Sincronizar las habitaciones con los hubs",
   "A new name for {room}.": "Un nombre nuevo para {room}.",
   "Rooms of this name on your Philips Hue, IKEA and eWeLink hubs and in Apple Home are renamed too.": "Las habitaciones con este nombre en tus hubs de Philips Hue, IKEA y eWeLink y en Apple Home también cambian de nombre.",
   "Not renamed on {hub}: {error}": "Sin cambiar el nombre en {hub}: {error}",
@@ -15295,7 +15295,7 @@ HomeswiftI18n.add("fr", {
   "Name of {room}": "Nom de {room}",
   "Rename the room": "Renommer la pièce",
   "Pack the widgets together": "Regrouper les widgets",
-  "Rename on the hubs too": "Renommer aussi sur les hubs",
+  "Sync rooms with the hubs": "Synchroniser les pièces avec les hubs",
   "A new name for {room}.": "Un nouveau nom pour {room}.",
   "Rooms of this name on your Philips Hue, IKEA and eWeLink hubs and in Apple Home are renamed too.": "Les pièces de ce nom sur vos hubs Philips Hue, IKEA et eWeLink et dans Apple Home sont renommées aussi.",
   "Not renamed on {hub}: {error}": "Non renommée sur {hub} : {error}",
@@ -17999,7 +17999,7 @@ HomeswiftI18n.add("pt", {
   "Name of {room}": "Nome de {room}",
   "Rename the room": "Mudar o nome da divisão",
   "Pack the widgets together": "Juntar os widgets",
-  "Rename on the hubs too": "Mudar o nome também nos hubs",
+  "Sync rooms with the hubs": "Sincronizar as divisões com os hubs",
   "A new name for {room}.": "Um novo nome para {room}.",
   "Rooms of this name on your Philips Hue, IKEA and eWeLink hubs and in Apple Home are renamed too.": "As divisões com este nome nos seus hubs Philips Hue, IKEA e eWeLink e na Apple Home também mudam de nome.",
   "Not renamed on {hub}: {error}": "Nome não mudado em {hub}: {error}",

@@ -20,6 +20,9 @@ struct Structure: Sendable {
         var home: String
         /// Its writable characteristics' HomeKit ids, by type.
         var writable: [HAPUUID: String]
+        var serialNumber: String? = nil
+        /// Behind a Homeswift bridge: one of Homeswift's own.
+        var onHomeswiftBridge = false
     }
 
     /// Whether Wingman's owner lets bridges edit now.
@@ -47,13 +50,42 @@ struct Structure: Sendable {
                         if let id = item.id, writable[HAPUUID(item.type)] == nil { writable[HAPUUID(item.type)] = id }
                     }
                 }
-                devices[accessory.id] = Device(name: accessory.name, room: accessory.room, home: homeID, writable: writable)
+                let bridge = accessory.bridge
+                devices[accessory.id] = Device(
+                    name: accessory.name, room: accessory.room, home: homeID, writable: writable, serialNumber: accessory.serialNumber,
+                    onHomeswiftBridge: bridge?.manufacturer == "Homeswift" || bridge?.model == "Homeswift")
             }
         }
         self.devices = devices
     }
 
     func home(_ id: String) -> Home? { homes.first { $0.id == id } }
+
+    /// The accessories whose room changed between two reads, by HomeKit id, with their home's name: none on the first.
+    static func movedAccessories(from old: Structure?, to new: Structure) -> [(id: String, home: String, room: String)] {
+        guard let old else { return [] }
+        return new.devices.sorted { $0.key < $1.key }.compactMap { id, device in
+            guard let before = old.devices[id], let room = device.room, before.room != room else { return nil }
+            return (id, new.home(device.home)?.name ?? "", room)
+        }
+    }
+
+    /// The HomeKit id of a Homeswift accessory in these homes: a mirror by its id, one of Homeswift's own by its serial
+    /// number (`serialNumber`, its own) when exactly one of Homeswift's has it.
+    func homeKitID(of accessoryID: String, serialNumber: String?) -> String? {
+        if let id = Self.homeKitID(accessoryID), devices[id] != nil { return id }
+        guard let serialNumber else { return nil }
+        // Not a mirror: those are Apple Home's own accessories, never one of Homeswift's.
+        let matches = devices.filter { !mirrored.contains($0.key) && $0.value.serialNumber == serialNumber }.map(\.key)
+        return matches.count == 1 ? matches[0] : nil
+    }
+
+    /// Homeswift's id of an accessory in these homes: a mirror's, or one of Homeswift's own (`publishedID`, by serial
+    /// number); nil for one Homeswift does not have.
+    func homeswiftID(of id: String, publishedID: (String) -> String?) -> String? {
+        if mirrored.contains(id) { return Self.homeswiftID(id) }
+        return devices[id]?.serialNumber.flatMap(publishedID)
+    }
 
     /// The rooms whose name changed between two reads, by HomeKit id: none on the first read.
     static func renamedRooms(from old: Structure?, to new: Structure) -> [(id: String, home: String, from: String, to: String)] {
@@ -333,6 +365,19 @@ extension WingmanPlugin {
             throw PluginRoomError("Apple Home has no room \(id)")
         }
         try await link.renameRoom(id, to: name)
+    }
+
+    /// Moves a mirror or one of Homeswift's own accessories in Apple Home; false for one Apple Home does not have.
+    public func moveAccessory(id accessoryID: String, toRoom room: String) async throws -> Bool {
+        let serialNumber = context.publishedSerialNumber(ofAccessory: accessoryID)
+        for (link, structure) in await structures() {
+            guard let id = structure.homeKitID(of: accessoryID, serialNumber: serialNumber), let device = structure.devices[id],
+                  let home = structure.home(device.home), includesHome(home.name) else { continue }
+            if let current = device.room, current.compare(room, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame { return true }
+            try await link.moveAccessory(id, to: room)
+            return true
+        }
+        return false
     }
 
     // Scenes

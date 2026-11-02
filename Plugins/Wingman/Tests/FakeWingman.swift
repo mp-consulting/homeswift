@@ -40,6 +40,10 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
         /// Whether this Mac's user administers the home.
         var administrator = true
         var roomNames: [String: String] = [:]
+        /// Accessories moved to another room, by id: the room's name.
+        var accessoryRooms: [String: String] = [:]
+        /// Rooms added by a move to a room the home did not have.
+        var addedRooms: [(String, String)] = []
         var scenes: [[String: Any]] = FakeWingman.initialScenes
         var automations: [[String: Any]] = FakeWingman.initialAutomations
         var edits: [Edit] = []
@@ -73,6 +77,15 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
 
     /// This Mac's user is not an administrator of the home.
     func notAdministrator() { state.withLockedValue { $0.administrator = false } }
+
+    /// An accessory moved to another room in the Home app: a "homes" event.
+    func moveInAppleHome(_ accessory: String, to room: String) {
+        state.withLockedValue { state in
+            state.accessoryRooms[accessory] = room
+            state.seq += 1
+            state.events.append(["seq": state.seq, "kind": "homes", "home": "Maison"])
+        }
+    }
 
     /// A room renamed in the Home app: a "homes" event, `/homes` with the new name.
     func renameRoomInAppleHome(_ id: String, to name: String) {
@@ -175,15 +188,18 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
         guard authorized, state.withLockedValue({ $0.tokenValid }) else { return json(["error": "pair first"], status: 401) }
         switch (request.method, path) {
         case ("GET", "/homes"):
-            let (removed, unreachable, roomNames, administrator, structure) = state.withLockedValue { ($0.removed, $0.unreachable, $0.roomNames, $0.administrator, $0.servesStructure) }
+            let (removed, unreachable, roomNames, administrator, structure, moved, added) = state.withLockedValue {
+                ($0.removed, $0.unreachable, $0.roomNames, $0.administrator, $0.servesStructure, $0.accessoryRooms, $0.addedRooms)
+            }
             var home = Self.home
-            let rooms = Self.rooms.map { id, name in (id: id, original: name, name: roomNames[id] ?? name) }
+            let rooms = (Self.rooms + added).map { id, name in (id: id, original: name, name: roomNames[id] ?? name) }
             home["accessories"] = (home["accessories"] as? [[String: Any]] ?? []).compactMap { accessory -> [String: Any]? in
                 let id = accessory["id"] as? String ?? ""
                 guard !removed.contains(id) else { return nil }
                 var accessory = accessory
                 if unreachable.contains(id) { accessory["reachable"] = false }
                 if let room = rooms.first(where: { $0.original == accessory["room"] as? String }) { accessory["room"] = room.name }
+                if let room = moved[id] { accessory["room"] = room }
                 return accessory
             }
             if structure {
@@ -222,7 +238,7 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
     }
 
     static let editPaths: Set<String> = [
-        "rooms/rename", "scenes/run", "scenes/rename", "scenes/actions", "scenes/create", "scenes/delete",
+        "rooms/rename", "accessories/room", "scenes/run", "scenes/rename", "scenes/actions", "scenes/create", "scenes/delete",
         "automations/enable", "automations/rename", "automations/time", "automations/scenes", "automations/actions", "automations/delete",
     ]
 
@@ -247,6 +263,15 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
                 state.roomNames[id] = name
                 event("homes")
                 return json(["renamed": id])
+            case "accessories/room":
+                guard let id = body["accessory"] as? String,
+                      (Self.home["accessories"] as? [[String: Any]] ?? []).contains(where: { $0["id"] as? String == id }),
+                      let room = body["room"] as? String else { break }
+                let names = (Self.rooms + state.addedRooms).map { state.roomNames[$0.0] ?? $0.1 }
+                if !names.contains(room) { state.addedRooms.append(("room-added-\(state.addedRooms.count + 1)", room)) }
+                state.accessoryRooms[id] = room
+                event("homes")
+                return json(["accessory": id, "room": room])
             case "scenes/run":
                 guard scene != nil else { break }
                 return json(["ran": body["scene"] ?? ""])
@@ -386,6 +411,9 @@ final class FakeWingman: WingmanTransportFactory, @unchecked Sendable {
                 "id": "homeswift-switch", "name": "Plug from Homeswift", "room": "Bureau", "reachable": true, "manufacturer": "Meross",
                 "bridge": ["id": "homeswift-bridge", "name": "Homeswift", "manufacturer": "Homeswift", "model": "Homeswift"],
                 "services": [
+                    ["id": "switch-info", "type": "0000003E-0000-1000-8000-0026BB765291", "characteristics": [
+                        ["id": "switch-serial", "type": "00000030-0000-1000-8000-0026BB765291", "properties": ["read"], "value": "PLUG-SERIAL", "format": "string"],
+                    ]],
                     ["id": "switch-1", "type": "00000049-0000-1000-8000-0026BB765291", "characteristics": [
                         ["id": "switch-on", "type": "00000025-0000-1000-8000-0026BB765291", "properties": ["read", "write", "events"], "value": 0, "format": "bool"],
                     ]],

@@ -46,6 +46,7 @@ come back as `{"error": "…"}` with `400` (bad request), `403` (setting off, no
 | Method and path | Body | Does |
 |---|---|---|
 | `POST /rooms/rename` | `{"room", "name"}` | `HMRoom.updateName` |
+| `POST /accessories/room` | `{"accessory", "room": name}` | `HMHome.assignAccessory(_:to:)` to the home's room of that name (case aside), after `addRoom(withName:)` when there is none |
 | `GET /scenes` | | Every home's action sets, below |
 | `POST /scenes/run` | `{"scene"}` | `HMHome.executeActionSet` |
 | `POST /scenes/rename` | `{"scene", "name"}` | `HMActionSet.updateName` |
@@ -171,6 +172,16 @@ after each edit it makes.
 is on, every hub room named as the Homeswift room was: Apple Home becomes one of those hubs. The UI's text "Rooms of
 this name on your Philips Hue, IKEA and eWeLink hubs are renamed too" becomes "… on your hubs and in Apple Home …",
 in the four languages. The mirrored accessories take the new room from the `homes` event that follows.
+
+Accessories move both ways with the same switch. Moved to another room in Homeswift (`updateLayout(_:by:)` sees the
+room change and calls every plugin's `moveAccessory(id:toRoom:)`, answering `hubMoves`), the Wingman plugin finds it in
+Apple Home, a mirror by its HomeKit id, one of Homeswift's own by its serial number (`/homes` lists Homeswift's bridged
+and published accessories with their Accessory Information), and posts `/accessories/room`. Moved in the Home app, the
+next read of the homes shows its room changed; the plugin tells Homeswift by Homeswift's id
+(`PluginContext.hubAccessoryMoved`) and the catalog moves it in the layout, to no hub. A mirror with no room in the layout
+keeps following its `suggestedRoom`. A move or rename the link asked for itself is remembered until the read that shows
+it, and not said back. An accessory taken out of every room in Homeswift is not moved in Apple Home, where every
+accessory has a room.
 
 The other way, a room renamed in the Home app: on each read of the homes the link compares the rooms' names by HomeKit
 id with the last read, and tells Homeswift of each change (`PluginContext.hubRoomRenamed(from:to:)`). With

@@ -78,17 +78,64 @@ import Testing
         environment.hubRooms.withLockedValue { $0["r2"] = "Cuisine" }
 
         // Off: Homeswift keeps its name.
-        await environment.catalog.followHubRoomRename(on: instance, from: "Kitchen", to: "Cuisine")
+        await environment.catalog.followHubRoomChange(on: instance, .renamed(from: "Kitchen", to: "Cuisine"))
         #expect(environment.catalog.home.layout.value.rooms == ["kitchen", "Bedroom"])
 
         _ = try environment.catalog.updateLayout(["syncRoomNames": true])
-        await environment.catalog.followHubRoomRename(on: instance, from: "Kitchen", to: "Cuisine")
+        await environment.catalog.followHubRoomChange(on: instance, .renamed(from: "Kitchen", to: "Cuisine"))
         #expect(environment.catalog.home.layout.value.rooms == ["Cuisine", "Bedroom"])
         #expect(hubRooms(environment) == ["r1": "Séjour", "r2": "Cuisine", "r3": "Bedroom"])
 
         // A room Homeswift does not have, or a name another room has, changes nothing.
-        await environment.catalog.followHubRoomRename(on: instance, from: "Garage", to: "Atelier")
-        await environment.catalog.followHubRoomRename(on: instance, from: "Cuisine", to: "bedroom")
+        await environment.catalog.followHubRoomChange(on: instance, .renamed(from: "Garage", to: "Atelier"))
+        await environment.catalog.followHubRoomChange(on: instance, .renamed(from: "Cuisine", to: "bedroom"))
         #expect(environment.catalog.home.layout.value.rooms == ["Cuisine", "Bedroom"])
+    }
+
+    /// An accessory moved in Homeswift goes to the hub's room of that name too when `syncRoomNames` is on; the answer
+    /// says what each hub did. Out of a room, or within the same one, it goes nowhere.
+    @Test func movesAnAccessoryOnTheHubs() async throws {
+        let environment = try MCPTestEnvironment()
+        try await environment.start()
+        defer { Task { await environment.stop() } }
+        _ = try await environment.catalog.updateLayout(["accessories": ["Devices:lamp": ["room": "Office"]]], by: "test")
+        #expect(environment.hubMoves.withLockedValue { $0 }.isEmpty)
+
+        _ = try environment.catalog.updateLayout(["syncRoomNames": true])
+        let answer = try await environment.catalog.updateLayout(["accessories": ["Devices:lamp": ["room": "Kitchen"]]], by: "test")
+        #expect(answer["hubMoves"] == [["hub": "Devices:Devices", "name": "Devices", "accessory": "Devices:lamp", "room": "Kitchen", "moved": true]])
+        #expect(environment.hubMoves.withLockedValue { $0 } == ["Devices:lamp": "Kitchen"])
+
+        let refused = try await environment.catalog.updateLayout(["accessories": ["Devices:lamp": ["room": "Attic"]]], by: "test")
+        #expect(refused["hubMoves"]?[0]?["moved"] == false)
+        #expect(refused["hubMoves"]?[0]?["error"] == "that name is taken")
+
+        let same = try await environment.catalog.updateLayout(["accessories": ["Devices:lamp": ["room": "attic"]]], by: "test")
+        #expect(same["hubMoves"] == nil)
+        let out = try await environment.catalog.updateLayout(["accessories": ["Devices:lamp": ["room": ""]]], by: "test")
+        #expect(out["hubMoves"] == nil)
+    }
+
+    /// The other way: an accessory moved on a hub moves in the layout when `syncRoomNames` is on, to a room added when
+    /// there is none, and goes back to no hub.
+    @Test func followsAnAccessoryMovedOnAHub() async throws {
+        let environment = try MCPTestEnvironment()
+        try await environment.start()
+        defer { Task { await environment.stop() } }
+        _ = try environment.catalog.updateLayout(["accessories": ["Devices:lamp": ["room": "Office"]]])
+        let instance = try #require(await environment.host.pluginRooms().first?.instance)
+
+        await environment.catalog.followHubRoomChange(on: instance, .moved(accessoryID: "Devices:lamp", room: "Kitchen"))
+        #expect(environment.catalog.home.layout.value.accessories["Devices:lamp"]?.room == "Office")
+
+        _ = try environment.catalog.updateLayout(["syncRoomNames": true])
+        await environment.catalog.followHubRoomChange(on: instance, .moved(accessoryID: "Devices:lamp", room: "Kitchen"))
+        #expect(environment.catalog.home.layout.value.accessories["Devices:lamp"]?.room == "Kitchen")
+        #expect(environment.catalog.home.layout.value.rooms.contains("Kitchen"))
+        #expect(environment.hubMoves.withLockedValue { $0 }.isEmpty)
+
+        // One Homeswift does not have changes nothing.
+        await environment.catalog.followHubRoomChange(on: instance, .moved(accessoryID: "Devices:nothing", room: "Garage"))
+        #expect(!environment.catalog.home.layout.value.rooms.contains("Garage"))
     }
 }
