@@ -1401,24 +1401,32 @@
       keepOn.value = targets.some((target) => target.hub === kept) ? kept : "";
       keepOn.hidden = !targets.length;
     };
+    const read = () => ({ name: name.value.trim(), artworkId, homeKit: homeKit.checked, actions: [...actions].flatMap((row) => row.read()), triggers: [...triggers].map((row) => row.read()), conditions: [...conditions].map((row) => row.read()), animation: animation.read() });
+    // What the editor holds, to tell unsaved changes: a row still being filled in reads as a change.
+    const snapshot = () => { try { return JSON.stringify(read()); } catch { return null; } };
+    let initial, saved = false;
+    const unchanged = () => saved || snapshot() === initial;
     const form = el("form", { class: "card scene-editor", onsubmit: async (event) => {
       event.preventDefault();
-      const body = { name: name.value.trim(), artworkId, homeKit: homeKit.checked, actions: [...actions].flatMap((row) => row.read()), triggers: [...triggers].map((row) => row.read()), conditions: [...conditions].map((row) => row.read()), animation: animation.read() };
+      const body = read();
       save.disabled = true;
       if (isNew && keepOn.value && !keepOn.hidden) {
         try {
           await app.api("/api/scenes/hub", { method: "POST", body: { hub: keepOn.value, name: body.name, actions: body.actions } });
+          saved = true;
           app.navigate("/scenes");
         } catch (e) { say(line, e.message, "error"); save.disabled = false; }
         return;
       }
       try {
-        const saved = await app.api(isNew ? "/api/scenes" : `/api/scenes/${encodeURIComponent(scene.id)}`, { method: isNew ? "POST" : "PUT", body });
-        const security = saved.actions.some((a) => a.security);
+        const answer = await app.api(isNew ? "/api/scenes" : `/api/scenes/${encodeURIComponent(scene.id)}`, { method: isNew ? "POST" : "PUT", body });
+        initial = snapshot();
+        saved = isNew;
+        const security = answer.actions.some((a) => a.security);
         if (security && body.triggers.some((trigger) => trigger.enabled !== false)) {
           say(line, t("Saved. Its lock, door or alarm actions run only when you run it here: automations leave them out."), "ok");
           // Save stays off until its page opens: a second click would make another scene.
-          if (isNew) { setTimeout(() => app.navigate(`/scenes/${encodeURIComponent(saved.id)}`, { replace: true }), 1500); return; }
+          if (isNew) { setTimeout(() => app.navigate(`/scenes/${encodeURIComponent(answer.id)}`, { replace: true }), 1500); return; }
         } else {
           app.navigate("/scenes");
         }
@@ -1431,13 +1439,20 @@
         isNew ? null : el("span", { class: "spacer" }),
         isNew ? null : el("button", { actionIcon: "trash", type: "button", class: "danger", text: t("Delete"), onclick: async () => {
           if (!(await HomeswiftAdmin.confirmAction({ title: t("Delete the scene {name}?", { name: scene.name }), text: t("This removes the scene and its automatic triggers. This cannot be undone."), confirmLabel: t("Delete"), confirmIcon: "trash" }))) return;
-          try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); app.navigate("/scenes"); } catch (e) { say(line, e.message, "error"); }
+          try { await app.api(`/api/scenes/${encodeURIComponent(scene.id)}`, { method: "DELETE" }); saved = true; app.navigate("/scenes"); } catch (e) { say(line, e.message, "error"); }
         } })),
       line);
     form.addEventListener("change", refreshTargets);
     form.addEventListener("click", () => setTimeout(refreshTargets));
     app.show(main, app.breadcrumb([t("Scenes"), "/scenes"], [isNew ? t("New scene") : scene.name]), form);
     refreshTargets();
+    // Leaving with changes not saved asks first; so does closing the tab. Only while this editor is the page shown.
+    initial = snapshot();
+    if (document.body.contains(main)) {
+      const guard = async () => unchanged() || await HomeswiftCommon.confirmDialog(t("Leave without saving your changes?"));
+      guard.quiet = unchanged;
+      window.HomeswiftApp?.setLeaveGuard(guard);
+    }
   }
 
   // ---- Notifications ---------------------------------------------------------------------------------
@@ -1649,7 +1664,11 @@
       app = context;
       app.views.scenes = (main, [id]) => id ? sceneEditor(main, id) : scenesView(main);
       app.views.notifications = notificationsView;
-      app.views.quick = async (main) => app.show(main, app.pageHead(t("Quick controls"), t("Your favourite accessories and the scenes, at hand.")), quickSection(null, { standalone: true }));
+      app.views.quick = async (main) => {
+        // Its values were frozen while the tab was hidden.
+        app.onReturn(() => app.route());
+        app.show(main, app.pageHead(t("Quick controls"), t("Your favourite accessories and the scenes, at hand.")), quickSection(null, { standalone: true }));
+      };
     },
     layoutActions, moveGroupToRoom, groupByRoom, suggestRooms, quickSection, displayName,
   };

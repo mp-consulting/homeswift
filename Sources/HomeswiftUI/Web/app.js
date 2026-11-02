@@ -501,6 +501,10 @@
   // /config, /logs[/<accessory>]?since=…&level=…&q=…, /account. Pages below a section keep it lit in the header.
   const views = {};
   let leaveGuard = null;   // a page with unsaved changes: false keeps it
+  /// What the view shown does when the tab is shown again, given how long it was hidden (ms); set by the view as it
+  /// starts (`onReturn`), cleared by each new view. Without one, nothing.
+  let returnHook = null;
+  const onReturn = (hook) => { returnHook = hook; };
   /// The place a #hash names on the view drawn (/status#matter-<device>): opened when it unfolds, and brought into view.
   const reveal = (hash) => {
     let id = "";
@@ -552,6 +556,7 @@
     const main = el("main", { id: "view" }, el("div", { class: "view-loading" }, spinner()));
     $("#view").replaceWith(main);
     leaveGuard = null;
+    returnHook = null;
     shownPath = location.pathname + location.search;
     return view(main, args).catch((e) => { if (e.status !== 401) main.replaceChildren(el("p", { class: "error", text: e.message })); });
   }
@@ -741,6 +746,8 @@
   // /status?since=24h&bridge=<bridge>&accessory=<accessory>: the activity charts' range and whose durations they show,
   // as on the Logs page.
   views.status = async (main) => {
+    // Its values were frozen while the tab was hidden.
+    onReturn(() => route());
     const [status, accessories, firstMatter] = await Promise.all([
       api("/api/status"),
       api("/api/accessories").then((list) => withSlugs(list, "accessory")).catch(() => []),
@@ -1936,6 +1943,8 @@
 
   views.accessories = async (main, args = []) => {
     if (args[0] === "graph") return HomeswiftAdmin.graph(main, accessoryTabs("graph"));
+    // Again, unless the wall is being arranged.
+    onReturn(() => { if (!document.querySelector(".wall.editing")) route(); });
     const [list, saved, home] = await Promise.all([api("/api/accessories"), api("/api/layout").catch(() => null), api("/api/rooms").catch(() => ({ rooms: [] })),
       isAdmin() ? loadMatterOwn() : null]);
     const all = withSlugs(list, "accessory");
@@ -4464,6 +4473,10 @@
   // the range (latest, 1h, 6h, 24h, today, yesterday, 7d, or custom with from= and to=), the lowest level and the
   // text. The address follows what is chosen, so it can be kept or shared.
   views.logs = async (main, [wanted] = []) => {
+    // The live log missed what came while hidden: it reads its range again, unless it was away only a moment.
+    onReturn((away) => {
+      if ((logState?.live || logState?.failed) && document.body.contains(logState.output) && away > 10000) logState.reload?.();
+    });
     const [accessories, bridges, plugins] = await Promise.all([
       api("/api/accessories").then((list) => withSlugs(list, "accessory")).catch(() => []),
       api("/api/status").then((status) => withSlugs(status.bridges, "bridge")).catch(() => []),
@@ -4787,13 +4800,7 @@
     openEvents();
     // An open dialog (an accessory's sheet, the group editor) keeps what the person was doing in it.
     if (document.querySelector("dialog[open]")) return;
-    if (location.pathname === "/accessories" && document.querySelector(".wall.editing")) return;
-    // The live log missed what came while hidden: it reads its range again, unless it was away only a moment.
-    if (location.pathname.startsWith("/logs") && (logState?.live || logState?.failed) && document.body.contains(logState.output)) {
-      if (Date.now() - hiddenAt > 10000) logState.reload?.();
-      return;
-    }
-    if (["/", "/status", "/accessories", "/quick"].includes(location.pathname)) route();
+    returnHook?.(Date.now() - hiddenAt);
   });
 
   // The views of home.js: rooms, Quick Controls, scenes, notifications.
@@ -4804,11 +4811,11 @@
   views.setup = (main) => window.HomeswiftSetup.view(main);
   views.welcome = (main) => window.HomeswiftImport.welcome(main);
   window.HomeswiftHome?.install({
-    views, api, show, pageHead, breadcrumb, accessoryCard, navigate, route: () => route(), isAdmin,
+    views, api, show, pageHead, breadcrumb, accessoryCard, navigate, route: () => route(), isAdmin, onReturn,
     enumLabels: HomeswiftWidgets.enumLabels, labelFor: HomeswiftWidgets.labelFor, withSlugs,
   });
   // The Settings pages (admin.js) draw with the same helpers.
-  window.HomeswiftApp = { api, navigate, route, finder, uniqueName, pageHead, breadcrumb, show, openSheet, savedText, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, assistantPage, configPage };
+  window.HomeswiftApp = { api, navigate, route, finder, uniqueName, pageHead, breadcrumb, show, openSheet, savedText, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, onReturn, assistantPage, configPage };
 
   loadAuth().catch((e) => { $("#auth").classList.remove("hidden"); $("#auth-error").textContent = e.message; });
 })();

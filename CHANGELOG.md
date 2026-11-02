@@ -53,6 +53,10 @@ All notable changes to this project are documented here. The format follows
   reads what it missed after the tab was hidden. Coming back to the tab no longer closes an open sheet or dialog.
 - A failed write puts an accessory's card back only when no later write changed it; the chat keeps a message it
   could not send; a new scene, or a user, is no longer saved twice by a quick second click.
+- The scene editor asks before you leave it, or close the tab, with changes not saved. Setup says when looking for
+  devices failed rather than that it found none, and a retry still under way no longer draws over your answer. Each
+  page decides what it does when the tab is shown again (Status, Accessories and Quick Controls reload, the live log
+  reads what it missed), and a refused write puts its value back only when it was the card's latest.
 - Removing another device's notifications, an uploaded wallpaper or a scene's picture asks first. Sign-in errors are
   announced to screen readers, the log's JSON button is easier to tap, and a few buttons gained their icons.
 - UniFi Access and Protect: Add accessories leaves out the consoles that do not run the app (asked without signing in,
