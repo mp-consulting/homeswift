@@ -118,9 +118,9 @@ The Assistant (the web UI's chat, MCP clients) can call three of them as tools: 
 
 ## Files
 
-Under the instance's directory (`~/.homeswift/plugins/eWeLink-<name>/`), owner-only: `ewelink-tokens.json` (the
-session, reused for a day), `devices.json` (the last discovery, for offline-first launches) and
-`accessory-context.json` (covers' positions, thermostats' targets, valves' durations).
+Under the instance's directory (`~/.homeswift/plugins/eWeLink-<name>/`), owner-only: `devices.json` (the last discovery, for offline-first launches) and
+`accessory-context.json` (covers' positions, thermostats' targets, valves' durations). The session, reused for a day, is
+sealed in the vault (`plugin.<instance>.ewelink-tokens.json`).
 
 ## What differs from the Homebridge plugin
 

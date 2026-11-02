@@ -8,6 +8,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Plugins' pages lead to Setup: a page whose account, hub or TV is not set up shows a card that opens it on Add
+  accessories (`/setup?start#<plugin>` opens the account's Setup sheet at once; `homeswift.setupCard` for plugin
+  authors). Philips Hue, IKEA DIRIGERA, Philips Ambilight TV, Wingman, Daikin Cloud, LG ThinQ, Dolphin Pool Cleaner and
+  eWeLink no longer sign in or pair on their own pages: their pairing and sign-in routes, `homeswift.bridgePairing`, and
+  the MCP tools `PhilipsAmbilightTV_pair`, `PhilipsAmbilightTV_pair_grant`, `PhilipsAmbilightTV_discover`,
+  `Wingman_pair`, `Wingman_discover`, `LGThinQ_login_url` and `DaikinCloud_server_info` are removed (`discover_devices`
+  and `start_setup` do it). Setup finds a TV or a Wingman typed by its address in the block, shows Daikin's redirect URI
+  and takes its callback server's address and port, offers LG's own countries and languages, and its sheet translates a
+  plugin's errors. A DIRIGERA hub is no longer removed from its page.
 - Rename an accessory, in the Home app too: **Rename** in a widget's ⋯ menu on the Accessories page, and the MCP tool
   `rename_accessory`. The name goes in its plugin's block (`_accessories`, by Device Id) and the bridge puts it on the
   accessory's Name and Configured Name, without reloading the plugin and with its aids and iids, so its room, scenes and
