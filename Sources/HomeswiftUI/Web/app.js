@@ -2431,7 +2431,7 @@
     let syncRoomNames = home.syncRoomNames === true;
     async function renameRoom(name) {
       const answer = await HomeswiftCommon.promptDialog(t("A new name for {room}.", { room: name })
-        + (syncRoomNames ? `\n\n${t("Rooms of this name on your Philips Hue, IKEA and eWeLink hubs are renamed too.")}` : ""), name);
+        + (syncRoomNames ? `\n\n${t("Rooms of this name on your Philips Hue, IKEA and eWeLink hubs and in Apple Home are renamed too.")}` : ""), name);
       await applyRoomName(name, answer);
     }
     /// Renames a room (to the trimmed `answer`, unless empty or unchanged); answers whether it was.
@@ -2480,7 +2480,7 @@
         ...rooms.map((name) => ({ key: name, label: name, icon: "room", onSelect: () => renameRoom(name) })),
         { separator: true },
         { label: t("Reset room order"), icon: "restore", disabled: () => rooms.every((name, index) => index === 0 || rooms[index - 1].localeCompare(name, HomeswiftI18n.locale) <= 0), onSelect: () => saveRoomOrder([...rooms].sort((a, b) => a.localeCompare(b, HomeswiftI18n.locale))) },
-        { label: t("Rename on the hubs too"), icon: "bridge", checked: syncRoomNames, checkbox: true, toggle: true, keepOpen: true, onSelect: async () => {
+        { label: t("Sync rooms with the hubs"), icon: "bridge", checked: syncRoomNames, checkbox: true, toggle: true, keepOpen: true, onSelect: async () => {
           try {
             syncRoomNames = (await api("/api/rooms", { method: "PUT", body: { syncRoomNames: !syncRoomNames } })).syncRoomNames === true;
           } catch (e) { HomeswiftCommon.showAlert(e.message); }

@@ -822,7 +822,7 @@ extension HomeswiftCatalog {
                 name: "list_scenes", title: "List scenes",
                 description: "The scenes: scenes kept by Homeswift, named sets of accessory values applied together, with their room, whether they are active now, their actions "
                     + "(security: true marks a lock, door or alarm), triggers (time of day and days, cron, sunrise or sunset with an offset, a characteristic change), conditions and last run; "
-                    + "and pluginScenes, the scenes plugins' hubs keep (a Hue Bridge's, an IKEA hub's, a Govee light's), with their room, source and whether the hub reports them active. "
+                    + "and pluginScenes, the scenes plugins' hubs keep (a Hue Bridge's, an IKEA hub's, a Govee light's, Apple Home's through Wingman), with their room, source and whether the hub reports them active. "
                     + "run_scene runs either kind by id.",
                 outputSchema: Output.object(["scenes": ["type": "array"], "pluginScenes": ["type": "array"]], required: ["scenes"]),
                 scope: .read, idempotent: true
@@ -892,7 +892,7 @@ extension HomeswiftCatalog {
                 description: "Creates a scene the user can run again with run_scene or from the web UI's Scenes page: from a plan (one run_scene ran, or a new one), "
                     + "or from the current values of the chosen accessories (ids), every writable characteristic unless characteristics names some (On, Brightness…). "
                     + "Locks, garage doors and alarms are never captured. dryRun shows the actions first, and hubs, the hubs that could keep it instead. "
-                    + "With hub (a Hue Bridge's or an IKEA hub's, from hubs), the scene is kept on that hub rather than in Homeswift: lights' On, Brightness, colour and white only, "
+                    + "With hub (a Hue Bridge's, an IKEA hub's or Apple Home's through Wingman, from hubs), the scene is kept on that hub rather than in Homeswift: lights' On, Brightness, colour and white only, "
                     + "no triggers or animation; the hub's own app then shows it too.",
                 inputSchema: [
                     "type": "object", "required": ["name"],
@@ -941,7 +941,7 @@ extension HomeswiftCatalog {
             },
             MCPTool(
                 name: "update_hub_scene", title: "Change a hub's scene",
-                description: "Renames a scene a hub keeps (a Hue Bridge's, an IKEA hub's; pluginScenes in list_scenes) and/or replaces its lights' values: "
+                description: "Renames a scene a hub keeps (a Hue Bridge's, an IKEA hub's, Apple Home's; pluginScenes in list_scenes) and/or replaces its lights' values: "
                     + "from a plan (lights' On, Brightness, Hue, Saturation, Color Temperature), or from its lights as they are now (fromCurrent). "
                     + "What a scene allows is in its capabilities (rename, update). The hub's own app shows the change. dryRun shows it first.",
                 inputSchema: [
@@ -961,7 +961,7 @@ extension HomeswiftCatalog {
             },
             MCPTool(
                 name: "delete_hub_scene", title: "Remove a hub's scene",
-                description: "Removes a scene from the hub that keeps it (a Hue Bridge, an IKEA hub): it is gone from the hub's own app too, and cannot be brought back. "
+                description: "Removes a scene from the hub that keeps it (a Hue Bridge, an IKEA hub, Apple Home): it is gone from the hub's own app too, and cannot be brought back. "
                     + "The user confirms first. Only scenes whose capabilities include delete.",
                 inputSchema: ["type": "object", "required": ["scene"], "properties": ["scene": ["type": "string", "minLength": 1, "description": "The hub scene's id, from list_scenes' pluginScenes"]]],
                 scope: .admin, destructive: true, supportsDryRun: true

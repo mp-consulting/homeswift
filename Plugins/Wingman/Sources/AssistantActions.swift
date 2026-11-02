@@ -26,6 +26,13 @@ extension WingmanPlugin {
         means Wingman's "Let bridges change accessories" is off. Matter accessories (Hue, IKEA) cannot be read by \
         Wingman (HomeKit error 74) but report changes and accept writes; error 74 on a write means the device did not \
         answer (switched off at the wall). Wingman runs only on Macs registered in its developer's team (development \
-        signing). Never ask for the token.
+        signing). Never ask for the token. When Wingman serves Apple Home's structure (and its owner turned on "Let bridges \
+        edit rooms, scenes and automations"), Apple Home's scenes are hub scenes (list_scenes, run_scene, update_hub_scene, \
+        delete_hub_scene, save_scene with its hub), its automations are list_hub_automations, update_hub_automation and \
+        delete_hub_automation, and with the room layout's syncRoomNames on, renaming a room or moving an accessory with \
+        set_accessory_layout does the same in the Home app, and the other way round. "structural edits are turned off in \
+        Wingman's settings" means that setting is off; "only an administrator of the home can change it" means the Mac's \
+        Apple Account is not an administrator of that home. Built-in scenes (Good Morning and the like) cannot be renamed \
+        or deleted; automations' accessory triggers and conditions, and new automations, are made in the Home app.
         """
 }

@@ -66,6 +66,29 @@ reachability lags for Matter devices on a Mac, and HomeKit answers a write the d
 
 The plugin's MCP tool is `Wingman_list_wingmen`; Setup's `discover_devices` and `start_setup` find and pair a Wingman.
 
+## Rooms, scenes and automations
+
+A Wingman that serves Apple Home's structure (its `/info` lists the `structure` feature; docs/apple-home-design.md)
+also gives Homeswift:
+
+- **Rooms**: with **Sync rooms with the hubs** on (the Accessories page's **Rooms** menu), rooms stay in step both
+  ways. A room renamed in Homeswift is renamed in Apple Home, and one renamed in the Home app renames Homeswift's room
+  of the old name (and the other hubs' with it). An accessory moved to another room in Homeswift moves to Apple Home's
+  room of that name (added when there is none), and one moved in the Home app moves in Homeswift. Mirrored accessories
+  are known by their HomeKit id, Homeswift's own by their serial number; one taken out of every room in Homeswift stays
+  where it is in Apple Home.
+- **Scenes**: Apple Home's scenes join **Scenes from your hubs**, in the room of their accessories when they share one.
+  Run them, and from their ⋯ menu rename them, keep their lights as they are (their other actions stay) or delete them.
+  A new scene of lights that are all in one Apple Home home can be kept there. Built-in scenes (Good Morning and the
+  like) are not renamed or deleted; a scene with an action Wingman cannot show (a shortcut) keeps its actions.
+- **Automations**: listed with their triggers, conditions, scenes and actions; turned on or off, renamed, given a new
+  time (a time trigger), new scenes or new actions, or deleted. Their conditions and accessory triggers are shown, not
+  changed: the Home app edits those.
+
+Each edit needs **Let bridges edit rooms, scenes and automations** on in Wingman's settings (off by default) and the
+Mac's user to administer the home; otherwise scenes are only run and nothing else is offered. A change made in the Home
+app reaches Homeswift at once (Wingman's `scenes` and `automations` events). An older Wingman gives none of it.
+
 ## Dashboard controls
 
 Wingman accessories can join [dashboard groups](../../docs/widgets.md#accessory-groups) with compatible native

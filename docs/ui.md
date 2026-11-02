@@ -174,11 +174,15 @@ screenshots, and what a plugin does to get good ones.
 - **Rooms on the hubs**: in **Edit**, with the wall **By room**, each room's heading is a field: type a new name, then
   Enter (or click away) renames the room, Escape keeps it. A tile dragged into another room's wall moves the accessory to
   that room, or out of any into **No room**; every room shows there, empty ones too, to take a drop. The **Rooms** menu orders the rooms (drag them) and renames
-  one too (choose it). Its **Rename on the hubs too** switch, off until turned on (`syncRoomNames` in
+  one too (choose it). Its **Sync rooms with the hubs** switch, off until turned on (`syncRoomNames` in
   `accessory-layout.json`), makes a renamed room's new name reach the plugins' hubs: every room of a Philips Hue Bridge,
-  an IKEA DIRIGERA hub or an eWeLink home named as the room was, case and accents aside, is renamed with it, and the
-  log says so (`Room "Salon" renamed "Lounge" on Hue`). It goes one way: a room renamed in the Hue app stays as Homeswift
-  has it. Govee keeps no rooms its API can reach. A hub that refuses says why under the page; the room is renamed in
+  an IKEA DIRIGERA hub, an eWeLink home or Apple Home (through Wingman) named as the room was, case and accents aside,
+  is renamed with it, and the log says so (`Room "Salon" renamed "Lounge" on Hue`). From Apple Home it goes both ways:
+  a room renamed in the Home app renames Homeswift's room of the old name, and the other hubs' with it. A room renamed
+  in the Hue, IKEA or eWeLink app stays as Homeswift has it. With Apple Home the switch moves accessories too, both
+  ways: an accessory moved to another room here (a tile dragged, a room chosen) moves to Apple Home's room of that name,
+  which Wingman adds when there is none, and one moved in the Home app moves here. An accessory taken out of every room
+  stays where it is in Apple Home. Govee keeps no rooms its API can reach. A hub that refuses says why under the page; the room is renamed in
   Homeswift all the same.
 - **Suggest rooms**, with the Assistant on, asks it for rooms and clearer names for every accessory
   (`AssistantService.suggestOrganization`; the ids reach the model as aliases) and shows them to review: untick what you

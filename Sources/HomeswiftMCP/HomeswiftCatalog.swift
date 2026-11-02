@@ -69,6 +69,7 @@ public struct HomeswiftCatalog: Sendable {
         self.logger = logger
         home = HomeState(directory: configURL.deletingLastPathComponent())
         host.handleRenames { [self] id, name in await self.storeHomeRename(of: id, to: name) }
+        host.handleHubRoomChanges { [self] instance, change in await self.followHubRoomChange(on: instance, change) }
     }
 
     /// Runs the restart hook once the current reply has left. False when this process cannot restart itself.
@@ -1273,7 +1274,7 @@ public struct HomeswiftCatalog: Sendable {
                     block[list] = .array(entries)
                 })
             },
-        ] + hostTools + adminTools + layoutTools + wallTools + sceneTools + notificationTools + assistantTools + vaultTools + matterTools + setupTools + pluginActionTools
+        ] + hostTools + adminTools + layoutTools + wallTools + sceneTools + hubAutomationTools + notificationTools + assistantTools + vaultTools + matterTools + setupTools + pluginActionTools
     }
 
     /// `set_accessories` with `ids` or `filter`: one characteristic and value on every target.
