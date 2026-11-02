@@ -133,6 +133,10 @@ public protocol HomeswiftPlugin: Sendable {
     /// Renames one of `rooms()` by its `PluginRoom.id` on the hub. Defaults to throwing.
     func renameRoom(id: String, name: String) async throws
 
+    /// Moves the accessory `accessoryID` (Homeswift's id, the plugin's or not) to the hub's room named `room`, when the
+    /// hub keeps it in rooms (Apple Home keeps Homeswift's): answers false for one it does not have. Defaults to false.
+    func moveAccessory(id accessoryID: String, toRoom room: String) async throws -> Bool
+
     /// What the instance's account asks before the plugin may use it (Setup, `Setup.swift`): a cloud's login, a
     /// developer portal's keys. Defaults to `.none`: no account, or one whose settings the form takes as they are.
     static var accountAuthorization: AuthorizationMethod { get }
@@ -155,6 +159,16 @@ public protocol HomeswiftPlugin: Sendable {
     /// The Device Id of an accessory whose id, after `<platform>:`, is not the Device Id or the Device Id followed by `:` or
     /// `.` (eWeLink's channels, `<deviceID>SW<n>`), so Excluded reaches it. Defaults to nil: those two forms only.
     static func deviceID(ofAccessory suffix: String) -> String?
+
+    /// The automations the plugin's hub keeps (`PluginAutomation`), such as Apple Home's through Wingman. Defaults to
+    /// none.
+    func automations() async -> [PluginAutomation]
+
+    /// Changes an automation on the hub: what its `PluginAutomation.capabilities` allow. Defaults to throwing.
+    func updateAutomation(id: String, change: PluginAutomationChange) async throws
+
+    /// Removes an automation from the hub (`delete` capability). Defaults to throwing.
+    func deleteAutomation(id: String) async throws
 }
 
 extension HomeswiftPlugin {
@@ -462,6 +476,39 @@ public final class PluginContext: @unchecked Sendable {
         set { publishedBox.withLockedValue { $0 = newValue } }
     }
     private let publishedBox = NIOLockedValueBox<@Sendable () -> [Accessory]>({ [] })
+
+    /// Tells Homeswift a room of the plugin's hub was renamed there (in the Home app, through Wingman): with the
+    /// layout's `syncRoomNames` on, Homeswift renames its room of the old name too, and the other hubs' (docs/ui.md,
+    /// "Rooms on the hubs"). Say it only for a rename the hub made, not one Homeswift asked for with `renameRoom`.
+    public func hubRoomRenamed(from: String, to: String) {
+        hubRoomChangeBox.withLockedValue { $0 }?(.renamed(from: from, to: to))
+    }
+
+    /// Tells Homeswift one of its accessories (`accessoryID`, Homeswift's id) was moved to `room` on the plugin's hub
+    /// (in the Home app, through Wingman): with `syncRoomNames` on, Homeswift moves it to its room of that name. Say it
+    /// only for a move the hub made, not one Homeswift asked for with `moveAccessory`.
+    public func hubAccessoryMoved(accessoryID: String, room: String) {
+        hubRoomChangeBox.withLockedValue { $0 }?(.moved(accessoryID: accessoryID, room: room))
+    }
+
+    /// Set by `PluginHost`.
+    var onHubRoomChange: (@Sendable (HubRoomChange) -> Void)? {
+        get { hubRoomChangeBox.withLockedValue { $0 } }
+        set { hubRoomChangeBox.withLockedValue { $0 = newValue } }
+    }
+    private let hubRoomChangeBox = NIOLockedValueBox<(@Sendable (HubRoomChange) -> Void)?>(nil)
+
+    /// The id of the one accessory Homeswift itself publishes with this serial number (mirrored ones left out); nil
+    /// when none or several have it. For a plugin that reads another controller's view of the home (Wingman).
+    public func publishedAccessoryID(serialNumber: String) -> String? {
+        let ids = publishedAccessories().filter { $0.mirroredFrom == nil && $0.information[.serialNumber]?.value.stringValue == serialNumber }.map(\.id)
+        return ids.count == 1 ? ids[0] : nil
+    }
+
+    /// The serial number of an accessory Homeswift itself publishes, by its id.
+    public func publishedSerialNumber(ofAccessory id: String) -> String? {
+        publishedAccessories().first { $0.id == id && $0.mirroredFrom == nil }?.information[.serialNumber]?.value.stringValue
+    }
 
     /// The serial numbers of every accessory Homeswift itself publishes to HomeKit, on any bridge or on its own, mirrored
     /// ones left out: a plugin that reads another controller's view of the home (Wingman reads the Home app's, which has
