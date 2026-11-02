@@ -35,8 +35,6 @@ public actor EWeLinkPlugin: HomeswiftPlugin {
     let dependencies: Dependencies
     var logger: Logger { context.logger }
     private var platformTask: Task<Void, Never>?
-    /// The session the settings page logged in with: it never leaves the plugin.
-    private var pageSession: CloudAPI?
     private let holder = PlatformHolder()
 
     public init(configuration: Configuration, context: PluginContext) {
@@ -80,39 +78,17 @@ public actor EWeLinkPlugin: HomeswiftPlugin {
 
     // MARK: The web page
 
-    /// The Homebridge plugin's settings page: `POST login` checks an account (and keeps the session here, not
-    /// in the browser), `GET session` says whether the plugin has a session to reuse, `GET devices` lists the
-    /// account's devices and RF sub-devices with what a 3 s mDNS scan found, `POST test-device` sends a
+    /// The Homebridge plugin's settings page, without its sign-in (Setup signs in, EWeLinkSetup.swift): `GET devices`
+    /// lists the account's devices and RF sub-devices with what a 3 s mDNS scan found, `POST test-device` sends a
     /// command, `GET accessories` the instance's accessories (Homebridge's `/getCachedAccessories`), `GET status`
     /// the connection.
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
         switch (request.method, request.path) {
-        case ("POST", "login"):
-            let username = request.body["username"]?.stringValue?.trimmingCharacters(in: .whitespaces) ?? ""
-            let password = request.body["password"]?.stringValue ?? ""
-            let missing = [("username", username), ("password", password)].filter { $0.1.isEmpty }.map(\.0)
-            guard missing.isEmpty else { return .error(400, "Missing required fields: \(missing.joined(separator: ", "))") }
-            let api = CloudAPI(
-                credentials: .init(username: username, password: password, countryCode: request.body["countryCode"]?.stringValue),
-                transport: dependencies.transport, storage: nil, logger: logger)
-            do {
-                try await api.login()
-            } catch {
-                return .error(401, "\(error)")
-            }
-            pageSession = api
-            return PluginWebResponse(["success": true, "region": .string(await api.region.rawValue)])
-        case ("GET", "session"):
-            if pageSession != nil { return PluginWebResponse(["success": true, "region": .string(await pageSession?.region.rawValue ?? "")]) }
-            guard let tokens = TokenStorage(context: context).loadValid() else {
-                return PluginWebResponse(["success": false, "message": "No valid session found"])
-            }
-            return PluginWebResponse(["success": true, "region": .string(tokens.region)])
         case ("GET", "devices"):
-            guard let api = await sessionAPI() else { return .error(401, "Not logged in to eWeLink: connect your account first") }
+            guard let api = await sessionAPI() else { return .error(401, "Not signed in to eWeLink: set up the account in Add accessories") }
             return await listDevices(api)
         case ("POST", "test-device"):
-            guard let api = await sessionAPI() else { return .error(401, "Not logged in to eWeLink: connect your account first") }
+            guard let api = await sessionAPI() else { return .error(401, "Not signed in to eWeLink: set up the account in Add accessories") }
             guard let deviceID = request.body["deviceId"]?.stringValue, !deviceID.isEmpty else { return .error(400, "Missing required fields: deviceId") }
             let params = request.body["params"]?.objectValue ?? ["switch": "on"]
             let success = await api.setDeviceState(deviceID, params: params)
@@ -126,9 +102,8 @@ public actor EWeLinkPlugin: HomeswiftPlugin {
         }
     }
 
-    /// The page's session, else the plugin's own tokens (saved by its last login, less than a day old).
+    /// The plugin's own tokens (saved by its last login, less than a day old).
     func sessionAPI() async -> CloudAPI? {
-        if let pageSession { return pageSession }
         guard let tokens = TokenStorage(context: context).loadValid() else { return nil }
         let api = CloudAPI(credentials: .init(countryCode: configuration.countryCode), transport: dependencies.transport, storage: nil, logger: logger)
         await api.setCredentials(accessToken: tokens.accessToken, apiKey: tokens.apiKey, refreshToken: tokens.refreshToken, region: tokens.region)

@@ -312,7 +312,6 @@ struct PlatformTests {
             try await plugin.handleWebRequest(.init(method: method, path: path, body: body, user: "admin"))
         }
         // The plugin's own session (saved by its login) serves the page.
-        #expect(try await call("GET", "session").json["success"] == true)
         let devices = try await call("GET", "devices")
         #expect(devices.status == 200)
         let list = try #require(devices.json["devices"]?.arrayValue)
@@ -321,13 +320,9 @@ struct PlatformTests {
         #expect(list[2]["deviceId"] == "1000ddddddSW1" && list[2]["isRfSubdevice"] == true && list[2]["model"] == "RF Button" && list[2]["buttons"] == ["Up", "Down"])
         #expect(list[2]["uiid"] == "28-sub" && list[2]["parentDeviceId"] == "1000dddddd")
 
-        // Logging in from the page keeps the session in the plugin.
-        #expect(try await call("POST", "login", ["username": "", "password": "x"]).status == 400)
-        environment.cloud.update { $0.loginAnswers = [["error": 10001, "msg": "wrong"], ["error": 10001, "msg": "wrong"]] }
-        let refused = try await call("POST", "login", ["username": "a@b.c", "password": "bad", "countryCode": "+44"])
-        #expect(refused.status == 401 && refused.json["error"] == "wrong [10001]")
-        let login = try await call("POST", "login", ["username": "a@b.c", "password": "good", "countryCode": "+44"])
-        #expect(login.status == 200 && login.json["region"] == "eu" && login.json["accessToken"] == nil)
+        // Signing in is Setup's: the page has no route of its own for it.
+        #expect(try await call("POST", "login", ["username": "a@b.c", "password": "good"]).status == 404)
+        #expect(try await call("GET", "session").status == 404)
 
         let test = try await call("POST", "test-device", ["deviceId": "1000aaaaaa"])
         #expect(test.json["success"] == true)
