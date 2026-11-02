@@ -164,7 +164,7 @@ final class TestEnvironment: Sendable {
         registry.register(platform: DirigeraPlugin.platform, name: DirigeraPlugin.name) { json, context in
             let configuration = try JSONDecoder().decode(DirigeraPlugin.Configuration.self, from: json)
             let dependencies = DirigeraPlugin.Dependencies(
-                transport: { trust in PinnedHub(hub: hub, trust: trust) }, events: { _, _, _ in hub.events.stream }, discover: { ["192.0.2.20"] }, reconnectDelay: .milliseconds(50), pairingRetryDelay: .milliseconds(50),
+                transport: { trust in PinnedHub(hub: hub, trust: trust) }, events: { _, _, _ in hub.events.stream }, discover: { ["192.0.2.20"] }, reconnectDelay: .milliseconds(50),
                 settleTime: dirigeraSettleTime)
             let plugin = DirigeraPlugin(configuration: configuration, context: context, dependencies: dependencies)
             self.plugins.withLockedValue { $0.append(plugin) }
@@ -216,25 +216,37 @@ struct DirigeraTests {
         #expect(verifier.count == 128 && verifier.allSatisfy { $0.isLetter || $0.isNumber })
     }
 
-    /// Pairing waits for the action button, then keeps the token in the plugin's own file and starts the hub.
-    @Test func pairsWhenTheButtonIsPressed() async throws {
+    /// Pairs the hub through Setup with its button already pressed, then starts the plugin again, as a finished Setup
+    /// does: answers the new host, whose plugin runs the hub with the token kept in the vault.
+    func pairThroughSetup(_ host: PluginHost, settings: [String: Any]) async throws -> PluginHost {
+        let plugin = try #require(environment.plugin)
+        environment.hub.pressButton()
+        guard case .done = try await plugin.authorize(SetupRequest(target: .account)) else { Issue.record("expected done"); return host }
+        await host.stop()
+        return try await environment.start(settings: settings)
+    }
+
+    /// A hub Setup paired runs once the plugin starts again: its token sealed in the vault, under the instance's
+    /// namespace, never in the vault's file in clear, nor in config.json.
+    @Test func aHubSetUpRunsWithTheTokenFromTheVault() async throws {
+        let settings: [String: Any] = ["hubs": [["host": "192.0.2.20"]]]
+        let host = try await pairThroughSetup(try await environment.start(settings: settings), settings: settings)
+        _ = try await accessory(host, sofaID)
+        let vault = CredentialVault(storage: environment.directory)
+        let entry = try #require(try vault.names().first { $0.hasPrefix("plugin.") && $0.hasSuffix(".hubs.json") })
+        #expect(try vault.entry(named: entry)?.fields["token"]?.contains(FakeHub.token) == true)
+        #expect(try !String(contentsOf: vault.url, encoding: .utf8).contains(FakeHub.token))
+        await host.stop()
+    }
+
+    /// The page leads to Setup: it has no pairing of its own.
+    @Test func thePageDoesNotPair() async throws {
         let host = try await environment.start(settings: ["hubs": [["host": "192.0.2.20"]]])
         let plugin = try #require(environment.plugin)
-        let hub = environment.hub
-        Task {
-            try? await Task.sleep(for: .milliseconds(300))
-            hub.pressButton()
+        for path in ["pair", "unpair", "discover"] {
+            let answer = try await plugin.handleWebRequest(PluginWebRequest(method: path == "discover" ? "GET" : "POST", path: path, body: ["host": "192.0.2.20"], user: "admin"))
+            #expect(answer.status == 404)
         }
-        let answer = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "pair", body: ["host": "192.0.2.20"], user: "admin"))
-        #expect(answer.json["paired"] == "192.0.2.20")
-        _ = try await accessory(host, sofaID)
-        // The token is kept sealed in the vault, under the instance's namespace.
-        let vault = CredentialVault(storage: environment.directory)
-        #expect(await eventually {
-            let entry = (try? vault.names())?.first { $0.hasPrefix("plugin.") && $0.hasSuffix(".hubs.json") }
-            return entry.flatMap { try? vault.entry(named: $0)?.fields["token"] }?.contains(FakeHub.token) == true
-        })
-        #expect(try !String(contentsOf: vault.url, encoding: .utf8).contains(FakeHub.token))
         await host.stop()
     }
 
@@ -343,11 +355,10 @@ struct DirigeraTests {
     }
 
     @Test func aRefusedTokenShowsNoResponse() async throws {
-        let host = try await environment.start(settings: ["hubs": [["host": "192.0.2.20"]]])
-        // Paired from the page once: the token in the plugin's file.
+        // Paired through Setup once: the token in the plugin's vault entry.
+        let settings: [String: Any] = ["hubs": [["host": "192.0.2.20"]]]
+        let host = try await pairThroughSetup(try await environment.start(settings: settings), settings: settings)
         let plugin = try #require(environment.plugin)
-        environment.hub.pressButton()
-        _ = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "pair", body: ["host": "192.0.2.20"], user: "admin"))
         let sofa = try await accessory(host, sofaID)
         environment.hub.refuse()
         await plugin.refreshAll()

@@ -395,7 +395,7 @@
   async function finishRestart() {
     if (restartOverlay?.isConnected && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
       restartOverlay.classList.add("restart-leaving");
-      await new Promise((resolve) => setTimeout(resolve, 180));
+      await new Promise((resolve) => setTimeout(resolve, 120));
     }
     closeRestartOverlay();
     restartPolling = false;
@@ -3090,7 +3090,7 @@
       // A plugin with its own page does the everyday work there (pairing, devices); this is the raw block.
       hasPage ? el("div", { class: "card page-note" },
         el("p", {}, el("strong", { text: t("Expert.") }), " ", t("Every setting of the block, as config.json keeps it, including what {plugin}'s page does not show. A save reloads the plugin.", { plugin: plugin.name })),
-        el("a", { class: "button", href: pluginPage(block), text: t("Back to its page") })) : null,
+        el("a", { class: "button", href: pluginPage(block), actionIcon: "back", text: t("Back to its page") })) : null,
       platform === "HomeswiftAiKit" && useSuggestion && !isNew ? assistantSettings({
         formValue: () => { try { return { ...getValue(), platform }; } catch { return { ...current, platform }; } },
         useValue: useSuggestion, save, dirty }) : null,
@@ -3858,7 +3858,7 @@
       el("div", { class: "account" }, profile, form, twoFactorCard(state), connectedAppsCard(apps),
         state.admin ? el("div", { class: "card" }, el("h2", { text: t("Users and API tokens") }),
           el("p", { class: "muted", text: t("Add people who may use this web UI, choose who administers it, and make tokens for scripts.") }),
-          el("a", { class: "button", href: "/users", text: t("Open Users") })) : null),
+          el("a", { class: "button", href: "/users", actionIcon: "users", text: t("Open Users") })) : null),
       appearanceLink());
   };
 
@@ -4348,6 +4348,7 @@
       else { check.className = "error"; check.replaceChildren(...lineLink(result, editor), result.message); }
       save.disabled = !dirty || !valid;
       revert.disabled = !dirty;
+      format.disabled = !valid;
     };
     const doSave = async (anyway = false) => {
       if (save.disabled) return;
@@ -4399,7 +4400,8 @@
       secretsNote.textContent = detail.secrets ? tn("{n} secret shown, the rest folded", "{n} secrets shown, the rest folded", detail.secrets) : t("No secrets in this file");
       secretsBanner.hidden = !detail.secretsOnly;
     });
-    format.addEventListener("click", () => { try { textarea.value = JSON.stringify(JSON.parse(textarea.value), null, 2); editor.repaint(); update(); } catch {} });
+    // Offered only while the text parses (`update`).
+    format.addEventListener("click", () => { textarea.value = JSON.stringify(JSON.parse(textarea.value), null, 2); editor.repaint(); update(); });
     update();
     show(main,
       pageHead(t("Settings"), t("The whole config.json. Saving validates it, keeps a backup of the previous file (the last 20 under backups/), and applies it at once.")),

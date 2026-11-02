@@ -17,15 +17,14 @@ struct AssistantActionTests {
 
     @Test func describesTheRoutes() throws {
         let actions = DaikinCloudPlugin.assistantActions
-        #expect(actions.map(\.name) == ["status", "list_devices", "rate_limit", "test_connection", "server_info", "revoke"])
+        #expect(actions.map(\.name) == ["status", "list_devices", "rate_limit", "test_connection", "revoke"])
         #expect(Set(actions.map(\.name)).count == actions.count)
         // Only revoking changes anything; it is confirmed and needs admin.
         #expect(actions.filter(\.confirm).map(\.name) == ["revoke"])
         #expect(actions.filter { $0.access != .read }.map(\.name) == ["revoke"])
         #expect(try action("revoke").access == .configure)
-        // No sign-in route: they take a secret, a password or a one-time code.
-        let paths = Set(actions.map(\.path))
-        for path in ["auth/start", "auth/callback", "auth/mobile-test", "auth/poll", "config/validate"] { #expect(!paths.contains(path)) }
+        // No sign-in: Setup's.
+        #expect(!actions.contains { $0.path.hasPrefix("auth/") && !["auth/status", "auth/test", "auth/revoke"].contains($0.path) })
     }
 
     @Test func eachActionReachesItsRoute() async throws {
@@ -51,7 +50,6 @@ struct AssistantActionTests {
 
         #expect(try await call("rate_limit", on: environment).status == 200)
         #expect(try await call("test_connection", on: environment).json["message"] == "Connection successful! Found 2 device(s).")
-        #expect(try await call("server_info", on: environment).json["primaryIp"] == "192.168.1.20")
 
         let revoked = try await call("revoke", on: environment)
         #expect(revoked.json["success"] == true)

@@ -4,8 +4,8 @@ import HomeswiftNetwork
 import HomeswiftPlugin
 
 // Setup (GLOSSARY.md, "Setup"): the MyDolphin account is the instance's, an Account Login whose second step is the
-// code Maytronics sends (Cognito's CUSTOM_AUTH, as the setup page's wizard). The refresh token goes in the vault, never
-// in config.json; the robots come with the account and need nothing more.
+// code Maytronics sends (Cognito's CUSTOM_AUTH, as the Homebridge plugin's setup wizard). The refresh token goes in the
+// vault, never in config.json; the robots come with the account and need nothing more.
 extension DolphinPoolCleanerPlugin {
     public static let accountAuthorization = AuthorizationMethod.accountLogin
 
@@ -33,7 +33,7 @@ extension DolphinPoolCleanerPlugin {
             do {
                 response = try await cognito.respondToAuthChallenge(name: challenge, session: session, responses: ["USERNAME": email, field: code])
             } catch {
-                throw SetupError(SetupWizard.message(for: error))
+                throw SetupError(SetupSignIn.message(for: error))
             }
         } else {
             guard let typed = request.answer("email") else {
@@ -43,7 +43,7 @@ extension DolphinPoolCleanerPlugin {
             do {
                 response = try await cognito.initiateAuth(flow: "CUSTOM_AUTH", parameters: ["USERNAME": email])
             } catch {
-                throw SetupError(SetupWizard.message(for: error))
+                throw SetupError(SetupSignIn.message(for: error))
             }
         }
         if let challenge = response["ChallengeName"]?.stringValue, !challenge.isEmpty {
@@ -54,8 +54,8 @@ extension DolphinPoolCleanerPlugin {
             return .ask(SetupPrompt(message: message, fields: [SetupField("code", label: "Code", kind: .code)]),
                         state: ["email": .string(email), "challenge": .string(challenge), "session": response["Session"] ?? ""])
         }
-        guard let tokens = SetupWizard.Tokens(response) else { throw SetupError("Maytronics sent no token") }
-        let robot = await wizard.completeAuthentication(tokens)
+        guard let tokens = SetupSignIn.Tokens(response) else { throw SetupError("Maytronics sent no token") }
+        let robot = await signIn.completeAuthentication(tokens)
         guard robot["success"] == true else { throw SetupError(robot["error"]?.stringValue ?? "MyDolphin authentication failed") }
         guard let refreshToken = robot["refreshToken"]?.stringValue else { throw SetupError("Maytronics sent no refresh token") }
         logger.info("Signed in through Setup", metadata: ["robot": "\(robot["robotName"]?.stringValue ?? "")"])
