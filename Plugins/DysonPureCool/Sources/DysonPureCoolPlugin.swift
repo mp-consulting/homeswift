@@ -62,7 +62,7 @@ public actor DysonPureCoolPlugin: HomeswiftPlugin {
     let configuration: Configuration
     let context: PluginContext
     let dependencies: Dependencies
-    private var logger: Logger { context.logger }
+    var logger: Logger { context.logger }
     private var managed: [String: Managed] = [:]
     private var retries: [String: Task<Void, Never>] = [:]
     private let tasks = TaskBag()
@@ -89,7 +89,9 @@ public actor DysonPureCoolPlugin: HomeswiftPlugin {
     // MARK: Lifecycle
 
     public func start() async throws {
-        let entries = configuration.devices ?? []
+        // The block's `devices`, then those set up through Setup (DysonSetup.swift), each with its credential from the vault
+        // when Setup keeps one.
+        let entries = configuredDevices()
         guard !entries.isEmpty else {
             logger.warning("No devices configured. Please use the plugin settings to add your Dyson devices.")
             return
@@ -105,6 +107,11 @@ public actor DysonPureCoolPlugin: HomeswiftPlugin {
             }
             guard !configured.contains(where: { $0.serial == serial }) else {
                 logger.warning("Skipping a second entry for device \(serial)")
+                continue
+            }
+            // Excluded (GLOSSARY.md): never polled, and the runtime would refuse its accessory.
+            guard !context.isExcluded(serial) else {
+                logger.info("Skipping excluded device \(serial)")
                 continue
             }
             var device = configuration.merged(entry)
@@ -406,7 +413,7 @@ public actor DysonPureCoolPlugin: HomeswiftPlugin {
         }
     }
 
-    private var cloud: DysonCloud { DysonCloud(transport: dependencies.http, logger: logger) }
+    var cloud: DysonCloud { DysonCloud(transport: dependencies.http, logger: logger) }
 
     private func authenticate(_ body: JSONValue) async throws -> PluginWebResponse {
         let email = try CloudInput.email(body["email"])

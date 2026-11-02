@@ -109,6 +109,9 @@ public struct HomeswiftConfiguration: Sendable {
         /// The names given in `_accessories`, by Device Id (`AccessoryNaming`): the runtime renames the accessories, in
         /// HomeKit too. Not in `json`: a rename does not reload the plugin.
         public var accessoryNames: [String: String] = [:]
+        /// `_accessories`: Accessory Settings by Device Id (`AccessorySettings`), their names left to `accessoryNames`. In
+        /// `json` too: a change reloads the plugin.
+        public var accessorySettings: [String: AccessorySettings] = [:]
         /// The whole block as JSON, what the plugin's `Configuration` is decoded from.
         public var json: Data
 
@@ -118,6 +121,7 @@ public struct HomeswiftConfiguration: Sendable {
             self.childBridge = childBridge
             self.paused = paused
             self.json = json ?? Data("{\"platform\":\(jsonQuoted(platform)),\"name\":\(jsonQuoted(name ?? platform))}".utf8)
+            accessorySettings = AccessorySettings.all(in: (try? JSONValue(data: self.json)) ?? .null)
         }
 
         /// A block from a dictionary, for building configurations in code and tests.

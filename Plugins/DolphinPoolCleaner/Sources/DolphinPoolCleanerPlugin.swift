@@ -43,15 +43,15 @@ public actor DolphinPoolCleanerPlugin: HomeswiftPlugin {
     let configuration: Configuration
     let context: PluginContext
     let dependencies: Dependencies
-    private var logger: Logger { dependencies.logger ?? context.logger }
+    var logger: Logger { dependencies.logger ?? context.logger }
     private let temperatures: PersistedDictionary<Double>
     private let images: RobotImages
-    private let wizard: SetupWizard
+    let wizard: SetupWizard
 
     private var cloud: (any DolphinCloud)?
     private var devices: [String: DolphinDevice] = [:]
     private var bindings: [String: DolphinAccessory] = [:]
-    private var robots: [RobotInfo] = []
+    private(set) var robots: [RobotInfo] = []
     private var discoveryTask: Task<Void, Never>?
     private var discoveryAttempts = 0
     private var shuttingDown = false
@@ -75,7 +75,7 @@ public actor DolphinPoolCleanerPlugin: HomeswiftPlugin {
     public func start() async throws {
         logger.debug("Initializing platform: \(configuration.name ?? Self.name)")
         // Without an account the plugin stays up, so its page can sign in.
-        guard configuration.hasCredentials else {
+        guard configuration.hasCredentials || storedRefreshToken != nil else {
             logger.error("Missing required configuration: refreshToken or email/password")
             status = .notConfigured
             return
@@ -159,7 +159,7 @@ public actor DolphinPoolCleanerPlugin: HomeswiftPlugin {
         // `stop()` may have run meanwhile: it found no cloud to close, so none must open.
         guard !shuttingDown else { throw CancellationError() }
         let settings = AccountSettings(
-            email: configuration.email, password: configuration.password, refreshToken: configuration.refreshToken, iotRegion: configuration.iotRegion)
+            email: configuration.email, password: configuration.password, refreshToken: storedRefreshToken ?? configuration.refreshToken, iotRegion: configuration.iotRegion)
         let cloud = dependencies.makeCloud?(settings, logger)
             ?? MaytronicsCloud(settings: settings, transport: dependencies.transport, mqtt: dependencies.mqtt, timing: dependencies.timing, logger: logger)
         self.cloud = cloud

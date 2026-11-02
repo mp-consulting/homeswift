@@ -13,7 +13,8 @@ Delete this section if the pull request adds no plugin. CONTRIBUTING.md explains
 - [ ] Proposal issue: #
 - [ ] Created with `Scripts/new-plugin.swift`, or has the same layout and registration
 - [ ] Same platform name and option names as the Homebridge plugin; a Homebridge block works unchanged
-- [ ] Accessory ids are `<platform>:<stable device id>`
+- [ ] Accessory ids are `<platform>:<Device Id>`
+- [ ] Set up through Setup: `discover`, `accountAuthorization`, `authorize`; what it gives is kept in the vault
 - [ ] Every light with Brightness and Color Temperature has Adaptive Lighting, turned off by colour changes made outside HomeKit; `check-on-bridge.sh` names none without it
 - [ ] Tests use fake transports: no device, account or network
 - [ ] No token, password, key or setup code is logged

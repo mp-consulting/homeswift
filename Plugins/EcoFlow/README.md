@@ -141,7 +141,9 @@ Add an `EcoFlow` platform block to `config.json`:
 }
 ```
 
-- **Route:** `both` (the default), `developer` or `app`. The form shows the settings the route needs.
+- **Route:** `both` (the default), `developer` or `app`. The form shows the settings the route needs. The web UI's **Add
+  accessories** page asks for the route, then the keys, the app's email and password, or both, and checks each before
+  keeping it (the keys in the vault).
 - **Access key and secret key:** from your developer account. They are stored in `config.json`, which only the
   bridge's owner can read; the secret key is sent only in each request's signature, never in a URL or a log.
 - **Region:** `us` or `eu`, the region your developer account was created in.

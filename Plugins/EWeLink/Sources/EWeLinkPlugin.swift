@@ -33,7 +33,7 @@ public actor EWeLinkPlugin: HomeswiftPlugin {
     let configuration: Configuration
     let context: PluginContext
     let dependencies: Dependencies
-    private var logger: Logger { context.logger }
+    var logger: Logger { context.logger }
     private var platformTask: Task<Void, Never>?
     /// The session the settings page logged in with: it never leaves the plugin.
     private var pageSession: CloudAPI?
@@ -44,7 +44,8 @@ public actor EWeLinkPlugin: HomeswiftPlugin {
     }
 
     init(configuration: Configuration, context: PluginContext, dependencies: Dependencies) {
-        self.configuration = configuration
+        // The password Setup keeps in the vault (EWeLinkSetup.swift) in place of the block's.
+        self.configuration = Self.withStoredPassword(configuration, context)
         self.context = context
         self.dependencies = dependencies
     }
@@ -126,7 +127,7 @@ public actor EWeLinkPlugin: HomeswiftPlugin {
     }
 
     /// The page's session, else the plugin's own tokens (saved by its last login, less than a day old).
-    private func sessionAPI() async -> CloudAPI? {
+    func sessionAPI() async -> CloudAPI? {
         if let pageSession { return pageSession }
         guard let tokens = TokenStorage(context: context).loadValid() else { return nil }
         let api = CloudAPI(credentials: .init(countryCode: configuration.countryCode), transport: dependencies.transport, storage: nil, logger: logger)

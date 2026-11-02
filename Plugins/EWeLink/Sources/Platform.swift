@@ -45,6 +45,10 @@ final class EWeLinkPlatform {
     }
 
     var hasPendingRetry: Bool { retryTask != nil }
+
+    /// Left out: in `ignoredDevices`, or Excluded in its Accessory Settings (GLOSSARY.md), its channels and RF sub-devices
+    /// with it (the runtime refuses their accessories too: `EWeLinkPlugin.deviceID(ofAccessory:)`).
+    func isLeftOut(_ deviceID: String) -> Bool { configuration.isIgnored(deviceID) || context.isExcluded(deviceID) }
     var tokenStorage: TokenStorage { TokenStorage(context: context) }
 
     // MARK: Connection
@@ -246,7 +250,7 @@ final class EWeLinkPlatform {
     /// Accessories whose device left the account (or is ignored) leave HomeKit; channels and RF sub-devices
     /// stay while their parent exists.
     func removeStaleAccessories(_ current: [EWeLinkDevice]) async {
-        let ids = Set(current.map(\.deviceid).filter { !configuration.isIgnored($0) })
+        let ids = Set(current.map(\.deviceid).filter { !isLeftOut($0) })
         let prefix = "\(EWeLinkPlugin.platform):"
         func isStale(_ id: String) -> Bool {
             guard id.hasPrefix(prefix) else { return false }
@@ -295,7 +299,7 @@ final class EWeLinkPlatform {
     /// Handlers for the cached devices, so HomeKit and LAN control work before the cloud answers.
     func restoreCachedAccessories() async -> Int {
         var restored = 0
-        for device in loadDeviceCache() where !device.deviceid.isEmpty && !configuration.isIgnored(device.deviceid) {
+        for device in loadDeviceCache() where !device.deviceid.isEmpty && !isLeftOut(device.deviceid) {
             let before = registry.handlers.count
             await factory.addAccessory(device)
             restored += max(0, registry.handlers.count - before)

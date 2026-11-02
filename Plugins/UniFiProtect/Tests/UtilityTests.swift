@@ -373,6 +373,30 @@ import Glibc
         await #expect(throws: ONVIF.Failure.self) { try await ONVIF.discover(host: "", port: nil, servicePath: nil, username: "admin", password: "", transport: FakeCamera()) }
     }
 
+    /// A console without the app answers with its web page and is left out; one that does not answer stays, for
+    /// signing in to say what is wrong; an answer claiming this machine's own address is not asked.
+    @Test func discoveryKeepsConsolesRunningTheApp() async {
+        let send: @Sendable (HomeswiftNetwork.HTTPRequest) async throws -> HomeswiftNetwork.HTTPResponse = { request in
+            switch request.url.host {
+            case "10.0.0.1": return HomeswiftNetwork.HTTPResponse(status: 200, headers: [("Content-Type", "text/html")], body: Data("<!doctype html>".utf8))
+            case "10.0.0.2": return HomeswiftNetwork.HTTPResponse(status: 401, headers: [("Content-Type", "application/json")], body: Data("{}".utf8))
+            default: throw URLError(.timedOut)
+            }
+        }
+        let kept = await UbiquitiDiscovery.running(["10.0.0.1", "10.0.0.2", "10.0.0.3", "127.0.0.1"], app: "/proxy/protect/api/bootstrap", address: { $0 }, send: send)
+        #expect(kept == ["10.0.0.2", "10.0.0.3"])
+    }
+
+    /// Consoles have a login to set up; access points, chimes and hubs answer the probe too, and have none.
+    @Test func discoveryKeepsConsoles() {
+        let answer = { (model: String, firmware: String) in UbiquitiDiscovery.Console(firmware: firmware, ip: "192.168.1.2", mac: "", model: model, modelLong: "", name: model) }
+        #expect(answer("UCGF", "5.1.34").isConsole && answer("UNVR", "6.0.11").isConsole && answer("UDM-Pro", "").isConsole)
+        #expect(!answer("UP Chime", "UP.esp32.v1.7.20.0.402a5ff.240910.0648").isConsole)
+        #expect(!answer("UA-Hub-Gate", "GT.mt7621.v2.6.13.0.g9bb4ebd.260911.1710").isConsole)
+        // The stub a recorder sends first, from another port.
+        #expect(!answer("", "").isConsole)
+    }
+
     @Test func discoveryAnswers() {
         var message: [UInt8] = [1, 0, 0, 0]
         message += [0x02, 0, 10, 0x74, 0xAC, 0xB9, 0x01, 0x02, 0x03, 192, 168, 1, 1]

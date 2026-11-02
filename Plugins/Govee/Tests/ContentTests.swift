@@ -325,36 +325,62 @@ func categories(_ overrides: [String: JSONValue] = [:]) -> JSONValue {
 }
 
 @Suite struct CredentialStoreTests {
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("govee-credentials-\(UUID().uuidString)")
     let credentials = AccountCredentials(topic: "t", token: "tok", accountId: "acc", endpoint: "e", iotPass: "p")
 
-    @Test func roundTripsOwnerOnly() throws {
-        let store = CredentialStore(directory: directory, username: "user@example.com", logger: testLogger)
+    /// A host's context for the Govee block, never started.
+    func context(_ environment: GoveeEnvironment) throws -> (PluginHost, PluginContext) {
+        let host = try environment.host(settings: [:])
+        return (host, try #require(host.context(platform: GoveePlugin.platform, name: GoveePlugin.name)))
+    }
+
+    @Test func roundTripsInTheVault() throws {
+        let environment = GoveeEnvironment()
+        let (_, context) = try context(environment)
+        let store = CredentialStore(context: context, username: "user@example.com", logger: testLogger)
         try store.save(credentials, iotCertificate: Data("certificate".utf8).base64EncodedString())
         #expect(store.load() == credentials)
         #expect(try store.certificate() == Data("certificate".utf8))
-        for url in [store.iotFile, store.credentialsFile] {
-            let permissions = try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int
-            #expect(permissions == 0o600)
-        }
-        try? FileManager.default.removeItem(at: directory)
+        #expect(context.credentials(as: StoredLogin.self)?.username == "user@example.com")
     }
 
     @Test func ignoresAnotherUserOrAMissingCertificate() throws {
-        try CredentialStore(directory: directory, username: "old@example.com", logger: testLogger).save(credentials, iotCertificate: "")
-        #expect(CredentialStore(directory: directory, username: "new@example.com", logger: testLogger).load() == nil)
-        let store = CredentialStore(directory: directory, username: "old@example.com", logger: testLogger)
-        #expect(store.load() == credentials)
-        try FileManager.default.removeItem(at: store.iotFile)
-        #expect(store.load() == nil)
-        try? FileManager.default.removeItem(at: directory)
+        let environment = GoveeEnvironment()
+        let (_, context) = try context(environment)
+        try CredentialStore(context: context, username: "old@example.com", logger: testLogger).save(credentials, iotCertificate: "")
+        #expect(CredentialStore(context: context, username: "new@example.com", logger: testLogger).load() == nil)
+        #expect(CredentialStore(context: context, username: "old@example.com", logger: testLogger).load() == credentials)
+        try context.saveCredentials(StoredLogin(username: "old@example.com", credentials: credentials))
+        #expect(CredentialStore(context: context, username: "old@example.com", logger: testLogger).load() == nil)
     }
 
-    @Test func forgetsClearedCredentials() throws {
-        let store = CredentialStore(directory: directory, username: "user@example.com", logger: testLogger)
+    /// Clear Cache forgets the token and the certificate; a password Setup kept stays.
+    @Test func forgetsClearedCredentialsButNotSetupsPassword() throws {
+        let environment = GoveeEnvironment()
+        let (_, context) = try context(environment)
+        let store = CredentialStore(context: context, username: "user@example.com", logger: testLogger)
         try store.save(credentials, iotCertificate: "")
         store.clear()
+        #expect(store.load() == nil && context.credentials() == nil)
+        try context.saveCredentials(StoredLogin(username: "user@example.com", password: "pw", credentials: credentials, iot: "AAEC"))
+        try store.save(credentials, iotCertificate: "AAEC")
+        #expect(context.credentials(as: StoredLogin.self)?.password == "pw")
+        store.clear()
         #expect(store.load() == nil)
-        try? FileManager.default.removeItem(at: directory)
+        #expect(context.credentials(as: StoredLogin.self) == StoredLogin(username: "user@example.com", password: "pw"))
+    }
+
+    /// `credentials.json` and `govee.pfx`, kept before the vault, move into it and are removed.
+    @Test func movesTheLegacyFilesIntoTheVault() throws {
+        let environment = GoveeEnvironment()
+        let (_, context) = try context(environment)
+        let directory = context.storageDirectory
+        try jsonData(["username": "user@example.com", "credentials": ["topic": "t", "token": "tok", "accountId": "acc", "endpoint": "e", "iotPass": "p"]])
+            .write(to: directory.appendingPathComponent("credentials.json"))
+        try Data("certificate".utf8).write(to: directory.appendingPathComponent("govee.pfx"))
+        let store = CredentialStore(context: context, username: "user@example.com", logger: testLogger)
+        #expect(store.load() == credentials)
+        #expect(try store.certificate() == Data("certificate".utf8))
+        for name in ["credentials.json", "govee.pfx"] { #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent(name).path)) }
+        #expect(context.credentials(as: StoredLogin.self)?.iot == Data("certificate".utf8).base64EncodedString())
     }
 }

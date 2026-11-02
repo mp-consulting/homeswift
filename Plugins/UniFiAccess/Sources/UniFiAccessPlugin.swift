@@ -36,9 +36,12 @@ public actor UniFiAccessPlugin: HomeswiftPlugin {
     let configuration: Configuration
     let context: PluginContext
     let dependencies: Dependencies
+    /// The block's `options`, after a `Disable.Device.<id>` for each Excluded device (the first of conflicting entries wins).
     let options: FeatureOptions
+    /// The block's `options` alone: what Setup shows as excluded by the plugin's own settings.
+    let configuredOptions: FeatureOptions
     /// The context's, with `debugAll` promoting debug lines to info.
-    private let logger: Logger
+    let logger: Logger
     private(set) var controllers: [AccessController] = []
     private let pins: TLSPinStore
     private let owners: AccessoryOwners
@@ -51,7 +54,8 @@ public actor UniFiAccessPlugin: HomeswiftPlugin {
         self.configuration = configuration
         self.context = context
         self.dependencies = dependencies
-        options = AccessOptions.make(configuration.options)
+        options = AccessOptions.make(Self.exclusions(context) + configuration.options + Self.partChoices(context))
+        configuredOptions = AccessOptions.make(configuration.options)
         let logger = dependencies.logger ?? context.logger
         self.logger = configuration.debugAll ? DebugAllLogHandler.promoting(logger) : logger
         pins = TLSPinStore(url: context.storageDirectory.appendingPathComponent(AccessSettings.tlsPinFile), logger: self.logger)
@@ -59,13 +63,13 @@ public actor UniFiAccessPlugin: HomeswiftPlugin {
     }
 
     public func start() async throws {
-        guard !configuration.controllers.isEmpty else {
+        guard !controllerEntries().isEmpty else {
             logger.info("No UniFi Access controllers have been configured.")
             return
         }
         logger.debug("Debug logging on. Expect a lot of data.")
         let shared = AccessController.Shared(context: context, logger: logger, options: options, ringDelay: configuration.ringDelay, pins: pins, owners: owners, dependencies: dependencies)
-        for entry in configuration.controllers {
+        for entry in controllerEntries() {
             guard let address = entry.address?.trimmingCharacters(in: .whitespaces), !address.isEmpty else {
                 logger.info("No host or IP address has been configured.")
                 continue
@@ -117,15 +121,41 @@ public actor UniFiAccessPlugin: HomeswiftPlugin {
         }
     }
 
-    /// Logs in with the page's details and bootstraps, without events. The pins are the plugin's, so the page
-    /// and the plugin trust the same certificate whichever connects first.
+    /// Logs in with the page's details and bootstraps, without events (`read`).
     private func devices(_ body: JSONValue) async -> PluginWebResponse {
         guard let address = body["address"]?.stringValue?.trimmingCharacters(in: .whitespaces), AccessSettings.isValidAddress(address) else {
             return PluginWebResponse(["devices": [], "error": "Invalid controller address. Please provide a valid network address."])
         }
-        let username = body["username"]?.stringValue ?? ""
-        let password = body["password"]?.stringValue ?? ""
-        let verifyTLS = body["verifyTls"]?.boolValue == true
+        let read = await read(address: address, username: body["username"]?.stringValue ?? "", password: body["password"]?.stringValue ?? "",
+                              verifyTLS: body["verifyTls"]?.boolValue == true)
+        let controller: AccessControllerInfo?, found: [AccessDevice]
+        switch read {
+        case .read(let info, let devices): (controller, found) = (info, devices)
+        case .failed(let message): return PluginWebResponse(["devices": [], "error": .string(message)])
+        }
+        let devices = found.filter(\.isManaged).sorted { lhs, rhs in
+            let key = { (device: AccessDevice) in [device.alias, device.name, device.model].compactMap { $0 }.first { !$0.isEmpty }?.lowercased() ?? "" }
+            return key(lhs) < key(rhs)
+        }
+        var list: [JSONValue] = [controller.map { .object($0.json) } ?? .null]
+        for device in devices {
+            var json = device.json
+            json["featureId"] = .string(device.identifier)
+            list.append(.object(json))
+        }
+        return PluginWebResponse(["devices": .array(list)])
+    }
+
+    /// What a login and a bootstrap without events read of a controller, or the error the API logged.
+    enum ControllerRead: Sendable {
+        case read(AccessControllerInfo?, [AccessDevice])
+        case failed(String)
+    }
+
+    /// Logs in to a controller and bootstraps, without events: the page's device list, and Setup's check of a login and
+    /// its discovery. The pins are the plugin's, so the page, Setup and the plugin trust the same certificate whichever
+    /// connects first.
+    func read(address: String, username: String, password: String, verifyTLS: Bool) async -> ControllerRead {
         // The page shows the API's last error, as the Homebridge page did.
         let collector = ErrorCollector()
         let pins = pins
@@ -134,19 +164,9 @@ public actor UniFiAccessPlugin: HomeswiftPlugin {
             logger: collector.logger(forwardingTo: logger), http: dependencies.http, events: nil, verifyTLS: verifyTLS, trust: trust, timing: dependencies.apiTiming)
         defer { Task { await api.close() } }
         guard await api.login(address: address, username: username, password: password), await api.getBootstrap() else {
-            return PluginWebResponse(["devices": [], "error": .string(collector.last ?? "Check your address and credentials.")])
+            return .failed(collector.last ?? "Check your address and credentials.")
         }
-        let devices = (await api.devices ?? []).filter(\.isManaged).sorted { lhs, rhs in
-            let key = { (device: AccessDevice) in [device.alias, device.name, device.model].compactMap { $0 }.first { !$0.isEmpty }?.lowercased() ?? "" }
-            return key(lhs) < key(rhs)
-        }
-        var list: [JSONValue] = [await api.controller.map { .object($0.json) } ?? .null]
-        for device in devices {
-            var json = device.json
-            json["featureId"] = .string(device.identifier)
-            list.append(.object(json))
-        }
-        return PluginWebResponse(["devices": .array(list)])
+        return .read(await api.controller, await api.devices ?? [])
     }
 }
 

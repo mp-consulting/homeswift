@@ -98,3 +98,26 @@ public final class LatestCallGuard: Sendable {
         return { [tokens] in tokens.withLockedValue { $0.latest[key] == token } }
     }
 }
+
+extension AsyncSequence where Self: Sendable, Element: Sendable {
+    /// What the sequence yields within `window`, or until it ends if that is sooner; it is cancelled then. For a Bonjour
+    /// browse made for a moment (a plugin made only for Setup looking for its devices).
+    public func collect(for window: Duration) async -> [Element] {
+        await withTaskGroup(of: [Element]?.self) { group in
+            group.addTask {
+                var found: [Element] = []
+                do { for try await element in self { found.append(element) } } catch {}
+                return found
+            }
+            group.addTask {
+                try? await Task.sleep(for: window)
+                return nil
+            }
+            // The window's end, or a sequence that ended first: either way it stops and says what it found.
+            var found = await group.next().flatMap { $0 } ?? []
+            group.cancelAll()
+            while let result = await group.next() { found += result ?? [] }
+            return found
+        }
+    }
+}

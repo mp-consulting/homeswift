@@ -816,8 +816,14 @@ struct UIServerTests {
         #expect(try await browser.put("/api/config/platforms/2?force=true", tooFast).status == 200)
         #expect(try await browser.put("/api/config/platforms/9", ["platform": "X"]).status == 404)
         #expect(try await browser.put("/api/config/platforms/0", ["name": "no platform"]).status == 400)
-        #expect(try await browser.send("DELETE", "/api/config/platforms/2").status == 200)
+        // Removed with `?vault=true`, a block takes the vault's entries its plugin wrote, not those a person made.
+        let vault = CredentialVault(storage: environment.directory)
+        try vault.set("plugin.Lights.token", VaultEntry(kind: .token, fields: ["value": "t"], owner: "ElgatoKeyLights/Lights"))
+        try vault.set("my-login", VaultEntry(kind: .login, fields: ["username": "u", "password": "p"]))
+        #expect(try await browser.get("/api/plugins").json?["blocks"]?[2]?["vaultEntries"] == 1)
+        #expect(try await browser.send("DELETE", "/api/config/platforms/2?vault=true").status == 200)
         #expect(try JSONValue(data: Data(contentsOf: environment.configURL))["platforms"]?.arrayValue?.count == 2)
+        #expect(try Set(vault.names()) == ["my-login"])
         #expect(try await browser.put("/api/config", ["bridge": ["pin": "111-11-111"]]).status == 400)
         #expect(try await browser.put("/api/config", (try JSONValue(data: Data(contentsOf: environment.configURL)))).status == 200)
 

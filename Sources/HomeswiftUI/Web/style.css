@@ -704,7 +704,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 }
 .ai-head { display: flex; align-items: center; gap: var(--space-8); margin-bottom: var(--space-8); font-size: var(--text-sm); color: var(--muted); }
 .ai-label { font-weight: var(--weight-semibold); letter-spacing: 0.01em; }
-.ai-close { padding: 0; width: 26px; height: 26px; display: grid; place-items: center; font-size: var(--text-lg); line-height: 1; border-radius: 50%; }
+.ai-close { padding: 0; width: 26px; height: 26px; min-height: 26px; display: grid; place-items: center; font-size: var(--text-lg); line-height: 1; border-radius: 50%; }
 .ai-thinking {
   margin: var(--space-4) 0 var(--space-6); font-weight: var(--weight-medium); background: linear-gradient(90deg, var(--muted) 20%, var(--text) 50%, var(--muted) 80%);
   background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: ai-shimmer 1.8s linear infinite;
@@ -1964,7 +1964,7 @@ dd { margin: 0; }
   font: inherit; white-space: pre-wrap; line-height: 1.4;
 }
 .chat-composer textarea:focus { box-shadow: none; }
-.chat-mic, .chat-send { flex: none; width: 34px; height: 34px; padding: 0; display: grid; place-items: center; border-radius: 50%; }
+.chat-mic, .chat-send { flex: none; width: 34px; height: 34px; min-height: 34px; padding: 0; display: grid; place-items: center; border-radius: 50%; }
 .chat-mic { border-color: transparent; background: none; box-shadow: none; color: var(--muted); }
 .chat-mic:hover { color: var(--text); background: var(--material-thin); }
 .chat-mic.unavailable { opacity: 0.45; }
@@ -2291,7 +2291,7 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
   transition: opacity var(--normal) var(--ease-out);
 }
 .camera-button {
-  display: inline-grid; place-items: center; width: 34px; height: 34px; padding: 0; border-radius: 50%; color: #fff;
+  display: inline-grid; place-items: center; width: 34px; height: 34px; min-height: 34px; padding: 0; border-radius: 50%; color: #fff;
   background: rgba(30, 32, 40, 0.42); -webkit-backdrop-filter: blur(14px) saturate(160%); backdrop-filter: blur(14px) saturate(160%);
   border: 1px solid rgba(255, 255, 255, 0.18); box-shadow: none;
 }
@@ -2311,7 +2311,7 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
   .camera-controls { opacity: 0; }
   .camera-view:hover > .camera-controls, .camera-view:focus-within > .camera-controls { opacity: 1; }
 }
-@media (pointer: coarse) { .camera-button { width: 40px; height: 40px; } }
+@media (pointer: coarse) { .camera-button { width: 40px; height: 40px; min-height: 40px; } }
 @media (max-width: 640px) { .camera-view { margin: -6px -8px 0; } }
 @media (prefers-reduced-motion: reduce) { .camera-badge.ring.fresh { animation: none; } .camera-view > video, .camera-controls { transition: none; } }
 @media (prefers-reduced-transparency: reduce) {
@@ -3221,6 +3221,8 @@ svg.icon-trash, button svg.icon-trash, .menu svg.icon-trash {
 .accessories-toolbar .accessory-options-button svg { fill: none; stroke: currentColor; stroke-width: 1.6; width: 19px; height: 19px; }
 @media (max-width: 650px) { .group-picker-columns { grid-template-columns: 1fr; gap: var(--space-16); } .group-picker-columns .group-member-list { max-height: 25vh; } }
 @media (max-width: 600px) { .accessories-toolbar { width: 100%; } .accessories-toolbar .search { flex: 1 1 100%; width: 100%; } }
+/* Add accessories: its words where there is room, its plus alone beside the other round buttons on a phone. */
+@media (max-width: 600px) { .accessories-toolbar .accessories-add { width: 40px; height: 40px; min-height: 40px; padding: 0; gap: 0; font-size: 0; flex: none; } }
 
 /* Toolbar glyphs stay lighter than their labels. */
 .accessories-toolbar button > svg,
@@ -3700,6 +3702,200 @@ select option:disabled { color: var(--muted); }
 /* Pairing: the bridge's button drawn, what to do, and Pair at the row's end; the drawn button pulses while the bridge waits. */
 .pair-prompt { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--space-16); align-items: center; margin-top: var(--space-14); padding: var(--space-14) var(--space-16); border-radius: var(--radius-lg); background: var(--material-thin); border: 1px solid var(--line); }
 .pair-prompt p { margin: 0; font-size: var(--text-md); }
+
+/* Add accessories (setup.js): a card per plugin, a row per device it finds, and one sheet for every Setup. */
+.setup-list { display: grid; gap: var(--space-16); }
+.setup-list > .card { margin-bottom: 0; }
+/* The plugins to add: a card per brand, what it reaches and how it connects; the whole card adds it. */
+.setup-search { width: 100%; max-width: 420px; margin-bottom: var(--space-12); }
+.setup-brands { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--space-12); }
+.setup-brand {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--space-12); row-gap: 2px; align-items: start; align-content: start;
+  height: auto; min-height: 0; padding: var(--space-14); text-align: left; font: inherit; color: var(--text); white-space: normal;
+  border-radius: var(--radius-lg); background: var(--material-thick); border: 1px solid var(--edge); box-shadow: var(--shadow-control);
+  transition: transform 160ms var(--ease-out), border-color 160ms var(--ease-out);
+}
+.setup-brand[hidden] { display: none; }
+.setup-brand > .tile { grid-row: span 2; }
+.setup-brand-name { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-6); font-weight: var(--weight-semibold); }
+.setup-brand-used { font-size: var(--text-2xs); font-weight: var(--weight-medium); color: var(--muted); padding: 1px var(--space-6); border: 1px solid var(--line); border-radius: var(--radius-pill); }
+.setup-brand-how { display: inline-flex; align-items: center; gap: 5px; margin-top: var(--space-4); font-size: var(--text-xs); }
+.setup-brand-how svg { width: 13px; height: 13px; flex: none; }
+@media (hover: hover) and (pointer: fine) { .setup-brand:hover { border-color: color-mix(in srgb, var(--accent) 45%, transparent); } }
+.setup-brand:active { transform: scale(0.97); }
+/* A phone: two brands a row, their name and how they connect; what they reach is a tap away. */
+@media (max-width: 560px) {
+  .setup-brands { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-8); }
+  .setup-brand { grid-template-columns: minmax(0, 1fr); padding: var(--space-12); row-gap: var(--space-4); }
+  .setup-brand > .tile { grid-row: auto; width: 34px; height: 34px; margin-bottom: var(--space-4); }
+  .setup-brand > .tile svg { width: 19px; height: 19px; }
+  .setup-brand-how { margin-top: 0; }
+}
+/* A plugin that needs someone comes first; its devices set up or excluded fold under their count. */
+.setup-instance.needs-you { order: -1; }
+/* A plugin just added: its card glows once, where the page scrolled to. */
+@media (prefers-reduced-motion: no-preference) {
+  .setup-instance.just-added { animation: setup-added 1.6s var(--ease-out) 300ms; }
+  @keyframes setup-added { 0%, 30% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent); } }
+}
+@media (prefers-reduced-motion: reduce) {
+  .setup-instance.just-added { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); }
+}
+/* The page's two ways to add: each label on one line, the two side by side on a phone. */
+.setup-assistant, .page-head .tools > .primary { white-space: nowrap; }
+@media (max-width: 560px) { .page-head:has(.setup-assistant) .tools { width: 100%; } .page-head:has(.setup-assistant) .tools > button { flex: 1; } }
+
+/* A plugin in use: one row, its name and where its devices stand; the whole row opens it on its devices. */
+.setup-list > .setup-instance { padding: 0; }
+.setup-instance-head { display: flex; align-items: center; gap: var(--space-10); padding-right: var(--space-18); border-radius: inherit; }
+.setup-instance-toggle {
+  flex: 1; min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-12); align-items: center;
+  min-height: 0; padding: var(--space-14) 0 var(--space-14) var(--space-18); border: 0; border-radius: inherit; background: none; box-shadow: none;
+  font: inherit; color: var(--text); text-align: left; white-space: normal;
+}
+.setup-instance-toggle .who { display: grid; gap: 2px; min-width: 0; }
+.setup-instance-toggle .who strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.setup-instance-toggle .who .muted { font-size: var(--text-sm); }
+.setup-instance-toggle .who .muted[data-tone="away"] { color: var(--warn); font-weight: var(--weight-medium); }
+@media (hover: hover) and (pointer: fine) { .setup-instance-head:has(.setup-instance-toggle:hover) { background: var(--material-thin); } }
+.setup-chevron { flex: none; width: 8px; height: 8px; margin: 0 var(--space-4); border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
+  transform: rotate(-45deg); transition: transform 200ms var(--ease-out); cursor: pointer; }
+.setup-instance.is-open .setup-chevron { transform: rotate(45deg); }
+.setup-instance-body { padding: 0 var(--space-18) var(--space-12); }
+.setup-instance-body > .setup-devices { margin-top: 0; }
+/* Adding a plugin: the brands in a sheet, one row each, with what they reach. */
+.setup-picker > h2 { margin-bottom: var(--space-12); }
+.setup-picker .setup-search { max-width: none; }
+.setup-plugin-rows { display: grid; }
+.setup-plugin-row {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--space-12); align-items: center; width: 100%; min-height: 0;
+  padding: var(--space-10) var(--space-6); border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: none; box-shadow: none;
+  font: inherit; color: var(--text); text-align: left; white-space: normal;
+}
+.setup-plugin-row[hidden] { display: none; }
+.setup-plugin-row .who { display: grid; gap: 2px; min-width: 0; }
+.setup-plugin-row .who strong { display: flex; align-items: center; gap: var(--space-6); }
+.setup-plugin-row .who .muted { font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (hover: hover) and (pointer: fine) { .setup-plugin-row:hover { background: var(--material-thin); } }
+.setup-plugin-row:active { background: var(--material-thin); }
+.setup-devices { display: grid; margin-top: var(--space-12); border-top: 1px solid var(--line); }
+.setup-device { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto; gap: var(--space-12); align-items: center; padding: var(--space-10) 0; border-bottom: 1px solid var(--line); }
+.setup-device:last-child { border-bottom: 0; }
+.setup-device .who strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.setup-device .who .muted { font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.setup-device.is-excluded .who { opacity: 0.6; }
+.setup-device .status-dot { justify-self: end; }
+.setup-account .who .muted { white-space: normal; }
+.setup-account { background: color-mix(in srgb, var(--accent) 7%, transparent); margin: 0 calc(-1 * var(--space-12)); padding-inline: var(--space-12); border-radius: var(--radius-md); }
+.setup-loading, .setup-none { margin: var(--space-12) 0 0; }
+.setup-loading { display: flex; align-items: center; gap: var(--space-10); }
+.setup-loading .spinner { width: 16px; height: 16px; flex: none; }
+/* Searching again: the rows a new list may replace dim, after a moment so a quick answer does not flash them. */
+.setup-device { transition: opacity var(--normal) var(--ease-out); }
+.setup-instance.is-searching .setup-device { opacity: 0.55; transition-delay: 150ms; }
+.setup-step { display: grid; gap: var(--space-12); }
+.setup-step > p { margin: 0; }
+.setup-choice { border: 0; margin: 0; padding: 0; display: grid; gap: var(--space-8); }
+.setup-choice legend { padding: 0; margin-bottom: var(--space-8); }
+.setup-option { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-10); align-items: start; padding: var(--space-12); border: 1px solid var(--line); border-radius: var(--radius-md); cursor: pointer; transition: border-color 160ms var(--ease-out), background-color 160ms var(--ease-out); }
+.setup-option:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.setup-option input { margin: 3px 0 0; accent-color: var(--accent); }
+.setup-option > span { display: grid; gap: var(--space-4); }
+.setup-option .muted { font-size: var(--text-sm); }
+/* The sheet's head: what is being set up, and where it stands (a stage per screen: signing in, the devices, done). */
+.setup-sheet-head { display: flex; align-items: center; gap: var(--space-12); margin-bottom: var(--space-12); }
+.admin-dialog.sheet .setup-sheet-head h2 { margin: 0; font-size: var(--text-2xl); letter-spacing: -0.015em; }
+.setup-sheet .setup-sheet-head .setup-method { margin: 2px 0 0; }
+.setup-stages { list-style: none; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); margin: 0 0 var(--space-18); padding: 0; }
+.setup-stages li { display: flex; align-items: center; gap: var(--space-6); font-size: var(--text-xs); color: var(--muted); }
+.setup-stages li + li::before { content: ""; width: 16px; height: 1px; background: var(--line); }
+.setup-stage-dot { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: var(--text-2xs); font-weight: var(--weight-semibold);
+  border: 1px solid var(--line); background: var(--material-thin); transition: background-color 200ms var(--ease-out), color 200ms var(--ease-out); }
+.setup-stage-dot svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.setup-stages li.current { color: var(--text); font-weight: var(--weight-medium); }
+.setup-stages li.current .setup-stage-dot { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.setup-stages li.done .setup-stage-dot { background: color-mix(in srgb, var(--ok) 16%, transparent); border-color: transparent; color: var(--ok); }
+/* Each new screen of the sheet comes up from just below; a retry that changes nothing does not move. */
+@media (prefers-reduced-motion: no-preference) {
+  .setup-step.entering > * { animation: setup-enter 220ms var(--ease-out) both; }
+  @keyframes setup-enter { from { opacity: 0; transform: translateY(6px); } }
+}
+.setup-code { font-size: var(--text-3xl); letter-spacing: 0.3em; font-variant-numeric: tabular-nums; max-width: 220px; }
+/* A Button Press: a ring that keeps calling for the press, and the time left as a bar that empties. */
+.setup-press { display: grid; justify-items: center; text-align: center; gap: var(--space-8); padding: var(--space-12) 0 var(--space-4); }
+.setup-press p { margin: 0; }
+.setup-ring { position: relative; width: 72px; height: 72px; border-radius: 50%; display: grid; place-items: center; margin-bottom: var(--space-6);
+  background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent-ink, var(--accent)); }
+.setup-ring svg { width: 30px; height: 30px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.setup-ring::after { content: ""; position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--accent); opacity: 0; }
+.setup-wait-bar { width: 100%; max-width: 260px; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; margin-top: var(--space-6); }
+.setup-wait-bar > span { display: block; height: 100%; background: var(--accent); transform-origin: left; animation: setup-wait linear both; }
+@keyframes setup-wait { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+@media (prefers-reduced-motion: no-preference) {
+  .setup-ring::after { animation: setup-call 1.6s var(--ease-out) infinite; }
+  @keyframes setup-call { from { transform: scale(1); opacity: 0.6; } to { transform: scale(1.45); opacity: 0; } }
+}
+/* The devices an account reaches, ticked to go into the Home app. */
+.setup-picks { display: grid; border-top: 1px solid var(--line); }
+.setup-pick { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--space-12); align-items: center; padding: var(--space-10) 0;
+  border-bottom: 1px solid var(--line); cursor: pointer; }
+.setup-pick > .tile { grid-column: 1; grid-row: 1; transition: filter 160ms var(--ease-out), opacity 160ms var(--ease-out); }
+.setup-pick > input { grid-column: 3; grid-row: 1; }
+.setup-pick > .who { grid-column: 2; grid-row: 1; }
+.setup-pick:not(:has(input:checked)) .tile { filter: grayscale(1); opacity: 0.55; }
+.setup-pick:not(:has(input:checked)) .who { opacity: 0.6; }
+/* The sheet's buttons stay in reach under a long list. */
+.setup-step > .actions:last-child { position: sticky; bottom: calc(-1 * var(--space-20)); margin-bottom: calc(-1 * var(--space-20)); padding: var(--space-14) 0 var(--space-20);
+  background: linear-gradient(to bottom, transparent, var(--material-solid) 30%); }
+.setup-pick input { margin: 0; }
+.setup-pick .who { display: grid; min-width: 0; }
+.setup-pick .who > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.setup-pick .muted { font-size: var(--text-sm); }
+/* The chat handing a Setup over to the sheet: what the step asks, and the way there. */
+.chat-setup { display: grid; gap: var(--space-8); justify-items: start; padding: var(--space-12) var(--space-14); border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.chat-setup p { margin: 0; }
+
+/* A device's parts under it (a gate's side door, a door sensor, a doorbell): each on its own line with its switch,
+   indented under the device's name. */
+.setup-pick-group, .setup-device-group { border-bottom: 1px solid var(--line); }
+.setup-pick-group > .setup-pick, .setup-device-group > .setup-device { border-bottom: 0; }
+.setup-device-group:last-child { border-bottom: 0; }
+.setup-parts { display: grid; margin: calc(-1 * var(--space-4)) 0 var(--space-10) 52px; }
+.setup-part { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--space-10); align-items: center; padding: var(--space-6) 0; cursor: pointer; }
+.setup-part-icon { width: 24px; height: 24px; border-radius: var(--radius-xs); display: grid; place-items: center; color: var(--muted); background: var(--material-thin); }
+.setup-part-icon svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.setup-part-name { font-size: var(--text-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.setup-part .switch { transform: scale(0.85); transform-origin: right center; }
+.setup-part:has(input:not(:checked)) .setup-part-name { color: var(--muted); }
+.setup-part:has(input:disabled) { opacity: 0.5; cursor: default; }
+
+/* What reached the Home app, one after the other. */
+.setup-added { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-6); }
+.setup-added li { display: flex; align-items: center; gap: var(--space-10); padding: var(--space-6) var(--space-10); border-radius: var(--radius-md); background: var(--material-thin); }
+.setup-added .tile { width: 28px; height: 28px; border-radius: var(--radius-xs); }
+.setup-added .tile svg { width: 15px; height: 15px; }
+@media (prefers-reduced-motion: no-preference) {
+  .setup-step.entering .setup-added li { animation: setup-enter 240ms var(--ease-out) both; animation-delay: calc(var(--index) * 45ms + 120ms); }
+}
+.setup-done { display: grid; justify-items: center; text-align: center; gap: var(--space-6); padding: var(--space-12) 0; }
+.setup-done p { margin: 0; }
+.setup-check { width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
+.setup-check svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+@media (prefers-reduced-motion: no-preference) {
+  .setup-check { animation: setup-check-in 320ms var(--ease-out) both; }
+  @keyframes setup-check-in { from { opacity: 0; transform: scale(0.85); } }
+}
+@media (max-width: 640px) {
+  /* The dot and the menu stay on the name's line; a pill and a button go under the name. */
+  .setup-device { grid-template-columns: auto minmax(0, 1fr) auto auto; row-gap: var(--space-8); }
+  .setup-device > .status-dot { grid-row: 1; grid-column: 3; }
+  .setup-device > :last-child { grid-row: 1; grid-column: 4; }
+  .setup-device > .pill { grid-row: 2; grid-column: 2; justify-self: start; }
+  .setup-device > button.primary { grid-row: 2; grid-column: 3 / 5; justify-self: end; }
+  .setup-account > button.primary:last-child { grid-row: 2; grid-column: 3 / 5; }
+  .setup-spacer { display: none; }
+}
 .link-button { width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; background: radial-gradient(circle at 50% 40%, #fff, #e6e8ee 70%); box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.15); color: #3d4352; }
 .link-button svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 .pairing .link-button { animation: press 1.6s var(--ease-out) infinite; }
@@ -4185,7 +4381,9 @@ select option:disabled { color: var(--muted); }
 
 .message-dialog { max-width: min(560px, calc(100vw - 32px)); }
 .dialog-message { white-space: pre-wrap; overflow-wrap: anywhere; }
-.message-dialog input { width: 100%; min-width: 0; }
+.message-dialog input:not([type="checkbox"]) { width: 100%; min-width: 0; }
+.message-dialog .toggle { margin: var(--space-4) 0 var(--space-6); }
+.message-dialog .toggle .help { display: block; font-size: var(--text-sm); margin-top: 2px; }
 
 /* The Accessories wall full screen (?full=1): the widgets alone over the backdrop, for a wall tablet. Grouped by room
    or plugin, each group is a page of a strip that snaps, swiped with the finger's momentum (or the arrow keys, the dots,

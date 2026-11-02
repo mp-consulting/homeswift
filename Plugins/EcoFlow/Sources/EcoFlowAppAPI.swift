@@ -372,6 +372,11 @@ actor EcoFlowAppAPI: EcoFlowAPI {
         ])
     }
 
+    /// Signs in once, as Setup checks an email and password before keeping them.
+    func checkSignIn() async throws {
+        _ = try await signIn()
+    }
+
     /// The sign-in the app makes.
     private func signIn() async throws -> Session {
         let body = try Self.signInBody(email: email, password: password)

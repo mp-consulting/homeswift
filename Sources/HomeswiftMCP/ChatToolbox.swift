@@ -42,7 +42,10 @@ public final class ChatToolbox: Sendable {
     }
 
     /// The tools this user may call, for the Assistant. `confirm` decides each change; false leaves it undone.
-    public func agentTools(confirm: @escaping @Sendable (ToolConfirmation) async -> Bool) -> [AgentTool] {
+    /// `handOff` is told of a Setup the Assistant started that the person finishes on the page (a password, a sign-in
+    /// page, a button to press: `HomeswiftCatalog.needsThePage`), with its answer; the model is told so too.
+    public func agentTools(confirm: @escaping @Sendable (ToolConfirmation) async -> Bool,
+                           handOff: (@Sendable (JSONValue) -> Void)? = nil) -> [AgentTool] {
         server.tools.filter { $0.scope <= session.principal.scope && !session.principal.hides($0.name) }.map { tool in
             var schema = tool.inputSchema.objectValue ?? [:]
             // The page asks the user itself: the log's one-time code is for clients that cannot.
@@ -52,7 +55,14 @@ public final class ChatToolbox: Sendable {
             }
             let definition = ToolDefinition(name: tool.name, description: tool.description, inputSchema: .object(schema))
             return AgentTool(definition: definition, title: tool.title ?? tool.name, readOnly: tool.readOnly) { [self] arguments in
-                await call(tool, arguments: arguments, confirm: confirm)
+                var output = await call(tool, arguments: arguments, confirm: confirm)
+                if let handOff, ["start_setup", "continue_setup"].contains(tool.name), !output.isError, let answer = output.structured,
+                   HomeswiftCatalog.needsThePage(answer) {
+                    handOff(answer)
+                    output.text += "\nThis step continues on the page: a card in the conversation opens it in the Setup sheet. Tell the person to use it; "
+                        + "never ask for a password or a key in the chat. Once they are done, call discover_devices to see where it stands."
+                }
+                return output
             }
         }
     }

@@ -59,6 +59,27 @@ enum EWeLinkCloud {
         }
     }
 
+    /// The calling code of each country whose region eWeLink assigns (`countryCodes`), by ISO 3166 code: what Setup
+    /// offers to pick from.
+    static let callingCodes: [String: String] = [
+        "CN": "86",
+        "JP": "81", "KR": "82", "HK": "852", "MO": "853", "TW": "886", "IN": "91", "SG": "65", "MY": "60", "TH": "66", "VN": "84",
+        "ID": "62", "PH": "63", "AU": "61", "NZ": "64",
+        "US": "1", "CA": "1",
+        "GB": "44", "FR": "33", "DE": "49", "IT": "39", "ES": "34", "NL": "31", "BE": "32", "CH": "41", "AT": "43", "PT": "351",
+        "IE": "353", "LU": "352", "MT": "356", "MC": "377", "DK": "45", "SE": "46", "NO": "47", "FI": "358", "IS": "354", "PL": "48",
+        "CZ": "420", "SK": "421", "HU": "36", "RO": "40", "BG": "359", "UA": "380", "RU": "7", "KZ": "7", "LT": "370", "LV": "371",
+        "EE": "372", "BY": "375", "MD": "373", "RS": "381", "HR": "385", "SI": "386", "BA": "387", "MK": "389", "AL": "355",
+        "XK": "383", "ME": "382", "GR": "30", "CY": "357", "TR": "90", "AE": "971", "SA": "966", "IL": "972", "QA": "974",
+        "KW": "965", "OM": "968", "BH": "973", "JO": "962", "LB": "961", "SY": "963", "IQ": "964", "YE": "967", "PS": "970",
+        "IR": "98", "PK": "92", "TJ": "992", "TM": "993", "AZ": "994", "GE": "995", "KG": "996", "UZ": "998", "AM": "374",
+        "MN": "976", "NP": "977", "BT": "975", "ZA": "27", "EG": "20", "NG": "234", "MA": "212", "DZ": "213", "TN": "216",
+        "LY": "218", "SD": "249", "KE": "254", "TZ": "255", "UG": "256", "GH": "233", "CI": "225", "SN": "221", "CM": "237",
+        "ET": "251", "ZM": "260", "ZW": "263", "AO": "244", "MZ": "258", "MG": "261", "PE": "51", "MX": "52", "CU": "53",
+        "AR": "54", "BR": "55", "CL": "56", "CO": "57", "VE": "58", "BO": "591", "EC": "593", "PY": "595", "UY": "598",
+        "CR": "506", "PA": "507", "GT": "502", "SV": "503", "HN": "504", "NI": "505",
+    ]
+
     /// The WebSocket server for an API host when the dispatch service fails: `pconnect3` of its region.
     static let socketHostMapping: [(prefix: String, host: String)] = [
         ("eu-apia", "eu-pconnect3.coolkit.cc:8080"), ("us-apia", "us-pconnect3.coolkit.cc:8080"),

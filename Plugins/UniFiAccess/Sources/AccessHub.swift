@@ -55,6 +55,7 @@ actor AccessHub {
         var separateAccessMethods = false
         var separateDoorbell = false
         var separateSensors = false
+        var separateSideDoor = false
         var logDoorbell = true
         var logLock = true
         var log: [SensorInput: Bool] = [:]
@@ -130,6 +131,9 @@ actor AccessHub {
     /// The accessories and services built from the hints; rebuilt when they change.
     var built = Built()
     private var configured = false
+    /// The doors' names are read (`discoverDoorNames`): until then a device update must not rename and rebuild the
+    /// accessories after the hub's own name, which they would keep, a UA Gate's side door and sensors among them.
+    private var doorNamesRead = false
     private var removed = false
     /// Counts the door and lock state changes events made, so the bootstrap's older states do not undo them.
     private var doorStateChanges = 0
@@ -177,6 +181,7 @@ actor AccessHub {
         let doorStates = doorStateChanges
 
         if catalog.usesLocationApi { await discoverDoorNames() }
+        doorNamesRead = true
         guard !removed else { return }
         logLockDelayInterval(mainDoorName ?? "door")
         if hints.hasSideDoor { logLockDelayInterval(sideDoorName ?? "side door") }
@@ -212,6 +217,7 @@ actor AccessHub {
         hints.separateAccessMethods = hasFeature("AccessMethod.SeparateAccessory")
         hints.separateDoorbell = hasFeature("Hub.Doorbell.SeparateAccessory")
         hints.separateSensors = hasFeature("Hub.Sensors.SeparateAccessory")
+        hints.separateSideDoor = hints.hasSideDoor && hasFeature("Hub.SideDoor.SeparateAccessory")
         hints.logDoorbell = hasFeature("Log.Doorbell")
         hints.logLock = hasFeature("Log.Lock")
         if catalog.usesProxyMode { checkUltraInputs() }
@@ -285,6 +291,23 @@ actor AccessHub {
     }
 
     func isWired(_ input: SensorInput) -> Bool { isWired(catalog.sensors[input]) }
+
+    /// What the hub brings that a person can leave out (Add accessories' parts), each a `Hub.<id>` option: the side door
+    /// and its sensor, the wired terminal inputs, the doorbell. The main door is the hub itself.
+    var parts: [DevicePart] {
+        let main = mainDoorName.flatMap { $0.isEmpty ? nil : AccessSettings.sanitizeName($0) } ?? accessoryName
+        let side = sideDoorName.flatMap { $0.isEmpty ? nil : AccessSettings.sanitizeName($0) } ?? "\(main) Side Door"
+        var parts: [DevicePart] = []
+        if catalog.supportsSideDoor { parts.append(DevicePart("SideDoor", name: side, icon: "lock", included: hints.hasSideDoor)) }
+        for input in SensorInput.allCases where catalog.has(input) && isWired(input) {
+            parts.append(DevicePart(input.optionName, name: "\(main) \(input.label)", icon: "sensor", included: hints.hasWiring(input)))
+        }
+        if catalog.supportsSideDoor, isSideDoorDpsWired() {
+            parts.append(DevicePart("SideDoor.DPS", name: "\(side) Door Position Sensor", icon: "sensor", included: hints.hasWiringSideDoorDps))
+        }
+        if has(capability: "door_bell") { parts.append(DevicePart("Doorbell", name: "\(main) Doorbell", icon: "bell", included: hasFeature("Hub.Doorbell"))) }
+        return parts
+    }
     func isSideDoorDpsWired() -> Bool { isWired(catalog.sideDoor?.dps) }
 
     /// A terminal input as a contact sensor state.
@@ -604,7 +627,7 @@ actor AccessHub {
             guard let switchService = built.switches[method.subtype], let config = uda.config(method.key) else { continue }
             switchService.characteristic(.on).value = .bool(config == "yes")
         }
-        guard hints.syncName else { return }
+        guard hints.syncName, doorNamesRead || !catalog.usesLocationApi else { return }
         let wanted = AccessSettings.sanitizeName(mainDoorName ?? uda.alias ?? "")
         if !wanted.isEmpty, wanted != accessoryName {
             logger.info("\(prefix)Name change detected. A restart of Homebridge may be needed in order to complete name synchronization with HomeKit.")

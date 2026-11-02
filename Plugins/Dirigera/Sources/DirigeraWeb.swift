@@ -25,7 +25,7 @@ extension DirigeraPlugin {
             }
             return PluginWebResponse(["hubs": .array(list)])
         case ("GET", "discover"):
-            return PluginWebResponse(["hosts": .array(await discover().map(JSONValue.string))])
+            return PluginWebResponse(["hosts": .array(await discoverHosts().map(JSONValue.string))])
         case ("POST", "pair"):
             guard let host, !host.isEmpty else { return .error(400, "an address is required") }
             do {

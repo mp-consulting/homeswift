@@ -11,11 +11,13 @@ Home app as a second accessory to add, with the same setup code as the bridge.
 
 ## Pairing
 
-A TV has to accept the plugin once, like the Philips TV Remote app: with the web UI on, the Plugins page has
-an **Open** button for this plugin whose page finds TVs on the network (or takes an address), asks the TV to
-show a PIN, and turns the PIN into the TV's entry for the block, with the `username` and `password` the TV
-handed out, the fingerprint of its certificate and its MAC address (from the TV's `network/devices`, else from
-this machine's ARP table, as the Homebridge plugin reads it). **Add TV** writes the entry into this block and
+A TV has to accept the plugin once, like the Philips TV Remote app. The web UI's **Add accessories** page lists the TVs
+on the network and sets one up with the PIN it shows (Setup, docs/plugins.md): its `username` and `password` and the
+fingerprint of its certificate go in the bridge's vault under its MAC address, and its address in its Accessory
+Settings. The plugin's own page does the same: it finds TVs (or takes an address), asks the TV to show a PIN, keeps
+the keys in the vault and turns the PIN into the TV's entry for the block, with its MAC address (from the TV's
+`network/devices`, else from this machine's ARP table, as the Homebridge plugin reads it); when no MAC is found, the
+entry carries the keys. **Add TV** writes the entry into this block and
 the plugin reloads with it at once, no restart; the entry can also be copied to paste by hand. The settings page of the Homebridge
 plugin produces the same keys. A TV that does not answer while pairing can be woken from there (by its MAC
 address in the ARP table when it is not configured yet); a wrong PIN says so, with the Homebridge plugin's
@@ -60,8 +62,8 @@ Every save applies at once: the plugin reloads and the TV keeps its place in the
 }
 ```
 
-Per TV, `name`, `ip`, `mac`, `username` and `password` are required; a TV with one missing is skipped with a
-line in the log. The options:
+Per TV, `name`, `ip`, `mac`, `username` and `password` are required (the keys from the vault when the TV was paired
+there); a TV with one missing is skipped with a line in the log. The options:
 
 | Option | Default | What it does |
 |---|---|---|

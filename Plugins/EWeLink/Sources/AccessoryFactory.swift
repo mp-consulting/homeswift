@@ -116,7 +116,7 @@ final class AccessoryFactory {
 
     /// Adds or updates a device's accessories.
     func addAccessory(_ device: EWeLinkDevice) async {
-        if configuration.isIgnored(device.deviceid) {
+        if platform.isLeftOut(device.deviceid) {
             logger.debug("Device is ignored: \(device.name)")
             return
         }
