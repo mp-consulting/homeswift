@@ -364,38 +364,73 @@ struct PluginTests {
         let environment = DaikinEnvironment()
         let host = try await environment.start(developerBlock)
         defer { Task { await host.stop() } }
-        let info = try await environment.request("GET", "server/info")
-        #expect(info.json["primaryIp"] == "192.168.1.20")
-        #expect(info.json["ipAddresses"] == ["192.168.1.20", "10.0.0.2"])
-        let valid = try await environment.request("POST", "config/validate", body: ["clientId": "a", "clientSecret": "b", "callbackServerExternalAddress": "192.168.1.20", "callbackServerPort": "8582"])
-        #expect(valid.json["valid"] == true)
-        let invalid = try await environment.request("POST", "config/validate", body: ["clientId": "a", "callbackServerExternalAddress": "localhost"])
-        #expect(invalid.json["errors"] == ["Client Secret is required for Developer Portal mode", "Callback address cannot be localhost. Use your external IP or domain."])
         #expect(try await environment.request("GET", "rate-limit").json["noData"] == true)
         #expect(try await environment.request("POST", "auth/test").json["message"] == "Not authenticated. Please authenticate first.")
         #expect(try await environment.request("GET", "devices/list").json["message"] == "Not authenticated. Please authenticate first.")
         #expect(try await environment.request("POST", "auth/revoke", body: [:]).json["message"] == "No tokens to revoke")
         #expect(try await environment.request("GET", "nope").status == 404)
-        // Starting needs the credentials and refuses a loopback bind for a LAN address.
-        #expect(try await environment.request("POST", "auth/start", body: ["clientId": "a"]).json["error"] == "Client ID and Client Secret are required")
-        let loopback = try await environment.request("POST", "auth/start", body: [
-            "clientId": "a", "clientSecret": "b", "callbackServerExternalAddress": "192.168.1.20", "oidcCallbackServerBindAddr": "127.0.0.1",
-        ])
-        #expect(loopback.status == 400)
-        #expect(loopback.json["error"]?.stringValue?.contains("Daikin's redirect could never reach it") == true)
+        // Signing in is Setup's: the page has no route for it.
+        for (method, path) in [("POST", "auth/start"), ("POST", "auth/callback"), ("GET", "auth/poll"), ("POST", "auth/stop-server"), ("POST", "auth/mobile-test"),
+                               ("POST", "config/validate"), ("GET", "server/info")] {
+            #expect(try await environment.request(method, path, body: [:]).status == 404)
+        }
     }
 
-    @Test func mobileLoginFromThePage() async throws {
+    /// The Developer Portal login Setup starts needs the client, and refuses a loopback bind for a LAN address.
+    @Test func startingTheDeveloperPortalLogin() async throws {
         let environment = DaikinEnvironment()
-        let host = try await environment.start(["authMode": "mobile_app", "daikinEmail": "me@example.com"])
+        let host = try await environment.start(developerBlock)
         defer { Task { await host.stop() } }
-        #expect(try await environment.request("POST", "auth/mobile-test", body: ["email": "me@example.com"]).json["message"] == "Email and password are required")
-        let wrong = try await environment.request("POST", "auth/mobile-test", body: ["email": "me@example.com", "password": "wrong"])
-        #expect(wrong.json["success"] == false)
-        #expect(wrong.json["message"] == "Login failed (403042): Invalid LoginID")
-        let right = try await environment.request("POST", "auth/mobile-test", body: ["email": "me@example.com", "password": "right"])
-        #expect(right.json["success"] == true)
-        #expect(right.json["deviceCount"] == 2)
+        let plugin = try #require(environment.plugin)
+        await #expect(throws: DaikinError("Client ID and Client Secret are required")) { _ = try await plugin.startAuthorization(["clientId": "a"]) }
+        do {
+            _ = try await plugin.startAuthorization([
+                "clientId": "a", "clientSecret": "b", "callbackServerExternalAddress": "192.168.1.20", "oidcCallbackServerBindAddr": "127.0.0.1",
+            ])
+            Issue.record("expected the loopback bind to be refused")
+        } catch {
+            #expect("\(error)".contains("Daikin's redirect could never reach it"))
+        }
+    }
+
+    /// Setup's client prompt says the redirect URI to register; an address it is given is checked as the block's is.
+    @Test func setupAsksForTheClientWithItsRedirectURI() async throws {
+        let environment = DaikinEnvironment()
+        let host = try await environment.start(["authMode": "developer_portal"])
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        guard case .ask(let prompt, _) = try await plugin.authorize(SetupRequest(target: .account, answers: ["authMode": "developer_portal"])) else {
+            Issue.record("expected the client"); return
+        }
+        #expect(prompt.fields.map(\.key) == ["clientId", "clientSecret", "callbackServerExternalAddress", "callbackServerPort"])
+        #expect(prompt.values["redirectURI"] == "https://192.168.1.20:8582")
+        await #expect(throws: SetupError("Callback address cannot be localhost. Use your external IP or domain.")) {
+            _ = try await plugin.authorize(SetupRequest(target: .account, answers: [
+                "authMode": "developer_portal", "clientId": "client", "clientSecret": "secret", "callbackServerExternalAddress": "localhost",
+            ]))
+        }
+        await #expect(throws: SetupError("Invalid port number: 99999. Must be between 1 and 65535.")) {
+            _ = try await plugin.authorize(SetupRequest(target: .account, answers: [
+                "authMode": "developer_portal", "clientId": "client", "clientSecret": "secret", "callbackServerPort": "99999",
+            ]))
+        }
+    }
+
+    /// The Onecta app's login through Setup: a wrong password is Daikin's refusal; the right one keeps the token, with the
+    /// app's polling since the block was on the Developer Portal; the page's status, test and sign-out follow.
+    @Test func mobileLoginThroughSetup() async throws {
+        let environment = DaikinEnvironment()
+        let host = try await environment.start(developerBlock)
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        await #expect(throws: SetupError("Login failed (403042): Invalid LoginID")) {
+            _ = try await plugin.authorize(SetupRequest(target: .account, answers: ["authMode": "mobile_app", "email": "me@example.com", "password": "wrong"]))
+        }
+        guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .account, answers: [
+            "authMode": "mobile_app", "email": "me@example.com", "password": "right",
+        ])) else { Issue.record("expected done"); return }
+        #expect(outcome.settings["authMode"] == "mobile_app" && outcome.settings["daikinEmail"] == "me@example.com")
+        #expect(outcome.settings["updateIntervalInMinutes"] == 5 && outcome.settings["enableWebSocket"] == true)
         let status = try await environment.request("GET", "auth/status")
         #expect(status.json["authMode"] == "mobile_app")
         #expect(status.json["isExpired"] == false)
@@ -411,29 +446,29 @@ struct PluginTests {
         let environment = DaikinEnvironment()
         let host = try await environment.start(developerBlock)
         defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
         let port = try await freePort()
-        let started = try await environment.request("POST", "auth/start", body: [
+        let started = try await plugin.startAuthorization([
             "clientId": "client", "clientSecret": "secret", "callbackServerExternalAddress": "127.0.0.1", "callbackServerPort": .string(String(port)),
             "oidcCallbackServerBindAddr": "127.0.0.1",
         ])
-        #expect(started.json["callbackServerRunning"] == true)
-        #expect(started.json["redirectUri"] == .string("https://127.0.0.1:\(port)"))
-        let authURL = try #require(started.json["authUrl"]?.stringValue)
+        #expect(started["callbackServerRunning"] == true)
+        #expect(started["redirectUri"] == .string("https://127.0.0.1:\(port)"))
+        let authURL = try #require(started["authUrl"]?.stringValue)
         let state = try #require(URLQuery.parameter("state", in: authURL))
         #expect(URLQuery.parameter("client_id", in: authURL) == "client")
-        #expect(try await environment.request("GET", "auth/poll").json["pending"] == true)
+        #expect(await plugin.pollAuthorization()["pending"] == true)
 
         let browser = HTTPClient(tls: .any)
         // Not our state: refused, and the login carries on.
         let stranger = try await browser.send(HTTPRequest(url: URL(string: "https://127.0.0.1:\(port)/?code=x&state=other")!))
         #expect(stranger.status == 400)
-        #expect(try await environment.request("GET", "auth/poll").json["pending"] == true)
+        #expect(await plugin.pollAuthorization()["pending"] == true)
         // Daikin's redirect.
         let redirect = try await browser.send(HTTPRequest(url: URL(string: "https://127.0.0.1:\(port)/?code=good-code&state=\(state)")!))
         #expect(redirect.status == 200)
         #expect(redirect.text.contains("Authentication successful!"))
-        let poll = try await environment.request("GET", "auth/poll")
-        #expect(poll.json["success"] == true)
+        #expect(await plugin.pollAuthorization()["success"] == true)
         #expect(TokenFile.load(environment.tokenFile(named: ".daikin-controller-cloud-tokenset"))?.access_token == "dev-access")
         // The instance connects without a restart.
         #expect(await eventually { host.mainBridge.server.accessories.count == 3 })
@@ -443,20 +478,23 @@ struct PluginTests {
         let environment = DaikinEnvironment()
         let host = try await environment.start(developerBlock)
         defer { Task { await host.stop() } }
-        #expect(try await environment.request("POST", "auth/callback", body: ["callbackUrl": "https://127.0.0.1:8582/?code=good-code&state=s"]).json["error"]
-            == "No pending authorization. Please start the auth flow again.")
+        let plugin = try #require(environment.plugin)
+        await #expect(throws: DaikinError("No pending authorization. Please start the auth flow again.")) {
+            _ = try await plugin.completeAuthorization(["callbackUrl": "https://127.0.0.1:8582/?code=good-code&state=s"])
+        }
         let port = try await freePort()
-        let started = try await environment.request("POST", "auth/start", body: [
+        let started = try await plugin.startAuthorization([
             "clientId": "client", "clientSecret": "secret", "callbackServerExternalAddress": "127.0.0.1", "callbackServerPort": .number(Double(port)),
         ])
-        let state = try #require(URLQuery.parameter("state", in: started.json["authUrl"]?.stringValue ?? ""))
-        #expect(try await environment.request("POST", "auth/callback", body: ["callbackUrl": .string("https://127.0.0.1:\(port)/?code=good-code&state=wrong")]).json["error"]
-            == "Invalid or missing state parameter. Please paste the full callback URL or start again.")
-        #expect(try await environment.request("POST", "auth/callback", body: ["callbackUrl": .string("https://127.0.0.1:\(port)/?code=bad&state=\(state)")]).json["error"]
-            == "Token exchange failed: Authorization code exchange failed: invalid_grant - Bad code (HTTP 400)")
-        let done = try await environment.request("POST", "auth/callback", body: ["callbackUrl": .string("https://127.0.0.1:\(port)/?code=good-code&state=\(state)")])
-        #expect(done.json["success"] == true)
-        #expect(try await environment.request("POST", "auth/stop-server", body: [:]).json["success"] == true)
+        let state = try #require(URLQuery.parameter("state", in: started["authUrl"]?.stringValue ?? ""))
+        await #expect(throws: DaikinError("Invalid or missing state parameter. Please paste the full callback URL or start again.")) {
+            _ = try await plugin.completeAuthorization(["callbackUrl": .string("https://127.0.0.1:\(port)/?code=good-code&state=wrong")])
+        }
+        await #expect(throws: DaikinError("Token exchange failed: Authorization code exchange failed: invalid_grant - Bad code (HTTP 400)")) {
+            _ = try await plugin.completeAuthorization(["callbackUrl": .string("https://127.0.0.1:\(port)/?code=bad&state=\(state)")])
+        }
+        let done = try await plugin.completeAuthorization(["callbackUrl": .string("https://127.0.0.1:\(port)/?code=good-code&state=\(state)")])
+        #expect(done["success"] == true)
     }
 
     /// Setup: the Developer Portal login is a Browser Redirect whose page and paste field come with a wait; the callback
@@ -509,12 +547,13 @@ struct PluginTests {
         let environment = DaikinEnvironment()
         let host = try await environment.start(developerBlock)
         defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
         let port = try await freePort()
-        let started = try await environment.request("POST", "auth/start", body: [
+        let started = try await plugin.startAuthorization([
             "clientId": "client", "clientSecret": "secret", "callbackServerExternalAddress": "127.0.0.1", "callbackServerPort": .number(Double(port)),
             "oidcCallbackServerBindAddr": "127.0.0.1",
         ])
-        let state = try #require(URLQuery.parameter("state", in: started.json["authUrl"]?.stringValue ?? ""))
+        let state = try #require(URLQuery.parameter("state", in: started["authUrl"]?.stringValue ?? ""))
         let cloud = environment.cloud
         let release = Signal()
         let exchanges = NIOLockedValueBox(0)
@@ -526,28 +565,31 @@ struct PluginTests {
             return try await cloud.answer(request)
         }
         let url = JSONValue.string("https://127.0.0.1:\(port)/?code=good-code&state=\(state)")
-        let pasted = Task { try await environment.request("POST", "auth/callback", body: ["callbackUrl": url]) }
+        let pasted = Task { try await plugin.completeAuthorization(["callbackUrl": url]) }
         #expect(await eventually { exchanges.withLockedValue { $0 } == 1 })
         // The redirect arriving meanwhile is refused, without a second exchange.
-        let redirect = await environment.plugin!.callbackRequest("/?code=good-code&state=\(state)")
+        let redirect = await plugin.callbackRequest("/?code=good-code&state=\(state)")
         #expect(redirect.status == 400)
-        let again = try await environment.request("POST", "auth/callback", body: ["callbackUrl": url])
-        #expect(again.json["error"] == "No pending authorization. Please start the auth flow again.")
+        await #expect(throws: DaikinError("No pending authorization. Please start the auth flow again.")) {
+            _ = try await plugin.completeAuthorization(["callbackUrl": url])
+        }
         release.fire()
-        #expect(try await pasted.value.json["success"] == true)
+        #expect(try await pasted.value["success"] == true)
         #expect(exchanges.withLockedValue { $0 } == 1)
     }
 
-    /// A failed exchange keeps the login pending for a paste, unless the page cancelled it meanwhile.
-    @Test func aCancelledLoginStaysCancelled() async throws {
+    /// A failed exchange keeps the login pending for a paste, unless another one started meanwhile: that one stays.
+    @Test func aLoginStartedMeanwhileStays() async throws {
         let environment = DaikinEnvironment()
         let host = try await environment.start(developerBlock)
         defer { Task { await host.stop() } }
-        let started = try await environment.request("POST", "auth/start", body: [
+        let plugin = try #require(environment.plugin)
+        let body: [String: JSONValue] = [
             "clientId": "client", "clientSecret": "secret", "callbackServerExternalAddress": "127.0.0.1",
             "callbackServerPort": .number(Double(try await freePort())), "oidcCallbackServerBindAddr": "127.0.0.1",
-        ])
-        let state = try #require(URLQuery.parameter("state", in: started.json["authUrl"]?.stringValue ?? ""))
+        ]
+        let started = try await plugin.startAuthorization(body)
+        let state = try #require(URLQuery.parameter("state", in: started["authUrl"]?.stringValue ?? ""))
         let cloud = environment.cloud
         let release = Signal()
         let exchanges = NIOLockedValueBox(0)
@@ -558,12 +600,13 @@ struct PluginTests {
             }
             return try await cloud.answer(request)
         }
-        let failing = Task { await environment.plugin!.callbackRequest("/?code=bad&state=\(state)") }
+        let failing = Task { await plugin.callbackRequest("/?code=bad&state=\(state)") }
         #expect(await eventually { exchanges.withLockedValue { $0 } == 1 })
-        #expect(try await environment.request("POST", "auth/stop-server", body: [:]).json["success"] == true)
+        let again = try await plugin.startAuthorization(body)
+        let newer = try #require(URLQuery.parameter("state", in: again["authUrl"]?.stringValue ?? ""))
         release.fire()
         _ = await failing.value
-        #expect(await environment.plugin!.pendingAuth == nil)
+        #expect(await plugin.pendingAuth?.state == newer)
     }
 
     @Test func callbackPorts() throws {

@@ -9,8 +9,9 @@ import Logging
 ///
 /// Each Wingman is a device of Setup by its id (WingmanSetup.swift), authorized with the code its menu shows once its
 /// certificate is checked: its token and pinned certificate are kept in the vault under its id, its address in its
-/// Accessory Settings or in an entry of `devices` (the plugin's page writes one after pairing; a `token` and a
-/// `fingerprint` still there from before move into the vault). The plugin reads the homes (`GET /homes`), follows value changes with a
+/// Accessory Settings or in an entry of `devices` (the plugin's page wrote one after pairing before Setup did; a `token`
+/// and a `fingerprint` still there from before move into the vault; an entry with only an address is a Wingman for Setup
+/// to pair). The plugin reads the homes (`GET /homes`), follows value changes with a
 /// long-poll (`GET /events?since=&wait=`) and writes through `POST /write`. Its accessories are mirrored
 /// (`Accessory.mirroredFrom`): on the web UI's wall, in moods, scenes, automations and the MCP tools, but never
 /// published to HomeKit, which has them already. Homeswift's own accessories, which Apple Home lists too, are left
@@ -18,7 +19,8 @@ import Logging
 public actor WingmanPlugin: HomeswiftPlugin {
     public struct Configuration: Decodable, Sendable {
         public struct Device: Decodable, Sendable {
-            /// Wingman's id (its Bonjour TXT `id`), which keys the entry.
+            /// Wingman's id (its Bonjour TXT `id`), which keys the entry. Empty for an entry with only an address: a
+            /// Wingman Bonjour does not reach, typed in the settings for Setup to find and pair.
             public var id: String
             public var name: String?
             /// Its address; Bonjour moves it when Wingman announces another.
@@ -92,7 +94,7 @@ public actor WingmanPlugin: HomeswiftPlugin {
         self.init(configuration: configuration, context: context, dependencies: Dependencies())
     }
 
-    /// The Wingmen the plugin runs, from `devices` and Setup (`configuredDevices`), read at start and after a pairing.
+    /// The Wingmen the plugin runs, from `devices` and Setup (`configuredDevices`), read at start.
     private var running: [Configuration.Device] = []
 
     init(configuration: Configuration, context: PluginContext, dependencies: Dependencies) {
@@ -102,9 +104,6 @@ public actor WingmanPlugin: HomeswiftPlugin {
         Self.moveLegacyCredentials(configuration, context)
     }
 
-    /// The Wingmen with a token, by id: those the page shows as paired.
-    nonisolated func pairedIDs() -> Set<String> { Set(configuredDevices().filter { $0.token != nil }.map(\.id)) }
-
     public func start() async throws {
         running = configuredDevices()
         for device in running {
@@ -112,12 +111,12 @@ public actor WingmanPlugin: HomeswiftPlugin {
             if context.isExcluded(device.id) { continue }
             // The token goes only to the certificate pairing pinned: never over a connection that accepts any.
             guard let token = device.token, !token.isEmpty, device.fingerprint?.isEmpty == false else {
-                logger.warning("A Wingman in devices has no token or no pinned certificate: pair it on the plugin's page", metadata: ["wingman": "\(device.name ?? device.id)"])
+                logger.warning("A Wingman in devices has no token or no pinned certificate: set it up on Add accessories", metadata: ["wingman": "\(device.name ?? device.id)"])
                 continue
             }
             run(device, token: token)
         }
-        if links.isEmpty { logger.info("No Wingman paired yet: the plugin's page finds them on the network and pairs them") }
+        if links.isEmpty { logger.info("No Wingman paired yet: Add accessories finds them on the network and pairs them") }
         // Bonjour, all the time: a Wingman whose address changed is reached at the new one, one that left is forgotten.
         let browse = dependencies.browse
         let logger = self.logger
@@ -157,14 +156,6 @@ public actor WingmanPlugin: HomeswiftPlugin {
         case .lost(let name, _, _):
             announced = announced.filter { $0.value.name != name }
         }
-    }
-
-    /// The Wingmen announced now, from the browse that runs all the time, after a moment for a page that just opened.
-    /// An instance that is not browsing (made only for Setup) looks for `discoveryDuration`.
-    func discovered() async -> [Announced] {
-        guard isBrowsing else { return await browseOnce().sorted { $0.name < $1.name } }
-        if announced.isEmpty { try? await Task.sleep(for: dependencies.discoveryDuration) }
-        return announced.values.sorted { $0.name < $1.name }
     }
 
     /// What Bonjour announces within `discoveryDuration`, by Wingman's id.
@@ -216,29 +207,8 @@ public actor WingmanPlugin: HomeswiftPlugin {
 
     // MARK: The web page
 
-    /// A Wingman as the page lists it, asked who it is: its version, whether pairing is open, and its certificate as
-    /// this machine sees it, to compare with Wingman's menu before typing the code.
-    private nonisolated func describe(_ wingman: Announced, paired: Set<String>) async -> JSONValue {
-        let client = WingmanClient(host: wingman.host, port: wingman.port, token: nil, fingerprint: nil, transports: dependencies.transports)
-        var entry: [String: JSONValue] = ["name": .string(wingman.name), "host": .string(wingman.host), "port": .number(Double(wingman.port))]
-        var id = wingman.id
-        do {
-            let (info, fingerprint) = try await client.info()
-            id = info.id
-            entry["version"] = info.version.map(JSONValue.string) ?? .null
-            entry["pairing"] = .bool(info.pairing ?? false)
-            entry["fingerprint"] = fingerprint.map(JSONValue.string) ?? .null
-        } catch {
-            entry["error"] = .string("\(error)")
-        }
-        entry["id"] = .string(id)
-        entry["paired"] = .bool(paired.contains(id))
-        return .object(entry)
-    }
-
-    /// `GET wingmen` the paired Wingmen and how they are doing; `GET discover` those Bonjour finds, each asked who it
-    /// is (`/info`, its certificate seen); `POST pair` pairs one with the code its menu shows, the certificate pinned,
-    /// keeps its token and certificate in the vault and answers its entry for `devices`. `Web/` is the page.
+    /// `GET wingmen` the paired Wingmen and how they are doing. Finding and pairing one is Setup's (WingmanSetup.swift).
+    /// `Web/` is the page.
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
         switch (request.method, request.path) {
         case ("GET", "wingmen"):
@@ -249,54 +219,10 @@ public actor WingmanPlugin: HomeswiftPlugin {
                     list.append(await link.status())
                 } else {
                     list.append(["id": .string(device.id), "name": .string(device.name ?? device.id), "state": "unpaired",
-                                 "error": "No token or no pinned certificate: pair it again"])
+                                 "error": "No token or no pinned certificate: set it up again on Add accessories"])
                 }
             }
             return PluginWebResponse(["wingmen": .array(list)])
-        case ("GET", "discover"):
-            // Asked all at once: one that does not answer costs its timeout, not everyone's.
-            let wingmen = await discovered()
-            let paired = pairedIDs()
-            let found = await withTaskGroup(of: (Int, JSONValue).self) { group in
-                for (index, wingman) in wingmen.enumerated() { group.addTask { (index, await self.describe(wingman, paired: paired)) } }
-                var found: [(Int, JSONValue)] = []
-                for await answer in group { found.append(answer) }
-                return found.sorted { $0.0 < $1.0 }.map(\.1)
-            }
-            return PluginWebResponse(["wingmen": .array(found)])
-        case ("GET", "probe"):
-            // A Wingman Bonjour does not reach (another network, a container without multicast), by its address.
-            guard let host = request.query["host"]?.trimmingCharacters(in: .whitespaces), !host.isEmpty else { return .error(400, "an address is required") }
-            let port = request.query["port"].flatMap(Int.init) ?? Self.defaultPort
-            let wingman = await describe(Announced(id: "", name: host, host: host, port: port), paired: pairedIDs())
-            if let error = wingman["error"]?.stringValue { return .error(502, error) }
-            return PluginWebResponse(["wingman": wingman])
-        case ("POST", "pair"):
-            guard let host = request.body["host"]?.stringValue?.trimmingCharacters(in: .whitespaces), !host.isEmpty else { return .error(400, "an address is required") }
-            let port = request.body["port"]?.saturatingIntValue ?? Self.defaultPort
-            guard let code = request.body["code"]?.stringValue?.filter(\.isNumber), code.count == 6 else { return .error(400, "the 6-digit code Wingman shows is required") }
-            // The certificate the user compared with Wingman's menu, pinned for the pairing itself.
-            guard let fingerprint = request.body["fingerprint"]?.stringValue.map(HTTPClient.normalizeFingerprint), fingerprint.count == 64 else {
-                return .error(400, "the certificate fingerprint seen at discovery is required")
-            }
-            do {
-                let paired = try await pair(host: host, port: port, code: code, fingerprint: fingerprint)
-                // The token and the certificate in the vault, under Wingman's id; config.json gets the rest.
-                try context.saveCredentials(Credentials(token: paired.token, fingerprint: fingerprint), for: paired.id)
-                // Paired again: an entry config.json already has may not change, so the link takes the new token now.
-                running = configuredDevices()
-                if isBrowsing, let device = running.first(where: { $0.id == paired.id }), !context.isExcluded(paired.id) {
-                    run(device, token: paired.token)
-                }
-                var entry: [String: JSONValue] = ["id": .string(paired.id), "host": .string(host)]
-                if port != Self.defaultPort { entry["port"] = .number(Double(port)) }
-                if let name = request.body["name"]?.stringValue, !name.isEmpty { entry["name"] = .string(name) }
-                return PluginWebResponse(["device": .object(entry)])
-            } catch let error as WingmanError {
-                logger.warning("Pairing with Wingman failed: \(error)", metadata: ["host": "\(host)"])
-                if case .refused(let status, let message) = error { return .error(status == 403 ? 403 : 502, message) }
-                return .error(502, "\(error)")
-            }
         default:
             return .error(404, "nothing at \(request.method) \(request.path)")
         }
@@ -329,6 +255,13 @@ actor Link {
     private var since = 0
     private var phase = Phase.connecting
     private var lastContact: Date?
+    /// Apple Home's rooms, scenes and automations; nil when this Wingman does not serve them.
+    private(set) var structure: Structure?
+    /// Rooms Homeswift renamed through this Wingman, by HomeKit id: the read that shows the new name is not a rename
+    /// made in the Home app.
+    private var ownRoomRenames: [String: String] = [:]
+    /// Accessories Homeswift moved through this Wingman, by HomeKit id, likewise.
+    private var ownMoves: [String: String] = [:]
 
     init(device: WingmanPlugin.Configuration.Device, token: String, plugin: WingmanPlugin) {
         self.device = device
@@ -344,7 +277,7 @@ actor Link {
 
     /// The accessories of the last read of the homes; nil before the first.
     var loadedIDs: Set<String>? { snapshot.map { Set($0.mirrors.values.map(\.accessory.id)) } }
-    private var name: String { device.name ?? device.id }
+    var name: String { device.name ?? device.id }
 
     /// Bonjour announced Wingman at another address: the next request goes there.
     func moved(to host: String, port: Int) {
@@ -383,6 +316,7 @@ actor Link {
     func refresh() async throws {
         guard !client.host.isEmpty else { throw WingmanError.unreachable("no address yet: waiting for Bonjour") }
         guard let plugin else { return }
+        let info = try await client.info().info
         // Changes from now on, counted before the read: one made while the homes are read comes as an event too.
         since = try await client.events(since: Int.max - 1, wait: 0).last ?? 0
         let homes = try await client.homes()
@@ -423,6 +357,43 @@ actor Link {
         snapshot = Snapshot(mirrors: mirrors, homes: homes.map(\.name), leftOut: leftOut)
         phase = .connected
         lastContact = Date()
+        if info.servesStructure {
+            var structure = Structure(allowed: info.structure == true, homes: homes, mirrored: Set(mirrors.keys))
+            // What the last read gave, until this one's scenes and automations come.
+            structure.scenes = self.structure?.scenes ?? []
+            structure.automations = self.structure?.automations ?? []
+            let renamed = Structure.renamedRooms(from: self.structure, to: structure)
+            let moved = Structure.movedAccessories(from: self.structure, to: structure)
+            self.structure = structure
+            // Renamed in the Home app: Homeswift follows. A rename Homeswift asked for is not said back.
+            for (id, home, from, to) in renamed {
+                if ownRoomRenames[id] == to {
+                    ownRoomRenames[id] = nil
+                    continue
+                }
+                guard plugin.includesHome(home) else { continue }
+                logger.info("Room renamed in Apple Home", metadata: ["wingman": "\(name)", "from": "\(from)", "to": "\(to)"])
+                plugin.context.hubRoomRenamed(from: from, to: to)
+            }
+            // Moved in the Home app: Homeswift follows, for the accessories it has.
+            for (id, home, room) in moved {
+                if ownMoves[id] == room {
+                    ownMoves[id] = nil
+                    continue
+                }
+                guard plugin.includesHome(home),
+                      let accessoryID = structure.homeswiftID(of: id, publishedID: plugin.context.publishedAccessoryID(serialNumber:)) else { continue }
+                logger.info("Accessory moved in Apple Home", metadata: ["wingman": "\(name)", "accessory": "\(accessoryID)", "room": "\(room)"])
+                plugin.context.hubAccessoryMoved(accessoryID: accessoryID, room: room)
+            }
+            // Those Apple Home now shows are done.
+            let current = Dictionary(structure.homes.flatMap(\.rooms).map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+            ownRoomRenames = ownRoomRenames.filter { current[$0.key] != $0.value }
+            ownMoves = ownMoves.filter { structure.devices[$0.key]?.room != $0.value }
+            await reload(scenes: true, automations: true)
+        } else {
+            structure = nil
+        }
         for mirror in changed { plugin.publish(mirror.accessory) }
         await plugin.prune()
     }
@@ -441,11 +412,17 @@ actor Link {
         if let last = answer.last, last < since { return true }
         if let first = answer.first, first > since + 1 { return true }
         var readAgain = false
+        var scenes = false, automations = false, settings = false
         for event in answer.events {
             if let seq = event.seq { since = max(since, seq) }
-            if event.kind == "homes" {
+            switch event.kind {
+            case "homes":
                 readAgain = true
                 continue
+            case "scenes": scenes = true; continue
+            case "automations": automations = true; continue
+            case "settings": settings = true; continue
+            default: break
             }
             guard let accessoryID = event.accessoryID, let characteristicID = event.characteristicID,
                   let mirror = snapshot?.mirrors[accessoryID] else { continue }
@@ -458,7 +435,74 @@ actor Link {
             answered(accessoryID)
         }
         if let last = answer.last { since = max(since, last) }
+        // A read of the homes reads the rest too.
+        if !readAgain, structure != nil {
+            if settings, let info = try? await client.info().info { structure?.allowed = info.structure == true }
+            await reload(scenes: scenes, automations: automations)
+        }
         return readAgain
+    }
+
+    // MARK: Rooms, scenes and automations
+
+    enum Reload { case nothing, scenes, automations }
+
+    /// Reads Apple Home's scenes, automations or both again; a failure keeps what was read before.
+    func reload(scenes: Bool, automations: Bool) async {
+        guard structure != nil else { return }
+        do {
+            if scenes { structure?.scenes = try await client.scenes() }
+            if automations { structure?.automations = try await client.automations() }
+        } catch {
+            logger.warning("Could not read Apple Home's scenes and automations: \(error)", metadata: ["wingman": "\(name)"])
+        }
+    }
+
+    /// A structural edit (docs/apple-home-design.md), then what it changed read again: Wingman's event would come too,
+    /// but the person who asked sees the result at once.
+    @discardableResult
+    func edit(_ path: String, _ body: JSONValue, reload what: Reload = .nothing) async throws -> JSONValue {
+        do {
+            let answer = try await client.edit(path, body)
+            await reload(scenes: what == .scenes, automations: what == .automations)
+            return answer
+        } catch {
+            logger.warning("Wingman refused \(path): \(error)", metadata: ["wingman": "\(name)"])
+            throw error
+        }
+    }
+
+    /// Renames a room in Apple Home; listed so until the "homes" event's read, which is not said back to Homeswift.
+    func renameRoom(_ id: String, to name: String) async throws {
+        ownRoomRenames[id] = name
+        do {
+            try await edit("rooms/rename", ["room": .string(id), "name": .string(name)])
+        } catch {
+            ownRoomRenames[id] = nil
+            throw error
+        }
+        renamedRoom(id, to: name)
+    }
+
+    /// Moves an accessory to the room of that name in its home (Wingman adds the room when there is none); the read
+    /// that shows it is not said back to Homeswift.
+    func moveAccessory(_ id: String, to room: String) async throws {
+        ownMoves[id] = room
+        do {
+            try await edit("accessories/room", ["accessory": .string(id), "room": .string(room)])
+        } catch {
+            ownMoves[id] = nil
+            throw error
+        }
+        structure?.devices[id]?.room = room
+    }
+
+    private func renamedRoom(_ id: String, to name: String) {
+        guard var structure else { return }
+        for index in structure.homes.indices {
+            if let room = structure.homes[index].rooms.firstIndex(where: { $0.id == id }) { structure.homes[index].rooms[room].name = name }
+        }
+        self.structure = structure
     }
 
     private func lost(_ error: any Error) {

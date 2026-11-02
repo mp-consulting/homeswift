@@ -35,7 +35,7 @@ extension EWeLinkPlugin {
         configuration.username?.isEmpty == false && configuration.password?.isEmpty == false
     }
 
-    /// The account's devices and groups: with the page's session, the plugin's saved one, or a login. A device in
+    /// The account's devices and groups: with the plugin's saved session, or a login. A device in
     /// `ignoredDevices` is excluded by its settings; an RF Bridge stands for its remotes and sensors.
     public func discover() async throws -> [DiscoveredDevice] {
         var api = await sessionAPI()

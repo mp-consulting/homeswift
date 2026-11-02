@@ -9,8 +9,8 @@ import Logging
 /// thing shadow, pushed over MQTT and polled when nothing arrived for a whole interval.
 ///
 /// The configuration is the one of `@mp-consulting/homebridge-dolphin-pool-cleaner`, so a Homebridge block
-/// works unchanged. The plugin's page signs in with a verification code and stores a refresh token, as the
-/// Homebridge setup wizard does. See README.md in this directory.
+/// works unchanged. Setup signs in with a verification code and keeps a refresh token in the vault, as the
+/// Homebridge setup wizard keeps one in the block. See README.md in this directory.
 public actor DolphinPoolCleanerPlugin: HomeswiftPlugin {
     public static let platform = "DolphinPoolCleaner"
     public static let icon: String? = "poolRobot"
@@ -46,7 +46,7 @@ public actor DolphinPoolCleanerPlugin: HomeswiftPlugin {
     var logger: Logger { dependencies.logger ?? context.logger }
     private let temperatures: PersistedDictionary<Double>
     private let images: RobotImages
-    let wizard: SetupWizard
+    let signIn: SetupSignIn
 
     private var cloud: (any DolphinCloud)?
     private var devices: [String: DolphinDevice] = [:]
@@ -69,12 +69,12 @@ public actor DolphinPoolCleanerPlugin: HomeswiftPlugin {
         let directory = context.storageDirectory
         temperatures = context.persistedDictionary("last-temperatures.json", of: Double.self)
         images = RobotImages(directory: directory)
-        wizard = SetupWizard(transport: dependencies.transport, images: images, logger: dependencies.logger ?? context.logger)
+        signIn = SetupSignIn(transport: dependencies.transport, images: images, logger: dependencies.logger ?? context.logger)
     }
 
     public func start() async throws {
         logger.debug("Initializing platform: \(configuration.name ?? Self.name)")
-        // Without an account the plugin stays up, so its page can sign in.
+        // Without an account the plugin stays up, so Setup can sign in.
         guard configuration.hasCredentials || storedRefreshToken != nil else {
             logger.error("Missing required configuration: refreshToken or email/password")
             status = .notConfigured
@@ -223,15 +223,10 @@ public actor DolphinPoolCleanerPlugin: HomeswiftPlugin {
 
     // MARK: The web page
 
-    /// `POST authenticate` and `POST verify-otp` are the setup page's sign-in (the Homebridge plugin's
-    /// `/authenticate` and `/verify-otp`); `GET robots` lists the robots with their state; `GET image?serial=`
-    /// is a robot's picture as a data URL, or null. `Web/` is the page.
+    /// `GET robots` lists the robots with their state; `GET image?serial=` is a robot's picture as a data URL, or
+    /// null. `Web/` is the page. Signing in is Setup's (DolphinSetup.swift), not the page's.
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
         switch (request.method, request.path) {
-        case ("POST", "authenticate"):
-            return PluginWebResponse(await wizard.authenticate(email: request.body["email"]?.stringValue))
-        case ("POST", "verify-otp"):
-            return PluginWebResponse(await wizard.verify(email: request.body["email"]?.stringValue, code: request.body["otpCode"]?.stringValue))
         case ("GET", "robots"):
             var list: [JSONValue] = []
             for robot in robots {

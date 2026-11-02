@@ -8,7 +8,7 @@ extension WingmanPlugin {
   "pluginAlias": "Wingman",
   "pluginType": "platform",
   "singular": true,
-  "headerDisplay": "The Home app's accessories in Homeswift, through Homeswift Wingman on a Mac. Pair a Wingman on the plugin's page: it finds them on the network.",
+  "headerDisplay": "The Home app's accessories in Homeswift, through Homeswift Wingman on a Mac. Add accessories finds Wingmen on the network and pairs them.",
   "schema": {
     "type": "object",
     "properties": {
@@ -21,13 +21,13 @@ extension WingmanPlugin {
       },
       "devices": {
         "title": "Paired Wingmen",
-        "description": "Written by the plugin's page when it pairs a Wingman.",
+        "description": "For a Wingman Bonjour does not reach: its address (and port) here, without an ID, and Add accessories finds it to pair it. Entries of earlier pairings keep working.",
         "type": "array",
         "items": {
           "title": "Wingman",
           "type": "object",
           "properties": {
-            "id": { "title": "Wingman ID", "type": "string", "required": true, "description": "The ID Wingman announces over Bonjour, which keys this entry." },
+            "id": { "title": "Wingman ID", "type": "string", "description": "The ID Wingman announces over Bonjour. Empty for a Wingman to pair on Add accessories." },
             "name": { "title": "Name", "type": "string", "description": "The Wingman's name on the plugin's page and in the logs." },
             "host": { "title": "Address", "type": "string", "description": "The Mac's address. Bonjour updates it when Wingman moves." },
             "port": { "title": "Port", "type": "integer", "placeholder": 8619, "minimum": 1, "maximum": 65535, "description": "Wingman's port, 8619 by default. Bonjour updates it with the address." },
@@ -69,6 +69,7 @@ extension WingmanPlugin {
       "Address": "Adresse",
       "By the bridge's name in the Home app. Homeswift's own bridges are always left out.": "Par le nom du pont dans l'app Maison. Les ponts de Homeswift sont toujours laissés de côté.",
       "Certificate SHA-256": "Certificat SHA-256",
+      "For a Wingman Bonjour does not reach: its address (and port) here, without an ID, and Add accessories finds it to pair it. Entries of earlier pairings keep working.": "Pour un Wingman que Bonjour n'atteint pas : son adresse (et son port) ici, sans identifiant, et Ajouter des accessoires le trouve pour le jumeler. Les entrées des jumelages précédents continuent de fonctionner.",
       "Given at pairing and sent with every request.": "Donné au jumelage et envoyé avec chaque requête.",
       "Homes": "Maisons",
       "How often names, rooms and new accessories are read again; 10 minutes by default. Value changes arrive at once.": "La fréquence à laquelle les noms, les pièces et les nouveaux accessoires sont relus ; 10 minutes par défaut. Les changements de valeur arrivent aussitôt.",
@@ -80,21 +81,21 @@ extension WingmanPlugin {
       "Port": "Port",
       "Read the whole home every (minutes)": "Relire toute la maison toutes les (minutes)",
       "The fingerprint of Wingman's certificate, pinned at pairing.": "L'empreinte du certificat de Wingman, épinglée au jumelage.",
-      "The ID Wingman announces over Bonjour, which keys this entry.": "L'identifiant que Wingman annonce par Bonjour, qui identifie cette entrée.",
+      "The ID Wingman announces over Bonjour. Empty for a Wingman to pair on Add accessories.": "L'identifiant que Wingman annonce par Bonjour. Vide pour un Wingman à jumeler dans Ajouter des accessoires.",
       "The Mac's address. Bonjour updates it when Wingman moves.": "L'adresse du Mac. Bonjour la met à jour quand Wingman change d'adresse.",
       "The Wingman's name on the plugin's page and in the logs.": "Le nom du Wingman sur la page du plugin et dans les journaux.",
       "This block's name, shown in the logs and in the web UI.": "Le nom de ce bloc, affiché dans les journaux et l'interface web.",
       "Token": "Jeton",
       "Wingman": "Wingman",
       "Wingman ID": "Identifiant Wingman",
-      "Wingman's port, 8619 by default. Bonjour updates it with the address.": "Le port de Wingman, 8619 par défaut. Bonjour le met à jour avec l'adresse.",
-      "Written by the plugin's page when it pairs a Wingman.": "Écrit par la page du plugin quand elle jumelle un Wingman."
+      "Wingman's port, 8619 by default. Bonjour updates it with the address.": "Le port de Wingman, 8619 par défaut. Bonjour le met à jour avec l'adresse."
     },
     "es": {
       "Accessories to leave out, by name or HomeKit id.": "Los accesorios que se dejan fuera, por nombre o id de HomeKit.",
       "Address": "Dirección",
       "By the bridge's name in the Home app. Homeswift's own bridges are always left out.": "Por el nombre del puente en la app Casa. Los puentes de Homeswift siempre se dejan fuera.",
       "Certificate SHA-256": "Certificado SHA-256",
+      "For a Wingman Bonjour does not reach: its address (and port) here, without an ID, and Add accessories finds it to pair it. Entries of earlier pairings keep working.": "Para un Wingman al que Bonjour no llega: su dirección (y su puerto) aquí, sin id, y Añadir accesorios lo encuentra para emparejarlo. Las entradas de emparejamientos anteriores siguen funcionando.",
       "Given at pairing and sent with every request.": "Se obtiene al emparejar y se envía con cada solicitud.",
       "Homes": "Casas",
       "How often names, rooms and new accessories are read again; 10 minutes by default. Value changes arrive at once.": "Cada cuánto se vuelven a leer los nombres, las habitaciones y los accesorios nuevos; 10 minutos de forma predeterminada. Los cambios de valor llegan al instante.",
@@ -106,21 +107,21 @@ extension WingmanPlugin {
       "Port": "Puerto",
       "Read the whole home every (minutes)": "Leer toda la casa cada (minutos)",
       "The fingerprint of Wingman's certificate, pinned at pairing.": "La huella del certificado de Wingman, fijada al emparejar.",
-      "The ID Wingman announces over Bonjour, which keys this entry.": "El id que Wingman anuncia por Bonjour, que identifica esta entrada.",
+      "The ID Wingman announces over Bonjour. Empty for a Wingman to pair on Add accessories.": "El id que Wingman anuncia por Bonjour. Vacío para un Wingman que se empareja en Añadir accesorios.",
       "The Mac's address. Bonjour updates it when Wingman moves.": "La dirección del Mac. Bonjour la actualiza cuando Wingman cambia de dirección.",
       "The Wingman's name on the plugin's page and in the logs.": "El nombre del Wingman en la página del plugin y en los registros.",
       "This block's name, shown in the logs and in the web UI.": "El nombre de este bloque, que se muestra en los registros y en la interfaz web.",
       "Token": "Token",
       "Wingman": "Wingman",
       "Wingman ID": "Id de Wingman",
-      "Wingman's port, 8619 by default. Bonjour updates it with the address.": "El puerto de Wingman, 8619 de forma predeterminada. Bonjour lo actualiza con la dirección.",
-      "Written by the plugin's page when it pairs a Wingman.": "Lo escribe la página del plugin al emparejar un Wingman."
+      "Wingman's port, 8619 by default. Bonjour updates it with the address.": "El puerto de Wingman, 8619 de forma predeterminada. Bonjour lo actualiza con la dirección."
     },
     "pt": {
       "Accessories to leave out, by name or HomeKit id.": "Os acessórios a deixar de fora, por nome ou id do HomeKit.",
       "Address": "Endereço",
       "By the bridge's name in the Home app. Homeswift's own bridges are always left out.": "Pelo nome da ponte na app Casa. As pontes do próprio Homeswift ficam sempre de fora.",
       "Certificate SHA-256": "Certificado SHA-256",
+      "For a Wingman Bonjour does not reach: its address (and port) here, without an ID, and Add accessories finds it to pair it. Entries of earlier pairings keep working.": "Para um Wingman que o Bonjour não alcança: o seu endereço (e a porta) aqui, sem id, e Adicionar acessórios encontra-o para o emparelhar. As entradas de emparelhamentos anteriores continuam a funcionar.",
       "Given at pairing and sent with every request.": "Obtido no emparelhamento e enviado com cada pedido.",
       "Homes": "Casas",
       "How often names, rooms and new accessories are read again; 10 minutes by default. Value changes arrive at once.": "A frequência com que os nomes, as divisões e os acessórios novos são lidos de novo; 10 minutos por predefinição. As alterações de valores chegam de imediato.",
@@ -132,15 +133,14 @@ extension WingmanPlugin {
       "Port": "Porta",
       "Read the whole home every (minutes)": "Ler a casa inteira a cada (minutos)",
       "The fingerprint of Wingman's certificate, pinned at pairing.": "A impressão digital do certificado do Wingman, fixada no emparelhamento.",
-      "The ID Wingman announces over Bonjour, which keys this entry.": "O id que o Wingman anuncia por Bonjour, que identifica esta entrada.",
+      "The ID Wingman announces over Bonjour. Empty for a Wingman to pair on Add accessories.": "O id que o Wingman anuncia por Bonjour. Vazio para um Wingman a emparelhar em Adicionar acessórios.",
       "The Mac's address. Bonjour updates it when Wingman moves.": "O endereço do Mac. O Bonjour atualiza-o quando o Wingman muda de endereço.",
       "The Wingman's name on the plugin's page and in the logs.": "O nome do Wingman na página do plugin e nos registos.",
       "This block's name, shown in the logs and in the web UI.": "O nome deste bloco, mostrado nos registos e na interface web.",
       "Token": "Token",
       "Wingman": "Wingman",
       "Wingman ID": "Id do Wingman",
-      "Wingman's port, 8619 by default. Bonjour updates it with the address.": "A porta do Wingman, 8619 por predefinição. O Bonjour atualiza-a com o endereço.",
-      "Written by the plugin's page when it pairs a Wingman.": "Escrito pela página do plugin quando emparelha um Wingman."
+      "Wingman's port, 8619 by default. Bonjour updates it with the address.": "A porta do Wingman, 8619 por predefinição. O Bonjour atualiza-a com o endereço."
     }
   }
 }

@@ -7,7 +7,8 @@ import Logging
 /// LG ThinQ appliances through LG's cloud, as `homebridge-lg-thinq` does: air conditioners, air purifiers and
 /// the AeroTower, refrigerators, washers, dryers and WashTowers, dishwashers, dehumidifiers, ovens, microwaves,
 /// range hoods and stylers, on ThinQ v2 (pushed over AWS IoT MQTT) and ThinQ v1 (polled). The configuration is
-/// the Homebridge plugin's; the sign-in and the device list are on the plugin's page in the web UI. See README.md.
+/// the Homebridge plugin's; the sign-in is Setup's (LGSetup.swift), the devices and their options are on the plugin's page
+/// in the web UI. See README.md.
 public actor LGThinQPlugin: HomeswiftPlugin {
     public static let platform = "LGThinQ"
     public static let icon: String? = "logo-lg"
@@ -64,76 +65,30 @@ public actor LGThinQPlugin: HomeswiftPlugin {
 
     // MARK: The web page
 
-    /// The routes of the Homebridge plugin's settings server: `POST login-by-user-pass` signs in and answers
-    /// the refresh token; `POST get-all-devices` lists the account's devices for a refresh token. Both take
-    /// the region, since the page signs in before the block has one. `GET login-url` and `POST
-    /// login-by-redirect` are the plugin's `thinq auth` command, for accounts that sign in with Google, Apple,
-    /// Facebook or Amazon. `GET devices` lists what this instance runs, `GET account-devices` every device of
-    /// the account the instance signed in with (for the Assistant, which never holds the refresh token). The
-    /// page saves the block itself, and restarts through the UI's own API.
+    /// The page's routes: `GET account` is the sign-in's state (whether the block signs in, its region and way), `GET
+    /// devices` what this instance runs, `GET account-devices` every device of the account the instance signed in with
+    /// (for the Assistant too, which never holds the refresh token). Signing in is Setup's (LGSetup.swift), which the page
+    /// leads to. The page saves the block itself, and restarts through the UI's own API.
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
         switch (request.method, request.path) {
-        case ("POST", "login-by-user-pass"):
-            if let missing = Self.missing(request.body, ["username", "password", "country", "language"]) { return missing }
-            let body = request.body
-            do {
-                let token = try await Self.login(
-                    username: JS.string(body["username"]), password: JS.string(body["password"]), country: JS.string(body["country"]),
-                    language: JS.string(body["language"]), transport: dependencies.transport, logger: logger)
-                logger.info("Signed in to LG ThinQ from the web page", metadata: ["country": "\(JS.string(body["country"]))"])
-                return PluginWebResponse(["success": true, "token": .string(token)])
-            } catch {
-                logger.warning("Sign-in from the web page failed: \(error)")
-                return PluginWebResponse(["success": false, "error": .string(Self.message(error, fallback: "Login failed"))])
-            }
-        case ("POST", "get-all-devices"):
-            if let missing = Self.missing(request.body, ["refresh_token", "country", "language"]) { return missing }
-            let body = request.body
-            do {
-                let devices = try await Self.listDevices(
-                    refreshToken: JS.string(body["refresh_token"]), country: JS.string(body["country"]), language: JS.string(body["language"]),
-                    transport: dependencies.transport, logger: logger)
-                return PluginWebResponse(["success": true, "devices": .array(devices)])
-            } catch {
-                return PluginWebResponse(["success": false, "error": .string(Self.message(error, fallback: "Failed to get devices"))])
-            }
-        case ("GET", "login-url"):
-            // The `thinq auth` command of the Homebridge plugin, for accounts that sign in with Google, Apple and others.
-            let country = request.query["country"] ?? configuration.country ?? "US"
-            let language = request.query["language"] ?? configuration.language ?? "en-US"
-            do {
-                let url = try await Self.thirdPartyLoginURL(country: country, language: language, transport: dependencies.transport, logger: logger)
-                return PluginWebResponse(["url": .string(url)])
-            } catch {
-                return .error(502, Self.message(error, fallback: "Cannot reach LG"))
-            }
-        case ("POST", "login-by-redirect"):
-            if let missing = Self.missing(request.body, ["url", "country", "language"]) { return missing }
-            let body = request.body
-            do {
-                let token = try await Self.loginWithRedirect(
-                    JS.string(body["url"]), country: JS.string(body["country"]), language: JS.string(body["language"]), transport: dependencies.transport, logger: logger)
-                return PluginWebResponse(["success": true, "token": .string(token)])
-            } catch {
-                return PluginWebResponse(["success": false, "error": .string(Self.message(error, fallback: "Login failed"))])
-            }
+        case ("GET", "account"):
+            let text = { (value: String?) -> JSONValue in value.flatMap { $0.isEmpty ? nil : JSONValue.string($0) } ?? .null }
+            return PluginWebResponse([
+                "authorized": .bool(await accountAuthorized() == true), "authMode": .string(configuration.auth_mode == "account" ? "account" : "token"),
+                "country": text(configuration.country), "language": text(configuration.language), "username": text(configuration.username),
+            ])
         case ("GET", "devices"):
             let devices = await platformInstance?.webDevices() ?? []
             return PluginWebResponse(["devices": .array(devices)])
         case ("GET", "account-devices"):
             guard let platform = platformInstance, await platform.isConfigured else {
-                return .error(409, "This instance has no LG sign-in yet: sign in on the LG ThinQ plugin page first.")
+                return .error(409, "This instance has no LG sign-in yet: sign in through Setup (Add accessories) first.")
             }
             guard let listing = await platform.accountDevices() else { return .error(502, "LG ThinQ did not answer; try again later.") }
             return PluginWebResponse(["devices": .array(listing.devices), "complete": .bool(listing.complete)])
         default:
             return .error(404, "nothing at \(request.method) \(request.path)")
         }
-    }
-
-    static func missing(_ body: JSONValue, _ fields: [String]) -> PluginWebResponse? {
-        let missing = fields.filter { !JS.truthy(body[$0]) }
-        return missing.isEmpty ? nil : .error(400, "Missing required fields: \(missing.joined(separator: ", "))")
     }
 
     static func message(_ error: any Error, fallback: String) -> String {
@@ -187,7 +142,7 @@ public actor LGThinQPlugin: HomeswiftPlugin {
         return try await auth.loginStep2(username: username, encryptedPassword: token, extra: [("third_party", party)]).refreshToken
     }
 
-    /// The account's devices, as the settings page lists them.
+    /// The account's devices, as Setup checks a new sign-in with them.
     @ThinQActor
     static func listDevices(refreshToken: String, country: String, language: String, transport: any HTTPSending, logger: Logger) async throws -> [JSONValue] {
         let api = ThinQAPI(country: country, language: language, client: RequestClient(transport: transport, logger: logger), logger: logger)

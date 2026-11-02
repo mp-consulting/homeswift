@@ -1,6 +1,5 @@
 /* The Daikin Cloud page's own pieces, on the UI's materials: tabs like the Homebridge plugin's settings page,
-   a card per unit with its state as facts, the settings with a save bar, and the Developer Portal login as a
-   three-step wizard with one step showing at a time. */
+   a card per unit with its state as facts, the settings with a save bar, and the sign-in's state. */
 
 .page-head { align-items: center; }
 .tile.daikin { background: linear-gradient(160deg, #3fb6f0, #007dbb); }
@@ -39,31 +38,7 @@ input:invalid, input.invalid { border-color: var(--error) !important; }
 .save-bar > .ok, .save-bar > .error { flex: 1; font-size: 0.8125rem; }
 
 /* Authentication */
-.actions.end { justify-content: flex-end; }
 .actions { flex-wrap: wrap; }
-.info-box, .warn-box { margin: 0 0 12px; padding: 12px 14px; border-radius: 14px; background: var(--material-thin); border: 1px solid var(--line); font-size: 0.875rem; }
-.warn-box { border-color: rgba(201, 115, 26, 0.35); }
-.info-box ol { margin: 6px 0 0; padding-left: 20px; }
-.error-list:empty { display: none; }
-.error-list { color: var(--error); font-size: 0.875rem; margin: 10px 0 0; }
-.url-box { padding: 10px 12px; border-radius: 12px; background: var(--material-thin); border: 1px solid var(--line); overflow-wrap: anywhere; margin: 6px 0 4px; }
-.waiting::before {
-  content: ""; display: inline-block; width: 0.9em; height: 0.9em; margin-right: 8px; vertical-align: -0.12em;
-  border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin 0.8s linear infinite;
-}
-.success { text-align: center; padding: 10px 0 16px; }
-.success .check { display: inline-grid; place-items: center; width: 56px; height: 56px; border-radius: 50%; background: var(--ok); color: #fff; font-size: 28px; }
-.success h3 { margin: 12px 0 4px; }
-.steps { display: flex; gap: 6px; list-style: none; margin: 0 0 18px; padding: 0; flex-wrap: wrap; }
-.steps li { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px 5px 5px; border-radius: 999px; color: var(--muted); font-weight: 500; }
-.steps li::before {
-  content: attr(data-n); width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 0.8125rem;
-  background: var(--material-thin); border: 1px solid var(--edge); font-variant-numeric: tabular-nums;
-}
-.steps li.current { color: var(--text); background: var(--material-thin); }
-.steps li.current::before { background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: var(--accent-text); border-color: transparent; }
-.steps li.done::before { content: "✓"; color: var(--ok); }
-.step { animation: fade var(--normal) var(--ease-out); }
 
 /* Help */
 .rate { font-size: 1.125rem; font-weight: 600; margin: 10px 0 4px; font-variant-numeric: tabular-nums; }
@@ -80,8 +55,8 @@ input:invalid, input.invalid { border-color: var(--error) !important; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
-  .tab-pane, .subtab, .unit, .step { animation: none; }
-  .busy::after, .waiting::before { animation: none; border-right-color: currentColor; opacity: 0.5; }
+  .tab-pane, .subtab, .unit { animation: none; }
+  .busy::after { animation: none; border-right-color: currentColor; opacity: 0.5; }
 }
 @media (max-width: 640px) {
   .head-status { margin-left: 0; }

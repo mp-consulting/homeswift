@@ -200,8 +200,9 @@ extension UIServer {
         case valid(AuthorizationRequest)
         /// Shown on the page: without a known client and redirect URI, nothing may be sent anywhere.
         case refused(String)
-        /// Sent back to the client, as its redirect URI's `error`.
-        case redirect(String)
+        /// Sent back to the client, as its redirect URI's `error`: by the person's click, never on its own, since anyone
+        /// may register a client and its redirect URI (RFC 9700 4.11.2). `destination` is the URI as the page shows it.
+        case redirect(String, destination: String, reason: String)
     }
 
     func checkAuthorization(_ parameters: JSONValue, issuer: String) -> AuthorizationCheck {
@@ -219,7 +220,8 @@ extension UIServer {
         }
         let state = text("state")
         func back(_ error: String, _ description: String) -> AuthorizationCheck {
-            .redirect(Self.redirect(redirectURI, ["error": error, "error_description": description, "state": state, "iss": issuer]))
+            .redirect(Self.redirect(redirectURI, ["error": error, "error_description": description, "state": state, "iss": issuer]),
+                      destination: Self.shownDestination(redirectURI), reason: description)
         }
         guard text("response_type") == "code" else { return back("unsupported_response_type", "response_type is code") }
         guard let challenge = text("code_challenge"), text("code_challenge_method") == "S256", OAuthStore.challengeIsValid(challenge) else {
@@ -267,7 +269,8 @@ extension UIServer {
         let checked: AuthorizationRequest
         switch checkAuthorization(parameters, issuer: issuer) {
         case .refused(let message): return .error(400, message)
-        case .redirect(let location): return .json(["error": "the request is not one Homeswift can answer", "redirect": .string(location)])
+        case .redirect(let location, let destination, let reason):
+            return .json(["error": "the request is not one Homeswift can answer", "redirect": .string(location), "destination": .string(destination), "reason": .string(reason)])
         case .valid(let valid): checked = valid
         }
         let most = caller.scope

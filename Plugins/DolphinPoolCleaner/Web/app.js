@@ -1,14 +1,13 @@
-// The Dolphin Pool Cleaner page, after the Homebridge plugin's setup wizard: the robots in this instance's block
-// (with their live state), then sign-in with the MyDolphin Plus email and a verification code, the robot found and
-// its settings, and done. Saving writes the block with a refresh token instead of a password; the plugin reloads.
+// The Dolphin Pool Cleaner page, after the Homebridge plugin's setup wizard without its sign-in: Setup signs in (a
+// card leads to it while the account is not signed in), then the account's robots with their live state, each with
+// its settings. Saving writes the robot's entry in this instance's block; the plugin reloads.
 (() => {
   "use strict";
   const { t, tn } = HomeswiftI18n;
-  const { $, el, request, explain, assistant, breadcrumb, act, poll, fact, readBlock, updateBlock } = homeswift;
+  const { $, el, request, explain, breadcrumb, act, poll, fact, readBlock, updateBlock, setupCard, setupAddress } = homeswift;
   // The pool robot's icon, the one its widget and its Matter row show.
   $(".tile.pool")?.replaceChildren(HomeswiftCommon.icon("poolRobot"));
 
-  const IOT_REGION = "eu-west-1";
   const DEVICE_TYPE_LABELS = { 62: t("IoT Connected (M400/M600)"), 60: t("IoT Connected"), 50: t("BLE Connected") };
   const CLEANING_MODES = {
     all: { name: t("All Surfaces"), description: t("Full pool cleaning covering floor, walls, and waterline. Most thorough cleaning option."), duration: 150 },
@@ -23,7 +22,7 @@
     pickup: { name: t("Pickup"), description: t("Quick retrieval mode - robot moves to edge for easy removal from pool."), duration: 5 },
     custom: { name: t("Custom"), description: t("User-defined cleaning cycle with custom duration."), duration: 120 },
   };
-  // The modes the wizard offers, in its order.
+  // The modes the Homebridge wizard offers, in its order.
   const MODE_CHOICES = ["all", "floor", "wall", "water", "short", "ultra", "cove", "spot"];
   const POLLING_CHOICES = [[30, t("30 seconds")], [60, t("60 seconds (Recommended)")], [120, t("2 minutes")], [300, t("5 minutes")]];
 
@@ -85,9 +84,7 @@
 
   const wizard = $("#wizard");
   const state = {
-    robotData: null,      // the robot being added or edited, with the account it came from
-    pendingEmail: null,
-    editingIndex: null,   // the device entry being edited
+    robotData: null,      // the robot being edited
     saved: null,          // the block as last read
     live: [],             // what the plugin reports about its robots
     status: null,
@@ -102,7 +99,7 @@
     wizard.replaceChildren(el("div", { class: `step step-${step}${again ? " again" : ""}` }, ...children));
     const focus = wizard.querySelector("[autofocus]");
     if (focus) focus.focus();
-    breadcrumb(step === "configured" ? null : { login: t("Sign in"), otp: t("Verification"), robot: state.editingIndex !== null ? t("Edit robot") : t("Robot found"), success: t("Done") }[step], () => showConfigured());
+    breadcrumb(step === "robot" ? t("Edit robot") : null, () => showConfigured());
   }
 
   const head = (title, text) => [el("div", { class: "step-head" }, el("h2", { text: title })), text ? el("p", { class: "muted", text }) : null];
@@ -112,7 +109,7 @@
     line.replaceChildren(message, explain({ error: message, context, device: { model: "Maytronics Dolphin pool robot (MyDolphin Plus)" } }));
   }
 
-  // Step 0: the configured robots.
+  // The account's robots.
 
   async function showConfigured() {
     try {
@@ -124,35 +121,41 @@
     drawConfigured();
   }
 
-  /// The robots of the block as last read, with what the plugin reports about them; the card that had the
-  /// keyboard keeps it.
+  /// The account's robots (what the plugin reports, and the block's entries it has not found yet) with their
+  /// settings from the block as last read; the card that had the keyboard keeps it. No account: the card to Setup.
   function drawConfigured() {
-    const block = state.saved;
-    const devices = block.devices || [];
-    const focused = [...wizard.querySelectorAll(".robot")].indexOf(document.activeElement);
-    if (!devices.length) {
-      showLogin();
+    if (state.status === "notConfigured") {
+      show("setup", setupCard({
+        title: t("Sign in to your MyDolphin Plus account"),
+        text: t("Add accessories signs in with your MyDolphin Plus email and the code Maytronics sends; the account's robots come with it."),
+        glyph: "key",
+        tone: "blue",
+      }));
       return;
     }
-    state.editingIndex = null;
-    const list = el("div", { class: "robots" }, devices.map((device, index) => robotCard(device, block.email, index)));
+    const block = state.saved;
+    const entries = block.devices || [];
+    const serials = [...new Set([...state.live.map((robot) => robot.serialNumber), ...entries.map((device) => device.serialNumber).filter(Boolean)])];
+    const devices = serials.map((serial) => {
+      const live = state.live.find((robot) => robot.serialNumber === serial);
+      return entries.find((device) => device.serialNumber === serial) || { serialNumber: serial, name: live?.name, deviceType: live?.deviceType };
+    });
+    const focused = [...wizard.querySelectorAll(".robot")].indexOf(document.activeElement);
+    const list = devices.length ? el("div", { class: "robots" }, devices.map((device) => robotCard(device, block.email)))
+      : el("p", { class: "muted", text: state.status === "ready" ? t("No robot on this account yet.") : "" });
     const account = el("p", { class: "status-line" });
     describeAccount(account);
     show("configured",
       ...head(t("Your Dolphin Robots"), t("Manage your configured pool robots. A robot's card opens its settings.")),
-      account, list,
-      el("div", { class: "actions" },
-        el("button", { actionIcon: "plus", text: t("Add Another Robot"), onclick: () => showLogin({ cancellable: true }) }),
-        el("button", { actionIcon: "sliders", class: "primary", text: t("Reconfigure"), onclick: () => showLogin({ cancellable: true }) })));
+      el("div", { class: "account-line" }, account,
+        el("a", { class: "button", href: setupAddress({ start: true }), actionIcon: "key", text: t("Sign in again") })),
+      list);
     if (focused >= 0) wizard.querySelectorAll(".robot")[focused]?.focus({ preventScroll: true });
   }
 
   function describeAccount(line) {
     const { status, error } = state;
-    if (status === "notConfigured") {
-      line.className = "status-line error";
-      line.textContent = t("No account yet: Reconfigure signs in and stores a refresh token.");
-    } else if (status === "failed" || status === "retrying") {
+    if (status === "failed" || status === "retrying") {
       fail(line, HomeswiftI18n.message(error) || t("The plugin cannot reach MyDolphin Plus."),
         `The Homeswift Dolphin plugin signs in with Cognito (refresh token or email and password), then MyDolphin authenticate-user and getToken, then AWS IoT MQTT (eu-west-1). Plugin status: ${status}.`);
       if (status === "retrying") line.prepend(t("Retrying: "));
@@ -173,7 +176,7 @@
     return robot.isCleaning ? { text: t("Cleaning"), kind: "on", robot } : { text: t("Idle"), kind: "standby", robot };
   }
 
-  function robotCard(device, email, index) {
+  function robotCard(device, email) {
     const live = liveState(device.serialNumber);
     const facts = [
       fact(t("Serial Number"), device.serialNumber || "—"),
@@ -192,106 +195,26 @@
         el("div", { class: "head" }, el("strong", { text: device.name || t("Dolphin Robot") })),
         el("div", { class: "facts" }, facts),
         el("span", { class: "edit", "aria-hidden": "true", text: t("Edit settings ›") })));
-    card.addEventListener("click", () => editDevice(index));
+    card.addEventListener("click", () => editDevice(device));
     card.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); editDevice(index); }
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); editDevice(device); }
     });
     return card;
   }
 
-  // Step 1: the email; Cognito sends a code.
+  // A robot's settings.
 
-  function showLogin({ cancellable = false } = {}) {
-    const email = el("input", { type: "email", name: "email", placeholder: t("your@email.com"), required: true, autocomplete: "email", autofocus: true, value: state.saved?.email || "" });
-    const line = statusLine();
-    const send = el("button", { actionIcon: "send", class: "primary", type: "submit", text: t("Send Verification Code") });
-    const form = el("form", { class: "narrow", onsubmit: (event) => { event.preventDefault(); act(send, () => login(email.value.trim(), line), (message) => loginProblem(line, message)); } },
-      el("label", { class: "field" }, el("span", { class: "field-title", text: t("Email") }), email,
-        el("span", { class: "help", text: t("The email associated with your MyDolphin Plus account") })),
-      line,
-      el("div", { class: "actions" }, cancellable ? el("button", { actionIcon: "close", type: "button", text: t("Cancel"), onclick: showConfigured }) : null, send));
-    // Without an Assistant, a tip on how to get one, as the Homebridge plugin's wizard shows.
-    // One sentence to translate, the block's name in bold where the language puts it.
-    const [tipBefore, tipAfter = ""] = t("Tip: add a {block} block to config.json to get the Assistant, which explains sign-in errors here.").split("{block}");
-    const hint = el("p", { class: "hint muted hidden" }, tipBefore, el("strong", { text: "HomeswiftAiKit" }), tipAfter);
-    assistant().then((status) => hint.classList.toggle("hidden", Boolean(status.enabled)));
-    show("login", ...head(t("Connect Your MyDolphin Account"), t("Enter your MyDolphin Plus email address. A verification code will be sent to you.")), form, hint);
-  }
-
-  function loginProblem(line, message) {
-    fail(line, message, "Step 1 of the Dolphin setup page: requesting a verification code for the MyDolphin Plus account (AWS Cognito CUSTOM_AUTH, InitiateAuth) failed.");
-  }
-
-  async function login(email, line) {
-    if (!email) throw new Error(t("Please enter your email address"));
-    state.pendingEmail = email;
-    line.className = "status-line muted";
-    line.textContent = "";
-    const result = await request("authenticate", { method: "POST", body: { email } });
-    if (result.success) authenticated(result, email);
-    else if (result.requiresOtp) showCode(HomeswiftI18n.message(result.message));
-    else loginProblem(line, HomeswiftI18n.message(result.error) || t("Authentication failed"));
-  }
-
-  // Step 1b: the code.
-
-  function showCode(message) {
-    const code = el("input", { class: "code-input", type: "text", name: "otpCode", placeholder: t("Enter code"), required: true, autocomplete: "one-time-code", inputMode: "numeric", pattern: "[0-9]*", maxLength: 6, autofocus: true });
-    const line = statusLine();
-    const prompt = el("p", { class: "muted", text: message || t("Please enter the verification code sent to your email.") });
-    const verify = el("button", { actionIcon: "check", class: "primary", type: "submit", text: t("Verify") });
-    const form = el("form", { class: "narrow", onsubmit: (event) => { event.preventDefault(); act(verify, () => verifyCode(code, prompt, line), (text) => codeProblem(line, text)); } },
-      el("label", { class: "field" }, el("span", { class: "field-title", text: t("Verification Code") }), code,
-        el("span", { class: "help", text: t("Check your email or phone for the verification code") })),
-      line,
-      el("div", { class: "actions" }, el("button", { actionIcon: "restore", type: "button", text: t("Back"), onclick: () => showLogin({ cancellable: Boolean(state.saved?.devices?.length) }) }), verify));
-    show("otp", el("div", { class: "step-head" }, el("h2", { text: t("Verification Required") })), prompt, form);
-  }
-
-  function codeProblem(line, message) {
-    fail(line, message, "Step 2 of the Dolphin setup page: verifying the code (AWS Cognito RespondToAuthChallenge, then the MyDolphin authenticate-user call that returns the robot) failed. The code session lasts 5 minutes.");
-  }
-
-  async function verifyCode(input, prompt, line) {
-    const otpCode = input.value.trim();
-    if (!otpCode) throw new Error(t("Please enter the verification code"));
-    if (!state.pendingEmail) { showLogin(); return; }
-    line.className = "status-line muted";
-    line.textContent = "";
-    const result = await request("verify-otp", { method: "POST", body: { email: state.pendingEmail, otpCode } });
-    if (result.success) authenticated(result, state.pendingEmail);
-    else if (result.requiresOtp) {
-      prompt.textContent = HomeswiftI18n.message(result.message) || t("Please enter the new verification code.");
-      input.value = "";
-      input.focus();
-    } else codeProblem(line, HomeswiftI18n.message(result.error) || t("Verification failed"));
-  }
-
-  function authenticated(result, email) {
-    state.editingIndex = null;
+  function editDevice(device) {
+    const live = state.live.find((robot) => robot.serialNumber === device.serialNumber);
     state.robotData = {
-      email, iotRegion: IOT_REGION, serialNumber: result.serialNumber, robotName: result.robotName, model: result.model,
-      deviceType: result.deviceType, robotImageUrl: result.robotImageUrl, refreshToken: result.refreshToken,
-    };
-    showRobot();
-  }
-
-  // Step 2: the robot and its settings.
-
-  function editDevice(index) {
-    const device = state.saved?.devices?.[index];
-    if (!device) return;
-    state.editingIndex = index;
-    state.robotData = {
-      email: state.saved.email, iotRegion: IOT_REGION, serialNumber: device.serialNumber, robotName: device.name, deviceType: device.deviceType,
-      robotImageUrl: device.robotImageUrl, refreshToken: state.saved.refreshToken,
+      serialNumber: device.serialNumber, robotName: device.name, deviceType: device.deviceType ?? live?.deviceType,
+      model: live?.modelName || live?.model, robotImageUrl: device.robotImageUrl,
     };
     showRobot(device);
   }
 
-  function showRobot(device = state.saved?.devices?.find((d) => d.serialNumber === state.robotData.serialNumber) || state.saved?.devices?.[0]) {
+  function showRobot(device) {
     const data = state.robotData;
-    const editing = state.editingIndex !== null;
     const displayName = el("input", { type: "text", value: data.robotName || "", placeholder: t("My Pool Robot"), maxLength: 64 });
     const mode = el("select", {}, MODE_CHOICES.map((key) => el("option", { value: key, text: CLEANING_MODES[key].name })));
     mode.value = normalizeMode(device?.cleaningMode) || "all";
@@ -320,10 +243,10 @@
     }), (message) => fail(line, message, "Saving the Dolphin plugin's block of config.json from its Homeswift page.")));
 
     show("robot",
-      ...head(editing ? t("Edit Robot Settings") : t("Robot Found!"), editing ? t("Update the settings for your Dolphin pool robot.") : t("We found your Dolphin pool robot.")),
+      ...head(t("Edit Robot Settings"), t("Update the settings for your Dolphin pool robot.")),
       el("div", { class: "found" },
         el("div", { class: "card robot-panel" },
-          picture(data.serialNumber, el("span", { class: "pill status on", text: editing ? t("Configured") : t("Connected") })),
+          picture(data.serialNumber, el("span", { class: "pill status on", text: t("Configured") })),
           el("div", { class: "body" },
             el("label", { class: "field" }, el("span", { class: "field-title", text: t("Display Name") }), displayName, el("span", { class: "help", text: t("Name shown in HomeKit") })),
             el("div", { class: "details" },
@@ -338,56 +261,31 @@
           toggle(temperature, t("Enable Water Temperature Sensor")),
           toggle(filter, t("Enable Filter Status")))),
       line,
-      el("div", { class: "actions" }, el("button", { actionIcon: "restore", text: t("Back"), onclick: () => (editing ? showConfigured() : showLogin({ cancellable: Boolean(state.saved?.devices?.length) })) }), save));
+      el("div", { class: "actions" }, el("button", { actionIcon: "restore", text: t("Back"), onclick: showConfigured }), save));
   }
 
-  /// Writes the robot into the block as the Homebridge wizard does: the account (email, region, refresh token)
-  /// when it came from a sign-in, the device entry, and the polling interval. The plugin reloads with it.
+  /// Writes the robot's entry into the block as the Homebridge wizard does, with the polling interval; the account
+  /// is Setup's. The plugin reloads with it.
   async function saveRobot(settings) {
     const data = state.robotData;
-    const editing = state.editingIndex !== null;
     const entry = {
       serialNumber: data.serialNumber, name: settings.name, deviceType: data.deviceType, robotImageUrl: data.robotImageUrl,
       cleaningMode: settings.cleaningMode, enableTemperature: settings.enableTemperature, enableFilterStatus: settings.enableFilterStatus,
     };
     if (!entry.robotImageUrl) delete entry.robotImageUrl;
     if (entry.deviceType === undefined) delete entry.deviceType;
+    if (!entry.name) delete entry.name;
     let saved;
     await updateBlock((block) => {
       block.pollingInterval = settings.pollingInterval;
       block.devices = [...(block.devices || [])];
-      if (editing) {
-        block.devices[state.editingIndex] = entry;
-      } else {
-        const existing = block.devices.findIndex((d) => d.serialNumber === data.serialNumber);
-        if (existing >= 0) block.devices[existing] = entry; else block.devices.push(entry);
-        block.email = data.email;
-        block.iotRegion = data.iotRegion;
-        if (data.refreshToken) block.refreshToken = data.refreshToken;
-      }
+      const existing = block.devices.findIndex((d) => d.serialNumber === data.serialNumber);
+      if (existing >= 0) block.devices[existing] = entry; else block.devices.push(entry);
       saved = block;
     });
     state.saved = saved;
-    if (editing) {
-      state.editingIndex = null;
-      setTimeout(refreshLive, 1500);
-      showConfigured();
-    } else {
-      showDone();
-    }
-  }
-
-  // Step 3: done.
-
-  function showDone() {
-    show("success",
-      ...head(t("Setup Complete!"), t("Your Dolphin pool robot has been configured.")),
-      el("div", { class: "card" },
-        el("p", { text: t("Your robot will now appear in HomeKit. You can:") }),
-        el("ul", { class: "done-list" },
-          el("li", { text: t("Turn cleaning on/off with the switch") }), el("li", { text: t("View water temperature") }),
-          el("li", { text: t("Check filter status") }), el("li", { text: t("Use Siri voice commands") }))),
-      el("div", { class: "actions" }, el("button", { actionIcon: "check", class: "primary", text: t("Done"), onclick: () => { setTimeout(refreshLive, 1500); showConfigured(); } })));
+    setTimeout(refreshLive, 1500);
+    showConfigured();
   }
 
   // MARK: The plugin's view of its robots, refreshed while the list shows.
@@ -404,9 +302,9 @@
     } catch {
       // The plugin is restarting with a new block; the next refresh catches up.
     }
-    // A change while the list shows redraws it from the block already read: no request, no animation.
+    // A change while the list (or the card to Setup) shows redraws it from the block already read: no request, no animation.
     if (current === null || (current === "configured" && !state.saved)) showConfigured();
-    else if (changed && current === "configured") drawConfigured();
+    else if (changed && (current === "configured" || current === "setup")) drawConfigured();
   }
 
   poll(refreshLive, 5000);

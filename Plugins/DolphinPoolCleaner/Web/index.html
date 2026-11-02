@@ -7,8 +7,8 @@
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/style.css">
 <style>
-  /* The Homebridge plugin's setup wizard on the UI's materials: the configured robots, then sign-in with a
-     verification code, the robot found with its settings, and done. One step shows at a time. */
+  /* The Homebridge plugin's setup wizard on the UI's materials, without its sign-in (Setup signs in): the account's
+     robots, then a robot's settings. One step shows at a time. */
   .page-head { align-items: center; }
   .tile.pool { background: linear-gradient(160deg, #5ba0e9, #2e5a8b); }
   .step { animation: materialize var(--normal) var(--ease-out); }
@@ -16,7 +16,6 @@
   .step-head { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
   .step-head h2 { margin: 0; }
   .step > p.muted:first-of-type { margin-top: 4px; }
-  .narrow { max-width: 520px; }
 
   .robots { display: grid; gap: 14px; }
   .robot { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 0; padding: 0; overflow: hidden; cursor: pointer; text-align: left;
@@ -52,9 +51,6 @@
   .mode-info p { margin: 0 0 6px; }
   .mode-info .muted { padding-top: 6px; border-top: 1px solid var(--line); }
 
-  .code-input { font-size: 1.5rem; letter-spacing: 0.3em; font-variant-numeric: tabular-nums; text-align: center; max-width: 240px; }
-  .done-list { margin: 8px 0 0; padding-left: 20px; }
-  .hint { margin-top: 16px; font-size: 0.8125rem; }
   .account-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
 
   @media (max-width: 640px) {

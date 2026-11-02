@@ -4,7 +4,7 @@ import HomeswiftNetwork
 import HomeswiftPlugin
 
 // Setup (GLOSSARY.md, "Setup"): the DIRIGERA hubs are the instance's account, each authorized by a Button Press on its
-// action button; the token stays where the page's pairing keeps it, sealed in the vault (`hubs.json`), so the plugin
+// action button; the token stays in the plugin's own entry, sealed in the vault (`hubs.json`), so the plugin
 // says itself whether the account is Authorized. The hubs' lights, outlets, sensor groups and scenes are the devices,
 // by the id their accessory goes by (`Dirigera:<id>`, `Dirigera:scenes:<host>`): they need nothing more, and
 // `excludeDevices` or `excludeScenes` may leave them out.
@@ -61,7 +61,7 @@ extension DirigeraPlugin {
     }
 
     /// The hub's address (asked when none is found on the network), then its action button, tried every two seconds by
-    /// the page for a minute. The token and the certificate it was paired over go in the vault (`hubs.json`).
+    /// the Setup sheet for a minute. The token and the certificate it was paired over go in the vault (`hubs.json`).
     public func authorize(_ request: SetupRequest) async throws -> SetupStep {
         try request.requireAccount("IKEA devices need no setup of their own")
         let typed = request.answer("host")
@@ -80,7 +80,7 @@ extension DirigeraPlugin {
             return .ask(SetupPrompt(message: "No DIRIGERA hub answered on the network. Enter its address, from your router or the IKEA Home smart app.",
                                     fields: [SetupField("host", label: "Address", kind: .text)]))
         }
-        // A pairing starts from no pin, as the page's does; the certificate the hub showed then is pinned from there on. A
+        // A pairing starts from no pin; the certificate the hub showed then is pinned from there on. A
         // typed address starts afresh.
         let fresh = typed != nil
         // The trust keeps the certificate it pins on the first connection: `trust.fingerprint`.

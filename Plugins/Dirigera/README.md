@@ -25,9 +25,11 @@ sensors; the other kinds, writes, scenes and events against a fake hub in the te
 }
 ```
 
-A hub without a `token` pairs from the web UI's **Add accessories** page (Setup: the hubs are the instance's account,
-authorized by a Button Press) or from the plugin's page: **Pair** (on a hub found on the network, or an address), then
-press the action button under the hub within a minute. The token is kept sealed in the bridge's vault (`vault.json`,
+A hub without a `token` is set up on the web UI's **Add accessories** page (Setup: the hubs are the instance's account,
+authorized by a Button Press), or by an AI agent through the MCP server's `start_setup`: Setup takes a hub of the block
+without a token, else one found on the network, else asks for its address, then asks for a press on the action button
+under the hub within a minute. A hub Setup paired is used without an entry in `hubs`. The plugin's page leads there
+while no hub is set up, and a hub's ⋯ menu has **Pair again** (or **Pair**). The token is kept sealed in the bridge's vault (`vault.json`,
 docs/vault-design.md; `plugins/Dirigera-<name>/hubs.json` before, which moves there when the plugin reads it), never in
 config.json, with the hub's certificate pinned on first use. A token
 from homebridge-dirigera in `token` works as it is; a token pairing kept wins over it. Setup lists each light, outlet,
@@ -68,8 +70,8 @@ scenes and automations too.
 
 ## The web page
 
-With the web UI on, the plugin's page lists the hubs (their state, devices and scenes, **Pair** with a countdown, the
-hubs found on the network to pair, an address to add), then three tabs: **Devices**, every device drawn by the
+With the web UI on, the plugin's page lists the hubs (their state, devices and scenes, and **Pair again** in a hub's ⋯
+menu, which opens Setup on Add accessories; until one is set up, a card leading there), then three tabs: **Devices**, every device drawn by the
 Accessories page's widgets (a remote's buttons light as they are pressed), room by room or by name under the Hue page's
 toolbar: a search, a room, and filters for lights, outlets, sensors, blinds and air, remotes, low battery and No
 Response; **Scenes**, a tile per scene (a tap runs it; drop a picture on it, or choose

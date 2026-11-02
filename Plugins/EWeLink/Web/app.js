@@ -1,7 +1,7 @@
-// The eWeLink page, after the Homebridge plugin's settings UI: connect the account (or reuse the plugin's
-// session), the account's devices with their LAN and RF details (an mDNS scan runs while the cloud answers),
-// the connection settings, and saving them into this instance's block, which reloads the plugin. The session
-// stays in the plugin: the browser never sees a token.
+// The eWeLink page, after the Homebridge plugin's settings UI without its login: Setup signs in (a card leads to it
+// while the account is not signed in), then the account's devices with their LAN and RF details (an mDNS scan runs
+// while the cloud answers), the connection settings, and saving them into this instance's block, which reloads the
+// plugin. The session stays in the plugin: the browser never sees a token.
 (() => {
   "use strict";
   const { t, tn } = HomeswiftI18n;
@@ -9,14 +9,11 @@
   /// The button busy while `work` runs; errors go to the caller.
   const act = (button, work) => homeswift.act(button, work, null);
 
-  const steps = { login: $("#step-login"), devices: $("#step-devices"), complete: $("#step-complete") };
+  const steps = { devices: $("#step-devices"), complete: $("#step-complete") };
   const showStep = (step) => Object.entries(steps).forEach(([key, node]) => node.classList.toggle("hidden", key !== step));
 
   let devices = [];
-  let region = null;
   let config = {};
-  // Account fields typed in this page, saved with the settings.
-  let pendingAccount = null;
 
   // MARK: config.json: this instance's block, read and written through the signed-in UI.
 
@@ -29,7 +26,7 @@
 
   /// What the Assistant may see: no credentials, tokens or IP addresses.
   const assistantContext = (extra) => [extra, `Connection mode: ${config.mode || "auto"}.`,
-    config.countryCode ? `Account country code: ${config.countryCode}.` : "", region ? `API region: ${region}.` : ""].filter(Boolean).join(" ");
+    config.countryCode ? `Account country code: ${config.countryCode}.` : ""].filter(Boolean).join(" ");
 
   function showProblem(container, message, context) {
     container.classList.remove("hidden");
@@ -79,7 +76,7 @@
   function renderDevices() {
     $("#device-count").textContent = String(devices.length);
     $("#devices").replaceChildren(...(devices.length ? devices.map(deviceRow)
-      : [el("li", { class: "empty" }, el("p", { text: t("No devices found") }), el("p", { class: "muted", text: t("Connect your eWeLink account and click Refresh.") }))]));
+      : [el("li", { class: "empty" }, el("p", { text: t("No devices found") }))]));
   }
 
   async function loadDevices() {
@@ -101,6 +98,8 @@
   async function loadStatus() {
     try {
       const status = await request("status");
+      // The plugin answers without its platform while it reloads: only a platform's answer says signed out.
+      if ("mode" in status && !status.configured) { showSetup(); return; }
       $("#status").replaceChildren(
         fact(t("Cloud"), status.websocket ? t("Connected") : status.retrying ? t("Retrying") : status.initialized ? t("Reconnecting") : t("Not connected")),
         fact(t("On the LAN"), tn("{n} device", "{n} devices", status.lanDevices ?? 0)),
@@ -116,10 +115,19 @@
     $("#offline-as-off").checked = !!config.offlineAsOff;
   }
 
-  function prefillLogin() {
-    if (config.username) $("#username").value = config.username;
-    if (config.password) $("#password").value = config.password;
-    if (config.countryCode) $("#countryCode").value = config.countryCode;
+  /// The account Setup signed in to, with Sign in again.
+  function showAccount() {
+    $("#account-text").textContent = config.username ? t("Signed in as {account}.", { account: config.username }) : t("Signed in.");
+  }
+
+  /// Not signed in: the card to Setup in place of the devices.
+  function showSetup() {
+    showStep(null);
+    $("#setup").replaceChildren(homeswift.setupCard({
+      title: t("Sign in to your eWeLink account"),
+      text: t("Add accessories signs in with your eWeLink email or phone number; the account's devices come with it."),
+      glyph: "key",
+    }));
   }
 
   async function saveConfiguration(button) {
@@ -128,13 +136,12 @@
       try {
         let block;
         const result = await homeswift.updateBlock((current) => {
-          block = { ...current, ...(pendingAccount || {}), platform: "eWeLink", name: current.name || name || "eWeLink", mode: $("#mode").value };
+          block = { ...current, platform: "eWeLink", name: current.name || name || "eWeLink", mode: $("#mode").value };
           if ($("#debug").checked) block.debug = true; else delete block.debug;
           if ($("#offline-as-off").checked) block.offlineAsOff = true; else delete block.offlineAsOff;
           return block;
         });
         config = block;
-        pendingAccount = null;
         const pending = result.restartNeeded || [];
         $("#restart").classList.toggle("hidden", pending.length === 0);
         $("#complete-text").replaceChildren(el("strong", { text: t("All done!") }), " ", pending.length
@@ -162,37 +169,6 @@
 
   // MARK: Events
 
-  $("#login").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const button = $("#connect");
-    if (button.disabled) return;
-    const username = $("#username").value.trim();
-    const password = $("#password").value;
-    const countryCode = $("#countryCode").value;
-    if (!username || !password) {
-      showProblem($("#login-problem"), t("Please enter your username and password"), "The login form of the eWeLink plugin settings was submitted empty.");
-      return;
-    }
-    await act(button, async () => {
-      clearProblem($("#login-problem"));
-      try {
-        const answer = await request("login", { method: "POST", body: { username, password, countryCode } });
-        region = answer.region;
-        pendingAccount = { username, password, countryCode };
-        showStep("devices");
-        await loadDevices();
-      } catch (e) {
-        showProblem($("#login-problem"), e.message || t("Login failed"),
-          `Logging in to the eWeLink cloud from the plugin settings failed. Selected country code: ${countryCode}.`);
-      }
-    });
-  });
-
-  $("#new-login").addEventListener("click", () => {
-    $("#session").classList.add("hidden");
-    showStep("login");
-  });
-
   const tabs = [["#tab-devices", "#pane-devices"], ["#tab-settings", "#pane-settings"]];
   for (const [tab, pane] of tabs) {
     $(tab).addEventListener("click", () => {
@@ -206,7 +182,6 @@
   }
 
   $("#refresh").addEventListener("click", loadDevices);
-  $("#save").addEventListener("click", (event) => saveConfiguration(event.currentTarget));
   $("#save-settings").addEventListener("click", (event) => saveConfiguration(event.currentTarget));
   $("#back").addEventListener("click", () => { showStep("devices"); loadDevices(); });
   $("#restart").addEventListener("click", (event) => act(event.currentTarget, restart).catch((e) => HomeswiftCommon.showAlert(e.message)));
@@ -227,30 +202,23 @@
     if (canonical(fresh) === before) return;
     config = fresh;
     prefillSettings();
+    showAccount();
   }
   document.addEventListener("visibilitychange", followConfigChanges);
   window.addEventListener("focus", followConfigChanges);
 
-  // The country picker's regions in the page's language (the countries' own names have data-i18n).
-  const regions = { Americas: t("Americas"), Europe: t("Europe"), "Asia Pacific": t("Asia Pacific"), "Middle East": t("Middle East"), Africa: t("Africa") };
-  for (const group of document.querySelectorAll("#countryCode optgroup")) group.label = regions[group.label] ?? group.label;
+  // MARK: Start: the block, then the plugin's state: signed in, its devices; else the card to Setup.
 
-  // MARK: Start: the block, then the plugin's session if it has one.
+  $("#sign-in-again").href = homeswift.setupAddress({ start: true });
 
   (async () => {
     try { await readBlock(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
-    prefillLogin();
     prefillSettings();
-    try {
-      const session = await request("session");
-      if (session.success) {
-        region = session.region;
-        $("#session").classList.remove("hidden");
-        showStep("devices");
-        await loadDevices();
-        return;
-      }
-    } catch { /* no session: log in */ }
-    showStep("login");
+    showAccount();
+    let status;
+    try { status = await request("status"); } catch { /* the plugin is restarting: show what the block says */ }
+    if (status && "mode" in status ? !status.configured : !config.username) { showSetup(); return; }
+    showStep("devices");
+    await loadDevices();
   })();
 })();

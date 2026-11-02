@@ -1,15 +1,14 @@
 import HomeswiftPlugin
 
 extension DaikinCloudPlugin {
-    /// The page's routes for the Assistant: the login's state, the devices, the quota, a connection test, the
-    /// callback addresses, and revoking the login. The sign-in routes are left out: they take the Developer
-    /// Portal secret, the Onecta password or a one-time code, which the user enters on the plugin's page.
+    /// The page's routes for the Assistant: the login's state, the devices, the quota, a connection test and revoking
+    /// the login. Signing in is Setup's (`start_setup`, or Add accessories in the web UI).
     public static let assistantActions: [AssistantAction] = [
         AssistantAction(
             name: "status", title: "Check the Daikin login",
             description: "Whether this instance holds a Daikin Onecta token (authMode mobile_app or developer_portal), when it expires and whether it refreshes "
                 + "by itself, and what the running instance does: devices in HomeKit, WebSocket connected, poll interval in minutes, last fetch. "
-                + "When not authenticated, tell the user to sign in on the Daikin Cloud plugin's page in the Homeswift UI.",
+                + "When not authenticated, sign in through Setup (start_setup for the DaikinCloud account), or have the user sign in on Add accessories in the Homeswift UI.",
             path: "auth/status", access: .read),
         AssistantAction(
             name: "list_devices", title: "Look at the Daikin devices",
@@ -33,14 +32,9 @@ extension DaikinCloudPlugin {
             description: "Lists the devices with the saved token to check it works; answers success and the device count, or the error. Spends one API call.",
             method: "POST", path: "auth/test", access: .read),
         AssistantAction(
-            name: "server_info", title: "Look at this host's addresses",
-            description: "This machine's IPv4 addresses and host name, for the Developer Portal login's callback address (callbackServerExternalAddress): "
-                + "the redirect URI registered in the portal is https://<address>:<callbackServerPort>.",
-            path: "server/info", access: .read),
-        AssistantAction(
             name: "revoke", title: "Sign out of Daikin",
             description: "Revokes the Developer Portal token at Daikin and deletes both saved tokens; the running instance disconnects until the user signs in again "
-                + "on the plugin's page. The accessories stay in HomeKit.",
+                + "through Setup. The accessories stay in HomeKit.",
             method: "POST", path: "auth/revoke", access: .configure, confirm: true),
     ]
 
@@ -60,8 +54,8 @@ extension DaikinCloudPlugin {
         "vault (vault.json), as entries named after the token files .daikin-controller-cloud-tokenset (Developer Portal)",
         "and .daikin-mobile-tokenset (Mobile App); such a file put in the plugin's folder (plugins/DaikinCloud-<name>/)",
         "moves into the vault when the plugin reads it. Common errors: \"Unauthorized (401): Token refresh",
-        "failed. Please re-authenticate.\" or \"invalid_grant\" means the refresh token expired or was revoked, so authenticate",
-        "again on the plugin's page; \"Rate limited. Retry after N seconds.\" (HTTP 429) means the daily or per-minute quota is",
+        "failed. Please re-authenticate.\" or \"invalid_grant\" means the refresh token expired or was revoked, so sign in",
+        "again through Setup (start_setup, or Add accessories in the web UI); \"Rate limited. Retry after N seconds.\" (HTTP 429) means the daily or per-minute quota is",
         "used up, so raise \"updateIntervalInMinutes\" (15+ for Developer Portal) or switch to Mobile App; \"Bad Gateway (502)\",",
         "\"Service Unavailable (503)\" or \"Gateway Timeout (504)\" with \"The Daikin API is temporarily unavailable\" is a",
         "Daikin-side outage (polls back off on their own); \"Device <id> is offline (cloud connection down)\" or a device shown",

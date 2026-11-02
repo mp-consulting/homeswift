@@ -159,7 +159,7 @@ extension AssistantService {
             let run: @Sendable (HomeswiftAI.ToolCall, AgentTool?) async -> ContentPart = { call, tool in
                 let output = await tool?.run(vault.reveal(call.arguments)) ?? AgentToolOutput(text: "There is no tool named \(call.name).", isError: true)
                 // Compact: every later step sends it again.
-                let content = output.structured.map { vault.conceal($0).text() } ?? Redaction.redactText(output.text)
+                let content = output.structured.map { Self.wrapped(vault.conceal($0).text(), like: output.text) } ?? Redaction.redactText(output.text)
                 let outcome: AgentEvent.Outcome = output.declined ? .declined : output.isError ? .failed : .done
                 onEvent(.toolFinished(id: call.id, outcome: outcome, summary: outcome == .failed || output.structured == nil ? Self.summary(of: output.text) : nil))
                 return .toolResult(toolCallID: call.id, name: call.name, content: Tokens.trim(content, to: 12_000), isError: output.isError)
@@ -185,6 +185,14 @@ extension AssistantService {
 
     /// The first line of a tool's text, short, for the page under a finished step; nil for JSON, whose first
     /// line says nothing. The untrusted-data fence is not part of it.
+    /// A tool's structured answer as the model reads it, inside the `<untrusted-data>` wrapper its text has when it says
+    /// so (devices', hubs' and logs' words are data, not instructions); a tag inside it is defused so it cannot end it.
+    static func wrapped(_ body: String, like text: String) -> String {
+        guard text.hasPrefix("<untrusted-data"), let head = text.split(separator: "\n", maxSplits: 1).first else { return body }
+        let defused = body.replacingOccurrences(of: "untrusted-data", with: "untrusted\u{2011}data", options: [.caseInsensitive])
+        return "\(head)\n\(defused)\n</untrusted-data>"
+    }
+
     static func summary(of text: String) -> String? {
         let line = text.split(separator: "\n").first { !$0.hasPrefix("<untrusted-data") && !$0.hasPrefix("</untrusted-data") }.map(String.init) ?? ""
         guard let first = line.first, first != "{", first != "[" else { return nil }

@@ -28,6 +28,16 @@
   }
   const stop = (message) => { $("#title").textContent = t("Cannot connect"); show(null, message); };
 
+  /// A request the bridge cannot answer goes back to the app only when the person clicks: anyone may register an app
+  /// and the address it returns to, so going there on its own would send them to any site under the bridge's name.
+  function refuse(request) {
+    stop(t("The app asked for something Homeswift cannot give ({reason}). Nothing was shared.", { reason: request.reason || request.error }));
+    const link = $("#leave-link");
+    link.href = request.redirect;
+    link.textContent = t("Return to {destination}", { destination: request.destination });
+    $("#leave").classList.remove("hidden");
+  }
+
   const scopes = {
     read: [t("Read"), t("See your accessories, rooms, scenes and the bridge's state. Changes nothing.")],
     control: [t("Control"), t("Also turn accessories on and off and run scenes. Locks, garage doors and alarms still ask you first.")],
@@ -45,7 +55,7 @@
     }
     let request;
     try { request = await api(`api/oauth/request?${new URLSearchParams(query)}`); } catch (e) { stop(e.message); return; }
-    if (request.redirect) { location.replace(request.redirect); return; }
+    if (request.redirect) { refuse(request); return; }
     $("#title").textContent = t("Connect {client}", { client: request.client });
     show("consent", state.mode === "form"
       ? t("{client} asks to use your bridge as {username}.", { client: request.client, username: request.username })

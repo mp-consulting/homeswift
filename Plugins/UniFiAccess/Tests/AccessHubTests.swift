@@ -392,7 +392,8 @@ struct AccessHubTests {
         let again = try await environment.start(devices: [ugt()], doors: Self.gateDoors)
         defer { Task { await again.stop() } }
         #expect(await eventually { accessory(again, gateID)?.service(.lockMechanism, "Lock.Door.Side") != nil })
-        #expect(accessory(again, "\(gateID).SideDoor") == nil)
+        // Restored from the cache first, the side door's accessory goes once the hub is built again without it.
+        #expect(await eventually { accessory(again, "\(gateID).SideDoor") == nil })
     }
 
     /// A UA Gate lists its side door and its doorbell as parts; one left out on Add accessories is not built.

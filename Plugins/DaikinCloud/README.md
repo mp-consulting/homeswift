@@ -27,25 +27,27 @@ Platform `DaikinCloud`; a Homebridge block works unchanged.
   requests blocked after a 429 until `Retry-After`; writes retried on 502/503/504, polls not.
 - **The page** (Plugins › Daikin Cloud › Open): the Homebridge plugin's settings UI. Devices (state, model,
   temperatures, features, offline units with Explain); Settings (feature switches, polling, network, hidden
-  devices); Authentication (the method, the token's status and expiry, Test connection, Revoke, the Mobile App
-  credentials, the Developer Portal wizard: configure, authorize through the HTTPS callback server or a pasted
-  URL, complete); Help (the quota of the last call, links, troubleshooting).
+  devices); Authentication (the method, the token's status and expiry, Test connection, Sign in again, Revoke; signed
+  out, a card that leads to Setup); Help (the quota of the last call, links, troubleshooting).
 
 ## Logging in
 
-**Mobile App** (recommended: 3000 calls a day and the WebSocket): on the page, Authentication › Mobile App ›
-Configure credentials, then Test & save. Or in config.json:
+Signing in is done on **Add accessories** (the Daikin Cloud row, then its account's Setup; the plugin's page leads
+there), or by an AI agent through the MCP server's `start_setup` and `continue_setup`. Setup asks how to sign in first:
+
+**Mobile App** (recommended: 3000 calls a day and the WebSocket): the Onecta app's email and password. Or in config.json:
 
 ```json
 { "platform": "DaikinCloud", "name": "Daikin Cloud", "authMode": "mobile_app", "daikinEmail": "<email>", "daikinPassword": "<password>" }
 ```
 
 **Developer Portal** (200 calls a day): create an app at the [Daikin Developer Portal](https://developer.cloud.daikineurope.com/)
-with the redirect URI `https://<this machine's address>:<callbackServerPort>` (8582 by default), then on the page:
-Authentication › Authenticate, the Client ID and Secret, Continue, Open Daikin login. The plugin runs a temporary
-HTTPS server on that port for the redirect (the browser warns once about its self-signed certificate) and stops it
-after ten minutes; when the redirect cannot reach it, paste the URL the browser ends on. Once logged in, the
-instance connects without a restart.
+with the redirect URI `https://<this machine's address>:<callbackServerPort>` (8582 by default; Setup shows the one it
+detected), then give Setup the Client ID and Secret (and the callback server's address or port when the detected ones
+are not right), and sign in on Daikin's page. The plugin runs a temporary HTTPS server on that port for the redirect
+(the browser warns once about its self-signed certificate) and stops it after ten minutes; when the redirect cannot
+reach it, paste the URL the browser ends on. Once logged in, the instance connects without a restart. Choosing another
+way of signing in than the block's also sets that way's recommended polling.
 
 Tokens are kept sealed in the bridge's vault (`vault.json`, docs/vault-design.md), in entries named after the
 Homebridge plugin's files `.daikin-controller-cloud-tokenset` (Developer Portal) and `.daikin-mobile-tokenset` (Mobile
@@ -53,9 +55,9 @@ App). A file copied from a Homebridge storage path into the plugin's folder (`~/
 still works: the plugin moves it into the vault when it reads it, and removes it. The callback server's certificate is in
 `daikin-cloud-certs/`, the last quota in `.daikin-rate-limit.json`.
 
-The Assistant (the web UI's chat, MCP clients) can check the login, list the units, read the quota, test the
-connection and show this host's addresses for the callback; signing out (`DaikinCloud_revoke`) asks first. It never
-logs in: the secret, the password and the one-time code are entered on the page.
+The Assistant (the web UI's chat, MCP clients) can check the login, list the units, read the quota and test the
+connection; signing out (`DaikinCloud_revoke`) asks first. It signs in only through Setup (`start_setup`), where the
+secret and the password are entered by the person.
 
 ## Options
 
@@ -66,9 +68,9 @@ logs in: the secret, the password and the one-time code are entered on the page.
 | `daikinPassword` | string | - | Daikin account password (Mobile App; `password` is accepted, with a warning) |
 | `clientId` | string | - | Developer Portal app's Client ID |
 | `clientSecret` | string | - | Developer Portal app's Client Secret |
-| `callbackServerExternalAddress` | string | - | The address your browser reaches this machine at, for the OAuth redirect (the page suggests it) |
+| `callbackServerExternalAddress` | string | - | The address your browser reaches this machine at, for the OAuth redirect (Setup detects it) |
 | `callbackServerPort` | number | `8582` | Port of the OAuth callback server (1-65535) |
-| `oidcCallbackServerBindAddr` | string | `0.0.0.0` | Interface the callback server listens on; `127.0.0.1` only when the browser runs on this machine (the page refuses a loopback bind with a LAN address) |
+| `oidcCallbackServerBindAddr` | string | `0.0.0.0` | Interface the callback server listens on; `127.0.0.1` only when the browser runs on this machine (Setup refuses a loopback bind with a LAN address) |
 | `updateIntervalInMinutes` | number | `15` | Polling interval, 1-60 (Developer Portal: 15+, Mobile App: 1-5), stretched as above |
 | `forceUpdateDelay` | number | `60000` | Milliseconds (5000-300000) before the poll after a change from HomeKit |
 | `enableWebSocket` | boolean | `true` | Real-time updates (Mobile App only) |
@@ -96,7 +98,7 @@ The environment variables of the Homebridge plugin work too: `DAIKIN_HTTP_TRANSP
 
 - **Test connection** on the Authentication tab refreshes an expired token first, through the running instance;
   the Homebridge page sent the saved token as it was and reported "Token expired or invalid" once it had expired.
-- No restart after logging in or saving: saving the block on the page reloads the plugin, and a login on the page
+- No restart after logging in or saving: saving the block on the page reloads the plugin, and a login through Setup
   connects an instance that was waiting for it. The Settings tab therefore saves with a Save button instead of on
   every change, since each save is a reload and the first poll of a reload costs a call.
 - The page's device list comes from the running instance when it is connected (no API call); otherwise from one
@@ -113,7 +115,8 @@ The environment variables of the Homebridge plugin work too: `DAIKIN_HTTP_TRANSP
   subtype (`climateControl:powerful_mode`): there are no cached Homebridge switches to adopt.
 - A unit whose operation mode changes whether it has a fixed fan speed has its accessory rebuilt (same aid and
   iids), where Homebridge added or removed RotationSpeed in place.
-- The settings page's polling of a Developer Portal login no longer reports success at once when a token file
+- Logging in is Setup's (Add accessories, or `start_setup`), not the settings page's: the page shows the login's state
+  and leads to Setup. Setup's wait for a Developer Portal login does not report success at once when a token file
   already exists (re-authenticating).
 - The callback server accepts TLS 1.2 and later only, and refuses a Callback Server Port outside 1–65535 when the
   login starts. The redirect arriving twice (a browser retry, or the URL also pasted) exchanges the code once.

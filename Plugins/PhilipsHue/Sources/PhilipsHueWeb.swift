@@ -3,8 +3,8 @@ import Homeswift
 import HomeswiftPlugin
 
 extension PhilipsHuePlugin {
-    /// The page's routes (`Web/`): `GET status` the bridge and pairing, `GET discover` the bridges on the network,
-    /// `POST host` another address, `POST pair`, `GET lights` and `GET scenes` with their colours,
+    /// The page's routes (`Web/`): `GET status` the bridge (paired through Setup, `HueSetup.swift`, not here),
+    /// `GET lights` and `GET scenes` with their colours,
     /// `GET sensors` the sensors and switches, `POST recall` a scene (`dynamic` plays it or stops it playing), `POST scene-off` its room,
     /// `POST autoplay` its Autoplay, `POST light` a light's power, brightness, effect or flash, `POST identify` a light or a sensor;
     /// `GET scene-picture`, `POST scene-picture` and `POST scene-picture-remove` the picture a person gave a scene.
@@ -15,20 +15,10 @@ extension PhilipsHuePlugin {
             let stored = storedBridge
             return PluginWebResponse([
                 "host": stored.host.map(JSONValue.string) ?? .null, "bridgeID": stored.bridgeID.map(JSONValue.string) ?? .null,
-                "paired": .bool(stored.applicationKey != nil), "pairing": .bool(isPairing),
-                "pairingSecondsLeft": pairingSecondsLeft.map { .number(Double($0)) } ?? .null, "error": lastError.map(JSONValue.string) ?? .null,
+                "paired": .bool(stored.applicationKey != nil), "error": lastError.map(JSONValue.string) ?? .null,
                 "lights": .number(Double(snapshot.lights.count)), "scenes": .number(Double(snapshot.scenes.count)),
                 "sensors": .number(Double(snapshot.sensors.count)), "sensorsOn": .bool(configuration.sensors ?? true),
             ])
-        case ("GET", "discover"):
-            return PluginWebResponse(["hosts": .array(await discoverHosts().map(JSONValue.string))])
-        case ("POST", "host"):
-            guard let host = request.body["host"]?.stringValue?.trimmingCharacters(in: .whitespaces), !host.isEmpty else { return .error(400, "an address is required") }
-            await use(host: host)
-            return PluginWebResponse(["host": .string(host)])
-        case ("POST", "pair"):
-            let paired = await startPairing()
-            return paired ? PluginWebResponse(["paired": true]) : .error(409, lastError ?? "The link button was not pressed in time.")
         case ("GET", "lights"):
             return PluginWebResponse(["lights": .array(snapshot.lights.map { lightJSON($0) })])
         case ("GET", "sensors"):

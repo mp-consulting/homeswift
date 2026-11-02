@@ -21,11 +21,14 @@ older ThinQ v1 devices are polled. The API is not official: it is what LG's Thin
 
 ## Setting up
 
-Add the platform on the **Plugins** page, then **Open** its page: sign in with your LG account (the region,
-email and password; only the refresh token is kept unless you ask to remember them), or, for accounts that
-sign in to LG with Google, Apple, Facebook or Amazon, through LG's own sign-in page. The page then lists the
-account's devices: check the ones for HomeKit (none checked adds them all), set each one's options with ⚙, and
-save. The plugin reloads with the new block at once.
+Sign in on **Add accessories** (the LG ThinQ row, then its account's Setup; the plugin's page leads there), or
+have an AI agent do it through the MCP server's `start_setup` and `continue_setup`. Setup asks how to sign in (LG's
+own sign-in page, which also takes accounts that sign in to LG with Google, Apple, Facebook or Amazon: paste the
+address it ends on, which contains `iabClose`; or the account's email and password), then the account's country and
+language (LG's list of regions); only the refresh token is kept, sealed in the vault. Then **Open** the plugin's page:
+it shows the account's region and way of signing in, with Sign in again, and lists the account's devices: check the
+ones for HomeKit (none checked adds them all), set each one's options with ⚙, and save. The plugin reloads with the
+new block at once.
 
 ```json
 {
@@ -76,8 +79,9 @@ Per device: `name`, `serial_number`, and
 
 ## What differs from the Homebridge plugin
 
-- The sign-in, the device list and the per-device options are this plugin's page in the Homeswift UI, with
-  the same steps and fields; the `thinq login` and `thinq auth` commands are the page's two sign-in forms.
+- The sign-in is Setup's (Add accessories, or `start_setup`): the `thinq login` and `thinq auth` commands are its two
+  ways of signing in, and the refresh token goes in the vault rather than the block. The device list and the
+  per-device options are this plugin's page in the Homeswift UI, with the Homebridge page's fields.
   The Assistant's Explain buttons come from the Homeswift UI.
 - Accessories are `LGThinQ:<device id>`. Dishwashers, ovens and microwaves are published on their own, as the
   Homebridge plugin publishes them as external accessories: add each in the Home app with the bridge's code.
@@ -94,8 +98,8 @@ Per device: `name`, `serial_number`, and
   instead of sending an empty command. Numbers out of range (a huge `refresh_interval`, a device type or a
   byte layout LG reports oddly) are clamped or skipped instead of stopping the bridge.
 - The Assistant (the web UI's chat, MCP clients) can list the appliances this instance runs and every
-  appliance of its LG account (`GET devices`, `GET account-devices`), and get LG's sign-in page for
-  Google, Apple, Facebook or Amazon accounts. Signing in stays on the plugin's page.
+  appliance of its LG account (`GET devices`, `GET account-devices`). It signs in only through Setup
+  (`start_setup`), where the password or LG's redirected address is entered by the person.
 - `ac_mode` and `ac_swing_mode` are read in any case: the Homebridge plugin's documentation writes `both` and
   `vertical`, which it then ignored. The settings page has the options of AeroTowers (`air_fast_mode`) and
   WashTower 2 (the washer's), which the Homebridge page left out.

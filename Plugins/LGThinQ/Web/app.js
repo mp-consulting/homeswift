@@ -1,13 +1,12 @@
-// The LG ThinQ page: the Homebridge plugin's settings wizard. Step 1 signs in to the LG account (or uses the
-// refresh token of the block); step 2 lists the account's devices to pick for HomeKit, with each device's
-// options, and the account and sync settings; saving writes this instance's block, which reloads the plugin.
+// The LG ThinQ page: the Homebridge plugin's settings wizard. Step 1 is the LG account: signed out, a card to Setup on
+// Add accessories, which signs in; signed in, its region and way, with Sign in again. Step 2 lists the account's devices
+// to pick for HomeKit, with each device's options, and the sync settings; saving writes this instance's block, which
+// reloads the plugin.
 (() => {
   "use strict";
   const { $, el, api, request, readBlock, updateBlock, explain, breadcrumb } = homeswift;
   const { t } = HomeswiftI18n;
 
-  const DEFAULT_COUNTRY = "US";
-  const DEFAULT_LANGUAGE = "en-US";
   const DEFAULT_REFRESH_INTERVAL = 60;
 
   // The options of each device type, as the Homebridge page shows them.
@@ -51,16 +50,15 @@
   DEVICE_TYPE_FIELDS.AERO_TOWER = DEVICE_TYPE_FIELDS.AIR_PURIFIER;
   const AC_OP_MODES = [[0, t("Cool")], [1, t("Dry")], [2, t("Fan")], [4, t("Heat")], [5, t("Air Clean")], [6, t("Auto")]];
 
-  // State: the block as saved, the session used to list devices, the devices and the choices on them.
+  // State: the block as saved, the sign-in's state, the account's devices and the choices on them.
   let config = {};
-  let credentials = { refresh_token: null, country: null, language: null };
+  let account = {};
   let devices = [];
-  let running = new Set();
   const selected = new Set();
   const deviceSettings = {};
   let activeDevice = null;
 
-  const steps = { login: $("#step-login"), devices: $("#step-devices"), complete: $("#step-complete") };
+  const steps = { devices: $("#step-devices"), complete: $("#step-complete") };
   const showStep = (step) => Object.entries(steps).forEach(([key, node]) => node.classList.toggle("hidden", key !== step));
 
   /// Runs `work` with the button disabled and a spinner on it; errors reach the caller.
@@ -71,8 +69,8 @@
   // What the Assistant may see: the region and modes, never the email, password, refresh token or device ids.
   const assistantContext = (extra) => [
     extra,
-    `Auth mode: ${config.auth_mode || "token"}.`,
-    `Account region: country ${credentials.country || config.country || DEFAULT_COUNTRY}, language ${credentials.language || config.language || DEFAULT_LANGUAGE}.`,
+    `Auth mode: ${account.authMode || config.auth_mode || "token"}.`,
+    `Account region: country ${account.country || config.country || "unset"}, language ${account.language || config.language || "unset"}.`,
     config.thinq1 ? `ThinQ1 support is enabled (refresh interval ${config.refresh_interval || DEFAULT_REFRESH_INTERVAL} s).` : "ThinQ1 support is disabled.",
   ].filter(Boolean).join(" ");
 
@@ -85,129 +83,37 @@
     container.replaceChildren();
   }
 
-  // MARK: Step 1: sign in
+  // MARK: Step 1: the account, signed in through Setup
 
-  /// A sentence of the page with elements in it (a link, code): the translation's {0}, {1}… are the element's
-  /// children, in order.
-  function sentence(node, text) {
-    const parts = [...node.children];
-    node.replaceChildren(...text.split(/\{(\d+)\}/).map((part, i) => (i % 2 ? parts[Number(part)] : part)));
-  }
-  sentence($("#login-form .wiki"), t("Signing in to LG with Google, Apple, Facebook or Amazon? {0}, or use LG's own sign-in page below."));
-  sentence($("#third-party .help"), t("Open LG's sign-in page, sign in, then paste the address of the page it ends on (it starts with the LG account site and contains {0})."));
-
-  // In another language than English, a region is named in the page's language and its language by its own name
-  // (Intl.DisplayNames), in that order; the Homebridge plugin's English labels are the fallback.
+  // A region named in the page's language (Intl.DisplayNames), its language by its own name; the codes otherwise.
   const displayNames = (locale, type) => { try { return new Intl.DisplayNames([locale], { type }); } catch { return null; } };
-  const regionNames = HomeswiftI18n.language === "en" ? null : displayNames(HomeswiftI18n.locale, "region");
-  function regionLabel({ country, language, label }) {
-    if (!regionNames) return label;
+  function regionText(country, language) {
+    if (!country || !language) return "—";
     try {
-      const region = regionNames.of(country);
+      const region = displayNames(HomeswiftI18n.locale, "region")?.of(country) || country;
       const primary = language.split("-")[0];
-      const speech = displayNames(primary, "language")?.of(primary);
-      if (!region || region === country) return label;
-      return `${region}/${speech && speech !== primary ? speech : label.slice(label.indexOf("/") + 1)}`;
-    } catch { return label; }
-  }
-  const regions = window.LG_COUNTRIES.map((entry) => ({ ...entry, text: regionLabel(entry) }));
-  if (regionNames) regions.sort((a, b) => a.text.localeCompare(b.text, HomeswiftI18n.locale));
-  const countrySelect = $("#country-language");
-  countrySelect.replaceChildren(...regions.map(({ country, language, text }) =>
-    el("option", { value: `${country}|${language}`, text })));
-  const selectedRegion = () => {
-    const [country, language] = countrySelect.value.split("|");
-    return { country, language };
-  };
-  function selectRegion(country, language) {
-    const value = `${country}|${language}`;
-    countrySelect.value = [...countrySelect.options].some((o) => o.value === value) ? value : `${DEFAULT_COUNTRY}|${DEFAULT_LANGUAGE}`;
+      const speech = displayNames(primary, "language")?.of(primary) || language;
+      return `${region} / ${speech}`;
+    } catch { return `${country} / ${language}`; }
   }
 
-  function prefillLogin() {
-    if (config.username) $("#username").value = config.username;
-    if (config.password) $("#password").value = config.password;
-    $("#remember").checked = !!(config.username && config.password);
-    selectRegion(config.country || DEFAULT_COUNTRY, config.language || DEFAULT_LANGUAGE);
+  $("#sign-in-again").href = homeswift.setupAddress({ start: true });
+
+  /// The sign-in's state: signed out, the card to Setup; signed in, its facts and the devices.
+  function renderAccount() {
+    const signedIn = !!account.authorized;
+    $("#account").classList.toggle("hidden", !signedIn);
+    $("#account-setup").replaceChildren(signedIn ? "" : homeswift.setupCard({
+      title: t("Sign in to your LG account"),
+      text: t("Homeswift signs in on Add accessories, with LG's own sign-in page (for LG, Google, Apple, Facebook or Amazon accounts) or the account's email and password. Its appliances appear here once it is done."),
+      glyph: "key",
+    }));
+    if (!signedIn) return;
+    $("#account-region").textContent = regionText(account.country, account.language);
+    $("#account-mode").textContent = account.authMode === "account" ? t("Email and password") : t("LG's sign-in page");
+    $("#account-email-row").classList.toggle("hidden", !account.username);
+    $("#account-email").textContent = account.username || "";
   }
-
-  $("#switch-account").addEventListener("click", () => $("#new-login").click());
-  $("#new-login").addEventListener("click", () => {
-    $("#session-notice").classList.add("hidden");
-    $("#login-form").classList.remove("hidden");
-    $("#third-party").classList.remove("hidden");
-    showStep("login");
-  });
-
-  $("#login-form").addEventListener("submit", (event) => {
-    event.preventDefault();
-    const button = $("#login");
-    if (button.disabled) return;
-    const username = $("#username").value.trim();
-    const password = $("#password").value;
-    const { country, language } = selectedRegion();
-    const problem = $("#login-problem");
-    if (!username || !password) {
-      showProblem(problem, t("Please enter your username and password."));
-      return;
-    }
-    clearProblem(problem);
-    act(button, async () => {
-      try {
-        const answer = await request("login-by-user-pass", { method: "POST", body: { country, language, username, password } });
-        if (!answer.success) throw new Error(HomeswiftI18n.message(answer.error) || t("Login failed"));
-        await connected(answer.token, country, language, { username, password });
-      } catch (e) {
-        showProblem(problem, e.message || t("Login failed"),
-          `Signing in to the LG ThinQ cloud with an LG account email and password from the plugin settings failed. Selected region: ${country} / ${language}.`);
-      }
-    });
-  });
-
-  /// Signed in: the refresh token goes into the block (with the email and password when they are to be
-  /// remembered), then the devices.
-  async function connected(token, country, language, account) {
-    credentials = { refresh_token: token, country, language };
-    const next = { ...config, platform: "LGThinQ", name: config.name || "LG ThinQ", country, language, refresh_token: token, auth_mode: "token" };
-    if (account && $("#remember").checked) {
-      next.username = account.username;
-      next.password = account.password;
-    } else {
-      delete next.username;
-      delete next.password;
-    }
-    await updateBlock(() => next);
-    config = next;
-    prefillSettings();
-    showStep("devices");
-    await loadDevices();
-  }
-
-  // The `thinq auth` command of the Homebridge plugin: LG's own page for accounts of Google, Apple and others.
-  $("#open-lg").addEventListener("click", (event) => act(event.currentTarget, async () => {
-    const { country, language } = selectedRegion();
-    const problem = $("#login-problem");
-    clearProblem(problem);
-    try {
-      const { url } = await request(`login-url?country=${encodeURIComponent(country)}&language=${encodeURIComponent(language)}`);
-      window.open(url, "_blank", "noopener");
-    } catch (e) {
-      showProblem(problem, e.message, "Opening LG's sign-in page for an account that signs in with Google, Apple, Facebook or Amazon failed.");
-    }
-  }));
-  $("#redirect-login").addEventListener("click", (event) => act(event.currentTarget, async () => {
-    const { country, language } = selectedRegion();
-    const problem = $("#login-problem");
-    clearProblem(problem);
-    try {
-      const answer = await request("login-by-redirect", { method: "POST", body: { url: $("#redirect-url").value.trim(), country, language } });
-      if (!answer.success) throw new Error(HomeswiftI18n.message(answer.error) || t("Login failed"));
-      await connected(answer.token, country, language, null);
-    } catch (e) {
-      showProblem(problem, e.message || t("Login failed"),
-        `Signing in through LG's own page (an account of Google, Apple, Facebook or Amazon) failed. Selected region: ${country} / ${language}.`);
-    }
-  }));
 
   // MARK: Step 2: devices
 
@@ -220,17 +126,13 @@
     clearProblem(problem);
     await act(button, async () => {
       try {
-        const answer = await request("get-all-devices", { method: "POST", body: credentials });
-        if (!answer.success) throw new Error(HomeswiftI18n.message(answer.error) || t("Failed to load devices"));
+        const answer = await request("account-devices");
         devices = answer.devices || [];
         if (selected.size === 0) devices.forEach((device) => selected.add(device.id));
-        try {
-          running = new Set(((await request("devices")).devices || []).map((device) => device.id));
-        } catch { running = new Set(); }
         renderDevices();
       } catch (e) {
-        showProblem(problem, e.message || t("Failed to load devices"),
-          "Loading the device list from the LG ThinQ cloud with the stored refresh token failed in the plugin settings.");
+        showProblem(problem, HomeswiftI18n.message(e.message) || t("Failed to load devices"),
+          "Loading the device list of the account this instance signed in with from the LG ThinQ cloud failed in the plugin settings.");
       }
     });
   }
@@ -239,7 +141,7 @@
     $("#device-count").textContent = String(devices.length);
     $("#select-all").textContent = selected.size === devices.length && devices.length > 0 ? t("Deselect all") : t("Select all");
     if (!devices.length) {
-      list.replaceChildren(el("li", { class: "empty muted", text: t("No devices found. Connect your LG account and press Refresh.") }));
+      list.replaceChildren(el("li", { class: "empty muted", text: t("No devices found. Add them to your LG account in the LG ThinQ app, then press Refresh.") }));
       return;
     }
     list.replaceChildren(...devices.map((device) => {
@@ -256,7 +158,7 @@
           context: assistantContext("The user is looking at the device list of the LG ThinQ plugin settings."),
           device: { name: overrides.name || device.name, type: typeOf(device), online, includedInHomeKit: isSelected },
         }),
-        running.has(device.id) ? el("span", { class: "pill on", text: t("In HomeKit") }) : null,
+        device.running ? el("span", { class: "pill on", text: t("In HomeKit") }) : null,
         el("span", { class: `pill status ${online ? "on" : "away"}`, text: online ? t("Online") : t("Offline") }),
         el("button", { class: "gear", title: t("Device settings"), "aria-label": t("Settings of {name}", { name: overrides.name || device.name }), text: "⚙",
           onclick: (event) => { event.stopPropagation(); openDevice(device.id); } }));
@@ -376,24 +278,13 @@
   async function saveConfiguration(button) {
     await act(button, async () => {
       try {
+        // The sign-in (the way, the region, the account) is Setup's: the block keeps what it has.
         const next = {
           ...config, platform: "LGThinQ", name: config.name || "LG ThinQ",
-          country: $("#country").value.trim() || config.country || DEFAULT_COUNTRY,
-          language: $("#language").value.trim() || config.language || DEFAULT_LANGUAGE,
-          refresh_token: credentials.refresh_token || config.refresh_token,
-          auth_mode: config.auth_mode || "token",
           refresh_interval: parseInt($("#refresh-interval").value, 10) || DEFAULT_REFRESH_INTERVAL,
           devices: selectedDevicesConfig(),
         };
-        if (!next.refresh_token) delete next.refresh_token;
         if (!next.thinq1) delete next.thinq1;
-        if ($("#remember").checked && $("#username").value.trim()) {
-          next.username = $("#username").value.trim();
-          next.password = $("#password").value;
-        } else if (!$("#remember").checked) {
-          delete next.username;
-          delete next.password;
-        }
         const report = await updateBlock(() => next);
         config = next;
         const pending = report.restartNeeded || [];
@@ -413,25 +304,13 @@
   // MARK: Settings tab
 
   function prefillSettings() {
-    const mode = config.auth_mode || "token";
-    $("#auth-mode").value = mode;
-    $("#refresh-token").value = config.refresh_token || "";
-    $("#country").value = config.country || DEFAULT_COUNTRY;
-    $("#language").value = config.language || DEFAULT_LANGUAGE;
     $("#refresh-interval").value = config.refresh_interval || DEFAULT_REFRESH_INTERVAL;
     $("#thinq1").checked = !!config.thinq1;
-    $("#token-field").classList.toggle("hidden", mode !== "token");
   }
 
-  $("#auth-mode").addEventListener("change", () => $("#token-field").classList.toggle("hidden", $("#auth-mode").value !== "token"));
   $("#save-settings").addEventListener("click", (event) => {
-    config.auth_mode = $("#auth-mode").value;
-    config.refresh_token = $("#refresh-token").value.trim() || config.refresh_token;
-    config.country = $("#country").value.trim() || DEFAULT_COUNTRY;
-    config.language = $("#language").value.trim() || DEFAULT_LANGUAGE;
     config.refresh_interval = parseInt($("#refresh-interval").value, 10) || DEFAULT_REFRESH_INTERVAL;
     config.thinq1 = $("#thinq1").checked || undefined;
-    if (config.auth_mode === "token") credentials.refresh_token = config.refresh_token;
     saveConfiguration(event.currentTarget);
   });
 
@@ -445,12 +324,6 @@
   }
   $("#tab-devices").addEventListener("click", () => selectTab("devices"));
   $("#tab-settings").addEventListener("click", () => selectTab("settings"));
-
-  countrySelect.addEventListener("change", () => {
-    const { country, language } = selectedRegion();
-    config.country = country;
-    config.language = language;
-  });
 
   // MARK: Step 3
 
@@ -466,29 +339,26 @@
     $("#restart").classList.add("hidden");
   }));
 
-  // MARK: Start: the block, then its session if it has one
+  // MARK: Start: the block and the sign-in, then the account's devices once signed in
 
   (async () => {
     try {
       config = (await readBlock()) || {};
+      account = await request("account");
     } catch (e) {
-      showProblem($("#login-problem"), e.message);
+      showProblem($("#account-problem"), e.message);
     }
     for (const device of config.devices || []) {
       selected.add(device.id);
       deviceSettings[device.id] = { ...device };
     }
-    prefillLogin();
     prefillSettings();
-    if (config.refresh_token) {
-      credentials = { refresh_token: config.refresh_token, country: config.country || DEFAULT_COUNTRY, language: config.language || DEFAULT_LANGUAGE };
-      $("#session-notice").classList.remove("hidden");
-      $("#login-form").classList.add("hidden");
-      $("#third-party").classList.add("hidden");
+    renderAccount();
+    if (account.authorized) {
       showStep("devices");
       await loadDevices();
     } else {
-      showStep("login");
+      showStep(null);
     }
   })();
 })();

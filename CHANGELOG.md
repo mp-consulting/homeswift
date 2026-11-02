@@ -8,10 +8,29 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Plugins' pages lead to Setup: a page whose account, hub or TV is not set up shows a card that opens it on Add
+  accessories (`/setup?start#<plugin>` opens the account's Setup sheet at once; `homeswift.setupCard` for plugin
+  authors). Philips Hue, IKEA DIRIGERA, Philips Ambilight TV, Wingman, Daikin Cloud, LG ThinQ, Dolphin Pool Cleaner and
+  eWeLink no longer sign in or pair on their own pages: their pairing and sign-in routes, `homeswift.bridgePairing`, and
+  the MCP tools `PhilipsAmbilightTV_pair`, `PhilipsAmbilightTV_pair_grant`, `PhilipsAmbilightTV_discover`,
+  `Wingman_pair`, `Wingman_discover`, `LGThinQ_login_url` and `DaikinCloud_server_info` are removed (`discover_devices`
+  and `start_setup` do it). Setup finds a TV or a Wingman typed by its address in the block, shows Daikin's redirect URI
+  and takes its callback server's address and port, offers LG's own countries and languages, and its sheet translates a
+  plugin's errors. A DIRIGERA hub is no longer removed from its page. Philips Hue no longer waits for the link button at its first start without a key: it waits for Setup.
 - Rename an accessory, in the Home app too: **Rename** in a widget's ⋯ menu on the Accessories page, and the MCP tool
   `rename_accessory`. The name goes in its plugin's block (`_accessories`, by Device Id) and the bridge puts it on the
   accessory's Name and Configured Name, without reloading the plugin and with its aids and iids, so its room, scenes and
   automations stay. The Home app follows Configured Name; a rename made there is kept in config.json the same way.
+- Wingman: Apple Home's rooms, scenes and automations, from a Wingman that serves them (docs/apple-home-design.md).
+  With **Sync rooms with the hubs** on (formerly **Rename on the hubs too**), rooms stay in step both ways: a room
+  renamed on either side is renamed on the other (`PluginContext.hubRoomRenamed`), and an accessory moved to another
+  room on either side moves on the other (`HomeswiftPlugin.moveAccessory(id:toRoom:)`,
+  `PluginContext.hubAccessoryMoved`). Apple Home's scenes are listed, run, renamed, updated from their lights, created
+  and deleted like a Hue Bridge's; automations are listed and turned on or off, renamed, retimed, given new scenes or
+  actions, or deleted. Plugins get `automations()`, `updateAutomation(id:change:)` and `deleteAutomation(id:)`
+  (`PluginAutomation`) for a hub's own automations. The Assistant and MCP clients reach all of it: the hub scene tools
+  and `set_accessory_layout` cover Apple Home's scenes and rooms, and `list_hub_automations`, `update_hub_automation`
+  and `delete_hub_automation` (destructive: it asks first) its automations; the chat's prompt says when to use them.
 - A Homeswift scene shown in the Home app as a switch has its name there: the switch carries it in Configured Name, so
   renaming the scene renames the switch in the Home app, and renaming the switch in the Home app renames the scene.
 - UniFi Access: a UA Gate's side door (its lock, position sensor and trigger) and each door sensor get an accessory of
@@ -47,6 +66,22 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- The Assistant's chat gives the model a tool's structured answer inside the `<untrusted-data>` wrapper the tool's text
+  has (a Setup's answer, a hub's automations), where before it went out unwrapped.
+- The web UI's OAuth sign-in page no longer sends the browser on its own to a client's redirect URI when the request
+  is one it cannot answer: it says why and offers a **Return to** link. Anyone may register a client, so the bridge's
+  name could otherwise front a redirect to any site.
+- Logs, and the Status page's metrics and energy charts: a range chosen while another loads cancels it, so the older
+  range no longer draws over the newer one; a log that fails to load says so instead of spinning, and the live log
+  reads what it missed after the tab was hidden. Coming back to the tab no longer closes an open sheet or dialog.
+- A failed write puts an accessory's card back only when no later write changed it; the chat keeps a message it
+  could not send; a new scene, or a user, is no longer saved twice by a quick second click.
+- The scene editor asks before you leave it, or close the tab, with changes not saved. Setup says when looking for
+  devices failed rather than that it found none, and a retry still under way no longer draws over your answer. Each
+  page decides what it does when the tab is shown again (Status, Accessories and Quick Controls reload, the live log
+  reads what it missed), and a refused write puts its value back only when it was the card's latest.
+- Removing another device's notifications, an uploaded wallpaper or a scene's picture asks first. Sign-in errors are
+  announced to screen readers, the log's JSON button is easier to tap, and a few buttons gained their icons.
 - UniFi Access and Protect: Add accessories leaves out the consoles that do not run the app (asked without signing in,
   they answer with their web page), and signing in to one says so, rather than "Unable to parse response".
 - UniFi Access and Protect: Add accessories lists only the UniFi OS consoles (gateways, Cloud Keys, recorders) to

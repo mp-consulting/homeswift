@@ -6,7 +6,8 @@ import HomeswiftPlugin
 // Setup (GLOSSARY.md, "Setup"): each Wingman is a device whose Device Id is its own id (its Bonjour TXT `id`),
 // authorized with the 6-digit code its menu shows (a Device Code) once the person has checked its certificate. The token
 // and the pinned certificate go in the vault under its id; its address in its Accessory Settings. The `devices` list
-// the plugin's page writes still works as it was (docs/adr/0001-canonical-accessory-settings.md).
+// the plugin's page used to write still works as it was (docs/adr/0001-canonical-accessory-settings.md), and an entry of
+// it with an address but no id is a Wingman for Setup to pair: the way to reach one Bonjour does not.
 extension WingmanPlugin {
     /// What pairing gives a Wingman, kept in the vault under its id.
     struct Credentials: Codable, Sendable, Equatable {
@@ -26,7 +27,7 @@ extension WingmanPlugin {
     nonisolated func configuredDevices() -> [Configuration.Device] {
         var devices: [Configuration.Device] = []
         var seen: Set<String> = []
-        for var device in configuration.devices ?? [] where seen.insert(device.id).inserted {
+        for var device in configuration.devices ?? [] where !device.id.isEmpty && seen.insert(device.id).inserted {
             if let saved = context.credentials(for: device.id, as: Credentials.self) {
                 device.token = saved.token
                 device.fingerprint = saved.fingerprint
@@ -43,7 +44,7 @@ extension WingmanPlugin {
     /// A token and a certificate the page used to write into `devices`, moved into the vault the first time the plugin
     /// sees them (an entry without a pinned certificate never had a usable token: it stays as it is).
     static func moveLegacyCredentials(_ configuration: Configuration, _ context: PluginContext) {
-        for device in configuration.devices ?? [] {
+        for device in configuration.devices ?? [] where !device.id.isEmpty {
             guard let token = device.token, !token.isEmpty, let fingerprint = device.fingerprint, !fingerprint.isEmpty,
                   context.credentials(for: device.id) == nil else { continue }
             do {
@@ -55,7 +56,7 @@ extension WingmanPlugin {
     }
 
     /// Pairs with the Wingman at `host`, its certificate pinned to `fingerprint`, with the code its menu shows: its id and
-    /// the token. The page's `POST pair` and Setup both pair through here.
+    /// the token, for Setup.
     nonisolated func pair(host: String, port: Int, code: String, fingerprint: String) async throws -> (id: String, token: String) {
         let client = WingmanClient(host: host, port: port, token: nil, fingerprint: fingerprint, transports: dependencies.transports)
         let paired = try await client.pair(code: code, name: dependencies.bridgeName)
@@ -66,8 +67,18 @@ extension WingmanPlugin {
         return (id, paired.token)
     }
 
-    /// The Wingmen the plugin runs (set up once they have a token and a pinned certificate), and those Bonjour finds that
-    /// it does not, which need their code.
+    /// The entries of `devices` with an address and no id: Wingmen typed in the settings, for networks Bonjour does not
+    /// cross (another network, a container without multicast), by their address.
+    nonisolated func typedAddresses() -> [(address: String, name: String?)] {
+        (configuration.devices ?? []).compactMap { device in
+            guard device.id.isEmpty, let address = Self.address(host: device.host?.trimmingCharacters(in: .whitespaces), port: device.port) else { return nil }
+            return (address, device.name)
+        }
+    }
+
+    /// The Wingmen the plugin runs (set up once they have a token and a pinned certificate), those Bonjour finds that it
+    /// does not, and those typed in the settings by their address (`address:<host>`) that are neither: the last two need
+    /// their code.
     public func discover() async throws -> [DiscoveredDevice] {
         let configured = configuredDevices()
         let found = isBrowsing ? Array(announced.values) : await browseOnce()
@@ -82,6 +93,11 @@ extension WingmanPlugin {
         for wingman in found.sorted(by: { $0.name < $1.name }) where !known.contains(wingman.id) {
             devices.append(DiscoveredDevice(
                 deviceID: wingman.id, name: wingman.name, model: "Homeswift Wingman", address: Self.address(host: wingman.host, port: wingman.port), authorization: .deviceCode))
+        }
+        // At the address Bonjour or Setup knows a Wingman by: that Wingman, set up or found already.
+        let addresses = Set((devices.compactMap(\.address) + configured.compactMap { Self.address(host: $0.host, port: $0.port) }).map { $0.lowercased() })
+        for (address, name) in typedAddresses() where !addresses.contains(address.lowercased()) {
+            devices.append(DiscoveredDevice(deviceID: "address:\(address)", name: name ?? address, model: "Homeswift Wingman", address: address, authorization: .deviceCode))
         }
         return devices
     }
@@ -152,5 +168,20 @@ extension WingmanPlugin {
         let parts = address.split(separator: ":", omittingEmptySubsequences: false)
         if parts.count == 2, let port = Int(parts[1]) { return (String(parts[0]), port) }
         return (address, defaultPort)
+    }
+}
+
+extension WingmanPlugin.Configuration.Device {
+    private enum CodingKeys: String, CodingKey {
+        case id, name, host, port, token, fingerprint
+    }
+
+    /// An entry without an `id` is one typed by its address, for Setup to pair: its id stays empty.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try container.decodeIfPresent(String.self, forKey: .id) ?? "", name: try container.decodeIfPresent(String.self, forKey: .name),
+            host: try container.decodeIfPresent(String.self, forKey: .host), port: try container.decodeIfPresent(Int.self, forKey: .port),
+            token: try container.decodeIfPresent(String.self, forKey: .token), fingerprint: try container.decodeIfPresent(String.self, forKey: .fingerprint))
     }
 }

@@ -352,6 +352,10 @@ settings it brings and reloads the plugin; the web UI's **Add accessories** page
   each with a switch under its device; the choice goes in the device's Accessory Settings' `parts` (`{ "SideDoor": false }`),
   and the plugin reloads and reads it from `context.allAccessorySettings` (UniFi Access turns each into a `Hub.<id>`
   option of that device).
+- **A device the network does not show** (Bonjour blocked, another subnet): an entry with only its address in the
+  block's own list (a TV's `ip`, a Wingman's `host`) is a device `discover()` lists by that address, and its Setup
+  keeps it under the Device Id the Authorization reads.
+- **Its page** leads to Setup (`homeswift.setupCard`, docs/ui.md) rather than signing in or pairing itself.
 
 ### Web pages
 
@@ -407,7 +411,16 @@ on the hubs too**), a room renamed in Homeswift is renamed on the hubs. `rooms()
 (its id, name, and `place` when the instance has several hubs or homes); Homeswift calls it only on a rename, so it may
 ask the hub. `renameRoom(id:name:)` renames one; Homeswift picks those named as the room was, case and accents aside,
 and logs what each did. Hue (`HueRooms.swift`, rooms but not zones), DIRIGERA (`DirigeraRooms.swift`, from
-lpgera/dirigera, the room's icon and colour kept) and eWeLink (`EWeLinkRooms.swift`, `PUT /v2/family/room`) do.
+lpgera/dirigera, the room's icon and colour kept), eWeLink (`EWeLinkRooms.swift`, `PUT /v2/family/room`) and Wingman
+(`Structure.swift`, Apple Home's rooms) do.
+
+A hub that keeps automations of its own lists them with `automations()` as `PluginAutomation`s: when they start
+(`triggers`, any of them: a time or sunrise and sunset with an offset, an accessory's value or range, presence), what
+ends them (`endTriggers`), their `conditions`, the plugin's scenes they run (`sceneIDs`) and their own `actions`, with
+accessories named by Homeswift's ids and characteristic types and `names` for those Homeswift does not have.
+`updateAutomation(id:change:)` applies a `PluginAutomationChange` (enabled, name, time, scenes, actions; nil leaves a
+part as it is) and `deleteAutomation(id:)` removes one; list what each allows in `capabilities`. The hub stays the only
+keeper, as for scenes. Wingman (`Structure.swift`, Apple Home's automations; docs/apple-home-design.md) does.
 
 ### What the Assistant can do
 

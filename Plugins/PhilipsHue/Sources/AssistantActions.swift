@@ -29,7 +29,7 @@ extension PhilipsHuePlugin {
     /// What the Assistant knows about the plugin with every request from the page.
     public static let assistantBackground: String? = [
         "The Homeswift Philips Hue plugin talks to a Hue Bridge on the local network through its API v2 (CLIP v2), without the cloud.",
-        "It pairs with the bridge's link button and keeps the application key in its own folder. Each light is a HomeKit lightbulb, each",
+        "It pairs through Setup (Add accessories, or start_setup) with the bridge's link button and keeps the application key in the vault. Each light is a HomeKit lightbulb, each",
         "room's and zone's scenes are switches on one accessory, effects are switches on their light. A light marked not responding has a",
         "Zigbee connectivity issue on the bridge (switched off at the wall, out of range). Never ask the user for passwords, tokens or keys.",
     ].joined(separator: " ")

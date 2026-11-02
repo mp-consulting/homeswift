@@ -171,8 +171,6 @@ enum NetworkInfo {
         return addresses
     }
 
-    static var hostName: String { ProcessInfo.processInfo.hostName }
-
     /// Loopback: 127.0.0.0/8, ::1, IPv4-mapped loopback and `localhost`.
     static func isLoopback(_ host: String) -> Bool {
         let value = host.trimmingCharacters(in: .whitespaces).lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]"))

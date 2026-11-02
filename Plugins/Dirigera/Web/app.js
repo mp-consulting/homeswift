@@ -1,79 +1,62 @@
-// The IKEA DIRIGERA page: the hubs (from config.json and found on the network), each paired with its action button;
+// The IKEA DIRIGERA page: the hubs (from config.json and paired through Setup on Add accessories: this page leads there);
 // the lights, outlets, sensors, blinds, air purifiers and remotes as the Accessories page draws them (its widgets); the hubs' scenes as tiles (a tap
 // runs one, the eye leaves it out of the Home app); and the settings. Refreshed every two seconds while visible;
-// saving writes this instance's block. The hub card (the Hue page's bridge card), tabs, scene pictures, speed scale
-// and tile text come from plugin.js.
+// saving writes this instance's block. The Setup card, tabs, scene pictures, speed scale and tile text come from
+// plugin.js.
 (() => {
   "use strict";
   const { t } = HomeswiftI18n;
-  const { $, el, icon, request, act, readBlock, updateBlock, setKey, poll, renderKeyed } = homeswift;
+  const { $, el, icon, tile, fact, explain, request, act, readBlock, updateBlock, setKey, poll, renderKeyed } = homeswift;
 
   let hubs = [];
   let devices = [];
   let scenes = [];
-  let found = [];
   let block = {};
 
   homeswift.tabs("dirigera-tab");
 
   // MARK: Hubs
 
-  // The card plugin.js draws for both lighting pages: a block per hub (config.json's, paired ones, and the ones found
-  // on the network), its pairing, and the address form.
-  const card = homeswift.bridgePairing({
-    card: $("#hubs"), tone: "blue", button: "bridge",
-    texts: {
-      name: t("DIRIGERA hub"), pairTitle: t("Pair Homeswift with the hub."), press: t("Press the action button under the hub."),
-      pairHelp: t("Pair, then press the action button under the hub within a minute. The token stays in the plugin's folder, not in config.json."),
-      summary: t("Add a hub"), placeholder: "192.168.1.30", addressHelp: t("Hubs on the network show up above on their own; type the address of one that does not."), none: t("No hub answered on the network."),
-    },
-    facts: (hub) => [[t("Address"), hub.host], [t("Devices"), hub.devices ?? 0], [t("Scenes"), hub.scenes ?? 0]],
-    menu: (hub) => [hub.inConfig ? { label: t("Remove from config.json"), icon: "trash", danger: true, onSelect: () => removeHub(hub.host) } : null],
-    problem: (hub) => ({
-      error: `The DIRIGERA hub at ${hub.host} did not answer: ${hub.error}`,
-      context: "The Homeswift DIRIGERA plugin reads GET https://<hub>:8443/v1/devices and /v1/scenes with its token, and follows the hub's websocket for changes.",
-      device: { host: hub.host },
-    }),
-    discover: async () => (found = (await request("discover")).hosts),
-    use: async (host) => {
-      if (!host) return;
-      await keep(host);
-      if (!found.includes(host)) found = [...found, host];
-    },
-    pair: async (host) => {
-      await request("pair", { method: "POST", body: { host } });
-      await keep(host);
-    },
-    refresh: () => refresh(),
-  });
-
-  /// The hubs, then the ones found on the network that are not among them yet; with none, the one being looked for.
+  /// The hubs: until one is paired, the card that leads to its Setup on Add accessories (the page pairs nowhere else);
+  /// then a block per hub (config.json's and the ones Setup paired) with its address, state and counts, Pair again (or
+  /// Pair) in its ⋯ menu, and Explain when it does not answer.
+  let hubsLoaded = false;
   function drawHubs() {
-    const known = new Set(hubs.map((hub) => hub.host));
-    const list = [...hubs, ...found.filter((host) => !known.has(host)).map((host) => ({ host, paired: false }))];
-    card.draw(list.length ? list : [{ host: null }]);
+    const card = $("#hubs");
+    // Nothing until the plugin has answered which hubs it has.
+    if (!hubsLoaded) return;
+    const key = JSON.stringify(hubs);
+    if (card.dataset.json === key) return;
+    card.dataset.json = key;
+    if (!hubs.some((hub) => hub.paired)) {
+      card.replaceChildren(homeswift.setupCard({
+        title: t("Set up a DIRIGERA hub"),
+        text: t("Add accessories finds the hub on the network, or asks for its address, then for a press on its action button. The token stays in the vault, not in config.json."),
+        glyph: "bridge", tone: "blue",
+      }));
+      return;
+    }
+    card.replaceChildren(el("section", { class: "card bridge-card" }, ...hubs.map(hubBlock)));
   }
 
-  /// Puts the hub in config.json, as homebridge-dirigera keeps it; its token stays in the plugin's folder.
-  async function keep(host) {
-    await updateBlock((draft) => {
-      const list = draft.hubs || [];
-      if (!list.some((hub) => hub.host === host)) list.push({ host });
-      draft.hubs = list;
-    });
-    block = await readBlock();
-  }
-
-  async function removeHub(host) {
-    if (!await HomeswiftCommon.confirmDialog(t("Remove the hub at {host} from config.json?", { host }))) return;
-    await request("unpair", { method: "POST", body: { host } }).catch(() => {});
-    await updateBlock((draft) => {
-      const list = (draft.hubs || []).filter((hub) => hub.host !== host);
-      if (list.length) draft.hubs = list; else delete draft.hubs;
-    }).catch((e) => HomeswiftCommon.showAlert(e.message));
-    block = await readBlock();
-    found = found.filter((other) => other !== host);
-    await refresh();
+  function hubBlock(hub) {
+    const name = hub.name || t("DIRIGERA hub");
+    const [state, kind] = !hub.paired ? [t("Not paired"), "away"] : hub.error ? [t("Not responding"), "away"]
+      : hub.connected === false ? [t("Connecting…"), "standby"] : [t("Connected"), "on"];
+    const setUp = { label: hub.paired ? t("Pair again") : t("Pair"), icon: "pair", href: homeswift.setupAddress({ start: true }) };
+    return el("div", { class: "bridge" },
+      el("div", { class: "server-head" },
+        tile("bridge", hub.paired && !hub.error ? "blue" : "grey"),
+        el("div", { class: "who" }, el("strong", { text: name }), el("div", { class: "muted", text: hub.host })),
+        el("span", { class: `pill status ${kind}`, text: state }),
+        HomeswiftCommon.menuButton(t("Actions for {name}", { name: [name, hub.host].filter(Boolean).join(" ") }), () => [setUp])),
+      hub.paired ? el("div", { class: "facts" }, ...[[t("Address"), hub.host], [t("Devices"), hub.devices ?? 0], [t("Scenes"), hub.scenes ?? 0]]
+        .map(([label, value]) => fact(label, String(value)))) : null,
+      hub.paired && hub.error ? explain({
+        error: `The DIRIGERA hub at ${hub.host} did not answer: ${hub.error}`,
+        context: "The Homeswift DIRIGERA plugin reads GET https://<hub>:8443/v1/devices and /v1/scenes with its token, and follows the hub's websocket for changes.",
+        device: { host: hub.host },
+      }) : null);
   }
 
   // MARK: Lights, as the Accessories page draws them
@@ -277,8 +260,11 @@
         scenes = [];
       }
       ({ hubs } = answer);
+      hubsLoaded = true;
     } catch (e) {
+      // The card keeps what it showed; the lists empty.
       hubs = [];
+      hubsLoaded = false;
     }
     drawHubs();
     drawDevices();
@@ -288,6 +274,4 @@
   buildSettings();
   readBlock().then((value) => { block = value || {}; fillSettings(); }).catch(() => {});
   poll(refresh, 2000);
-  // Hubs announce themselves: look once when the page opens.
-  request("discover").then(({ hosts }) => { found = hosts; drawHubs(); }).catch(() => {});
 })();

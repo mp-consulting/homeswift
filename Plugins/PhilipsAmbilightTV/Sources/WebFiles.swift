@@ -8,15 +8,50 @@ extension PhilipsAmbilightTVPlugin {
     public static let webFiles: [String: WebFile] = [
         "app.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The Philips Ambilight TV page: the TVs the plugin instance knows, refreshed every two seconds while the
-// page is visible, with a remote; and the Homebridge plugin's pairing wizard (find the TV, type the PIN it
-// shows, confirm its details), which writes the TV's entry into this instance's block.
+// page is visible, with a remote, their inputs and an editor of their settings. A TV is found and paired on
+// Add accessories (Setup): the page leads there.
 (() => {
   "use strict";
   const {
-    $, el, tile, request, platform, explain, breadcrumb, api, act,
-    updateDevice, putDevice, findDevice, setKey, poll, renderKeyed, canonicalMAC, isMAC, sameMAC,
+    $, el, tile, request, platform, name: instance, explain, breadcrumb, api, act,
+    readBlock, updateBlock, setKey, poll, renderKeyed, canonicalMAC, isMAC, sameMAC, setupCard, setupAddress,
   } = homeswift;
   const { t, tn } = HomeswiftI18n;
+
+  // MARK: A TV's entry: in the block's `devices` (the Homebridge plugin's list), or its Accessory Settings
+  // (`_accessories`, by its MAC) once Setup paired it. Both hold the same settings; a TV Setup paired keeps its MAC,
+  // which keys its keys in the vault.
+
+  const accessoryKey = (block, mac) => Object.keys(block._accessories || {}).find((key) => sameMAC(key, mac));
+
+  /// The TV's entry, with `setUp` when it lives in its Accessory Settings; null when the block has neither.
+  async function findDevice(mac) {
+    const block = await readBlock();
+    const listed = (block.devices || []).find((device) => sameMAC(device.mac, mac));
+    if (listed) return { entry: listed, setUp: false };
+    const key = accessoryKey(block, mac);
+    if (!key) return null;
+    const { excluded, parts, ...settings } = block._accessories[key];
+    return { entry: { ...settings, mac: key }, setUp: true };
+  }
+
+  /// Changes the TV's entry: `change` edits it in place, or returns its replacement.
+  function updateDevice(mac, change) {
+    return updateBlock((block) => {
+      const devices = block.devices || [];
+      const index = devices.findIndex((device) => sameMAC(device.mac, mac));
+      if (index >= 0) {
+        devices[index] = change(devices[index]) ?? devices[index];
+        return;
+      }
+      const key = accessoryKey(block, mac);
+      if (!key) throw new Error(t("This TV is not in the configuration."));
+      const { excluded, parts, ...settings } = block._accessories[key];
+      const draft = { ...settings, mac: key };
+      const { mac: _, ...changed } = change(draft) ?? draft;
+      block._accessories[key] = { ...changed, ...(excluded ? { excluded } : {}), ...(parts ? { parts } : {}) };
+    });
+  }
 
   // MARK: Your TVs
 
@@ -96,7 +131,6 @@ extension PhilipsAmbilightTVPlugin {
           list.replaceChildren(el("div", { class: "card empty" },
             el("p", { class: "muted", text: t("No TV yet. Switch your TV on, then add it above.") })));
         }
-        if (!pairingOpened) openPairing(false);
         return;
       }
       // Only the card of a TV that changed is drawn again: keep the keyboard on the remote it was on.
@@ -385,7 +419,7 @@ extension PhilipsAmbilightTVPlugin {
     return select;
   }
 
-  // The Remote and Automations sections, shared by the editor and the last step of pairing.
+  // The editor's Remote and Automations sections.
   function remoteFields(schema, draft, changed) {
     return ["infoButtonKey", "backButtonKey", "playPauseButtonKey"].map((key) =>
       fieldRow(schema[key].title.replace(" Key", ""), selectFor(schema[key], draft[key], (value) => { setKey(draft, key, value, schema[key].default); changed(); }), schema[key].description));
@@ -414,9 +448,9 @@ extension PhilipsAmbilightTVPlugin {
     editorCard.replaceChildren(el("p", { class: "muted", text: t("Loading {name}…", { name: tv.name }) }));
     editorCard.scrollIntoView({ behavior: reducedMotion.matches ? "auto" : "smooth", block: "start" });
     try {
-      const [schema, device] = await Promise.all([deviceSchema(), findDevice(tv.mac)]);
-      if (!device) throw new Error(t("This TV is not in the configuration."));
-      editorState = { tv, schema, draft: structuredClone(device), saved: JSON.stringify(device), section: "general" };
+      const [schema, found] = await Promise.all([deviceSchema(), findDevice(tv.mac)]);
+      if (!found) throw new Error(t("This TV is not in the configuration."));
+      editorState = { tv, schema, setUp: found.setUp, draft: structuredClone(found.entry), saved: JSON.stringify(found.entry), section: "general" };
       renderEditor();
     } catch (e) {
       editorCard.replaceChildren(el("p", { class: "error", text: e.message }));
@@ -465,10 +499,13 @@ extension PhilipsAmbilightTVPlugin {
         el("div", { class: "fields" },
           fieldRow(t("Name in the Home app"), text("name", { maxLength: 64 })),
           fieldRow(t("Address"), text("ip", { inputmode: "decimal" }), t("The TV's IPv4 address. Give it a fixed address in your router.")),
-          fieldRow(t("MAC address"), (() => {
-            const input = text("mac");
-            return el("div", { class: "with-button" }, input, macButton(() => draft.ip, input, report));
-          })(), t("For Wake-on-LAN, which switches the TV on from deep standby.")),
+          // A TV Setup paired goes by its MAC, which keys its keys in the vault: it stays as Setup read it.
+          editorState.setUp
+            ? fieldRow(t("MAC address"), el("input", { type: "text", value: draft.mac, readOnly: true }), t("Read from the TV when it was paired. For Wake-on-LAN, which switches the TV on from deep standby."))
+            : fieldRow(t("MAC address"), (() => {
+              const input = text("mac");
+              return el("div", { class: "with-button" }, input, macButton(() => draft.ip, input, report));
+            })(), t("For Wake-on-LAN, which switches the TV on from deep standby.")),
           fieldRow(t("Ambilight style"), selectFor(schema.ambilightMode, draft.ambilightMode, (value) => { setKey(draft, "ambilightMode", value, schema.ambilightMode.default); changed(); }), schema.ambilightMode.description),
           fieldRow(t("Polling interval (ms)"), interval, schema.pollingInterval.description)),
         toggleRow(t("Switch Ambilight on whenever the TV comes on"), draft.ambilightOnStart === true, (on) => { setKey(draft, "ambilightOnStart", on, false); changed(); }),
@@ -476,7 +513,7 @@ extension PhilipsAmbilightTVPlugin {
         el("div", { class: "repair" },
           el("div", {}, el("strong", { text: t("Pairing") }),
             el("p", { class: "help", text: tv.pinned ? t("Paired, with the TV's certificate pinned. Pair again after a reset of the TV, when it refuses Homeswift.") : t("Paired without a pinned certificate. Pair again to pin it.") })),
-          el("button", { actionIcon: "restore", text: t("Pair again"), onclick: async () => { if (await closeEditor()) repair(tv); } })));
+          el("a", { class: "button", href: setupAddress(), actionIcon: "restore", text: t("Pair again") })));
       break;
     }
     case "remote":
@@ -568,7 +605,7 @@ extension PhilipsAmbilightTVPlugin {
     if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(draft.ip ?? "")) throw new Error(t("The address must be an IPv4 address, like 192.168.1.20."));
     if (!isMAC(draft.mac)) throw new Error(t("The MAC address must look like AA:BB:CC:DD:EE:FF."));
     draft.mac = canonicalMAC(draft.mac);
-    await updateDevice(tv.mac, () => draft);
+    await updateDevice(tv.mac, () => structuredClone(draft));
     editorState.saved = JSON.stringify(draft);
     editorState.tv = { ...tv, name: draft.name, mac: draft.mac };
     renderEditor();
@@ -578,271 +615,28 @@ extension PhilipsAmbilightTVPlugin {
   async function removeTV(tv) {
     if (!await HomeswiftCommon.confirmDialog(t("Remove {name}? It leaves the Home app, with its scenes and automations.", { name: tv.name }))) return;
     if (editingTV(tv) && (!(await closeSources()) || !(await closeEditor()))) return;
-    await updateDevice(tv.mac, () => null);
+    const found = await findDevice(tv.mac);
+    if (found?.setUp) {
+      // Paired through Setup: Excluded, as Add accessories does it, which can include it again.
+      await api("/api/setup/exclude", { method: "POST", body: { platform, name: instance, deviceID: found.entry.mac, excluded: true } });
+    } else {
+      await updateBlock((block) => {
+        block.devices = (block.devices || []).filter((device) => !sameMAC(device.mac, tv.mac));
+        if (!block.devices.length) delete block.devices;
+      });
+    }
     await refresh();
   }
   const editingTV = (tv) => (editing && sameMAC(editing.tv.mac, tv.mac)) || (editorState && sameMAC(editorState.tv.mac, tv.mac));
 
-  // MARK: Add a TV: find → PIN → confirm, one step at a time
+  // MARK: Adding a TV: Add accessories finds it (or takes the address in its settings) and pairs it with its PIN.
 
-  /// A sentence with a TV's name in bold: the translation's {name} becomes a <strong>.
-  const withName = (text, name) => text.split("{name}").flatMap((part, i) => (i ? [el("strong", { text: name }), part] : [part]));
+  $("#setup").replaceChildren(setupCard({
+    title: t("Add a TV"),
+    text: t("Add accessories finds the Philips TVs on this network and pairs them with the PIN they show. Switch the TV on first."),
+    glyph: "pair", tone: "blue", start: false,
+  }));
 
-  // The wizard opens from "Add a TV" next to the TVs' heading, as Homebridge's "Pair a TV" does; on its own
-  // while there is no TV yet, and for "Pair again".
-  const pairing = $("#pairing");
-  const addButton = $("#add-tv");
-  let pairingOpened = false;
-  function openPairing(scroll = true) {
-    pairingOpened = true;
-    pairing.classList.remove("hidden");
-    addButton.setAttribute("aria-expanded", "true");
-    if (scroll) pairing.scrollIntoView({ behavior: reducedMotion.matches ? "auto" : "smooth", block: "start" });
-  }
-  function closePairing() {
-    reset();
-    pairing.classList.add("hidden");
-    addButton.setAttribute("aria-expanded", "false");
-    addButton.focus();
-  }
-  addButton.addEventListener("click", () => {
-    if (pairing.classList.contains("hidden")) {
-      openPairing();
-      findButton.focus({ preventScroll: true });
-    } else {
-      closePairing();
-    }
-  });
-  const stepNames = [t("Find"), t("PIN"), t("Confirm")];
-  const steps = el("ol", { class: "steps" }, stepNames.map((label, i) => el("li", { "data-n": String(i + 1), text: label })));
-  const status = el("p", { class: "status-line muted", role: "status" });
-  const say = (message, kind = "muted") => { status.textContent = message; status.className = `status-line ${kind}`; };
-  let target = null;   // { ip, name } of the TV being paired
-  let device = null;   // what the TV handed out: ip, username, password, certFingerprint, mac
-  let attempt = null;  // the TV last asked for a PIN, for the failure's Wake and Explain
-  let repairing = null;   // the MAC of a configured TV paired again: its entry gets the new keys
-  /// An error, with Explain when there is an Assistant, and Wake for the TV being paired (a TV in deep standby
-  /// answers nothing until a Wake-on-LAN packet reaches it): a known TV by its MAC address, another by the MAC
-  /// address this machine's ARP table has for its address.
-  function fail(message) {
-    say(message, "error");
-    const known = attempt && tvs.find((tv) => tv.ip === attempt.ip);
-    const sleeper = known ?? (attempt ? { name: attempt.name ?? attempt.ip, ip: attempt.ip } : null);
-    status.append(
-      sleeper ? el("button", { actionIcon: "power", class: "link", text: t("Wake {name}", { name: sleeper.name }), onclick: (event) => act(event.currentTarget, async () => {
-        const address = sleeper.mac ?? (await request(`mac?ip=${encodeURIComponent(sleeper.ip)}`)).mac;
-        await request("wake", { method: "POST", body: { mac: address, ip: sleeper.ip } });
-        say(t("Sent. Give {name} a few seconds to start, then pair again.", { name: sleeper.name }), "ok");
-      }, fail) }) : null,
-      explain({ error: message, context: "Pairing a Philips Android TV from the Homeswift plugin page: POST pair/request on port 1926, the TV shows a PIN, then pair/grant with an HMAC of the PIN.", device: { model: "Philips Android TV with Ambilight" } }));
-  }
-
-  // Step 1: find the TV, or type its address.
-  const found = el("div", { class: "found" });
-  const address = el("input", { type: "text", placeholder: "192.168.1.20", inputmode: "decimal", autocomplete: "off", spellcheck: false, "aria-label": t("TV address") });
-  const findButton = el("button", { actionIcon: "search", text: t("Find TVs"), onclick: (event) => act(event.currentTarget, discover, fail) });
-  const find = el("div", { class: "step" },
-    el("p", { class: "muted", text: t("Switch the TV on: it has to be on and on this network. Homeswift looks for it for five seconds.") }),
-    findButton, found,
-    el("div", { class: "or", text: t("or enter its address") }),
-    el("form", { class: "manual", onsubmit: (event) => { event.preventDefault(); act(event.submitter ?? manualPair, () => pair({ ip: address.value.trim() }), fail); } },
-      address, el("button", { actionIcon: "key", type: "submit", text: t("Pair") })));
-  const manualPair = find.querySelector(".manual button");
-
-  // Step 2: the PIN the TV shows, a box per digit.
-  const digits = [0, 1, 2, 3].map((i) => el("input", { type: "text", inputmode: "numeric", maxlength: 1, autocomplete: i === 0 ? "one-time-code" : "off", "aria-label": t("PIN digit {n}", { n: i + 1 }) }));
-  const pinPrompt = el("p", {});
-  const confirmPin = el("button", { actionIcon: "check", class: "primary", text: t("Confirm PIN"), onclick: (event) => act(event.currentTarget, grant, fail) });
-  const pinStep = el("div", { class: "step" },
-    pinPrompt, el("div", { class: "pin" }, digits),
-    el("div", { class: "actions" }, confirmPin, el("button", { actionIcon: "close", class: "link", text: t("Cancel"), onclick: reset })));
-
-  // Step 3: the details of the TV's entry.
-  const tvName = el("input", { type: "text", maxlength: 64, autocomplete: "off", placeholder: t("Living Room TV") });
-  const ipField = el("input", { type: "text", readOnly: true, tabIndex: -1 });
-  const mac = el("input", { type: "text", placeholder: "AA:BB:CC:DD:EE:FF", autocomplete: "off", spellcheck: false });
-  const macHelp = el("p", { class: "help", text: t("For Wake-on-LAN, which switches the TV on from deep standby.") });
-  const modeField = el("div", { class: "wide" }, el("label", { text: t("Ambilight style when switched on from HomeKit") }));
-  const onStart = el("input", { type: "checkbox", id: "ambilight-on-start" });
-  const entryText = el("pre", { class: "json" });
-  let options = {};   // what is chosen for the TV being added, from the schema: Ambilight style, remote, automations
-  const moreOptions = el("details", { class: "group-box" }, el("summary", { text: t("Remote and automations") }));
-  async function renderOptions() {
-    options = {};
-    const schema = await deviceSchema();
-    modeField.replaceChildren(modeField.firstChild,
-      selectFor(schema.ambilightMode, undefined, (value) => { setKey(options, "ambilightMode", value, schema.ambilightMode.default); showEntry(); }));
-    moreOptions.replaceChildren(moreOptions.firstChild,
-      el("div", { class: "fields" }, remoteFields(schema, options, showEntry)),
-      automationFields(schema, options, showEntry));
-  }
-  const confirmStep = el("div", { class: "step" },
-    el("div", { class: "form" },
-      el("div", { class: "wide" }, el("label", { text: t("Name in the Home app") }), tvName),
-      el("div", {}, el("label", { text: t("Address") }), ipField),
-      el("div", {}, el("label", { text: t("MAC address") }), el("div", { class: "with-button" }, mac, macButton(() => ipField.value, mac, fail)), macHelp),
-      modeField),
-    el("div", { class: "check" }, el("label", { class: "switch" }, onStart, el("span", {})), el("label", { htmlFor: "ambilight-on-start", text: t("Switch Ambilight on whenever the TV comes on") })),
-    moreOptions,
-    el("div", { class: "actions" },
-      el("button", { actionIcon: "plus", class: "primary", text: t("Add TV"), onclick: (event) => act(event.currentTarget, addToConfiguration, fail) }),
-      el("button", { actionIcon: "close", class: "link", text: t("Cancel"), onclick: reset })),
-    el("details", {}, el("summary", { text: t("The entry for config.json") }), entryText,
-      el("button", { actionIcon: "copy", class: "link", text: t("Copy"), onclick: (event) => act(event.currentTarget, async () => { await HomeswiftCommon.copyText(entryText.textContent); say(t("Copied."), "ok"); }, fail) })));
-
-  // After saving: the plugin reloads with the TV at once.
-  const doneText = el("p", {});
-  const done = el("div", { class: "step" },
-    doneText,
-    el("div", { class: "actions" }, el("button", { actionIcon: "check", class: "primary", text: t("Done"), onclick: closePairing }), el("button", { actionIcon: "plus", text: t("Add another TV"), onclick: reset })));
-
-  const bodies = [find, pinStep, confirmStep, done];
-  pairing.replaceChildren(
-    el("div", { class: "panel-head" }, el("h2", { id: "add-title", text: t("Add a TV") }), el("button", { actionIcon: "close", class: "link", text: t("Close"), onclick: closePairing })),
-    steps, ...bodies, status);
-
-  function show(step) {
-    bodies.forEach((body, i) => body.classList.toggle("hidden", i !== step));
-    [...steps.children].forEach((item, i) => {
-      item.classList.toggle("current", i === Math.min(step, 2) && step < 3);
-      item.classList.toggle("done", i < step);
-    });
-  }
-
-  function reset() {
-    target = null;
-    device = null;
-    attempt = null;
-    repairing = null;
-    stepNames.forEach((label, i) => { steps.children[i].textContent = label; });
-    digits.forEach((digit) => { digit.value = ""; });
-    say("");
-    show(0);
-  }
-
-  async function discover() {
-    found.replaceChildren();
-    say(t("Looking for TVs…"));
-    const answer = await request("discover");
-    const known = new Set(tvs.map((tv) => tv.ip));
-    const fresh = answer.tvs.filter((tv) => !known.has(tv.host));
-    say(fresh.length ? "" : answer.tvs.length ? t("Every TV that answered is already added.") : t("No TV announced itself. Check it is on, or enter its address."));
-    found.replaceChildren(...fresh.map((tv) => el("div", { class: "item" },
-      el("div", {}, el("strong", { text: tv.name }), el("div", { class: "muted", text: tv.host })),
-      el("button", { actionIcon: "key", class: "primary", text: t("Pair"), onclick: (event) => act(event.currentTarget, () => pair({ ip: tv.host, name: tv.name }), fail) }))));
-  }
-
-  /// Pairs a configured TV again (after a reset of the TV, or to pin its certificate): its entry keeps its
-  /// settings and gets the new keys.
-  async function repair(tv) {
-    reset();
-    repairing = tv.mac;
-    steps.children[2].textContent = t("Done");
-    openPairing();
-    await act(manualPair, () => pair({ ip: tv.ip, name: tv.name }), fail);
-  }
-
-  async function pair(tv) {
-    if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(tv.ip)) throw new Error(t("Enter the TV's IPv4 address, like 192.168.1.20."));
-    attempt = tv;
-    say(t("Asking the TV for a PIN…"));
-    const answer = await request("pair", { method: "POST", body: { ip: tv.ip, name: "Homeswift" } });
-    target = tv;
-    pinPrompt.replaceChildren(...withName(t("Type the PIN {name} shows on screen."), tv.name ?? tv.ip));
-    say(answer.certificateSeen ? "" : t("The TV answered over plain HTTP, so its certificate cannot be pinned."));
-    digits.forEach((digit) => { digit.value = ""; });
-    show(1);
-    digits[0].focus();
-  }
-
-  // The digit boxes: one digit each, typing moves on, Backspace moves back, a pasted PIN fills them all,
-  // and the fourth digit confirms.
-  digits.forEach((digit, i) => {
-    digit.addEventListener("input", () => {
-      const typed = digit.value.replace(/\D/g, "");
-      if (typed.length > 1) return fill(typed);
-      digit.value = typed;
-      if (typed && i < 3) digits[i + 1].focus();
-      if (pin().length === 4) confirmPin.click();
-    });
-    digit.addEventListener("keydown", (event) => {
-      if (event.key === "Backspace" && !digit.value && i > 0) { digits[i - 1].focus(); digits[i - 1].value = ""; event.preventDefault(); }
-      if (event.key === "Enter" && pin().length === 4) confirmPin.click();
-    });
-    digit.addEventListener("paste", (event) => { event.preventDefault(); fill((event.clipboardData?.getData("text") ?? "").replace(/\D/g, "")); });
-    digit.addEventListener("focus", () => digit.select());
-  });
-  const pin = () => digits.map((digit) => digit.value).join("");
-  function fill(text) {
-    digits.forEach((digit, i) => { digit.value = text[i] ?? ""; });
-    digits[Math.min(text.length, 3)].focus();
-    if (pin().length === 4) confirmPin.click();
-  }
-
-  async function grant() {
-    if (pin().length !== 4) throw new Error(t("The PIN has four digits."));
-    try {
-      const answer = await request("pair/grant", { method: "POST", body: { ip: target.ip, pin: pin() } });
-      device = answer.device;
-      if (repairing) {
-        await updateDevice(repairing, (entry) => {
-          entry.username = device.username;
-          entry.password = device.password;
-          if (device.certFingerprint) entry.certFingerprint = device.certFingerprint; else delete entry.certFingerprint;
-        });
-        doneText.replaceChildren(...withName(answer.certificatePinned ? t("{name} is paired again, with its certificate pinned.") : t("{name} is paired again."), target.name ?? target.ip));
-        show(3);
-        say("");
-        repairing = null;
-        setTimeout(refresh, 600);
-        return;
-      }
-      tvName.value = target.name ?? "";
-      ipField.value = device.ip;
-      mac.value = device.mac ?? "";
-      onStart.checked = false;
-      await renderOptions().catch(() => {});
-      checkMAC();
-      showEntry();
-      show(2);
-      say(answer.certificatePinned ? t("Paired, and the TV's certificate is pinned.") : t("Paired."), "ok");
-      tvName.focus();
-    } catch (e) {
-      digits.forEach((digit) => { digit.value = ""; });
-      digits[0].focus();
-      throw e;
-    }
-  }
-
-  function checkMAC() {
-    const missing = !isMAC(mac.value);
-    mac.classList.toggle("needs", missing);
-    macHelp.textContent = missing && !mac.value.trim()
-      ? t("The TV did not give it. Its network settings show it (Settings › Network › View network settings).")
-      : t("For Wake-on-LAN, which switches the TV on from deep standby.");
-  }
-
-  function entry() {
-    const result = { name: tvName.value.trim() || "Philips TV", ...device, ...options };
-    if (mac.value.trim()) result.mac = canonicalMAC(mac.value); else delete result.mac;
-    if (onStart.checked) result.ambilightOnStart = true;
-    return result;
-  }
-  const showEntry = () => { if (device) entryText.replaceChildren(HomeswiftCommon.jsonHighlight(JSON.stringify(entry(), null, 2))); };
-  [tvName, mac].forEach((field) => field.addEventListener("input", () => { if (field === mac) checkMAC(); showEntry(); }));
-  onStart.addEventListener("change", showEntry);
-
-  async function addToConfiguration() {
-    const tv = entry();
-    if (!isMAC(tv.mac)) { mac.focus(); throw new Error(t("A MAC address is needed to switch the TV on.")); }
-    await putDevice(tv);
-    doneText.replaceChildren(...withName(t("{name} is added. In the Home app, add it with the bridge's setup code: Add Accessory › More options, then the TV's name."), tv.name));
-    say("");
-    show(3);
-    await refresh();
-  }
-
-  show(0);
   poll(refresh);
 })();
 
@@ -854,6 +648,8 @@ HomeswiftI18n.add({
     "Pair your Philips Android TVs and control them from here and from the Home app.": "Jumelez vos téléviseurs Philips Android TV et contrôlez-les d'ici et depuis l'app Maison.",
     "Your TVs": "Vos téléviseurs",
     "Add a TV": "Ajouter un téléviseur",
+    "Add accessories finds the Philips TVs on this network and pairs them with the PIN they show. Switch the TV on first.": "Ajouter des accessoires trouve les téléviseurs Philips de ce réseau et les jumelle avec le PIN qu'ils affichent. Allumez d'abord le téléviseur.",
+    "Read from the TV when it was paired. For Wake-on-LAN, which switches the TV on from deep standby.": "Lue sur le téléviseur lors du jumelage. Pour le Wake-on-LAN, qui allume le téléviseur depuis la veille profonde.",
     "On": "Allumé",
     "Off": "Éteint",
     "Standby": "En veille",
@@ -974,43 +770,9 @@ HomeswiftI18n.add({
     "The address must be an IPv4 address, like 192.168.1.20.": "L'adresse doit être une adresse IPv4, comme 192.168.1.20.",
     "The MAC address must look like AA:BB:CC:DD:EE:FF.": "L'adresse MAC doit ressembler à AA:BB:CC:DD:EE:FF.",
     "Remove {name}? It leaves the Home app, with its scenes and automations.": "Supprimer {name} ? Il quitte l'app Maison, avec ses scènes et automatisations.",
-    "Find": "Rechercher",
     "PIN": "PIN",
     "Confirm": "Confirmer",
-    "Done": "Terminé",
-    "Wake {name}": "Réveiller {name}",
-    "Sent. Give {name} a few seconds to start, then pair again.": "Envoyé. Laissez quelques secondes à {name} pour démarrer, puis jumelez à nouveau.",
-    "TV address": "Adresse du téléviseur",
-    "Find TVs": "Rechercher des téléviseurs",
-    "Switch the TV on: it has to be on and on this network. Homeswift looks for it for five seconds.": "Allumez le téléviseur : il doit être allumé et sur ce réseau. Homeswift le cherche pendant cinq secondes.",
-    "or enter its address": "ou saisissez son adresse",
     "Pair": "Jumeler",
-    "PIN digit {n}": "Chiffre {n} du PIN",
-    "Confirm PIN": "Confirmer le PIN",
-    "Cancel": "Annuler",
-    "Living Room TV": "Téléviseur du salon",
-    "Ambilight style when switched on from HomeKit": "Style Ambilight à l'allumage depuis HomeKit",
-    "Remote and automations": "Télécommande et automatisations",
-    "Add TV": "Ajouter le téléviseur",
-    "The entry for config.json": "L'entrée pour config.json",
-    "Copy": "Copier",
-    "Copied.": "Copié.",
-    "Add another TV": "Ajouter un autre téléviseur",
-    "Looking for TVs…": "Recherche des téléviseurs…",
-    "Every TV that answered is already added.": "Tous les téléviseurs qui ont répondu sont déjà ajoutés.",
-    "No TV announced itself. Check it is on, or enter its address.": "Aucun téléviseur ne s'est annoncé. Vérifiez qu'il est allumé, ou saisissez son adresse.",
-    "Enter the TV's IPv4 address, like 192.168.1.20.": "Saisissez l'adresse IPv4 du téléviseur, comme 192.168.1.20.",
-    "Asking the TV for a PIN…": "Demande d'un PIN au téléviseur…",
-    "Type the PIN {name} shows on screen.": "Saisissez le PIN affiché à l'écran par {name}.",
-    "The TV answered over plain HTTP, so its certificate cannot be pinned.": "Le téléviseur a répondu en HTTP simple : son certificat ne peut pas être épinglé.",
-    "The PIN has four digits.": "Le PIN a quatre chiffres.",
-    "{name} is paired again, with its certificate pinned.": "{name} est de nouveau jumelé, avec son certificat épinglé.",
-    "{name} is paired again.": "{name} est de nouveau jumelé.",
-    "Paired, and the TV's certificate is pinned.": "Jumelé, et le certificat du téléviseur est épinglé.",
-    "Paired.": "Jumelé.",
-    "The TV did not give it. Its network settings show it (Settings › Network › View network settings).": "Le téléviseur ne l'a pas donnée. Ses réglages réseau l'indiquent (Réglages › Réseau › Afficher les paramètres réseau).",
-    "A MAC address is needed to switch the TV on.": "Une adresse MAC est nécessaire pour allumer le téléviseur.",
-    "{name} is added. In the Home app, add it with the bridge's setup code: Add Accessory › More options, then the TV's name.": "{name} est ajouté. Dans l'app Maison, ajoutez-le avec le code de configuration du pont : Ajouter un accessoire › Plus d'options, puis le nom du téléviseur.",
     "no TV with that MAC": "aucun téléviseur avec cette adresse MAC",
     "The inputs are listed in the configuration (inputs), so the TV's apps are not read.": "Les entrées sont listées dans la configuration (inputs) : les apps du téléviseur ne sont donc pas lues.",
     "{0} is off. Switch it on, wait for its Home screen, then refresh.": "{0} est éteint. Allumez-le, attendez son écran d'accueil, puis actualisez.",
@@ -1022,27 +784,19 @@ HomeswiftI18n.add({
     "A valid MAC address is required": "Une adresse MAC valide est requise",
     "unknown key": "touche inconnue",
     "the TV did not take the key": "le téléviseur n'a pas accepté la touche",
-    "Cannot reach the TV at {0}: is it on, and on this network? ({1})": "Impossible de joindre le téléviseur à {0} : est-il allumé et sur ce réseau ? ({1})",
-    "no pairing in progress for that address; start again": "aucun jumelage en cours pour cette adresse ; recommencez",
-    "the pairing expired; start again": "le jumelage a expiré ; recommencez",
-    "a 4-digit PIN is required": "un PIN à 4 chiffres est requis",
     "the TV did not answer: {0}": "le téléviseur n'a pas répondu : {0}",
     "the TV refuses connections on port {0}": "le téléviseur refuse les connexions sur le port {0}",
     "the TV answered HTTP {0}": "le téléviseur a répondu HTTP {0}",
     "the TV refused the credentials: pair it again": "le téléviseur a refusé les identifiants : jumelez-le à nouveau",
     "unexpected answer from the TV: {0}": "réponse inattendue du téléviseur : {0}",
-    "the TV's certificate ({0}) is not the pinned one ({1})": "le certificat du téléviseur ({0}) n'est pas celui épinglé ({1})",
-    "Invalid PIN code. Please check the PIN on your TV screen and try again.": "Code PIN incorrect. Vérifiez le PIN sur l'écran du téléviseur et réessayez.",
-    "Access denied. The TV rejected the pairing request.": "Accès refusé. Le téléviseur a rejeté la demande de jumelage.",
-    "Pairing endpoint not found. Your TV may not support this pairing method.": "Point d'accès de jumelage introuvable. Votre téléviseur ne prend peut-être pas en charge cette méthode.",
-    "Request timeout. The TV took too long to respond.": "Délai dépassé. Le téléviseur a mis trop de temps à répondre.",
-    "TV internal error. Please try again.": "Erreur interne du téléviseur. Réessayez.",
-    "TV is temporarily unavailable. Please try again later.": "Le téléviseur est momentanément indisponible. Réessayez plus tard."
+    "the TV's certificate ({0}) is not the pinned one ({1})": "le certificat du téléviseur ({0}) n'est pas celui épinglé ({1})"
   },
   "es": {
     "Pair your Philips Android TVs and control them from here and from the Home app.": "Empareja tus televisores Philips Android TV y contrólalos desde aquí y desde la app Casa.",
     "Your TVs": "Tus televisores",
     "Add a TV": "Añadir un televisor",
+    "Add accessories finds the Philips TVs on this network and pairs them with the PIN they show. Switch the TV on first.": "Añadir accesorios encuentra los televisores Philips de esta red y los empareja con el PIN que muestran. Enciende antes el televisor.",
+    "Read from the TV when it was paired. For Wake-on-LAN, which switches the TV on from deep standby.": "Leída del televisor al emparejarlo. Para Wake-on-LAN, que enciende el televisor desde el reposo profundo.",
     "On": "Encendido",
     "Off": "Apagado",
     "Standby": "En reposo",
@@ -1163,43 +917,9 @@ HomeswiftI18n.add({
     "The address must be an IPv4 address, like 192.168.1.20.": "La dirección debe ser IPv4, como 192.168.1.20.",
     "The MAC address must look like AA:BB:CC:DD:EE:FF.": "La dirección MAC debe tener la forma AA:BB:CC:DD:EE:FF.",
     "Remove {name}? It leaves the Home app, with its scenes and automations.": "¿Eliminar {name}? Saldrá de la app Casa, con sus escenas y automatizaciones.",
-    "Find": "Buscar",
     "PIN": "PIN",
     "Confirm": "Confirmar",
-    "Done": "Listo",
-    "Wake {name}": "Despertar {name}",
-    "Sent. Give {name} a few seconds to start, then pair again.": "Enviado. Dale a {name} unos segundos para arrancar y vuelve a emparejar.",
-    "TV address": "Dirección del televisor",
-    "Find TVs": "Buscar televisores",
-    "Switch the TV on: it has to be on and on this network. Homeswift looks for it for five seconds.": "Enciende el televisor: debe estar encendido y en esta red. Homeswift lo busca durante cinco segundos.",
-    "or enter its address": "o introduce su dirección",
     "Pair": "Emparejar",
-    "PIN digit {n}": "Dígito {n} del PIN",
-    "Confirm PIN": "Confirmar PIN",
-    "Cancel": "Cancelar",
-    "Living Room TV": "Televisor del salón",
-    "Ambilight style when switched on from HomeKit": "Estilo de Ambilight al encenderlo desde HomeKit",
-    "Remote and automations": "Mando y automatizaciones",
-    "Add TV": "Añadir televisor",
-    "The entry for config.json": "La entrada para config.json",
-    "Copy": "Copiar",
-    "Copied.": "Copiado.",
-    "Add another TV": "Añadir otro televisor",
-    "Looking for TVs…": "Buscando televisores…",
-    "Every TV that answered is already added.": "Todos los televisores que han respondido ya están añadidos.",
-    "No TV announced itself. Check it is on, or enter its address.": "Ningún televisor se ha anunciado. Comprueba que está encendido o introduce su dirección.",
-    "Enter the TV's IPv4 address, like 192.168.1.20.": "Introduce la dirección IPv4 del televisor, como 192.168.1.20.",
-    "Asking the TV for a PIN…": "Pidiendo un PIN al televisor…",
-    "Type the PIN {name} shows on screen.": "Escribe el PIN que {name} muestra en pantalla.",
-    "The TV answered over plain HTTP, so its certificate cannot be pinned.": "El televisor ha respondido por HTTP sin cifrar, así que su certificado no se puede fijar.",
-    "The PIN has four digits.": "El PIN tiene cuatro dígitos.",
-    "{name} is paired again, with its certificate pinned.": "{name} se ha vuelto a emparejar, con su certificado fijado.",
-    "{name} is paired again.": "{name} se ha vuelto a emparejar.",
-    "Paired, and the TV's certificate is pinned.": "Emparejado, y el certificado del televisor está fijado.",
-    "Paired.": "Emparejado.",
-    "The TV did not give it. Its network settings show it (Settings › Network › View network settings).": "El televisor no la ha dado. Sus ajustes de red la muestran (Ajustes › Red › Ver ajustes de red).",
-    "A MAC address is needed to switch the TV on.": "Hace falta una dirección MAC para encender el televisor.",
-    "{name} is added. In the Home app, add it with the bridge's setup code: Add Accessory › More options, then the TV's name.": "{name} se ha añadido. En la app Casa, añádelo con el código de configuración del puente: Añadir accesorio › Más opciones y luego el nombre del televisor.",
     "no TV with that MAC": "no hay ningún televisor con esa MAC",
     "The inputs are listed in the configuration (inputs), so the TV's apps are not read.": "Las entradas están en la configuración (inputs), así que no se leen las apps del televisor.",
     "{0} is off. Switch it on, wait for its Home screen, then refresh.": "{0} está apagado. Enciéndelo, espera a su pantalla de inicio y actualiza.",
@@ -1211,27 +931,19 @@ HomeswiftI18n.add({
     "A valid MAC address is required": "Se necesita una dirección MAC válida",
     "unknown key": "tecla desconocida",
     "the TV did not take the key": "el televisor no ha aceptado la tecla",
-    "Cannot reach the TV at {0}: is it on, and on this network? ({1})": "No se puede contactar con el televisor en {0}: ¿está encendido y en esta red? ({1})",
-    "no pairing in progress for that address; start again": "no hay ningún emparejamiento en curso para esa dirección; empieza de nuevo",
-    "the pairing expired; start again": "el emparejamiento ha caducado; empieza de nuevo",
-    "a 4-digit PIN is required": "se necesita un PIN de 4 dígitos",
     "the TV did not answer: {0}": "el televisor no ha respondido: {0}",
     "the TV refuses connections on port {0}": "el televisor rechaza las conexiones en el puerto {0}",
     "the TV answered HTTP {0}": "el televisor ha respondido HTTP {0}",
     "the TV refused the credentials: pair it again": "el televisor ha rechazado las credenciales: vuelve a emparejarlo",
     "unexpected answer from the TV: {0}": "respuesta inesperada del televisor: {0}",
-    "the TV's certificate ({0}) is not the pinned one ({1})": "el certificado del televisor ({0}) no es el fijado ({1})",
-    "Invalid PIN code. Please check the PIN on your TV screen and try again.": "Código PIN incorrecto. Comprueba el PIN en la pantalla del televisor y vuelve a intentarlo.",
-    "Access denied. The TV rejected the pairing request.": "Acceso denegado. El televisor ha rechazado la solicitud de emparejamiento.",
-    "Pairing endpoint not found. Your TV may not support this pairing method.": "No se ha encontrado el punto de emparejamiento. Puede que tu televisor no admita este método.",
-    "Request timeout. The TV took too long to respond.": "Tiempo de espera agotado. El televisor ha tardado demasiado en responder.",
-    "TV internal error. Please try again.": "Error interno del televisor. Vuelve a intentarlo.",
-    "TV is temporarily unavailable. Please try again later.": "El televisor no está disponible por ahora. Vuelve a intentarlo más tarde."
+    "the TV's certificate ({0}) is not the pinned one ({1})": "el certificado del televisor ({0}) no es el fijado ({1})"
   },
   "pt": {
     "Pair your Philips Android TVs and control them from here and from the Home app.": "Emparelhe os seus televisores Philips Android TV e controle-os a partir daqui e da app Casa.",
     "Your TVs": "Os seus televisores",
     "Add a TV": "Adicionar um televisor",
+    "Add accessories finds the Philips TVs on this network and pairs them with the PIN they show. Switch the TV on first.": "Adicionar acessórios encontra os televisores Philips desta rede e emparelha-os com o PIN que mostram. Ligue primeiro o televisor.",
+    "Read from the TV when it was paired. For Wake-on-LAN, which switches the TV on from deep standby.": "Lido do televisor ao emparelhá-lo. Para o Wake-on-LAN, que liga o televisor a partir do modo de espera profundo.",
     "On": "Ligado",
     "Off": "Desligado",
     "Standby": "Em espera",
@@ -1352,43 +1064,9 @@ HomeswiftI18n.add({
     "The address must be an IPv4 address, like 192.168.1.20.": "O endereço tem de ser IPv4, como 192.168.1.20.",
     "The MAC address must look like AA:BB:CC:DD:EE:FF.": "O endereço MAC tem de ter a forma AA:BB:CC:DD:EE:FF.",
     "Remove {name}? It leaves the Home app, with its scenes and automations.": "Remover {name}? Sai da app Casa, com as suas cenas e automatizações.",
-    "Find": "Procurar",
     "PIN": "PIN",
     "Confirm": "Confirmar",
-    "Done": "Concluído",
-    "Wake {name}": "Despertar {name}",
-    "Sent. Give {name} a few seconds to start, then pair again.": "Enviado. Aguarde uns segundos até {name} arrancar e emparelhe novamente.",
-    "TV address": "Endereço do televisor",
-    "Find TVs": "Procurar televisores",
-    "Switch the TV on: it has to be on and on this network. Homeswift looks for it for five seconds.": "Ligue o televisor: tem de estar ligado e nesta rede. O Homeswift procura-o durante cinco segundos.",
-    "or enter its address": "ou introduza o endereço",
     "Pair": "Emparelhar",
-    "PIN digit {n}": "Dígito {n} do PIN",
-    "Confirm PIN": "Confirmar PIN",
-    "Cancel": "Cancelar",
-    "Living Room TV": "Televisor da sala",
-    "Ambilight style when switched on from HomeKit": "Estilo do Ambilight ao ligar a partir do HomeKit",
-    "Remote and automations": "Comando e automatizações",
-    "Add TV": "Adicionar televisor",
-    "The entry for config.json": "A entrada para o config.json",
-    "Copy": "Copiar",
-    "Copied.": "Copiado.",
-    "Add another TV": "Adicionar outro televisor",
-    "Looking for TVs…": "A procurar televisores…",
-    "Every TV that answered is already added.": "Todos os televisores que responderam já estão adicionados.",
-    "No TV announced itself. Check it is on, or enter its address.": "Nenhum televisor se anunciou. Verifique se está ligado ou introduza o endereço.",
-    "Enter the TV's IPv4 address, like 192.168.1.20.": "Introduza o endereço IPv4 do televisor, como 192.168.1.20.",
-    "Asking the TV for a PIN…": "A pedir um PIN ao televisor…",
-    "Type the PIN {name} shows on screen.": "Introduza o PIN que {name} mostra no ecrã.",
-    "The TV answered over plain HTTP, so its certificate cannot be pinned.": "O televisor respondeu por HTTP simples, por isso o certificado não pode ser fixado.",
-    "The PIN has four digits.": "O PIN tem quatro dígitos.",
-    "{name} is paired again, with its certificate pinned.": "{name} foi emparelhado novamente, com o certificado fixado.",
-    "{name} is paired again.": "{name} foi emparelhado novamente.",
-    "Paired, and the TV's certificate is pinned.": "Emparelhado, e o certificado do televisor está fixado.",
-    "Paired.": "Emparelhado.",
-    "The TV did not give it. Its network settings show it (Settings › Network › View network settings).": "O televisor não o indicou. As definições de rede mostram-no (Definições › Rede › Ver definições de rede).",
-    "A MAC address is needed to switch the TV on.": "É necessário um endereço MAC para ligar o televisor.",
-    "{name} is added. In the Home app, add it with the bridge's setup code: Add Accessory › More options, then the TV's name.": "{name} foi adicionado. Na app Casa, adicione-o com o código de configuração da ponte: Adicionar acessório › Mais opções e depois o nome do televisor.",
     "no TV with that MAC": "não há nenhum televisor com esse MAC",
     "The inputs are listed in the configuration (inputs), so the TV's apps are not read.": "As entradas estão na configuração (inputs), por isso as apps do televisor não são lidas.",
     "{0} is off. Switch it on, wait for its Home screen, then refresh.": "{0} está desligado. Ligue-o, aguarde pelo ecrã inicial e atualize.",
@@ -1400,22 +1078,12 @@ HomeswiftI18n.add({
     "A valid MAC address is required": "É necessário um endereço MAC válido",
     "unknown key": "tecla desconhecida",
     "the TV did not take the key": "o televisor não aceitou a tecla",
-    "Cannot reach the TV at {0}: is it on, and on this network? ({1})": "Não é possível contactar o televisor em {0}: está ligado e nesta rede? ({1})",
-    "no pairing in progress for that address; start again": "não há nenhum emparelhamento em curso para esse endereço; comece de novo",
-    "the pairing expired; start again": "o emparelhamento expirou; comece de novo",
-    "a 4-digit PIN is required": "é necessário um PIN de 4 dígitos",
     "the TV did not answer: {0}": "o televisor não respondeu: {0}",
     "the TV refuses connections on port {0}": "o televisor recusa ligações na porta {0}",
     "the TV answered HTTP {0}": "o televisor respondeu HTTP {0}",
     "the TV refused the credentials: pair it again": "o televisor recusou as credenciais: emparelhe-o novamente",
     "unexpected answer from the TV: {0}": "resposta inesperada do televisor: {0}",
-    "the TV's certificate ({0}) is not the pinned one ({1})": "o certificado do televisor ({0}) não é o fixado ({1})",
-    "Invalid PIN code. Please check the PIN on your TV screen and try again.": "Código PIN inválido. Verifique o PIN no ecrã do televisor e tente novamente.",
-    "Access denied. The TV rejected the pairing request.": "Acesso negado. O televisor rejeitou o pedido de emparelhamento.",
-    "Pairing endpoint not found. Your TV may not support this pairing method.": "Endpoint de emparelhamento não encontrado. O televisor pode não suportar este método.",
-    "Request timeout. The TV took too long to respond.": "Tempo esgotado. O televisor demorou demasiado a responder.",
-    "TV internal error. Please try again.": "Erro interno do televisor. Tente novamente.",
-    "TV is temporarily unavailable. Please try again later.": "O televisor está temporariamente indisponível. Tente novamente mais tarde."
+    "the TV's certificate ({0}) is not the pinned one ({1})": "o certificado do televisor ({0}) não é o fixado ({1})"
   }
 });
 
@@ -1430,9 +1098,9 @@ HomeswiftI18n.add({
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/style.css">
 <style>
-  /* The page's own pieces, on the UI's materials: a heading with the plugin's tile, one card per TV with its
-     state and a remote grouped the way a remote is (power, navigation, volume, Ambilight), and the pairing
-     wizard of the Homebridge plugin (find, PIN, confirm) with one step showing at a time. */
+  /* The page's own pieces, on the UI's materials: a heading with the plugin's tile, the card to Add accessories,
+     and one card per TV with its state and a remote grouped the way a remote is (power, navigation, volume,
+     Ambilight). */
 
   .tvs { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 460px), 1fr)); gap: 14px; }
   .tv { margin: 0; display: grid; gap: 16px; animation: materialize var(--normal) var(--ease-out); }
@@ -1480,8 +1148,6 @@ HomeswiftI18n.add({
   .empty-list { margin: 0; padding: 14px; border-radius: 14px; border: 1px dashed var(--line); text-align: center; font-size: 0.8125rem; }
   .off-note p { margin: 0; }
   .off-note .explain { margin-top: 4px; }
-  .status-line .link { margin-left: 10px; padding: 0; }
-  .status-line .explain { display: block; }
 
   /* The TV editor: the Homebridge plugin's sections as tabs. */
   .tabs { align-self: start; flex-wrap: wrap; }
@@ -1497,53 +1163,18 @@ HomeswiftI18n.add({
   .add-box .actions { margin-top: 10px; }
   .save-bar.dirty > .muted { color: var(--warn); font-weight: 500; }
 
-  .steps { display: flex; gap: 6px; list-style: none; margin: 0 0 18px; padding: 0; flex-wrap: wrap; }
-  .steps li { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px 5px 5px; border-radius: 999px; color: var(--muted); font-weight: 500; }
-  .steps li::before {
-    content: attr(data-n); width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 0.8125rem;
-    background: var(--material-thin); border: 1px solid var(--edge); font-variant-numeric: tabular-nums;
-  }
-  .steps li.current { color: var(--text); background: var(--material-thin); }
-  .steps li.current::before { background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: var(--accent-text); border-color: transparent; }
-  .steps li.done::before { content: "✓"; color: var(--ok); }
-  .step { animation: fade var(--normal) var(--ease-out); }
-  /* The pairing wizard opens under its button, above the TVs, as the material arriving. */
-  .pairing { margin-bottom: 16px; animation: materialize var(--normal) var(--ease-out); scroll-margin-top: 90px; }
-  .pairing .panel-head { margin-bottom: 14px; }
-  .pairing .panel-head h2 { margin: 0; }
-  .step > p:first-child { margin-top: 0; }
-  .found { display: grid; gap: 8px; margin: 14px 0 0; }
-  .found .item { display: flex; align-items: center; gap: 12px; margin: 0; padding: 10px 10px 10px 14px; }
-  .found .item div { flex: 1; min-width: 0; }
-  .found .item .muted { font-size: 0.8125rem; }
-  .manual { display: flex; gap: 10px; align-items: center; margin-top: 6px; }
-  .manual input { flex: 1; max-width: 260px; font-variant-numeric: tabular-nums; }
-  .or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 0.8125rem; margin: 18px 0 4px; }
-  .or::before, .or::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
-
-  .pin { display: flex; gap: 10px; margin: 6px 0 4px; }
-  .pin input { width: 54px; height: 62px; padding: 0; text-align: center; font-size: 1.625rem; font-weight: 600; font-variant-numeric: tabular-nums; border-radius: 16px; }
-  .form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 16px; }
-  .form .wide { grid-column: 1 / -1; }
-  .form input[readonly] { color: var(--muted); }
+  #setup { margin-bottom: 16px; }
   /* A MAC address field with its "Get MAC" button. */
   .with-button { display: flex; gap: 8px; align-items: center; }
   .with-button input { flex: 1; min-width: 0; }
   .head-actions { display: flex; gap: 14px; align-items: center; flex-shrink: 0; }
-  .check { display: flex; align-items: center; gap: 12px; margin: 14px 0 0; }
-  .check label { margin: 0; }
-  .needs { border-color: var(--warn) !important; }
-  details { margin-top: 14px; }
-  details pre { font-family: var(--mono); font-size: 0.78rem; margin: 6px 0 0; padding: 12px 14px; border-radius: 14px; background: var(--material-thin); border: 1px solid var(--line); overflow: auto; }
 
   @media (prefers-reduced-motion: reduce) {
-    .tv, .step, .pairing { animation: none; }
+    .tv { animation: none; }
     .source { transition: none; }
   }
   @media (max-width: 640px) {
-    .form { grid-template-columns: 1fr; }
     .original { display: none; }
-    .pin input { width: 48px; height: 56px; }
   }
 </style>
 </head>
@@ -1558,8 +1189,8 @@ HomeswiftI18n.add({
     </div>
   </div>
 
-  <div class="section-head"><h2 data-i18n>Your TVs</h2><button id="add-tv" class="primary" data-i18n aria-expanded="false" aria-controls="pairing" data-action-icon="plus">Add a TV</button></div>
-  <section id="pairing" class="card pairing hidden" aria-labelledby="add-title"></section>
+  <div id="setup"></div>
+  <div class="section-head"><h2 data-i18n>Your TVs</h2></div>
   <div id="tvs" class="tvs"></div>
   <div id="sources" class="card panel hidden"></div>
   <div id="tv-editor" class="card panel hidden"></div>

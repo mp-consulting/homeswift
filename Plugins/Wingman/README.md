@@ -12,18 +12,16 @@ reach itself (Hue, IKEA) come too. They are **never published to HomeKit again**
 
 ## Pairing
 
-On the plugin's page in the web UI:
+Pairing is done on the web UI's **Add accessories** page (Setup), or by an AI agent through the MCP tools
+`discover_devices`, `start_setup` and `continue_setup`; the plugin's page leads there.
 
-1. **On the network** lists the Wingman apps Bonjour finds (`_homeswift-wingman._tcp`), or **Add by address** asks
-   one by its address when Bonjour does not cross (another network, a container without multicast).
-2. **Pair** opens under the Wingman's row. In Wingman's menu, choose **Pair a Homeswift Bridge**: it shows a 6-digit
-   code for ten minutes. Check that the certificate the page shows starts as the one in Wingman's window (Bridges tab),
-   then type the code: the sixth digit pairs.
-3. The token and the pinned certificate go in the bridge's vault under the Wingman's id; the page writes the Wingman's
-   entry in `devices` (its id, address and name) and the plugin reloads with it.
-
-The web UI's **Add accessories** page (Setup) does the same: it lists the Wingmen Bonjour finds, shows the certificate
-to compare, and asks for the code; the address then goes in the Wingman's Accessory Settings rather than `devices`.
+1. Add accessories lists the Wingman apps Bonjour finds (`_homeswift-wingman._tcp`). For one Bonjour does not reach
+   (another network, a container without multicast), add an entry to `devices` with only its `host` (and `port`, when it
+   is not 8619) and a `name`: Add accessories lists it by that address.
+2. In Wingman's menu, choose **Pair a Homeswift Bridge**: it shows a 6-digit code for ten minutes. Check that the
+   certificate Setup shows starts as the one in Wingman's window (Bridges tab), then type the code.
+3. The token and the pinned certificate go in the bridge's vault under the Wingman's id, its address in its Accessory
+   Settings, and the plugin reloads with it.
 
 The certificate is pinned from the pairing on; the token is Wingman's to revoke (its Paired Bridges). Pairing trusts
 the network for those ten minutes, as a first connection does: the fingerprint check is what guards it.
@@ -46,7 +44,7 @@ the network for those ten minutes, as a first connection does: the fingerprint c
 
 | Key | What it does |
 |---|---|
-| `devices` | The paired Wingmen, written by the page: `id` (Wingman's), `host` and `port` (Bonjour moves them); a `token` and `fingerprint` (pinned) written there before move into the vault |
+| `devices` | Wingmen paired before Setup: `id` (Wingman's), `host` and `port` (Bonjour moves them); a `token` and `fingerprint` (pinned) written there before move into the vault. An entry with a `host` and no `id` is a Wingman for Add accessories to pair |
 | `homes` | Only these homes, by name; all of them without it |
 | `exclude` | Accessories left out, by name or HomeKit id |
 | `excludeBridges` | Bridges whose accessories are left out, by name; Homeswift's own are always left out |
@@ -64,9 +62,32 @@ and an entry without a pinned certificate is never sent its token. A write goes 
 (the web UI and the MCP server ask first), and Wingman refuses them unless **Let bridges operate locks and doors** is
 on in its settings (off by default). An accessory Apple Home says is not reachable shows No Response until it reports
 again or takes a write; it is still written, as the Home app still tries it (`Accessory.isUnreachable`): HomeKit's
-reachability lags for Matter devices on a Mac, and HomeKit answers a write the device misses with an error. A Wingman that forgot the bridge shows **Pair again**.
+reachability lags for Matter devices on a Mac, and HomeKit answers a write the device misses with an error. A Wingman that forgot the bridge shows **Pair again**, which opens Add accessories.
 
-The MCP tools are `Wingman_list_wingmen`, `Wingman_discover` and `Wingman_pair`.
+The plugin's MCP tool is `Wingman_list_wingmen`; Setup's `discover_devices` and `start_setup` find and pair a Wingman.
+
+## Rooms, scenes and automations
+
+A Wingman that serves Apple Home's structure (its `/info` lists the `structure` feature; docs/apple-home-design.md)
+also gives Homeswift:
+
+- **Rooms**: with **Sync rooms with the hubs** on (the Accessories page's **Rooms** menu), rooms stay in step both
+  ways. A room renamed in Homeswift is renamed in Apple Home, and one renamed in the Home app renames Homeswift's room
+  of the old name (and the other hubs' with it). An accessory moved to another room in Homeswift moves to Apple Home's
+  room of that name (added when there is none), and one moved in the Home app moves in Homeswift. Mirrored accessories
+  are known by their HomeKit id, Homeswift's own by their serial number; one taken out of every room in Homeswift stays
+  where it is in Apple Home.
+- **Scenes**: Apple Home's scenes join **Scenes from your hubs**, in the room of their accessories when they share one.
+  Run them, and from their ⋯ menu rename them, keep their lights as they are (their other actions stay) or delete them.
+  A new scene of lights that are all in one Apple Home home can be kept there. Built-in scenes (Good Morning and the
+  like) are not renamed or deleted; a scene with an action Wingman cannot show (a shortcut) keeps its actions.
+- **Automations**: listed with their triggers, conditions, scenes and actions; turned on or off, renamed, given a new
+  time (a time trigger), new scenes or new actions, or deleted. Their conditions and accessory triggers are shown, not
+  changed: the Home app edits those.
+
+Each edit needs **Let bridges edit rooms, scenes and automations** on in Wingman's settings (off by default) and the
+Mac's user to administer the home; otherwise scenes are only run and nothing else is offered. A change made in the Home
+app reaches Homeswift at once (Wingman's `scenes` and `automations` events). An older Wingman gives none of it.
 
 ## Dashboard controls
 

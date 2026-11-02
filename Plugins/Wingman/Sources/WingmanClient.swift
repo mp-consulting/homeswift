@@ -9,6 +9,12 @@ enum WingmanAPI {
         var id: String
         var version: String?
         var pairing: Bool?
+        /// "structure" when it serves rooms, scenes and automations (docs/apple-home-design.md).
+        var features: [String]? = nil
+        /// Whether its owner lets bridges edit them now (**Let bridges edit rooms, scenes and automations**).
+        var structure: Bool? = nil
+
+        var servesStructure: Bool { features?.contains("structure") == true }
     }
 
     struct Paired: Decodable, Sendable {
@@ -21,8 +27,112 @@ enum WingmanAPI {
     }
 
     struct Home: Decodable, Sendable {
+        var id: String? = nil
         var name: String
+        /// Whether this Mac's user administers the home: HomeKit refuses structural edits otherwise.
+        var editable: Bool? = nil
+        var rooms: [Room]? = nil
         var accessories: [Accessory]
+    }
+
+    struct Room: Decodable, Sendable, Equatable {
+        var id: String
+        var name: String
+    }
+
+    struct Scenes: Decodable, Sendable {
+        var scenes: [Scene]
+    }
+
+    /// An action set: a scene, or one of the four built in (`wakeUp`, `sleep`, `homeArrival`, `homeDeparture`).
+    struct Scene: Decodable, Sendable, Equatable {
+        var id: String
+        var home: String
+        var name: String
+        var type: String?
+        var builtIn: Bool?
+        var actions: [Action]
+        /// Actions Wingman cannot show (a shortcut, media): its actions are not replaced, which would drop them.
+        var unsupported: Int?
+    }
+
+    /// A characteristic an action set writes.
+    struct Action: Codable, Sendable, Equatable {
+        var accessory: String
+        var characteristic: String
+        /// Its HAP UUID; not sent back.
+        var type: String? = nil
+        var value: JSONValue
+    }
+
+    struct Automations: Decodable, Sendable {
+        var automations: [Automation]
+    }
+
+    struct Automation: Decodable, Sendable, Equatable {
+        var id: String
+        var home: String
+        var name: String
+        var enabled: Bool
+        var lastFired: String?
+        var trigger: Trigger
+        var endEvents: [TriggerEvent]?
+        var conditions: [Condition]?
+        var scenes: [String]?
+        var actions: [Action]?
+        var unsupported: Int?
+    }
+
+    struct Trigger: Decodable, Sendable, Equatable {
+        /// "time" (a timer, or a sunrise or sunset alone) or "event".
+        var kind: String
+        var time: Time?
+        var events: [TriggerEvent]?
+    }
+
+    /// A clock time, or a sunrise or sunset with an offset, on weekdays (1 is Sunday).
+    struct Time: Codable, Sendable, Equatable {
+        var hour: Int? = nil
+        var minute: Int? = nil
+        var significant: String? = nil
+        var offsetMinutes: Int? = nil
+        var weekdays: [Int]? = nil
+    }
+
+    /// What starts or ends an event trigger.
+    struct TriggerEvent: Decodable, Sendable, Equatable {
+        /// "characteristic", "threshold", "presence", "location", "duration", "time" or "other".
+        var kind: String
+        var accessory: String?
+        var characteristic: String?
+        var type: String?
+        var value: JSONValue?
+        var min: Double?
+        var max: Double?
+        var who: String?
+        var arriving: Bool?
+        var seconds: Int?
+        var time: Time?
+        var text: String?
+    }
+
+    struct Condition: Decodable, Sendable, Equatable {
+        /// "time", "characteristic", "presence" or "other".
+        var kind: String
+        var after: Time?
+        var before: Time?
+        var accessory: String?
+        var characteristic: String?
+        var type: String?
+        var comparison: String?
+        var value: JSONValue?
+        var who: String?
+        var home: Bool?
+        var text: String?
+    }
+
+    struct Created: Decodable, Sendable {
+        var id: String
     }
 
     struct Bridge: Decodable, Sendable, Equatable {
@@ -168,6 +278,22 @@ struct WingmanClient: Sendable {
     func write(accessory: String, characteristic: String, value: JSONValue) async throws {
         let body = try JSONEncoder().encode(["accessory": .string(accessory), "characteristic": .string(characteristic), "value": value] as JSONValue)
         _ = try await send("POST", "write", body: body, timeout: .seconds(15))
+    }
+
+    func scenes() async throws -> [WingmanAPI.Scene] {
+        try decode(WingmanAPI.Scenes.self, try await send("GET", "scenes", timeout: .seconds(20))).scenes
+    }
+
+    func automations() async throws -> [WingmanAPI.Automation] {
+        try decode(WingmanAPI.Automations.self, try await send("GET", "automations", timeout: .seconds(20))).automations
+    }
+
+    /// One of the structural edits (`rooms/rename`, `scenes/actions`, `automations/enable`…); Wingman answers once
+    /// HomeKit has. Answers what Wingman did.
+    @discardableResult
+    func edit(_ path: String, _ body: JSONValue) async throws -> JSONValue {
+        let response = try await send("POST", path, body: body.encoded(), timeout: .seconds(20))
+        return (try? JSONValue(data: response.body)) ?? .null
     }
 
     private func send(_ method: String, _ path: String, body: Data? = nil, timeout: Duration) async throws -> HTTPResponse {

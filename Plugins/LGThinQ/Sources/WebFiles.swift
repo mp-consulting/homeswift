@@ -7,16 +7,15 @@ extension LGThinQPlugin {
     /// The plugin's web pages, as written, served by the web UI under /plugins/<platform>/.
     public static let webFiles: [String: WebFile] = [
         "app.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
-// The LG ThinQ page: the Homebridge plugin's settings wizard. Step 1 signs in to the LG account (or uses the
-// refresh token of the block); step 2 lists the account's devices to pick for HomeKit, with each device's
-// options, and the account and sync settings; saving writes this instance's block, which reloads the plugin.
+// The LG ThinQ page: the Homebridge plugin's settings wizard. Step 1 is the LG account: signed out, a card to Setup on
+// Add accessories, which signs in; signed in, its region and way, with Sign in again. Step 2 lists the account's devices
+// to pick for HomeKit, with each device's options, and the sync settings; saving writes this instance's block, which
+// reloads the plugin.
 (() => {
   "use strict";
   const { $, el, api, request, readBlock, updateBlock, explain, breadcrumb } = homeswift;
   const { t } = HomeswiftI18n;
 
-  const DEFAULT_COUNTRY = "US";
-  const DEFAULT_LANGUAGE = "en-US";
   const DEFAULT_REFRESH_INTERVAL = 60;
 
   // The options of each device type, as the Homebridge page shows them.
@@ -60,16 +59,15 @@ extension LGThinQPlugin {
   DEVICE_TYPE_FIELDS.AERO_TOWER = DEVICE_TYPE_FIELDS.AIR_PURIFIER;
   const AC_OP_MODES = [[0, t("Cool")], [1, t("Dry")], [2, t("Fan")], [4, t("Heat")], [5, t("Air Clean")], [6, t("Auto")]];
 
-  // State: the block as saved, the session used to list devices, the devices and the choices on them.
+  // State: the block as saved, the sign-in's state, the account's devices and the choices on them.
   let config = {};
-  let credentials = { refresh_token: null, country: null, language: null };
+  let account = {};
   let devices = [];
-  let running = new Set();
   const selected = new Set();
   const deviceSettings = {};
   let activeDevice = null;
 
-  const steps = { login: $("#step-login"), devices: $("#step-devices"), complete: $("#step-complete") };
+  const steps = { devices: $("#step-devices"), complete: $("#step-complete") };
   const showStep = (step) => Object.entries(steps).forEach(([key, node]) => node.classList.toggle("hidden", key !== step));
 
   /// Runs `work` with the button disabled and a spinner on it; errors reach the caller.
@@ -80,8 +78,8 @@ extension LGThinQPlugin {
   // What the Assistant may see: the region and modes, never the email, password, refresh token or device ids.
   const assistantContext = (extra) => [
     extra,
-    `Auth mode: ${config.auth_mode || "token"}.`,
-    `Account region: country ${credentials.country || config.country || DEFAULT_COUNTRY}, language ${credentials.language || config.language || DEFAULT_LANGUAGE}.`,
+    `Auth mode: ${account.authMode || config.auth_mode || "token"}.`,
+    `Account region: country ${account.country || config.country || "unset"}, language ${account.language || config.language || "unset"}.`,
     config.thinq1 ? `ThinQ1 support is enabled (refresh interval ${config.refresh_interval || DEFAULT_REFRESH_INTERVAL} s).` : "ThinQ1 support is disabled.",
   ].filter(Boolean).join(" ");
 
@@ -94,129 +92,37 @@ extension LGThinQPlugin {
     container.replaceChildren();
   }
 
-  // MARK: Step 1: sign in
+  // MARK: Step 1: the account, signed in through Setup
 
-  /// A sentence of the page with elements in it (a link, code): the translation's {0}, {1}… are the element's
-  /// children, in order.
-  function sentence(node, text) {
-    const parts = [...node.children];
-    node.replaceChildren(...text.split(/\{(\d+)\}/).map((part, i) => (i % 2 ? parts[Number(part)] : part)));
-  }
-  sentence($("#login-form .wiki"), t("Signing in to LG with Google, Apple, Facebook or Amazon? {0}, or use LG's own sign-in page below."));
-  sentence($("#third-party .help"), t("Open LG's sign-in page, sign in, then paste the address of the page it ends on (it starts with the LG account site and contains {0})."));
-
-  // In another language than English, a region is named in the page's language and its language by its own name
-  // (Intl.DisplayNames), in that order; the Homebridge plugin's English labels are the fallback.
+  // A region named in the page's language (Intl.DisplayNames), its language by its own name; the codes otherwise.
   const displayNames = (locale, type) => { try { return new Intl.DisplayNames([locale], { type }); } catch { return null; } };
-  const regionNames = HomeswiftI18n.language === "en" ? null : displayNames(HomeswiftI18n.locale, "region");
-  function regionLabel({ country, language, label }) {
-    if (!regionNames) return label;
+  function regionText(country, language) {
+    if (!country || !language) return "—";
     try {
-      const region = regionNames.of(country);
+      const region = displayNames(HomeswiftI18n.locale, "region")?.of(country) || country;
       const primary = language.split("-")[0];
-      const speech = displayNames(primary, "language")?.of(primary);
-      if (!region || region === country) return label;
-      return `${region}/${speech && speech !== primary ? speech : label.slice(label.indexOf("/") + 1)}`;
-    } catch { return label; }
-  }
-  const regions = window.LG_COUNTRIES.map((entry) => ({ ...entry, text: regionLabel(entry) }));
-  if (regionNames) regions.sort((a, b) => a.text.localeCompare(b.text, HomeswiftI18n.locale));
-  const countrySelect = $("#country-language");
-  countrySelect.replaceChildren(...regions.map(({ country, language, text }) =>
-    el("option", { value: `${country}|${language}`, text })));
-  const selectedRegion = () => {
-    const [country, language] = countrySelect.value.split("|");
-    return { country, language };
-  };
-  function selectRegion(country, language) {
-    const value = `${country}|${language}`;
-    countrySelect.value = [...countrySelect.options].some((o) => o.value === value) ? value : `${DEFAULT_COUNTRY}|${DEFAULT_LANGUAGE}`;
+      const speech = displayNames(primary, "language")?.of(primary) || language;
+      return `${region} / ${speech}`;
+    } catch { return `${country} / ${language}`; }
   }
 
-  function prefillLogin() {
-    if (config.username) $("#username").value = config.username;
-    if (config.password) $("#password").value = config.password;
-    $("#remember").checked = !!(config.username && config.password);
-    selectRegion(config.country || DEFAULT_COUNTRY, config.language || DEFAULT_LANGUAGE);
+  $("#sign-in-again").href = homeswift.setupAddress({ start: true });
+
+  /// The sign-in's state: signed out, the card to Setup; signed in, its facts and the devices.
+  function renderAccount() {
+    const signedIn = !!account.authorized;
+    $("#account").classList.toggle("hidden", !signedIn);
+    $("#account-setup").replaceChildren(signedIn ? "" : homeswift.setupCard({
+      title: t("Sign in to your LG account"),
+      text: t("Homeswift signs in on Add accessories, with LG's own sign-in page (for LG, Google, Apple, Facebook or Amazon accounts) or the account's email and password. Its appliances appear here once it is done."),
+      glyph: "key",
+    }));
+    if (!signedIn) return;
+    $("#account-region").textContent = regionText(account.country, account.language);
+    $("#account-mode").textContent = account.authMode === "account" ? t("Email and password") : t("LG's sign-in page");
+    $("#account-email-row").classList.toggle("hidden", !account.username);
+    $("#account-email").textContent = account.username || "";
   }
-
-  $("#switch-account").addEventListener("click", () => $("#new-login").click());
-  $("#new-login").addEventListener("click", () => {
-    $("#session-notice").classList.add("hidden");
-    $("#login-form").classList.remove("hidden");
-    $("#third-party").classList.remove("hidden");
-    showStep("login");
-  });
-
-  $("#login-form").addEventListener("submit", (event) => {
-    event.preventDefault();
-    const button = $("#login");
-    if (button.disabled) return;
-    const username = $("#username").value.trim();
-    const password = $("#password").value;
-    const { country, language } = selectedRegion();
-    const problem = $("#login-problem");
-    if (!username || !password) {
-      showProblem(problem, t("Please enter your username and password."));
-      return;
-    }
-    clearProblem(problem);
-    act(button, async () => {
-      try {
-        const answer = await request("login-by-user-pass", { method: "POST", body: { country, language, username, password } });
-        if (!answer.success) throw new Error(HomeswiftI18n.message(answer.error) || t("Login failed"));
-        await connected(answer.token, country, language, { username, password });
-      } catch (e) {
-        showProblem(problem, e.message || t("Login failed"),
-          `Signing in to the LG ThinQ cloud with an LG account email and password from the plugin settings failed. Selected region: ${country} / ${language}.`);
-      }
-    });
-  });
-
-  /// Signed in: the refresh token goes into the block (with the email and password when they are to be
-  /// remembered), then the devices.
-  async function connected(token, country, language, account) {
-    credentials = { refresh_token: token, country, language };
-    const next = { ...config, platform: "LGThinQ", name: config.name || "LG ThinQ", country, language, refresh_token: token, auth_mode: "token" };
-    if (account && $("#remember").checked) {
-      next.username = account.username;
-      next.password = account.password;
-    } else {
-      delete next.username;
-      delete next.password;
-    }
-    await updateBlock(() => next);
-    config = next;
-    prefillSettings();
-    showStep("devices");
-    await loadDevices();
-  }
-
-  // The `thinq auth` command of the Homebridge plugin: LG's own page for accounts of Google, Apple and others.
-  $("#open-lg").addEventListener("click", (event) => act(event.currentTarget, async () => {
-    const { country, language } = selectedRegion();
-    const problem = $("#login-problem");
-    clearProblem(problem);
-    try {
-      const { url } = await request(`login-url?country=${encodeURIComponent(country)}&language=${encodeURIComponent(language)}`);
-      window.open(url, "_blank", "noopener");
-    } catch (e) {
-      showProblem(problem, e.message, "Opening LG's sign-in page for an account that signs in with Google, Apple, Facebook or Amazon failed.");
-    }
-  }));
-  $("#redirect-login").addEventListener("click", (event) => act(event.currentTarget, async () => {
-    const { country, language } = selectedRegion();
-    const problem = $("#login-problem");
-    clearProblem(problem);
-    try {
-      const answer = await request("login-by-redirect", { method: "POST", body: { url: $("#redirect-url").value.trim(), country, language } });
-      if (!answer.success) throw new Error(HomeswiftI18n.message(answer.error) || t("Login failed"));
-      await connected(answer.token, country, language, null);
-    } catch (e) {
-      showProblem(problem, e.message || t("Login failed"),
-        `Signing in through LG's own page (an account of Google, Apple, Facebook or Amazon) failed. Selected region: ${country} / ${language}.`);
-    }
-  }));
 
   // MARK: Step 2: devices
 
@@ -229,17 +135,13 @@ extension LGThinQPlugin {
     clearProblem(problem);
     await act(button, async () => {
       try {
-        const answer = await request("get-all-devices", { method: "POST", body: credentials });
-        if (!answer.success) throw new Error(HomeswiftI18n.message(answer.error) || t("Failed to load devices"));
+        const answer = await request("account-devices");
         devices = answer.devices || [];
         if (selected.size === 0) devices.forEach((device) => selected.add(device.id));
-        try {
-          running = new Set(((await request("devices")).devices || []).map((device) => device.id));
-        } catch { running = new Set(); }
         renderDevices();
       } catch (e) {
-        showProblem(problem, e.message || t("Failed to load devices"),
-          "Loading the device list from the LG ThinQ cloud with the stored refresh token failed in the plugin settings.");
+        showProblem(problem, HomeswiftI18n.message(e.message) || t("Failed to load devices"),
+          "Loading the device list of the account this instance signed in with from the LG ThinQ cloud failed in the plugin settings.");
       }
     });
   }
@@ -248,7 +150,7 @@ extension LGThinQPlugin {
     $("#device-count").textContent = String(devices.length);
     $("#select-all").textContent = selected.size === devices.length && devices.length > 0 ? t("Deselect all") : t("Select all");
     if (!devices.length) {
-      list.replaceChildren(el("li", { class: "empty muted", text: t("No devices found. Connect your LG account and press Refresh.") }));
+      list.replaceChildren(el("li", { class: "empty muted", text: t("No devices found. Add them to your LG account in the LG ThinQ app, then press Refresh.") }));
       return;
     }
     list.replaceChildren(...devices.map((device) => {
@@ -265,7 +167,7 @@ extension LGThinQPlugin {
           context: assistantContext("The user is looking at the device list of the LG ThinQ plugin settings."),
           device: { name: overrides.name || device.name, type: typeOf(device), online, includedInHomeKit: isSelected },
         }),
-        running.has(device.id) ? el("span", { class: "pill on", text: t("In HomeKit") }) : null,
+        device.running ? el("span", { class: "pill on", text: t("In HomeKit") }) : null,
         el("span", { class: `pill status ${online ? "on" : "away"}`, text: online ? t("Online") : t("Offline") }),
         el("button", { class: "gear", title: t("Device settings"), "aria-label": t("Settings of {name}", { name: overrides.name || device.name }), text: "⚙",
           onclick: (event) => { event.stopPropagation(); openDevice(device.id); } }));
@@ -385,24 +287,13 @@ extension LGThinQPlugin {
   async function saveConfiguration(button) {
     await act(button, async () => {
       try {
+        // The sign-in (the way, the region, the account) is Setup's: the block keeps what it has.
         const next = {
           ...config, platform: "LGThinQ", name: config.name || "LG ThinQ",
-          country: $("#country").value.trim() || config.country || DEFAULT_COUNTRY,
-          language: $("#language").value.trim() || config.language || DEFAULT_LANGUAGE,
-          refresh_token: credentials.refresh_token || config.refresh_token,
-          auth_mode: config.auth_mode || "token",
           refresh_interval: parseInt($("#refresh-interval").value, 10) || DEFAULT_REFRESH_INTERVAL,
           devices: selectedDevicesConfig(),
         };
-        if (!next.refresh_token) delete next.refresh_token;
         if (!next.thinq1) delete next.thinq1;
-        if ($("#remember").checked && $("#username").value.trim()) {
-          next.username = $("#username").value.trim();
-          next.password = $("#password").value;
-        } else if (!$("#remember").checked) {
-          delete next.username;
-          delete next.password;
-        }
         const report = await updateBlock(() => next);
         config = next;
         const pending = report.restartNeeded || [];
@@ -422,25 +313,13 @@ extension LGThinQPlugin {
   // MARK: Settings tab
 
   function prefillSettings() {
-    const mode = config.auth_mode || "token";
-    $("#auth-mode").value = mode;
-    $("#refresh-token").value = config.refresh_token || "";
-    $("#country").value = config.country || DEFAULT_COUNTRY;
-    $("#language").value = config.language || DEFAULT_LANGUAGE;
     $("#refresh-interval").value = config.refresh_interval || DEFAULT_REFRESH_INTERVAL;
     $("#thinq1").checked = !!config.thinq1;
-    $("#token-field").classList.toggle("hidden", mode !== "token");
   }
 
-  $("#auth-mode").addEventListener("change", () => $("#token-field").classList.toggle("hidden", $("#auth-mode").value !== "token"));
   $("#save-settings").addEventListener("click", (event) => {
-    config.auth_mode = $("#auth-mode").value;
-    config.refresh_token = $("#refresh-token").value.trim() || config.refresh_token;
-    config.country = $("#country").value.trim() || DEFAULT_COUNTRY;
-    config.language = $("#language").value.trim() || DEFAULT_LANGUAGE;
     config.refresh_interval = parseInt($("#refresh-interval").value, 10) || DEFAULT_REFRESH_INTERVAL;
     config.thinq1 = $("#thinq1").checked || undefined;
-    if (config.auth_mode === "token") credentials.refresh_token = config.refresh_token;
     saveConfiguration(event.currentTarget);
   });
 
@@ -454,12 +333,6 @@ extension LGThinQPlugin {
   }
   $("#tab-devices").addEventListener("click", () => selectTab("devices"));
   $("#tab-settings").addEventListener("click", () => selectTab("settings"));
-
-  countrySelect.addEventListener("change", () => {
-    const { country, language } = selectedRegion();
-    config.country = country;
-    config.language = language;
-  });
 
   // MARK: Step 3
 
@@ -475,269 +348,29 @@ extension LGThinQPlugin {
     $("#restart").classList.add("hidden");
   }));
 
-  // MARK: Start: the block, then its session if it has one
+  // MARK: Start: the block and the sign-in, then the account's devices once signed in
 
   (async () => {
     try {
       config = (await readBlock()) || {};
+      account = await request("account");
     } catch (e) {
-      showProblem($("#login-problem"), e.message);
+      showProblem($("#account-problem"), e.message);
     }
     for (const device of config.devices || []) {
       selected.add(device.id);
       deviceSettings[device.id] = { ...device };
     }
-    prefillLogin();
     prefillSettings();
-    if (config.refresh_token) {
-      credentials = { refresh_token: config.refresh_token, country: config.country || DEFAULT_COUNTRY, language: config.language || DEFAULT_LANGUAGE };
-      $("#session-notice").classList.remove("hidden");
-      $("#login-form").classList.add("hidden");
-      $("#third-party").classList.add("hidden");
+    renderAccount();
+    if (account.authorized) {
       showStep("devices");
       await loadDevices();
     } else {
-      showStep("login");
+      showStep(null);
     }
   })();
 })();
-
-"""#),
-        "countries.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
-// The LG account regions of the Homebridge plugin's settings page: country, language and their label.
-window.LG_COUNTRIES = [
-  { country: 'AE', language: 'ar-AE', label: 'United Arab Emirates/العربية' },
-  { country: 'AE', language: 'en-AE', label: 'United Arab Emirates/English' },
-  { country: 'AG', language: 'en-AG', label: 'Antigua and Barbuda/English' },
-  { country: 'AL', language: 'en-AL', label: 'Albania/English' },
-  { country: 'AL', language: 'sq-AL', label: 'Albania/Shqip' },
-  { country: 'AM', language: 'en-AM', label: 'Armenia/English' },
-  { country: 'AM', language: 'fr-AM', label: 'Armenia/français' },
-  { country: 'AO', language: 'en-AO', label: 'Angola/English' },
-  { country: 'AR', language: 'es-AR', label: 'Argentina/Spanish' },
-  { country: 'AT', language: 'de-AT', label: 'Austria/Deutsch' },
-  { country: 'AT', language: 'en-AT', label: 'Austria/English' },
-  { country: 'AU', language: 'en-AU', label: 'Australia/English' },
-  { country: 'AZ', language: 'en-AZ', label: 'Azerbaijan/English' },
-  { country: 'BA', language: 'hr-BA', label: 'Bosnia/Hrvatski' },
-  { country: 'BA', language: 'sr-BA', label: 'Bosnia/Srpski' },
-  { country: 'BB', language: 'en-BB', label: 'Barbados/English' },
-  { country: 'BD', language: 'en-BD', label: 'Bangladesh/English' },
-  { country: 'BE', language: 'en-BE', label: 'Belgium/English' },
-  { country: 'BE', language: 'fr-BE', label: 'Belgium/français' },
-  { country: 'BE', language: 'nl-BE', label: 'Belgium/Nederlands' },
-  { country: 'BF', language: 'fr-BF', label: 'Burkina Faso/français' },
-  { country: 'BG', language: 'bg-BG', label: 'Bulgaria/Български' },
-  { country: 'BG', language: 'en-BG', label: 'Bulgaria/English' },
-  { country: 'BH', language: 'ar-BH', label: 'Bahrain/العربية' },
-  { country: 'BH', language: 'en-BH', label: 'Bahrain/English' },
-  { country: 'BJ', language: 'fr-BJ', label: 'Benin/français' },
-  { country: 'BO', language: 'es-BO', label: 'Bolivia/Spanish' },
-  { country: 'BR', language: 'pt-BR', label: 'Brazil/Português' },
-  { country: 'BS', language: 'en-BS', label: 'Bahamas/English' },
-  { country: 'BY', language: 'ru-BY', label: 'Belarus/Русский' },
-  { country: 'BZ', language: 'en-BZ', label: 'Belize/English' },
-  { country: 'CA', language: 'en-CA', label: 'Canada/English' },
-  { country: 'CA', language: 'fr-CA', label: 'Canada/français' },
-  { country: 'CD', language: 'fr-CD', label: 'DR Congo/français' },
-  { country: 'CF', language: 'fr-CF', label: 'Central African Republic/français' },
-  { country: 'CG', language: 'fr-CG', label: 'Congo Brazzaville/français' },
-  { country: 'CH', language: 'de-CH', label: 'Switzerland/Deutsch' },
-  { country: 'CH', language: 'en-CH', label: 'Switzerland/English' },
-  { country: 'CH', language: 'fr-CH', label: 'Switzerland/français' },
-  { country: 'CI', language: 'fr-CI', label: 'Cote dKIvoire(Republic of Ivory Coast)/français' },
-  { country: 'CL', language: 'en-CL', label: 'Chile/English' },
-  { country: 'CL', language: 'es-CL', label: 'Chile/Spanish' },
-  { country: 'CM', language: 'fr-CM', label: 'Cameroon/français' },
-  { country: 'CN', language: 'en-CN', label: 'China/English' },
-  { country: 'CN', language: 'zh-CN', label: 'China/中国语' },
-  { country: 'CO', language: 'en-CO', label: 'Colombia/English' },
-  { country: 'CO', language: 'es-CO', label: 'Colombia/Spanish' },
-  { country: 'CR', language: 'es-CR', label: 'Costa Rica/Spanish' },
-  { country: 'CU', language: 'es-CU', label: 'Cuba/Spanish' },
-  { country: 'CV', language: 'pt-CV', label: 'Cape Verde/Português' },
-  { country: 'CY', language: 'el-CY', label: 'Cyprus/Ελληνικά' },
-  { country: 'CY', language: 'en-CY', label: 'Cyprus/English' },
-  { country: 'CZ', language: 'cs-CZ', label: 'Czech Republic/Česky' },
-  { country: 'CZ', language: 'en-CZ', label: 'Czech Republic/English' },
-  { country: 'DE', language: 'de-DE', label: 'Germany/Deutsch' },
-  { country: 'DE', language: 'en-DE', label: 'Germany/English' },
-  { country: 'DJ', language: 'fr-DJ', label: 'Djibouti/francais' },
-  { country: 'DK', language: 'da-DK', label: 'Denmark/Dansk' },
-  { country: 'DK', language: 'en-DK', label: 'Denmark/English' },
-  { country: 'DM', language: 'en-DM', label: 'Dominica/English' },
-  { country: 'DO', language: 'es-DO', label: 'Dominican Rep./Spanish' },
-  { country: 'DZ', language: 'ar-DZ', label: 'Algeria/العربية' },
-  { country: 'DZ', language: 'en-DZ', label: 'Algeria/English' },
-  { country: 'DZ', language: 'fr-DZ', label: 'Algeria/francais' },
-  { country: 'EC', language: 'en-EC', label: 'Ecuador/English' },
-  { country: 'EC', language: 'es-EC', label: 'Ecuador/Spanish' },
-  { country: 'EE', language: 'en-EE', label: 'Estonia/English' },
-  { country: 'EE', language: 'et-EE', label: 'Estonia/Eesti' },
-  { country: 'EE', language: 'ru-EE', label: 'Estonia/Русский' },
-  { country: 'EG', language: 'ar-EG', label: 'Egypt/العربية' },
-  { country: 'EG', language: 'en-EG', label: 'Egypt/English' },
-  { country: 'ES', language: 'en-ES', label: 'Spain/English' },
-  { country: 'ES', language: 'es-ES', label: 'Spain/Spanish' },
-  { country: 'ET', language: 'en-ET', label: 'Ethiopia/English' },
-  { country: 'FI', language: 'en-FI', label: 'Finland/English' },
-  { country: 'FI', language: 'fi-FI', label: 'Finland/Suomi' },
-  { country: 'FR', language: 'fr-FR', label: 'France/français' },
-  { country: 'GA', language: 'fr-GA', label: 'Gabon/français' },
-  { country: 'GB', language: 'en-GB', label: 'UK/English' },
-  { country: 'GD', language: 'en-GD', label: 'Grenada/English' },
-  { country: 'GE', language: 'en-GE', label: 'Georgia/English' },
-  { country: 'GH', language: 'en-GH', label: 'Ghana/English' },
-  { country: 'GM', language: 'en-GM', label: 'Gambia/English' },
-  { country: 'GN', language: 'fr-GN', label: 'Guinea Conakry/français' },
-  { country: 'GQ', language: 'es-GQ', label: 'Guinea Equatorial/Spanish' },
-  { country: 'GQ', language: 'fr-GQ', label: 'Guinea Equatorial/français' },
-  { country: 'GR', language: 'el-GR', label: 'Greece/Ελληνικά' },
-  { country: 'GR', language: 'en-GR', label: 'Greece/English' },
-  { country: 'GT', language: 'es-GT', label: 'Guatemala/Spanish' },
-  { country: 'GY', language: 'en-GY', label: 'Guyana/English' },
-  { country: 'HK', language: 'en-HK', label: 'Hong Kong/English' },
-  { country: 'HK', language: 'zh-HK', label: 'Hong Kong/中国语' },
-  { country: 'HN', language: 'es-HN', label: 'Honduras/Spanish' },
-  { country: 'HR', language: 'en-HR', label: 'Croatia/English' },
-  { country: 'HR', language: 'hr-HR', label: 'Croatia/Hrvatski' },
-  { country: 'HT', language: 'fr-HT', label: 'Haiti/français' },
-  { country: 'HU', language: 'en-HU', label: 'Hungary/English' },
-  { country: 'HU', language: 'hu-HU', label: 'Hungary/magyar' },
-  { country: 'ID', language: 'en-ID', label: 'Indonesia/English' },
-  { country: 'ID', language: 'id-ID', label: 'Indonesia/Bahasa Indonesia' },
-  { country: 'IE', language: 'en-IE', label: 'Ireland/English' },
-  { country: 'IL', language: 'en-IL', label: 'Israel/English' },
-  { country: 'IN', language: 'en-IN', label: 'India/English' },
-  { country: 'IQ', language: 'ar-IQ', label: 'Iraq/العربية' },
-  { country: 'IQ', language: 'en-IQ', label: 'Iraq/English' },
-  { country: 'IR', language: 'en-IR', label: 'Iran/English' },
-  { country: 'IS', language: 'en-IS', label: 'Iceland/English' },
-  { country: 'IT', language: 'en-IT', label: 'Italy/English' },
-  { country: 'IT', language: 'it-IT', label: 'Italy/Italiano' },
-  { country: 'JM', language: 'en-JM', label: 'Jamaica/English' },
-  { country: 'JO', language: 'ar-JO', label: 'Jordan/العربية' },
-  { country: 'JO', language: 'en-JO', label: 'Jordan/English' },
-  { country: 'JP', language: 'ja-JP', label: 'Japan/日本語' },
-  { country: 'KE', language: 'en-KE', label: 'Kenya/English' },
-  { country: 'KG', language: 'ru-KG', label: 'Kyrgyzstan/Русский' },
-  { country: 'KH', language: 'en-KH', label: 'Cambodia/English' },
-  { country: 'KN', language: 'en-KN', label: 'Saint Kitts and Nevis/English' },
-  { country: 'KR', language: 'ko-KR', label: 'Korea/한국어' },
-  { country: 'KW', language: 'ar-KW', label: 'Kuwait/العربية' },
-  { country: 'KW', language: 'en-KW', label: 'Kuwait/English' },
-  { country: 'KZ', language: 'en-KZ', label: 'Kazakhstan/English' },
-  { country: 'KZ', language: 'kk-KZ', label: 'Kazakhstan/Kazakh' },
-  { country: 'KZ', language: 'ru-KZ', label: 'Kazakhstan/Русский' },
-  { country: 'LB', language: 'ar-LB', label: 'Lebanon/العربية' },
-  { country: 'LB', language: 'en-LB', label: 'Lebanon/English' },
-  { country: 'LC', language: 'en-LC', label: 'Saint Lucia/English' },
-  { country: 'LK', language: 'en-LK', label: 'Sri Lanka/English' },
-  { country: 'LR', language: 'en-LR', label: 'Liberia/English' },
-  { country: 'LT', language: 'en-LT', label: 'Lithuania/English' },
-  { country: 'LT', language: 'lt-LT', label: 'Lithuania/Lietuvių' },
-  { country: 'LU', language: 'de-LU', label: 'Luxemburg/Deutsch' },
-  { country: 'LU', language: 'en-LU', label: 'Luxemburg/English' },
-  { country: 'LU', language: 'fr-LU', label: 'Luxemburg/français' },
-  { country: 'LV', language: 'en-LV', label: 'Latvia/English' },
-  { country: 'LV', language: 'lv-LV', label: 'Latvia/Latviešu' },
-  { country: 'LY', language: 'ar-LY', label: 'Libya/العربية' },
-  { country: 'LY', language: 'en-LY', label: 'Libya/English' },
-  { country: 'MA', language: 'ar-MA', label: 'Morocco/العربية' },
-  { country: 'MA', language: 'en-MA', label: 'Morocco/English' },
-  { country: 'MA', language: 'fr-MA', label: 'Morocco/français' },
-  { country: 'MD', language: 'ro-MD', label: 'Moldova/Română' },
-  { country: 'MD', language: 'ru-MD', label: 'Moldova/Русский' },
-  { country: 'ME', language: 'en-ME', label: 'Montenegro/English' },
-  { country: 'ME', language: 'sr-ME', label: 'Montenegro/Srpski' },
-  { country: 'MK', language: 'en-MK', label: 'Macedonia/English' },
-  { country: 'MK', language: 'mk-MK', label: 'Macedonia/Македонски' },
-  { country: 'ML', language: 'fr-ML', label: 'Mali/français' },
-  { country: 'MM', language: 'en-MM', label: 'Myanmar (Burma)/English' },
-  { country: 'MT', language: 'en-MT', label: 'Malta/English' },
-  { country: 'MU', language: 'en-MU', label: 'Mauritius/English' },
-  { country: 'MX', language: 'en-MX', label: 'Mexico/English' },
-  { country: 'MX', language: 'es-MX', label: 'Mexico/Spanish' },
-  { country: 'MY', language: 'en-MY', label: 'Malaysia/English' },
-  { country: 'NE', language: 'fr-NE', label: 'Niger/français' },
-  { country: 'NG', language: 'en-NG', label: 'Nigeria/English' },
-  { country: 'NI', language: 'es-NI', label: 'Nicaragua/Spanish' },
-  { country: 'NL', language: 'en-NL', label: 'Netherlands/English' },
-  { country: 'NL', language: 'nl-NL', label: 'Netherlands/Nederlands' },
-  { country: 'NO', language: 'en-NO', label: 'Norway/English' },
-  { country: 'NO', language: 'no-NO', label: 'Norway/Norsk' },
-  { country: 'NZ', language: 'en-NZ', label: 'New Zealand/English' },
-  { country: 'OM', language: 'ar-OM', label: 'Oman/العربية' },
-  { country: 'OM', language: 'en-OM', label: 'Oman/English' },
-  { country: 'PA', language: 'en-PA', label: 'Panama/English' },
-  { country: 'PA', language: 'es-PA', label: 'Panama/Spanish' },
-  { country: 'PE', language: 'en-PE', label: 'Peru/English' },
-  { country: 'PE', language: 'es-PE', label: 'Peru/Spanish' },
-  { country: 'PH', language: 'en-PH', label: 'Philippines/English' },
-  { country: 'PK', language: 'en-PK', label: 'Pakistan/English' },
-  { country: 'PL', language: 'en-PL', label: 'Poland/English' },
-  { country: 'PL', language: 'pl-PL', label: 'Poland/Polski' },
-  { country: 'PR', language: 'es-PR', label: 'Puerto Rico/Spanish' },
-  { country: 'PS', language: 'en-PS', label: 'Palestine/English' },
-  { country: 'PT', language: 'en-PT', label: 'Portugal/English' },
-  { country: 'PT', language: 'pt-PT', label: 'Portugal/Português' },
-  { country: 'PY', language: 'es-PY', label: 'Paraguay/Spanish' },
-  { country: 'QA', language: 'ar-QA', label: 'Qatar/العربية' },
-  { country: 'QA', language: 'en-QA', label: 'Qatar/English' },
-  { country: 'RO', language: 'en-RO', label: 'Romania/English' },
-  { country: 'RO', language: 'ro-RO', label: 'Romania/Română' },
-  { country: 'RS', language: 'en-RS', label: 'Serbia/English' },
-  { country: 'RS', language: 'sr-RS', label: 'Serbia/Srpski' },
-  { country: 'RU', language: 'ru-RU', label: 'Russia/Русский' },
-  { country: 'RW', language: 'fr-RW', label: 'Rwanda/français' },
-  { country: 'SA', language: 'ar-SA', label: 'Saudi arabia/العربية' },
-  { country: 'SA', language: 'en-SA', label: 'Saudi arabia/English' },
-  { country: 'SD', language: 'en-SD', label: 'Sudan/English' },
-  { country: 'SE', language: 'en-SE', label: 'Sweden/English' },
-  { country: 'SE', language: 'sv-SE', label: 'Sweden/Svenska' },
-  { country: 'SG', language: 'en-SG', label: 'Singapore/English' },
-  { country: 'SI', language: 'en-SI', label: 'Slovenia/English' },
-  { country: 'SI', language: 'sl-SI', label: 'Slovenia/Slovenščina' },
-  { country: 'SK', language: 'en-SK', label: 'Slovakia/English' },
-  { country: 'SK', language: 'sk-SK', label: 'Slovakia/Slovenčina' },
-  { country: 'SL', language: 'en-SL', label: 'Sierra Leone/English' },
-  { country: 'SN', language: 'fr-SN', label: 'Senegal/français' },
-  { country: 'SO', language: 'en-SO', label: 'Somalia/English' },
-  { country: 'SR', language: 'nl-SR', label: 'Republic of Suriname/Nederlands' },
-  { country: 'ST', language: 'pt-ST', label: 'Sao Tome and Principe/Português' },
-  { country: 'SV', language: 'es-SV', label: 'El salvador/Spanish' },
-  { country: 'SY', language: 'ar-SY', label: 'Syria/العربية' },
-  { country: 'SY', language: 'en-SY', label: 'Syria/English' },
-  { country: 'TD', language: 'fr-TD', label: 'Chad/français' },
-  { country: 'TG', language: 'fr-TG', label: 'Togo/français' },
-  { country: 'TH', language: 'en-TH', label: 'Thailand/English' },
-  { country: 'TH', language: 'th-TH', label: 'Thailand/ไทย' },
-  { country: 'TN', language: 'ar-TN', label: 'Tunisia/العربية' },
-  { country: 'TN', language: 'en-TN', label: 'Tunisia/English' },
-  { country: 'TR', language: 'en-TR', label: 'Turkey/English' },
-  { country: 'TR', language: 'tr-TR', label: 'Turkey/Türkçe' },
-  { country: 'TT', language: 'en-TT', label: 'Trinidad/English' },
-  { country: 'TW', language: 'en-TW', label: 'Taiwan/English' },
-  { country: 'TW', language: 'zh-TW', label: 'Taiwan/繁體中文' },
-  { country: 'TZ', language: 'en-TZ', label: 'Tanzania/English' },
-  { country: 'UA', language: 'ru-UA', label: 'Ukraine/Русский' },
-  { country: 'UA', language: 'uk-UA', label: 'Ukraine/Українська мова' },
-  { country: 'UG', language: 'en-UG', label: 'Uganda/English' },
-  { country: 'US', language: 'en-US', label: 'USA/English' },
-  { country: 'UY', language: 'es-UY', label: 'Uruguay/Spanish' },
-  { country: 'UZ', language: 'en-UZ', label: 'Uzbekistan/English' },
-  { country: 'UZ', language: 'ru-UZ', label: 'Uzbekistan/Русский' },
-  { country: 'UZ', language: 'uz-UZ', label: "Uzbekistan/O'zbek tili" },
-  { country: 'VC', language: 'en-VC', label: 'Saint Vincent/English' },
-  { country: 'VE', language: 'es-VE', label: 'Venezuela/Spanish' },
-  { country: 'VN', language: 'en-VN', label: 'Vietnam/English' },
-  { country: 'VN', language: 'vi-VN', label: 'Vietnam/Tiếng Việt' },
-  { country: 'XK', language: 'en-XK', label: 'Kosovo/English' },
-  { country: 'YE', language: 'ar-YE', label: 'Yemen/العربية' },
-  { country: 'YE', language: 'en-YE', label: 'Yemen/English' },
-  { country: 'ZA', language: 'en-ZA', label: 'South Africa/English' },
-  { country: 'ZM', language: 'en-ZM', label: 'Zambia/English' },
-];
 
 """#),
         "i18n.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
@@ -745,25 +378,7 @@ window.LG_COUNTRIES = [
 HomeswiftI18n.add({
   "fr": {
     "Connect your LG account to manage its appliances in HomeKit.": "Connectez votre compte LG pour gérer ses appareils dans HomeKit.",
-    "Connect your LG account": "Connectez votre compte LG",
-    "Active session": "Session active",
-    "Using the refresh token saved in this plugin's settings.": "Le jeton d'actualisation enregistré dans les réglages de ce plugin est utilisé.",
-    "Sign in with another account": "Se connecter avec un autre compte",
-    "Country / language": "Pays / langue",
-    "The region of your LG account.": "La région de votre compte LG.",
     "Email": "E-mail",
-    "Your LG ThinQ account's email.": "L'adresse e-mail de votre compte LG ThinQ.",
-    "Password": "Mot de passe",
-    "Remember the email and password": "Mémoriser l'e-mail et le mot de passe",
-    "Optional: the sign-in keeps only a refresh token otherwise.": "Facultatif : sinon, la connexion ne garde qu'un jeton d'actualisation.",
-    "Connect account": "Connecter le compte",
-    "Signing in to LG with Google, Apple, Facebook or Amazon? {0}, or use LG's own sign-in page below.": "Vous vous connectez à LG avec Google, Apple, Facebook ou Amazon ? {0}, ou utilisez la page de connexion de LG ci-dessous.",
-    "See the authorization guide": "Consultez le guide d'autorisation",
-    "Sign in with Google, Apple, Facebook or Amazon": "Se connecter avec Google, Apple, Facebook ou Amazon",
-    "Open LG's sign-in page, sign in, then paste the address of the page it ends on (it starts with the LG account site and contains {0}).": "Ouvrez la page de connexion de LG, connectez-vous, puis collez l'adresse de la page sur laquelle vous arrivez (elle commence par le site du compte LG et contient {0}).",
-    "Open LG's sign-in page": "Ouvrir la page de connexion de LG",
-    "Address after signing in": "Adresse après la connexion",
-    "Use this sign-in": "Utiliser cette connexion",
     "Your devices": "Vos appareils",
     "Devices": "Appareils",
     "Settings": "Réglages",
@@ -773,14 +388,7 @@ HomeswiftI18n.add({
     "Refresh": "Actualiser",
     "Checked devices are added to HomeKit (none checked: all of them). ⚙ sets a device's options.": "Les appareils cochés sont ajoutés à HomeKit (aucun coché : tous). ⚙ règle les options d'un appareil.",
     "Save configuration": "Enregistrer la configuration",
-    "Authentication": "Authentification",
-    "Auth mode": "Mode d'authentification",
-    "LG account (email and password)": "Compte LG (e-mail et mot de passe)",
-    "Refresh token": "Jeton d'actualisation",
-    "Paste your refresh token": "Collez votre jeton d'actualisation",
     "Region": "Région",
-    "Country": "Pays",
-    "Language": "Langue",
     "Sync": "Synchronisation",
     "ThinQ1 support": "Prise en charge de ThinQ1",
     "Adds the account's older ThinQ v1 devices, which are polled.": "Ajoute les anciens appareils ThinQ v1 du compte, qui sont interrogés régulièrement.",
@@ -827,10 +435,7 @@ HomeswiftI18n.add({
     "Heat": "Chaud",
     "Air Clean": "Purification",
     "Auto": "Auto",
-    "Please enter your username and password.": "Saisissez votre nom d'utilisateur et votre mot de passe.",
-    "Login failed": "Échec de la connexion",
     "Failed to load devices": "Impossible de charger les appareils",
-    "No devices found. Connect your LG account and press Refresh.": "Aucun appareil trouvé. Connectez votre compte LG et appuyez sur Actualiser.",
     "Add {name} to HomeKit": "Ajouter {name} à HomeKit",
     "Unknown": "Inconnu",
     "ID: {id}": "ID : {id}",
@@ -857,14 +462,7 @@ HomeswiftI18n.add({
     "Failed to save the configuration": "Impossible d'enregistrer la configuration",
     "Restarting…": "Redémarrage…",
     "Homeswift restarted with the new settings.": "Homeswift a redémarré avec les nouveaux réglages.",
-    "Failed to get devices": "Impossible d'obtenir les appareils",
-    "Cannot reach LG": "Impossible de joindre LG",
-    "This instance has no LG sign-in yet: sign in on the LG ThinQ plugin page first.": "Cette instance n'a pas encore de connexion LG : connectez-vous d'abord sur la page du plugin LG ThinQ.",
     "LG ThinQ did not answer; try again later.": "LG ThinQ n'a pas répondu ; réessayez plus tard.",
-    "Missing required fields: {0}": "Champs obligatoires manquants : {0}",
-    "LG returned no sign-in page": "LG n'a renvoyé aucune page de connexion",
-    "That is not a URL.": "Ce n'est pas une URL.",
-    "The redirected URL is not valid: try again, or use an LG account.": "L'URL de redirection n'est pas valide : réessayez, ou utilisez un compte LG.",
     "Invalid refreshToken: refreshToken must be a non-empty string.": "refreshToken non valide : il ne doit pas être vide.",
     "Your account was already used to registered in {0}.": "Votre compte est déjà enregistré dans {0}.",
     "LG rejected the sign-in. If you sign in to LG with Google, Apple or Facebook, use a token instead.": "LG a refusé la connexion. Si vous vous connectez à LG avec Google, Apple ou Facebook, utilisez plutôt un jeton.",
@@ -877,29 +475,19 @@ HomeswiftI18n.add({
     "Could not read the terms signature from LG. Open the LG ThinQ app and accept the new terms.": "Impossible de lire la signature des conditions de LG. Ouvrez l'app LG ThinQ et acceptez les nouvelles conditions.",
     "Please open the native LG App and sign in to your account to see what happened, maybe new agreement need your accept. Then try restarting Homeswift.": "Ouvrez l'app LG et connectez-vous à votre compte pour voir ce qui s'est passé : de nouvelles conditions sont peut-être à accepter. Redémarrez ensuite Homeswift.",
     "Request failed with status code {0}": "La requête a échoué avec le code {0}",
-    "not signed in": "non connecté"
+    "not signed in": "non connecté",
+    "Your LG account": "Votre compte LG",
+    "Signed in with": "Connecté avec",
+    "Sign in to your LG account": "Connectez-vous à votre compte LG",
+    "Homeswift signs in on Add accessories, with LG's own sign-in page (for LG, Google, Apple, Facebook or Amazon accounts) or the account's email and password. Its appliances appear here once it is done.": "Homeswift se connecte dans Ajouter des accessoires, avec la page de connexion de LG (pour les comptes LG, Google, Apple, Facebook ou Amazon) ou l'e-mail et le mot de passe du compte. Ses appareils apparaissent ici une fois la connexion faite.",
+    "Email and password": "E-mail et mot de passe",
+    "LG's sign-in page": "La page de connexion de LG",
+    "No devices found. Add them to your LG account in the LG ThinQ app, then press Refresh.": "Aucun appareil trouvé. Ajoutez-les à votre compte LG dans l'app LG ThinQ, puis appuyez sur Actualiser.",
+    "This instance has no LG sign-in yet: sign in through Setup (Add accessories) first.": "Cette instance n'a pas encore de connexion LG : connectez-vous d'abord dans Ajouter des accessoires."
   },
   "es": {
     "Connect your LG account to manage its appliances in HomeKit.": "Conecta tu cuenta de LG para gestionar sus electrodomésticos en HomeKit.",
-    "Connect your LG account": "Conecta tu cuenta de LG",
-    "Active session": "Sesión activa",
-    "Using the refresh token saved in this plugin's settings.": "Se usa el token de actualización guardado en los ajustes de este plugin.",
-    "Sign in with another account": "Iniciar sesión con otra cuenta",
-    "Country / language": "País / idioma",
-    "The region of your LG account.": "La región de tu cuenta de LG.",
     "Email": "Correo electrónico",
-    "Your LG ThinQ account's email.": "El correo de tu cuenta de LG ThinQ.",
-    "Password": "Contraseña",
-    "Remember the email and password": "Recordar el correo y la contraseña",
-    "Optional: the sign-in keeps only a refresh token otherwise.": "Opcional: si no, el inicio de sesión solo guarda un token de actualización.",
-    "Connect account": "Conectar cuenta",
-    "Signing in to LG with Google, Apple, Facebook or Amazon? {0}, or use LG's own sign-in page below.": "¿Inicias sesión en LG con Google, Apple, Facebook o Amazon? {0}, o usa la página de inicio de sesión de LG más abajo.",
-    "See the authorization guide": "Consulta la guía de autorización",
-    "Sign in with Google, Apple, Facebook or Amazon": "Iniciar sesión con Google, Apple, Facebook o Amazon",
-    "Open LG's sign-in page, sign in, then paste the address of the page it ends on (it starts with the LG account site and contains {0}).": "Abre la página de inicio de sesión de LG, inicia sesión y pega la dirección de la página en la que terminas (empieza por el sitio de la cuenta de LG y contiene {0}).",
-    "Open LG's sign-in page": "Abrir la página de inicio de sesión de LG",
-    "Address after signing in": "Dirección tras iniciar sesión",
-    "Use this sign-in": "Usar este inicio de sesión",
     "Your devices": "Tus dispositivos",
     "Devices": "Dispositivos",
     "Settings": "Ajustes",
@@ -909,14 +497,7 @@ HomeswiftI18n.add({
     "Refresh": "Actualizar",
     "Checked devices are added to HomeKit (none checked: all of them). ⚙ sets a device's options.": "Los dispositivos marcados se añaden a HomeKit (ninguno marcado: todos). ⚙ ajusta las opciones de un dispositivo.",
     "Save configuration": "Guardar configuración",
-    "Authentication": "Autenticación",
-    "Auth mode": "Modo de autenticación",
-    "LG account (email and password)": "Cuenta de LG (correo y contraseña)",
-    "Refresh token": "Token de actualización",
-    "Paste your refresh token": "Pega tu token de actualización",
     "Region": "Región",
-    "Country": "País",
-    "Language": "Idioma",
     "Sync": "Sincronización",
     "ThinQ1 support": "Compatibilidad con ThinQ1",
     "Adds the account's older ThinQ v1 devices, which are polled.": "Añade los dispositivos ThinQ v1 más antiguos de la cuenta, que se consultan periódicamente.",
@@ -963,10 +544,7 @@ HomeswiftI18n.add({
     "Heat": "Calor",
     "Air Clean": "Purificación",
     "Auto": "Auto",
-    "Please enter your username and password.": "Introduce tu nombre de usuario y tu contraseña.",
-    "Login failed": "Error al iniciar sesión",
     "Failed to load devices": "No se han podido cargar los dispositivos",
-    "No devices found. Connect your LG account and press Refresh.": "No se han encontrado dispositivos. Conecta tu cuenta de LG y pulsa Actualizar.",
     "Add {name} to HomeKit": "Añadir {name} a HomeKit",
     "Unknown": "Desconocido",
     "ID: {id}": "ID: {id}",
@@ -993,14 +571,7 @@ HomeswiftI18n.add({
     "Failed to save the configuration": "No se ha podido guardar la configuración",
     "Restarting…": "Reiniciando…",
     "Homeswift restarted with the new settings.": "Homeswift se ha reiniciado con los nuevos ajustes.",
-    "Failed to get devices": "No se han podido obtener los dispositivos",
-    "Cannot reach LG": "No se puede contactar con LG",
-    "This instance has no LG sign-in yet: sign in on the LG ThinQ plugin page first.": "Esta instancia aún no ha iniciado sesión en LG: inicia sesión primero en la página del plugin LG ThinQ.",
     "LG ThinQ did not answer; try again later.": "LG ThinQ no ha respondido; vuelve a intentarlo más tarde.",
-    "Missing required fields: {0}": "Faltan campos obligatorios: {0}",
-    "LG returned no sign-in page": "LG no ha devuelto ninguna página de inicio de sesión",
-    "That is not a URL.": "Eso no es una URL.",
-    "The redirected URL is not valid: try again, or use an LG account.": "La URL de redirección no es válida: vuelve a intentarlo o usa una cuenta de LG.",
     "Invalid refreshToken: refreshToken must be a non-empty string.": "refreshToken no válido: no puede estar vacío.",
     "Your account was already used to registered in {0}.": "Tu cuenta ya está registrada en {0}.",
     "LG rejected the sign-in. If you sign in to LG with Google, Apple or Facebook, use a token instead.": "LG ha rechazado el inicio de sesión. Si inicias sesión en LG con Google, Apple o Facebook, usa un token.",
@@ -1013,29 +584,19 @@ HomeswiftI18n.add({
     "Could not read the terms signature from LG. Open the LG ThinQ app and accept the new terms.": "No se ha podido leer la firma de las condiciones de LG. Abre la app LG ThinQ y acepta las nuevas condiciones.",
     "Please open the native LG App and sign in to your account to see what happened, maybe new agreement need your accept. Then try restarting Homeswift.": "Abre la app de LG e inicia sesión en tu cuenta para ver qué ha pasado: quizá haya nuevas condiciones que aceptar. Después reinicia Homeswift.",
     "Request failed with status code {0}": "La solicitud ha fallado con el código {0}",
-    "not signed in": "sin sesión iniciada"
+    "not signed in": "sin sesión iniciada",
+    "Your LG account": "Tu cuenta de LG",
+    "Signed in with": "Sesión iniciada con",
+    "Sign in to your LG account": "Inicia sesión en tu cuenta de LG",
+    "Homeswift signs in on Add accessories, with LG's own sign-in page (for LG, Google, Apple, Facebook or Amazon accounts) or the account's email and password. Its appliances appear here once it is done.": "Homeswift inicia sesión en Añadir accesorios, con la página de inicio de sesión de LG (para cuentas de LG, Google, Apple, Facebook o Amazon) o el correo electrónico y la contraseña de la cuenta. Sus electrodomésticos aparecen aquí una vez hecho.",
+    "Email and password": "Correo electrónico y contraseña",
+    "LG's sign-in page": "La página de inicio de sesión de LG",
+    "No devices found. Add them to your LG account in the LG ThinQ app, then press Refresh.": "No se han encontrado dispositivos. Añádelos a tu cuenta de LG en la app LG ThinQ y pulsa Actualizar.",
+    "This instance has no LG sign-in yet: sign in through Setup (Add accessories) first.": "Esta instancia aún no tiene sesión de LG: inicia sesión primero en Añadir accesorios."
   },
   "pt": {
     "Connect your LG account to manage its appliances in HomeKit.": "Ligue a sua conta LG para gerir os eletrodomésticos no HomeKit.",
-    "Connect your LG account": "Ligue a sua conta LG",
-    "Active session": "Sessão ativa",
-    "Using the refresh token saved in this plugin's settings.": "É usado o token de atualização guardado nas definições deste plugin.",
-    "Sign in with another account": "Iniciar sessão com outra conta",
-    "Country / language": "País / idioma",
-    "The region of your LG account.": "A região da sua conta LG.",
     "Email": "E-mail",
-    "Your LG ThinQ account's email.": "O e-mail da sua conta LG ThinQ.",
-    "Password": "Palavra-passe",
-    "Remember the email and password": "Memorizar o e-mail e a palavra-passe",
-    "Optional: the sign-in keeps only a refresh token otherwise.": "Opcional: caso contrário, o início de sessão guarda apenas um token de atualização.",
-    "Connect account": "Ligar conta",
-    "Signing in to LG with Google, Apple, Facebook or Amazon? {0}, or use LG's own sign-in page below.": "Início de sessão na LG com Google, Apple, Facebook ou Amazon? {0}, ou use a página de início de sessão da LG abaixo.",
-    "See the authorization guide": "Consulte o guia de autorização",
-    "Sign in with Google, Apple, Facebook or Amazon": "Iniciar sessão com Google, Apple, Facebook ou Amazon",
-    "Open LG's sign-in page, sign in, then paste the address of the page it ends on (it starts with the LG account site and contains {0}).": "Abra a página de início de sessão da LG, inicie sessão e cole o endereço da página onde termina (começa pelo site da conta LG e contém {0}).",
-    "Open LG's sign-in page": "Abrir a página de início de sessão da LG",
-    "Address after signing in": "Endereço após iniciar sessão",
-    "Use this sign-in": "Usar este início de sessão",
     "Your devices": "Os seus dispositivos",
     "Devices": "Dispositivos",
     "Settings": "Definições",
@@ -1045,14 +606,7 @@ HomeswiftI18n.add({
     "Refresh": "Atualizar",
     "Checked devices are added to HomeKit (none checked: all of them). ⚙ sets a device's options.": "Os dispositivos assinalados são adicionados ao HomeKit (nenhum assinalado: todos). ⚙ define as opções de um dispositivo.",
     "Save configuration": "Guardar configuração",
-    "Authentication": "Autenticação",
-    "Auth mode": "Modo de autenticação",
-    "LG account (email and password)": "Conta LG (e-mail e palavra-passe)",
-    "Refresh token": "Token de atualização",
-    "Paste your refresh token": "Cole o token de atualização",
     "Region": "Região",
-    "Country": "País",
-    "Language": "Idioma",
     "Sync": "Sincronização",
     "ThinQ1 support": "Suporte de ThinQ1",
     "Adds the account's older ThinQ v1 devices, which are polled.": "Adiciona os dispositivos ThinQ v1 mais antigos da conta, que são consultados periodicamente.",
@@ -1099,10 +653,7 @@ HomeswiftI18n.add({
     "Heat": "Calor",
     "Air Clean": "Purificação",
     "Auto": "Auto",
-    "Please enter your username and password.": "Introduza o nome de utilizador e a palavra-passe.",
-    "Login failed": "Falha ao iniciar sessão",
     "Failed to load devices": "Não foi possível carregar os dispositivos",
-    "No devices found. Connect your LG account and press Refresh.": "Nenhum dispositivo encontrado. Ligue a sua conta LG e prima Atualizar.",
     "Add {name} to HomeKit": "Adicionar {name} ao HomeKit",
     "Unknown": "Desconhecido",
     "ID: {id}": "ID: {id}",
@@ -1129,14 +680,7 @@ HomeswiftI18n.add({
     "Failed to save the configuration": "Não foi possível guardar a configuração",
     "Restarting…": "A reiniciar…",
     "Homeswift restarted with the new settings.": "O Homeswift reiniciou com as novas definições.",
-    "Failed to get devices": "Não foi possível obter os dispositivos",
-    "Cannot reach LG": "Não é possível contactar a LG",
-    "This instance has no LG sign-in yet: sign in on the LG ThinQ plugin page first.": "Esta instância ainda não tem sessão LG: inicie sessão primeiro na página do plugin LG ThinQ.",
     "LG ThinQ did not answer; try again later.": "O LG ThinQ não respondeu; tente novamente mais tarde.",
-    "Missing required fields: {0}": "Faltam campos obrigatórios: {0}",
-    "LG returned no sign-in page": "A LG não devolveu nenhuma página de início de sessão",
-    "That is not a URL.": "Isso não é um URL.",
-    "The redirected URL is not valid: try again, or use an LG account.": "O URL de redirecionamento não é válido: tente novamente ou use uma conta LG.",
     "Invalid refreshToken: refreshToken must be a non-empty string.": "refreshToken inválido: não pode estar vazio.",
     "Your account was already used to registered in {0}.": "A sua conta já está registada em {0}.",
     "LG rejected the sign-in. If you sign in to LG with Google, Apple or Facebook, use a token instead.": "A LG recusou o início de sessão. Se inicia sessão na LG com Google, Apple ou Facebook, use um token.",
@@ -1149,7 +693,15 @@ HomeswiftI18n.add({
     "Could not read the terms signature from LG. Open the LG ThinQ app and accept the new terms.": "Não foi possível ler a assinatura dos termos da LG. Abra a app LG ThinQ e aceite os novos termos.",
     "Please open the native LG App and sign in to your account to see what happened, maybe new agreement need your accept. Then try restarting Homeswift.": "Abra a app da LG e inicie sessão na sua conta para ver o que aconteceu: talvez haja novos termos para aceitar. Depois reinicie o Homeswift.",
     "Request failed with status code {0}": "O pedido falhou com o código {0}",
-    "not signed in": "sem sessão iniciada"
+    "not signed in": "sem sessão iniciada",
+    "Your LG account": "A sua conta LG",
+    "Signed in with": "Sessão iniciada com",
+    "Sign in to your LG account": "Inicie sessão na sua conta LG",
+    "Homeswift signs in on Add accessories, with LG's own sign-in page (for LG, Google, Apple, Facebook or Amazon accounts) or the account's email and password. Its appliances appear here once it is done.": "O Homeswift inicia sessão em Adicionar acessórios, com a página de início de sessão da LG (para contas LG, Google, Apple, Facebook ou Amazon) ou o e-mail e a palavra-passe da conta. Os eletrodomésticos aparecem aqui quando terminar.",
+    "Email and password": "E-mail e palavra-passe",
+    "LG's sign-in page": "A página de início de sessão da LG",
+    "No devices found. Add them to your LG account in the LG ThinQ app, then press Refresh.": "Nenhum dispositivo encontrado. Adicione-os à sua conta LG na app LG ThinQ e prima Atualizar.",
+    "This instance has no LG sign-in yet: sign in through Setup (Add accessories) first.": "Esta instância ainda não tem sessão LG: inicie sessão primeiro em Adicionar acessórios."
   }
 });
 
@@ -1164,8 +716,8 @@ HomeswiftI18n.add({
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/style.css">
 <style>
-  /* The Homebridge plugin's settings page on the UI's materials: sign in to the LG account (step 1), pick the
-     devices and their options (step 2, with a Settings tab for the account and sync), done (step 3). */
+  /* The Homebridge plugin's settings page on the UI's materials: the LG account (step 1: its sign-in, which Setup
+     does), pick the devices and their options (step 2, with a Settings tab for the sync), done (step 3). */
 
   .step { animation: materialize var(--normal) var(--ease-out); }
   .step-head { display: flex; align-items: center; gap: 12px; margin: 22px 0 12px; }
@@ -1175,14 +727,8 @@ HomeswiftI18n.add({
     background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: var(--accent-text);
   }
   .step-number.done { background: linear-gradient(180deg, #4cd07d, #1f9d55); }
-  .notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
-  .notice p { margin: 2px 0 0; }
-  .form { display: grid; gap: 2px; max-width: 520px; }
-  .form .actions { margin-top: 14px; }
-  #third-party { margin-top: 14px; }
-  #third-party .help { margin: 4px 0 0; }
-  .wiki { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 0.8125rem; }
-  .wiki a { color: var(--accent); text-decoration: none; font-weight: 500; }
+  .account { display: grid; gap: 12px; }
+  .account .actions { margin: 0; }
   .problem { margin-top: 14px; }
   .problem .error { margin: 0; }
 
@@ -1247,28 +793,18 @@ HomeswiftI18n.add({
     </div>
   </div>
 
-  <section id="step-login" class="step">
-    <div class="step-head"><span class="step-number">1</span><h2 data-i18n>Connect your LG account</h2></div>
-    <div id="session-notice" class="card notice hidden">
-      <div><strong data-i18n>Active session</strong><p class="muted" data-i18n>Using the refresh token saved in this plugin's settings.</p></div>
-      <button id="new-login" data-i18n>Sign in with another account</button>
+  <section id="step-account" class="step">
+    <div class="step-head"><span class="step-number">1</span><h2 data-i18n>Your LG account</h2></div>
+    <div id="account-setup"></div>
+    <div id="account" class="card account hidden">
+      <div class="facts">
+        <div class="fact"><span data-i18n>Region</span><b id="account-region">—</b></div>
+        <div class="fact"><span data-i18n>Signed in with</span><b id="account-mode">—</b></div>
+        <div class="fact hidden" id="account-email-row"><span data-i18n>Email</span><b id="account-email"></b></div>
+      </div>
+      <div class="actions"><a id="sign-in-again" class="button" href="/setup?start" data-i18n data-action-icon="key">Sign in again</a></div>
     </div>
-    <form id="login-form" class="card form" autocomplete="on" novalidate>
-      <label class="field"><span class="field-title" data-i18n>Country / language</span><select id="country-language"></select><span class="help" data-i18n>The region of your LG account.</span></label>
-      <label class="field"><span class="field-title" data-i18n>Email</span><input type="email" id="username" placeholder="your@email.com" autocomplete="username" autocapitalize="none" spellcheck="false"><span class="help" data-i18n>Your LG ThinQ account's email.</span></label>
-      <label class="field"><span class="field-title" data-i18n>Password</span><input type="password" id="password" autocomplete="current-password" enterkeyhint="go"></label>
-      <label class="toggle"><span class="switch"><input type="checkbox" id="remember"><span></span></span><span><span class="field-title" data-i18n>Remember the email and password</span><span class="help" data-i18n>Optional: the sign-in keeps only a refresh token otherwise.</span></span></label>
-      <div class="actions"><button type="submit" id="login" class="primary" data-i18n data-action-icon="key">Connect account</button></div>
-      <p class="wiki muted">Signing in to LG with Google, Apple, Facebook or Amazon? <a href="https://github.com/mp-consulting/homebridge-lg-thinq/wiki/Plugin-Authorization-Setting" target="_blank" rel="noopener" data-i18n>See the authorization guide</a>, or use LG's own sign-in page below.</p>
-    </form>
-    <div id="third-party" class="card form">
-      <strong data-i18n>Sign in with Google, Apple, Facebook or Amazon</strong>
-      <p class="help">Open LG's sign-in page, sign in, then paste the address of the page it ends on (it starts with the LG account site and contains <span class="mono">iabClose</span>).</p>
-      <div class="actions"><button id="open-lg" type="button" data-i18n>Open LG's sign-in page</button></div>
-      <label class="field"><span class="field-title" data-i18n>Address after signing in</span><input type="url" id="redirect-url" placeholder="https://…/login/iabClose?…" spellcheck="false" autocapitalize="none"></label>
-      <div class="actions"><button id="redirect-login" type="button" class="primary" data-i18n>Use this sign-in</button></div>
-    </div>
-    <div id="login-problem" class="problem hidden"></div>
+    <div id="account-problem" class="problem hidden"></div>
   </section>
 
   <section id="step-devices" class="step hidden">
@@ -1282,7 +818,7 @@ HomeswiftI18n.add({
       <div class="card">
         <div class="list-head">
           <h3 data-i18n>Devices in your account <span id="device-count" class="pill count">0</span></h3>
-          <div class="actions"><button id="select-all" data-i18n>Select all</button><button id="refresh" data-i18n data-action-icon="restore">Refresh</button></div>
+          <div class="actions"><button id="select-all" data-i18n data-action-icon="check">Select all</button><button id="refresh" data-i18n data-action-icon="restore">Refresh</button></div>
         </div>
         <div id="devices-problem" class="problem hidden"></div>
         <ul id="device-list" class="devices"></ul>
@@ -1293,20 +829,6 @@ HomeswiftI18n.add({
     </div>
 
     <div id="pane-settings" class="settings hidden" role="tabpanel" aria-labelledby="tab-settings">
-      <div class="card">
-        <h3 data-i18n>Authentication</h3>
-        <label class="field"><span class="field-title" data-i18n>Auth mode</span>
-          <select id="auth-mode"><option value="account" data-i18n>LG account (email and password)</option><option value="token" data-i18n>Refresh token</option></select></label>
-        <label id="token-field" class="field"><span class="field-title" data-i18n>Refresh token</span><input type="password" id="refresh-token" data-i18n placeholder="Paste your refresh token" autocomplete="off" autocapitalize="none" spellcheck="false" class="mono"></label>
-        <div class="actions"><button id="switch-account" class="link" data-i18n>Sign in with another account</button></div>
-      </div>
-      <div class="card">
-        <h3 data-i18n>Region</h3>
-        <div class="columns">
-          <label class="field"><span class="field-title" data-i18n>Country</span><input type="text" id="country" placeholder="US" maxlength="2" autocapitalize="characters"></label>
-          <label class="field"><span class="field-title" data-i18n>Language</span><input type="text" id="language" placeholder="en-US" autocapitalize="none"></label>
-        </div>
-      </div>
       <div class="card">
         <h3 data-i18n>Sync</h3>
         <label class="toggle"><span class="switch"><input type="checkbox" id="thinq1"><span></span></span><span><span class="field-title" data-i18n>ThinQ1 support</span><span class="help" data-i18n>Adds the account's older ThinQ v1 devices, which are polled.</span></span></label>
@@ -1327,7 +849,6 @@ HomeswiftI18n.add({
 <script src="/common.js"></script>
 <script src="/plugin.js"></script>
 <script src="i18n.js"></script>
-<script src="countries.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

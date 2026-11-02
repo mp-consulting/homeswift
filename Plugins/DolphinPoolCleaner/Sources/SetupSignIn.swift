@@ -4,23 +4,11 @@ import HomeswiftNetwork
 import HomeswiftPlugin
 import Logging
 
-/// The sign-in of the setup page, as the Homebridge plugin's settings server does it: Cognito's
-/// `CUSTOM_AUTH` with the email only, which sends a verification code (by email, SMS or an authenticator
-/// app), then `RespondToAuthChallenge` with the code, then MyDolphin's `authenticate-user` for the robot.
-/// The page stores the Cognito refresh token in the block instead of a password.
-///
-/// The Cognito session between the two steps stays here, keyed by email, for five minutes.
-actor SetupWizard {
-    static let sessionLifetime: TimeInterval = 5 * 60
+/// What Setup's sign-in (DolphinSetup.swift) needs once Cognito has answered, as the Homebridge plugin's settings
+/// server does it: MyDolphin's `authenticate-user` for the robot and its picture, and Cognito's errors in words.
+actor SetupSignIn {
     /// The robot's picture is kept for the page when it is an image this size at most.
     static let maximumImageSize = 2 * 1024 * 1024
-
-    static let challengeMessages = [
-        "SMS_MFA": "Please enter the verification code sent to your phone",
-        "SOFTWARE_TOKEN_MFA": "Please enter the code from your authenticator app",
-        "CUSTOM_CHALLENGE": "Please enter the verification code sent to your email",
-        "MFA_SETUP": "MFA setup required. Please complete setup in the MyDolphin app first.",
-    ]
 
     /// Cognito's errors in words; anything else is Cognito's own message.
     static let errorMessages: [(type: String, message: String)] = [
@@ -31,77 +19,16 @@ actor SetupWizard {
         ("ExpiredCodeException", "Verification code has expired. Please try again."),
     ]
 
-    private struct Session {
-        var session: String
-        var challengeName: String
-        var createdAt: Date
-    }
-
-    private let cognito: CognitoClient
     private let backend: MyDolphinClient
     private let transport: any HTTPSending
     private let images: RobotImages
     private let logger: Logger
-    private var sessions: [String: Session] = [:]
 
     init(transport: any HTTPSending, images: RobotImages, logger: Logger) {
-        cognito = CognitoClient(transport: transport, timeout: Maytronics.setupRequestTimeout)
         backend = MyDolphinClient(transport: transport, timeout: Maytronics.setupRequestTimeout)
         self.transport = transport
         self.images = images
         self.logger = logger
-    }
-
-    /// Step 1: asks Cognito for a code. The answer says which kind of code, or why not.
-    func authenticate(email: String?) async -> JSONValue {
-        guard let email = email?.trimmingCharacters(in: .whitespaces), !email.isEmpty else {
-            return Self.failure("Email is required")
-        }
-        cleanExpiredSessions()
-        do {
-            let response = try await cognito.initiateAuth(flow: "CUSTOM_AUTH", parameters: ["USERNAME": email])
-            if let challenge = response["ChallengeName"]?.stringValue, !challenge.isEmpty {
-                sessions[email] = Session(session: response["Session"]?.stringValue ?? "", challengeName: challenge, createdAt: Date())
-                return Self.challenge(challenge)
-            }
-            // Direct success, rare with CUSTOM_AUTH.
-            guard let tokens = Tokens(response) else { return Self.failure("Unexpected authentication response") }
-            return await completeAuthentication(tokens)
-        } catch {
-            logger.warning("Setup sign-in failed: \(Self.message(for: error))")
-            return Self.failure(Self.message(for: error))
-        }
-    }
-
-    /// Step 2: the code. Answers with the robot and the refresh token for the block.
-    func verify(email: String?, code: String?) async -> JSONValue {
-        guard let email = email?.trimmingCharacters(in: .whitespaces), !email.isEmpty,
-            let code = code?.trimmingCharacters(in: .whitespaces), !code.isEmpty
-        else {
-            return Self.failure("Email and OTP code are required")
-        }
-        cleanExpiredSessions()
-        guard let session = sessions[email] else { return Self.failure("No pending authentication. Please try again.") }
-        guard Date().timeIntervalSince(session.createdAt) <= Self.sessionLifetime else {
-            sessions[email] = nil
-            return Self.failure("Session expired. Please try again.")
-        }
-        let field = ["SMS_MFA": "SMS_MFA_CODE", "SOFTWARE_TOKEN_MFA": "SOFTWARE_TOKEN_MFA_CODE", "CUSTOM_CHALLENGE": "ANSWER"][session.challengeName] ?? "SMS_MFA_CODE"
-        do {
-            let response = try await cognito.respondToAuthChallenge(
-                name: session.challengeName, session: session.session, responses: ["USERNAME": email, field: code])
-            // Another challenge (rare): the next code goes with the new session.
-            if let challenge = response["ChallengeName"]?.stringValue, !challenge.isEmpty {
-                sessions[email] = Session(session: response["Session"]?.stringValue ?? "", challengeName: challenge, createdAt: session.createdAt)
-                return Self.challenge(challenge)
-            }
-            guard let tokens = Tokens(response) else { return Self.failure("No authentication token received") }
-            sessions[email] = nil
-            return await completeAuthentication(tokens)
-        } catch {
-            logger.warning("Setup verification failed: \(Self.message(for: error))")
-            return Self.failure(Self.message(for: error))
-        }
     }
 
     struct Tokens {
@@ -156,15 +83,6 @@ actor SetupWizard {
         return .object(result)
     }
 
-    private func cleanExpiredSessions() {
-        let now = Date()
-        sessions = sessions.filter { now.timeIntervalSince($0.value.createdAt) <= Self.sessionLifetime }
-    }
-
-    private static func challenge(_ name: String) -> JSONValue {
-        ["success": false, "requiresOtp": true, "challengeName": .string(name), "message": .string(challengeMessages[name] ?? "Please enter the verification code")]
-    }
-
     static func failure(_ message: String) -> JSONValue { ["success": false, "error": .string(message)] }
 
     static func message(for error: any Error) -> String {
@@ -196,7 +114,7 @@ struct RobotImages: Sendable {
     func fetch(_ address: String, serialNumber: String, transport: any HTTPSending) async {
         guard let source = URL(string: address), source.scheme == "https" || source.scheme == "http", let file = url(serialNumber: serialNumber) else { return }
         guard let response = try? await HTTPRedirects.send(HTTPRequest(method: "GET", url: source, timeout: .seconds(15)), through: transport), response.isSuccess,
-            response.body.count <= SetupWizard.maximumImageSize,
+            response.body.count <= SetupSignIn.maximumImageSize,
             let type = response.header("Content-Type")?.split(separator: ";").first.map({ $0.trimmingCharacters(in: .whitespaces).lowercased() }),
             ["image/png", "image/jpeg", "image/webp", "image/gif"].contains(type)
         else { return }

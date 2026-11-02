@@ -36,8 +36,21 @@ extension DaikinCloudPlugin {
         }
         // The answer that chose is not one the next step reads.
         let next = SetupRequest(target: request.target, answers: request.answers.filter { $0.key != "authMode" }, state: request.state)
-        let step = mode == .mobileApp ? try await authorizeMobile(next) : try await authorizeDeveloperPortal(next)
+        var step = mode == .mobileApp ? try await authorizeMobile(next) : try await authorizeDeveloperPortal(next)
+        // Another way of signing in takes its recommended polling with it, as the Homebridge page's switch did.
+        if case .done(var outcome) = step, mode != settings.authMode {
+            for (key, value) in Self.recommendedPolling(mode) where outcome.settings[key] == nil { outcome.settings[key] = value }
+            step = .done(outcome)
+        }
         return step.keeping("authMode", .string(mode.rawValue))
+    }
+
+    /// What each way of signing in polls with: the Developer Portal's 200 calls a day, the Onecta app's 3000 and its WebSocket.
+    static func recommendedPolling(_ mode: AuthMode) -> [String: JSONValue] {
+        switch mode {
+        case .developerPortal: ["updateIntervalInMinutes": 15, "forceUpdateDelay": 60000, "enableWebSocket": false]
+        case .mobileApp: ["updateIntervalInMinutes": 5, "forceUpdateDelay": 10000, "enableWebSocket": true]
+        }
     }
 
     private func authorizeMobile(_ request: SetupRequest) async throws -> SetupStep {
@@ -50,23 +63,40 @@ extension DaikinCloudPlugin {
         return .done(SetupOutcome(settings: ["daikinEmail": .string(email), "daikinPassword": .string(password)]))
     }
 
-    /// The client, when the block has none; then Daikin's page, open until the callback server catches its redirect, or
-    /// until the person pastes the address it ended on.
+    /// The client, when the block has none, with the callback server's address and port, which make the app's redirect
+    /// URI (this host's detected address and the block's port unless typed); then Daikin's page, open until the callback
+    /// server catches its redirect, or until the person pastes the address it ended on.
     private func authorizeDeveloperPortal(_ request: SetupRequest) async throws -> SetupStep {
         if request.state["url"] == nil {
             let clientID = request.answer("clientId") ?? settings.clientID
             let clientSecret = request.answer("clientSecret") ?? settings.clientSecret
+            let detected = settings.callbackServerExternalAddress ?? dependencies.addresses().first ?? "127.0.0.1"
             guard let clientID, let clientSecret else {
-                return .ask(SetupPrompt(message: "Enter the app you made on the Daikin Developer Portal.", fields: [
-                    SetupField("clientId", label: "Client ID"), SetupField("clientSecret", label: "Client Secret", kind: .secret),
-                ]))
+                return .ask(SetupPrompt(
+                    message: "Enter the app you made on the Daikin Developer Portal. Its redirect URI is {redirectURI}, unless you change the callback server's address or port.",
+                    values: ["redirectURI": DeveloperPortalOAuth.redirectURI(address: detected, port: settings.callbackServerPort)],
+                    fields: [
+                        SetupField("clientId", label: "Client ID"), SetupField("clientSecret", label: "Client Secret", kind: .secret),
+                        SetupField("callbackServerExternalAddress", label: "Callback server address", optional: true),
+                        SetupField("callbackServerPort", label: "Callback server port", optional: true),
+                    ]))
             }
-            let address = settings.callbackServerExternalAddress ?? dependencies.addresses().first ?? "127.0.0.1"
+            let typedAddress = request.answer("callbackServerExternalAddress")
+            let typedPort = request.answer("callbackServerPort")
+            if typedAddress != nil || typedPort != nil {
+                // Checked as the block is: Daikin's redirect has to reach this host from the browser.
+                var raw: [String: JSONValue] = ["authMode": .string(AuthMode.developerPortal.rawValue), "clientId": .string(clientID), "clientSecret": .string(clientSecret),
+                                                "callbackServerExternalAddress": .string(typedAddress ?? detected)]
+                if let typedPort { raw["callbackServerPort"] = .string(typedPort) }
+                if let error = DaikinSettings.validate(raw).errors.first { throw SetupError(error) }
+            }
+            let address = typedAddress ?? detected
+            let port = typedPort.flatMap { DaikinSettings.port(.string($0)) } ?? settings.callbackServerPort
             let started: JSONValue
             do {
                 started = try await startAuthorization([
                     "clientId": .string(clientID), "clientSecret": .string(clientSecret), "callbackServerExternalAddress": .string(address),
-                    "callbackServerPort": .number(Double(settings.callbackServerPort)),
+                    "callbackServerPort": .number(Double(port)),
                 ])
             } catch {
                 throw SetupError(message(of: error))
@@ -75,6 +105,8 @@ extension DaikinCloudPlugin {
             var typed: [String: JSONValue] = [:]
             if request.answer("clientId") != nil { typed["clientId"] = .string(clientID) }
             if request.answer("clientSecret") != nil { typed["clientSecret"] = .string(clientSecret) }
+            if let typedAddress { typed["callbackServerExternalAddress"] = .string(typedAddress) }
+            if typedPort != nil { typed["callbackServerPort"] = .number(Double(port)) }
             return .ask(redirectPrompt(url), state: ["url": .string(url), "settings": .object(typed)])
         }
         let typed = request.state["settings"]?.objectValue ?? [:]

@@ -189,13 +189,13 @@ final class TestEnvironment: Sendable {
 
     var plugin: PhilipsHuePlugin? { plugins.withLockedValue { $0.last } }
 
+    /// Starts the host; `paired`, the bridge's key is in the vault as Setup leaves it.
     func start(settings: [String: Any] = ["host": "192.0.2.10"], paired: Bool = true) async throws -> PluginHost {
-        if paired { bridge.pressLinkButton() }
         var registry = PluginRegistry()
         let bridge = bridge
         registry.register(platform: PhilipsHuePlugin.platform, name: PhilipsHuePlugin.name) { json, context in
             let configuration = try JSONDecoder().decode(PhilipsHuePlugin.Configuration.self, from: json)
-            let dependencies = PhilipsHuePlugin.Dependencies(transport: { _ in bridge }, discover: { ["192.0.2.10"] }, pairingRetryDelay: .milliseconds(50), settleTime: hueSettleTime)
+            let dependencies = PhilipsHuePlugin.Dependencies(transport: { _ in bridge }, discover: { ["192.0.2.10"] }, settleTime: hueSettleTime)
             let plugin = PhilipsHuePlugin(configuration: configuration, context: context, dependencies: dependencies)
             self.plugins.withLockedValue { $0.append(plugin) }
             return plugin
@@ -204,6 +204,10 @@ final class TestEnvironment: Sendable {
         let configuration = HomeswiftConfiguration(bridge: .init(port: 0), platforms: [block])
         let options = PluginHost.Options(advertise: false, logger: testLogger) { _ in MemoryStorage() }
         let host = try PluginHost(configuration: configuration, registry: registry, storageDirectory: directory, options: options)
+        if paired {
+            let stored = PhilipsHuePlugin.StoredBridge(host: settings["host"] as? String ?? "192.0.2.10", applicationKey: "app-key-1")
+            try host.context(platform: PhilipsHuePlugin.platform, name: PhilipsHuePlugin.name)?.saveCredentials(stored)
+        }
         try await host.start()
         return host
     }
@@ -240,20 +244,13 @@ struct PhilipsHueTests {
         #expect(configuration.transitionMs == nil)
     }
 
-    /// The plugin asks for a key until the link button is pressed, and keeps it in the vault, not config.json.
-    @Test func pairsWhenTheLinkButtonIsPressed() async throws {
+    /// Without a key the plugin pairs nothing itself: it waits for Setup, and asks the bridge for nothing.
+    @Test func waitsForSetupWithoutAKey() async throws {
         let host = try await environment.start(paired: false)
-        #expect(await eventually { environment.bridge.sent.contains { $0.method == "POST" && $0.path == "/api" } })
-        #expect(await environment.plugin?.storedBridge.applicationKey == nil)
-        environment.bridge.pressLinkButton()
-        let pairing = try #require(environment.bridge.sent.first { $0.path == "/api" })
-        #expect(pairing.body["generateclientkey"] == true)
-        #expect(pairing.body["devicetype"]?.stringValue?.hasPrefix("homeswift#") == true)
-        let vault = CredentialVault(storage: environment.directory)
-        #expect(await eventually(timeout: .seconds(10)) {
-            (try? vault.entries())?.contains { $0.key.hasSuffix(".account") && $0.value.fields.values.contains { $0.contains("app-key-1") } } == true
-        })
-        _ = try await accessory(host, stripID)
+        let plugin = try #require(environment.plugin)
+        #expect(await eventually { await plugin.lastError?.contains("Add accessories") == true })
+        #expect(!environment.bridge.sent.contains { $0.method == "POST" && $0.path == "/api" })
+        #expect(host.mainBridge.server.accessories.count == 1)
         await host.stop()
     }
 
@@ -268,6 +265,9 @@ struct PhilipsHueTests {
         environment.bridge.pressLinkButton()
         let done = try await plugin.authorize(SetupRequest(target: .account, state: state))
         guard case .done(let outcome) = done else { Issue.record("expected done"); return }
+        let pairing = try #require(environment.bridge.sent.first { $0.path == "/api" })
+        #expect(pairing.body["generateclientkey"] == true)
+        #expect(pairing.body["devicetype"]?.stringValue?.hasPrefix("homeswift#") == true)
         #expect(outcome.credentials?["applicationKey"]?.stringValue?.isEmpty == false)
         #expect(outcome.settings.isEmpty)
         try host.context(platform: PhilipsHuePlugin.platform, name: PhilipsHuePlugin.name)?.saveCredentials(outcome.credentials ?? .null)
@@ -276,19 +276,19 @@ struct PhilipsHueTests {
         await host.stop()
     }
 
-    /// At a new address the key goes only to the same bridge: another one there loses it, and pairing starts over.
     /// A bridge ID is public, so an address that changes never gets the key: it is dropped, and no resource is read
-    /// with it until the page pairs again.
+    /// with it until Setup pairs again.
     @Test func aMovedBridgeLosesItsKeyUntilPairedAgain() async throws {
-        let host = try await environment.start()
-        _ = try await accessory(host, stripID)
+        let first = try await environment.start()
+        _ = try await accessory(first, stripID)
+        #expect(await eventually { await environment.plugin?.storedBridge.bridgeID != nil })
+        await first.stop()
+        let host = try await environment.start(settings: ["host": "192.0.2.11"], paired: false)
         let plugin = try #require(environment.plugin)
-        #expect(await eventually { await plugin.storedBridge.bridgeID != nil })
-        await plugin.use(host: "192.0.2.11")
-        #expect(await eventually { await plugin.storedBridge.applicationKey == nil })
-        // Nothing the plugin sends to the new address carries the dropped key (it waits for Setup to pair again). A read
-        // already on its way to the old address may still land there, so only the new address's requests count: the
-        // window can miss a late request, never fail on an early one.
+        #expect(await eventually { await plugin.storedBridge.host == "192.0.2.11" })
+        #expect(await plugin.storedBridge.applicationKey == nil)
+        // Nothing the plugin sends to the new address carries the dropped key (it waits for Setup). The window can miss
+        // a late request, never fail on an early one.
         try await Task.sleep(for: .milliseconds(500))
         #expect(!environment.bridge.sent.contains { $0.host == "192.0.2.11" && $0.key != nil })
         await host.stop()
@@ -656,6 +656,10 @@ struct PhilipsHueTests {
         let status = try await plugin.handleWebRequest(PluginWebRequest(method: "GET", path: "status", user: "admin"))
         #expect(status.json["paired"] == true)
         #expect(status.json["host"] == "192.0.2.10")
+        // Pairing is Setup's: the page has no route of its own for it.
+        for (method, path) in [("POST", "pair"), ("POST", "host"), ("GET", "discover")] {
+            #expect(try await plugin.handleWebRequest(PluginWebRequest(method: method, path: path, body: ["host": "192.0.2.11"], user: "admin")).status == 404)
+        }
         let lights = try await plugin.handleWebRequest(PluginWebRequest(method: "GET", path: "lights", user: "admin"))
         let strip = try #require(lights.json["lights"]?.arrayValue?.first { $0["id"] == "light-1" })
         #expect(strip["kind"] == "colour")

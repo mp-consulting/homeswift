@@ -244,8 +244,12 @@ struct OAuthServerTests {
         #expect(try await browser.post("/api/oauth/decision", decision(["approve": true, "scope_granted": "admin"])).status == 400)
         // Unknown clients and redirect URIs are refused on the page; anything else goes back to the client.
         #expect(try await browser.post("/api/oauth/decision", decision(["approve": true, "scope_granted": "read", "redirect_uri": "https://evil.example/cb"])).status == 400)
-        let sentBack = try #require(try await browser.post("/api/oauth/decision", decision(["approve": true, "scope_granted": "read", "code_challenge_method": "plain"])).json?["redirect"]?.stringValue)
+        let refusal = try #require(try await browser.post("/api/oauth/decision", decision(["approve": true, "scope_granted": "read", "code_challenge_method": "plain"])).json)
+        let sentBack = try #require(refusal["redirect"]?.stringValue)
         #expect(Self.query(sentBack)["error"] == "invalid_request")
+        // The page shows where it would go and why, and goes only when the person clicks.
+        #expect(refusal["destination"]?.stringValue?.contains("claude.ai") == true)
+        #expect(refusal["reason"] == "PKCE with S256 is required")
         let denied = try #require(try await browser.post("/api/oauth/decision", decision(["approve": false])).json?["redirect"]?.stringValue)
         #expect(Self.query(denied)["error"] == "access_denied")
         #expect(Self.query(denied)["state"] == "state-1")

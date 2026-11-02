@@ -335,6 +335,8 @@
       running = false;
       renderControls();
       showError(e.message);
+      // Not sent: the words come back to try again, unless something new was typed meanwhile.
+      if (!panel.input.value) { panel.input.value = text; grow(); }
     }
   }
 

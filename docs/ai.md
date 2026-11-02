@@ -159,6 +159,15 @@ handed to the page: `ChatToolbox` tells the conversation, which shows a card who
 that very Setup in the sheet (`/api/setup/<session>/state`), where the person types the secret; the model is told to
 point to the card and never to ask for the secret in the chat.
 
+With the Wingman plugin, the Assistant works on Apple Home too (`chat.md`, and Wingman's `assistantBackground`): "move
+the lamp to the kitchen in Apple Home" and "rename the Salon room" through `set_accessory_layout` while `syncRoomNames`
+is on; "make a Movie scene" kept in Apple Home through `save_scene`'s `hub`, and its scenes run, renamed or removed with
+`run_scene`, `update_hub_scene` and `delete_hub_scene`; its automations listed, turned on or off, renamed, moved in
+time or given other scenes and actions with `list_hub_automations` and `update_hub_automation`, and removed with
+`delete_hub_automation`, which asks first. "Turn the porch light on at sunset" changes an Apple Home automation that
+already does it, else the Assistant saves the scene and points to the Scenes page for its trigger: new Apple Home
+automations are made in the Home app.
+
 The web UI's requests (the chat, explain, ask, Log Doctor, the digest, room suggestions, the config copilot)
 carry the page's language as `Accept-Language`; for French, Spanish or Portuguese the Assistant is told to
 answer in it (`Prompts.answerLanguage`, `AssistantService.speaking`), and the day's digest is kept per language.
@@ -171,7 +180,8 @@ The command line and the MCP server leave the language to the model.
   Free text (logs, errors, questions) has `key=value` pairs with such names and well-known key shapes
   (`sk-…`, `Bearer …`, `AIza…`, JWTs) masked.
 - **Logs and device data are data.** They are wrapped in `<untrusted-data>` tags and the system prompt
-  tells the model never to follow instructions found in them.
+  tells the model never to follow instructions found in them. A tool whose text is wrapped so (a Setup's answer, a
+  hub's automations) reaches the model wrapped too, its structured answer inside the tags (`Agent.wrapped`).
 - **Every prompt is readable.** The words sent to a model are Markdown files in
   [`Sources/HomeswiftAI/Prompts/`](../Sources/HomeswiftAI/Prompts), one per feature (logs, the config copilot, scenes,
   the digest, the chat…); its README says how a file reads. Edit one, then run

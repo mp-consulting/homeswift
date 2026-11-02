@@ -11,22 +11,23 @@ Home app as a second accessory to add, with the same setup code as the bridge.
 
 ## Pairing
 
-A TV has to accept the plugin once, like the Philips TV Remote app. The web UI's **Add accessories** page lists the TVs
-on the network and sets one up with the PIN it shows (Setup, docs/plugins.md): its `username` and `password` and the
-fingerprint of its certificate go in the bridge's vault under its MAC address, and its address in its Accessory
-Settings. The plugin's own page does the same: it finds TVs (or takes an address), asks the TV to show a PIN, keeps
-the keys in the vault and turns the PIN into the TV's entry for the block, with its MAC address (from the TV's
-`network/devices`, else from this machine's ARP table, as the Homebridge plugin reads it); when no MAC is found, the
-entry carries the keys. **Add TV** writes the entry into this block and
-the plugin reloads with it at once, no restart; the entry can also be copied to paste by hand. The settings page of the Homebridge
-plugin produces the same keys. A TV that does not answer while pairing can be woken from there (by its MAC
-address in the ARP table when it is not configured yet); a wrong PIN says so, with the Homebridge plugin's
-words for each status the TV answers. With the Assistant on, **Explain** sits next to errors.
+A TV has to accept the plugin once, like the Philips TV Remote app. Pairing is done on the web UI's **Add accessories**
+page (Setup, docs/plugins.md), or by an AI agent through the MCP tools `discover_devices` and `start_setup`: it lists the
+TVs on the network (they announce themselves only while on) and sets one up with the PIN it shows. Its `username` and
+`password` and the fingerprint of its certificate go in the bridge's vault under its MAC address (from the TV's
+`network/devices`, else this machine's ARP table, as the Homebridge plugin reads it; asked for when neither knows it),
+and its address and settings in its Accessory Settings. The plugin reloads with it at once, no restart. A wrong PIN
+says so and is asked again.
+
+A TV Bonjour does not reach (another subnet, a container without multicast) is added by its address: an entry of
+`devices` with only its `name` and `ip`, and Add accessories lists it to pair. After a reset of the TV, **Set up again**
+on Add accessories pairs it again; the TV keeps its MAC address, so its place in the Home app. The settings page of the
+Homebridge plugin produces the same keys, and a block that has them in `devices` works as it is.
 
 ## The web page
 
-The page does what the Homebridge plugin's settings page does. Each TV has a card with its state and a
-remote, and:
+The page does what the Homebridge plugin's settings page does, but pairing: its card leads to Add accessories. Each TV
+has a card with its state and a remote, and:
 
 - **Inputs**: the order of the input wheel by drag and drop (or Alt and an arrow key), inputs hidden or
   shown, renamed in place; it writes the `sources` keys. **Refresh from TV** reads the TV's apps at once
@@ -34,8 +35,10 @@ remote, and:
 - **Edit**: General (name, address, MAC with **Get MAC**, Ambilight style, Wake-on-LAN, polling), Remote (the keys of the
   Info, Back and Play/Pause buttons), Automations (source switches, the Ambilight+hue switch, state
   sensors), Apps (custom apps, with **Detect from TV** reading the app in the foreground) and Buttons
-  (custom buttons), and **Pair again** after a reset of the TV.
-- **Remove** takes the TV out of the block, and out of the Home app.
+  (custom buttons), and **Pair again**, which opens Add accessories. A TV Setup paired keeps these settings in its
+  Accessory Settings, and its MAC address as Setup read it.
+- **Remove** takes the TV out of the block, and out of the Home app (a TV Setup paired is Excluded, as Add accessories
+  does it, and can be included again there).
 
 Every save applies at once: the plugin reloads and the TV keeps its place in the Home app.
 
@@ -62,8 +65,9 @@ Every save applies at once: the plugin reloads and the TV keeps its place in the
 }
 ```
 
-Per TV, `name`, `ip`, `mac`, `username` and `password` are required (the keys from the vault when the TV was paired
-there); a TV with one missing is skipped with a line in the log. The options:
+Per TV, `name`, `ip`, `mac`, `username` and `password` are needed (the MAC and keys from the vault when the TV was paired
+on Add accessories); an entry with only `name` and `ip` waits to be paired there, and a TV with another one missing is
+skipped with a line in the log. The options:
 
 | Option | Default | What it does |
 |---|---|---|

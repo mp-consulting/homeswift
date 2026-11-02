@@ -30,6 +30,8 @@ struct SetupTests {
         #expect(region.fields.map(\.key) == ["country", "language"] && region.fields.allSatisfy { $0.kind == .choice })
         #expect(region.fields[0].options.contains(SetupOption("FR", label: "France", country: "FR")))
         #expect(region.fields[1].options.contains(SetupOption("fr-FR", label: "French (France)", language: "fr-FR")))
+        // LG's regions, with the languages the system does not name on its own.
+        #expect(region.fields[1].options.contains { $0.value == "zh-CN" } && region.fields[1].options.contains { $0.value == "en-AM" })
         #expect(chosen["auth_mode"] == "token")
         await #expect(throws: SetupError("The country has two letters, such as US or FR")) {
             _ = try await plugin.authorize(SetupRequest(target: .account, answers: ["country": "France", "language": "fr-FR"], state: chosen))

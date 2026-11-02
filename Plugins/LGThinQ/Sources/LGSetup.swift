@@ -3,8 +3,9 @@ import Homeswift
 import HomeswiftNetwork
 import HomeswiftPlugin
 
-// Setup (GLOSSARY.md, "Setup"): the LG account is the instance's. It is a Browser Redirect: LG's own sign-in page (the
-// page's "login URL", which takes LG, Google, Apple, Facebook and Amazon accounts), whose address the person pastes back
+// Setup (GLOSSARY.md, "Setup"): the LG account is the instance's, and the only way it signs in (the plugin's page leads
+// here). It is a Browser Redirect: LG's own sign-in page (which takes LG, Google, Apple, Facebook and Amazon accounts),
+// in the account's region (LGRegions.swift, the Homebridge page's list), whose address the person pastes back
 // once it ends on `iabClose`. A block whose `auth_mode` is `account` signs in with the account's email and password
 // instead (an Account Login). Either way the refresh token goes in the vault, preferred over the block's `refresh_token`,
 // which goes. The appliances come with the account, by LG's device id; the block's `devices`, when it lists some, is the
@@ -83,8 +84,8 @@ extension LGThinQPlugin {
         let language = region["language"]?.stringValue ?? configuration.language.flatMap { $0.isEmpty ? nil : $0 }
         guard let country, let language else {
             return .ask(SetupPrompt(message: "Choose the country and the language of your LG account.", fields: [
-                .choice("country", label: "Country", options: SetupOption.countries(), value: configuration.country?.uppercased()),
-                .choice("language", label: "Language", options: SetupOption.languages(), value: configuration.language),
+                .choice("country", label: "Country", options: LGRegions.countries(), value: configuration.country?.uppercased()),
+                .choice("language", label: "Language", options: LGRegions.languages(), value: configuration.language),
             ]))
         }
         let token: String

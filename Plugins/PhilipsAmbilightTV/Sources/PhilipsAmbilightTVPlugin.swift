@@ -9,8 +9,8 @@ import Logging
 /// Ambilight as a colour lightbulb, and optional switches and sensors for scenes and automations.
 ///
 /// Each TV is published as an accessory of its own, as Homebridge does: HomeKit allows one television per
-/// bridge. The configuration is the one of `homebridge-philips-ambilight-tv`; pairing a TV happens on the
-/// plugin's page in the web UI, or with the Homebridge plugin's settings page. See README.md.
+/// bridge. The configuration is the one of `homebridge-philips-ambilight-tv`; a TV is paired through Setup
+/// (AmbilightSetup.swift: Add accessories in the web UI, or an MCP client's `start_setup`). See README.md.
 public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
     public static let platform = "PhilipsAmbilightTV"
     public static let icon: String? = "tv"
@@ -21,7 +21,6 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
 
     static let discoveryServiceType = "_androidtvremote2._tcp"
     static let discoveryDuration: Duration = .seconds(5)
-    static let pairingSessionLifetime: TimeInterval = 300
 
     /// What the plugin uses to reach TVs; tests swap them for a fake TV.
     struct Dependencies: Sendable {
@@ -46,7 +45,6 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
     let dependencies: Dependencies
     var logger: Logger { context.logger }
     private(set) var devices: [String: TVDevice] = [:]
-    private var pairings: [String: JointSpacePairing.Session] = [:]
 
     public init(configuration: Configuration, context: PluginContext) {
         self.init(configuration: configuration, context: context, dependencies: Dependencies())
@@ -61,6 +59,11 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
     public func start() async throws {
         var settings: [TVSettings] = []
         for (index, device) in configuredDevices().enumerated() {
+            // An entry with no keys is a TV for Setup to pair (AmbilightSetup.swift), not one to run yet.
+            guard Self.hasKeys(device) else {
+                logger.info("TV \(device.name.map { "\"\($0)\"" } ?? "#\(index + 1)") is not paired yet: set it up on Add accessories")
+                continue
+            }
             do {
                 let checked = try TVSettings(device)
                 for warning in checked.warnings { logger.warning("TV \"\(checked.name)\": \(warning)") }
@@ -140,8 +143,7 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
     /// `GET tvs` lists the TVs with their state; `GET sources?mac=` a TV's inputs in the wheel's order, for
     /// the sources editor, and `POST sources/refresh` the same after reading the TV's apps again; `GET mac?ip=`
     /// finds a TV's MAC address; `POST wake` sends Wake-on-LAN to any MAC address; `POST key` sends a remote
-    /// key; `GET discover` looks for TVs over Bonjour; `POST pair` and `POST pair/grant` pair a TV and answer
-    /// with the keys of its configuration block. `Web/` is the page.
+    /// key. Pairing is Setup's (AmbilightSetup.swift). `Web/` is the page.
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
         switch (request.method, request.path) {
         case ("GET", "tvs"):
@@ -201,7 +203,7 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
             if let label { app["name"] = .string(label) }
             return PluginWebResponse(["app": .object(app)])
         case ("POST", "wake"):
-            // Any MAC address, as the Homebridge plugin's page sends it: a TV being paired is not configured yet.
+            // Any MAC address: a TV not set up yet can be woken from deep standby before its Setup.
             guard let raw = request.query["mac"] ?? request.body["mac"]?.stringValue, let mac = MACAddress.canonical(raw) else {
                 return .error(400, "A valid MAC address is required")
             }
@@ -222,66 +224,6 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
                 return .error(502, "the TV did not take the key")
             }
             return PluginWebResponse(["sent": .string(key)])
-        case ("GET", "discover"):
-            let found = await dependencies.discover(logger)
-            return PluginWebResponse(["tvs": .array(found.map { ["name": .string($0.name), "host": .string($0.host)] })])
-        case ("POST", "pair"):
-            guard let ip = request.body["ip"]?.stringValue?.trimmingCharacters(in: .whitespaces), WakeOnLAN.ipv4(ip) != nil else { return .error(400, "an IPv4 address is required") }
-            let deviceName = request.body["name"]?.stringValue?.nonEmpty ?? "Homeswift"
-            // Pairings nobody finished go, so the sessions (and their auth keys) do not pile up.
-            let now = Date()
-            pairings = pairings.filter { now.timeIntervalSince($0.value.startedAt) < Self.pairingSessionLifetime }
-            do {
-                let session = try await JointSpacePairing.request(ip: ip, deviceName: deviceName, transport: dependencies.transports.makeTransport(tls: .any))
-                pairings[ip] = session
-                logger.info("Pairing started", metadata: ["ip": "\(ip)"])
-                return PluginWebResponse(["message": "The TV shows a PIN: enter it to finish.", "certificateSeen": .bool(session.certificateFingerprint != nil)])
-            } catch JointSpaceError.pairingRefused(let status) {
-                let error = JointSpaceError.pairingRefused(status: status)
-                logger.warning("Pairing request failed: \(error)")
-                return .error(502, "\(error)")
-            } catch {
-                logger.warning("Pairing request failed: \(error)")
-                return .error(502, "Cannot reach the TV at \(ip): is it on, and on this network? (\(error))")
-            }
-        case ("POST", "pair/grant"):
-            // Trimmed as `pair` trims it, which keyed the session.
-            guard let ip = request.body["ip"]?.stringValue?.trimmingCharacters(in: .whitespaces), let session = pairings[ip] else { return .error(400, "no pairing in progress for that address; start again") }
-            guard Date().timeIntervalSince(session.startedAt) < Self.pairingSessionLifetime else {
-                pairings[ip] = nil
-                return .error(400, "the pairing expired; start again")
-            }
-            guard let pin = request.body["pin"]?.stringValue?.trimmingCharacters(in: .whitespaces), pin.count == 4, pin.allSatisfy(\.isNumber) else { return .error(400, "a 4-digit PIN is required") }
-            let transport = dependencies.transports.makeTransport(tls: session.certificateFingerprint.map { .pinned($0) } ?? .any)
-            do {
-                let credentials = try await JointSpacePairing.grant(session, pin: pin, transport: transport)
-                pairings[ip] = nil
-                logger.info("Paired", metadata: ["ip": "\(ip)"])
-                // The MAC address, for the block, from the TV itself when it tells.
-                let client = JointSpaceClient(
-                    ip: ip, username: credentials.username, password: credentials.password, certificateFingerprint: credentials.certFingerprint,
-                    transports: dependencies.transports, logger: logger)
-                let mac = await lookUpMAC(ip: ip, client: client)
-                var block: [String: JSONValue] = ["ip": .string(ip)]
-                let keys = TVCredentials(username: credentials.username, password: credentials.password, certFingerprint: credentials.certFingerprint)
-                if let mac, (try? context.saveCredentials(keys, for: mac)) != nil {
-                    // The keys in the vault under the TV's MAC, as Setup keeps them; the entry for `devices` gets the rest.
-                    block["mac"] = .string(mac)
-                } else {
-                    // No MAC to keep them under: the entry carries them (the runtime seals them in config.json).
-                    block["username"] = .string(credentials.username)
-                    block["password"] = .string(credentials.password)
-                    if let fingerprint = credentials.certFingerprint { block["certFingerprint"] = .string(fingerprint) }
-                    if let mac { block["mac"] = .string(mac) }
-                }
-                return PluginWebResponse(["device": .object(block), "certificatePinned": .bool(credentials.certFingerprint != nil)])
-            } catch let error as JointSpaceError {
-                if case .certificateMismatch = error { pairings[ip] = nil }
-                logger.warning("Pairing failed: \(error)")
-                return .error(502, "\(error)")
-            } catch {
-                return .error(502, "\(error)")
-            }
         default:
             return .error(404, "nothing at \(request.method) \(request.path)")
         }

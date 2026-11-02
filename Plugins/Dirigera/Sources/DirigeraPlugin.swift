@@ -16,8 +16,8 @@ import Logging
 /// websocket, so the Home app follows the IKEA app and the remotes at once.
 ///
 /// The block is homebridge-dirigera's (`hubs`, each with `host` and an optional `token`). A hub without a token pairs
-/// through Setup (the instance's account, a Button Press: DirigeraSetup.swift) or from the plugin's page: both ask for
-/// the hub's action button, and the token is kept sealed in the vault (`hubs.json` in the plugin's directory before,
+/// through Setup (the instance's account, a Button Press: DirigeraSetup.swift, from Add accessories or an AI agent's
+/// `start_setup`): it asks for the hub's action button, and the token is kept sealed in the vault (`hubs.json` in the plugin's directory before,
 /// moved there when read), never in config.json; it wins over a `token` config.json still has. See README.md here.
 public actor DirigeraPlugin: HomeswiftPlugin {
     public struct Configuration: Decodable, Sendable {
@@ -49,8 +49,6 @@ public actor DirigeraPlugin: HomeswiftPlugin {
         var discover: @Sendable () async -> [String] = DirigeraDiscovery.find
         /// How long to wait before connecting the events again.
         var reconnectDelay: Duration = .seconds(5)
-        /// How long to wait before asking again whether the hub's button was pressed.
-        var pairingRetryDelay: Duration = .seconds(2)
         /// How long after a command a light's own values are left alone (`DirigeraLightCommands.settleTime`).
         var settleTime: Duration = DirigeraLightCommands.settleTime
     }
@@ -93,8 +91,6 @@ public actor DirigeraPlugin: HomeswiftPlugin {
         var connected = false
         /// The accessories it showed at its last read, by accessory id: which of the plugin's stay.
         var shown: Set<String> = []
-        var pairing = false
-        var pairingDeadline: ContinuousClock.Instant?
 
         init(host: String, client: DirigeraClient, trust: HTTPClient.TrustOnFirstUse) {
             self.host = host
@@ -148,7 +144,7 @@ public actor DirigeraPlugin: HomeswiftPlugin {
     static func accessoryID(deviceID: String) -> String { "\(platform):\(deviceID)" }
     static func sceneAccessoryID(host: String) -> String { "\(platform):scenes:\(host)" }
 
-    /// The hubs to run: config.json's, then the ones paired from the page.
+    /// The hubs to run: config.json's, then the ones paired through Setup.
     var hubHosts: [String] {
         var hosts = (configuration.hubs ?? []).map { $0.host.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         for host in stored.keys.sorted() where !hosts.contains(host) && stored[host]?.token != nil { hosts.append(host) }
@@ -157,7 +153,7 @@ public actor DirigeraPlugin: HomeswiftPlugin {
 
     public func start() async throws {
         for host in hubHosts { open(host) }
-        if hubHosts.isEmpty { logger.info("No DIRIGERA hub yet: find and pair one on the plugin's page") }
+        if hubHosts.isEmpty { logger.info("No DIRIGERA hub yet: set one up on Add accessories") }
     }
 
     public func stop() async {
@@ -179,7 +175,7 @@ public actor DirigeraPlugin: HomeswiftPlugin {
         }
     }
 
-    /// Keeps a token pairing gave (the page's or Setup's), with the certificate it was paired over when known.
+    /// Keeps a token Setup's pairing gave, with the certificate it was paired over when known.
     func keep(token: String, fingerprint: String?, for host: String) {
         // What the trust saved on its own since (a fingerprint) is kept.
         stored = store.load() ?? stored
@@ -242,8 +238,8 @@ public actor DirigeraPlugin: HomeswiftPlugin {
             hub.devices = Dictionary(devices.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             hub.scenes = scenes.sorted { $0.name < $1.name }
         } catch DirigeraClient.Failure.unauthorized {
-            hub.error = "The DIRIGERA hub refused the token: pair again from the plugin's page."
-            logger.warning("The DIRIGERA hub at \(hub.host) refused the token; pair again from the plugin's page")
+            hub.error = "The DIRIGERA hub refused the token: set it up again on Add accessories."
+            logger.warning("The DIRIGERA hub at \(hub.host) refused the token; set it up again on Add accessories")
             stored[hub.host]?.token = nil
             save()
             await hub.client.setToken(nil)
@@ -500,50 +496,11 @@ public actor DirigeraPlugin: HomeswiftPlugin {
 
     // MARK: For the page
 
-    /// Pairs with the hub at `host`: a code, then the token once its action button is pressed.
-    func pair(host: String) async throws {
-        let hub = open(host)
-        guard !hub.pairing else { return }
-        hub.pairing = true
-        defer { hub.pairing = false; hub.pairingDeadline = nil }
-        // A fresh pairing starts from no pin: a certificate pinned earlier (a bad first connection) is not kept.
-        hub.trust.reset()
-        let verifier = DirigeraClient.makeVerifier()
-        let code = try await hub.client.authorize(verifier: verifier)
-        let deadline = ContinuousClock.now + Self.pairingWindow
-        hub.pairingDeadline = deadline
-        while ContinuousClock.now < deadline {
-            do {
-                let token = try await hub.client.token(code: code, verifier: verifier, name: Self.clientName)
-                keep(token: token, fingerprint: nil, for: host)
-                hub.error = nil
-                logger.info("Paired with the DIRIGERA hub at \(host)")
-                tasks.add { [weak self] in await self?.run(hub) }
-                return
-            } catch DirigeraClient.Failure.buttonNotPressed {
-                try await Task.sleep(for: dependencies.pairingRetryDelay)
-            }
-        }
-        throw DirigeraClient.Failure.buttonNotPressed
-    }
-
-    func unpair(host: String) async {
-        stored[host]?.token = nil
-        save()
-        await hubs[host]?.client.setToken(nil)
-    }
-
-    func discoverHosts() async -> [String] { await dependencies.discover() }
-
     /// A hub's state for the page; its devices are counted as the page draws them, a product's parts once.
-    func hubStatus(_ host: String) async -> (paired: Bool, connected: Bool, pairing: Bool, pairingSecondsLeft: Int?, error: String?, devices: Int, scenes: Int) {
+    func hubStatus(_ host: String) async -> (paired: Bool, connected: Bool, error: String?, devices: Int, scenes: Int) {
         let hub = hubs[host]
         let paired = await hub?.client.token != nil
-        let secondsLeft = hub?.pairingDeadline.map { deadline in
-            let left = (deadline - ContinuousClock.now).components
-            return max(0, Int(left.seconds) + (left.attoseconds > 0 ? 1 : 0))
-        }
-        return (paired, hub?.connected ?? false, hub?.pairing ?? false, secondsLeft, hub?.error, Set(hub?.devices.values.map(\.groupID) ?? []).count, hub?.scenes.count ?? 0)
+        return (paired, hub?.connected ?? false, hub?.error, Set(hub?.devices.values.map(\.groupID) ?? []).count, hub?.scenes.count ?? 0)
     }
 
     /// Runs one of the hub's scenes: only an id the hub listed, as the page's and the Assistant's ids come from outside.
