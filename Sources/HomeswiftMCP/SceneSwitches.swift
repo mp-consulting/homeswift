@@ -7,6 +7,10 @@ import HomeswiftPlugin
 // leaving out its locks, doors and alarms, as an automation does; turning it off puts back what it changed. The switch
 // shows whether the scene is active or can be stopped. The plugins' own scene switches stay as they are.
 // docs/scenes-design.md, "Surfaces".
+//
+// Each switch carries the scene's name in Name and Configured Name: the Home app keeps its own name for a paired
+// accessory's services and does not follow Name, but it follows Configured Name, and writes it when the switch is
+// renamed there, which renames the scene (homebridge-plugin-utils's `setServiceName` sets both the same way).
 
 extension HomeswiftCatalog {
     static let sceneSwitchesID = "Homeswift:scenes"
@@ -20,18 +24,35 @@ extension HomeswiftCatalog {
             if let existing { try? server.remove(existing) }
             return
         }
-        // Same scenes under the same names: only the switches' states change.
+        // Same scenes, each switch with its Configured Name: a renamed scene's switch is renamed in place, so the
+        // controllers following it get the new name as an event, and only the switches' states change.
         if let existing, Set(existing.services.compactMap(\.subtype)) == Set(chosen.map { "scene:" + $0.id }),
-           chosen.allSatisfy({ scene in existing.services.first { $0.subtype == "scene:" + scene.id }?[.name]?.value.stringValue == scene.name }) {
+           existing.services.allSatisfy({ $0.subtype == nil || $0[.configuredName] != nil }) {
+            for scene in chosen {
+                guard let service = existing.services.first(where: { $0.subtype == "scene:" + scene.id }) else { continue }
+                for name in [service[.name], service[.configuredName]].compactMap({ $0 }) where name.value != .string(scene.name) {
+                    name.value = .string(scene.name)
+                }
+            }
             refreshSceneSwitches()
             return
         }
+        let catalog = self
         let services = chosen.map { scene in
-            let service = Service(.switch, name: scene.name, subtype: "scene:" + scene.id)
+            let service = Service(.switch, name: scene.name, subtype: "scene:" + scene.id, optional: [.configuredName])
+            service.characteristic(.configuredName).value = .string(scene.name)
             service.characteristic(.on).value = .bool(sceneSwitchIsOn(scene))
             let id = scene.id
+            // Renamed in the Home app: the scene takes the name.
+            service.characteristic(.configuredName).onWrite { value in
+                guard let name = value.stringValue.flatMap(AccessoryNaming.cleaned) else { return }
+                do {
+                    try catalog.renameSavedScene(id, to: name)
+                } catch {
+                    catalog.logger.warning("The Home app's name for a scene's switch was not kept: \(error)")
+                }
+            }
             // A run or a stop refreshes the switches itself; a failure sets this one back.
-            let catalog = self
             service.characteristic(.on).onWrite { value in
                 let on = value.boolValue ?? false
                 Task {
@@ -64,6 +85,19 @@ extension HomeswiftCatalog {
                 if on.value != value { on.value = value }
             }
         }
+    }
+
+    /// Renames a saved scene, as the Home app does through its switch's Configured Name; its switch follows.
+    func renameSavedScene(_ id: String, to name: String) throws {
+        let renamed = try home.scenes.update { file -> Bool in
+            guard let index = file.scenes.firstIndex(where: { $0.id == id }) else { throw CatalogError("No scene \(id)", notFound: true) }
+            guard file.scenes[index].name != name else { return false }
+            file.scenes[index].name = name
+            return true
+        }
+        guard renamed else { return }
+        logger.info("Renamed a scene from the Home app", metadata: ["scene": "\(id)", "name": "\(name)"])
+        syncSceneSwitches()
     }
 
     private func sceneSwitchIsOn(_ scene: Scene) -> Bool {

@@ -250,6 +250,34 @@ import Testing
         #expect(!server.accessories.contains { $0.id == "Homeswift:scenes" })
     }
 
+    /// A scene's switch carries its name in Configured Name, which the Home app follows: a rename here changes it in
+    /// place (the same characteristic, so subscribed controllers get an event), and the Home app's write of it renames
+    /// the scene.
+    @Test func sceneSwitchNamesFollowTheSceneBothWays() async throws {
+        let environment = try MCPTestEnvironment()
+        try await environment.start()
+        defer { Task { await environment.stop() } }
+        let catalog = environment.catalog
+        let server = environment.host.mainBridge.server
+        let actions: JSONValue = [["id": "Devices:lamp", "characteristic": "Brightness", "value": 75]]
+        let id = try #require(try catalog.createScene(["name": "Reading", "homeKit": true, "actions": actions])["id"]?.stringValue)
+        let service = try #require(server.accessories.first { $0.id == "Homeswift:scenes" }?.services.first { $0.subtype == "scene:" + id })
+        let configuredName = try #require(service[.configuredName])
+        #expect(configuredName.value == .string("Reading") && configuredName.iid > 0)
+
+        _ = try catalog.updateScene(id: id, ["name": "Reading time", "actions": actions])
+        let same = try #require(server.accessories.first { $0.id == "Homeswift:scenes" }?.services.first { $0.subtype == "scene:" + id })
+        #expect(same === service)
+        #expect(configuredName.value == .string("Reading time") && service[.name]?.value == .string("Reading time"))
+
+        // The Home app renames the switch: the scene takes the name, spaces tidied.
+        try await configuredName.write(.string("  Evening   read "))
+        #expect(catalog.savedScene(id)?.name == "Evening read")
+        #expect(service[.name]?.value == .string("Evening read"))
+        try await configuredName.write(.string("   "))
+        #expect(catalog.savedScene(id)?.name == "Evening read")
+    }
+
     /// Characteristic names compare by letters and digits, case aside, ASCII or not.
     @Test func namesNormalizeAsBefore() {
         for name in ["Target Lock State", "targetLockState", "target-lock-state", "PM2.5 Density", "Température", "Ünïcode Näme 2", ""] {
