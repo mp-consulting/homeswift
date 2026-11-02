@@ -43,7 +43,11 @@
     const byPlatform = new Map(plugins.plugins.map((plugin) => [plugin.platform, plugin]));
     const blocks = plugins.blocks.filter((block) => !block.system && byPlatform.has(block.platform));
     const wanted = decodeURIComponent(location.hash.slice(1));
-    const cards = blocks.map((block) => instanceCard(block, byPlatform.get(block.platform), { open: blocks.length === 1 || block.slug === wanted }));
+    // From a plugin's page (/setup?start#<slug>): its account's Setup opens once the plugin has said where it stands.
+    const start = new URLSearchParams(location.search).has("start");
+    if (start) history.replaceState(history.state, "", `/setup${location.hash}`);
+    const cards = blocks.map((block) => instanceCard(block, byPlatform.get(block.platform),
+      { open: blocks.length === 1 || block.slug === wanted, start: start && block.slug === wanted }));
     // The plugins in use, one row each, and a way to add another; before any, the brands to start from.
     const add = el("button", { type: "button", class: "primary", actionIcon: "plus", text: t("Add a plugin"), onclick: (event) => pickPlugin(plugins, event.currentTarget) });
     // Or the Assistant does it: it finds the plugin, starts the Setup and hands the steps with a secret back to the sheet.
@@ -152,7 +156,7 @@
 
   /// One plugin instance, one row: its name and where its devices stand. Opened, its account when it has one and the
   /// devices it finds, each with what can be done. One that needs someone opens and moves to the top of the list.
-  function instanceCard(block, plugin, { open: openAtFirst = false } = {}) {
+  function instanceCard(block, plugin, { open: openAtFirst = false, start = false } = {}) {
     const list = el("div", { class: "setup-devices", "aria-live": "polite" }, loading(t("Looking for devices…")));
     // Under the name, where its devices stand.
     const summary = el("span", { class: "muted", text: t("Looking for devices…") });
@@ -221,6 +225,8 @@
         node.classList.toggle("needs-you", attention > 0);
         // What needs someone is shown, unless they closed it themselves.
         if (attention && !touched) setOpen(true);
+        // Asked for by the plugin's page: its account's sheet, once.
+        if (start && action) { start = false; open({ block, plugin, firstTime: !accountSetUp, after: load }); }
       } catch (e) {
         list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));
         // Not "no devices": the search itself failed.
@@ -468,7 +474,7 @@
         session = answer.session;
         const prompt = answer.prompt;
         if (!prompt.waitSeconds) until = 0;
-        const error = answer.error ? el("p", { class: "error", role: "alert", text: answer.error }) : null;
+        const error = answer.error ? el("p", { class: "error", role: "alert", text: HomeswiftI18n.message(answer.error) }) : null;
         const cancel = el("button", { type: "button", actionIcon: "close", text: t("Cancel"), onclick: () => dismiss() });
         // A wait (a Button Press, a sign-in in another tab): a countdown, and the step sent again every few seconds until
         // the plugin is done. A retry that brings the same prompt back leaves the sheet as it is, and what is typed in it.

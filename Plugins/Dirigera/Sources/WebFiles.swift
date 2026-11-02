@@ -7,7 +7,7 @@ extension DirigeraPlugin {
     /// The plugin's web pages, as written, served by the web UI under /plugins/<platform>/.
     public static let webFiles: [String: WebFile] = [
         "app.css": WebFile(contentType: "text/css; charset=utf-8", body: #"""
-/* The IKEA DIRIGERA page on the UI's materials: the hubs and their pairing, the devices as the Accessories page's
+/* The IKEA DIRIGERA page on the UI's materials: the hubs (or the card leading to their Setup), the devices as the Accessories page's
    widgets, the hub's scenes as tiles, and the settings. The bridge card, tabs, scene tiles, speed scale
    and save bar are style.css's, shared with the Philips Hue page. */
 
@@ -34,82 +34,65 @@ h2 { margin: 0 0 10px; }
 
 """#),
         "app.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
-// The IKEA DIRIGERA page: the hubs (from config.json and found on the network), each paired with its action button;
+// The IKEA DIRIGERA page: the hubs (from config.json and paired through Setup on Add accessories: this page leads there);
 // the lights, outlets, sensors, blinds, air purifiers and remotes as the Accessories page draws them (its widgets); the hubs' scenes as tiles (a tap
 // runs one, the eye leaves it out of the Home app); and the settings. Refreshed every two seconds while visible;
-// saving writes this instance's block. The hub card (the Hue page's bridge card), tabs, scene pictures, speed scale
-// and tile text come from plugin.js.
+// saving writes this instance's block. The Setup card, tabs, scene pictures, speed scale and tile text come from
+// plugin.js.
 (() => {
   "use strict";
   const { t } = HomeswiftI18n;
-  const { $, el, icon, request, act, readBlock, updateBlock, setKey, poll, renderKeyed } = homeswift;
+  const { $, el, icon, tile, fact, explain, request, act, readBlock, updateBlock, setKey, poll, renderKeyed } = homeswift;
 
   let hubs = [];
   let devices = [];
   let scenes = [];
-  let found = [];
   let block = {};
 
   homeswift.tabs("dirigera-tab");
 
   // MARK: Hubs
 
-  // The card plugin.js draws for both lighting pages: a block per hub (config.json's, paired ones, and the ones found
-  // on the network), its pairing, and the address form.
-  const card = homeswift.bridgePairing({
-    card: $("#hubs"), tone: "blue", button: "bridge",
-    texts: {
-      name: t("DIRIGERA hub"), pairTitle: t("Pair Homeswift with the hub."), press: t("Press the action button under the hub."),
-      pairHelp: t("Pair, then press the action button under the hub within a minute. The token stays in the plugin's folder, not in config.json."),
-      summary: t("Add a hub"), placeholder: "192.168.1.30", addressHelp: t("Hubs on the network show up above on their own; type the address of one that does not."), none: t("No hub answered on the network."),
-    },
-    facts: (hub) => [[t("Address"), hub.host], [t("Devices"), hub.devices ?? 0], [t("Scenes"), hub.scenes ?? 0]],
-    menu: (hub) => [hub.inConfig ? { label: t("Remove from config.json"), icon: "trash", danger: true, onSelect: () => removeHub(hub.host) } : null],
-    problem: (hub) => ({
-      error: `The DIRIGERA hub at ${hub.host} did not answer: ${hub.error}`,
-      context: "The Homeswift DIRIGERA plugin reads GET https://<hub>:8443/v1/devices and /v1/scenes with its token, and follows the hub's websocket for changes.",
-      device: { host: hub.host },
-    }),
-    discover: async () => (found = (await request("discover")).hosts),
-    use: async (host) => {
-      if (!host) return;
-      await keep(host);
-      if (!found.includes(host)) found = [...found, host];
-    },
-    pair: async (host) => {
-      await request("pair", { method: "POST", body: { host } });
-      await keep(host);
-    },
-    refresh: () => refresh(),
-  });
-
-  /// The hubs, then the ones found on the network that are not among them yet; with none, the one being looked for.
+  /// The hubs: until one is paired, the card that leads to its Setup on Add accessories (the page pairs nowhere else);
+  /// then a block per hub (config.json's and the ones Setup paired) with its address, state and counts, Pair again (or
+  /// Pair) in its ⋯ menu, and Explain when it does not answer.
+  let hubsLoaded = false;
   function drawHubs() {
-    const known = new Set(hubs.map((hub) => hub.host));
-    const list = [...hubs, ...found.filter((host) => !known.has(host)).map((host) => ({ host, paired: false }))];
-    card.draw(list.length ? list : [{ host: null }]);
+    const card = $("#hubs");
+    // Nothing until the plugin has answered which hubs it has.
+    if (!hubsLoaded) return;
+    const key = JSON.stringify(hubs);
+    if (card.dataset.json === key) return;
+    card.dataset.json = key;
+    if (!hubs.some((hub) => hub.paired)) {
+      card.replaceChildren(homeswift.setupCard({
+        title: t("Set up a DIRIGERA hub"),
+        text: t("Add accessories finds the hub on the network, or asks for its address, then for a press on its action button. The token stays in the vault, not in config.json."),
+        glyph: "bridge", tone: "blue",
+      }));
+      return;
+    }
+    card.replaceChildren(el("section", { class: "card bridge-card" }, ...hubs.map(hubBlock)));
   }
 
-  /// Puts the hub in config.json, as homebridge-dirigera keeps it; its token stays in the plugin's folder.
-  async function keep(host) {
-    await updateBlock((draft) => {
-      const list = draft.hubs || [];
-      if (!list.some((hub) => hub.host === host)) list.push({ host });
-      draft.hubs = list;
-    });
-    block = await readBlock();
-  }
-
-  async function removeHub(host) {
-    if (!await HomeswiftCommon.confirmDialog(t("Remove the hub at {host} from config.json?", { host }))) return;
-    await request("unpair", { method: "POST", body: { host } }).catch(() => {});
-    await updateBlock((draft) => {
-      const list = (draft.hubs || []).filter((hub) => hub.host !== host);
-      if (list.length) draft.hubs = list; else delete draft.hubs;
-    }).catch((e) => HomeswiftCommon.showAlert(e.message));
-    block = await readBlock();
-    found = found.filter((other) => other !== host);
-    await refresh();
+  function hubBlock(hub) {
+    const name = hub.name || t("DIRIGERA hub");
+    const [state, kind] = !hub.paired ? [t("Not paired"), "away"] : hub.error ? [t("Not responding"), "away"]
+      : hub.connected === false ? [t("Connecting…"), "standby"] : [t("Connected"), "on"];
+    const setUp = { label: hub.paired ? t("Pair again") : t("Pair"), icon: "pair", href: homeswift.setupAddress({ start: true }) };
+    return el("div", { class: "bridge" },
+      el("div", { class: "server-head" },
+        tile("bridge", hub.paired && !hub.error ? "blue" : "grey"),
+        el("div", { class: "who" }, el("strong", { text: name }), el("div", { class: "muted", text: hub.host })),
+        el("span", { class: `pill status ${kind}`, text: state }),
+        HomeswiftCommon.menuButton(t("Actions for {name}", { name: [name, hub.host].filter(Boolean).join(" ") }), () => [setUp])),
+      hub.paired ? el("div", { class: "facts" }, ...[[t("Address"), hub.host], [t("Devices"), hub.devices ?? 0], [t("Scenes"), hub.scenes ?? 0]]
+        .map(([label, value]) => fact(label, String(value)))) : null,
+      hub.paired && hub.error ? explain({
+        error: `The DIRIGERA hub at ${hub.host} did not answer: ${hub.error}`,
+        context: "The Homeswift DIRIGERA plugin reads GET https://<hub>:8443/v1/devices and /v1/scenes with its token, and follows the hub's websocket for changes.",
+        device: { host: hub.host },
+      }) : null);
   }
 
   // MARK: Lights, as the Accessories page draws them
@@ -313,8 +296,11 @@ h2 { margin: 0 0 10px; }
         scenes = [];
       }
       ({ hubs } = answer);
+      hubsLoaded = true;
     } catch (e) {
+      // The card keeps what it showed; the lists empty.
       hubs = [];
+      hubsLoaded = false;
     }
     drawHubs();
     drawDevices();
@@ -324,8 +310,6 @@ h2 { margin: 0 0 10px; }
   buildSettings();
   readBlock().then((value) => { block = value || {}; fillSettings(); }).catch(() => {});
   poll(refresh, 2000);
-  // Hubs announce themselves: look once when the page opens.
-  request("discover").then(({ hosts }) => { found = hosts; drawHubs(); }).catch(() => {});
 })();
 
 """#),
@@ -339,15 +323,9 @@ HomeswiftI18n.add({
     "Remotes": "Télécommandes",
     "{shown} of {total} devices": "{shown} appareils sur {total}",
     "No device matches the search and filters.": "Aucun appareil ne correspond à la recherche et aux filtres.",
-    "Pair Homeswift with the hub.": "Jumelez Homeswift avec le hub.",
-    "Pair, then press the action button under the hub within a minute. The token stays in the plugin's folder, not in config.json.": "Jumelez, puis appuyez sur le bouton d'action sous le hub dans la minute. Le jeton reste dans le dossier du plugin, pas dans config.json.",
-    "Hubs on the network show up above on their own; type the address of one that does not.": "Les hubs du réseau apparaissent ci-dessus d'eux-mêmes ; saisissez l'adresse de celui qui n'y est pas.",
     "DIRIGERA hub": "Hub DIRIGERA",
-    "Remove from config.json": "Retirer de config.json",
-    "Press the action button under the hub.": "Appuyez sur le bouton d'action sous le hub.",
-    "Add a hub": "Ajouter un hub",
-    "No hub answered on the network.": "Aucun hub n'a répondu sur le réseau.",
-    "Remove the hub at {host} from config.json?": "Retirer le hub à {host} de config.json ?",
+    "Set up a DIRIGERA hub": "Configurer un hub DIRIGERA",
+    "Add accessories finds the hub on the network, or asks for its address, then for a press on its action button. The token stays in the vault, not in config.json.": "Ajouter des accessoires trouve le hub sur le réseau, ou demande son adresse, puis un appui sur son bouton d'action. Le jeton reste dans le coffre, pas dans config.json.",
     "Pair a hub to see its devices.": "Jumelez un hub pour voir ses appareils.",
     "The hub has no devices yet: add them in the IKEA Home smart app.": "Le hub n'a pas encore d'appareils : ajoutez-les dans l'app IKEA Home smart.",
     "Run {name}": "Lancer {name}",
@@ -369,9 +347,6 @@ HomeswiftI18n.add({
     "Your DIRIGERA hubs, their lights, sensors, blinds and remotes room by room, and their scenes, straight from the hub on your network.": "Vos hubs DIRIGERA, leurs lampes, capteurs, stores et télécommandes pièce par pièce, et leurs scènes, directement depuis le hub de votre réseau.",
     "Devices": "Appareils",
     "Save Configuration": "Enregistrer la configuration",
-    "an address is required": "une adresse est requise",
-    "The action button was not pressed in time.": "Le bouton d'action n'a pas été pressé à temps.",
-    "The DIRIGERA hub refused the token: pair again from the plugin's page.": "Le hub DIRIGERA a refusé le jeton : jumelez à nouveau depuis la page du plugin.",
     "Not in the Home app:": "Pas dans l'app Maison :",
     "Tap a scene to run it. Drop a picture on a tile to give the scene one. In the Home app each scene is a switch: on runs it, off within 30 seconds undoes it; a tile's ⋯ menu leaves one out.": "Touchez une scène pour la lancer. Déposez une image sur une tuile pour la donner à la scène. Dans l'app Maison, chaque scène est un interrupteur : l'allumer la lance, l'éteindre dans les 30 secondes l'annule ; le menu ⋯ d'une tuile en retire une.",
     "the picture must be a JPEG, PNG or WebP image": "l'image doit être au format JPEG, PNG ou WebP",
@@ -388,15 +363,9 @@ HomeswiftI18n.add({
     "Remotes": "Mandos",
     "{shown} of {total} devices": "{shown} de {total} dispositivos",
     "No device matches the search and filters.": "Ningún dispositivo coincide con la búsqueda y los filtros.",
-    "Pair Homeswift with the hub.": "Empareja Homeswift con el hub.",
-    "Pair, then press the action button under the hub within a minute. The token stays in the plugin's folder, not in config.json.": "Empareja y pulsa el botón de acción de debajo del hub antes de un minuto. El token se queda en la carpeta del plugin, no en config.json.",
-    "Hubs on the network show up above on their own; type the address of one that does not.": "Los hubs de la red aparecen arriba por sí solos; escribe la dirección del que no aparezca.",
     "DIRIGERA hub": "Hub DIRIGERA",
-    "Remove from config.json": "Quitar de config.json",
-    "Press the action button under the hub.": "Pulsa el botón de acción de debajo del hub.",
-    "Add a hub": "Añadir un hub",
-    "No hub answered on the network.": "Ningún hub ha respondido en la red.",
-    "Remove the hub at {host} from config.json?": "¿Quitar el hub de {host} de config.json?",
+    "Set up a DIRIGERA hub": "Configurar un hub DIRIGERA",
+    "Add accessories finds the hub on the network, or asks for its address, then for a press on its action button. The token stays in the vault, not in config.json.": "Añadir accesorios encuentra el hub en la red, o pide su dirección, y luego que pulses su botón de acción. El token se queda en la bóveda, no en config.json.",
     "Pair a hub to see its devices.": "Empareja un hub para ver sus dispositivos.",
     "The hub has no devices yet: add them in the IKEA Home smart app.": "El hub aún no tiene dispositivos: añádelos en la app IKEA Home smart.",
     "Run {name}": "Activar {name}",
@@ -418,9 +387,6 @@ HomeswiftI18n.add({
     "Your DIRIGERA hubs, their lights, sensors, blinds and remotes room by room, and their scenes, straight from the hub on your network.": "Tus hubs DIRIGERA, sus luces, sensores, persianas y mandos habitación por habitación, y sus escenas, directamente desde el hub de tu red.",
     "Devices": "Dispositivos",
     "Save Configuration": "Guardar configuración",
-    "an address is required": "se necesita una dirección",
-    "The action button was not pressed in time.": "No se ha pulsado el botón de acción a tiempo.",
-    "The DIRIGERA hub refused the token: pair again from the plugin's page.": "El hub DIRIGERA ha rechazado el token: vuelve a emparejar desde la página del plugin.",
     "Not in the Home app:": "No están en la app Casa:",
     "Tap a scene to run it. Drop a picture on a tile to give the scene one. In the Home app each scene is a switch: on runs it, off within 30 seconds undoes it; a tile's ⋯ menu leaves one out.": "Toca una escena para activarla. Suelta una imagen en un mosaico para dársela a la escena. En la app Casa cada escena es un interruptor: encenderlo la activa y apagarlo antes de 30 segundos la deshace; el menú ⋯ de un mosaico quita una.",
     "the picture must be a JPEG, PNG or WebP image": "la imagen debe ser JPEG, PNG o WebP",
@@ -437,15 +403,9 @@ HomeswiftI18n.add({
     "Remotes": "Comandos",
     "{shown} of {total} devices": "{shown} de {total} dispositivos",
     "No device matches the search and filters.": "Nenhum dispositivo corresponde à pesquisa e aos filtros.",
-    "Pair Homeswift with the hub.": "Emparelhe o Homeswift com o hub.",
-    "Pair, then press the action button under the hub within a minute. The token stays in the plugin's folder, not in config.json.": "Emparelhe e prima o botão de ação por baixo do hub no espaço de um minuto. O token fica na pasta do plugin, não em config.json.",
-    "Hubs on the network show up above on their own; type the address of one that does not.": "Os hubs da rede aparecem acima por si próprios; escreva o endereço de um que não apareça.",
     "DIRIGERA hub": "Hub DIRIGERA",
-    "Remove from config.json": "Remover de config.json",
-    "Press the action button under the hub.": "Prima o botão de ação por baixo do hub.",
-    "Add a hub": "Adicionar um hub",
-    "No hub answered on the network.": "Nenhum hub respondeu na rede.",
-    "Remove the hub at {host} from config.json?": "Remover o hub em {host} de config.json?",
+    "Set up a DIRIGERA hub": "Configurar um hub DIRIGERA",
+    "Add accessories finds the hub on the network, or asks for its address, then for a press on its action button. The token stays in the vault, not in config.json.": "Adicionar acessórios encontra o hub na rede, ou pede o endereço, e depois que prima o botão de ação. O token fica no cofre, não em config.json.",
     "Pair a hub to see its devices.": "Emparelhe um hub para ver os seus dispositivos.",
     "The hub has no devices yet: add them in the IKEA Home smart app.": "O hub ainda não tem dispositivos: adicione-os na app IKEA Home smart.",
     "Run {name}": "Ativar {name}",
@@ -467,9 +427,6 @@ HomeswiftI18n.add({
     "Your DIRIGERA hubs, their lights, sensors, blinds and remotes room by room, and their scenes, straight from the hub on your network.": "Os hubs DIRIGERA, as luzes, sensores, estores e comandos divisão a divisão, e as cenas, diretamente do hub na sua rede.",
     "Devices": "Dispositivos",
     "Save Configuration": "Guardar configuração",
-    "an address is required": "é necessário um endereço",
-    "The action button was not pressed in time.": "O botão de ação não foi premido a tempo.",
-    "The DIRIGERA hub refused the token: pair again from the plugin's page.": "O hub DIRIGERA recusou o token: emparelhe novamente a partir da página do plugin.",
     "Not in the Home app:": "Fora da app Casa:",
     "Tap a scene to run it. Drop a picture on a tile to give the scene one. In the Home app each scene is a switch: on runs it, off within 30 seconds undoes it; a tile's ⋯ menu leaves one out.": "Toque numa cena para a ativar. Largue uma imagem num mosaico para a dar à cena. Na app Casa cada cena é um interruptor: ligá-lo ativa-a e desligá-lo nos 30 segundos seguintes anula-a; o menu ⋯ de um mosaico retira uma.",
     "the picture must be a JPEG, PNG or WebP image": "a imagem tem de ser JPEG, PNG ou WebP",
@@ -504,7 +461,7 @@ HomeswiftI18n.add({
     </div>
   </div>
 
-  <div id="hubs" class="card bridge-card"></div>
+  <div id="hubs"></div>
 
   <div class="group tabs main-tabs" role="tablist">
     <button role="tab" data-tab="devices" class="on" aria-selected="true" aria-controls="tab-devices" data-i18n data-action-icon="accessory">Devices</button>
