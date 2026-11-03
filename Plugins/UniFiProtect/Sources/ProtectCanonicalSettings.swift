@@ -248,6 +248,15 @@ extension UniFiProtectPlugin {
         var left: [JSONValue] = []
         var later: [(parsed: ParsedOption, value: JSONValue, raw: JSONValue)] = []
         let globallyOff = options.contains { $0.stringValue.flatMap { parse($0, addresses: addresses) }.map { $0.option == "Device" && $0.scope == nil && !$0.enabled } == true }
+        // The controllers a Device option leaves out (the first for its scope is the one that applies), wherever it is in
+        // the list: a device turned back on under one of them says what no setting does, before or after it.
+        var firstDevice: [String: Bool] = [:]
+        for raw in options {
+            guard var parsed = raw.stringValue.flatMap({ parse($0, addresses: addresses) }), parsed.option == "Device", let scope = parsed.scope else { continue }
+            if let mac = controllerScopes[scope.lowercased()] ?? controllerScopes[scope] { parsed.scope = mac }
+            if let scope = parsed.scope, firstDevice[scope] == nil { firstDevice[scope] = parsed.enabled }
+        }
+        let controllerOff = Set(controllerScopes.values).contains { entries[$0]?["excluded"]?.boolValue == true || firstDevice[$0] == false }
 
         func set(_ key: String, _ value: JSONValue, on deviceID: String) {
             var entry = entries[deviceID]?.objectValue ?? [:]
@@ -271,7 +280,7 @@ extension UniFiProtectPlugin {
                 guard let scope = parsed.scope else { left.append(raw); continue }
                 if !parsed.enabled {
                     set("excluded", true, on: scope)
-                } else if globallyOff || controllerScopes.values.contains(where: { entries[$0]?["excluded"]?.boolValue == true }) {
+                } else if globallyOff || controllerOff {
                     // Turns on one device of those a broader option leaves out: no setting says that.
                     left.append(raw)
                 }
