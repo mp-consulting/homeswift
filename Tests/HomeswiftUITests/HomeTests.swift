@@ -14,19 +14,24 @@ struct HomeTests {
         defer { Task { await environment.stop() } }
         let browser = Browser(base: base)
 
-        let saved = try await browser.put("/api/rooms", ["accessories": ["Lamps:lamp": ["room": "Desk", "favourite": true, "name": "Reading light"], "Lamps:lock": ["hidden": true]]])
+        // Room, Hidden and Name are Accessory Settings; the Arrangement keeps the favourites.
+        let settings = try await browser.patch("/api/settings/accessories", ["Lamps:lamp": ["room": "Desk", "name": "Reading light"], "Lamps:lock": ["hidden": true]])
+        #expect(settings.status == 200, "\(settings.status) \(settings.body)")
+        let saved = try await browser.put("/api/rooms", ["accessories": ["Lamps:lamp": ["favourite": true]]])
         #expect(saved.status == 200)
         #expect(saved.json?["rooms"]?[0]?["name"] == "Desk")
         let accessories = try #require(try await browser.get("/api/accessories").json?.arrayValue)
         let lamp = try #require(accessories.first { $0["id"] == "Lamps:lamp" })
         #expect(lamp["room"] == "Desk")
         #expect(lamp["favourite"] == true)
-        #expect(lamp["displayName"] == "Reading light")
+        #expect(lamp["name"] == "Reading light")
         #expect(accessories.first { $0["id"] == "Lamps:lock" }?["hidden"] == true)
 
-        // A bad change says why; an unknown accessory is refused.
-        #expect(try await browser.put("/api/rooms", ["accessories": ["Lamps:nothing": ["room": "Desk"]]]).status == 400)
-        #expect(try await browser.put("/api/rooms", ["accessories": ["Lamps:lamp": ["room": .string(String(repeating: "x", count: 65))]]]).status == 400)
+        // A bad change says why; an unknown accessory is refused; the rooms route no longer takes them.
+        #expect(try await browser.put("/api/rooms", ["accessories": ["Lamps:nothing": ["favourite": true]]]).status == 400)
+        #expect(try await browser.put("/api/rooms", ["accessories": ["Lamps:lamp": ["room": "Desk"]]]).status == 400)
+        #expect(try await browser.patch("/api/settings/accessories/Lamps:lamp", ["room": .string(String(repeating: "x", count: 65))]).status == 400)
+        #expect(try await browser.patch("/api/settings/accessories/Nothing", ["room": "Desk"]).status == 404)
         // Without the Assistant there is nothing to suggest.
         #expect(try await browser.post("/api/layout/suggest", [:]).status == 404)
     }
@@ -80,7 +85,7 @@ struct HomeTests {
         let base = try await environment.start()
         defer { Task { await environment.stop() } }
         let browser = Browser(base: base)
-        #expect(try await browser.put("/api/rooms", ["accessories": ["Lamps:lamp": ["room": "Desk"], "Lamps:strip": ["room": "Desk"]]]).status == 200)
+        #expect(try await browser.patch("/api/settings/accessories", ["Lamps:lamp": ["room": "Desk"], "Lamps:strip": ["room": "Desk"]]).status == 200)
 
         let templates = try #require(try await browser.get("/api/scenes/templates").json)
         #expect(templates["templates"]?.arrayValue?.isEmpty == false)

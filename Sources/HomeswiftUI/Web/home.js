@@ -27,12 +27,20 @@
     return app.api("/api/rooms", { method: "PUT", body });
   }
 
+  /// Changes Accessory Settings (room, Hidden, Name), by accessory id, in one write.
+  async function changeSettings(byID) {
+    return app.api("/api/settings/accessories", { method: "PATCH", body: byID });
+  }
+
+  /// A room for the settings: none is "" for a mirrored accessory (not the room its controller suggests), else cleared.
+  const roomSetting = (accessory, room) => room || (accessory?.mirroredFrom ? "" : null);
+
   /// Renames an accessory, in the Home app too (its plugin's block keeps the name); empty gives it back its plugin's.
   async function rename(accessory) {
     const name = await HomeswiftCommon.promptDialog(t("A new name for {name}, in the Home app too. Empty gives it back the name its plugin gives it.", { name: displayName(accessory) }), displayName(accessory));
     if (name === null || name.trim() === displayName(accessory)) return;
     try {
-      await app.api(`/api/accessories/${encodeURIComponent(accessory.id)}/name`, { method: "PUT", body: { name: name.trim() || null } });
+      await changeSettings({ [accessory.id]: { name: name.trim() || null } });
       app.route();
     } catch (e) { HomeswiftCommon.showAlert(e.message); }
   }
@@ -40,16 +48,14 @@
   /// What an accessory card's menu adds: its room, its name, Quick Controls, hiding. A plugin's accessory is renamed in
   /// the Home app too; another controller's (mirrored) keeps a name for these pages only, as one given before does.
   function layoutActions(accessory) {
-    const change = (fields) => changeLayout({ accessories: { [accessory.id]: fields } }).then(() => app.route()).catch((e) => HomeswiftCommon.showAlert(e.message));
+    const done = (promise) => promise.then(() => app.route()).catch((e) => HomeswiftCommon.showAlert(e.message));
+    // Room, Hidden and Name are its Accessory Settings; Quick Controls are the layout's.
+    const change = (fields) => done(changeSettings({ [accessory.id]: "room" in fields ? { ...fields, room: roomSetting(accessory, fields.room) } : fields }));
     const renames = accessory.platform && !accessory.mirroredFrom;
     return [
       { label: accessory.room ? t("Room: {room}…", { room: accessory.room }) : t("Put in a room…"), icon: "room", onSelect: () => chooseRoom(accessory, change) },
       renames ? { label: t("Rename…"), icon: "edit", onSelect: () => rename(accessory) } : null,
-      renames && !accessory.displayName ? null : { label: t("Name on these pages…"), icon: "edit", onSelect: async () => {
-        const name = await HomeswiftCommon.promptDialog(t("A name for {name} on these pages (the Home app keeps its own). Empty goes back to {name}.", { name: accessory.name }), accessory.displayName || "");
-        if (name !== null) change({ name: name.trim() || null });
-      } },
-      { label: accessory.favourite ? t("Remove from Quick Controls") : t("Add to Quick Controls"), icon: "star", onSelect: () => change({ favourite: !accessory.favourite }) },
+      { label: accessory.favourite ? t("Remove from Quick Controls") : t("Add to Quick Controls"), icon: "star", onSelect: () => done(changeLayout({ accessories: { [accessory.id]: { favourite: !accessory.favourite } } })) },
       { label: accessory.hidden ? t("Show it again") : t("Hide"), icon: "eye", onSelect: () => change({ hidden: !accessory.hidden }) },
     ].filter(Boolean);
   }
@@ -67,8 +73,8 @@
     const members = group.members.map((id) => accessories.find((a) => a.id === id));
     const room = members.every((a) => a && a.room === members[0]?.room) ? members[0]?.room : "";
     await chooseRoom({ name: group.name, room }, async (fields) => {
-      // One metadata-only update for every member; no device or HomeKit writes.
-      await changeLayout({ accessories: Object.fromEntries(group.members.map((id) => [id, fields])) });
+      // One settings write for every member; no device writes.
+      await changeSettings(Object.fromEntries(group.members.map((id) => [id, { room: roomSetting(accessories.find((a) => a.id === id), fields.room) }])));
       await app.route();
     }, t("Moves every member of this group in Homeswift only. HomeKit rooms stay unchanged."));
   }
@@ -81,8 +87,8 @@
     return rest.length ? [...groups, [groups.length ? t("No room") : t("Accessories"), rest]] : groups;
   }
 
-  /// The Assistant's rooms and names, to review: each suggestion can be kept or left; Apply saves what is kept.
-  /// Names go to these pages only; HomeKit and the Home app keep theirs.
+  /// The Assistant's rooms and names, to review: each suggestion can be kept or left; Apply saves what is kept, as the
+  /// accessories' settings: a name is its Name, in the Home app too.
   async function suggestRooms(host, accessories) {
     host.querySelector(".suggest")?.remove();
     const panel = el("div", { class: "card panel suggest" },
@@ -120,12 +126,12 @@
         changes[data.id] = { ...changes[data.id], ...(data.room ? { room: data.room } : { name: data.name }) };
       }
       apply.disabled = true;
-      try { await changeLayout({ accessories: changes }); app.route(); } catch (e) { say(line, e.message, "error"); apply.disabled = false; }
+      try { await changeSettings(changes); app.route(); } catch (e) { say(line, e.message, "error"); apply.disabled = false; }
     } });
     panel.replaceChildren(
       el("div", { class: "panel-head" },
         el("div", {}, el("h2", {}, sparkle(), " ", t("Suggested rooms")),
-          el("p", { class: "muted", text: t("From {model}. Untick what you do not want; nothing changes until you apply. Names show on these pages only: the Home app keeps its own.", { model: result.model }) })),
+          el("p", { class: "muted", text: t("From {model}. Untick what you do not want; nothing changes until you apply. Names are given in the Home app too.", { model: result.model }) })),
         el("button", { actionIcon: "close", class: "link", text: t("Dismiss"), onclick: () => panel.remove() })),
       rooms.length ? el("div", { class: "suggest-rooms" }, rooms) : el("p", { class: "muted", text: t("No room to suggest.") }),
       renames.length ? el("div", {}, el("div", { class: "service-name", text: t("Clearer names") }), renames) : null,

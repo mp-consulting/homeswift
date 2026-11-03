@@ -29,8 +29,7 @@ func den(bulbs: Int = 2, failing: Bool = false, slow: Bool = false, model: (any 
     let client = DirectClient(server: environment.server)
     try await client.initialize()
     let ids = ["Devices:lamp", "Devices:lock"] + (1...bulbs).map { "Devices:bulb\($0)" }
-    let layout = try await client.tool("set_accessory_layout", ["accessories": .array(ids.map { ["id": .string($0), "room": "Den"] })])
-    #expect(layout["isError"] != true)
+    _ = try await environment.catalog.updateAccessorySettings(ids.map { ($0, ["room": "Den"]) }, who: "test")
     return (environment, client)
 }
 
@@ -376,7 +375,7 @@ struct LightShowTests {
         let none = try await client.tool("run_scene", ["template": "focus"])
         #expect(none["isError"] == true)
         #expect(none["content"]?[0]?["text"]?.stringValue?.contains("Name the lights") == true)
-        _ = try await client.tool("set_accessory_layout", ["accessories": [["id": "Devices:lock", "room": "Hall"]]])
+        _ = try await environment.catalog.updateAccessorySettings([("Devices:lock", ["room": "Hall"])], who: "test")
         let hall = try await client.tool("run_scene", ["template": "focus", "room": "Hall"])
         #expect(hall["content"]?[0]?["text"]?.stringValue?.contains("No light there") == true)
         let unknown = try await client.tool("run_scene", ["template": "rave", "room": "Den"])

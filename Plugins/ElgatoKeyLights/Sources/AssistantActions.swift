@@ -10,7 +10,8 @@ extension ElgatoKeyLightsPlugin {
         AssistantAction(
             name: "probe", title: "Check an address",
             description: "Asks the light at an address who it is: name, model, MAC address, serial number, firmware. "
-                + "For a light Bonjour does not reach: add it with put_list_entry (platform ElgatoKeyLights, list devices, match mac) "
+                + "For a light Bonjour does not reach: add it to the block's devices with update_settings (plugin {\"platform\": \"ElgatoKeyLights\"}, "
+                + "settings {\"devices\": [entries]}, which replaces the whole list: read it with get_settings first and keep its entries) "
                 + "as {\"mac\", \"name\", \"ip\", \"model\"}, plus \"port\" when it is not 9123.",
             // Configure, as adding the light it finds is: it reaches any address and port the caller names.
             path: "probe", access: .configure,

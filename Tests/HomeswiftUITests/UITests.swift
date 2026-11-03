@@ -189,6 +189,7 @@ final class Browser: @unchecked Sendable {
     func get(_ path: String) async throws -> Response { try await send("GET", path) }
     func post(_ path: String, _ json: JSONValue) async throws -> Response { try await send("POST", path, body: json.text()) }
     func put(_ path: String, _ json: JSONValue) async throws -> Response { try await send("PUT", path, body: json.text()) }
+    func patch(_ path: String, _ json: JSONValue) async throws -> Response { try await send("PATCH", path, body: json.text()) }
 }
 
 @Suite struct AuthTests {

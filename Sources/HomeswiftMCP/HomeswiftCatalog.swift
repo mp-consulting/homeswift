@@ -119,23 +119,48 @@ public struct HomeswiftCatalog: Sendable {
         public var accessory: Accessory
         public var bridge: PluginHost.Bridge
         public var platform: PluginHost.PlatformInstance?
-        /// Its room, hidden flag, display name and Quick Controls flag in the web UI's layout.
+        /// How the web UI shows it: its room and Hidden from its Accessory Settings (its block's `_accessories`), else
+        /// the legacy values `accessory-layout.json` kept; a display name only the legacy layout has (its Name is the
+        /// accessory's own); and whether it is a Quick Control, which the layout keeps (the Arrangement).
         public var layout: AccessoryLayout.Entry?
 
         /// The room the user gave it, else the one the controller it mirrors puts it in (`Accessory.suggestedRoom`). An
-        /// empty room in the layout is the user's "no room", which the suggestion does not override.
+        /// empty room is the user's "no room", which the suggestion does not override.
         public var room: String? {
             if let room = layout?.room { return room.isEmpty ? nil : room }
             return accessory.suggestedRoom
         }
     }
 
+    /// The live Accessory Settings of the running blocks (`HomeswiftConfiguration.Platform`), by platform and name.
+    struct LiveSettings {
+        let byBlock: [String: HomeswiftConfiguration.Platform]
+
+        init(_ configuration: HomeswiftConfiguration) {
+            byBlock = Dictionary(configuration.platforms.map { ("\($0.platform)\u{0}\($0.name)", $0) }, uniquingKeysWith: { first, _ in first })
+        }
+
+        /// The accessory's room, Hidden and legacy display name, its settings first, then the layout's legacy values.
+        func entry(for id: String, platform: PluginHost.PlatformInstance?, legacy: AccessoryLayout.Entry?) -> AccessoryLayout.Entry? {
+            guard let platform, let block = byBlock["\(platform.platform)\u{0}\(platform.name)"] else { return legacy }
+            let key = AccessoryNaming.deviceID(of: id, platform: platform.platform)
+            var entry = legacy ?? AccessoryLayout.Entry()
+            if let room = block.accessoryRooms[key] { entry.room = room }
+            if block.hiddenOnWall.contains(key) { entry.hidden = true }
+            // A Name given in the settings is the accessory's own now: the layout's legacy display name gives way.
+            if block.accessoryNames[key] != nil { entry.name = nil }
+            return entry.isEmpty ? nil : entry
+        }
+    }
+
     public func located() -> [Located] {
         let owners = Owners(host.platforms)
         let layout = home.layout.value.accessories
+        let live = LiveSettings(host.configuration)
         return host.bridges.flatMap { bridge in
             bridge.server.accessories.filter { $0.id != "bridge" }.map { accessory in
-                Located(accessory: accessory, bridge: bridge, platform: owners.instance(of: accessory.id, on: bridge), layout: layout[accessory.id])
+                let platform = owners.instance(of: accessory.id, on: bridge)
+                return Located(accessory: accessory, bridge: bridge, platform: platform, layout: live.entry(for: accessory.id, platform: platform, legacy: layout[accessory.id]))
             }
         }
     }
@@ -147,7 +172,8 @@ public struct HomeswiftCatalog: Sendable {
             guard let accessory = bridge.server.accessory(id: id) else { continue }
             // Its instance by its claim; an accessory no instance claimed is looked for in every instance's list.
             let platform = host.platform(owning: id, on: bridge) ?? Owners(host.platforms).instance(of: id, on: bridge)
-            return Located(accessory: accessory, bridge: bridge, platform: platform, layout: home.layout.value.accessories[id])
+            let layout = LiveSettings(host.configuration).entry(for: id, platform: platform, legacy: home.layout.value.accessories[id])
+            return Located(accessory: accessory, bridge: bridge, platform: platform, layout: layout)
         }
         return nil
     }
@@ -197,54 +223,10 @@ public struct HomeswiftCatalog: Sendable {
         return found
     }
 
-    /// Shows the accessory in the Home app or keeps it out (`_hiddenFromHomeKit` in its plugin's block): out, HomeKit
-    /// loses it with its room, scenes and automations, and gets it back as a new accessory. The web UI, the MCP server
-    /// and Matter keep it either way. Its plugin is not reloaded.
-    public func setVisibleInHomeKit(_ located: Located, visible: Bool, by writer: ConfigWriter = .person) async throws -> JSONValue {
-        guard let platform = located.platform else { throw CatalogError("\(located.accessory.name) belongs to no plugin block") }
-        guard located.accessory.mirroredFrom == nil else { throw CatalogError("\(located.accessory.name) comes from \(located.accessory.mirroredFrom!): HomeKit has it there") }
-        let id = located.accessory.id
-        return try await editBlock(platform: platform.platform, name: platform.name, create: false, dryRun: false, by: writer) { block in
-            var ids = (block["_hiddenFromHomeKit"]?.arrayValue ?? []).compactMap(\.stringValue).filter { $0 != id }
-            if !visible { ids.append(id) }
-            if ids.isEmpty { block["_hiddenFromHomeKit"] = nil } else { block["_hiddenFromHomeKit"] = .array(ids.map { .string($0) }) }
-        }
-    }
-
-    /// Renames the accessory, in the Home app too: `name` under its Device Id in its plugin's block's `_accessories`,
-    /// which the runtime puts on its Name and Configured Name (`AccessoryNaming`) without reloading the plugin. nil or an
-    /// empty name gives it back the name its plugin gives it. A name the web UI showed instead (`AccessoryLayout`) goes:
-    /// there is one name now.
-    public func setAccessoryName(_ located: Located, name: String?, by writer: ConfigWriter = .person) async throws -> JSONValue {
-        guard let platform = located.platform else { throw CatalogError("\(located.accessory.name) belongs to no plugin block") }
-        guard located.accessory.mirroredFrom == nil else { throw CatalogError("\(located.accessory.name) comes from \(located.accessory.mirroredFrom!): rename it there") }
-        let cleaned = name.flatMap(AccessoryNaming.cleaned)
-        let id = located.accessory.id
-        let deviceID = AccessoryNaming.deviceID(of: id, platform: platform.platform)
-        let answer = try await editBlock(platform: platform.platform, name: platform.name, create: false, dryRun: false, by: writer) { block in
-            var settings = block["_accessories"]?.objectValue ?? [:]
-            var fields = settings[deviceID]?.objectValue ?? [:]
-            fields["name"] = cleaned.map { .string($0) }
-            settings[deviceID] = fields.isEmpty ? nil : .object(fields)
-            block["_accessories"] = settings.isEmpty ? nil : .object(settings)
-        }
-        if home.layout.value.accessories[id]?.name != nil {
-            try home.layout.update { layout in
-                guard var entry = layout.accessories[id] else { return }
-                entry.name = nil
-                layout.accessories[id] = entry.isEmpty ? nil : entry
-            }
-        }
-        var result = answer.objectValue ?? [:]
-        result["name"] = .string(located.accessory.name)
-        return .object(result)
-    }
-
-    /// Stores a rename made in the Home app (a controller's write of Configured Name) as the accessory's name.
+    /// Stores a rename made in the Home app (a controller's write of Configured Name) as the accessory's Name.
     func storeHomeRename(of accessoryID: String, to name: String) async {
-        guard let found = find(id: accessoryID) else { return }
         do {
-            _ = try await setAccessoryName(found, name: name)
+            _ = try await updateAccessorySettings([(accessoryID, ["name": .string(name)])], moveOnHubs: false, by: .person)
             logger.info("Kept the Home app's name for an accessory", metadata: ["accessory": "\(accessoryID)", "name": "\(name)"])
         } catch {
             logger.warning("Could not keep the Home app's name for an accessory", metadata: ["accessory": "\(accessoryID)", "error": "\(error)"])
@@ -852,7 +834,33 @@ public struct HomeswiftCatalog: Sendable {
                 problems.append(ConfigSchemaError.Problem(platform: platform, path: [.key("platforms"), .index(index)] + found.path, message: found.message))
             }
         }
+        problems += accessorySettingsProblems(next, current: current)
         if !problems.isEmpty { throw ConfigSchemaError(problems: problems) }
+    }
+
+    /// Checks what a save changes in the blocks' `_accessories`: each Core Accessory Setting by its type, each Plugin
+    /// Accessory Setting the plugin declares (its schema's `accessorySchema`) against its schema. A key the plugin does not
+    /// declare is let through here, so a block written by an older version still saves; the settings writers refuse it.
+    func accessorySettingsProblems(_ next: JSONValue, current: JSONValue) -> [ConfigSchemaError.Problem] {
+        let before = current["platforms"]?.arrayValue ?? []
+        var problems: [ConfigSchemaError.Problem] = []
+        for (index, block) in (next["platforms"]?.arrayValue ?? []).enumerated() where !before.contains(block) {
+            guard let platform = block["platform"]?.stringValue, let entries = block["_accessories"]?.objectValue else { continue }
+            let same: JSONValue? = before.indices.contains(index) && before[index]["platform"] == block["platform"] ? before[index] : nil
+            let old = (same ?? before.first { $0["platform"] == block["platform"] && $0["name"] == block["name"] })?["_accessories"]?.objectValue ?? [:]
+            let fields = accessoryFields(for: platform)
+            for (key, entry) in entries.sorted(by: { $0.key < $1.key }) where old[key] != entry {
+                let at: [JSONSchema.PathComponent] = [.key("platforms"), .index(index), .key("_accessories"), .key(key)]
+                guard let settings = entry.objectValue else {
+                    problems.append(.init(platform: platform, path: at, message: "must be an object of Accessory Settings"))
+                    continue
+                }
+                for found in Self.settingsProblems(settings, fields: fields, kind: nil, strict: false, before: old[key]?.objectValue) {
+                    problems.append(.init(platform: platform, path: at + found.path, message: found.message))
+                }
+            }
+        }
+        return problems
     }
 
     /// Whether the save touched what is at `path`: its value changed, or it was added inside something new. A key
@@ -878,18 +886,26 @@ public struct HomeswiftCatalog: Sendable {
     /// backup, the restart flag. An unreadable file is an error, never an empty one to write over.
     /// Changes the block with this platform (and name, when there are several), or adds it when `create`;
     /// `edit` gets the block to change. What `editPlatforms` answers.
+    /// With `canonical`, a settings write: the block is first put in its canonical shape by its running instance
+    /// (`HomeswiftPlugin.canonicalSettings`).
     public func editBlock(
-        platform: String, name: String?, create: Bool = true, dryRun: Bool, checkSchemas: Bool = true, by writer: ConfigWriter = .person,
+        platform: String, name: String?, create: Bool = true, dryRun: Bool, checkSchemas: Bool = true, canonical: Bool = false, by writer: ConfigWriter = .person,
         _ edit: (inout [String: JSONValue]) throws -> Void
     ) async throws -> JSONValue {
-        try await editPlatforms(dryRun: dryRun, checkSchemas: checkSchemas, by: writer) { platforms in
-            let matching = platforms.indices.filter { platforms[$0]["platform"]?.stringValue == platform && (name == nil || (platforms[$0]["name"]?.stringValue ?? platform) == name) }
-            guard matching.count <= 1 else { throw CatalogError("\(matching.count) blocks have platform \(platform); give the name") }
-            guard create || !matching.isEmpty else { throw CatalogError("No block \(name ?? platform) of \(platform)") }
-            var block = matching.first.map { platforms[$0].objectValue ?? [:] } ?? ["platform": .string(platform), "name": .string(name ?? platform)]
-            try edit(&block)
-            if let index = matching.first { platforms[index] = .object(block) } else { platforms.append(.object(block)) }
+        let current = try readConfig()
+        var root = current.objectValue ?? [:]
+        var platforms = root["platforms"]?.arrayValue ?? []
+        let matching = platforms.indices.filter { platforms[$0]["platform"]?.stringValue == platform && (name == nil || (platforms[$0]["name"]?.stringValue ?? platform) == name) }
+        guard matching.count <= 1 else { throw CatalogError("\(matching.count) blocks have platform \(platform); give the name") }
+        guard create || !matching.isEmpty else { throw CatalogError("No block \(name ?? platform) of \(platform)") }
+        var block = matching.first.map { platforms[$0].objectValue ?? [:] } ?? ["platform": .string(platform), "name": .string(name ?? platform)]
+        if canonical, matching.first != nil {
+            block = await canonicalBlock(.object(block)).objectValue ?? block
         }
+        try edit(&block)
+        if let index = matching.first { platforms[index] = .object(block) } else { platforms.append(.object(block)) }
+        root["platforms"] = .array(platforms)
+        return try await applyConfig(.object(root), dryRun: dryRun, current: current, checkSchemas: checkSchemas, by: writer)
     }
 
     public func editPlatforms(dryRun: Bool, checkSchemas: Bool = true, by writer: ConfigWriter = .person, _ edit: (inout [JSONValue]) throws -> Void) async throws -> JSONValue {
@@ -997,7 +1013,9 @@ public struct HomeswiftCatalog: Sendable {
             ) { _ in .json(catalog.pluginsJSON()) },
             MCPTool(
                 name: "get_plugin_config_schema", title: "A plugin's config schema",
-                description: "The config.schema.json of a plugin compiled into this bridge, for writing or checking its platform block.",
+                description: "The config.schema.json of a plugin compiled into this bridge, for writing or checking its platform block: schema (its Plugin Settings) "
+                    + "and accessorySchema (its Plugin Accessory Settings, x-kinds the Device Kinds a field is for, x-default the Plugin Setting that is its plugin-wide default). "
+                    + "get_settings answers the same for one accessory or plugin instance, with the current values.",
                 inputSchema: ["type": "object", "required": ["platform"], "properties": ["platform": ["type": "string"]]],
                 scope: .read, idempotent: true
             ) { call in
@@ -1184,28 +1202,6 @@ public struct HomeswiftCatalog: Sendable {
                 return .text("Identify sent to \(found.accessory.name)")
             },
             MCPTool(
-                name: "set_homekit_visibility", title: "Show or hide an accessory in the Home app",
-                description: "Keeps an accessory out of the Home app (visible: false) or shows it there again (visible: true), through its "
-                    + "plugin's block (_hiddenFromHomeKit). Hidden, HomeKit loses it with its room, scenes and automations, and gets it back as a "
-                    + "new accessory; Homeswift, its tools and Matter keep it either way, so a Matter device of its own stays in the ecosystems "
-                    + "that added it. list_accessories says hiddenFromHomeKit.",
-                inputSchema: ["type": "object", "required": ["id", "visible"], "properties": ["id": idSchema, "visible": ["type": "boolean"]]],
-                scope: .admin, destructive: true, idempotent: true
-            ) { call in
-                guard let visible = call.arguments["visible"]?.boolValue else { throw JSONRPCError.invalidParams("visible is required") }
-                return .json(try await catalog.setVisibleInHomeKit(try catalog.accessory(in: call), visible: visible, by: .client))
-            },
-            MCPTool(
-                name: "rename_accessory", title: "Rename an accessory",
-                description: "Gives an accessory a new name, in the Home app too: its plugin's block keeps it (_accessories, by Device Id), and the "
-                    + "bridge puts it on the accessory's Name and Configured Name, which the Home app follows. Its room, scenes and automations stay. "
-                    + "An empty or missing name gives it back the name its plugin gives it. A rename in the Home app is kept the same way.",
-                inputSchema: ["type": "object", "required": ["id"], "properties": ["id": idSchema, "name": ["type": "string", "maxLength": 64]]],
-                scope: .admin, idempotent: true
-            ) { call in
-                .json(try await catalog.setAccessoryName(try catalog.accessory(in: call), name: call.optionalString("name"), by: .client))
-            },
-            MCPTool(
                 name: "update_config", title: "Replace config.json",
                 description: "Replaces the whole config.json after validating it; __REDACTED__ values are restored from the current file; a backup is made first. dryRun shows the changes without writing. Plugin blocks apply at once; the answer lists what still needs a restart.",
                 inputSchema: ["type": "object", "required": ["config"], "properties": ["config": ["type": "object"], "ignoreSchema": ignoreSchema]],
@@ -1241,40 +1237,7 @@ public struct HomeswiftCatalog: Sendable {
                 guard catalog.backups().contains(backup) else { return .error("No such backup") }
                 return .json(try await catalog.restoreConfigBackup(backup))
             },
-            MCPTool(
-                name: "put_list_entry", title: "Add or change a device entry",
-                description: "Adds an entry to a list of a platform block (devices by default), or replaces the entry whose match key (mac by default) has the same value; "
-                    + "the rest of the list and of the block stay as they are. Adds the block when there is none. __REDACTED__ values keep the entry's current secrets. "
-                    + "dryRun previews. The block applies at once: its plugin reloads.",
-                inputSchema: [
-                    "type": "object", "required": ["platform", "entry"],
-                    "properties": [
-                        "platform": ["type": "string"], "name": ["type": "string", "description": "The block's name, when the platform has several"],
-                        "list": ["type": "string", "description": "The list's key; devices when left out"],
-                        "match": ["type": "string", "description": "The key that identifies an entry; mac when left out"],
-                        "entry": ["type": "object"], "ignoreSchema": ignoreSchema,
-                    ],
-                ],
-                scope: .admin, destructive: true, supportsDryRun: true
-            ) { call in
-                let platform = try call.string("platform")
-                let name = call.optionalString("name")
-                let list = call.optionalString("list") ?? "devices"
-                let match = call.optionalString("match") ?? "mac"
-                guard let entry = call.arguments["entry"]?.objectValue else { throw JSONRPCError.invalidParams("entry must be an object") }
-                guard let key = entry[match], !key.isNull else { throw JSONRPCError.invalidParams("the entry needs its \(match)") }
-                return .json(try await catalog.editBlock(platform: platform, name: name, dryRun: call.isDryRun, checkSchemas: call.arguments["ignoreSchema"] != .bool(true), by: .client) { block in
-                    var entries = block[list]?.arrayValue ?? []
-                    if let index = entries.firstIndex(where: { Self.sameKey($0[match], key) }) {
-                        // The entry it replaces holds its secrets: a rename changes the fields restoreSecrets matches on.
-                        entries[index] = (try? Redaction.restoreSecrets(.object(entry), from: entries[index])) ?? .object(entry)
-                    } else {
-                        entries.append(.object(entry))
-                    }
-                    block[list] = .array(entries)
-                })
-            },
-        ] + hostTools + adminTools + layoutTools + wallTools + sceneTools + hubAutomationTools + notificationTools + assistantTools + vaultTools + matterTools + setupTools + pluginActionTools
+        ] + hostTools + adminTools + layoutTools + wallTools + sceneTools + hubAutomationTools + notificationTools + assistantTools + vaultTools + matterTools + setupTools + settingsTools + pluginActionTools
     }
 
     /// `set_accessories` with `ids` or `filter`: one characteristic and value on every target.
@@ -1332,16 +1295,6 @@ public struct HomeswiftCatalog: Sendable {
         }
         let structured: JSONValue = ["changed": .number(Double(results.count - failures)), "failed": .number(Double(failures)), "results": .array(results), "skipped": .array(skipped)]
         return ToolResult(text: structured.text(pretty: true), structured: structured, isError: failures > 0 && failures == results.count)
-    }
-
-    /// Whether two list keys name the same entry: a MAC however it is spelled, anything else case aside.
-    static func sameKey(_ a: JSONValue?, _ b: JSONValue) -> Bool {
-        guard let a else { return false }
-        func bare(_ value: JSONValue) -> String {
-            let text = value.stringValue ?? value.text()
-            return MACAddress.canonical(text) ?? text.lowercased()
-        }
-        return bare(a) == bare(b)
     }
 
     /// A plugin action's tool name, `<platform>_<action>`, with what a provider refuses in a name

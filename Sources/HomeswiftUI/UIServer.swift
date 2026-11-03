@@ -609,6 +609,11 @@ public final class UIServer: Sendable {
 
     private func api(_ route: [String], _ request: Request, caller: Caller) async throws -> Reply {
         let username = caller.username
+        // Accessory Settings and Plugin Settings (SettingsRoutes.swift), before the bridge's own settings (Admin.swift).
+        if route.count >= 2, route[0] == "settings", ["accessories", "plugins"].contains(route[1]) {
+            let body = request.body.isEmpty ? JSONValue.null : try JSONValue(data: request.body)
+            return try await settingsRoute(Array(route.dropFirst()), request.method, body: body, query: request.query, username: username) ?? .error(404, "unknown API route")
+        }
         // Settings, child bridges, backups, the audit log: Admin.swift.
         if let reply = try await adminAPI(route, request, caller: caller) { return reply }
         // The vault's entries and the migration (VaultRoutes.swift).
@@ -842,23 +847,6 @@ public final class UIServer: Sendable {
                 logger.info(save ? "Log payloads are saved on disk from now on, secrets masked" : "Log payloads are no longer saved on disk", metadata: ["user": "\(username)"])
                 return .json(["saveDetails": .bool(save), "available": true])
             }
-            if route.count == 3, route[0] == "accessories", route[2] == "homekit" {
-                guard let found = catalog.find(id: route[1]) else { return .error(404, "no accessory \(route[1])") }
-                guard let visible = body["visible"]?.boolValue else { return .error(400, "visible (true or false) is required") }
-                logger.info("Web UI user \(username) \(visible ? "showed" : "hid") \(found.accessory.name) in the Home app")
-                let result = try await catalog.setVisibleInHomeKit(found, visible: visible)
-                noteConfigChange(by: username)
-                return .json(result)
-            }
-            if route.count == 3, route[0] == "accessories", route[2] == "name" {
-                // { "name": "Desk" } renames it, in the Home app too; null or "" gives it back its plugin's name.
-                guard let found = catalog.find(id: route[1]) else { return .error(404, "no accessory \(route[1])") }
-                guard body["name"]?.stringValue != nil || body["name"]?.isNull == true else { return .error(400, "name (a string, or null) is required") }
-                logger.info("Web UI user \(username) renamed \(found.accessory.name)")
-                let result = try await catalog.setAccessoryName(found, name: body["name"]?.stringValue)
-                noteConfigChange(by: username)
-                return .json(result)
-            }
             if route == ["config"] {
                 guard body.objectValue != nil else { return .error(400, "the config must be a JSON object") }
                 let result = try await catalog.applyConfig(body, dryRun: false, checkSchemas: request.query["force"] != "true")
@@ -902,8 +890,8 @@ public final class UIServer: Sendable {
                 guard let replacement = body.objectValue, body["platform"]?.stringValue == route[2] else { return .error(400, "the block must keep its platform") }
                 let result: JSONValue
                 do {
-                    // A plugin's own page, or pausing: the plugin's code knows its block, and its schema describes the form.
-                    result = try await catalog.editBlock(platform: route[2], name: route[3], create: false, dryRun: false, checkSchemas: false) { $0 = replacement }
+                    // A plugin's own page, or pausing: checked against the plugin's schema like any other save.
+                    result = try await catalog.editBlock(platform: route[2], name: route[3], create: false, dryRun: false) { $0 = replacement }
                 } catch let error as CatalogError {
                     return .error(404, error.description)
                 }

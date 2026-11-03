@@ -30,7 +30,7 @@ extension WingmanPlugin {
       block.devices = devices.filter((d) => d.id !== id);
       if (!block.devices.length) delete block.devices;
     });
-    if (!listed) await api("/api/setup/exclude", { method: "POST", body: { platform, name: instance, deviceID: id, excluded: true } });
+    if (!listed) await api(`/api/settings/accessories/${encodeURIComponent(`${platform}:${id}`)}?instance=${encodeURIComponent(instance)}`, { method: "PATCH", body: { excluded: true } });
   }
 
   // MARK: The paired Wingmen

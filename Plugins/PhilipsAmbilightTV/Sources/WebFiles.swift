@@ -618,7 +618,7 @@ extension PhilipsAmbilightTVPlugin {
     const found = await findDevice(tv.mac);
     if (found?.setUp) {
       // Paired through Setup: Excluded, as Add accessories does it, which can include it again.
-      await api("/api/setup/exclude", { method: "POST", body: { platform, name: instance, deviceID: found.entry.mac, excluded: true } });
+      await api(`/api/settings/accessories/${encodeURIComponent(`${platform}:${found.entry.mac}`)}?instance=${encodeURIComponent(instance)}`, { method: "PATCH", body: { excluded: true } });
     } else {
       await updateBlock((block) => {
         block.devices = (block.devices || []).filter((device) => !sameMAC(device.mac, tv.mac));

@@ -51,14 +51,16 @@ struct LayoutToolTests {
         #expect(none["isError"] == true)
         #expect(none["content"]?[0]?["text"]?.stringValue?.contains("none yet") == true)
 
-        let set = try await client.tool("set_accessory_layout", ["accessories": [
-            ["id": "Devices:lamp", "room": "Office", "name": "Reading light", "favourite": true],
-            ["id": "Devices:lock", "room": "Hall", "hidden": true],
-        ]])
+        // Rooms, Hidden and the Name are Accessory Settings; favourites are the Arrangement's.
+        let accept: JSONValue = ["action": "accept", "content": ["confirm": true]]
+        let set = try await client.tool("update_settings", ["accessories": [
+            "Devices:lamp": ["room": "Office", "name": "Reading light"], "Devices:lock": ["room": "Hall", "hidden": true],
+        ]], answer: accept)
         #expect(set["isError"] != true)
-        let layout = try #require(set["structuredContent"])
+        let favourite = try await client.tool("set_accessory_layout", ["accessories": [["id": "Devices:lamp", "favourite": true]]])
+        let layout = try #require(favourite["structuredContent"])
         #expect(layout["rooms"]?.arrayValue?.compactMap { $0["name"]?.stringValue } == ["Office", "Hall"])
-        #expect(layout["rooms"]?[0]?["accessories"]?[0]?["displayName"] == "Reading light")
+        #expect(layout["rooms"]?[0]?["accessories"]?[0]?["name"] == "Reading light")
 
         // Case aside, the room picks the lamp only; the JSON carries the layout.
         let office = try await client.tool("list_accessories", ["room": "office"])
@@ -77,9 +79,9 @@ struct LayoutToolTests {
         _ = try await client.tool("set_accessory_layout", ["renameRoom": ["from": "office", "to": "Study"], "removeRooms": ["Hall"]])
         let after = environment.catalog.home.layout.value
         #expect(after.rooms == ["Study"])
-        #expect(after.accessories["Devices:lamp"]?.room == "Study")
-        #expect(after.accessories["Devices:lock"]?.room == nil)
-        #expect(after.accessories["Devices:lock"]?.hidden == true)
+        #expect(environment.catalog.find(id: "Devices:lamp")?.room == "Study")
+        #expect(environment.catalog.find(id: "Devices:lock")?.room == nil)
+        #expect(environment.catalog.find(id: "Devices:lock")?.layout?.hidden == true)
         let attributes = try FileManager.default.attributesOfItem(atPath: environment.directory.appendingPathComponent("accessory-layout.json").path)
         #expect((attributes[.posixPermissions] as? Int) == 0o600)
 
@@ -119,10 +121,10 @@ struct LayoutToolTests {
         let changes = NIOLockedValueBox(0)
         let observation = environment.catalog.home.observeLayout { changes.withLockedValue { $0 += 1 } }
         defer { observation.cancel() }
-        _ = try await client.tool("set_accessory_layout", ["accessories": [
-            ["id": "Devices:lamp", "room": "Office"], ["id": "Devices:bulb1", "room": "Office"], ["id": "Devices:bulb2", "room": "Office"],
-            ["id": "Devices:bulb3", "room": "Hall"], ["id": "Devices:lock", "room": "Hall"],
-        ]])
+        _ = try await environment.catalog.updateAccessorySettings([
+            ("Devices:lamp", ["room": "Office"]), ("Devices:bulb1", ["room": "Office"]), ("Devices:bulb2", ["room": "Office"]),
+            ("Devices:bulb3", ["room": "Hall"]), ("Devices:lock", ["room": "Hall"]),
+        ], who: "test")
         func sections(_ result: JSONValue) -> [String: [String]] {
             Dictionary(uniqueKeysWithValues: (result["structuredContent"]?["sections"]?.arrayValue ?? []).map { section in
                 (section["name"]?.stringValue ?? "", section["accessories"]?.arrayValue?.compactMap { $0["id"]?.stringValue } ?? [])

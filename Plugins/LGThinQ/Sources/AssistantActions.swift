@@ -14,8 +14,9 @@ extension LGThinQPlugin {
             name: "list_account_devices", title: "Look at the LG account",
             description: "Every appliance of the LG account this instance signed in with, asked from LG's cloud: id, name, type, model, platform, online, "
                 + "supported (Homeswift has a HomeKit accessory for it), configured (the block's devices list is empty, so it runs all of them, or lists it) "
-                + "and running. complete is false when LG did not answer for every home. To run only some appliances, add each with put_list_entry "
-                + "(platform LGThinQ, list devices, match id) as {\"id\", \"name\", \"type\"} with the values given here; thinq1 appliances also need "
+                + "and running. complete is false when LG did not answer for every home. To run only some appliances, list each in the block's devices "
+                + "with update_settings (plugin {\"platform\": \"LGThinQ\"}, settings {\"devices\": [entries]}, the whole list: read it with get_settings first) "
+                + "as {\"id\", \"name\", \"type\"} with the values given here; thinq1 appliances also need "
                 + "\"thinq1\": true in the block.",
             path: "account-devices", access: .read),
     ]

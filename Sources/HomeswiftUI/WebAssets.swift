@@ -3769,7 +3769,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return { label: t("Visible in Home app"), icon: "house", checked: visible, checkbox: true, toggle: true, onSelect: async () => {
       if (visible && !await HomeswiftCommon.confirmDialog(t("{name} leaves the Home app, with its room, scenes and automations. Homeswift and Matter keep it; shown again, the Home app adds it as a new accessory.", { name: accessory.name }))) return;
       try {
-        await api(`/api/accessories/${encodeURIComponent(accessory.id)}/homekit`, { method: "PUT", body: { visible: !visible } });
+        await api(`/api/settings/accessories/${encodeURIComponent(accessory.id)}`, { method: "PATCH", body: { notInHome: visible ? true : null } });
         route();
       } catch (e) { HomeswiftCommon.showAlert(e.message); }
     } };
@@ -3863,7 +3863,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     const groupingControls = HomeswiftGroups.mount({ all, layout, rooms,
       setGroupRoom: isAdmin() ? async (ids, room) => {
-        await api("/api/rooms", { method: "PUT", body: { accessories: Object.fromEntries(ids.map((id) => [id, { room }])) } });
+        await api("/api/settings/accessories", { method: "PATCH", body: Object.fromEntries(ids.map((id) => [id, { room: room || null }])) });
         for (const accessory of all) if (ids.includes(accessory.id)) accessory.room = room;
       } : null,
       moveToRoom: isAdmin() ? (group) => HomeswiftHome.moveGroupToRoom(group, all) : null,
@@ -4270,8 +4270,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     /// puts it back.
     async function moveToRoom(id, room) {
       try {
-        await api("/api/rooms", { method: "PUT", body: { accessories: { [id]: { room: room || null } } } });
         const accessory = all.find((candidate) => candidate.id === id);
+        // Out of a room: none, rather than the room a mirrored accessory's controller suggests.
+        await api(`/api/settings/accessories/${encodeURIComponent(id)}`, { method: "PATCH", body: { room: room || (accessory?.mirroredFrom ? "" : null) } });
         if (accessory) accessory.room = room || null;
       } catch (e) { HomeswiftCommon.showAlert(e.message); }
       render();
@@ -8397,13 +8398,18 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   /// A change in a sentence, from the tool and its arguments.
   function describe({ tool, arguments: args = {} }) {
-    const entry = args.entry || {};
     const settings = Object.keys(args.settings || {});
     switch (tool) {
-    case "put_list_entry":
-      return entry.name || entry.mac
-        ? t("Save “{entry}” in {block}?", { entry: entry.name || entry.mac, block: args.name || args.platform })
-        : t("Save this entry in {block}?", { block: args.name || args.platform });
+    case "update_settings":
+      if (args.accessories) return tn("Change the settings of one accessory?", "Change the settings of {n} accessories?", Object.keys(args.accessories).length);
+      if (args.accessory) {
+        return settings.length
+          ? t("Change {settings} of {block}?", { settings: settings.join(", "), block: args.accessory })
+          : t("Change the settings of {block}?", { block: args.accessory });
+      }
+      return settings.length
+        ? t("Change {settings} of {block}?", { settings: settings.join(", "), block: args.plugin?.name || args.plugin?.platform })
+        : t("Change the settings of {block}?", { block: args.plugin?.name || args.plugin?.platform });
     case "patch_config":
       return settings.length
         ? t("Change {settings} of {block}?", { settings: settings.join(", "), block: args.name || args.platform })
@@ -10734,12 +10740,20 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return app.api("/api/rooms", { method: "PUT", body });
   }
 
+  /// Changes Accessory Settings (room, Hidden, Name), by accessory id, in one write.
+  async function changeSettings(byID) {
+    return app.api("/api/settings/accessories", { method: "PATCH", body: byID });
+  }
+
+  /// A room for the settings: none is "" for a mirrored accessory (not the room its controller suggests), else cleared.
+  const roomSetting = (accessory, room) => room || (accessory?.mirroredFrom ? "" : null);
+
   /// Renames an accessory, in the Home app too (its plugin's block keeps the name); empty gives it back its plugin's.
   async function rename(accessory) {
     const name = await HomeswiftCommon.promptDialog(t("A new name for {name}, in the Home app too. Empty gives it back the name its plugin gives it.", { name: displayName(accessory) }), displayName(accessory));
     if (name === null || name.trim() === displayName(accessory)) return;
     try {
-      await app.api(`/api/accessories/${encodeURIComponent(accessory.id)}/name`, { method: "PUT", body: { name: name.trim() || null } });
+      await changeSettings({ [accessory.id]: { name: name.trim() || null } });
       app.route();
     } catch (e) { HomeswiftCommon.showAlert(e.message); }
   }
@@ -10747,16 +10761,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// What an accessory card's menu adds: its room, its name, Quick Controls, hiding. A plugin's accessory is renamed in
   /// the Home app too; another controller's (mirrored) keeps a name for these pages only, as one given before does.
   function layoutActions(accessory) {
-    const change = (fields) => changeLayout({ accessories: { [accessory.id]: fields } }).then(() => app.route()).catch((e) => HomeswiftCommon.showAlert(e.message));
+    const done = (promise) => promise.then(() => app.route()).catch((e) => HomeswiftCommon.showAlert(e.message));
+    // Room, Hidden and Name are its Accessory Settings; Quick Controls are the layout's.
+    const change = (fields) => done(changeSettings({ [accessory.id]: "room" in fields ? { ...fields, room: roomSetting(accessory, fields.room) } : fields }));
     const renames = accessory.platform && !accessory.mirroredFrom;
     return [
       { label: accessory.room ? t("Room: {room}…", { room: accessory.room }) : t("Put in a room…"), icon: "room", onSelect: () => chooseRoom(accessory, change) },
       renames ? { label: t("Rename…"), icon: "edit", onSelect: () => rename(accessory) } : null,
-      renames && !accessory.displayName ? null : { label: t("Name on these pages…"), icon: "edit", onSelect: async () => {
-        const name = await HomeswiftCommon.promptDialog(t("A name for {name} on these pages (the Home app keeps its own). Empty goes back to {name}.", { name: accessory.name }), accessory.displayName || "");
-        if (name !== null) change({ name: name.trim() || null });
-      } },
-      { label: accessory.favourite ? t("Remove from Quick Controls") : t("Add to Quick Controls"), icon: "star", onSelect: () => change({ favourite: !accessory.favourite }) },
+      { label: accessory.favourite ? t("Remove from Quick Controls") : t("Add to Quick Controls"), icon: "star", onSelect: () => done(changeLayout({ accessories: { [accessory.id]: { favourite: !accessory.favourite } } })) },
       { label: accessory.hidden ? t("Show it again") : t("Hide"), icon: "eye", onSelect: () => change({ hidden: !accessory.hidden }) },
     ].filter(Boolean);
   }
@@ -10774,8 +10786,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const members = group.members.map((id) => accessories.find((a) => a.id === id));
     const room = members.every((a) => a && a.room === members[0]?.room) ? members[0]?.room : "";
     await chooseRoom({ name: group.name, room }, async (fields) => {
-      // One metadata-only update for every member; no device or HomeKit writes.
-      await changeLayout({ accessories: Object.fromEntries(group.members.map((id) => [id, fields])) });
+      // One settings write for every member; no device writes.
+      await changeSettings(Object.fromEntries(group.members.map((id) => [id, { room: roomSetting(accessories.find((a) => a.id === id), fields.room) }])));
       await app.route();
     }, t("Moves every member of this group in Homeswift only. HomeKit rooms stay unchanged."));
   }
@@ -10788,8 +10800,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     return rest.length ? [...groups, [groups.length ? t("No room") : t("Accessories"), rest]] : groups;
   }
 
-  /// The Assistant's rooms and names, to review: each suggestion can be kept or left; Apply saves what is kept.
-  /// Names go to these pages only; HomeKit and the Home app keep theirs.
+  /// The Assistant's rooms and names, to review: each suggestion can be kept or left; Apply saves what is kept, as the
+  /// accessories' settings: a name is its Name, in the Home app too.
   async function suggestRooms(host, accessories) {
     host.querySelector(".suggest")?.remove();
     const panel = el("div", { class: "card panel suggest" },
@@ -10827,12 +10839,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         changes[data.id] = { ...changes[data.id], ...(data.room ? { room: data.room } : { name: data.name }) };
       }
       apply.disabled = true;
-      try { await changeLayout({ accessories: changes }); app.route(); } catch (e) { say(line, e.message, "error"); apply.disabled = false; }
+      try { await changeSettings(changes); app.route(); } catch (e) { say(line, e.message, "error"); apply.disabled = false; }
     } });
     panel.replaceChildren(
       el("div", { class: "panel-head" },
         el("div", {}, el("h2", {}, sparkle(), " ", t("Suggested rooms")),
-          el("p", { class: "muted", text: t("From {model}. Untick what you do not want; nothing changes until you apply. Names show on these pages only: the Home app keeps its own.", { model: result.model }) })),
+          el("p", { class: "muted", text: t("From {model}. Untick what you do not want; nothing changes until you apply. Names are given in the Home app too.", { model: result.model }) })),
         el("button", { actionIcon: "close", class: "link", text: t("Dismiss"), onclick: () => panel.remove() })),
       rooms.length ? el("div", { class: "suggest-rooms" }, rooms) : el("p", { class: "muted", text: t("No room to suggest.") }),
       renames.length ? el("div", {}, el("div", { class: "service-name", text: t("Clearer names") }), renames) : null,
@@ -12939,7 +12951,6 @@ HomeswiftI18n.add("es", {
   "a lock, door or alarm: a person confirms it (set_security_accessory, or the web UI)": "una cerradura, puerta o alarma: la confirma una persona (set_security_accessory, o la interfaz web)",
   "a lock, door or alarm: automations do not change them": "una cerradura, puerta o alarma: las automatizaciones no las cambian",
   "a message is required": "se necesita un mensaje",
-  "A name for {name} on these pages (the Home app keeps its own). Empty goes back to {name}.": "Un nombre para {name} en estas páginas (la app Casa mantiene el suyo). Si lo dejas vacío, vuelve a ser {name}.",
   "A new name for {name}, in the Home app too. Empty gives it back the name its plugin gives it.": "Un nombre nuevo para {name}, también en la app Casa. Si lo dejas vacío, vuelve al nombre que le da su plugin.",
   "A new block: Add writes it to config.json.": "Un bloque nuevo: Añadir lo escribe en config.json.",
   "A new setup code applies to new pairings only: the Home app keeps the bridge.": "Un nuevo código de configuración solo se aplica a los nuevos emparejamientos: la app Casa conserva el puente.",
@@ -13460,7 +13471,7 @@ HomeswiftI18n.add("es", {
   "Fr": "Vi",
   "Fri": "Vie",
   "From": "Desde",
-  "From {model}. Untick what you do not want; nothing changes until you apply. Names show on these pages only: the Home app keeps its own.": "De {model}. Desmarca lo que no quieras; nada cambia hasta que apliques. Los nombres solo se muestran en estas páginas: la app Casa mantiene los suyos.",
+  "From {model}. Untick what you do not want; nothing changes until you apply. Names are given in the Home app too.": "De {model}. Desmarca lo que no quieras; nada cambia hasta que apliques. Los nombres también se dan en la app Casa.",
   "From {source}: Homeswift does not add it to HomeKit again": "Desde {source}: Homeswift no lo vuelve a añadir a HomeKit",
   "from must be before to": "from debe ser anterior a to",
   "Full screen": "Pantalla completa",
@@ -13727,7 +13738,6 @@ HomeswiftI18n.add("es", {
   "Mute": "Silenciar",
   "My home": "Mi casa",
   "Name": "Nombre",
-  "Name on these pages…": "Nombre en estas páginas…",
   "Needs the Assistant (a HomeswiftAiKit block)": "Necesita el Asistente (un bloque HomeswiftAiKit)",
   "Needs the Assistant (a HomeswiftAiKit block).": "Necesita el Asistente (un bloque HomeswiftAiKit).",
   "Network": "Red",
@@ -14070,13 +14080,11 @@ HomeswiftI18n.add("es", {
   "Sat": "Sáb",
   "Saturation": "Saturación",
   "Save": "Guardar",
-  "Save “{entry}” in {block}?": "¿Guardar «{entry}» en {block}?",
   "Save and restart": "Guardar y reiniciar",
   "Save anyway": "Guardar de todos modos",
   "Save as a scene": "Guardar como escena",
   "Save payloads": "Guardar contenidos",
   "Save the budgets": "Guardar los presupuestos",
-  "Save this entry in {block}?": "¿Guardar esta entrada en {block}?",
   "Save what the plugin's schema refuses: for a value the plugin accepts that its schema does not list": "Guardar lo que el esquema del plugin rechaza: para un valor que el plugin acepta pero que su esquema no incluye",
   "Save what the plugins' schemas refuse: for a value a plugin accepts that its schema does not list": "Guardar lo que los esquemas de los plugins rechazan: para un valor que un plugin acepta pero que su esquema no incluye",
   "Saved": "Guardado",
@@ -15110,6 +15118,8 @@ HomeswiftI18n.add("es", {
   "Not chosen": "Sin elegir",
   "Choose…": "Elegir…",
   "Email or phone number": "Correo electrónico o número de teléfono",
+  "Change the settings of one accessory?": "¿Cambiar los ajustes de un accesorio?",
+  "Change the settings of {n} accessories?": "¿Cambiar los ajustes de {n} accesorios?",
 });
 
 """#),
@@ -15670,7 +15680,6 @@ HomeswiftI18n.add("fr", {
   "a lock, door or alarm: a person confirms it (set_security_accessory, or the web UI)": "une serrure, une porte ou une alarme : une personne doit confirmer (set_security_accessory, ou l'interface web)",
   "a lock, door or alarm: automations do not change them": "une serrure, une porte ou une alarme : les automatisations n'y touchent pas",
   "a message is required": "un message est requis",
-  "A name for {name} on these pages (the Home app keeps its own). Empty goes back to {name}.": "Un nom pour {name} sur ces pages (l'app Maison garde le sien). Vide, il redevient {name}.",
   "A new name for {name}, in the Home app too. Empty gives it back the name its plugin gives it.": "Un nouveau nom pour {name}, dans l'app Maison aussi. Vide, il reprend le nom que lui donne son plugin.",
   "A new block: Add writes it to config.json.": "Un nouveau bloc : Ajouter l'écrit dans config.json.",
   "A new setup code applies to new pairings only: the Home app keeps the bridge.": "Un nouveau code de configuration ne s'applique qu'aux nouveaux jumelages : l'app Maison garde le pont.",
@@ -16191,7 +16200,7 @@ HomeswiftI18n.add("fr", {
   "Fr": "Ve",
   "Fri": "Ven",
   "From": "Du",
-  "From {model}. Untick what you do not want; nothing changes until you apply. Names show on these pages only: the Home app keeps its own.": "Par {model}. Décochez ce que vous ne voulez pas ; rien ne change tant que vous n'appliquez pas. Les noms ne s'affichent que sur ces pages : l'app Maison garde les siens.",
+  "From {model}. Untick what you do not want; nothing changes until you apply. Names are given in the Home app too.": "Par {model}. Décochez ce que vous ne voulez pas ; rien ne change tant que vous n'appliquez pas. Les noms sont aussi donnés dans l'app Maison.",
   "From {source}: Homeswift does not add it to HomeKit again": "Depuis {source} : Homeswift ne l'ajoute pas une seconde fois à HomeKit",
   "from must be before to": "from doit précéder to",
   "Full screen": "Plein écran",
@@ -16458,7 +16467,6 @@ HomeswiftI18n.add("fr", {
   "Mute": "Couper le son",
   "My home": "Ma maison",
   "Name": "Nom",
-  "Name on these pages…": "Nom sur ces pages…",
   "Needs the Assistant (a HomeswiftAiKit block)": "Nécessite l'Assistant (un bloc HomeswiftAiKit)",
   "Needs the Assistant (a HomeswiftAiKit block).": "Nécessite l'Assistant (un bloc HomeswiftAiKit).",
   "Network": "Réseau",
@@ -16801,13 +16809,11 @@ HomeswiftI18n.add("fr", {
   "Sat": "Sam",
   "Saturation": "Saturation",
   "Save": "Enregistrer",
-  "Save “{entry}” in {block}?": "Enregistrer « {entry} » dans {block} ?",
   "Save and restart": "Enregistrer et redémarrer",
   "Save anyway": "Enregistrer quand même",
   "Save as a scene": "Enregistrer comme scène",
   "Save payloads": "Conserver les contenus",
   "Save the budgets": "Enregistrer les budgets",
-  "Save this entry in {block}?": "Enregistrer cette entrée dans {block} ?",
   "Save what the plugin's schema refuses: for a value the plugin accepts that its schema does not list": "Enregistrer ce que le schéma du plugin refuse : pour une valeur que le plugin accepte mais que son schéma ne liste pas",
   "Save what the plugins' schemas refuse: for a value a plugin accepts that its schema does not list": "Enregistrer ce que les schémas des plugins refusent : pour une valeur qu'un plugin accepte mais que son schéma ne liste pas",
   "Saved": "Enregistré",
@@ -17841,6 +17847,8 @@ HomeswiftI18n.add("fr", {
   "Not chosen": "Non choisi",
   "Choose…": "Choisir…",
   "Email or phone number": "E-mail ou numéro de téléphone",
+  "Change the settings of one accessory?": "Modifier les réglages d'un accessoire ?",
+  "Change the settings of {n} accessories?": "Modifier les réglages de {n} accessoires ?",
 });
 
 """#),
@@ -18401,7 +18409,6 @@ HomeswiftI18n.add("pt", {
   "a lock, door or alarm: a person confirms it (set_security_accessory, or the web UI)": "uma fechadura, porta ou alarme: uma pessoa tem de confirmar (set_security_accessory, ou a interface web)",
   "a lock, door or alarm: automations do not change them": "uma fechadura, porta ou alarme: as automatizações não lhes tocam",
   "a message is required": "é preciso uma mensagem",
-  "A name for {name} on these pages (the Home app keeps its own). Empty goes back to {name}.": "Um nome para {name} nestas páginas (a app Casa mantém o seu). Se ficar vazio, volta a ser {name}.",
   "A new name for {name}, in the Home app too. Empty gives it back the name its plugin gives it.": "Um novo nome para {name}, também na app Casa. Se ficar vazio, volta ao nome que o seu plugin lhe dá.",
   "A new block: Add writes it to config.json.": "Um bloco novo: Adicionar escreve-o no config.json.",
   "A new setup code applies to new pairings only: the Home app keeps the bridge.": "Um novo código de configuração só se aplica a novos emparelhamentos: a app Casa mantém a ponte.",
@@ -18922,7 +18929,7 @@ HomeswiftI18n.add("pt", {
   "Fr": "Sex",
   "Fri": "Sex",
   "From": "De",
-  "From {model}. Untick what you do not want; nothing changes until you apply. Names show on these pages only: the Home app keeps its own.": "De {model}. Desmarque o que não pretende; nada muda até aplicar. Os nomes só aparecem nestas páginas: a app Casa mantém os seus.",
+  "From {model}. Untick what you do not want; nothing changes until you apply. Names are given in the Home app too.": "De {model}. Desmarque o que não pretende; nada muda até aplicar. Os nomes também são dados na app Casa.",
   "From {source}: Homeswift does not add it to HomeKit again": "Da {source}: o Homeswift não o volta a adicionar ao HomeKit",
   "from must be before to": "from tem de ser anterior a to",
   "Full screen": "Ecrã inteiro",
@@ -19189,7 +19196,6 @@ HomeswiftI18n.add("pt", {
   "Mute": "Silenciar",
   "My home": "A minha casa",
   "Name": "Nome",
-  "Name on these pages…": "Nome nestas páginas…",
   "Needs the Assistant (a HomeswiftAiKit block)": "Requer o Assistente (um bloco HomeswiftAiKit)",
   "Needs the Assistant (a HomeswiftAiKit block).": "Requer o Assistente (um bloco HomeswiftAiKit).",
   "Network": "Rede",
@@ -19532,13 +19538,11 @@ HomeswiftI18n.add("pt", {
   "Sat": "Sáb",
   "Saturation": "Saturação",
   "Save": "Guardar",
-  "Save “{entry}” in {block}?": "Guardar «{entry}» em {block}?",
   "Save and restart": "Guardar e reiniciar",
   "Save anyway": "Guardar mesmo assim",
   "Save as a scene": "Guardar como cena",
   "Save payloads": "Guardar conteúdos",
   "Save the budgets": "Guardar os orçamentos",
-  "Save this entry in {block}?": "Guardar esta entrada em {block}?",
   "Save what the plugin's schema refuses: for a value the plugin accepts that its schema does not list": "Guardar o que o esquema do plugin recusa: para um valor que o plugin aceita mas que o esquema não inclui",
   "Save what the plugins' schemas refuse: for a value a plugin accepts that its schema does not list": "Guardar o que os esquemas dos plugins recusam: para um valor que um plugin aceita mas que o esquema não inclui",
   "Saved": "Guardado",
@@ -20572,6 +20576,8 @@ HomeswiftI18n.add("pt", {
   "Not chosen": "Não escolhido",
   "Choose…": "Escolher…",
   "Email or phone number": "E-mail ou número de telefone",
+  "Change the settings of one accessory?": "Alterar as definições de um acessório?",
+  "Change the settings of {n} accessories?": "Alterar as definições de {n} acessórios?",
 });
 
 """#),
@@ -22700,6 +22706,9 @@ HomeswiftI18n.add("pt", {
   const app = () => window.HomeswiftApp;
   const api = (...args) => app().api(...args);
   const post = (path, body) => api(`/api/setup/${path}`, { method: "POST", body });
+  /// Changes Accessory Settings (Excluded, Parts) by Accessory Id: one device's, or several by id in one write.
+  const settings = (block, body, accessoryID) => api(`/api/settings/accessories${accessoryID ? `/${encodeURIComponent(accessoryID)}` : ""}?instance=${encodeURIComponent(block.name)}`, { method: "PATCH", body });
+  const accessoryID = (block, device) => device.accessoryID || `${block.platform}:${device.deviceID}`;
   const bare = (name) => name.replace(/[\s_-]+/g, "").toLowerCase();
 
   /// What each Authorization Method is called, and the glyph its rows and the sheet show.
@@ -22937,7 +22946,7 @@ HomeswiftI18n.add("pt", {
     const setUp = device.status === "setUp" || device.status === "notResponding";
     const toggle = (value) => async () => {
       try {
-        await post("exclude", { platform: block.platform, name: block.name, deviceID: device.deviceID, excluded: value });
+        await settings(block, { excluded: value }, accessoryID(block, device));
         await reload();
       } catch (e) { HomeswiftCommon.showAlert(e.message); }
     };
@@ -22954,7 +22963,7 @@ HomeswiftI18n.add("pt", {
     const parts = !excluded && setUp ? partsList(device, {
       onChange: async (part, included, box) => {
         box.disabled = true;
-        try { await post("part", { platform: block.platform, name: block.name, deviceID: device.deviceID, part: part.id, included }); part.included = included; }
+        try { await settings(block, { parts: { [part.id]: included } }, accessoryID(block, device)); part.included = included; }
         catch (e) { box.checked = !included; HomeswiftCommon.showAlert(e.message); }
         finally { box.disabled = false; }
       },
@@ -23125,13 +23134,14 @@ HomeswiftI18n.add("pt", {
         form.onsubmit = (event) => {
           event.preventDefault();
           HomeswiftCommon.busyButton(submit, async () => {
-            const left = found.filter((one, index) => !boxes[index].checked);
-            for (const one of left) await post("exclude", { platform: block.platform, name: block.name, deviceID: one.deviceID, excluded: true });
-            // The parts of the devices kept, as switched: the plugin builds them, or leaves them out.
+            // In one write: the devices left out Excluded, the parts of those kept as switched.
+            const changes = {};
             for (const [index, one] of found.entries()) {
-              if (!boxes[index].checked) continue;
-              for (const change of partLists[index]?.changes() ?? []) await post("part", { platform: block.platform, name: block.name, deviceID: one.deviceID, ...change });
+              if (!boxes[index].checked) { changes[accessoryID(block, one)] = { excluded: true }; continue; }
+              const parts = Object.fromEntries((partLists[index]?.changes() ?? []).map((change) => [change.part, change.included]));
+              if (Object.keys(parts).length) changes[accessoryID(block, one)] = { parts };
             }
+            if (Object.keys(changes).length) await settings(block, changes);
             finish(found.filter((one, index) => boxes[index].checked));
           });
         };

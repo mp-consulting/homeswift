@@ -1905,7 +1905,7 @@
     return { label: t("Visible in Home app"), icon: "house", checked: visible, checkbox: true, toggle: true, onSelect: async () => {
       if (visible && !await HomeswiftCommon.confirmDialog(t("{name} leaves the Home app, with its room, scenes and automations. Homeswift and Matter keep it; shown again, the Home app adds it as a new accessory.", { name: accessory.name }))) return;
       try {
-        await api(`/api/accessories/${encodeURIComponent(accessory.id)}/homekit`, { method: "PUT", body: { visible: !visible } });
+        await api(`/api/settings/accessories/${encodeURIComponent(accessory.id)}`, { method: "PATCH", body: { notInHome: visible ? true : null } });
         route();
       } catch (e) { HomeswiftCommon.showAlert(e.message); }
     } };
@@ -1999,7 +1999,7 @@
 
     const groupingControls = HomeswiftGroups.mount({ all, layout, rooms,
       setGroupRoom: isAdmin() ? async (ids, room) => {
-        await api("/api/rooms", { method: "PUT", body: { accessories: Object.fromEntries(ids.map((id) => [id, { room }])) } });
+        await api("/api/settings/accessories", { method: "PATCH", body: Object.fromEntries(ids.map((id) => [id, { room: room || null }])) });
         for (const accessory of all) if (ids.includes(accessory.id)) accessory.room = room;
       } : null,
       moveToRoom: isAdmin() ? (group) => HomeswiftHome.moveGroupToRoom(group, all) : null,
@@ -2406,8 +2406,9 @@
     /// puts it back.
     async function moveToRoom(id, room) {
       try {
-        await api("/api/rooms", { method: "PUT", body: { accessories: { [id]: { room: room || null } } } });
         const accessory = all.find((candidate) => candidate.id === id);
+        // Out of a room: none, rather than the room a mirrored accessory's controller suggests.
+        await api(`/api/settings/accessories/${encodeURIComponent(id)}`, { method: "PATCH", body: { room: room || (accessory?.mirroredFrom ? "" : null) } });
         if (accessory) accessory.room = room || null;
       } catch (e) { HomeswiftCommon.showAlert(e.message); }
       render();

@@ -10,6 +10,9 @@
   const app = () => window.HomeswiftApp;
   const api = (...args) => app().api(...args);
   const post = (path, body) => api(`/api/setup/${path}`, { method: "POST", body });
+  /// Changes Accessory Settings (Excluded, Parts) by Accessory Id: one device's, or several by id in one write.
+  const settings = (block, body, accessoryID) => api(`/api/settings/accessories${accessoryID ? `/${encodeURIComponent(accessoryID)}` : ""}?instance=${encodeURIComponent(block.name)}`, { method: "PATCH", body });
+  const accessoryID = (block, device) => device.accessoryID || `${block.platform}:${device.deviceID}`;
   const bare = (name) => name.replace(/[\s_-]+/g, "").toLowerCase();
 
   /// What each Authorization Method is called, and the glyph its rows and the sheet show.
@@ -247,7 +250,7 @@
     const setUp = device.status === "setUp" || device.status === "notResponding";
     const toggle = (value) => async () => {
       try {
-        await post("exclude", { platform: block.platform, name: block.name, deviceID: device.deviceID, excluded: value });
+        await settings(block, { excluded: value }, accessoryID(block, device));
         await reload();
       } catch (e) { HomeswiftCommon.showAlert(e.message); }
     };
@@ -264,7 +267,7 @@
     const parts = !excluded && setUp ? partsList(device, {
       onChange: async (part, included, box) => {
         box.disabled = true;
-        try { await post("part", { platform: block.platform, name: block.name, deviceID: device.deviceID, part: part.id, included }); part.included = included; }
+        try { await settings(block, { parts: { [part.id]: included } }, accessoryID(block, device)); part.included = included; }
         catch (e) { box.checked = !included; HomeswiftCommon.showAlert(e.message); }
         finally { box.disabled = false; }
       },
@@ -435,13 +438,14 @@
         form.onsubmit = (event) => {
           event.preventDefault();
           HomeswiftCommon.busyButton(submit, async () => {
-            const left = found.filter((one, index) => !boxes[index].checked);
-            for (const one of left) await post("exclude", { platform: block.platform, name: block.name, deviceID: one.deviceID, excluded: true });
-            // The parts of the devices kept, as switched: the plugin builds them, or leaves them out.
+            // In one write: the devices left out Excluded, the parts of those kept as switched.
+            const changes = {};
             for (const [index, one] of found.entries()) {
-              if (!boxes[index].checked) continue;
-              for (const change of partLists[index]?.changes() ?? []) await post("part", { platform: block.platform, name: block.name, deviceID: one.deviceID, ...change });
+              if (!boxes[index].checked) { changes[accessoryID(block, one)] = { excluded: true }; continue; }
+              const parts = Object.fromEntries((partLists[index]?.changes() ?? []).map((change) => [change.part, change.included]));
+              if (Object.keys(parts).length) changes[accessoryID(block, one)] = { parts };
             }
+            if (Object.keys(changes).length) await settings(block, changes);
             finish(found.filter((one, index) => boxes[index].checked));
           });
         };

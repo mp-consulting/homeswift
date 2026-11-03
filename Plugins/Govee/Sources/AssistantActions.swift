@@ -41,9 +41,9 @@ extension GoveePlugin {
             name: "discovered_devices", title: "Look at the discovered devices",
             description: "The devices the instance found at its last start, in the Govee account and on the LAN: deviceId, deviceName, model, "
                 + "deviceType (the config.json list for its entry) and ip when the LAN answered. Settings of a device go in an entry of that list "
-                + "with put_list_entry (platform Govee, list = deviceType, match deviceId), e.g. {\"deviceId\", \"label\"}, or "
+                + "written with update_settings (plugin {\"platform\": \"Govee\"}, settings {<deviceType>: [entries]}), e.g. {\"deviceId\", \"label\"}, or "
                 + "{\"deviceId\", \"customIPAddress\"} for a light the LAN scan does not reach, or {\"deviceId\", \"ignoreDevice\": true}. "
-                + "put_list_entry replaces the whole entry: read the block's current entry first and keep its keys.",
+                + "update_settings replaces the whole list: read it with get_settings first and keep its other entries and their keys.",
             path: "cached-devices", access: .read),
         AssistantAction(
             name: "discover", title: "Ask Govee for the devices",
@@ -56,7 +56,8 @@ extension GoveePlugin {
             description: "The scene library Govee offers for a light, by category: each scene has sceneId, name and code (and variants). source is "
                 + "cloud, or offline (the bundled library, with a warning) when Govee cannot be reached. The answer can be long. A scene becomes a "
                 + "HomeKit switch when it is in the light's scenes array: {\"name\", \"sceneCode\": code, \"sceneId\", \"kind\": \"scene\"} in its "
-                + "lightDevices entry, written with put_list_entry (platform Govee, list lightDevices, match deviceId) keeping the entry's other keys.",
+                + "lightDevices entry, written with update_settings (plugin {\"platform\": \"Govee\"}, settings {\"lightDevices\": [entries]}), which replaces the whole list: "
+                + "read it with get_settings first and keep its other entries and keys.",
             method: "POST", path: "scenes", access: .read,
             inputSchema: [
                 "type": "object", "required": ["deviceId", "model"],
