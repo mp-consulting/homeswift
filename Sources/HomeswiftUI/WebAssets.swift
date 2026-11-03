@@ -3857,7 +3857,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         // leaves the room its controller suggests.
         const movable = all.filter((accessory) => ids.includes(accessory.id) && accessory.platform);
         await api("/api/settings/accessories", { method: "PATCH", body: Object.fromEntries(movable.map((accessory) => [accessory.id, { room: room || (accessory.mirroredFrom ? "" : null) }])) });
-        for (const accessory of all) if (ids.includes(accessory.id)) accessory.room = room;
+        // Only those it moved: the others keep their room, as the server does.
+        for (const accessory of movable) accessory.room = room;
       } : null,
       moveToRoom: isAdmin() ? (group) => HomeswiftHome.moveGroupToRoom(group, all) : null,
       persist: async () => { clearTimeout(saveTimer); await api("/api/layout", { method: "PUT", body: layout }); }, refresh: render });
@@ -5476,7 +5477,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         const rowTitle = (value) => titleKeys.map((key) => value[key]).find((text) => (typeof text === "string" && text.trim()) || typeof text === "number");
         const list = el("div", {});
         const rows = [];
-        const changed = () => list.dispatchEvent(new Event("input", { bubbles: true }));
+        // A move or a removal is a change as an edit is: the settings sheet saves on `change`.
+        const changed = () => { list.dispatchEvent(new Event("input", { bubbles: true })); list.dispatchEvent(new Event("change", { bubbles: true })); };
         /// The rows in their order again, after a move: each Move button turned off at its end, an unnamed row renumbered.
         const ordered = () => rows.forEach((row, index) => row.placed?.(index));
         const move = (entry, by) => {
@@ -5534,7 +5536,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             return;
           }
           const row = el("div", { class: "item" });
-          const remove = el("button", { actionIcon: "trash", class: "link danger", text: t("Remove"), onclick: () => { row.remove(); rows.splice(rows.indexOf(entry), 1); } });
+          const remove = el("button", { actionIcon: "trash", class: "link danger", text: t("Remove"), onclick: () => { row.remove(); rows.splice(rows.indexOf(entry), 1); changed(); } });
           {
             const f = field("", items, itemValue, false);
             row.append(el("div", { class: "item-head" }, f.element, remove));
