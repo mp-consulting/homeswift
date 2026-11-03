@@ -156,7 +156,6 @@
   // MARK: Start
 
   function bind() {
-    $("#pluginSettingsLink").href = pluginSettings;
     $("#onvifBtn").addEventListener("click", () => { showScreen("onvifScreen"); breadcrumb(t("Find a camera's URLs"), back); });
     $("#backFromOnvifBtn").addEventListener("click", back);
     $("#onvifDiscoverBtn").addEventListener("click", (event) => act(event.currentTarget, discoverOnvif));

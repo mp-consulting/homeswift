@@ -109,7 +109,7 @@ option (`Enable.Motion.OccupancySensor.<MAC>`), kept in its Accessory Settings' 
 
 With the web UI on, the Plugins page has an **Open** button for this plugin: each controller the plugin runs, whether it
 answers, its events and certificate, and its devices, each with a **Settings** button for its Accessory Settings;
-**Settings for every device** opens the plugin's Settings, a card leads to Add accessories for another controller, and
+the plugin's own Settings are beside Pause, a card leads to Add accessories for another controller, and
 **Find a camera's URLs** asks a third-party camera for its RTSP and snapshot URLs over ONVIF (with a snapshot of each
 profile), to put in the camera's Settings. The page writes no settings. The Assistant (the web UI's chat, MCP clients)
 can read the running controllers and their devices, discover consoles and check an address (`AssistantActions.swift`);

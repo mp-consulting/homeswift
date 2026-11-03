@@ -165,7 +165,6 @@ extension UniFiProtectPlugin {
   // MARK: Start
 
   function bind() {
-    $("#pluginSettingsLink").href = pluginSettings;
     $("#onvifBtn").addEventListener("click", () => { showScreen("onvifScreen"); breadcrumb(t("Find a camera's URLs"), back); });
     $("#backFromOnvifBtn").addEventListener("click", back);
     $("#onvifDiscoverBtn").addEventListener("click", (event) => act(event.currentTarget, discoverOnvif));
@@ -468,7 +467,6 @@ HomeswiftI18n.add({
     "When recording HomeKit Secure Video events, force the use of the medium quality video stream from the Protect controller.": "Pour l'enregistrement des événements HomeKit Secure Video, forcer le flux vidéo de moyenne qualité du contrôleur Protect.",
     "When recording HomeKit Secure Video events, force the use of the low quality video stream from the Protect controller.": "Pour l'enregistrement des événements HomeKit Secure Video, forcer le flux vidéo de basse qualité du contrôleur Protect.",
     "Controllers": "Contrôleurs",
-    "Settings for every device": "Réglages de tous les appareils",
     "Another controller": "Un autre contrôleur",
     "No controller yet": "Aucun contrôleur pour l'instant",
     "Add accessories finds the UniFi consoles on the network, or one by its address, and signs in to it with a local account.": "Ajouter des accessoires trouve les consoles UniFi du réseau, ou l'une par son adresse, et s'y connecte avec un compte local.",
@@ -764,7 +762,6 @@ HomeswiftI18n.add({
     "When recording HomeKit Secure Video events, force the use of the medium quality video stream from the Protect controller.": "Al grabar eventos de HomeKit Secure Video, forzar el flujo de vídeo de media calidad del controlador Protect.",
     "When recording HomeKit Secure Video events, force the use of the low quality video stream from the Protect controller.": "Al grabar eventos de HomeKit Secure Video, forzar el flujo de vídeo de baja calidad del controlador Protect.",
     "Controllers": "Controladores",
-    "Settings for every device": "Ajustes de todos los dispositivos",
     "Another controller": "Otro controlador",
     "No controller yet": "Todavía no hay ningún controlador",
     "Add accessories finds the UniFi consoles on the network, or one by its address, and signs in to it with a local account.": "Añadir accesorios encuentra las consolas UniFi de la red, o una por su dirección, e inicia sesión en ella con una cuenta local.",
@@ -1060,7 +1057,6 @@ HomeswiftI18n.add({
     "When recording HomeKit Secure Video events, force the use of the medium quality video stream from the Protect controller.": "Ao gravar eventos do HomeKit Secure Video, forçar o fluxo de vídeo de média qualidade do controlador Protect.",
     "When recording HomeKit Secure Video events, force the use of the low quality video stream from the Protect controller.": "Ao gravar eventos do HomeKit Secure Video, forçar o fluxo de vídeo de baixa qualidade do controlador Protect.",
     "Controllers": "Controladores",
-    "Settings for every device": "Definições de todos os dispositivos",
     "Another controller": "Outro controlador",
     "No controller yet": "Ainda sem controlador",
     "Add accessories finds the UniFi consoles on the network, or one by its address, and signs in to it with a local account.": "Adicionar acessórios encontra as consolas UniFi da rede, ou uma pelo seu endereço, e inicia sessão nela com uma conta local.",
@@ -1100,7 +1096,6 @@ HomeswiftI18n.add({
     <div class="section-head"><h2 data-i18n>Controllers</h2></div>
     <div id="controllersList" class="controllers"></div>
     <div class="actions">
-      <a id="pluginSettingsLink" class="button" data-i18n data-action-icon="gear">Settings for every device</a>
       <button id="onvifBtn" data-i18n data-action-icon="search">Find a camera's URLs</button>
       <button id="supportBtn" data-i18n data-action-icon="link">Support</button>
     </div>
