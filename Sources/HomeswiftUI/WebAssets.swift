@@ -4758,7 +4758,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     if (hasPage && !view && !history.state?.reloaded) { history.replaceState({ reloaded: true }, ""); location.reload(); return; }
     if (!isNew && !block.system) {
       return HomeswiftSettings.pluginPage(main, { block, plugin, instance, plugins, kit: {
-        buildForm, isSecretKey, readSecrets: (list) => { secretRule = readSecretRule(list); }, blockTitle, blockState, removeBlock, problemList, savedText,
+        isSecretKey, readSecrets: (list) => { secretRule = readSecretRule(list); }, blockTitle, blockState, removeBlock, problemList, savedText,
         describeSetup, setLeaveGuard: (guard) => { leaveGuard = guard; },
       } });
     }
@@ -4819,8 +4819,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       getValue = fromJSON;
     }
 
-    // The block as a comparable text: without its platform (the form keeps it, the JSON view leaves it to
-    // Save) and with sorted keys, so switching views or reordering keys is not a change.
+    // The block as a comparable text: without its platform (the form keeps it, the JSON leaves it to Save) and with
+    // sorted keys, so reordering keys is not a change.
     const sorted = (value) => Array.isArray(value) ? value.map(sorted)
       : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, sorted(value[key])])) : value;
     const snapshot = () => { try { const { platform: _, ...rest } = getValue(); return JSON.stringify(sorted(rest)); } catch { return null; } };
@@ -4831,7 +4831,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const force = el("button", { actionIcon: "check", class: "hidden", text: isNew ? t("Add anyway") : t("Save anyway"), title: t("Save what the plugin's schema refuses: for a value the plugin accepts that its schema does not list") });
     const revert = el("button", { class: "settings-action" }, HomeswiftCommon.icon("restore"), el("span", { text: isNew ? t("Cancel") : t("Revert") }));
     // The JSON on screen is checked as it is typed: a syntax error marks its line, and Save waits for it.
-    const jsonShown = () => textarea.isConnected && !textarea.closest(".hidden");
+    const jsonShown = () => !schema;
     const update = () => {
       const result = jsonShown() ? editor.check() : null;
       secretNote.hidden = !(result && "value" in result && holdsSecret(result.value));
@@ -4929,11 +4929,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     revert.addEventListener("click", () => { if (isNew) { navigate("/plugins"); return; } leaveGuard = null; route(); });
 
     const [state, kind] = isNew ? [t("New"), "standby"] : blockState(block, plugin, instance);
-    const remove = !isNew && !block.system ? el("div", { class: "card danger-zone" },
-      el("div", {}, el("strong", { text: t("Remove this plugin") }),
-        el("p", { class: "muted", text: t("Takes the block out of config.json. Its accessories leave the Home app, with their rooms, scenes and automations.") })),
-      el("button", { actionIcon: "trash", class: "danger", text: t("Remove"), onclick: () => removeBlock(block, () => navigate("/plugins")) })) : null;
-
     leaveGuard = async () => !dirty() || isNew || await HomeswiftCommon.confirmDialog(t("Leave without saving your changes?"));
     leaveGuard.quiet = () => isNew || !dirty();
     show(main,
@@ -4948,10 +4943,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       platform === "HomeswiftAiKit" && useSuggestion && !isNew ? assistantSettings({
         formValue: () => { try { return { ...getValue(), platform }; } catch { return { ...current, platform }; } },
         useValue: useSuggestion, save, dirty }) : null,
-      useSuggestion && !block.system ? describeSetup({ platform, pluginName: plugin ? plugin.name : platform, current: () => { try { return getValue(); } catch { return current; } }, use: useSuggestion }) : null,
+      useSuggestion && isNew ? describeSetup({ platform, pluginName: plugin ? plugin.name : platform, current: () => { try { return getValue(); } catch { return current; } }, use: useSuggestion }) : null,
       body,
-      el("div", { class: "settings-bar" }, message, revert, force, save),
-      remove);
+      el("div", { class: "settings-bar" }, message, revert, force, save));
     update();
     if (platform === "HomeswiftUI") {
       const section = new URLSearchParams(location.search).get("section");
@@ -10825,9 +10819,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const apply = el("button", { actionIcon: "check", class: "primary", text: t("Apply what is ticked"), onclick: async () => {
       const changes = {};
       for (const { input, data } of checks) {
-        // Only a plugin's accessory has Accessory Settings, and a mirrored one is named where it comes from.
-        const accessory = byID.get(data.id);
-        if (!input.checked || !accessory?.platform || (data.name && accessory.mirroredFrom)) continue;
+        // Only a plugin's accessory has Accessory Settings (the bridge suggests no name for a mirrored one).
+        if (!input.checked || !byID.get(data.id)?.platform) continue;
         changes[data.id] = { ...changes[data.id], ...(data.room ? { room: data.room } : { name: data.name }) };
       }
       apply.disabled = true;
@@ -12933,7 +12926,6 @@ HomeswiftI18n.add("es", {
   "A comma or a closing brace is missing after this value": "Falta una coma o una llave de cierre después de este valor",
   "A comma or a closing bracket is missing after this value": "Falta una coma o un corchete de cierre después de este valor",
   "A control character in a string must be escaped": "Un carácter de control en una cadena debe escaparse",
-  "A display name must be 1 to {0} characters": "Un nombre visible debe tener de 1 a {0} caracteres",
   "a field name is required": "se necesita un nombre de campo",
   "A faint amber glow to find your way.": "Un tenue brillo ámbar para orientarte.",
   "A JSON POST to a URL of yours: event, title, message, instance, timestamp.": "Un POST JSON a una URL tuya: event, title, message, instance, timestamp.",
@@ -15689,7 +15681,6 @@ HomeswiftI18n.add("fr", {
   "A comma or a closing brace is missing after this value": "Il manque une virgule ou une accolade fermante après cette valeur",
   "A comma or a closing bracket is missing after this value": "Il manque une virgule ou un crochet fermant après cette valeur",
   "A control character in a string must be escaped": "Un caractère de contrôle dans une chaîne doit être échappé",
-  "A display name must be 1 to {0} characters": "Un nom d'affichage doit compter de 1 à {0} caractères",
   "a field name is required": "un nom de champ est requis",
   "A faint amber glow to find your way.": "Une faible lueur ambrée pour trouver votre chemin.",
   "A JSON POST to a URL of yours: event, title, message, instance, timestamp.": "Un POST JSON vers une URL de votre choix : event, title, message, instance, timestamp.",
@@ -18445,7 +18436,6 @@ HomeswiftI18n.add("pt", {
   "A comma or a closing brace is missing after this value": "Falta uma vírgula ou uma chaveta de fecho depois deste valor",
   "A comma or a closing bracket is missing after this value": "Falta uma vírgula ou um parêntese reto de fecho depois deste valor",
   "A control character in a string must be escaped": "Um carácter de controlo numa cadeia tem de ser escapado",
-  "A display name must be 1 to {0} characters": "Um nome de apresentação tem de ter de 1 a {0} caracteres",
   "a field name is required": "é preciso um nome de campo",
   "A faint amber glow to find your way.": "Um ténue brilho âmbar para encontrar o caminho.",
   "A JSON POST to a URL of yours: event, title, message, instance, timestamp.": "Um POST JSON para um URL seu: event, title, message, instance, timestamp.",
@@ -22848,12 +22838,11 @@ HomeswiftI18n.add("pt", {
       const plugin = answer.instance;
       const mirrored = answer.mirroredFrom ?? null;
       const id = answer.accessory;
-      const where = answer.instance;
       /// Saves one key (null clears it); answers whether it was saved.
       const save = async (patch, state, key) => {
         setState(state, "busy", t("Saving…"));
         try {
-          const result = await api(accessoryPath(id, where), { method: "PATCH", body: patch });
+          const result = await api(accessoryPath(id, plugin), { method: "PATCH", body: patch });
           setState(state, "ok", savedWords(result, plugin));
           // What the bridge kept (a room spelled as it already was, a name tidied), else what was sent.
           const kept = (result.accessories ?? []).find((one) => one.accessory === id)?.settings;
@@ -22963,22 +22952,19 @@ HomeswiftI18n.add("pt", {
 
       // Exclude (or Include) and Forget, set apart at the end.
       const excluded = settings.excluded === true;
+      const setExcluded = (button, on) => HomeswiftCommon.busyButton(button, async () => {
+        await api(accessoryPath(id, plugin), { method: "PATCH", body: { excluded: on || null } });
+        onChange("excluded");
+        reload();
+      });
       const exclude = excluded
-        ? el("button", { type: "button", actionIcon: "plus", text: t("Include"), onclick: (event) => HomeswiftCommon.busyButton(event.currentTarget, async () => {
-          await api(accessoryPath(id, answer.instance), { method: "PATCH", body: { excluded: null } });
-          onChange("excluded");
-          reload();
-        }) })
+        ? el("button", { type: "button", actionIcon: "plus", text: t("Include"), onclick: (event) => setExcluded(event.currentTarget, false) })
         : el("button", { type: "button", class: "danger", actionIcon: "minus", text: t("Exclude"), onclick: async (event) => {
           const button = event.currentTarget;
           if (!await confirmAction({ title: t("Exclude {name}?", { name: answer.name ?? id }),
             text: t("{plugin} stops making it an accessory: it leaves the Home app, the wall and Matter until you include it again from {plugin}'s devices.", { plugin }),
             confirmLabel: t("Exclude"), confirmIcon: "minus" })) return;
-          HomeswiftCommon.busyButton(button, async () => {
-            await api(accessoryPath(id, answer.instance), { method: "PATCH", body: { excluded: true } });
-            onChange("excluded");
-            reload();
-          });
+          setExcluded(button, true);
         } });
       const forget = el("button", { type: "button", class: "danger", actionIcon: "trash", text: t("Forget"), onclick: async (event) => {
         const button = event.currentTarget;
@@ -22987,7 +22973,7 @@ HomeswiftI18n.add("pt", {
             t("It leaves the Home app with its room, scenes and automations. If {plugin} still finds it, it is a device to set up again.", { plugin })],
           confirmLabel: t("Forget"), confirmIcon: "trash" })) return;
         HomeswiftCommon.busyButton(button, async () => {
-          await api(accessoryPath(id, answer.instance), { method: "DELETE" });
+          await api(accessoryPath(id, plugin), { method: "DELETE" });
           onGone();
         });
       } });
@@ -23141,7 +23127,7 @@ HomeswiftI18n.add("pt", {
 
     // The devices of the instance, as Setup's discovery finds them.
     const devices = devicesSection({ block, plugin, accountRow });
-    const describe = !block.system && form ? kit.describeSetup({ platform, pluginName: plugin ? plugin.name : platform, current: () => { try { return getValue(); } catch { return current.settings; } },
+    const describe = form ? kit.describeSetup({ platform, pluginName: plugin ? plugin.name : platform, current: () => { try { return getValue(); } catch { return current.settings; } },
       use: (value) => { build({ ...value }); formBox.dispatchEvent(new Event("input", { bubbles: true })); } }) : null;
 
     const [state, kind] = kit.blockState(block, plugin, instance);
@@ -23217,8 +23203,9 @@ HomeswiftI18n.add("pt", {
     const opens = ["setUp", "notResponding", "discovered"].includes(device.status);
     const detail = device.excludedBySettings ? t("Left out by the settings above") : [device.model, device.address].filter(Boolean).join(" · ") || device.deviceID;
     let action = null;
-    if (device.excludedBySettings) action = null;
-    else if (device.status === "excluded") {
+    if (device.excludedBySettings) {
+      // Left out by its plugin's own settings: nothing to do here.
+    } else if (device.status === "excluded") {
       action = el("button", { type: "button", actionIcon: "plus", text: t("Include"), onclick: (event) => HomeswiftCommon.busyButton(event.currentTarget, async () => {
         await api(accessoryPath(accessoryID, block.name), { method: "PATCH", body: { excluded: null } });
         await reload();
@@ -26046,7 +26033,7 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
   .icon-on-phone > span { display: none; }
   .icon-on-phone { justify-content: center; width: 40px; height: 40px; padding: 0; flex: none; }
   .icon-on-phone .sparkle { width: 19px; height: 19px; }
-  /* A note beside its button (a plugin's Expert part), and removal: the text across, the button under it. */
+  /* A note beside its button, and removal: the text across, the button under it. */
   .page-note, .danger-zone { flex-direction: column; align-items: stretch; gap: var(--space-10); }
   .page-note > :is(button, .button), .danger-zone > button { align-self: flex-start; }
   .describe-note { flex-basis: 100%; padding-left: var(--space-20); }
@@ -27777,8 +27764,6 @@ select option:disabled { color: var(--muted); }
 .speed-scale span:first-child { border-left: 0; }
 .hidden-devices { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); margin-top: var(--space-14); font-size: var(--text-md); }
 .hidden-devices:empty { display: none; }
-.save-card { position: sticky; bottom: 12px; z-index: 3; margin-top: var(--space-18); }
-.save-card .save-bar { border-top: 0; padding-top: 0; }
 
 @media (max-width: 640px) {
   .speed-scale { display: none; }

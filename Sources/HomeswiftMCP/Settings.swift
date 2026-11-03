@@ -94,7 +94,7 @@ extension HomeswiftCatalog {
                 } else {
                     problems.append(.init(path: at, message: "must be a room's name"))
                 }
-            case "hidden", "notInHome", "excluded":
+            case _ where flagKeys.contains(key):
                 if value.boolValue == nil { problems.append(.init(path: at, message: "must be true or false")) }
             case "parts":
                 if value.objectValue?.values.allSatisfy({ $0.boolValue != nil }) != true {
@@ -265,16 +265,30 @@ extension HomeswiftCatalog {
         return .object(result)
     }
 
-    /// The block in its canonical shape, by its running instance (`HomeswiftPlugin.canonicalSettings`); what the plugin
-    /// asked to do once it is written joins `effects`, which the writer runs just before writing (never on a dry run).
-    func canonicalBlock(_ block: JSONValue, effects: SettingsWrite.Effects) async -> JSONValue {
-        guard let platform = block["platform"]?.stringValue else { return block }
+    /// The block as a settings write writes it: in its canonical shape, by its running instance
+    /// (`HomeswiftPlugin.canonicalSettings`), and its `_hiddenFromHomeKit` moved into `_accessories`. What the plugin asked
+    /// to do once it is written joins `effects`, which the writer runs just before writing (never on a dry run).
+    func canonicalBlock(_ block: JSONValue, effects: SettingsWrite.Effects) async -> [String: JSONValue] {
+        guard let platform = block["platform"]?.stringValue else { return block.objectValue ?? [:] }
         let (canonical, whenWritten) = await host.canonicalSettings(platform: platform, name: block["name"]?.stringValue ?? platform, block: block)
         // The plugin keeps its block: same platform and name.
-        guard canonical["platform"] == block["platform"], canonical["name"] == block["name"], canonical.objectValue != nil else { return block }
-        effects.append(contentsOf: whenWritten)
-        return canonical
+        let kept = canonical["platform"] == block["platform"] && canonical["name"] == block["name"] && canonical.objectValue != nil
+        if kept { effects.append(contentsOf: whenWritten) }
+        var object = (kept ? canonical : block).objectValue ?? [:]
+        Self.migrateHiddenFromHomeKit(&object, platform: platform)
+        return object
     }
+
+    /// What a settings write answers of `applyConfig`'s answer: what reloaded or restarts, the note and the backup.
+    static let appliedKeys: Set<String> = ["dryRun", "reloaded", "started", "stopped", "restarting", "restartNeeded", "note", "backup"]
+
+    /// `applied`'s `appliedKeys` copied into `answer`.
+    static func copyApplied(_ applied: JSONValue, into answer: inout [String: JSONValue]) {
+        for (key, value) in applied.objectValue ?? [:] where appliedKeys.contains(key) { answer[key] = value }
+    }
+
+    /// The flags of the Core Accessory Settings, whose default (false) the canonical shape leaves out.
+    static let flagKeys: Set<String> = ["hidden", "notInHome", "excluded"]
 
     /// Runs a settings writer again when config.json changed between its read and its write (`ConfigChanged`, from
     /// `writeConfig(expecting:)`): a concurrent save (a Home app rename, a hub's move, another page) is read again and
@@ -336,6 +350,8 @@ extension HomeswiftCatalog {
         var newRooms: [String] = []
         var planned: [(target: SettingsTarget, settings: [String: JSONValue])] = []
         var problems: [ConfigSchemaError.Problem] = []
+        // Each platform's declarations, read once for the whole write.
+        var fieldsByPlatform: [String: [String: JSONValue]] = [:]
         for (accessoryID, settings) in changes {
             let target = try settingsTarget(accessoryID, instance: instance, platforms: platforms)
             guard let index = Self.blockIndex(of: target, in: platforms) else { throw CatalogError("No block \(target.instance) of \(target.platform)", notFound: true) }
@@ -362,9 +378,12 @@ extension HomeswiftCatalog {
                     newRooms.append(trimmed)
                 }
             }
-            let kind = await deviceKind(of: target)
             let checked = clean.filter { !$0.value.isNull }
-            for found in Self.settingsProblems(checked, fields: accessoryFields(for: target.platform), kind: kind, strict: true) {
+            let fields = fieldsByPlatform[target.platform] ?? accessoryFields(for: target.platform)
+            fieldsByPlatform[target.platform] = fields
+            // The Device Kind only decides the plugin's own fields (`x-kinds`): asked of the plugin only for them.
+            let kind = checked.keys.contains { !AccessorySettings.coreKeys.contains($0) } ? await deviceKind(of: target) : nil
+            for found in Self.settingsProblems(checked, fields: fields, kind: kind, strict: true) {
                 problems.append(.init(platform: target.platform, path: [.key("platforms"), .index(index), .key("_accessories"), .key(target.key)] + found.path, message: found.message))
             }
             planned.append((target, clean))
@@ -379,9 +398,7 @@ extension HomeswiftCatalog {
         for (target, settings) in planned {
             guard let index = Self.blockIndex(of: target, in: platforms) else { continue }
             if canonical.insert(index).inserted {
-                var block = await canonicalBlock(platforms[index], effects: effects).objectValue ?? [:]
-                Self.migrateHiddenFromHomeKit(&block, platform: target.platform)
-                platforms[index] = .object(block)
+                platforms[index] = .object(await canonicalBlock(platforms[index], effects: effects))
             }
             before[target.accessoryID] = before[target.accessoryID] ?? storedSettings(target, block: platforms[index])
             var block = platforms[index].objectValue ?? [:]
@@ -397,7 +414,7 @@ extension HomeswiftCatalog {
                 var entry = entries[entryKey]?.objectValue ?? [:]
                 let next = Self.merged(entry[key], value)
                 // false is the default of the flags: the canonical shape leaves it out.
-                if let next, next != .bool(false) || !["hidden", "notInHome", "excluded"].contains(key) {
+                if let next, next != .bool(false) || !Self.flagKeys.contains(key) {
                     entry[key] = next
                 } else {
                     entry.removeValue(forKey: key)
@@ -437,7 +454,7 @@ extension HomeswiftCatalog {
         }
         if next != current {
             let applied = try await applyConfig(next, dryRun: false, current: current, checkSchemas: true, expecting: current, by: writer, beforeWrite: effects.run)
-            for (key, value) in applied.objectValue ?? [:] where ["reloaded", "started", "stopped", "restarting", "restartNeeded", "note", "backup"].contains(key) { answer[key] = value }
+            Self.copyApplied(applied, into: &answer)
         } else {
             answer["note"] = "Nothing changed."
             answer["reloaded"] = []
@@ -500,8 +517,7 @@ extension HomeswiftCatalog {
         var platforms = root["platforms"]?.arrayValue ?? []
         let (index, found) = try Self.uniqueBlock(platform: platform, instance: instance, in: platforms)
         let effects = SettingsWrite.Effects()
-        var block = await canonicalBlock(found, effects: effects).objectValue ?? [:]
-        Self.migrateHiddenFromHomeKit(&block, platform: platform)
+        var block = await canonicalBlock(found, effects: effects)
         for (key, value) in settings {
             if let next = Self.merged(block[key], value) { block[key] = next } else { block.removeValue(forKey: key) }
         }
@@ -521,7 +537,7 @@ extension HomeswiftCatalog {
             return .object(answer)
         }
         let applied = try await applyConfig(next, dryRun: dryRun, current: current, checkSchemas: true, expecting: current, by: writer, beforeWrite: effects.run)
-        for (key, value) in applied.objectValue ?? [:] where ["dryRun", "reloaded", "started", "stopped", "restarting", "restartNeeded", "note", "backup"].contains(key) { answer[key] = value }
+        Self.copyApplied(applied, into: &answer)
         return .object(answer)
     }
 
@@ -580,8 +596,7 @@ extension HomeswiftCatalog {
         let target = try settingsTarget(accessoryID, instance: instance, platforms: platforms)
         guard let index = Self.blockIndex(of: target, in: platforms) else { throw CatalogError("No block \(target.instance) of \(target.platform)", notFound: true) }
         let effects = SettingsWrite.Effects()
-        var block = await canonicalBlock(platforms[index], effects: effects).objectValue ?? [:]
-        Self.migrateHiddenFromHomeKit(&block, platform: target.platform)
+        var block = await canonicalBlock(platforms[index], effects: effects)
         var entries = block["_accessories"]?.objectValue ?? [:]
         let dropped = entries.keys.filter { Self.isKey($0, of: target.deviceKey) || $0 == target.key }.sorted()
         for key in dropped { entries.removeValue(forKey: key) }
@@ -620,7 +635,7 @@ extension HomeswiftCatalog {
         }
         if next != current {
             let applied = try await applyConfig(next, dryRun: false, current: current, checkSchemas: true, expecting: current, by: writer, beforeWrite: effects.run)
-            for (key, value) in applied.objectValue ?? [:] where ["reloaded", "started", "stopped", "restarting", "restartNeeded", "note", "backup"].contains(key) { answer[key] = value }
+            Self.copyApplied(applied, into: &answer)
         } else {
             await host.relaunch(platform: target.platform, name: target.instance)
             answer["reloaded"] = [.string(target.instance)]

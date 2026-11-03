@@ -108,9 +108,8 @@
     const apply = el("button", { actionIcon: "check", class: "primary", text: t("Apply what is ticked"), onclick: async () => {
       const changes = {};
       for (const { input, data } of checks) {
-        // Only a plugin's accessory has Accessory Settings, and a mirrored one is named where it comes from.
-        const accessory = byID.get(data.id);
-        if (!input.checked || !accessory?.platform || (data.name && accessory.mirroredFrom)) continue;
+        // Only a plugin's accessory has Accessory Settings (the bridge suggests no name for a mirrored one).
+        if (!input.checked || !byID.get(data.id)?.platform) continue;
         changes[data.id] = { ...changes[data.id], ...(data.room ? { room: data.room } : { name: data.name }) };
       }
       apply.disabled = true;

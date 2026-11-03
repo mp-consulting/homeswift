@@ -86,12 +86,11 @@
       const plugin = answer.instance;
       const mirrored = answer.mirroredFrom ?? null;
       const id = answer.accessory;
-      const where = answer.instance;
       /// Saves one key (null clears it); answers whether it was saved.
       const save = async (patch, state, key) => {
         setState(state, "busy", t("Saving…"));
         try {
-          const result = await api(accessoryPath(id, where), { method: "PATCH", body: patch });
+          const result = await api(accessoryPath(id, plugin), { method: "PATCH", body: patch });
           setState(state, "ok", savedWords(result, plugin));
           // What the bridge kept (a room spelled as it already was, a name tidied), else what was sent.
           const kept = (result.accessories ?? []).find((one) => one.accessory === id)?.settings;
@@ -201,22 +200,19 @@
 
       // Exclude (or Include) and Forget, set apart at the end.
       const excluded = settings.excluded === true;
+      const setExcluded = (button, on) => HomeswiftCommon.busyButton(button, async () => {
+        await api(accessoryPath(id, plugin), { method: "PATCH", body: { excluded: on || null } });
+        onChange("excluded");
+        reload();
+      });
       const exclude = excluded
-        ? el("button", { type: "button", actionIcon: "plus", text: t("Include"), onclick: (event) => HomeswiftCommon.busyButton(event.currentTarget, async () => {
-          await api(accessoryPath(id, answer.instance), { method: "PATCH", body: { excluded: null } });
-          onChange("excluded");
-          reload();
-        }) })
+        ? el("button", { type: "button", actionIcon: "plus", text: t("Include"), onclick: (event) => setExcluded(event.currentTarget, false) })
         : el("button", { type: "button", class: "danger", actionIcon: "minus", text: t("Exclude"), onclick: async (event) => {
           const button = event.currentTarget;
           if (!await confirmAction({ title: t("Exclude {name}?", { name: answer.name ?? id }),
             text: t("{plugin} stops making it an accessory: it leaves the Home app, the wall and Matter until you include it again from {plugin}'s devices.", { plugin }),
             confirmLabel: t("Exclude"), confirmIcon: "minus" })) return;
-          HomeswiftCommon.busyButton(button, async () => {
-            await api(accessoryPath(id, answer.instance), { method: "PATCH", body: { excluded: true } });
-            onChange("excluded");
-            reload();
-          });
+          setExcluded(button, true);
         } });
       const forget = el("button", { type: "button", class: "danger", actionIcon: "trash", text: t("Forget"), onclick: async (event) => {
         const button = event.currentTarget;
@@ -225,7 +221,7 @@
             t("It leaves the Home app with its room, scenes and automations. If {plugin} still finds it, it is a device to set up again.", { plugin })],
           confirmLabel: t("Forget"), confirmIcon: "trash" })) return;
         HomeswiftCommon.busyButton(button, async () => {
-          await api(accessoryPath(id, answer.instance), { method: "DELETE" });
+          await api(accessoryPath(id, plugin), { method: "DELETE" });
           onGone();
         });
       } });
@@ -379,7 +375,7 @@
 
     // The devices of the instance, as Setup's discovery finds them.
     const devices = devicesSection({ block, plugin, accountRow });
-    const describe = !block.system && form ? kit.describeSetup({ platform, pluginName: plugin ? plugin.name : platform, current: () => { try { return getValue(); } catch { return current.settings; } },
+    const describe = form ? kit.describeSetup({ platform, pluginName: plugin ? plugin.name : platform, current: () => { try { return getValue(); } catch { return current.settings; } },
       use: (value) => { build({ ...value }); formBox.dispatchEvent(new Event("input", { bubbles: true })); } }) : null;
 
     const [state, kind] = kit.blockState(block, plugin, instance);
@@ -455,8 +451,9 @@
     const opens = ["setUp", "notResponding", "discovered"].includes(device.status);
     const detail = device.excludedBySettings ? t("Left out by the settings above") : [device.model, device.address].filter(Boolean).join(" · ") || device.deviceID;
     let action = null;
-    if (device.excludedBySettings) action = null;
-    else if (device.status === "excluded") {
+    if (device.excludedBySettings) {
+      // Left out by its plugin's own settings: nothing to do here.
+    } else if (device.status === "excluded") {
       action = el("button", { type: "button", actionIcon: "plus", text: t("Include"), onclick: (event) => HomeswiftCommon.busyButton(event.currentTarget, async () => {
         await api(accessoryPath(accessoryID, block.name), { method: "PATCH", body: { excluded: null } });
         await reload();

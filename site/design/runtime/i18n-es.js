@@ -544,7 +544,6 @@ HomeswiftI18n.add("es", {
   "A comma or a closing brace is missing after this value": "Falta una coma o una llave de cierre después de este valor",
   "A comma or a closing bracket is missing after this value": "Falta una coma o un corchete de cierre después de este valor",
   "A control character in a string must be escaped": "Un carácter de control en una cadena debe escaparse",
-  "A display name must be 1 to {0} characters": "Un nombre visible debe tener de 1 a {0} caracteres",
   "a field name is required": "se necesita un nombre de campo",
   "A faint amber glow to find your way.": "Un tenue brillo ámbar para orientarte.",
   "A JSON POST to a URL of yours: event, title, message, instance, timestamp.": "Un POST JSON a una URL tuya: event, title, message, instance, timestamp.",

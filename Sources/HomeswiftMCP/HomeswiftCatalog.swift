@@ -142,8 +142,17 @@ public struct HomeswiftCatalog: Sendable {
 
         /// The accessory's room, Hidden and legacy display name, its settings first, then the layout's legacy values.
         func entry(for id: String, platform: PluginHost.PlatformInstance?, legacy: AccessoryLayout.Entry?) -> AccessoryLayout.Entry? {
-            guard let platform, let block = byBlock["\(platform.platform)\u{0}\(platform.name)"] else { return legacy }
-            let key = AccessoryNaming.deviceID(of: id, platform: platform.platform)
+            Self.entry(for: id, block: platform.flatMap { byBlock["\($0.platform)\u{0}\($0.name)"] }, legacy: legacy)
+        }
+
+        /// The same for one accessory, its block looked for in `configuration` (`find(id:)`: no table for one).
+        static func entry(for id: String, platform: PluginHost.PlatformInstance?, legacy: AccessoryLayout.Entry?, in configuration: HomeswiftConfiguration) -> AccessoryLayout.Entry? {
+            entry(for: id, block: platform.flatMap { owner in configuration.platforms.first { $0.platform == owner.platform && $0.name == owner.name } }, legacy: legacy)
+        }
+
+        static func entry(for id: String, block: HomeswiftConfiguration.Platform?, legacy: AccessoryLayout.Entry?) -> AccessoryLayout.Entry? {
+            guard let block else { return legacy }
+            let key = AccessoryNaming.deviceID(of: id, platform: block.platform)
             var entry = legacy ?? AccessoryLayout.Entry()
             if let room = block.accessoryRooms[key] { entry.room = room }
             if block.hiddenOnWall.contains(key) { entry.hidden = true }
@@ -172,7 +181,7 @@ public struct HomeswiftCatalog: Sendable {
             guard let accessory = bridge.server.accessory(id: id) else { continue }
             // Its instance by its claim; an accessory no instance claimed is looked for in every instance's list.
             let platform = host.platform(owning: id, on: bridge) ?? Owners(host.platforms).instance(of: id, on: bridge)
-            let layout = LiveSettings(host.configuration).entry(for: id, platform: platform, legacy: home.layout.value.accessories[id])
+            let layout = LiveSettings.entry(for: id, platform: platform, legacy: home.layout.value.accessories[id], in: host.configuration)
             return Located(accessory: accessory, bridge: bridge, platform: platform, layout: layout)
         }
         return nil
@@ -884,10 +893,8 @@ public struct HomeswiftCatalog: Sendable {
         return here
     }
 
-    /// Reads config.json, lets `edit` change its platform blocks, and applies the result: validation, a
-    /// backup, the restart flag. An unreadable file is an error, never an empty one to write over.
-    /// Changes the block with this platform (and name, when there are several), or adds it when `create`;
-    /// `edit` gets the block to change. What `editPlatforms` answers.
+    /// Changes the block with this platform (and name, when there are several), or adds it when `create`: `edit` gets
+    /// the block to change, and the result is applied as `applyConfig` does (validation, a backup, the restart flag).
     /// With `canonical`, a settings write: the block is first put in its canonical shape by its running instance
     /// (`HomeswiftPlugin.canonicalSettings`) and has its `_hiddenFromHomeKit` moved into `_accessories`, as the settings
     /// writers do. A save made while the file changed is made again on the new file (`retryingWhenConfigChanges`).
@@ -905,8 +912,7 @@ public struct HomeswiftCatalog: Sendable {
             var block = matching.first.map { platforms[$0].objectValue ?? [:] } ?? ["platform": .string(platform), "name": .string(name ?? platform)]
             let effects = SettingsWrite.Effects()
             if canonical, matching.first != nil {
-                block = await canonicalBlock(.object(block), effects: effects).objectValue ?? block
-                Self.migrateHiddenFromHomeKit(&block, platform: platform)
+                block = await canonicalBlock(.object(block), effects: effects)
             }
             try edit(&block)
             if let index = matching.first { platforms[index] = .object(block) } else { platforms.append(.object(block)) }
@@ -915,6 +921,8 @@ public struct HomeswiftCatalog: Sendable {
         }
     }
 
+    /// Reads config.json, lets `edit` change its platform blocks, and applies the result: validation, a backup, the
+    /// restart flag. An unreadable file is an error, never an empty one to write over.
     public func editPlatforms(dryRun: Bool, checkSchemas: Bool = true, by writer: ConfigWriter = .person, _ edit: (inout [JSONValue]) throws -> Void) async throws -> JSONValue {
         let current = try readConfig()
         var root = current.objectValue ?? [:]
@@ -1334,7 +1342,7 @@ public struct HomeswiftCatalog: Sendable {
                     let wanted = call.optionalString("instance")
                     guard let instance = wanted.map({ name in instances.first { $0.name == name } }) ?? (instances.count == 1 ? instances.first : nil) else {
                         return .error(instances.isEmpty
-                            ? "No \(entry.name) block is running: add one first (put_list_entry or patch_config with platform \(entry.platform))."
+                            ? "No \(entry.name) block is running: add one first (patch_config with platform \(entry.platform))."
                             : "Say which instance: \(instances.map(\.name).joined(separator: ", ")).")
                     }
                     var arguments = call.arguments.objectValue ?? [:]

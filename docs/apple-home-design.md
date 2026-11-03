@@ -173,7 +173,7 @@ is on, every hub room named as the Homeswift room was: Apple Home becomes one of
 this name on your Philips Hue, IKEA and eWeLink hubs are renamed too" becomes "… on your hubs and in Apple Home …",
 in the four languages. The mirrored accessories take the new room from the `homes` event that follows.
 
-Accessories move both ways with the same switch. Moved to another room in Homeswift (`updateLayout(_:by:)` sees the
+Accessories move both ways with the same switch. Moved to another room in Homeswift (`updateAccessorySettings` sees the
 room change and calls every plugin's `moveAccessory(id:toRoom:)`, answering `hubMoves`), the Wingman plugin finds it in
 Apple Home, a mirror by its HomeKit id, one of Homeswift's own by its serial number (`/homes` lists Homeswift's bridged
 and published accessories with their Accessory Information), and posts `/accessories/room`. Moved in the Home app, the

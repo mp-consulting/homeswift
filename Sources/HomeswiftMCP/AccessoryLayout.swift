@@ -95,9 +95,9 @@ extension HomeswiftCatalog {
     /// Changes the layout as `updateLayout(_:by:)` says, then the Accessory Settings that name a room renamed or removed
     /// and Room Sync, in one write of config.json; answers the room renamed.
     private func applyLayout(_ body: JSONValue) async throws -> LayoutChange {
-        func cleanName(_ value: String, _ what: String) throws -> String {
+        func cleanName(_ value: String) throws -> String {
             let name = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !name.isEmpty, name.count <= AccessoryLayout.maxName else { throw CatalogError("\(what) must be 1 to \(AccessoryLayout.maxName) characters") }
+            guard !name.isEmpty, name.count <= AccessoryLayout.maxName else { throw CatalogError("A room's name must be 1 to \(AccessoryLayout.maxName) characters") }
             return name
         }
         var changes: [(String, [String: JSONValue])] = []
@@ -151,7 +151,7 @@ extension HomeswiftCatalog {
             if let order = body["rooms"]?.arrayValue {
                 let names = try order.map { value -> String in
                     guard let text = value.stringValue else { throw CatalogError("rooms must be names") }
-                    return try cleanName(text, "A room's name")
+                    return try cleanName(text)
                 }
                 var seen: Set<String> = []
                 let ordered = names.compactMap { name -> String? in
@@ -162,7 +162,7 @@ extension HomeswiftCatalog {
             }
             if let rename = body["renameRoom"], !rename.isNull {
                 guard let from = rename["from"]?.stringValue, let current = adopt(from) else { throw CatalogError("No room \(rename["from"]?.stringValue ?? "")") }
-                let to = try cleanName(rename["to"]?.stringValue ?? "", "A room's name")
+                let to = try cleanName(rename["to"]?.stringValue ?? "")
                 if let other = layout.room(named: to), other != current { throw CatalogError("There is already a room \(other)") }
                 layout.rooms = layout.rooms.map { $0 == current ? to : $0 }
                 // The legacy rooms follow too, as long as the layout has them.
@@ -208,7 +208,9 @@ extension HomeswiftCatalog {
     private func writeLayoutRooms(
         renamed: (from: String, to: String)?, removed: [String], adopted: [String: String], sync: Bool?, suggested: [String: String], all: [Located]
     ) async throws {
+        // Not `sameRoomName`, which ignores accents too: the layout keeps "Cafe" and "Café" apart.
         let same = { (a: String, b: String) in a.trimmingCharacters(in: .whitespaces).caseInsensitiveCompare(b.trimmingCharacters(in: .whitespaces)) == .orderedSame }
+        let byID = Dictionary(all.map { ($0.accessory.id, $0) }, uniquingKeysWith: { first, _ in first })
         let current = try readConfig()
         var root = current.objectValue ?? [:]
         if let sync { setRoomSync(sync, in: &root) }
@@ -232,7 +234,7 @@ extension HomeswiftCatalog {
                 changed = true
             }
             for (id, room) in adopted {
-                guard let located = all.first(where: { $0.accessory.id == id }), located.platform?.platform == platform, located.platform?.name == name else { continue }
+                guard let located = byID[id], located.platform?.platform == platform, located.platform?.name == name else { continue }
                 let key = AccessoryNaming.deviceID(of: id, platform: platform)
                 var fields = entries[key]?.objectValue ?? [:]
                 fields["room"] = .string(room)

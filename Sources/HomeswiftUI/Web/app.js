@@ -2894,7 +2894,7 @@
     if (hasPage && !view && !history.state?.reloaded) { history.replaceState({ reloaded: true }, ""); location.reload(); return; }
     if (!isNew && !block.system) {
       return HomeswiftSettings.pluginPage(main, { block, plugin, instance, plugins, kit: {
-        buildForm, isSecretKey, readSecrets: (list) => { secretRule = readSecretRule(list); }, blockTitle, blockState, removeBlock, problemList, savedText,
+        isSecretKey, readSecrets: (list) => { secretRule = readSecretRule(list); }, blockTitle, blockState, removeBlock, problemList, savedText,
         describeSetup, setLeaveGuard: (guard) => { leaveGuard = guard; },
       } });
     }
@@ -2955,8 +2955,8 @@
       getValue = fromJSON;
     }
 
-    // The block as a comparable text: without its platform (the form keeps it, the JSON view leaves it to
-    // Save) and with sorted keys, so switching views or reordering keys is not a change.
+    // The block as a comparable text: without its platform (the form keeps it, the JSON leaves it to Save) and with
+    // sorted keys, so reordering keys is not a change.
     const sorted = (value) => Array.isArray(value) ? value.map(sorted)
       : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, sorted(value[key])])) : value;
     const snapshot = () => { try { const { platform: _, ...rest } = getValue(); return JSON.stringify(sorted(rest)); } catch { return null; } };
@@ -2967,7 +2967,7 @@
     const force = el("button", { actionIcon: "check", class: "hidden", text: isNew ? t("Add anyway") : t("Save anyway"), title: t("Save what the plugin's schema refuses: for a value the plugin accepts that its schema does not list") });
     const revert = el("button", { class: "settings-action" }, HomeswiftCommon.icon("restore"), el("span", { text: isNew ? t("Cancel") : t("Revert") }));
     // The JSON on screen is checked as it is typed: a syntax error marks its line, and Save waits for it.
-    const jsonShown = () => textarea.isConnected && !textarea.closest(".hidden");
+    const jsonShown = () => !schema;
     const update = () => {
       const result = jsonShown() ? editor.check() : null;
       secretNote.hidden = !(result && "value" in result && holdsSecret(result.value));
@@ -3065,11 +3065,6 @@
     revert.addEventListener("click", () => { if (isNew) { navigate("/plugins"); return; } leaveGuard = null; route(); });
 
     const [state, kind] = isNew ? [t("New"), "standby"] : blockState(block, plugin, instance);
-    const remove = !isNew && !block.system ? el("div", { class: "card danger-zone" },
-      el("div", {}, el("strong", { text: t("Remove this plugin") }),
-        el("p", { class: "muted", text: t("Takes the block out of config.json. Its accessories leave the Home app, with their rooms, scenes and automations.") })),
-      el("button", { actionIcon: "trash", class: "danger", text: t("Remove"), onclick: () => removeBlock(block, () => navigate("/plugins")) })) : null;
-
     leaveGuard = async () => !dirty() || isNew || await HomeswiftCommon.confirmDialog(t("Leave without saving your changes?"));
     leaveGuard.quiet = () => isNew || !dirty();
     show(main,
@@ -3084,10 +3079,9 @@
       platform === "HomeswiftAiKit" && useSuggestion && !isNew ? assistantSettings({
         formValue: () => { try { return { ...getValue(), platform }; } catch { return { ...current, platform }; } },
         useValue: useSuggestion, save, dirty }) : null,
-      useSuggestion && !block.system ? describeSetup({ platform, pluginName: plugin ? plugin.name : platform, current: () => { try { return getValue(); } catch { return current; } }, use: useSuggestion }) : null,
+      useSuggestion && isNew ? describeSetup({ platform, pluginName: plugin ? plugin.name : platform, current: () => { try { return getValue(); } catch { return current; } }, use: useSuggestion }) : null,
       body,
-      el("div", { class: "settings-bar" }, message, revert, force, save),
-      remove);
+      el("div", { class: "settings-bar" }, message, revert, force, save));
     update();
     if (platform === "HomeswiftUI") {
       const section = new URLSearchParams(location.search).get("section");

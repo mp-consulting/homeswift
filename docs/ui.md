@@ -202,8 +202,8 @@ screenshots, and what a plugin does to get good ones.
   Homeswift all the same.
 - **Suggest rooms**, with the Assistant on, asks it for rooms and clearer names for every accessory
   (`AssistantService.suggestOrganization`; the ids reach the model as aliases) and shows them to review: untick what you
-  do not want, then **Apply** saves the rooms and the names as display names. Accessories it finds odd are listed as
-  advice.
+  do not want, then **Apply** saves the rooms and the names as the accessories' settings (a name is its Name, in the
+  Home app too; a mirrored accessory gets none). Accessories it finds odd are listed as advice.
 - **Groups**: **Create group** opens a two-column picker (available accessories on the left, the members on the right,
   with search and device-type filters); in Edit, holding a compatible tile over another's centre and dropping it starts
   one. A group shows its members' shared writable controls; it is not a HomeKit accessory. Its menu edits the members

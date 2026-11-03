@@ -544,7 +544,6 @@ HomeswiftI18n.add("pt", {
   "A comma or a closing brace is missing after this value": "Falta uma vírgula ou uma chaveta de fecho depois deste valor",
   "A comma or a closing bracket is missing after this value": "Falta uma vírgula ou um parêntese reto de fecho depois deste valor",
   "A control character in a string must be escaped": "Um carácter de controlo numa cadeia tem de ser escapado",
-  "A display name must be 1 to {0} characters": "Um nome de apresentação tem de ter de 1 a {0} caracteres",
   "a field name is required": "é preciso um nome de campo",
   "A faint amber glow to find your way.": "Um ténue brilho âmbar para encontrar o caminho.",
   "A JSON POST to a URL of yours: event, title, message, instance, timestamp.": "Um POST JSON para um URL seu: event, title, message, instance, timestamp.",
