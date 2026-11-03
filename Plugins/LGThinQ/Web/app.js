@@ -16,8 +16,7 @@
 
   // MARK: Where settings are edited: the plugin's Settings page, and each appliance's there.
 
-  const pluginSettings = `/plugins/${location.pathname.split("/")[2] || ""}/settings`;
-  const deviceSettings = (id) => `${pluginSettings}?accessory=${encodeURIComponent(`LGThinQ:${id}`)}`;
+  const deviceSettings = (id) => homeswift.accessorySettings(`LGThinQ:${id}`);
 
   // MARK: Problems, with the Assistant's explanation when it is set up
 

@@ -34,8 +34,7 @@ extension DysonPureCoolPlugin {
 
   // MARK: Where settings are edited: the plugin's Settings page, and each device's there.
 
-  const pluginSettings = `/plugins/${location.pathname.split("/")[2] || ""}/settings`;
-  const deviceSettings = (serial) => `${pluginSettings}?accessory=${encodeURIComponent(`DysonPureCool:${serial}`)}`;
+  const deviceSettings = (serial) => homeswift.accessorySettings(`DysonPureCool:${serial}`);
 
   // MARK: The Assistant (the runtime's): never the login, codes, credentials, serial numbers or addresses.
 

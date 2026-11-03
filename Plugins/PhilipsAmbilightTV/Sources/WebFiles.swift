@@ -18,8 +18,7 @@ extension PhilipsAmbilightTVPlugin {
 
   // MARK: Where settings are edited: the plugin's Settings page, and each TV's there.
 
-  const pluginSettings = `/plugins/${location.pathname.split("/")[2] || ""}/settings`;
-  const tvSettings = (mac) => `${pluginSettings}?accessory=${encodeURIComponent(`${platform}:${mac}`)}`;
+  const tvSettings = (mac) => homeswift.accessorySettings(`${platform}:${mac}`);
 
   // MARK: Your TVs
 
