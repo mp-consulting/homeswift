@@ -424,11 +424,12 @@
         el("div", { class: "tools" },
           el("span", { class: `pill status ${kind}`, text: state }),
           hasPage ? el("a", { class: "button", href: `/plugins/${block.slug}`, actionIcon: "open", text: t("Open its page") }) : null)),
-      describe,
       el("div", { class: "card plugin-settings" },
         accountRow ? section(t("Account"), t("Its sign-in is kept in the vault, never in these settings: set it up again to change it."), accountRow) : null,
         el("section", { class: "settings-section" },
           el("div", { class: "settings-section-head" }, el("h3", { text: t("Settings") }), el("p", { class: "help", text: t("For {name} as a whole. A save reloads it once, its accessories kept.", { name: block.name }) })),
+          // Describe your setup, a line of the section rather than a card of its own.
+          describe,
           formBox,
           form ? el("div", { class: "settings-bar" }, message, revert, save) : null),
         devices.node,

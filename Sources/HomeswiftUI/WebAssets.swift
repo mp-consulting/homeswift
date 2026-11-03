@@ -23198,11 +23198,12 @@ HomeswiftI18n.add("pt", {
         el("div", { class: "tools" },
           el("span", { class: `pill status ${kind}`, text: state }),
           hasPage ? el("a", { class: "button", href: `/plugins/${block.slug}`, actionIcon: "open", text: t("Open its page") }) : null)),
-      describe,
       el("div", { class: "card plugin-settings" },
         accountRow ? section(t("Account"), t("Its sign-in is kept in the vault, never in these settings: set it up again to change it."), accountRow) : null,
         el("section", { class: "settings-section" },
           el("div", { class: "settings-section-head" }, el("h3", { text: t("Settings") }), el("p", { class: "help", text: t("For {name} as a whole. A save reloads it once, its accessories kept.", { name: block.name }) })),
+          // Describe your setup, a line of the section rather than a card of its own.
+          describe,
           formBox,
           form ? el("div", { class: "settings-bar" }, message, revert, save) : null),
         devices.node,
@@ -28438,6 +28439,35 @@ html.wall-full:not(.wall-awake) .wall-dots { opacity: 0.6; }
 /* A plugin's Settings page: its account, its form and its save bar, its devices, in one card. */
 .plugin-settings { padding-top: var(--space-20); padding-bottom: var(--space-20); }
 .plugin-settings .settings-bar { margin-top: var(--space-16); }
+/* One surface (the settings page's card, an accessory's sheet): a group of settings, a list, a nested object is a
+   section of it, its heading over a hairline, rather than a box in the card; an expandable group's heading has a
+   chevron, and a list's entries are rows between hairlines. */
+:is(.plugin-settings, .accessory-settings-sheet) :is(.group-box, fieldset) {
+  border: 0; border-top: 1px solid var(--line); border-radius: 0; background: none; box-shadow: none;
+  padding: var(--space-12) 0 var(--space-4); margin: var(--space-14) 0 0;
+}
+:is(.plugin-settings, .accessory-settings-sheet) fieldset > legend {
+  float: left; width: 100%; padding: 0; margin: 0 0 var(--space-6); color: var(--text); font-weight: var(--weight-semibold);
+}
+:is(.plugin-settings, .accessory-settings-sheet) fieldset > legend + * { clear: both; }
+:is(.plugin-settings, .accessory-settings-sheet) .group-box > summary {
+  list-style: none; display: flex; align-items: center; gap: var(--space-8); cursor: pointer; padding: 0 0 var(--space-6);
+}
+:is(.plugin-settings, .accessory-settings-sheet) .group-box > summary::-webkit-details-marker { display: none; }
+:is(.plugin-settings, .accessory-settings-sheet) .group-box > summary::before {
+  content: ""; width: 7px; height: 7px; flex: none; margin: 0 2px 0 1px; border: solid var(--muted); border-width: 0 2px 2px 0;
+  transform: rotate(-45deg); transition: transform var(--fast) var(--ease-out);
+}
+:is(.plugin-settings, .accessory-settings-sheet) .group-box[open] > summary::before { transform: rotate(45deg); }
+:is(.plugin-settings, .accessory-settings-sheet) :is(details.entry, .item) {
+  border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: none; margin: 0;
+}
+:is(.plugin-settings, .accessory-settings-sheet) details.entry > summary { padding-inline: 0; }
+:is(.plugin-settings, .accessory-settings-sheet) :is(details.entry > .fields, details.entry > .entry-body) { padding-inline: var(--space-18) 0; }
+:is(.plugin-settings, .accessory-settings-sheet) .item { padding-inline: 0; }
+@media (prefers-reduced-motion: reduce) { :is(.plugin-settings, .accessory-settings-sheet) .group-box > summary::before { transition: none; } }
+/* Describe your setup, a line at the head of the Settings section, the hairline under it the form's. */
+.plugin-settings details.describe-setup.card { border: 0; border-radius: 0; background: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; padding: 0 0 var(--space-12); margin: 0 0 var(--space-12); border-bottom: 1px solid var(--line); }
 .settings-row, .settings-device { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: var(--space-12); align-items: center; padding: var(--space-10) 0; }
 .settings-device { border-bottom: 1px solid var(--line); }
 .settings-device:last-child { border-bottom: 0; }
