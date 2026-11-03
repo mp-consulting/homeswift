@@ -3551,6 +3551,36 @@
         const input = el("input", { type: "number", value: current ?? "", placeholder: inherits ? defaultText(fallback ?? property.default) : tr(property.placeholder ?? property["x-schema-form"]?.placeholder) ?? property.default ?? "", min: property.minimum, max: property.maximum, step: property.step ?? (type === "integer" ? 1 : "any"), required });
         return { element: wrap(input), get: () => (input.value === "" ? undefined : Number(input.value)) };
       }
+      if (type === "object" && !property.properties) {
+        // A map (`additionalProperties`, such as a light's parts by id): a row per entry, its key and its value as the
+        // map's values are declared (text when they are not).
+        const values = property.additionalProperties && typeof property.additionalProperties === "object" ? property.additionalProperties : { type: "string" };
+        const list = el("div", { class: "map-rows" });
+        const rows = [];
+        const changed = () => { list.dispatchEvent(new Event("input", { bubbles: true })); list.dispatchEvent(new Event("change", { bubbles: true })); };
+        const addRow = (entryKey = "", entryValue = undefined) => {
+          const name = el("input", { type: "text", value: entryKey, placeholder: t("Key"), "aria-label": t("Key"), autocomplete: "off", spellcheck: false });
+          // The value without a title of its own: the row is the entry, the key beside it says which.
+          const f = field("", { ...values, title: undefined, description: undefined }, entryValue, false);
+          f.element.querySelector("input, select")?.setAttribute("aria-label", t("Value"));
+          const entry = { get: () => [name.value.trim(), f.get()] };
+          const row = el("div", { class: "map-row" });
+          const remove = el("button", { type: "button", actionIcon: "trash", class: "link danger", text: t("Remove"), onclick: () => { row.remove(); rows.splice(rows.indexOf(entry), 1); changed(); } });
+          row.append(name, f.element, remove);
+          rows.push(entry);
+          list.append(row);
+          return name;
+        };
+        const entries = current && typeof current === "object" && !Array.isArray(current) ? Object.entries(current) : [];
+        for (const [entryKey, entryValue] of entries) addRow(entryKey, entryValue);
+        const element = el("fieldset", { class: "map-field" }, el("legend", { text: title }), help, list,
+          el("button", { type: "button", actionIcon: "plus", text: t("Add"), onclick: () => addRow().focus() }));
+        // Own keys only, whatever they are called (Object.fromEntries defines each, `__proto__` included).
+        return { element, get: () => {
+          const kept = rows.map((row) => row.get()).filter(([entryKey, entryValue]) => entryKey && entryValue !== undefined);
+          return kept.length ? Object.fromEntries(kept) : undefined;
+        } };
+      }
       if (type === "object" && property.properties) {
         const nested = buildObject(property, current || {}, index);
         return { element: el("fieldset", {}, el("legend", { text: title }), help, nested.element), get: () => { const v = nested.getValue(); return Object.keys(v).length ? v : undefined; } };

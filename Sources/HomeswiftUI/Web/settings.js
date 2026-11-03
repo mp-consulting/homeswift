@@ -61,6 +61,15 @@
       el("span", {}, el("span", { class: "field-title" }, name, state), note)) };
   }
 
+  const isMap = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+  /// `after` as a merge onto `before`: for objects, each key `before` has and `after` has not given as null.
+  function mergePatch(before, after) {
+    if (!isMap(before) || !isMap(after)) return after;
+    const patch = Object.fromEntries(Object.entries(after).map(([key, value]) => [key, mergePatch(before[key], value)]));
+    for (const key of Object.keys(before)) if (!Object.hasOwn(after, key)) patch[key] = null;
+    return patch;
+  }
+
   // ---- An accessory's settings ------------------------------------------------------------------------------
 
   /// The Accessory Settings editor of `accessoryID` (`instance`, its block's name, for a device not on the bridge),
@@ -210,8 +219,9 @@
         const values = Object.fromEntries(own.filter(([key]) => key in settings).map(([key]) => [key, settings[key]]));
         const form = app().buildForm({ schema: { type: "object", properties }, i18n: schemaFile?.i18n }, values, {
           defaults,
-          // Cleared, a field takes the plugin-wide default again (null clears the key).
-          onCommit: (key, value, state) => save({ [key]: value === undefined ? null : value }, state, key),
+          // Cleared, a field takes the plugin-wide default again (null clears the key); a map's entry taken out is a null
+          // in it, as the bridge merges objects key by key.
+          onCommit: (key, value, state) => save({ [key]: value === undefined ? null : mergePatch(settings[key], value) }, state, key),
         });
         pluginSection = section(t("Plugin settings"), t("Declared by {plugin} for it. A change reloads {plugin}.", { plugin }), form.element);
       }

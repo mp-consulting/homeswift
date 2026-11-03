@@ -1777,6 +1777,12 @@ fieldset { min-width: 0; border: 1px solid var(--line); border-radius: var(--rad
 legend { color: var(--muted); padding: 0 var(--space-8); font-weight: var(--weight-medium); }
 .item { border: 1px solid var(--line); border-radius: var(--radius-lg); padding: var(--space-6) var(--space-14) var(--space-12); margin: var(--space-10) 0; background: var(--material-thin); }
 .item-head { display: flex; justify-content: space-between; align-items: center; gap: var(--space-10); }
+/* A map's row (an object without properties): its key, its value, Remove, on one line; the key and the value share it. */
+.map-row { display: flex; align-items: center; gap: var(--space-10); margin-top: var(--space-8); }
+.map-row > input, .map-row > .field, .map-row > .toggle { flex: 1 1 0; min-width: 0; margin: 0; }
+.map-row .field-title:empty { display: none; }
+.map-row > button { flex: none; }
+.map-field > .map-rows + button { margin-top: var(--space-12); }
 .actions { display: flex; gap: var(--space-10); margin-top: var(--space-16); align-items: center; }
 details > summary { cursor: pointer; color: var(--muted); padding: var(--space-8) 0; touch-action: manipulation; }
 dl { display: grid; grid-template-columns: max-content 1fr; gap: 5px var(--space-16); margin: 0; }

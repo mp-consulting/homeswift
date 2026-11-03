@@ -25,7 +25,10 @@ struct AccessorySettingsTests {
           "accessorySchema": { "properties": {
             "offset": { "type": "number", "minimum": -5, "maximum": 5, "title": "Offset", "description": "Added to the reading" },
             "fade": { "type": "integer", "minimum": 0, "x-default": "defaultFade", "title": "Fade", "description": "How long it fades" },
-            "motionSeconds": { "type": "integer", "x-kinds": ["camera"], "title": "Motion", "description": "How long motion lasts" }
+            "motionSeconds": { "type": "integer", "x-kinds": ["camera"], "title": "Motion", "description": "How long motion lasts" },
+            "showAs": { "type": "string", "title": "Show as", "oneOf": [
+              { "title": "Default", "enum": ["default"] }, { "title": "Valve", "enum": ["valve"], "x-kinds": ["lock"] }
+            ] }
           } }
         }
         """
@@ -306,6 +309,9 @@ struct AccessorySettingsTests {
         #expect(await problems { try await update(environment, "Devices:lamp", ["hidden": "yes"]) } == ["_accessories.lamp.hidden must be true or false"])
         #expect(await problems { try await update(environment, "Devices:lamp", ["parts": ["Night": 1]]) } == ["_accessories.lamp.parts must be an object of true or false by part"])
         #expect(await problems { try await update(environment, "Devices:lamp", ["fade": 200]) }.isEmpty)
+        // A choice of another kind's is refused, the kind's own taken.
+        #expect(await problems { try await update(environment, "Devices:lamp", ["showAs": "valve"]) }.count == 1)
+        #expect(await problems { try await update(environment, "Devices:lock", ["showAs": "valve"]) }.isEmpty)
 
         let raw = { (entry: JSONValue) in { try await catalog.editBlock(platform: "Devices", name: "Devices", dryRun: false) { $0["_accessories"] = ["lamp": entry] } } }
         #expect(await problems(raw(["legacyKey": 1, "fade": 200])).isEmpty)
@@ -346,7 +352,9 @@ struct AccessorySettingsTests {
         #expect(answer["kind"] == "light" && answer["platform"] == "Devices" && answer["instance"] == "Devices" && answer["key"] == "lamp")
         #expect(answer["settings"] == ["offset": 1, "room": "Office"])
         let fields = try #require(answer["fields"]?.objectValue)
-        #expect(Set(fields.keys) == ["name", "room", "hidden", "notInHome", "excluded", "parts", "offset", "fade"])
+        #expect(Set(fields.keys) == ["name", "room", "hidden", "notInHome", "excluded", "parts", "offset", "fade", "showAs"])
+        // A choice declared for other kinds (`x-kinds` on it) is not offered to a light.
+        #expect(fields["showAs"]?["schema"]?["oneOf"]?.arrayValue?.compactMap { $0["enum"]?[0]?.stringValue } == ["default"])
         #expect(fields["room"]?["core"] == true && fields["offset"]?["core"] == false)
         #expect(fields["fade"]?["default"] == ["setting": "defaultFade", "value": 400])
 

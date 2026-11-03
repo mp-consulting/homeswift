@@ -393,7 +393,12 @@ Plugin Settings under `schema`, as Homebridge's, and its Plugin Accessory Settin
 ```
 
 - `x-kinds` (optional): the Device Kinds the field is for; the editor shows it only for a device of one of them, and the
-  settings writers refuse it for another. Without it the field is every accessory's.
+  settings writers refuse it for another. Without it the field is every accessory's. A choice of a `oneOf` (or
+  `anyOf`) may carry its own `x-kinds`, as Govee's `showAs` lists a switch's types beside a light's: `get_settings` gives
+  a device the choices of its kind only, so the editor shows those, and the writers refuse another kind's choice.
+- An object without `properties` is a map, its values declared by `additionalProperties` (text when it is not an
+  object): the editor shows a row per entry, its key and its value, with Add and Remove, and saves an entry taken out as
+  a `null` in it.
 - `x-default` (optional): the Plugin Setting that is the field's plugin-wide default; an accessory's own value overrules
   it. `get_settings` gives it as `default: {setting, value}`.
 - A field's `title`, `description` and choices are translated from the schema's `i18n`, as the main schema's are
