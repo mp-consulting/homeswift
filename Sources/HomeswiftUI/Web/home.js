@@ -58,7 +58,9 @@
     const room = members.every((a) => a && a.room === members[0]?.room) ? members[0]?.room : "";
     await chooseRoom({ name: group.name, room }, async (fields) => {
       // One settings write for every member; no device writes.
-      await changeSettings(Object.fromEntries(group.members.map((id) => [id, { room: roomSetting(accessories.find((a) => a.id === id), fields.room) }])));
+      // Only a plugin's accessory has Accessory Settings: one of another kind would refuse the whole write.
+      const movable = members.filter((accessory) => accessory?.platform);
+      await changeSettings(Object.fromEntries(movable.map((accessory) => [accessory.id, { room: roomSetting(accessory, fields.room) }])));
       await app.route();
     }, t("Moves every member of this group in Homeswift only. HomeKit rooms stay unchanged."));
   }
@@ -106,7 +108,9 @@
     const apply = el("button", { actionIcon: "check", class: "primary", text: t("Apply what is ticked"), onclick: async () => {
       const changes = {};
       for (const { input, data } of checks) {
-        if (!input.checked) continue;
+        // Only a plugin's accessory has Accessory Settings, and a mirrored one is named where it comes from.
+        const accessory = byID.get(data.id);
+        if (!input.checked || !accessory?.platform || (data.name && accessory.mirroredFrom)) continue;
         changes[data.id] = { ...changes[data.id], ...(data.room ? { room: data.room } : { name: data.name }) };
       }
       apply.disabled = true;

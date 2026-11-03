@@ -192,9 +192,12 @@ actor DevicesPlugin: HomeswiftPlugin {
         ["lamp": "light", "lock": "lock"][deviceID]
     }
 
-    /// The Homebridge shape it reads: `legacyExcluded`, a list of Device Ids, becomes Excluded in `_accessories`.
+    /// The Homebridge shape it reads: `legacyExcluded`, a list of Device Ids, becomes Excluded in `_accessories`, and is
+    /// kept in the account's vault entry once the block is written (as a plugin moves a legacy token there).
     func canonicalSettings(_ block: JSONValue) async -> JSONValue {
         guard var object = block.objectValue, let ids = object.removeValue(forKey: "legacyExcluded")?.arrayValue else { return block }
+        let context = self.context
+        await context.whenSettingsWritten { try context.saveCredentials(["legacyExcluded": .array(ids)]) }
         var entries = object["_accessories"]?.objectValue ?? [:]
         for id in ids.compactMap(\.stringValue) {
             var entry = entries[id]?.objectValue ?? [:]

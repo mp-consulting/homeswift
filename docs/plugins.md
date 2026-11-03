@@ -414,7 +414,11 @@ Two hooks, both optional, help the settings editor and the writers:
   last step, Exclude and Include) and writes what it answers. Turn the plugin's Homebridge shapes (a `devices` list,
   exclude lists by name or id, typed arrays, feature-option strings) into Accessory Settings in `_accessories` by Device
   Id and declared Plugin Settings, and drop the legacy keys; it may use what the plugin knows now (its devices' names,
-  to read a list of names). Leave what it cannot read as it is. The default answers the block unchanged.
+  to read a list of names). Leave what it cannot read as it is. The default answers the block unchanged. It is asked on
+  a dry run too, so it only answers: anything more, such as moving a legacy token into the vault before dropping it from
+  the block, goes in `context.whenSettingsWritten { … }`, which runs once the write is checked, just before config.json
+  is written, and never on a dry run or a refused write (an effect that throws stops the write, so make it idempotent).
+  Answer the block as it will be once the effects have run (the token dropped as if the vault had it).
 
 ### Web pages
 
@@ -495,8 +499,8 @@ and `stop_scene` puts them back, as after any scene.
 public static let assistantActions = [
     AssistantAction(
         name: "probe", title: "Check an address",
-        description: "Asks the light at an address who it is. Add it to the block's devices with update_settings (plugin ElgatoKeyLights).",
-        path: "probe", access: .read,
+        description: "Asks the light at an address who it is. Add it to the Plugin Setting addresses with update_settings (plugin ElgatoKeyLights).",
+        path: "probe", access: .configure,
         inputSchema: ["type": "object", "required": ["host"], "properties": ["host": ["type": "string"]]]),
 ]
 ```

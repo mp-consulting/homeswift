@@ -3853,7 +3853,10 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     const groupingControls = HomeswiftGroups.mount({ all, layout, rooms,
       setGroupRoom: isAdmin() ? async (ids, room) => {
-        await api("/api/settings/accessories", { method: "PATCH", body: Object.fromEntries(ids.map((id) => [id, { room: room || null }])) });
+        // A plugin's accessories only (another kind has no Accessory Settings); none is "" for a mirrored one, so it
+        // leaves the room its controller suggests.
+        const movable = all.filter((accessory) => ids.includes(accessory.id) && accessory.platform);
+        await api("/api/settings/accessories", { method: "PATCH", body: Object.fromEntries(movable.map((accessory) => [accessory.id, { room: room || (accessory.mirroredFrom ? "" : null) }])) });
         for (const accessory of all) if (ids.includes(accessory.id)) accessory.room = room;
       } : null,
       moveToRoom: isAdmin() ? (group) => HomeswiftHome.moveGroupToRoom(group, all) : null,
@@ -10772,7 +10775,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const room = members.every((a) => a && a.room === members[0]?.room) ? members[0]?.room : "";
     await chooseRoom({ name: group.name, room }, async (fields) => {
       // One settings write for every member; no device writes.
-      await changeSettings(Object.fromEntries(group.members.map((id) => [id, { room: roomSetting(accessories.find((a) => a.id === id), fields.room) }])));
+      // Only a plugin's accessory has Accessory Settings: one of another kind would refuse the whole write.
+      const movable = members.filter((accessory) => accessory?.platform);
+      await changeSettings(Object.fromEntries(movable.map((accessory) => [accessory.id, { room: roomSetting(accessory, fields.room) }])));
       await app.route();
     }, t("Moves every member of this group in Homeswift only. HomeKit rooms stay unchanged."));
   }
@@ -10820,7 +10825,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const apply = el("button", { actionIcon: "check", class: "primary", text: t("Apply what is ticked"), onclick: async () => {
       const changes = {};
       for (const { input, data } of checks) {
-        if (!input.checked) continue;
+        // Only a plugin's accessory has Accessory Settings, and a mirrored one is named where it comes from.
+        const accessory = byID.get(data.id);
+        if (!input.checked || !accessory?.platform || (data.name && accessory.mirroredFrom)) continue;
         changes[data.id] = { ...changes[data.id], ...(data.room ? { room: data.room } : { name: data.name }) };
       }
       apply.disabled = true;
@@ -22848,8 +22855,15 @@ HomeswiftI18n.add("pt", {
         try {
           const result = await api(accessoryPath(id, where), { method: "PATCH", body: patch });
           setState(state, "ok", savedWords(result, plugin));
-          for (const [name, value] of Object.entries(patch)) {
-            if (value === null) delete settings[name]; else settings[name] = value;
+          // What the bridge kept (a room spelled as it already was, a name tidied), else what was sent.
+          const kept = (result.accessories ?? []).find((one) => one.accessory === id)?.settings;
+          if (kept) {
+            for (const name of Object.keys(settings)) delete settings[name];
+            Object.assign(settings, kept);
+          } else {
+            for (const [name, value] of Object.entries(patch)) {
+              if (value === null) delete settings[name]; else settings[name] = value;
+            }
           }
           onChange(key);
           return true;
@@ -22868,8 +22882,12 @@ HomeswiftI18n.add("pt", {
       name.addEventListener("change", async () => {
         const text = name.value.trim().replace(/\s+/g, " ");
         name.value = text;
-        if (text === (settings.name ?? "")) return;
-        if (await save({ name: text || null }, nameState, "name")) onTitle(text || answer.name || id);
+        // Back to what is saved: an earlier error no longer applies.
+        if (text === (settings.name ?? "")) { setState(nameState, "", ""); return; }
+        if (await save({ name: text || null }, nameState, "name")) {
+          name.value = settings.name ?? "";
+          onTitle(settings.name || answer.name || id);
+        }
       });
       const nameField = el("label", { class: "field" }, el("span", { class: "field-title" }, t("Name"), nameState), name,
         el("span", { class: "help", text: mirrored ? t("Named in {source}: rename it there.", { source: mirrored }) : t("In the Home app too. Empty gives it back the name its plugin gives it.") }));
@@ -22885,9 +22903,9 @@ HomeswiftI18n.add("pt", {
       room.addEventListener("change", async () => {
         const text = room.value.trim();
         room.value = text;
-        if (text === (settings.room ?? "")) return;
+        if (text === (settings.room ?? "")) { setState(roomState, "", ""); return; }
         // None is "" for a mirrored accessory (not the room its controller suggests), else cleared.
-        await save({ room: text || (mirrored ? "" : null) }, roomState, "room");
+        if (await save({ room: text || (mirrored ? "" : null) }, roomState, "room")) room.value = settings.room ?? "";
       });
       const roomField = el("label", { class: "field" }, el("span", { class: "field-title" }, t("Room"), roomState), room, datalist,
         el("span", { class: "help", text: mirrored ? t("Also moves it in {source}.", { source: mirrored })

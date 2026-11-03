@@ -93,8 +93,15 @@
         try {
           const result = await api(accessoryPath(id, where), { method: "PATCH", body: patch });
           setState(state, "ok", savedWords(result, plugin));
-          for (const [name, value] of Object.entries(patch)) {
-            if (value === null) delete settings[name]; else settings[name] = value;
+          // What the bridge kept (a room spelled as it already was, a name tidied), else what was sent.
+          const kept = (result.accessories ?? []).find((one) => one.accessory === id)?.settings;
+          if (kept) {
+            for (const name of Object.keys(settings)) delete settings[name];
+            Object.assign(settings, kept);
+          } else {
+            for (const [name, value] of Object.entries(patch)) {
+              if (value === null) delete settings[name]; else settings[name] = value;
+            }
           }
           onChange(key);
           return true;
@@ -113,8 +120,12 @@
       name.addEventListener("change", async () => {
         const text = name.value.trim().replace(/\s+/g, " ");
         name.value = text;
-        if (text === (settings.name ?? "")) return;
-        if (await save({ name: text || null }, nameState, "name")) onTitle(text || answer.name || id);
+        // Back to what is saved: an earlier error no longer applies.
+        if (text === (settings.name ?? "")) { setState(nameState, "", ""); return; }
+        if (await save({ name: text || null }, nameState, "name")) {
+          name.value = settings.name ?? "";
+          onTitle(settings.name || answer.name || id);
+        }
       });
       const nameField = el("label", { class: "field" }, el("span", { class: "field-title" }, t("Name"), nameState), name,
         el("span", { class: "help", text: mirrored ? t("Named in {source}: rename it there.", { source: mirrored }) : t("In the Home app too. Empty gives it back the name its plugin gives it.") }));
@@ -130,9 +141,9 @@
       room.addEventListener("change", async () => {
         const text = room.value.trim();
         room.value = text;
-        if (text === (settings.room ?? "")) return;
+        if (text === (settings.room ?? "")) { setState(roomState, "", ""); return; }
         // None is "" for a mirrored accessory (not the room its controller suggests), else cleared.
-        await save({ room: text || (mirrored ? "" : null) }, roomState, "room");
+        if (await save({ room: text || (mirrored ? "" : null) }, roomState, "room")) room.value = settings.room ?? "";
       });
       const roomField = el("label", { class: "field" }, el("span", { class: "field-title" }, t("Room"), roomState), room, datalist,
         el("span", { class: "help", text: mirrored ? t("Also moves it in {source}.", { source: mirrored })

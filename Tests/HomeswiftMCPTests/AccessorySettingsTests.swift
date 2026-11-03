@@ -182,11 +182,39 @@ struct AccessorySettingsTests {
     /// Each settings write puts the block in its plugin's canonical shape first (`canonicalSettings`).
     @Test func writesTheCanonicalShape() async throws {
         let environment = try await environment(#", "legacyExcluded": ["lock"]"#)
+        let context = try #require(environment.host.context(platform: "Devices", name: "Devices"))
+        // A dry run, and a write the schema refuses, do none of what the canonical shape asked (`whenSettingsWritten`).
+        _ = try await environment.catalog.updateAccessorySettings([("Devices:lamp", ["room": "Hall"])], dryRun: true, who: "test")
+        await #expect(throws: (any Error).self) { try await update(environment, "Devices:lamp", ["offset": 99]) }
+        #expect(context.credentials() == nil)
+        #expect(try block(environment)?["legacyExcluded"] != nil)
         _ = try await update(environment, "Devices:lamp", ["room": "Hall"])
+        #expect(context.credentials() == ["legacyExcluded": ["lock"]])
         let written = try #require(try block(environment))
         #expect(written["legacyExcluded"] == nil)
         #expect(written["_accessories"]?["lock"] == ["excluded": true])
         #expect(await eventually { environment.catalog.find(id: "Devices:lock") == nil })
+        await environment.stop()
+    }
+
+    /// Writers at once (a Home app rename, a hub's move, a page's save): each reads config.json again when another wrote
+    /// it in between, so none is lost.
+    @Test func concurrentWritesAreAllKept() async throws {
+        let environment = try await environment()
+        let catalog = environment.catalog
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for (index, id) in ["Devices:lamp", "Devices:lock", "Devices:lamp", "Devices:lock"].enumerated() {
+                let key = index < 2 ? "room" : "hidden"
+                let value: JSONValue = index < 2 ? .string("Room \(index)") : true
+                group.addTask { _ = try await catalog.updateAccessorySettings([(id, [key: value])], who: "test") }
+            }
+            group.addTask { _ = try await catalog.updatePluginSettings(platform: "Devices", settings: ["pollingRate": 500]) }
+            try await group.waitForAll()
+        }
+        let written = try #require(try block(environment))
+        #expect(written["_accessories"]?["lamp"] == ["room": "Room 0", "hidden": true])
+        #expect(written["_accessories"]?["lock"] == ["room": "Room 1", "hidden": true])
+        #expect(written["pollingRate"] == 500)
         await environment.stop()
     }
 

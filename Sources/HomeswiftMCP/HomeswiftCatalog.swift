@@ -17,7 +17,7 @@ import NIOConcurrencyHelpers
 public struct ConfigChanged: Error, CustomStringConvertible {
     public init() {}
 
-    public var description: String { "config.json changed while the import was checked: check it again" }
+    public var description: String { "config.json changed while the change was checked: make it again" }
 }
 
 /// The tools, resources and prompts over one running bridge: its accessories, plugins, config.json and log.
@@ -722,7 +722,7 @@ public struct HomeswiftCatalog: Sendable {
     /// swaps, the web UI and MCP servers restart in the process. The bridge block (the HomeKit identity, port
     /// and setup code) restarts the process on its own; only when it cannot does the restart flag go up.
     /// With `checkSchemas`, what the save changes in a plugin block must match the plugin's config.schema.json
-    /// (`checkBlocks`); a plugin's own page, a restored backup and "save anyway" skip it.
+    /// (`checkBlocks`); a restored backup and "save anyway" skip it.
     public func applyConfig(_ next: JSONValue, dryRun: Bool, checkSchemas: Bool = true, by writer: ConfigWriter = .person) async throws -> JSONValue {
         try await applyConfig(next, dryRun: dryRun, current: (try? readConfig()) ?? [:], checkSchemas: checkSchemas, by: writer)
     }
@@ -746,7 +746,7 @@ public struct HomeswiftCatalog: Sendable {
     /// `opened`, the bridge runs that configuration and the file keeps `next` as written.
     func applyConfig(
         _ next: JSONValue, dryRun: Bool, current: JSONValue, checkSchemas: Bool = true, opened: HomeswiftConfiguration? = nil, expecting: JSONValue? = nil,
-        by writer: ConfigWriter = .person
+        by writer: ConfigWriter = .person, beforeWrite: (() async throws -> Void)? = nil
     ) async throws -> JSONValue {
         let restored = Redaction.containsRedacted(next) ? try Redaction.restoreSecrets(next, from: current) : next
         if writer == .client {
@@ -769,6 +769,8 @@ public struct HomeswiftCatalog: Sendable {
         if dryRun {
             return ["dryRun": true, "changes": .array(changed.map(JSONValue.string)), "config": Redaction.redactSecrets(restored)]
         }
+        // What the plugins' canonical shapes asked to do once written (`SettingsWrite`): checked, about to be written.
+        try await beforeWrite?()
         let backup = try writeConfig(restored, expecting: expecting)
         var answer = await run(configuration).objectValue ?? [:]
         answer["written"] = .string(configURL.path)
@@ -887,25 +889,30 @@ public struct HomeswiftCatalog: Sendable {
     /// Changes the block with this platform (and name, when there are several), or adds it when `create`;
     /// `edit` gets the block to change. What `editPlatforms` answers.
     /// With `canonical`, a settings write: the block is first put in its canonical shape by its running instance
-    /// (`HomeswiftPlugin.canonicalSettings`).
+    /// (`HomeswiftPlugin.canonicalSettings`) and has its `_hiddenFromHomeKit` moved into `_accessories`, as the settings
+    /// writers do. A save made while the file changed is made again on the new file (`retryingWhenConfigChanges`).
     public func editBlock(
         platform: String, name: String?, create: Bool = true, dryRun: Bool, checkSchemas: Bool = true, canonical: Bool = false, by writer: ConfigWriter = .person,
         _ edit: (inout [String: JSONValue]) throws -> Void
     ) async throws -> JSONValue {
-        let current = try readConfig()
-        var root = current.objectValue ?? [:]
-        var platforms = root["platforms"]?.arrayValue ?? []
-        let matching = platforms.indices.filter { platforms[$0]["platform"]?.stringValue == platform && (name == nil || (platforms[$0]["name"]?.stringValue ?? platform) == name) }
-        guard matching.count <= 1 else { throw CatalogError("\(matching.count) blocks have platform \(platform); give the name") }
-        guard create || !matching.isEmpty else { throw CatalogError("No block \(name ?? platform) of \(platform)") }
-        var block = matching.first.map { platforms[$0].objectValue ?? [:] } ?? ["platform": .string(platform), "name": .string(name ?? platform)]
-        if canonical, matching.first != nil {
-            block = await canonicalBlock(.object(block)).objectValue ?? block
+        try await retryingWhenConfigChanges {
+            let current = try readConfig()
+            var root = current.objectValue ?? [:]
+            var platforms = root["platforms"]?.arrayValue ?? []
+            let matching = platforms.indices.filter { platforms[$0]["platform"]?.stringValue == platform && (name == nil || (platforms[$0]["name"]?.stringValue ?? platform) == name) }
+            guard matching.count <= 1 else { throw CatalogError("\(matching.count) blocks have platform \(platform); give the name") }
+            guard create || !matching.isEmpty else { throw CatalogError("No block \(name ?? platform) of \(platform)") }
+            var block = matching.first.map { platforms[$0].objectValue ?? [:] } ?? ["platform": .string(platform), "name": .string(name ?? platform)]
+            let effects = SettingsWrite.Effects()
+            if canonical, matching.first != nil {
+                block = await canonicalBlock(.object(block), effects: effects).objectValue ?? block
+                Self.migrateHiddenFromHomeKit(&block, platform: platform)
+            }
+            try edit(&block)
+            if let index = matching.first { platforms[index] = .object(block) } else { platforms.append(.object(block)) }
+            root["platforms"] = .array(platforms)
+            return try await applyConfig(.object(root), dryRun: dryRun, current: current, checkSchemas: checkSchemas, expecting: current, by: writer, beforeWrite: effects.run)
         }
-        try edit(&block)
-        if let index = matching.first { platforms[index] = .object(block) } else { platforms.append(.object(block)) }
-        root["platforms"] = .array(platforms)
-        return try await applyConfig(.object(root), dryRun: dryRun, current: current, checkSchemas: checkSchemas, by: writer)
     }
 
     public func editPlatforms(dryRun: Bool, checkSchemas: Bool = true, by writer: ConfigWriter = .person, _ edit: (inout [JSONValue]) throws -> Void) async throws -> JSONValue {

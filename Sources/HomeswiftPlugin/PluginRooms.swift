@@ -93,11 +93,24 @@ extension PluginHost {
         return await running.plugin.deviceKind(of: deviceID)
     }
 
-    /// The block in its canonical shape, as its running instance writes it (`HomeswiftPlugin.canonicalSettings`); the
-    /// block as it is when the instance does not run.
+    /// The block in its canonical shape, as its running instance writes it (`HomeswiftPlugin.canonicalSettings`), and what
+    /// the plugin asked to do once the block is written (`PluginContext.whenSettingsWritten`), for the writer to run just
+    /// before it writes config.json, never on a dry run; the block as it is, and nothing to do, when the instance does
+    /// not run.
+    @_disfavoredOverload
+    public func canonicalSettings(platform: String, name: String, block: JSONValue) async -> (block: JSONValue, whenWritten: SettingsWrite.Effects) {
+        guard let running = runningPlugins().first(where: { $0.instance.context.platform == platform && $0.instance.context.name == name }) else { return (block, SettingsWrite.Effects()) }
+        let effects = SettingsWrite.Effects()
+        let canonical = await SettingsWrite.$pending.withValue(effects) { await running.plugin.canonicalSettings(block) }
+        return (canonical, effects)
+    }
+
+    /// The block in its canonical shape, what the plugin asked to do once it is written done at once, as outside a
+    /// settings write (a plugin's tests of its hook).
     public func canonicalSettings(platform: String, name: String, block: JSONValue) async -> JSONValue {
-        guard let running = runningPlugins().first(where: { $0.instance.context.platform == platform && $0.instance.context.name == name }) else { return block }
-        return await running.plugin.canonicalSettings(block)
+        let (canonical, whenWritten): (block: JSONValue, whenWritten: SettingsWrite.Effects) = await canonicalSettings(platform: platform, name: name, block: block)
+        do { try await whenWritten.run() } catch { logger.warning("A settings change of \(name) did not apply: \(error)") }
+        return canonical
     }
 
     /// What one instance did with an accessory moved in Homeswift.
@@ -124,6 +137,67 @@ extension PluginHost {
             var found: [(Int, HubMove)] = []
             for await (index, move) in group { if let move { found.append((index, move)) } }
             return found.sorted { $0.0 < $1.0 }.map(\.1)
+        }
+    }
+}
+
+/// A settings write the bridge is making (`update_settings`, the web UI's settings, Setup, Forget), for what a plugin's
+/// `canonicalSettings` does beyond answering the block, such as moving a legacy token into the vault: held until the
+/// write is checked and about to be written, so a dry run, or a write the schema refuses, changes nothing.
+public enum SettingsWrite {
+    /// What the plugins asked to do once the write's blocks are written, in the order they asked.
+    public final class Effects: @unchecked Sendable {
+        private let lock = NSLock()
+        private var effects: [@Sendable () async throws -> Void] = []
+
+        public init() {}
+
+        func append(_ effect: @escaping @Sendable () async throws -> Void) {
+            lock.withLock { effects.append(effect) }
+        }
+
+        /// Adds another write's effects after these.
+        public func append(contentsOf other: Effects) {
+            let more = other.lock.withLock { other.effects }
+            lock.withLock { effects += more }
+        }
+
+        public var isEmpty: Bool { lock.withLock { effects.isEmpty } }
+
+        /// Runs them, each once; the first that fails stops the write (config.json is not written).
+        public func run() async throws {
+            let pending = lock.withLock {
+                defer { effects = [] }
+                return effects
+            }
+            for effect in pending { try await effect() }
+        }
+    }
+
+    /// The effects of the `canonicalSettings` call running now, set by `PluginHost.canonicalSettings`.
+    @TaskLocal static var pending: Effects?
+}
+
+extension PluginContext {
+    /// Runs `effect` once the settings write that asked for the canonical block (`HomeswiftPlugin.canonicalSettings`) is
+    /// checked, just before config.json is written: never on a dry run or a refused write. An effect that throws stops the
+    /// write, so a token the block drops is never lost; one that runs and whose write then fails has done no harm if it
+    /// is idempotent (a vault entry written again). Outside a settings write, `effect` runs at once.
+    ///
+    /// ```swift
+    /// func canonicalSettings(_ block: JSONValue) async -> JSONValue {
+    ///     guard let token = block["token"]?.stringValue else { return block }
+    ///     await context.whenSettingsWritten { try self.context.saveCredentials(["token": .string(token)]) }
+    ///     var fields = block.objectValue ?? [:]
+    ///     fields.removeValue(forKey: "token")   // as if the vault had it: it will once the block is written
+    ///     return .object(fields)
+    /// }
+    /// ```
+    public func whenSettingsWritten(_ effect: @escaping @Sendable () async throws -> Void) async {
+        if let pending = SettingsWrite.pending {
+            pending.append(effect)
+        } else {
+            do { try await effect() } catch { logger.warning("A settings change of \(name) did not apply: \(error)") }
         }
     }
 }

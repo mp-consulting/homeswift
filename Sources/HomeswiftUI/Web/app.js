@@ -1989,7 +1989,10 @@
 
     const groupingControls = HomeswiftGroups.mount({ all, layout, rooms,
       setGroupRoom: isAdmin() ? async (ids, room) => {
-        await api("/api/settings/accessories", { method: "PATCH", body: Object.fromEntries(ids.map((id) => [id, { room: room || null }])) });
+        // A plugin's accessories only (another kind has no Accessory Settings); none is "" for a mirrored one, so it
+        // leaves the room its controller suggests.
+        const movable = all.filter((accessory) => ids.includes(accessory.id) && accessory.platform);
+        await api("/api/settings/accessories", { method: "PATCH", body: Object.fromEntries(movable.map((accessory) => [accessory.id, { room: room || (accessory.mirroredFrom ? "" : null) }])) });
         for (const accessory of all) if (ids.includes(accessory.id)) accessory.room = room;
       } : null,
       moveToRoom: isAdmin() ? (group) => HomeswiftHome.moveGroupToRoom(group, all) : null,

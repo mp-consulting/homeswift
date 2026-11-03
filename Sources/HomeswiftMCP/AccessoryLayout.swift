@@ -129,10 +129,17 @@ extension HomeswiftCatalog {
         var removed: [String] = []
         /// Mirrored accessories that followed a suggested room the layout adopted, and the room they are in now ("" none).
         var adopted: [String: String] = [:]
+        // Put back if the settings' write that follows fails, so the layout never names rooms the settings do not.
+        let previous = home.layout.value
         try home.layout.update { layout in
             /// Gives the layout a room a mirrored controller names: the room, and its accessories that follow the suggestion.
             func adopt(_ name: String) -> String? {
                 if let current = layout.room(named: name) { return current }
+                // A room only accessories' settings name (a restored config.json): the layout takes it as they spell it.
+                if let named = all.lazy.compactMap({ $0.layout?.room }).first(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) {
+                    layout.rooms.append(named)
+                    return named
+                }
                 let followers = suggested.filter { id, room in room.caseInsensitiveCompare(name) == .orderedSame && following.contains(id) }
                 guard let spelled = followers.values.first else { return nil }
                 layout.rooms.append(spelled)
@@ -179,10 +186,29 @@ extension HomeswiftCatalog {
             }
             guard layout.rooms.count <= AccessoryLayout.maxRooms else { throw CatalogError("At most \(AccessoryLayout.maxRooms) rooms") }
         }
-        home.layoutChanged()
         let sync = body["syncRoomNames"]?.boolValue
-        guard renamed != nil || !removed.isEmpty || !adopted.isEmpty || sync != nil else { return LayoutChange(renamed: renamed) }
-        // One write: the settings' rooms renamed or emptied, the adopted followers' rooms, Room Sync.
+        guard renamed != nil || !removed.isEmpty || !adopted.isEmpty || sync != nil else {
+            home.layoutChanged()
+            return LayoutChange(renamed: renamed)
+        }
+        do {
+            try await retryingWhenConfigChanges {
+                try await writeLayoutRooms(renamed: renamed, removed: removed, adopted: adopted, sync: sync, suggested: suggested, all: all)
+            }
+        } catch {
+            try? home.layout.update { $0 = previous }
+            throw error
+        }
+        home.layoutChanged()
+        return LayoutChange(renamed: renamed)
+    }
+
+    /// `applyLayout`'s write of config.json: the settings' rooms renamed or emptied (a room's name matched as the layout
+    /// matches it, case aside), the adopted followers' rooms, Room Sync.
+    private func writeLayoutRooms(
+        renamed: (from: String, to: String)?, removed: [String], adopted: [String: String], sync: Bool?, suggested: [String: String], all: [Located]
+    ) async throws {
+        let same = { (a: String, b: String) in a.trimmingCharacters(in: .whitespaces).caseInsensitiveCompare(b.trimmingCharacters(in: .whitespaces)) == .orderedSame }
         let current = try readConfig()
         var root = current.objectValue ?? [:]
         if let sync { setRoomSync(sync, in: &root) }
@@ -194,9 +220,9 @@ extension HomeswiftCatalog {
             var changed = false
             for (key, entry) in entries {
                 guard var fields = entry.objectValue, let room = fields["room"]?.stringValue, !room.isEmpty else { continue }
-                if let renamed, Self.sameRoomName(room, renamed.from) {
+                if let renamed, same(room, renamed.from) {
                     fields["room"] = .string(renamed.to)
-                } else if removed.contains(where: { Self.sameRoomName($0, room) }) {
+                } else if removed.contains(where: { same($0, room) }) {
                     if suggested["\(platform):\(key)"] == nil { fields.removeValue(forKey: "room") } else { fields["room"] = "" }
                 } else {
                     continue
@@ -218,8 +244,7 @@ extension HomeswiftCatalog {
             platforms[index] = .object(block)
         }
         root["platforms"] = .array(platforms)
-        if JSONValue.object(root) != current { _ = try await applyConfig(.object(root), dryRun: false, current: current) }
-        return LayoutChange(renamed: renamed)
+        if JSONValue.object(root) != current { _ = try await applyConfig(.object(root), dryRun: false, current: current, expecting: current) }
     }
 
     /// The Assistant's rooms and names for the running accessories (`AssistantService.suggestOrganization`):
@@ -248,7 +273,8 @@ extension HomeswiftCatalog {
                 ["name": .string(room.name), "accessories": .array(room.accessories.filter { byID[$0] != nil }.map(JSONValue.string))]
             }),
             "renames": .array(suggestion.renames.compactMap { rename in
-                guard let found = byID[rename.uniqueId] else { return nil }
+                // A mirrored accessory is named where it comes from: its Name is read-only here.
+                guard let found = byID[rename.uniqueId], found.accessory.mirroredFrom == nil else { return nil }
                 var object: [String: JSONValue] = ["id": .string(rename.uniqueId), "current": .string(found.layout?.name ?? found.accessory.name), "name": .string(rename.name)]
                 if let reason = rename.reason { object["reason"] = .string(reason) }
                 return .object(object)
@@ -267,7 +293,13 @@ extension HomeswiftCatalog {
         let layout = home.layout.value.rooms
         var seen = Set(layout.map { $0.lowercased() })
         var suggested: [String] = []
-        for name in (all ?? located()).compactMap({ $0.layout?.room == nil ? $0.accessory.suggestedRoom : nil }).sorted()
+        let located = all ?? located()
+        // A room an accessory's settings name that the layout does not have (a restored config.json, a hand edit), then
+        // the rooms mirrored controllers suggest.
+        for name in located.compactMap({ $0.layout?.room.flatMap { $0.isEmpty ? nil : $0 } }).sorted() where seen.insert(name.lowercased()).inserted {
+            suggested.append(name)
+        }
+        for name in located.compactMap({ $0.layout?.room == nil ? $0.accessory.suggestedRoom : nil }).sorted()
         where seen.insert(name.lowercased()).inserted {
             suggested.append(name)
         }
