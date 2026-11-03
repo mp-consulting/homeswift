@@ -41,10 +41,10 @@ public actor UniFiProtectPlugin: HomeswiftPlugin {
     }
 
     public func start() async throws {
-        // The controllers set up through Setup beside the block's, and the Excluded devices as feature options.
+        // The controllers set up through Setup beside the block's, and the canonical settings as feature options.
         var configuration = configuration
         configuration.controllers = controllerEntries()
-        configuration.options = Self.exclusions(context) + configuration.options + Self.partChoices(context)
+        configuration.options = canonicalOptions(excluding: true)
         let platform = await ProtectPlatform(configuration: configuration, logger: logger, host: context, storageDirectory: context.storageDirectory,
                                              dependencies: dependencies)
         guard !isStopped else { return }
@@ -95,9 +95,8 @@ public actor UniFiProtectPlugin: HomeswiftPlugin {
 
     // MARK: The web page
 
-    /// The settings page's requests (ui/server.js of the Homebridge plugin):
-    /// - `GET options`: the feature option catalog;
-    /// - `POST devices` with a controller's address and credentials: its NVR and devices, or the error;
+    /// The page's requests (after ui/server.js of the Homebridge plugin); it writes no settings, and controllers are
+    /// signed in to through Setup:
     /// - `GET discover`: UniFi consoles on the network;
     /// - `POST check-status` with an address: whether the controller answers HTTPS;
     /// - `POST onvif`: a third-party camera's ONVIF profiles and URLs;
@@ -105,10 +104,6 @@ public actor UniFiProtectPlugin: HomeswiftPlugin {
     /// - `GET controllers`: the running controllers and their devices.
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
         switch (request.method, request.path) {
-        case ("GET", "options"):
-            return PluginWebResponse(Self.catalogJSON)
-        case ("POST", "devices"):
-            return await devices(request.body)
         case ("GET", "discover"):
             let log = ProtectLog(logger: logger)
             let consoles = await dependencies.discover(log)
@@ -150,48 +145,14 @@ public actor UniFiProtectPlugin: HomeswiftPlugin {
         }
     }
 
-    /// Logs in to a controller with what the page sent, reads its bootstrap (`read`), and answers with the NVR and
-    /// its adopted devices sorted by name; the error the API logged otherwise.
-    private func devices(_ body: JSONValue) async -> PluginWebResponse {
-        let address = body.string("address")?.trimmingCharacters(in: .whitespaces) ?? ""
-        let verifyTls = body.bool("verifyTls")
-        let username = body.string("username") ?? ""
-        // The certificate this controller is pinned to, as the running plugin trusts it.
-        let pinned = verifyTls ? nil : platformState?.tlsPins.get(address)
-        // A configured controller's devices need no password from the page: the block's own is used, but only
-        // over a connection that proves it is that controller (the system's roots, or its pin). A first contact
-        // trusts whatever certificate answers, so the stored password is not sent to it.
-        let configured = controllerEntries().first { $0.address.trimmingCharacters(in: .whitespaces).lowercased() == address.lowercased() }
-        var password = body.string("password") ?? ""
-        if password.isEmpty, let configured, configured.username == username {
-            guard verifyTls || pinned != nil else {
-                return PluginWebResponse(["devices": [], "error": "Enter the password: this controller's certificate is not pinned yet."])
-            }
-            password = configured.password
-        }
-        let bootstrap: JSONValue
-        switch await read(address: address, username: username, password: password, verifyTls: verifyTls, pinned: pinned) {
-        case .read(let read): bootstrap = read
-        case .failed(let message): return PluginWebResponse(["devices": [], "error": .string(message)])
-        }
-        var devices: [JSONValue] = [bootstrap.at("nvr") ?? .object([:])]
-        for category in ProtectNVR.deviceCategories {
-            let adopted = bootstrap.array(category + "s").filter { !$0.bool("isAdoptedByOther") && $0.bool("isAdopted") }
-            devices += adopted.sorted {
-                ($0.string("name") ?? $0.string("marketName") ?? "").lowercased() < ($1.string("name") ?? $1.string("marketName") ?? "").lowercased()
-            }
-        }
-        return PluginWebResponse(["devices": .array(devices), "error": ""])
-    }
-
     /// A controller's bootstrap, or the error the API logged.
     enum ControllerRead: Sendable {
         case read(JSONValue)
         case failed(String)
     }
 
-    /// Logs in to a controller and reads its bootstrap without events, twenty seconds at most: the page's device list,
-    /// and Setup's check of a login and its discovery. `pinned` is the certificate to trust: by default the one the
+    /// Logs in to a controller and reads its bootstrap without events, twenty seconds at most: Setup's check of a login
+    /// and its discovery. `pinned` is the certificate to trust: by default the one the
     /// plugin's pins keep for the address (`verifyTls` off).
     func read(address: String, username: String, password: String, verifyTls: Bool, pinned: String?? = nil) async -> ControllerRead {
         // Without `verifyTls`, the login goes to the vetted address (and the port the page gave), so a second
@@ -229,38 +190,6 @@ public actor UniFiProtectPlugin: HomeswiftPlugin {
         }
         return .read(bootstrap)
     }
-
-    /// The catalog as the Homebridge plugin's `/getOptions` gave it to its page.
-    static let catalogJSON: JSONValue = {
-        func list(_ values: [String]?) -> JSONValue? { values.map { .array($0.map(JSONValue.string)) } }
-        let categories: [JSONValue] = FeatureOptionCatalog.categories.map { category in
-            var object: [String: JSONValue] = ["name": .string(category.name), "description": .string(category.description), "modelKey": list(category.modelKey) ?? []]
-            if let value = list(category.hasSensorFeature) { object["hasSensorFeature"] = value }
-            if let value = list(category.isNotProperty) { object["isNotProperty"] = value }
-            return .object(object)
-        }
-        var options: [String: JSONValue] = [:]
-        for (category, entries) in FeatureOptionCatalog.options {
-            options[category] = .array(entries.map { entry in
-                var object: [String: JSONValue] = ["name": .string(entry.name), "default": .bool(entry.default), "description": .string(entry.description)]
-                switch entry.defaultValue {
-                case .number(let value): object["defaultValue"] = .number(value)
-                case .text(let value): object["defaultValue"] = .string(value)
-                case nil: break
-                }
-                if let group = entry.group { object["group"] = .string(group) }
-                if let size = entry.inputSize { object["inputSize"] = .number(Double(size)) }
-                let lists: [(String, [String]?)] = [
-                    ("hasAccessFeature", entry.hasAccessFeature), ("hasCameraFeature", entry.hasCameraFeature), ("hasFeature", entry.hasFeature),
-                    ("hasLightProperty", entry.hasLightProperty), ("hasProperty", entry.hasProperty), ("hasSensorProperty", entry.hasSensorProperty),
-                    ("hasSmartObjectType", entry.hasSmartObjectType), ("isNotProperty", entry.isNotProperty), ("modelKey", entry.modelKey),
-                ]
-                for (key, value) in lists { if let value = list(value) { object[key] = value } }
-                return .object(object)
-            })
-        }
-        return ["categories": .array(categories), "options": .object(options)]
-    }()
 }
 
 /// Keeps the last error a throwaway API logged, for the settings page.
@@ -293,10 +222,10 @@ extension ProtectNVR {
     func statusJSON() async -> JSONValue {
         let devices = deviceList.map { device -> JSONValue in
             ["name": .string(device.accessoryName), "accessoryID": .string(device.accessory.id), "modelKey": .string(device.ufp.modelKey), "mac": .string(device.ufp.mac),
-             "online": .bool(device.isOnline)]
+             "online": .bool(device.isOnline), "thirdParty": .bool(device.ufp.isThirdPartyCamera)]
         }
         return [
-            "address": .string(config.address), "name": .string(ufp.string("name") ?? config.name ?? config.address),
+            "address": .string(config.address), "name": .string(ufp.string("name") ?? config.name ?? config.address), "mac": .string(mac),
             "connected": .bool(await api.bootstrap != nil), "throttled": .bool(await api.isThrottled), "events": .bool(await api.isEventsConnected),
             "tlsFingerprint": (await api.tlsFingerprint).map(JSONValue.string) ?? .null, "devices": .array(devices),
         ]

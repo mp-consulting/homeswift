@@ -5,21 +5,17 @@
   "footerDisplay": "A working **FFmpeg** installation is required for this plugin to work. For audio support, make sure your version of ffmpeg is compiled with support for the **fdk-aac** codec, or with **libopus** (as the Homeswift container image's ffmpeg-for-homeswift is).",
   "singular": true,
   "customUi": true,
-
   "schema": {
     "type": "object",
     "properties": {
-
       "controllers": {
         "type": "array",
         "title": "UniFi Protect Controllers",
-        "description": "The UniFi Protect controllers to connect to, each with its address and the local user the plugin signs in with.",
-
+        "description": "UniFi consoles by address, for those discovery does not find; each is signed in to in Add accessories, and its login kept in the vault.",
         "items": {
           "type": "object",
           "title": "UniFi Protect Controller",
           "properties": {
-
             "address": {
               "type": "string",
               "title": "Controller Address",
@@ -28,18 +24,14 @@
               "placeholder": "e.g. 1.2.3.4",
               "description": "Hostname or IP address of your UniFi Protect controller."
             },
-
             "doorbellMessages": {
               "type": "array",
               "title": "Doorbell Messages",
               "description": "Extra message presets for this controller's doorbells with a screen. While doorbell messages are enabled, each preset appears as a switch that shows it.",
-
               "items": {
                 "type": "object",
                 "title": "Doorbell Message",
-
                 "properties": {
-
                   "duration": {
                     "type": "integer",
                     "title": "Message Duration (seconds)",
@@ -48,7 +40,6 @@
                     "placeholder": "e.g. 60",
                     "description": "Length of time to display the message on your doorbell. Use 0 to display the message indefinitely. Default: 60."
                   },
-
                   "message": {
                     "type": "string",
                     "title": "Message Name",
@@ -60,7 +51,6 @@
                 }
               }
             },
-
             "mqttTopic": {
               "type": "string",
               "title": "MQTT Base Topic",
@@ -68,7 +58,6 @@
               "placeholder": "e.g. unifi/protect",
               "description": "The base MQTT topic to publish to. Default: unifi/protect."
             },
-
             "mqttVerifyTls": {
               "type": "boolean",
               "title": "Verify MQTT Broker TLS Certificate",
@@ -76,7 +65,6 @@
               "default": true,
               "description": "Validate the MQTT broker's TLS certificate when connecting over mqtts:// or ssl://. Only disable this if your broker uses a self-signed certificate. Default: enabled."
             },
-
             "mqttUrl": {
               "type": "string",
               "title": "MQTT Broker URL",
@@ -85,7 +73,6 @@
               "placeholder": "e.g. mqtt://1.2.3.4",
               "description": "URL for the MQTT broker you'd like to publish event messages to. Default: None."
             },
-
             "name": {
               "type": "string",
               "title": "Controller Name",
@@ -93,100 +80,12 @@
               "placeholder": "e.g. UNVR",
               "description": "Name for this UniFi Protect controller to be used for logging purposes. Default: Defined by the controller."
             },
-
             "overrideAddress": {
-
               "type": "string",
               "title": "Override Controller Address",
               "required": false,
               "description": "Override the address used when livestreaming. This is useful in VPN and remote scenarios where you want to override the address of the UniFi Protect controller. Warning: due to the way stacked Protect controller installations work, this option is unavailable for those configurations."
             },
-
-            "cameraOverrides": {
-
-              "type": "array",
-              "title": "Third-Party Camera URL Overrides",
-              "required": false,
-              "description": "Per-camera RTSP and snapshot URL overrides for ONVIF and other third-party cameras adopted into UniFi Protect. The Protect controller often does not relay these cameras' streams reliably; supply the camera's own URLs here to bypass the controller. Only applied to cameras the controller has flagged as third-party.",
-              "items": {
-
-                "type": "object",
-                "title": "Camera Override",
-                "properties": {
-
-                  "mac": {
-
-                    "type": "string",
-                    "title": "Camera MAC Address",
-                    "required": true,
-                    "placeholder": "e.g. F6:24:49:03:A5:B3",
-                    "description": "MAC address of the third-party camera as reported by the Protect controller. Comparison is case- and separator-insensitive."
-                  },
-
-                  "rtspUrl": {
-
-                    "type": "string",
-                    "title": "Direct RTSP / RTSPS URL",
-                    "required": false,
-                    "placeholder": "e.g. rtsp://user:pass@192.168.1.50:8554/stream",
-                    "description": "Full RTSP or RTSPS URL pointing directly at the camera's own RTSP server, bypassing the Protect controller. Credentials may be embedded."
-                  },
-
-                  "snapshotUrl": {
-
-                    "type": "string",
-                    "title": "Direct Snapshot URL",
-                    "required": false,
-                    "placeholder": "e.g. http://192.168.1.50:8080/snapshot",
-                    "description": "Full HTTP or HTTPS URL pointing at the camera's snapshot endpoint. Credentials may be embedded. Self-signed certificates are accepted."
-                  },
-
-                  "onvifPort": {
-
-                    "type": "integer",
-                    "title": "ONVIF Port",
-                    "required": false,
-                    "minimum": 1,
-                    "maximum": 65535,
-                    "description": "ONVIF service port remembered for the discovery panel. Leave empty to let the panel try common defaults."
-                  },
-
-                  "onvifUsername": {
-
-                    "type": "string",
-                    "title": "ONVIF Username",
-                    "required": false,
-                    "description": "Username remembered for the ONVIF discovery panel. Stored in plaintext alongside the controller credentials."
-                  },
-
-                  "onvifPassword": {
-
-                    "type": "string", "x-schema-form": { "type": "password" },
-                    "title": "ONVIF Password",
-                    "required": false,
-                    "description": "Password remembered for the ONVIF discovery panel. Stored in plaintext alongside the controller credentials."
-                  },
-
-                  "onvifServicePath": {
-
-                    "type": "string",
-                    "title": "ONVIF Service Path",
-                    "required": false,
-                    "placeholder": "/onvif/device_service",
-                    "description": "Optional ONVIF device service path remembered for the discovery panel. Defaults to /onvif/device_service when blank."
-                  }
-                }
-              }
-            },
-
-            "password": {
-              "type": "string", "x-schema-form": { "type": "password" },
-              "title": "Controller Password",
-              "required": true,
-              "placeholder": "e.g. unifi-protect-password",
-              "description": "UniFi Protect password for this controller's local user."
-            },
-
             "playlistAddress": {
               "type": "string",
               "title": "M3U Playlist Bind Address",
@@ -194,23 +93,6 @@
               "placeholder": "e.g. 127.0.0.1",
               "description": "Local IP address the M3U playlist service (Nvr.Service.Playlist feature option) listens on. Default: all interfaces."
             },
-
-            "playlistToken": {
-              "type": "string", "x-schema-form": { "type": "password" },
-              "title": "M3U Playlist Access Token",
-              "required": false,
-              "placeholder": "e.g. a-long-random-string",
-              "description": "When set, clients must request the M3U playlist with ?token=<value> in the URL. Without a token, anyone who can reach the playlist port can retrieve your camera stream URLs."
-            },
-
-            "username": {
-              "type": "string",
-              "title": "Controller Username",
-              "required": true,
-              "placeholder": "e.g. some-unifi-protect-user",
-              "description": "UniFi Protect username for this controller. Create a local user for Homeswift on the controller, with the Full Management role so the plugin can turn on RTSP streams and change device settings."
-            },
-
             "verifyTls": {
               "type": "boolean",
               "title": "Verify TLS Certificate",
@@ -220,41 +102,31 @@
           }
         }
       },
-
       "debug": {
-
         "type": "boolean",
         "title": "Debug Logging",
         "required": false,
         "description": "Enable debug logging for this plugin. This creates a large volume of log output and should only be used when troubleshooting. Default: false."
       },
-
       "name": {
-
         "type": "string",
         "title": "Plugin Name",
         "required": true,
         "default": "UniFi Protect",
         "description": "Name to use for logging purposes. Default: UniFi Protect."
       },
-
       "options": {
-
         "type": "array",
         "title": "Feature Options",
-        "description": "Feature options that turn plugin features on or off, everywhere or for one controller or device, such as Disable.Device. The feature options tab edits them for you.",
-
+        "description": "Feature options of a Homebridge block that no setting says (Enable.<option> or Disable.<option>, optionally followed by a device's MAC), one per entry. The bridge moves the others into the settings.",
         "items": {
           "type": "string",
-          "title": "Feature Option",
           "required": false,
-          "description": "One option per entry. The plugin's page sets them for you; the README lists them all.",
+          "description": "One option per entry, as the Homebridge plugin's README spells them.",
           "placeholder": "e.g. Disable.Device"
         }
       },
-
       "ringDelay": {
-
         "type": "integer",
         "title": "Doorbell Ring Delay (seconds)",
         "required": false,
@@ -263,26 +135,1355 @@
         "placeholder": "e.g. 5",
         "description": "Delay between doorbell rings. Setting this to a non-zero value will prevent multiple rings of a doorbell over the specified duration. Default: 0."
       },
-
       "verboseFfmpeg": {
-
         "type": "boolean",
         "title": "Verbose FFmpeg Logging",
         "required": false,
         "description": "Enable additional logging for FFmpeg. This will create additional logging when video streams are running. Default: false."
       },
-
       "videoProcessor": {
-
         "type": "string",
         "title": "FFmpeg Location",
         "required": false,
         "placeholder": "e.g. /usr/local/bin/ffmpeg",
         "description": "Path to the FFmpeg executable. Most users should not use this setting. Default: the first ffmpeg found in PATH."
+      },
+      "audio": {
+        "type": "boolean",
+        "title": "Audio",
+        "default": true,
+        "description": "Audio support."
+      },
+      "audioFilterNoise": {
+        "type": "boolean",
+        "title": "Audio.Filter.Noise",
+        "default": false,
+        "description": "Audio filter for ambient noise suppression."
+      },
+      "audioFilterNoiseFftNr": {
+        "type": "number",
+        "title": "Audio.Filter.Noise.FftNr",
+        "placeholder": 14,
+        "description": "Noise reduction amount, in decibels, for the FFmpeg afftdn filter."
+      },
+      "audioFilterNoiseHighPass": {
+        "type": "number",
+        "title": "Audio.Filter.Noise.HighPass",
+        "placeholder": 150,
+        "description": "Frequency, in Hertz, for the FFmpeg highpass filter."
+      },
+      "audioFilterNoiseLowPass": {
+        "type": "number",
+        "title": "Audio.Filter.Noise.LowPass",
+        "placeholder": 9000,
+        "description": "Frequency, in Hertz, for the FFmpeg lowpass filter."
+      },
+      "audioTwoWay": {
+        "type": "boolean",
+        "title": "Audio.TwoWay",
+        "default": true,
+        "description": "Two-way audio support on supported cameras."
+      },
+      "audioTwoWayDirect": {
+        "type": "boolean",
+        "title": "Audio.TwoWay.Direct",
+        "default": false,
+        "description": "Send two-way audio directly to supported cameras, bypassing the controller. Useful for working around bugs in some Protect controller firmware versions."
+      },
+      "deviceStatusLed": {
+        "type": "boolean",
+        "title": "Device.StatusLed",
+        "default": true,
+        "description": "Enable the status indicator light for this device in HomeKit."
+      },
+      "deviceStatusLedSwitch": {
+        "type": "boolean",
+        "title": "Device.StatusLed.Switch",
+        "default": false,
+        "description": "Add a switch accessory to control the status indicator light in HomeKit."
+      },
+      "deviceNightVision": {
+        "type": "boolean",
+        "title": "Device.NightVision",
+        "default": true,
+        "description": "Enable the night vision indicator light for this device in HomeKit."
+      },
+      "deviceNightVisionDimmer": {
+        "type": "boolean",
+        "title": "Device.NightVision.Dimmer",
+        "default": false,
+        "description": "Add a dimmer accessory to control the night vision state in HomeKit."
+      },
+      "deviceStandalone": {
+        "type": "boolean",
+        "title": "Device.Standalone",
+        "default": false,
+        "description": "Make this a standalone device in HomeKit that will need to be added to HomeKit through the Home app."
+      },
+      "deviceSelfHealing": {
+        "type": "boolean",
+        "title": "Device.SelfHealing",
+        "default": true,
+        "description": "Attempt to restart misbehaving devices. This is always done very conservatively and only after periods of extended device-specific issues."
+      },
+      "deviceSyncName": {
+        "type": "boolean",
+        "title": "Device.SyncName",
+        "default": false,
+        "description": "Synchronize the UniFi Protect name of this device with HomeKit. Synchronization is one-way only, syncing the device name from UniFi Protect to HomeKit."
+      },
+      "doorbellAuthSensor": {
+        "type": "boolean",
+        "title": "Doorbell.AuthSensor",
+        "default": false,
+        "description": "Add a contact sensor that gets activates when a fingerprint or NFC successfully authenticates on a Protect doorbell."
+      },
+      "doorbellMute": {
+        "type": "boolean",
+        "title": "Doorbell.Mute",
+        "default": false,
+        "description": "Add a switch accessory to control whether HomeKit will chime when the doorbell is pressed."
+      },
+      "doorbellMessagesEnabled": {
+        "type": "boolean",
+        "title": "Doorbell.Messages",
+        "default": false,
+        "description": "Enable the doorbell messages feature."
+      },
+      "doorbellMessagesFromDoorbell": {
+        "type": "boolean",
+        "title": "Doorbell.Messages.FromDoorbell",
+        "default": true,
+        "description": "Use messages saved to the Protect NVR as message switches."
+      },
+      "doorbellVolumeDimmer": {
+        "type": "boolean",
+        "title": "Doorbell.Volume.Dimmer",
+        "default": false,
+        "description": "Add a dimmer accessory to control the Protect chime volume in HomeKit."
+      },
+      "doorbellPhysicalChime": {
+        "type": "boolean",
+        "title": "Doorbell.PhysicalChime",
+        "default": false,
+        "description": "Add switch accessories to control the physical chimes attached to a Protect doorbell."
+      },
+      "doorbellPhysicalChimeDurationDigital": {
+        "type": "number",
+        "title": "Doorbell.PhysicalChime.Duration.Digital",
+        "placeholder": 1000,
+        "description": "Chime duration, in milliseconds, of a digital physical chime attached to a Protect doorbell."
+      },
+      "doorbellPackageCameraFlashlight": {
+        "type": "boolean",
+        "title": "Doorbell.PackageCamera.Flashlight",
+        "default": true,
+        "description": "Add a light accessory to control the flashlight on a Protect doorbell package camera."
+      },
+      "doorbellTrigger": {
+        "type": "boolean",
+        "title": "Doorbell.Trigger",
+        "default": false,
+        "description": "Add a switch accessory to trigger doorbell ring events on a Protect camera or doorbell."
+      },
+      "logDoorbell": {
+        "type": "boolean",
+        "title": "Log.Doorbell",
+        "default": true,
+        "description": "Log doorbell ring events in Homebridge."
+      },
+      "logHKSV": {
+        "type": "boolean",
+        "title": "Log.HKSV",
+        "default": false,
+        "description": "Log HomeKit Secure Video recording events in Homebridge."
+      },
+      "logMotion": {
+        "type": "boolean",
+        "title": "Log.Motion",
+        "default": false,
+        "description": "Log motion events in Homebridge."
+      },
+      "motionDuration": {
+        "type": "number",
+        "title": "Motion.Duration",
+        "placeholder": 10,
+        "description": "Duration, in seconds, of a single motion event, before allowing a new one."
+      },
+      "motionOccupancySensor": {
+        "type": "boolean",
+        "title": "Motion.OccupancySensor",
+        "default": false,
+        "description": "Add an occupancy sensor accessory using motion sensor activity to determine occupancy. By default, any motion will trigger occupancy. If the smart detection feature option is enabled, it will be used instead."
+      },
+      "motionOccupancySensorDuration": {
+        "type": "number",
+        "title": "Motion.OccupancySensor.Duration",
+        "placeholder": 300,
+        "description": "Duration, in seconds, to wait without receiving a motion event to determine when occupancy is no longer detected."
+      },
+      "motionOccupancySensorAnimal": {
+        "type": "boolean",
+        "title": "Motion.OccupancySensor.Animal",
+        "default": false,
+        "description": "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's animal detection to trigger occupancy."
+      },
+      "motionOccupancySensorFace": {
+        "type": "boolean",
+        "title": "Motion.OccupancySensor.Face",
+        "default": true,
+        "description": "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's face detection to trigger occupancy."
+      },
+      "motionOccupancySensorLicensePlate": {
+        "type": "boolean",
+        "title": "Motion.OccupancySensor.LicensePlate",
+        "default": false,
+        "description": "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's license plate detection to trigger occupancy."
+      },
+      "motionOccupancySensorPackage": {
+        "type": "boolean",
+        "title": "Motion.OccupancySensor.Package",
+        "default": false,
+        "description": "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's package detection to trigger occupancy."
+      },
+      "motionOccupancySensorPerson": {
+        "type": "boolean",
+        "title": "Motion.OccupancySensor.Person",
+        "default": true,
+        "description": "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's person detection to trigger occupancy."
+      },
+      "motionOccupancySensorVehicle": {
+        "type": "boolean",
+        "title": "Motion.OccupancySensor.Vehicle",
+        "default": false,
+        "description": "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's vehicle detection to trigger occupancy."
+      },
+      "motionOccupancySensorAlrmBabyCry": {
+        "type": "boolean",
+        "title": "Motion.OccupancySensor.AlrmBabyCry",
+        "default": false,
+        "description": "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's baby crying audio detection to trigger occupancy."
+      },
+      "motionOccupancySensorAlrmBark": {
+        "type": "boolean",
+        "title": "Motion.OccupancySensor.AlrmBark",
+        "default": false,
+        "description": "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's bark audio detection to trigger occupancy."
+      },
+      "motionOccupancySensorAlrmBurglar": {
+        "type": "boolean",
+        "title": "Motion.OccupancySensor.AlrmBurglar",
+        "default": false,
+        "description": "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's car alarm audio detection to trigger occupancy."
+      },
+      "motionOccupancySensorAlrmCarHorn": {
+        "type": "boolean",
+        "title": "Motion.OccupancySensor.AlrmCarHorn",
+        "default": false,
+        "description": "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's car horn audio detection to trigger occupancy."
+      },
+      "motionOccupancySensorAlrmCmonx": {
+        "type": "boolean",
+        "title": "Motion.OccupancySensor.AlrmCmonx",
+        "default": false,
+        "description": "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's CO alarm audio detection to trigger occupancy."
+      },
+      "motionOccupancySensorAlrmGlassBreak": {
+        "type": "boolean",
+        "title": "Motion.OccupancySensor.alrmGlassBreak",
+        "default": false,
+        "description": "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's glass break audio detection to trigger occupancy."
+      },
+      "motionOccupancySensorAlrmSiren": {
+        "type": "boolean",
+        "title": "Motion.OccupancySensor.AlrmSiren",
+        "default": false,
+        "description": "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's siren audio detection to trigger occupancy."
+      },
+      "motionOccupancySensorAlrmSmoke": {
+        "type": "boolean",
+        "title": "Motion.OccupancySensor.AlrmSmoke",
+        "default": false,
+        "description": "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's smoke alarm audio detection to trigger occupancy."
+      },
+      "motionOccupancySensorAlrmSpeak": {
+        "type": "boolean",
+        "title": "Motion.OccupancySensor.AlrmSpeak",
+        "default": false,
+        "description": "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's speaking audio detection to trigger occupancy."
+      },
+      "motionOccupancySensorSmokeCmonx": {
+        "type": "boolean",
+        "title": "Motion.OccupancySensor.Smoke_cmonx",
+        "default": false,
+        "description": "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's CO and smoke alarm audio detection to trigger occupancy."
+      },
+      "motionSmartDetect": {
+        "type": "boolean",
+        "title": "Motion.SmartDetect",
+        "default": false,
+        "description": "Use UniFi Protect smart detection for HomeKit motion events when on a supported device."
+      },
+      "motionSmartDetectObjectSensors": {
+        "type": "boolean",
+        "title": "Motion.SmartDetect.ObjectSensors",
+        "default": false,
+        "description": "Add contact sensors for each smart detection object type that UniFi Protect supports."
+      },
+      "motionSmartDetectObjectSensorsLicensePlate": {
+        "type": "string",
+        "title": "Motion.SmartDetect.ObjectSensors.LicensePlate",
+        "description": "Add a contact sensor accessory that will match a specific license plate detected by UniFi Protect. You may specify multiple license plates by using hyphens to distinguish unique license plates (e.g. PLATE1-PLATE2-PLATE3)."
+      },
+      "motionSwitch": {
+        "type": "boolean",
+        "title": "Motion.Switch",
+        "default": false,
+        "description": "Add a switch accessory to activate or deactivate motion detection in HomeKit."
+      },
+      "motionTrigger": {
+        "type": "boolean",
+        "title": "Motion.Trigger",
+        "default": false,
+        "description": "Add a switch accessory to manually trigger a motion detection event in HomeKit."
+      },
+      "nvrServicePlaylist": {
+        "type": "number",
+        "title": "Nvr.Service.Playlist",
+        "placeholder": 10110,
+        "description": "Publish an M3U playlist of Protect cameras on the specified port of this Homebridge server that is suitable for use in apps (e.g. Channels DVR) that can make camera livestreams available through them."
+      },
+      "nvrDelayDeviceRemoval": {
+        "type": "number",
+        "title": "Nvr.DelayDeviceRemoval",
+        "placeholder": 60,
+        "description": "Delay, in seconds, before removing devices that are no longer detected on the Protect controller. If disabled, devices are removed in realtime when the Protect controller does so."
+      },
+      "nvrPublishTelemetry": {
+        "type": "boolean",
+        "title": "Nvr.Publish.Telemetry",
+        "default": false,
+        "description": "Publish all the realtime telemetry received from the Protect controller to MQTT."
+      },
+      "nvrRecordingSwitch": {
+        "type": "boolean",
+        "title": "Nvr.Recording.Switch",
+        "default": false,
+        "description": "Add switch accessories to control the native recording capabilities of the UniFi Protect NVR."
+      },
+      "nvrSystemInfo": {
+        "type": "boolean",
+        "title": "Nvr.SystemInfo",
+        "default": false,
+        "description": "Add sensor accessories to display the Protect controller system information (currently only the temperature)."
+      },
+      "securitySystemAlarm": {
+        "type": "boolean",
+        "title": "SecuritySystem.Alarm",
+        "default": false,
+        "description": "Add a switch accessory to trigger the security system accessory, when using the liveview feature option."
+      },
+      "sensorMoistureSensor": {
+        "type": "boolean",
+        "title": "Sensor.MoistureSensor",
+        "default": false,
+        "description": "Expose the Protect leak sensor as a contact sensor instead of a leak sensor. This is useful for automation scenarios since HomeKit contact sensors offer more flexible automation options than leak sensors, which are primarily designed for alerts."
+      },
+      "uniFiAccessLock": {
+        "type": "boolean",
+        "title": "UniFi.Access.Lock",
+        "default": true,
+        "description": "Add a lock accessory to unlock. Currently, Protect only supports unlocking Access readers with a camera on the same controller as Protect."
+      },
+      "videoTranscodeHardware": {
+        "type": "boolean",
+        "title": "Video.Transcode.Hardware",
+        "default": true,
+        "description": "Use hardware-accelerated transcoding when available (Apple Macs, Intel Quick Sync Video-enabled CPUs, Raspberry Pi 4)."
+      },
+      "videoStreamUseApi": {
+        "type": "boolean",
+        "title": "Video.Stream.UseApi",
+        "default": true,
+        "description": "Use the native Protect livestream API to view livestreams."
+      },
+      "videoTranscode": {
+        "type": "boolean",
+        "title": "Video.Transcode",
+        "default": true,
+        "description": "When streaming to low-latency clients (e.g. at home), transcode livestreams, instead of transmuxing them."
+      },
+      "videoTranscodeBitrate": {
+        "type": "number",
+        "title": "Video.Transcode.Bitrate",
+        "placeholder": 2000,
+        "description": "Bitrate, in kilobits per second, to use when transcoding to low-latency (e.g. at home) clients, ignoring the bitrate HomeKit requests. HomeKit typically requests lower video quality than you may desire in your environment."
+      },
+      "videoTranscodeHighLatency": {
+        "type": "boolean",
+        "title": "Video.Transcode.HighLatency",
+        "default": true,
+        "description": "When streaming to high-latency clients (e.g. cellular connections), transcode livestreams instead of transmuxing them."
+      },
+      "videoTranscodeHighLatencyBitrate": {
+        "type": "number",
+        "title": "Video.Transcode.HighLatency.Bitrate",
+        "placeholder": 1000,
+        "description": "Bitrate, in kilobits per second, to use when transcoding to high-latency (e.g. cellular) clients, ignoring the bitrate HomeKit requests. HomeKit typically requests lower video quality than you may desire in your environment."
+      },
+      "videoStreamOnlyHigh": {
+        "type": "boolean",
+        "title": "Video.Stream.Only.High",
+        "default": false,
+        "description": "When viewing livestreams, force the use of the high quality video stream from the Protect controller."
+      },
+      "videoStreamOnlyMedium": {
+        "type": "boolean",
+        "title": "Video.Stream.Only.Medium",
+        "default": false,
+        "description": "When viewing livestreams, force the use of the medium quality video stream from the Protect controller."
+      },
+      "videoStreamOnlyLow": {
+        "type": "boolean",
+        "title": "Video.Stream.Only.Low",
+        "default": false,
+        "description": "When viewing livestreams, force the use of the low quality video stream from the Protect controller."
+      },
+      "videoCrop": {
+        "type": "boolean",
+        "title": "Video.Crop",
+        "default": false,
+        "description": "Crop the camera video stream. Enabling this option will also force transcoding of livestreams."
+      },
+      "videoCropX": {
+        "type": "number",
+        "title": "Video.Crop.X",
+        "placeholder": 0,
+        "description": "Left offset of the crop window, as a percentage of the original image width."
+      },
+      "videoCropY": {
+        "type": "number",
+        "title": "Video.Crop.Y",
+        "placeholder": 0,
+        "description": "Top offset of the crop window, as a percentage of the original image height."
+      },
+      "videoCropWidth": {
+        "type": "number",
+        "title": "Video.Crop.Width",
+        "placeholder": 100,
+        "description": "Width of the crop window, as a percentage of original image width."
+      },
+      "videoCropHeight": {
+        "type": "number",
+        "title": "Video.Crop.Height",
+        "placeholder": 100,
+        "description": "Height of the crop window, as a percentage of original image height."
+      },
+      "videoHighResSnapshots": {
+        "type": "boolean",
+        "title": "Video.HighResSnapshots",
+        "default": true,
+        "description": "Enable higher quality snapshots."
+      },
+      "videoHKSVStatusLedIndicator": {
+        "type": "boolean",
+        "title": "Video.HKSV.StatusLedIndicator",
+        "default": false,
+        "description": "Use the camera status indicator light to show when an HKSV event is being recorded."
+      },
+      "videoHKSVRecordingSwitch": {
+        "type": "boolean",
+        "title": "Video.HKSV.Recording.Switch",
+        "default": false,
+        "description": "Add a switch accessory to enable or disable HKSV event recording."
+      },
+      "videoHKSVRecordOnlyHigh": {
+        "type": "boolean",
+        "title": "Video.HKSV.Record.Only.High",
+        "default": false,
+        "description": "When recording HomeKit Secure Video events, force the use of the high quality video stream from the Protect controller."
+      },
+      "videoHKSVRecordOnlyMedium": {
+        "type": "boolean",
+        "title": "Video.HKSV.Record.Only.Medium",
+        "default": false,
+        "description": "When recording HomeKit Secure Video events, force the use of the medium quality video stream from the Protect controller."
+      },
+      "videoHKSVRecordOnlyLow": {
+        "type": "boolean",
+        "title": "Video.HKSV.Record.Only.Low",
+        "default": false,
+        "description": "When recording HomeKit Secure Video events, force the use of the low quality video stream from the Protect controller."
       }
     }
   },
-
+  "accessorySchema": {
+    "properties": {
+      "address": {
+        "type": "string",
+        "title": "Controller Address",
+        "format": "hostname",
+        "placeholder": "e.g. 1.2.3.4",
+        "description": "Hostname or IP address of your UniFi Protect controller.",
+        "x-kinds": [
+          "nvr"
+        ]
+      },
+      "overrideAddress": {
+        "type": "string",
+        "title": "Override Controller Address",
+        "description": "Override the address used when livestreaming. This is useful in VPN and remote scenarios where you want to override the address of the UniFi Protect controller. Warning: due to the way stacked Protect controller installations work, this option is unavailable for those configurations.",
+        "x-kinds": [
+          "nvr"
+        ]
+      },
+      "verifyTls": {
+        "type": "boolean",
+        "title": "Verify TLS Certificate",
+        "description": "Validate the controller's TLS certificate against trusted certificate authorities when connecting. Leave this disabled unless your controller uses a certificate signed by a trusted certificate authority - UniFi controllers use self-signed certificates by default. When disabled, the controller's certificate is pinned the first time the plugin connects, and connections presenting a different certificate are refused. Default: disabled.",
+        "x-kinds": [
+          "nvr"
+        ]
+      },
+      "mqttUrl": {
+        "type": "string",
+        "title": "MQTT Broker URL",
+        "format": "uri",
+        "placeholder": "e.g. mqtt://1.2.3.4",
+        "description": "URL for the MQTT broker you'd like to publish event messages to. Default: None.",
+        "x-kinds": [
+          "nvr"
+        ]
+      },
+      "mqttTopic": {
+        "type": "string",
+        "title": "MQTT Base Topic",
+        "placeholder": "e.g. unifi/protect",
+        "description": "The base MQTT topic to publish to. Default: unifi/protect.",
+        "x-kinds": [
+          "nvr"
+        ]
+      },
+      "mqttVerifyTls": {
+        "type": "boolean",
+        "title": "Verify MQTT Broker TLS Certificate",
+        "default": true,
+        "description": "Validate the MQTT broker's TLS certificate when connecting over mqtts:// or ssl://. Only disable this if your broker uses a self-signed certificate. Default: enabled.",
+        "x-kinds": [
+          "nvr"
+        ]
+      },
+      "playlistAddress": {
+        "type": "string",
+        "title": "M3U Playlist Bind Address",
+        "placeholder": "e.g. 127.0.0.1",
+        "description": "Local IP address the M3U playlist service (Nvr.Service.Playlist feature option) listens on. Default: all interfaces.",
+        "x-kinds": [
+          "nvr"
+        ]
+      },
+      "doorbellMessages": {
+        "type": "array",
+        "title": "Doorbell Messages",
+        "description": "Extra message presets for this controller's doorbells with a screen. While doorbell messages are enabled, each preset appears as a switch that shows it.",
+        "items": {
+          "type": "object",
+          "title": "Doorbell Message",
+          "properties": {
+            "duration": {
+              "type": "integer",
+              "title": "Message Duration (seconds)",
+              "required": false,
+              "minimum": 0,
+              "placeholder": "e.g. 60",
+              "description": "Length of time to display the message on your doorbell. Use 0 to display the message indefinitely. Default: 60."
+            },
+            "message": {
+              "type": "string",
+              "title": "Message Name",
+              "required": false,
+              "maxLength": 30,
+              "placeholder": "e.g. I'll be there soon.",
+              "description": "Message to display on your doorbell. Default: None."
+            }
+          }
+        },
+        "x-kinds": [
+          "nvr"
+        ]
+      },
+      "rtspUrl": {
+        "type": "string",
+        "title": "Direct RTSP / RTSPS URL",
+        "placeholder": "e.g. rtsp://user:pass@192.168.1.50:8554/stream",
+        "description": "Full RTSP or RTSPS URL pointing directly at the camera's own RTSP server, bypassing the Protect controller. Credentials may be embedded.",
+        "x-kinds": [
+          "thirdPartyCamera"
+        ]
+      },
+      "snapshotUrl": {
+        "type": "string",
+        "title": "Direct Snapshot URL",
+        "placeholder": "e.g. http://192.168.1.50:8080/snapshot",
+        "description": "Full HTTP or HTTPS URL pointing at the camera's snapshot endpoint. Credentials may be embedded. Self-signed certificates are accepted.",
+        "x-kinds": [
+          "thirdPartyCamera"
+        ]
+      },
+      "onvifPort": {
+        "type": "integer",
+        "title": "ONVIF Port",
+        "minimum": 1,
+        "maximum": 65535,
+        "description": "ONVIF service port remembered for the discovery panel. Leave empty to let the panel try common defaults.",
+        "x-kinds": [
+          "thirdPartyCamera"
+        ]
+      },
+      "onvifUsername": {
+        "type": "string",
+        "title": "ONVIF Username",
+        "description": "Username remembered for the ONVIF discovery panel. Stored in plaintext alongside the controller credentials.",
+        "x-kinds": [
+          "thirdPartyCamera"
+        ]
+      },
+      "onvifServicePath": {
+        "type": "string",
+        "title": "ONVIF Service Path",
+        "placeholder": "/onvif/device_service",
+        "description": "Optional ONVIF device service path remembered for the discovery panel. Defaults to /onvif/device_service when blank.",
+        "x-kinds": [
+          "thirdPartyCamera"
+        ]
+      },
+      "audio": {
+        "type": "boolean",
+        "title": "Audio",
+        "description": "Audio support.",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera"
+        ],
+        "x-default": "audio"
+      },
+      "audioFilterNoise": {
+        "type": "boolean",
+        "title": "Audio.Filter.Noise",
+        "description": "Audio filter for ambient noise suppression.",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera"
+        ],
+        "x-default": "audioFilterNoise"
+      },
+      "audioFilterNoiseFftNr": {
+        "type": "number",
+        "title": "Audio.Filter.Noise.FftNr",
+        "placeholder": 14,
+        "description": "Noise reduction amount, in decibels, for the FFmpeg afftdn filter.",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera"
+        ],
+        "x-default": "audioFilterNoiseFftNr"
+      },
+      "audioFilterNoiseHighPass": {
+        "type": "number",
+        "title": "Audio.Filter.Noise.HighPass",
+        "placeholder": 150,
+        "description": "Frequency, in Hertz, for the FFmpeg highpass filter.",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera"
+        ],
+        "x-default": "audioFilterNoiseHighPass"
+      },
+      "audioFilterNoiseLowPass": {
+        "type": "number",
+        "title": "Audio.Filter.Noise.LowPass",
+        "placeholder": 9000,
+        "description": "Frequency, in Hertz, for the FFmpeg lowpass filter.",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera"
+        ],
+        "x-default": "audioFilterNoiseLowPass"
+      },
+      "audioTwoWay": {
+        "type": "boolean",
+        "title": "Audio.TwoWay",
+        "description": "Two-way audio support on supported cameras.",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera"
+        ],
+        "x-default": "audioTwoWay"
+      },
+      "audioTwoWayDirect": {
+        "type": "boolean",
+        "title": "Audio.TwoWay.Direct",
+        "description": "Send two-way audio directly to supported cameras, bypassing the controller. Useful for working around bugs in some Protect controller firmware versions.",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera"
+        ],
+        "x-default": "audioTwoWayDirect"
+      },
+      "deviceStatusLed": {
+        "type": "boolean",
+        "title": "Device.StatusLed",
+        "description": "Enable the status indicator light for this device in HomeKit.",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera"
+        ],
+        "x-default": "deviceStatusLed"
+      },
+      "deviceNightVision": {
+        "type": "boolean",
+        "title": "Device.NightVision",
+        "description": "Enable the night vision indicator light for this device in HomeKit.",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera"
+        ],
+        "x-default": "deviceNightVision"
+      },
+      "deviceStandalone": {
+        "type": "boolean",
+        "title": "Device.Standalone",
+        "description": "Make this a standalone device in HomeKit that will need to be added to HomeKit through the Home app.",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera",
+          "chime",
+          "light",
+          "sensor",
+          "viewer",
+          "nvr"
+        ],
+        "x-default": "deviceStandalone"
+      },
+      "deviceSelfHealing": {
+        "type": "boolean",
+        "title": "Device.SelfHealing",
+        "description": "Attempt to restart misbehaving devices. This is always done very conservatively and only after periods of extended device-specific issues.",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera"
+        ],
+        "x-default": "deviceSelfHealing"
+      },
+      "deviceSyncName": {
+        "type": "boolean",
+        "title": "Device.SyncName",
+        "description": "Synchronize the UniFi Protect name of this device with HomeKit. Synchronization is one-way only, syncing the device name from UniFi Protect to HomeKit.",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera",
+          "chime",
+          "light",
+          "sensor",
+          "viewer",
+          "nvr"
+        ],
+        "x-default": "deviceSyncName"
+      },
+      "doorbellMessagesEnabled": {
+        "type": "boolean",
+        "title": "Doorbell.Messages",
+        "description": "Enable the doorbell messages feature.",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera"
+        ],
+        "x-default": "doorbellMessagesEnabled"
+      },
+      "doorbellMessagesFromDoorbell": {
+        "type": "boolean",
+        "title": "Doorbell.Messages.FromDoorbell",
+        "description": "Use messages saved to the Protect NVR as message switches.",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera"
+        ],
+        "x-default": "doorbellMessagesFromDoorbell"
+      },
+      "doorbellVolumeDimmer": {
+        "type": "boolean",
+        "title": "Doorbell.Volume.Dimmer",
+        "description": "Add a dimmer accessory to control the Protect chime volume in HomeKit.",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera"
+        ],
+        "x-default": "doorbellVolumeDimmer"
+      },
+      "doorbellPhysicalChimeDurationDigital": {
+        "type": "number",
+        "title": "Doorbell.PhysicalChime.Duration.Digital",
+        "placeholder": 1000,
+        "description": "Chime duration, in milliseconds, of a digital physical chime attached to a Protect doorbell.",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera"
+        ],
+        "x-default": "doorbellPhysicalChimeDurationDigital"
+      },
+      "doorbellTrigger": {
+        "type": "boolean",
+        "title": "Doorbell.Trigger",
+        "description": "Add a switch accessory to trigger doorbell ring events on a Protect camera or doorbell.",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera"
+        ],
+        "x-default": "doorbellTrigger"
+      },
+      "logDoorbell": {
+        "type": "boolean",
+        "title": "Log.Doorbell",
+        "description": "Log doorbell ring events in Homebridge.",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera"
+        ],
+        "x-default": "logDoorbell"
+      },
+      "logHKSV": {
+        "type": "boolean",
+        "title": "Log.HKSV",
+        "description": "Log HomeKit Secure Video recording events in Homebridge.",
+        "x-kinds": [
+          "camera"
+        ],
+        "x-default": "logHKSV"
+      },
+      "logMotion": {
+        "type": "boolean",
+        "title": "Log.Motion",
+        "description": "Log motion events in Homebridge.",
+        "x-kinds": [
+          "camera",
+          "light",
+          "sensor"
+        ],
+        "x-default": "logMotion"
+      },
+      "motionDuration": {
+        "type": "number",
+        "title": "Motion.Duration",
+        "placeholder": 10,
+        "description": "Duration, in seconds, of a single motion event, before allowing a new one.",
+        "x-kinds": [
+          "camera",
+          "light",
+          "sensor"
+        ],
+        "x-default": "motionDuration"
+      },
+      "motionOccupancySensorDuration": {
+        "type": "number",
+        "title": "Motion.OccupancySensor.Duration",
+        "placeholder": 300,
+        "description": "Duration, in seconds, to wait without receiving a motion event to determine when occupancy is no longer detected.",
+        "x-kinds": [
+          "camera",
+          "light",
+          "sensor"
+        ],
+        "x-default": "motionOccupancySensorDuration"
+      },
+      "motionOccupancySensorAnimal": {
+        "type": "boolean",
+        "title": "Motion.OccupancySensor.Animal",
+        "description": "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's animal detection to trigger occupancy.",
+        "x-kinds": [
+          "camera",
+          "light",
+          "sensor"
+        ],
+        "x-default": "motionOccupancySensorAnimal"
+      },
+      "motionOccupancySensorFace": {
+        "type": "boolean",
+        "title": "Motion.OccupancySensor.Face",
+        "description": "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's face detection to trigger occupancy.",
+        "x-kinds": [
+          "camera",
+          "light",
+          "sensor"
+        ],
+        "x-default": "motionOccupancySensorFace"
+      },
+      "motionOccupancySensorLicensePlate": {
+        "type": "boolean",
+        "title": "Motion.OccupancySensor.LicensePlate",
+        "description": "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's license plate detection to trigger occupancy.",
+        "x-kinds": [
+          "camera",
+          "light",
+          "sensor"
+        ],
+        "x-default": "motionOccupancySensorLicensePlate"
+      },
+      "motionOccupancySensorPackage": {
+        "type": "boolean",
+        "title": "Motion.OccupancySensor.Package",
+        "description": "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's package detection to trigger occupancy.",
+        "x-kinds": [
+          "camera",
+          "light",
+          "sensor"
+        ],
+        "x-default": "motionOccupancySensorPackage"
+      },
+      "motionOccupancySensorPerson": {
+        "type": "boolean",
+        "title": "Motion.OccupancySensor.Person",
+        "description": "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's person detection to trigger occupancy.",
+        "x-kinds": [
+          "camera",
+          "light",
+          "sensor"
+        ],
+        "x-default": "motionOccupancySensorPerson"
+      },
+      "motionOccupancySensorVehicle": {
+        "type": "boolean",
+        "title": "Motion.OccupancySensor.Vehicle",
+        "description": "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's vehicle detection to trigger occupancy.",
+        "x-kinds": [
+          "camera",
+          "light",
+          "sensor"
+        ],
+        "x-default": "motionOccupancySensorVehicle"
+      },
+      "motionOccupancySensorAlrmBabyCry": {
+        "type": "boolean",
+        "title": "Motion.OccupancySensor.AlrmBabyCry",
+        "description": "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's baby crying audio detection to trigger occupancy.",
+        "x-kinds": [
+          "camera",
+          "light",
+          "sensor"
+        ],
+        "x-default": "motionOccupancySensorAlrmBabyCry"
+      },
+      "motionOccupancySensorAlrmBark": {
+        "type": "boolean",
+        "title": "Motion.OccupancySensor.AlrmBark",
+        "description": "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's bark audio detection to trigger occupancy.",
+        "x-kinds": [
+          "camera",
+          "light",
+          "sensor"
+        ],
+        "x-default": "motionOccupancySensorAlrmBark"
+      },
+      "motionOccupancySensorAlrmBurglar": {
+        "type": "boolean",
+        "title": "Motion.OccupancySensor.AlrmBurglar",
+        "description": "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's car alarm audio detection to trigger occupancy.",
+        "x-kinds": [
+          "camera",
+          "light",
+          "sensor"
+        ],
+        "x-default": "motionOccupancySensorAlrmBurglar"
+      },
+      "motionOccupancySensorAlrmCarHorn": {
+        "type": "boolean",
+        "title": "Motion.OccupancySensor.AlrmCarHorn",
+        "description": "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's car horn audio detection to trigger occupancy.",
+        "x-kinds": [
+          "camera",
+          "light",
+          "sensor"
+        ],
+        "x-default": "motionOccupancySensorAlrmCarHorn"
+      },
+      "motionOccupancySensorAlrmCmonx": {
+        "type": "boolean",
+        "title": "Motion.OccupancySensor.AlrmCmonx",
+        "description": "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's CO alarm audio detection to trigger occupancy.",
+        "x-kinds": [
+          "camera",
+          "light",
+          "sensor"
+        ],
+        "x-default": "motionOccupancySensorAlrmCmonx"
+      },
+      "motionOccupancySensorAlrmGlassBreak": {
+        "type": "boolean",
+        "title": "Motion.OccupancySensor.alrmGlassBreak",
+        "description": "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's glass break audio detection to trigger occupancy.",
+        "x-kinds": [
+          "camera",
+          "light",
+          "sensor"
+        ],
+        "x-default": "motionOccupancySensorAlrmGlassBreak"
+      },
+      "motionOccupancySensorAlrmSiren": {
+        "type": "boolean",
+        "title": "Motion.OccupancySensor.AlrmSiren",
+        "description": "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's siren audio detection to trigger occupancy.",
+        "x-kinds": [
+          "camera",
+          "light",
+          "sensor"
+        ],
+        "x-default": "motionOccupancySensorAlrmSiren"
+      },
+      "motionOccupancySensorAlrmSmoke": {
+        "type": "boolean",
+        "title": "Motion.OccupancySensor.AlrmSmoke",
+        "description": "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's smoke alarm audio detection to trigger occupancy.",
+        "x-kinds": [
+          "camera",
+          "light",
+          "sensor"
+        ],
+        "x-default": "motionOccupancySensorAlrmSmoke"
+      },
+      "motionOccupancySensorAlrmSpeak": {
+        "type": "boolean",
+        "title": "Motion.OccupancySensor.AlrmSpeak",
+        "description": "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's speaking audio detection to trigger occupancy.",
+        "x-kinds": [
+          "camera",
+          "light",
+          "sensor"
+        ],
+        "x-default": "motionOccupancySensorAlrmSpeak"
+      },
+      "motionOccupancySensorSmokeCmonx": {
+        "type": "boolean",
+        "title": "Motion.OccupancySensor.Smoke_cmonx",
+        "description": "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's CO and smoke alarm audio detection to trigger occupancy.",
+        "x-kinds": [
+          "camera",
+          "light",
+          "sensor"
+        ],
+        "x-default": "motionOccupancySensorSmokeCmonx"
+      },
+      "motionSmartDetect": {
+        "type": "boolean",
+        "title": "Motion.SmartDetect",
+        "description": "Use UniFi Protect smart detection for HomeKit motion events when on a supported device.",
+        "x-kinds": [
+          "camera",
+          "light",
+          "sensor"
+        ],
+        "x-default": "motionSmartDetect"
+      },
+      "motionSmartDetectObjectSensors": {
+        "type": "boolean",
+        "title": "Motion.SmartDetect.ObjectSensors",
+        "description": "Add contact sensors for each smart detection object type that UniFi Protect supports.",
+        "x-kinds": [
+          "camera",
+          "light",
+          "sensor"
+        ],
+        "x-default": "motionSmartDetectObjectSensors"
+      },
+      "motionSmartDetectObjectSensorsLicensePlate": {
+        "type": "string",
+        "title": "Motion.SmartDetect.ObjectSensors.LicensePlate",
+        "description": "Add a contact sensor accessory that will match a specific license plate detected by UniFi Protect. You may specify multiple license plates by using hyphens to distinguish unique license plates (e.g. PLATE1-PLATE2-PLATE3).",
+        "x-kinds": [
+          "camera",
+          "light",
+          "sensor"
+        ],
+        "x-default": "motionSmartDetectObjectSensorsLicensePlate"
+      },
+      "motionTrigger": {
+        "type": "boolean",
+        "title": "Motion.Trigger",
+        "description": "Add a switch accessory to manually trigger a motion detection event in HomeKit.",
+        "x-kinds": [
+          "camera",
+          "light",
+          "sensor"
+        ],
+        "x-default": "motionTrigger"
+      },
+      "nvrServicePlaylist": {
+        "type": "number",
+        "title": "Nvr.Service.Playlist",
+        "placeholder": 10110,
+        "description": "Publish an M3U playlist of Protect cameras on the specified port of this Homebridge server that is suitable for use in apps (e.g. Channels DVR) that can make camera livestreams available through them.",
+        "x-kinds": [
+          "nvr"
+        ],
+        "x-default": "nvrServicePlaylist"
+      },
+      "nvrDelayDeviceRemoval": {
+        "type": "number",
+        "title": "Nvr.DelayDeviceRemoval",
+        "placeholder": 60,
+        "description": "Delay, in seconds, before removing devices that are no longer detected on the Protect controller. If disabled, devices are removed in realtime when the Protect controller does so.",
+        "x-kinds": [
+          "nvr"
+        ],
+        "x-default": "nvrDelayDeviceRemoval"
+      },
+      "nvrPublishTelemetry": {
+        "type": "boolean",
+        "title": "Nvr.Publish.Telemetry",
+        "description": "Publish all the realtime telemetry received from the Protect controller to MQTT.",
+        "x-kinds": [
+          "nvr"
+        ],
+        "x-default": "nvrPublishTelemetry"
+      },
+      "nvrRecordingSwitch": {
+        "type": "boolean",
+        "title": "Nvr.Recording.Switch",
+        "description": "Add switch accessories to control the native recording capabilities of the UniFi Protect NVR.",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera"
+        ],
+        "x-default": "nvrRecordingSwitch"
+      },
+      "nvrSystemInfo": {
+        "type": "boolean",
+        "title": "Nvr.SystemInfo",
+        "description": "Add sensor accessories to display the Protect controller system information (currently only the temperature).",
+        "x-kinds": [
+          "nvr"
+        ],
+        "x-default": "nvrSystemInfo"
+      },
+      "securitySystemAlarm": {
+        "type": "boolean",
+        "title": "SecuritySystem.Alarm",
+        "description": "Add a switch accessory to trigger the security system accessory, when using the liveview feature option.",
+        "x-kinds": [
+          "nvr"
+        ],
+        "x-default": "securitySystemAlarm"
+      },
+      "sensorMoistureSensor": {
+        "type": "boolean",
+        "title": "Sensor.MoistureSensor",
+        "description": "Expose the Protect leak sensor as a contact sensor instead of a leak sensor. This is useful for automation scenarios since HomeKit contact sensors offer more flexible automation options than leak sensors, which are primarily designed for alerts.",
+        "x-kinds": [
+          "sensor"
+        ],
+        "x-default": "sensorMoistureSensor"
+      },
+      "uniFiAccessLock": {
+        "type": "boolean",
+        "title": "UniFi.Access.Lock",
+        "description": "Add a lock accessory to unlock. Currently, Protect only supports unlocking Access readers with a camera on the same controller as Protect.",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera"
+        ],
+        "x-default": "uniFiAccessLock"
+      },
+      "videoTranscodeHardware": {
+        "type": "boolean",
+        "title": "Video.Transcode.Hardware",
+        "description": "Use hardware-accelerated transcoding when available (Apple Macs, Intel Quick Sync Video-enabled CPUs, Raspberry Pi 4).",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera"
+        ],
+        "x-default": "videoTranscodeHardware"
+      },
+      "videoStreamUseApi": {
+        "type": "boolean",
+        "title": "Video.Stream.UseApi",
+        "description": "Use the native Protect livestream API to view livestreams.",
+        "x-kinds": [
+          "camera"
+        ],
+        "x-default": "videoStreamUseApi"
+      },
+      "videoTranscode": {
+        "type": "boolean",
+        "title": "Video.Transcode",
+        "description": "When streaming to low-latency clients (e.g. at home), transcode livestreams, instead of transmuxing them.",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera"
+        ],
+        "x-default": "videoTranscode"
+      },
+      "videoTranscodeBitrate": {
+        "type": "number",
+        "title": "Video.Transcode.Bitrate",
+        "placeholder": 2000,
+        "description": "Bitrate, in kilobits per second, to use when transcoding to low-latency (e.g. at home) clients, ignoring the bitrate HomeKit requests. HomeKit typically requests lower video quality than you may desire in your environment.",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera"
+        ],
+        "x-default": "videoTranscodeBitrate"
+      },
+      "videoTranscodeHighLatency": {
+        "type": "boolean",
+        "title": "Video.Transcode.HighLatency",
+        "description": "When streaming to high-latency clients (e.g. cellular connections), transcode livestreams instead of transmuxing them.",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera"
+        ],
+        "x-default": "videoTranscodeHighLatency"
+      },
+      "videoTranscodeHighLatencyBitrate": {
+        "type": "number",
+        "title": "Video.Transcode.HighLatency.Bitrate",
+        "placeholder": 1000,
+        "description": "Bitrate, in kilobits per second, to use when transcoding to high-latency (e.g. cellular) clients, ignoring the bitrate HomeKit requests. HomeKit typically requests lower video quality than you may desire in your environment.",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera"
+        ],
+        "x-default": "videoTranscodeHighLatencyBitrate"
+      },
+      "videoStreamOnlyHigh": {
+        "type": "boolean",
+        "title": "Video.Stream.Only.High",
+        "description": "When viewing livestreams, force the use of the high quality video stream from the Protect controller.",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera"
+        ],
+        "x-default": "videoStreamOnlyHigh"
+      },
+      "videoStreamOnlyMedium": {
+        "type": "boolean",
+        "title": "Video.Stream.Only.Medium",
+        "description": "When viewing livestreams, force the use of the medium quality video stream from the Protect controller.",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera"
+        ],
+        "x-default": "videoStreamOnlyMedium"
+      },
+      "videoStreamOnlyLow": {
+        "type": "boolean",
+        "title": "Video.Stream.Only.Low",
+        "description": "When viewing livestreams, force the use of the low quality video stream from the Protect controller.",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera"
+        ],
+        "x-default": "videoStreamOnlyLow"
+      },
+      "videoCrop": {
+        "type": "boolean",
+        "title": "Video.Crop",
+        "description": "Crop the camera video stream. Enabling this option will also force transcoding of livestreams.",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera"
+        ],
+        "x-default": "videoCrop"
+      },
+      "videoCropX": {
+        "type": "number",
+        "title": "Video.Crop.X",
+        "placeholder": 0,
+        "description": "Left offset of the crop window, as a percentage of the original image width.",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera"
+        ],
+        "x-default": "videoCropX"
+      },
+      "videoCropY": {
+        "type": "number",
+        "title": "Video.Crop.Y",
+        "placeholder": 0,
+        "description": "Top offset of the crop window, as a percentage of the original image height.",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera"
+        ],
+        "x-default": "videoCropY"
+      },
+      "videoCropWidth": {
+        "type": "number",
+        "title": "Video.Crop.Width",
+        "placeholder": 100,
+        "description": "Width of the crop window, as a percentage of original image width.",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera"
+        ],
+        "x-default": "videoCropWidth"
+      },
+      "videoCropHeight": {
+        "type": "number",
+        "title": "Video.Crop.Height",
+        "placeholder": 100,
+        "description": "Height of the crop window, as a percentage of original image height.",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera"
+        ],
+        "x-default": "videoCropHeight"
+      },
+      "videoHighResSnapshots": {
+        "type": "boolean",
+        "title": "Video.HighResSnapshots",
+        "description": "Enable higher quality snapshots.",
+        "x-kinds": [
+          "camera",
+          "thirdPartyCamera"
+        ],
+        "x-default": "videoHighResSnapshots"
+      },
+      "videoHKSVStatusLedIndicator": {
+        "type": "boolean",
+        "title": "Video.HKSV.StatusLedIndicator",
+        "description": "Use the camera status indicator light to show when an HKSV event is being recorded.",
+        "x-kinds": [
+          "camera"
+        ],
+        "x-default": "videoHKSVStatusLedIndicator"
+      },
+      "videoHKSVRecordOnlyHigh": {
+        "type": "boolean",
+        "title": "Video.HKSV.Record.Only.High",
+        "description": "When recording HomeKit Secure Video events, force the use of the high quality video stream from the Protect controller.",
+        "x-kinds": [
+          "camera"
+        ],
+        "x-default": "videoHKSVRecordOnlyHigh"
+      },
+      "videoHKSVRecordOnlyMedium": {
+        "type": "boolean",
+        "title": "Video.HKSV.Record.Only.Medium",
+        "description": "When recording HomeKit Secure Video events, force the use of the medium quality video stream from the Protect controller.",
+        "x-kinds": [
+          "camera"
+        ],
+        "x-default": "videoHKSVRecordOnlyMedium"
+      },
+      "videoHKSVRecordOnlyLow": {
+        "type": "boolean",
+        "title": "Video.HKSV.Record.Only.Low",
+        "description": "When recording HomeKit Secure Video events, force the use of the low quality video stream from the Protect controller.",
+        "x-kinds": [
+          "camera"
+        ],
+        "x-default": "videoHKSVRecordOnlyLow"
+      }
+    }
+  },
   "layout": [
     "name",
     {
@@ -295,78 +1496,198 @@
           "key": "controllers",
           "type": "array",
           "name": " ",
-          "description": "Provide the IP address and login details of your UniFi Protect controllers.",
           "orderable": false,
           "buttonText": "Add UniFi Protect Controller",
           "items": [
             "controllers[].address",
-            "controllers[].username",
-            "controllers[].password",
-
+            "controllers[].name",
+            "controllers[].overrideAddress",
+            "controllers[].verifyTls",
+            "controllers[].mqttUrl",
+            "controllers[].mqttTopic",
+            "controllers[].mqttVerifyTls",
+            "controllers[].playlistAddress",
             {
-              "key": "controllers[]",
-              "type": "section",
-              "title": "Doorbell Message Presets",
-              "expandable": true,
-              "expanded": false,
+              "key": "controllers[].doorbellMessages",
+              "type": "array",
+              "name": " ",
+              "orderable": false,
+              "buttonText": "Add Doorbell Message",
               "items": [
-
-                {
-                  "key": "controllers[].doorbellMessages",
-                  "type": "array",
-                  "name": " ",
-                  "description": "Create additional message presets to display on your UniFi Protect Doorbell.",
-                  "orderable": false,
-                  "buttonText": "Add Doorbell Message",
-                  "items": [
-                    "controllers[].doorbellMessages[].message",
-                    "controllers[].doorbellMessages[].duration"
-                  ]
-                }
-              ]
-            },
-
-            {
-              "key": "controllers[]",
-              "type": "section",
-              "title": "Optional Settings",
-              "expandable": true,
-              "expanded": false,
-              "items": [
-                {
-                  "description": "These settings are optional. The defaults work well for almost everyone.",
-                  "items": [
-                    "controllers[].name",
-                    "controllers[].overrideAddress",
-                    "controllers[].verifyTls",
-                    "controllers[].playlistAddress",
-                    "controllers[].playlistToken"
-                  ]
-                }
-              ]
-            },
-            {
-              "key": "controllers[]",
-              "type": "section",
-              "title": "MQTT Settings",
-              "expandable": true,
-              "expanded": false,
-              "items": [
-                {
-                  "description": "MQTT support will only be enabled if an MQTT broker URL is specified below.",
-                  "items": [
-                    "controllers[].mqttUrl",
-                    "controllers[].mqttTopic",
-                    "controllers[].mqttVerifyTls"
-                  ]
-                }
+                "controllers[].doorbellMessages[].message",
+                "controllers[].doorbellMessages[].duration"
               ]
             }
           ]
         }
       ]
     },
-
+    {
+      "type": "fieldset",
+      "title": "Audio",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "audio",
+        "audioFilterNoise",
+        "audioFilterNoiseFftNr",
+        "audioFilterNoiseHighPass",
+        "audioFilterNoiseLowPass",
+        "audioTwoWay",
+        "audioTwoWayDirect"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Device",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "deviceStatusLed",
+        "deviceStatusLedSwitch",
+        "deviceNightVision",
+        "deviceNightVisionDimmer",
+        "deviceStandalone",
+        "deviceSelfHealing",
+        "deviceSyncName"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Doorbell",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "doorbellAuthSensor",
+        "doorbellMute",
+        "doorbellMessagesEnabled",
+        "doorbellMessagesFromDoorbell",
+        "doorbellVolumeDimmer",
+        "doorbellPhysicalChime",
+        "doorbellPhysicalChimeDurationDigital",
+        "doorbellPackageCameraFlashlight",
+        "doorbellTrigger"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Logging",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "logDoorbell",
+        "logHKSV",
+        "logMotion"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Motion",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "motionDuration",
+        "motionOccupancySensor",
+        "motionOccupancySensorDuration",
+        "motionOccupancySensorAnimal",
+        "motionOccupancySensorFace",
+        "motionOccupancySensorLicensePlate",
+        "motionOccupancySensorPackage",
+        "motionOccupancySensorPerson",
+        "motionOccupancySensorVehicle",
+        "motionOccupancySensorAlrmBabyCry",
+        "motionOccupancySensorAlrmBark",
+        "motionOccupancySensorAlrmBurglar",
+        "motionOccupancySensorAlrmCarHorn",
+        "motionOccupancySensorAlrmCmonx",
+        "motionOccupancySensorAlrmGlassBreak",
+        "motionOccupancySensorAlrmSiren",
+        "motionOccupancySensorAlrmSmoke",
+        "motionOccupancySensorAlrmSpeak",
+        "motionOccupancySensorSmokeCmonx",
+        "motionSmartDetect",
+        "motionSmartDetectObjectSensors",
+        "motionSmartDetectObjectSensorsLicensePlate",
+        "motionSwitch",
+        "motionTrigger"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "NVR",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "nvrServicePlaylist",
+        "nvrDelayDeviceRemoval",
+        "nvrPublishTelemetry",
+        "nvrRecordingSwitch",
+        "nvrSystemInfo"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Security System",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "securitySystemAlarm"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Sensor",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "sensorMoistureSensor"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "UniFi Access",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "uniFiAccessLock"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Video",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "videoTranscodeHardware",
+        "videoStreamUseApi",
+        "videoTranscode",
+        "videoTranscodeBitrate",
+        "videoTranscodeHighLatency",
+        "videoTranscodeHighLatencyBitrate",
+        "videoStreamOnlyHigh",
+        "videoStreamOnlyMedium",
+        "videoStreamOnlyLow",
+        "videoCrop",
+        "videoCropX",
+        "videoCropY",
+        "videoCropWidth",
+        "videoCropHeight",
+        "videoHighResSnapshots"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "HomeKit Secure Video",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "videoHKSVStatusLedIndicator",
+        "videoHKSVRecordingSwitch",
+        "videoHKSVRecordOnlyHigh",
+        "videoHKSVRecordOnlyMedium",
+        "videoHKSVRecordOnlyLow"
+      ]
+    },
     {
       "type": "section",
       "title": "Plugin Feature Options (Optional)",
@@ -377,7 +1698,6 @@
           "key": "options",
           "type": "array",
           "name": " ",
-          "description": "Use the feature options webUI tab above instead of manually configuring feature options here.",
           "orderable": true,
           "buttonText": "Add Feature Option",
           "items": [
@@ -386,240 +1706,679 @@
         }
       ]
     },
-
     {
       "type": "section",
       "title": "Additional Settings (Optional)",
       "expandable": true,
       "expanded": false,
       "items": [
-        {
-          "description": "These settings should be rarely used or needed by most people. Use these with caution.",
-          "items": [
-            "name",
-            "videoProcessor",
-            "verboseFfmpeg",
-            "ringDelay",
-            "debug"
-          ]
-        }
+        "videoProcessor",
+        "verboseFfmpeg",
+        "ringDelay",
+        "debug"
       ]
     }
   ],
-
   "i18n": {
     "fr": {
       "e.g. I'll be there soon.": "Par ex. J'arrive tout de suite.",
-      "One option per entry. The plugin's page sets them for you; the README lists them all.": "Une option par entrée. La page du plugin les règle pour vous ; le README les liste toutes.",
       "Additional Settings (Optional)": "Réglages supplémentaires (facultatif)",
-      "Camera MAC Address": "Adresse MAC de la caméra",
-      "Camera Override": "Remplacement de caméra",
       "Controller Address": "Adresse du contrôleur",
       "Controller Name": "Nom du contrôleur",
-      "Controller Password": "Mot de passe du contrôleur",
-      "Controller Username": "Nom d'utilisateur du contrôleur",
       "Debug Logging": "Journal de débogage",
       "Delay between doorbell rings. Setting this to a non-zero value will prevent multiple rings of a doorbell over the specified duration. Default: 0.": "Délai entre les sonneries d'une sonnette. Une valeur non nulle ignore les sonneries répétées d'une sonnette pendant cette durée. Par défaut : 0.",
       "Direct RTSP / RTSPS URL": "URL RTSP / RTSPS directe",
       "Direct Snapshot URL": "URL de capture directe",
       "Doorbell Message": "Message de sonnette",
-      "Doorbell Message Presets": "Messages prédéfinis de la sonnette",
       "Doorbell Messages": "Messages de la sonnette",
       "Doorbell Ring Delay (seconds)": "Délai entre sonneries (secondes)",
       "Enable additional logging for FFmpeg. This will create additional logging when video streams are running. Default: false.": "Active un journal plus détaillé pour FFmpeg, qui écrit davantage pendant la diffusion des flux vidéo. Par défaut : désactivé.",
       "Enable debug logging for this plugin. This creates a large volume of log output and should only be used when troubleshooting. Default: false.": "Active le journal de débogage de ce plugin. Il produit un grand volume de messages et ne doit servir qu'au dépannage. Par défaut : désactivé.",
       "Extra message presets for this controller's doorbells with a screen. While doorbell messages are enabled, each preset appears as a switch that shows it.": "Messages prédéfinis supplémentaires pour les sonnettes à écran de ce contrôleur. Quand les messages de sonnette sont activés, chaque message apparaît comme un interrupteur qui l'affiche.",
       "FFmpeg Location": "Emplacement de FFmpeg",
-      "Feature Option": "Option de fonction",
       "Feature Options": "Options des fonctions",
-      "Feature options that turn plugin features on or off, everywhere or for one controller or device, such as Disable.Device. The feature options tab edits them for you.": "Options qui activent ou désactivent des fonctions du plugin, partout ou pour un contrôleur ou un appareil, comme Disable.Device. L'onglet des options des fonctions les modifie pour vous.",
       "Full HTTP or HTTPS URL pointing at the camera's snapshot endpoint. Credentials may be embedded. Self-signed certificates are accepted.": "URL HTTP ou HTTPS complète du point d'accès de capture de la caméra. Elle peut contenir des identifiants. Les certificats autosignés sont acceptés.",
       "Full RTSP or RTSPS URL pointing directly at the camera's own RTSP server, bypassing the Protect controller. Credentials may be embedded.": "URL RTSP ou RTSPS complète qui pointe directement vers le serveur RTSP de la caméra, sans passer par le contrôleur Protect. Elle peut contenir des identifiants.",
       "Hostname or IP address of your UniFi Protect controller.": "Nom d'hôte ou adresse IP de votre contrôleur UniFi Protect.",
       "Length of time to display the message on your doorbell. Use 0 to display the message indefinitely. Default: 60.": "Durée d'affichage du message sur votre sonnette. 0 l'affiche indéfiniment. Par défaut : 60.",
       "Local IP address the M3U playlist service (Nvr.Service.Playlist feature option) listens on. Default: all interfaces.": "Adresse IP locale sur laquelle écoute le service de liste de lecture M3U (option de fonction Nvr.Service.Playlist). Par défaut : toutes les interfaces.",
-      "M3U Playlist Access Token": "Jeton d'accès à la liste de lecture M3U",
       "M3U Playlist Bind Address": "Adresse d'écoute de la liste de lecture M3U",
-      "MAC address of the third-party camera as reported by the Protect controller. Comparison is case- and separator-insensitive.": "Adresse MAC de la caméra tierce telle que l'indique le contrôleur Protect. La comparaison ignore la casse et les séparateurs.",
       "MQTT Base Topic": "Sujet MQTT de base",
       "MQTT Broker URL": "URL du broker MQTT",
-      "MQTT Settings": "Réglages MQTT",
       "Message Duration (seconds)": "Durée du message (secondes)",
       "Message Name": "Nom du message",
       "Message to display on your doorbell. Default: None.": "Message à afficher sur votre sonnette. Par défaut : aucun.",
       "Name for this UniFi Protect controller to be used for logging purposes. Default: Defined by the controller.": "Nom de ce contrôleur UniFi Protect utilisé dans le journal. Par défaut : celui que donne le contrôleur.",
       "Name to use for logging purposes. Default: UniFi Protect.": "Nom utilisé dans le journal. Par défaut : UniFi Protect.",
-      "ONVIF Password": "Mot de passe ONVIF",
       "ONVIF Port": "Port ONVIF",
       "ONVIF Service Path": "Chemin du service ONVIF",
       "ONVIF Username": "Nom d'utilisateur ONVIF",
       "ONVIF service port remembered for the discovery panel. Leave empty to let the panel try common defaults.": "Port du service ONVIF mémorisé pour le panneau de découverte. Laissez vide pour que le panneau essaie les valeurs courantes.",
       "Optional ONVIF device service path remembered for the discovery panel. Defaults to /onvif/device_service when blank.": "Chemin facultatif du service de l'appareil ONVIF, mémorisé pour le panneau de découverte. Vide, c'est /onvif/device_service.",
-      "Optional Settings": "Réglages facultatifs",
       "Override Controller Address": "Adresse de remplacement du contrôleur",
       "Override the address used when livestreaming. This is useful in VPN and remote scenarios where you want to override the address of the UniFi Protect controller. Warning: due to the way stacked Protect controller installations work, this option is unavailable for those configurations.": "Remplace l'adresse utilisée pour la diffusion en direct. Utile avec un VPN ou à distance, pour remplacer l'adresse du contrôleur UniFi Protect. Attention : en raison du fonctionnement des installations Protect empilées, cette option n'est pas disponible pour celles-ci.",
-      "Password remembered for the ONVIF discovery panel. Stored in plaintext alongside the controller credentials.": "Mot de passe mémorisé pour le panneau de découverte ONVIF. Enregistré en clair avec les identifiants du contrôleur.",
       "Path to the FFmpeg executable. Most users should not use this setting. Default: the first ffmpeg found in PATH.": "Chemin de l'exécutable FFmpeg. La plupart des utilisateurs n'ont pas besoin de ce réglage. Par défaut : le premier ffmpeg trouvé dans le PATH.",
-      "Per-camera RTSP and snapshot URL overrides for ONVIF and other third-party cameras adopted into UniFi Protect. The Protect controller often does not relay these cameras' streams reliably; supply the camera's own URLs here to bypass the controller. Only applied to cameras the controller has flagged as third-party.": "URL RTSP et de capture propres à chaque caméra, pour les caméras ONVIF et autres caméras tierces adoptées dans UniFi Protect. Le contrôleur Protect relaie souvent mal les flux de ces caméras ; indiquez ici les URL de la caméra elle-même pour contourner le contrôleur. Appliqué seulement aux caméras que le contrôleur signale comme tierces.",
       "Plugin Feature Options (Optional)": "Options des fonctions du plugin (facultatif)",
       "Plugin Name": "Nom du plugin",
-      "The UniFi Protect controllers to connect to, each with its address and the local user the plugin signs in with.": "Les contrôleurs UniFi Protect auxquels se connecter, chacun avec son adresse et l'utilisateur local avec lequel le plugin se connecte.",
       "The base MQTT topic to publish to. Default: unifi/protect.": "Le sujet MQTT de base sur lequel publier. Par défaut : unifi/protect.",
-      "Third-Party Camera URL Overrides": "URL de remplacement des caméras tierces",
       "URL for the MQTT broker you'd like to publish event messages to. Default: None.": "URL du broker MQTT auquel publier les messages d'événement. Par défaut : aucune.",
       "UniFi Protect Controller": "Contrôleur UniFi Protect",
       "UniFi Protect Controllers": "Contrôleurs UniFi Protect",
-      "UniFi Protect password for this controller's local user.": "Mot de passe UniFi Protect de l'utilisateur local de ce contrôleur.",
-      "UniFi Protect username for this controller. Create a local user for Homeswift on the controller, with the Full Management role so the plugin can turn on RTSP streams and change device settings.": "Nom d'utilisateur UniFi Protect pour ce contrôleur. Créez sur le contrôleur un utilisateur local pour Homeswift, avec le rôle Full Management, pour que le plugin puisse activer les flux RTSP et modifier les réglages des appareils.",
       "Username remembered for the ONVIF discovery panel. Stored in plaintext alongside the controller credentials.": "Nom d'utilisateur mémorisé pour le panneau de découverte ONVIF. Enregistré en clair avec les identifiants du contrôleur.",
       "Validate the MQTT broker's TLS certificate when connecting over mqtts:// or ssl://. Only disable this if your broker uses a self-signed certificate. Default: enabled.": "Vérifie le certificat TLS du broker MQTT lors des connexions en mqtts:// ou ssl://. Ne désactivez cette option que si votre broker utilise un certificat autosigné. Par défaut : activé.",
       "Validate the controller's TLS certificate against trusted certificate authorities when connecting. Leave this disabled unless your controller uses a certificate signed by a trusted certificate authority - UniFi controllers use self-signed certificates by default. When disabled, the controller's certificate is pinned the first time the plugin connects, and connections presenting a different certificate are refused. Default: disabled.": "Vérifie le certificat TLS du contrôleur auprès d'autorités de certification de confiance lors de la connexion. Laissez cette option désactivée, sauf si votre contrôleur utilise un certificat signé par une autorité de certification de confiance : les contrôleurs UniFi utilisent par défaut des certificats autosignés. Désactivée, le certificat du contrôleur est épinglé à la première connexion du plugin, et les connexions qui présentent un autre certificat sont refusées. Par défaut : désactivé.",
       "Verbose FFmpeg Logging": "Journal FFmpeg détaillé",
       "Verify MQTT Broker TLS Certificate": "Vérifier le certificat TLS du broker MQTT",
       "Verify TLS Certificate": "Vérifier le certificat TLS",
-      "When set, clients must request the M3U playlist with ?token=<value> in the URL. Without a token, anyone who can reach the playlist port can retrieve your camera stream URLs.": "Si défini, les clients doivent demander la liste de lecture M3U avec ?token=<value> dans l'URL. Sans jeton, quiconque atteint le port de la liste de lecture peut obtenir les URL des flux de vos caméras."
+      "Audio": "Audio",
+      "Audio support.": "Prise en charge de l'audio.",
+      "Audio.Filter.Noise": "Audio.Filter.Noise",
+      "Audio filter for ambient noise suppression.": "Filtre audio de suppression du bruit ambiant.",
+      "Audio.Filter.Noise.FftNr": "Audio.Filter.Noise.FftNr",
+      "Noise reduction amount, in decibels, for the FFmpeg afftdn filter.": "Niveau de réduction du bruit, en décibels, pour le filtre afftdn de FFmpeg.",
+      "Audio.Filter.Noise.HighPass": "Audio.Filter.Noise.HighPass",
+      "Frequency, in Hertz, for the FFmpeg highpass filter.": "Fréquence, en hertz, pour le filtre highpass de FFmpeg.",
+      "Audio.Filter.Noise.LowPass": "Audio.Filter.Noise.LowPass",
+      "Frequency, in Hertz, for the FFmpeg lowpass filter.": "Fréquence, en hertz, pour le filtre lowpass de FFmpeg.",
+      "Audio.TwoWay": "Audio.TwoWay",
+      "Two-way audio support on supported cameras.": "Audio bidirectionnel sur les caméras compatibles.",
+      "Audio.TwoWay.Direct": "Audio.TwoWay.Direct",
+      "Send two-way audio directly to supported cameras, bypassing the controller. Useful for working around bugs in some Protect controller firmware versions.": "Envoyer l'audio bidirectionnel directement aux caméras compatibles, sans passer par le contrôleur. Utile pour contourner des bugs de certaines versions du firmware des contrôleurs Protect.",
+      "Device.StatusLed": "Device.StatusLed",
+      "Enable the status indicator light for this device in HomeKit.": "Activer le voyant d'état de cet appareil dans HomeKit.",
+      "Device.StatusLed.Switch": "Device.StatusLed.Switch",
+      "Add a switch accessory to control the status indicator light in HomeKit.": "Ajouter un accessoire interrupteur pour contrôler le voyant d'état dans HomeKit.",
+      "Device.NightVision": "Device.NightVision",
+      "Enable the night vision indicator light for this device in HomeKit.": "Activer le voyant de vision nocturne de cet appareil dans HomeKit.",
+      "Device.NightVision.Dimmer": "Device.NightVision.Dimmer",
+      "Add a dimmer accessory to control the night vision state in HomeKit.": "Ajouter un accessoire variateur pour contrôler la vision nocturne dans HomeKit.",
+      "Device.Standalone": "Device.Standalone",
+      "Make this a standalone device in HomeKit that will need to be added to HomeKit through the Home app.": "Faire de cet appareil un accessoire autonome dans HomeKit, à ajouter séparément depuis l'app Maison.",
+      "Device.SelfHealing": "Device.SelfHealing",
+      "Attempt to restart misbehaving devices. This is always done very conservatively and only after periods of extended device-specific issues.": "Tenter de redémarrer les appareils qui fonctionnent mal. Cela se fait toujours avec une grande prudence, et seulement après des problèmes prolongés propres à l'appareil.",
+      "Device.SyncName": "Device.SyncName",
+      "Synchronize the UniFi Protect name of this device with HomeKit. Synchronization is one-way only, syncing the device name from UniFi Protect to HomeKit.": "Synchroniser le nom UniFi Protect de cet appareil avec HomeKit. La synchronisation est à sens unique : le nom va d'UniFi Protect vers HomeKit.",
+      "Doorbell.AuthSensor": "Doorbell.AuthSensor",
+      "Add a contact sensor that gets activates when a fingerprint or NFC successfully authenticates on a Protect doorbell.": "Ajouter un capteur de contact qui s'active quand une empreinte digitale ou un badge NFC est authentifié sur une sonnette Protect.",
+      "Doorbell.Mute": "Doorbell.Mute",
+      "Add a switch accessory to control whether HomeKit will chime when the doorbell is pressed.": "Ajouter un accessoire interrupteur pour choisir si HomeKit sonne quand on appuie sur la sonnette.",
+      "Doorbell.Messages": "Doorbell.Messages",
+      "Enable the doorbell messages feature.": "Activer la fonction des messages de la sonnette.",
+      "Doorbell.Messages.FromDoorbell": "Doorbell.Messages.FromDoorbell",
+      "Use messages saved to the Protect NVR as message switches.": "Utiliser les messages enregistrés sur le NVR Protect comme interrupteurs de message.",
+      "Doorbell.Volume.Dimmer": "Doorbell.Volume.Dimmer",
+      "Add a dimmer accessory to control the Protect chime volume in HomeKit.": "Ajouter un accessoire variateur pour contrôler le volume du carillon Protect dans HomeKit.",
+      "Doorbell.PhysicalChime": "Doorbell.PhysicalChime",
+      "Add switch accessories to control the physical chimes attached to a Protect doorbell.": "Ajouter des accessoires interrupteurs pour contrôler les carillons physiques reliés à une sonnette Protect.",
+      "Doorbell.PhysicalChime.Duration.Digital": "Doorbell.PhysicalChime.Duration.Digital",
+      "Chime duration, in milliseconds, of a digital physical chime attached to a Protect doorbell.": "Durée de la sonnerie, en millisecondes, d'un carillon physique numérique relié à une sonnette Protect.",
+      "Doorbell.PackageCamera.Flashlight": "Doorbell.PackageCamera.Flashlight",
+      "Add a light accessory to control the flashlight on a Protect doorbell package camera.": "Ajouter un accessoire lampe pour contrôler la lampe de la caméra à colis d'une sonnette Protect.",
+      "Doorbell.Trigger": "Doorbell.Trigger",
+      "Add a switch accessory to trigger doorbell ring events on a Protect camera or doorbell.": "Ajouter un accessoire interrupteur pour déclencher des événements de sonnerie sur une caméra ou une sonnette Protect.",
+      "Log.Doorbell": "Log.Doorbell",
+      "Log doorbell ring events in Homebridge.": "Consigner les événements de sonnerie dans Homebridge.",
+      "Log.HKSV": "Log.HKSV",
+      "Log HomeKit Secure Video recording events in Homebridge.": "Consigner les événements d'enregistrement HomeKit Secure Video dans Homebridge.",
+      "Log.Motion": "Log.Motion",
+      "Log motion events in Homebridge.": "Consigner les événements de mouvement dans Homebridge.",
+      "Motion.Duration": "Motion.Duration",
+      "Duration, in seconds, of a single motion event, before allowing a new one.": "Durée, en secondes, d'un événement de mouvement avant d'en autoriser un nouveau.",
+      "Motion.OccupancySensor": "Motion.OccupancySensor",
+      "Add an occupancy sensor accessory using motion sensor activity to determine occupancy. By default, any motion will trigger occupancy. If the smart detection feature option is enabled, it will be used instead.": "Ajouter un accessoire capteur de présence qui déduit la présence de l'activité du détecteur de mouvement. Par défaut, tout mouvement déclenche la présence. Si l'option détection intelligente est activée, elle est utilisée à la place.",
+      "Motion.OccupancySensor.Duration": "Motion.OccupancySensor.Duration",
+      "Duration, in seconds, to wait without receiving a motion event to determine when occupancy is no longer detected.": "Durée, en secondes, à attendre sans événement de mouvement avant de considérer que la présence n'est plus détectée.",
+      "Motion.OccupancySensor.Animal": "Motion.OccupancySensor.Animal",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's animal detection to trigger occupancy.": "Si les options capteur de présence et détection intelligente sont activées, utiliser la détection des animaux de UniFi Protect pour déclencher la présence.",
+      "Motion.OccupancySensor.Face": "Motion.OccupancySensor.Face",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's face detection to trigger occupancy.": "Si les options capteur de présence et détection intelligente sont activées, utiliser la détection des visages de UniFi Protect pour déclencher la présence.",
+      "Motion.OccupancySensor.LicensePlate": "Motion.OccupancySensor.LicensePlate",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's license plate detection to trigger occupancy.": "Si les options capteur de présence et détection intelligente sont activées, utiliser la détection des plaques d'immatriculation de UniFi Protect pour déclencher la présence.",
+      "Motion.OccupancySensor.Package": "Motion.OccupancySensor.Package",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's package detection to trigger occupancy.": "Si les options capteur de présence et détection intelligente sont activées, utiliser la détection des colis de UniFi Protect pour déclencher la présence.",
+      "Motion.OccupancySensor.Person": "Motion.OccupancySensor.Person",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's person detection to trigger occupancy.": "Si les options capteur de présence et détection intelligente sont activées, utiliser la détection des personnes de UniFi Protect pour déclencher la présence.",
+      "Motion.OccupancySensor.Vehicle": "Motion.OccupancySensor.Vehicle",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's vehicle detection to trigger occupancy.": "Si les options capteur de présence et détection intelligente sont activées, utiliser la détection des véhicules de UniFi Protect pour déclencher la présence.",
+      "Motion.OccupancySensor.AlrmBabyCry": "Motion.OccupancySensor.AlrmBabyCry",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's baby crying audio detection to trigger occupancy.": "Si les options capteur de présence et détection intelligente sont activées, utiliser la détection audio des pleurs de bébé de UniFi Protect pour déclencher la présence.",
+      "Motion.OccupancySensor.AlrmBark": "Motion.OccupancySensor.AlrmBark",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's bark audio detection to trigger occupancy.": "Si les options capteur de présence et détection intelligente sont activées, utiliser la détection audio des aboiements de UniFi Protect pour déclencher la présence.",
+      "Motion.OccupancySensor.AlrmBurglar": "Motion.OccupancySensor.AlrmBurglar",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's car alarm audio detection to trigger occupancy.": "Si les options capteur de présence et détection intelligente sont activées, utiliser la détection audio des alarmes de voiture de UniFi Protect pour déclencher la présence.",
+      "Motion.OccupancySensor.AlrmCarHorn": "Motion.OccupancySensor.AlrmCarHorn",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's car horn audio detection to trigger occupancy.": "Si les options capteur de présence et détection intelligente sont activées, utiliser la détection audio des klaxons de UniFi Protect pour déclencher la présence.",
+      "Motion.OccupancySensor.AlrmCmonx": "Motion.OccupancySensor.AlrmCmonx",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's CO alarm audio detection to trigger occupancy.": "Si les options capteur de présence et détection intelligente sont activées, utiliser la détection audio des alarmes CO de UniFi Protect pour déclencher la présence.",
+      "Motion.OccupancySensor.alrmGlassBreak": "Motion.OccupancySensor.alrmGlassBreak",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's glass break audio detection to trigger occupancy.": "Si les options capteur de présence et détection intelligente sont activées, utiliser la détection audio des bris de glace de UniFi Protect pour déclencher la présence.",
+      "Motion.OccupancySensor.AlrmSiren": "Motion.OccupancySensor.AlrmSiren",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's siren audio detection to trigger occupancy.": "Si les options capteur de présence et détection intelligente sont activées, utiliser la détection audio des sirènes de UniFi Protect pour déclencher la présence.",
+      "Motion.OccupancySensor.AlrmSmoke": "Motion.OccupancySensor.AlrmSmoke",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's smoke alarm audio detection to trigger occupancy.": "Si les options capteur de présence et détection intelligente sont activées, utiliser la détection audio des alarmes de fumée de UniFi Protect pour déclencher la présence.",
+      "Motion.OccupancySensor.AlrmSpeak": "Motion.OccupancySensor.AlrmSpeak",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's speaking audio detection to trigger occupancy.": "Si les options capteur de présence et détection intelligente sont activées, utiliser la détection audio de la parole de UniFi Protect pour déclencher la présence.",
+      "Motion.OccupancySensor.Smoke_cmonx": "Motion.OccupancySensor.Smoke_cmonx",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's CO and smoke alarm audio detection to trigger occupancy.": "Si les options capteur de présence et détection intelligente sont activées, utiliser la détection audio des alarmes CO et fumée de UniFi Protect pour déclencher la présence.",
+      "Motion.SmartDetect": "Motion.SmartDetect",
+      "Use UniFi Protect smart detection for HomeKit motion events when on a supported device.": "Utiliser la détection intelligente de UniFi Protect pour les événements de mouvement HomeKit sur un appareil compatible.",
+      "Motion.SmartDetect.ObjectSensors": "Motion.SmartDetect.ObjectSensors",
+      "Add contact sensors for each smart detection object type that UniFi Protect supports.": "Ajouter des capteurs de contact pour chaque type d'objet de la détection intelligente que UniFi Protect prend en charge.",
+      "Motion.SmartDetect.ObjectSensors.LicensePlate": "Motion.SmartDetect.ObjectSensors.LicensePlate",
+      "Add a contact sensor accessory that will match a specific license plate detected by UniFi Protect. You may specify multiple license plates by using hyphens to distinguish unique license plates (e.g. PLATE1-PLATE2-PLATE3).": "Ajouter un accessoire capteur de contact qui correspond à une plaque d'immatriculation précise détectée par UniFi Protect. Vous pouvez indiquer plusieurs plaques en les séparant par des tirets (p. ex. PLAQUE1-PLAQUE2-PLAQUE3).",
+      "Motion.Switch": "Motion.Switch",
+      "Add a switch accessory to activate or deactivate motion detection in HomeKit.": "Ajouter un accessoire interrupteur pour activer ou désactiver la détection de mouvement dans HomeKit.",
+      "Motion.Trigger": "Motion.Trigger",
+      "Add a switch accessory to manually trigger a motion detection event in HomeKit.": "Ajouter un accessoire interrupteur pour déclencher manuellement un événement de détection de mouvement dans HomeKit.",
+      "Nvr.Service.Playlist": "Nvr.Service.Playlist",
+      "Publish an M3U playlist of Protect cameras on the specified port of this Homebridge server that is suitable for use in apps (e.g. Channels DVR) that can make camera livestreams available through them.": "Publier une playlist M3U des caméras Protect sur le port indiqué de ce serveur Homebridge, utilisable dans des apps (p. ex. Channels DVR) capables de diffuser les flux en direct des caméras.",
+      "Nvr.DelayDeviceRemoval": "Nvr.DelayDeviceRemoval",
+      "Delay, in seconds, before removing devices that are no longer detected on the Protect controller. If disabled, devices are removed in realtime when the Protect controller does so.": "Délai, en secondes, avant de supprimer les appareils qui ne sont plus détectés sur le contrôleur Protect. Si l'option est désactivée, les appareils sont supprimés en temps réel, en même temps que sur le contrôleur Protect.",
+      "Nvr.Publish.Telemetry": "Nvr.Publish.Telemetry",
+      "Publish all the realtime telemetry received from the Protect controller to MQTT.": "Publier sur MQTT toute la télémétrie en temps réel reçue du contrôleur Protect.",
+      "Nvr.Recording.Switch": "Nvr.Recording.Switch",
+      "Add switch accessories to control the native recording capabilities of the UniFi Protect NVR.": "Ajouter des accessoires interrupteurs pour contrôler l'enregistrement natif du NVR UniFi Protect.",
+      "Nvr.SystemInfo": "Nvr.SystemInfo",
+      "Add sensor accessories to display the Protect controller system information (currently only the temperature).": "Ajouter des accessoires capteurs pour afficher les informations système du contrôleur Protect (pour l'instant, seulement la température).",
+      "SecuritySystem.Alarm": "SecuritySystem.Alarm",
+      "Add a switch accessory to trigger the security system accessory, when using the liveview feature option.": "Ajouter un accessoire interrupteur pour déclencher l'accessoire système de sécurité, avec l'option liveview.",
+      "Sensor.MoistureSensor": "Sensor.MoistureSensor",
+      "Expose the Protect leak sensor as a contact sensor instead of a leak sensor. This is useful for automation scenarios since HomeKit contact sensors offer more flexible automation options than leak sensors, which are primarily designed for alerts.": "Présenter le capteur de fuite Protect comme un capteur de contact plutôt qu'un capteur de fuite. Utile pour les automatisations, car les capteurs de contact HomeKit offrent plus d'options d'automatisation que les capteurs de fuite, conçus surtout pour les alertes.",
+      "UniFi.Access.Lock": "UniFi.Access.Lock",
+      "Add a lock accessory to unlock. Currently, Protect only supports unlocking Access readers with a camera on the same controller as Protect.": "Ajouter un accessoire serrure pour déverrouiller. Pour l'instant, Protect ne permet de déverrouiller que les lecteurs Access dotés d'une caméra, sur le même contrôleur que Protect.",
+      "Video.Transcode.Hardware": "Video.Transcode.Hardware",
+      "Use hardware-accelerated transcoding when available (Apple Macs, Intel Quick Sync Video-enabled CPUs, Raspberry Pi 4).": "Utiliser le transcodage accéléré par le matériel quand il est disponible (Mac Apple, processeurs Intel avec Quick Sync Video, Raspberry Pi 4).",
+      "Video.Stream.UseApi": "Video.Stream.UseApi",
+      "Use the native Protect livestream API to view livestreams.": "Utiliser l'API de diffusion en direct native de Protect pour afficher les flux en direct.",
+      "Video.Transcode": "Video.Transcode",
+      "When streaming to low-latency clients (e.g. at home), transcode livestreams, instead of transmuxing them.": "Pour les clients à faible latence (p. ex. à la maison), transcoder les flux en direct au lieu de les remultiplexer.",
+      "Video.Transcode.Bitrate": "Video.Transcode.Bitrate",
+      "Bitrate, in kilobits per second, to use when transcoding to low-latency (e.g. at home) clients, ignoring the bitrate HomeKit requests. HomeKit typically requests lower video quality than you may desire in your environment.": "Débit, en kilobits par seconde, pour le transcodage vers les clients à faible latence (p. ex. à la maison), sans tenir compte du débit demandé par HomeKit. HomeKit demande généralement une qualité vidéo inférieure à celle que vous pourriez souhaiter.",
+      "Video.Transcode.HighLatency": "Video.Transcode.HighLatency",
+      "When streaming to high-latency clients (e.g. cellular connections), transcode livestreams instead of transmuxing them.": "Pour les clients à latence élevée (p. ex. connexions cellulaires), transcoder les flux en direct au lieu de les remultiplexer.",
+      "Video.Transcode.HighLatency.Bitrate": "Video.Transcode.HighLatency.Bitrate",
+      "Bitrate, in kilobits per second, to use when transcoding to high-latency (e.g. cellular) clients, ignoring the bitrate HomeKit requests. HomeKit typically requests lower video quality than you may desire in your environment.": "Débit, en kilobits par seconde, pour le transcodage vers les clients à latence élevée (p. ex. cellulaires), sans tenir compte du débit demandé par HomeKit. HomeKit demande généralement une qualité vidéo inférieure à celle que vous pourriez souhaiter.",
+      "Video.Stream.Only.High": "Video.Stream.Only.High",
+      "When viewing livestreams, force the use of the high quality video stream from the Protect controller.": "Pour les flux en direct, forcer le flux vidéo de haute qualité du contrôleur Protect.",
+      "Video.Stream.Only.Medium": "Video.Stream.Only.Medium",
+      "When viewing livestreams, force the use of the medium quality video stream from the Protect controller.": "Pour les flux en direct, forcer le flux vidéo de moyenne qualité du contrôleur Protect.",
+      "Video.Stream.Only.Low": "Video.Stream.Only.Low",
+      "When viewing livestreams, force the use of the low quality video stream from the Protect controller.": "Pour les flux en direct, forcer le flux vidéo de basse qualité du contrôleur Protect.",
+      "Video.Crop": "Video.Crop",
+      "Crop the camera video stream. Enabling this option will also force transcoding of livestreams.": "Recadrer le flux vidéo de la caméra. Activer cette option force aussi le transcodage des flux en direct.",
+      "Video.Crop.X": "Video.Crop.X",
+      "Left offset of the crop window, as a percentage of the original image width.": "Décalage gauche de la zone de recadrage, en pourcentage de la largeur de l'image d'origine.",
+      "Video.Crop.Y": "Video.Crop.Y",
+      "Top offset of the crop window, as a percentage of the original image height.": "Décalage haut de la zone de recadrage, en pourcentage de la hauteur de l'image d'origine.",
+      "Video.Crop.Width": "Video.Crop.Width",
+      "Width of the crop window, as a percentage of original image width.": "Largeur de la zone de recadrage, en pourcentage de la largeur de l'image d'origine.",
+      "Video.Crop.Height": "Video.Crop.Height",
+      "Height of the crop window, as a percentage of original image height.": "Hauteur de la zone de recadrage, en pourcentage de la hauteur de l'image d'origine.",
+      "Video.HighResSnapshots": "Video.HighResSnapshots",
+      "Enable higher quality snapshots.": "Activer des instantanés de meilleure qualité.",
+      "Video.HKSV.StatusLedIndicator": "Video.HKSV.StatusLedIndicator",
+      "Use the camera status indicator light to show when an HKSV event is being recorded.": "Utiliser le voyant d'état de la caméra pour signaler l'enregistrement d'un événement HKSV.",
+      "Video.HKSV.Recording.Switch": "Video.HKSV.Recording.Switch",
+      "Add a switch accessory to enable or disable HKSV event recording.": "Ajouter un accessoire interrupteur pour activer ou désactiver l'enregistrement des événements HKSV.",
+      "Video.HKSV.Record.Only.High": "Video.HKSV.Record.Only.High",
+      "When recording HomeKit Secure Video events, force the use of the high quality video stream from the Protect controller.": "Pour l'enregistrement des événements HomeKit Secure Video, forcer le flux vidéo de haute qualité du contrôleur Protect.",
+      "Video.HKSV.Record.Only.Medium": "Video.HKSV.Record.Only.Medium",
+      "When recording HomeKit Secure Video events, force the use of the medium quality video stream from the Protect controller.": "Pour l'enregistrement des événements HomeKit Secure Video, forcer le flux vidéo de moyenne qualité du contrôleur Protect.",
+      "Video.HKSV.Record.Only.Low": "Video.HKSV.Record.Only.Low",
+      "When recording HomeKit Secure Video events, force the use of the low quality video stream from the Protect controller.": "Pour l'enregistrement des événements HomeKit Secure Video, forcer le flux vidéo de basse qualité du contrôleur Protect.",
+      "Device": "Appareil",
+      "Doorbell": "Sonnette",
+      "Logging": "Journalisation",
+      "Motion": "Mouvement",
+      "NVR": "NVR",
+      "Security System": "Système de sécurité",
+      "Sensor": "Capteur",
+      "UniFi Access": "UniFi Access",
+      "Video": "Vidéo",
+      "HomeKit Secure Video": "HomeKit Secure Video",
+      "UniFi consoles by address, for those discovery does not find; each is signed in to in Add accessories, and its login kept in the vault.": "Des consoles UniFi par adresse, pour celles que la découverte ne trouve pas ; on se connecte à chacune dans Ajouter des accessoires, et son identifiant est gardé dans le coffre.",
+      "Feature options of a Homebridge block that no setting says (Enable.<option> or Disable.<option>, optionally followed by a device's MAC), one per entry. The bridge moves the others into the settings.": "Les options de fonctionnalité d'un bloc Homebridge qu'aucun réglage n'exprime (Enable.<option> ou Disable.<option>, suivies au besoin du MAC d'un appareil), une par entrée. Le pont déplace les autres dans les réglages.",
+      "One option per entry, as the Homebridge plugin's README spells them.": "Une option par entrée, écrite comme dans le README du plugin Homebridge."
     },
     "es": {
       "e.g. I'll be there soon.": "Por ejemplo: Ahora mismo voy.",
-      "One option per entry. The plugin's page sets them for you; the README lists them all.": "Una opción por entrada. La página del plugin las ajusta por ti; el README las enumera todas.",
       "Additional Settings (Optional)": "Ajustes adicionales (opcional)",
-      "Camera MAC Address": "Dirección MAC de la cámara",
-      "Camera Override": "Sustitución de cámara",
       "Controller Address": "Dirección del controlador",
       "Controller Name": "Nombre del controlador",
-      "Controller Password": "Contraseña del controlador",
-      "Controller Username": "Nombre de usuario del controlador",
       "Debug Logging": "Registro de depuración",
       "Delay between doorbell rings. Setting this to a non-zero value will prevent multiple rings of a doorbell over the specified duration. Default: 0.": "Tiempo entre llamadas de un timbre. Un valor distinto de cero ignora las llamadas repetidas de un timbre durante ese tiempo. Por defecto: 0.",
       "Direct RTSP / RTSPS URL": "URL RTSP / RTSPS directa",
       "Direct Snapshot URL": "URL de instantánea directa",
       "Doorbell Message": "Mensaje del timbre",
-      "Doorbell Message Presets": "Mensajes predefinidos del timbre",
       "Doorbell Messages": "Mensajes del timbre",
       "Doorbell Ring Delay (seconds)": "Retardo entre llamadas del timbre (segundos)",
       "Enable additional logging for FFmpeg. This will create additional logging when video streams are running. Default: false.": "Activa un registro más detallado de FFmpeg, que escribe más mientras se reproducen flujos de vídeo. Por defecto: desactivado.",
       "Enable debug logging for this plugin. This creates a large volume of log output and should only be used when troubleshooting. Default: false.": "Activa el registro de depuración de este plugin. Genera un gran volumen de mensajes y solo debe usarse para resolver problemas. Por defecto: desactivado.",
       "Extra message presets for this controller's doorbells with a screen. While doorbell messages are enabled, each preset appears as a switch that shows it.": "Mensajes predefinidos adicionales para los timbres con pantalla de este controlador. Si los mensajes del timbre están activados, cada mensaje aparece como un interruptor que lo muestra.",
       "FFmpeg Location": "Ubicación de FFmpeg",
-      "Feature Option": "Opción de función",
       "Feature Options": "Opciones de funciones",
-      "Feature options that turn plugin features on or off, everywhere or for one controller or device, such as Disable.Device. The feature options tab edits them for you.": "Opciones que activan o desactivan funciones del plugin, en todas partes o para un controlador o dispositivo, como Disable.Device. La pestaña de opciones de funciones las edita por ti.",
       "Full HTTP or HTTPS URL pointing at the camera's snapshot endpoint. Credentials may be embedded. Self-signed certificates are accepted.": "URL HTTP o HTTPS completa del punto de acceso de instantáneas de la cámara. Puede incluir credenciales. Se aceptan certificados autofirmados.",
       "Full RTSP or RTSPS URL pointing directly at the camera's own RTSP server, bypassing the Protect controller. Credentials may be embedded.": "URL RTSP o RTSPS completa que apunta directamente al servidor RTSP de la cámara, sin pasar por el controlador Protect. Puede incluir credenciales.",
       "Hostname or IP address of your UniFi Protect controller.": "Nombre de host o dirección IP de tu controlador UniFi Protect.",
       "Length of time to display the message on your doorbell. Use 0 to display the message indefinitely. Default: 60.": "Tiempo que se muestra el mensaje en tu timbre. Usa 0 para mostrarlo indefinidamente. Por defecto: 60.",
       "Local IP address the M3U playlist service (Nvr.Service.Playlist feature option) listens on. Default: all interfaces.": "Dirección IP local en la que escucha el servicio de lista de reproducción M3U (opción de función Nvr.Service.Playlist). Por defecto: todas las interfaces.",
-      "M3U Playlist Access Token": "Token de acceso a la lista de reproducción M3U",
       "M3U Playlist Bind Address": "Dirección de escucha de la lista de reproducción M3U",
-      "MAC address of the third-party camera as reported by the Protect controller. Comparison is case- and separator-insensitive.": "Dirección MAC de la cámara de terceros tal como la indica el controlador Protect. La comparación no distingue mayúsculas ni separadores.",
       "MQTT Base Topic": "Tema MQTT base",
       "MQTT Broker URL": "URL del broker MQTT",
-      "MQTT Settings": "Ajustes de MQTT",
       "Message Duration (seconds)": "Duración del mensaje (segundos)",
       "Message Name": "Nombre del mensaje",
       "Message to display on your doorbell. Default: None.": "Mensaje que se muestra en tu timbre. Por defecto: ninguno.",
       "Name for this UniFi Protect controller to be used for logging purposes. Default: Defined by the controller.": "Nombre de este controlador UniFi Protect que se usa en el registro. Por defecto: el que indica el controlador.",
       "Name to use for logging purposes. Default: UniFi Protect.": "Nombre que se usa en el registro. Por defecto: UniFi Protect.",
-      "ONVIF Password": "Contraseña ONVIF",
       "ONVIF Port": "Puerto ONVIF",
       "ONVIF Service Path": "Ruta del servicio ONVIF",
       "ONVIF Username": "Nombre de usuario ONVIF",
       "ONVIF service port remembered for the discovery panel. Leave empty to let the panel try common defaults.": "Puerto del servicio ONVIF que se recuerda para el panel de detección. Déjalo vacío para que el panel pruebe los valores habituales.",
       "Optional ONVIF device service path remembered for the discovery panel. Defaults to /onvif/device_service when blank.": "Ruta opcional del servicio del dispositivo ONVIF que se recuerda para el panel de detección. Si está vacía, es /onvif/device_service.",
-      "Optional Settings": "Ajustes opcionales",
       "Override Controller Address": "Dirección alternativa del controlador",
       "Override the address used when livestreaming. This is useful in VPN and remote scenarios where you want to override the address of the UniFi Protect controller. Warning: due to the way stacked Protect controller installations work, this option is unavailable for those configurations.": "Sustituye la dirección que se usa para la transmisión en directo. Útil con VPN o en acceso remoto, para sustituir la dirección del controlador UniFi Protect. Aviso: por cómo funcionan las instalaciones de Protect apiladas, esta opción no está disponible en ellas.",
-      "Password remembered for the ONVIF discovery panel. Stored in plaintext alongside the controller credentials.": "Contraseña que se recuerda para el panel de detección ONVIF. Se guarda en texto plano junto a las credenciales del controlador.",
       "Path to the FFmpeg executable. Most users should not use this setting. Default: the first ffmpeg found in PATH.": "Ruta del ejecutable de FFmpeg. La mayoría de usuarios no necesita este ajuste. Por defecto: el primer ffmpeg que se encuentre en el PATH.",
-      "Per-camera RTSP and snapshot URL overrides for ONVIF and other third-party cameras adopted into UniFi Protect. The Protect controller often does not relay these cameras' streams reliably; supply the camera's own URLs here to bypass the controller. Only applied to cameras the controller has flagged as third-party.": "URL RTSP y de instantánea propias de cada cámara, para cámaras ONVIF y otras cámaras de terceros adoptadas en UniFi Protect. El controlador Protect a menudo no retransmite bien los flujos de estas cámaras; indica aquí las URL de la propia cámara para evitar el controlador. Solo se aplica a las cámaras que el controlador marca como de terceros.",
       "Plugin Feature Options (Optional)": "Opciones de funciones del plugin (opcional)",
       "Plugin Name": "Nombre del plugin",
-      "The UniFi Protect controllers to connect to, each with its address and the local user the plugin signs in with.": "Los controladores UniFi Protect a los que conectarse, cada uno con su dirección y el usuario local con el que el plugin inicia sesión.",
       "The base MQTT topic to publish to. Default: unifi/protect.": "El tema MQTT base en el que publicar. Por defecto: unifi/protect.",
-      "Third-Party Camera URL Overrides": "URL alternativas de cámaras de terceros",
       "URL for the MQTT broker you'd like to publish event messages to. Default: None.": "URL del broker MQTT en el que quieres publicar los mensajes de eventos. Por defecto: ninguna.",
       "UniFi Protect Controller": "Controlador UniFi Protect",
       "UniFi Protect Controllers": "Controladores UniFi Protect",
-      "UniFi Protect password for this controller's local user.": "Contraseña de UniFi Protect del usuario local de este controlador.",
-      "UniFi Protect username for this controller. Create a local user for Homeswift on the controller, with the Full Management role so the plugin can turn on RTSP streams and change device settings.": "Nombre de usuario de UniFi Protect para este controlador. Crea en el controlador un usuario local para Homeswift, con el rol Full Management, para que el plugin pueda activar los flujos RTSP y cambiar los ajustes de los dispositivos.",
       "Username remembered for the ONVIF discovery panel. Stored in plaintext alongside the controller credentials.": "Nombre de usuario que se recuerda para el panel de detección ONVIF. Se guarda en texto plano junto a las credenciales del controlador.",
       "Validate the MQTT broker's TLS certificate when connecting over mqtts:// or ssl://. Only disable this if your broker uses a self-signed certificate. Default: enabled.": "Valida el certificado TLS del broker MQTT al conectarse por mqtts:// o ssl://. Desactívalo solo si tu broker usa un certificado autofirmado. Por defecto: activado.",
       "Validate the controller's TLS certificate against trusted certificate authorities when connecting. Leave this disabled unless your controller uses a certificate signed by a trusted certificate authority - UniFi controllers use self-signed certificates by default. When disabled, the controller's certificate is pinned the first time the plugin connects, and connections presenting a different certificate are refused. Default: disabled.": "Valida el certificado TLS del controlador con autoridades de certificación de confianza al conectarse. Déjalo desactivado salvo que tu controlador use un certificado firmado por una autoridad de certificación de confianza: los controladores UniFi usan certificados autofirmados por defecto. Desactivado, el certificado del controlador se fija la primera vez que el plugin se conecta y se rechazan las conexiones que presenten otro certificado. Por defecto: desactivado.",
       "Verbose FFmpeg Logging": "Registro detallado de FFmpeg",
       "Verify MQTT Broker TLS Certificate": "Verificar el certificado TLS del broker MQTT",
       "Verify TLS Certificate": "Verificar el certificado TLS",
-      "When set, clients must request the M3U playlist with ?token=<value> in the URL. Without a token, anyone who can reach the playlist port can retrieve your camera stream URLs.": "Si se indica, los clientes deben pedir la lista de reproducción M3U con ?token=<value> en la URL. Sin token, cualquiera que llegue al puerto de la lista puede obtener las URL de los flujos de tus cámaras."
+      "Audio": "Audio",
+      "Audio support.": "Compatibilidad con audio.",
+      "Audio.Filter.Noise": "Audio.Filter.Noise",
+      "Audio filter for ambient noise suppression.": "Filtro de audio para suprimir el ruido ambiente.",
+      "Audio.Filter.Noise.FftNr": "Audio.Filter.Noise.FftNr",
+      "Noise reduction amount, in decibels, for the FFmpeg afftdn filter.": "Nivel de reducción de ruido, en decibelios, para el filtro afftdn de FFmpeg.",
+      "Audio.Filter.Noise.HighPass": "Audio.Filter.Noise.HighPass",
+      "Frequency, in Hertz, for the FFmpeg highpass filter.": "Frecuencia, en hercios, para el filtro highpass de FFmpeg.",
+      "Audio.Filter.Noise.LowPass": "Audio.Filter.Noise.LowPass",
+      "Frequency, in Hertz, for the FFmpeg lowpass filter.": "Frecuencia, en hercios, para el filtro lowpass de FFmpeg.",
+      "Audio.TwoWay": "Audio.TwoWay",
+      "Two-way audio support on supported cameras.": "Audio bidireccional en las cámaras compatibles.",
+      "Audio.TwoWay.Direct": "Audio.TwoWay.Direct",
+      "Send two-way audio directly to supported cameras, bypassing the controller. Useful for working around bugs in some Protect controller firmware versions.": "Enviar el audio bidireccional directamente a las cámaras compatibles, sin pasar por el controlador. Útil para sortear errores de algunas versiones del firmware de los controladores Protect.",
+      "Device.StatusLed": "Device.StatusLed",
+      "Enable the status indicator light for this device in HomeKit.": "Activar la luz indicadora de estado de este dispositivo en HomeKit.",
+      "Device.StatusLed.Switch": "Device.StatusLed.Switch",
+      "Add a switch accessory to control the status indicator light in HomeKit.": "Añadir un accesorio interruptor para controlar la luz indicadora de estado en HomeKit.",
+      "Device.NightVision": "Device.NightVision",
+      "Enable the night vision indicator light for this device in HomeKit.": "Activar la luz indicadora de visión nocturna de este dispositivo en HomeKit.",
+      "Device.NightVision.Dimmer": "Device.NightVision.Dimmer",
+      "Add a dimmer accessory to control the night vision state in HomeKit.": "Añadir un accesorio regulador para controlar la visión nocturna en HomeKit.",
+      "Device.Standalone": "Device.Standalone",
+      "Make this a standalone device in HomeKit that will need to be added to HomeKit through the Home app.": "Convertir este dispositivo en un dispositivo independiente en HomeKit, que habrá que añadir a HomeKit desde la app Casa.",
+      "Device.SelfHealing": "Device.SelfHealing",
+      "Attempt to restart misbehaving devices. This is always done very conservatively and only after periods of extended device-specific issues.": "Intentar reiniciar los dispositivos que fallan. Siempre se hace con mucha prudencia y solo tras periodos prolongados de problemas propios del dispositivo.",
+      "Device.SyncName": "Device.SyncName",
+      "Synchronize the UniFi Protect name of this device with HomeKit. Synchronization is one-way only, syncing the device name from UniFi Protect to HomeKit.": "Sincronizar el nombre de UniFi Protect de este dispositivo con HomeKit. La sincronización es solo en un sentido: el nombre pasa de UniFi Protect a HomeKit.",
+      "Doorbell.AuthSensor": "Doorbell.AuthSensor",
+      "Add a contact sensor that gets activates when a fingerprint or NFC successfully authenticates on a Protect doorbell.": "Añadir un sensor de contacto que se activa cuando una huella dactilar o un NFC se autentica en un timbre Protect.",
+      "Doorbell.Mute": "Doorbell.Mute",
+      "Add a switch accessory to control whether HomeKit will chime when the doorbell is pressed.": "Añadir un accesorio interruptor para elegir si HomeKit suena cuando se pulsa el timbre.",
+      "Doorbell.Messages": "Doorbell.Messages",
+      "Enable the doorbell messages feature.": "Activar la función de mensajes del timbre.",
+      "Doorbell.Messages.FromDoorbell": "Doorbell.Messages.FromDoorbell",
+      "Use messages saved to the Protect NVR as message switches.": "Usar los mensajes guardados en el NVR Protect como interruptores de mensaje.",
+      "Doorbell.Volume.Dimmer": "Doorbell.Volume.Dimmer",
+      "Add a dimmer accessory to control the Protect chime volume in HomeKit.": "Añadir un accesorio regulador para controlar el volumen del carillón Protect en HomeKit.",
+      "Doorbell.PhysicalChime": "Doorbell.PhysicalChime",
+      "Add switch accessories to control the physical chimes attached to a Protect doorbell.": "Añadir accesorios interruptores para controlar los carillones físicos conectados a un timbre Protect.",
+      "Doorbell.PhysicalChime.Duration.Digital": "Doorbell.PhysicalChime.Duration.Digital",
+      "Chime duration, in milliseconds, of a digital physical chime attached to a Protect doorbell.": "Duración del sonido, en milisegundos, de un carillón físico digital conectado a un timbre Protect.",
+      "Doorbell.PackageCamera.Flashlight": "Doorbell.PackageCamera.Flashlight",
+      "Add a light accessory to control the flashlight on a Protect doorbell package camera.": "Añadir un accesorio de luz para controlar la linterna de la cámara de paquetes de un timbre Protect.",
+      "Doorbell.Trigger": "Doorbell.Trigger",
+      "Add a switch accessory to trigger doorbell ring events on a Protect camera or doorbell.": "Añadir un accesorio interruptor para activar eventos de llamada en una cámara o un timbre Protect.",
+      "Log.Doorbell": "Log.Doorbell",
+      "Log doorbell ring events in Homebridge.": "Registrar los eventos de llamada del timbre en Homebridge.",
+      "Log.HKSV": "Log.HKSV",
+      "Log HomeKit Secure Video recording events in Homebridge.": "Registrar los eventos de grabación de HomeKit Secure Video en Homebridge.",
+      "Log.Motion": "Log.Motion",
+      "Log motion events in Homebridge.": "Registrar los eventos de movimiento en Homebridge.",
+      "Motion.Duration": "Motion.Duration",
+      "Duration, in seconds, of a single motion event, before allowing a new one.": "Duración, en segundos, de un evento de movimiento antes de permitir uno nuevo.",
+      "Motion.OccupancySensor": "Motion.OccupancySensor",
+      "Add an occupancy sensor accessory using motion sensor activity to determine occupancy. By default, any motion will trigger occupancy. If the smart detection feature option is enabled, it will be used instead.": "Añadir un accesorio sensor de ocupación que usa la actividad del sensor de movimiento para determinar la ocupación. De forma predeterminada, cualquier movimiento activa la ocupación. Si la opción de detección inteligente está activada, se usa en su lugar.",
+      "Motion.OccupancySensor.Duration": "Motion.OccupancySensor.Duration",
+      "Duration, in seconds, to wait without receiving a motion event to determine when occupancy is no longer detected.": "Duración, en segundos, que se espera sin recibir eventos de movimiento para considerar que ya no hay ocupación.",
+      "Motion.OccupancySensor.Animal": "Motion.OccupancySensor.Animal",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's animal detection to trigger occupancy.": "Al usar a la vez las opciones de sensor de ocupación y detección inteligente, utilizar la detección de animales de UniFi Protect para activar la ocupación.",
+      "Motion.OccupancySensor.Face": "Motion.OccupancySensor.Face",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's face detection to trigger occupancy.": "Al usar a la vez las opciones de sensor de ocupación y detección inteligente, utilizar la detección de caras de UniFi Protect para activar la ocupación.",
+      "Motion.OccupancySensor.LicensePlate": "Motion.OccupancySensor.LicensePlate",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's license plate detection to trigger occupancy.": "Al usar a la vez las opciones de sensor de ocupación y detección inteligente, utilizar la detección de matrículas de UniFi Protect para activar la ocupación.",
+      "Motion.OccupancySensor.Package": "Motion.OccupancySensor.Package",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's package detection to trigger occupancy.": "Al usar a la vez las opciones de sensor de ocupación y detección inteligente, utilizar la detección de paquetes de UniFi Protect para activar la ocupación.",
+      "Motion.OccupancySensor.Person": "Motion.OccupancySensor.Person",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's person detection to trigger occupancy.": "Al usar a la vez las opciones de sensor de ocupación y detección inteligente, utilizar la detección de personas de UniFi Protect para activar la ocupación.",
+      "Motion.OccupancySensor.Vehicle": "Motion.OccupancySensor.Vehicle",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's vehicle detection to trigger occupancy.": "Al usar a la vez las opciones de sensor de ocupación y detección inteligente, utilizar la detección de vehículos de UniFi Protect para activar la ocupación.",
+      "Motion.OccupancySensor.AlrmBabyCry": "Motion.OccupancySensor.AlrmBabyCry",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's baby crying audio detection to trigger occupancy.": "Al usar a la vez las opciones de sensor de ocupación y detección inteligente, utilizar la detección de audio de llanto de bebé de UniFi Protect para activar la ocupación.",
+      "Motion.OccupancySensor.AlrmBark": "Motion.OccupancySensor.AlrmBark",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's bark audio detection to trigger occupancy.": "Al usar a la vez las opciones de sensor de ocupación y detección inteligente, utilizar la detección de audio de ladridos de UniFi Protect para activar la ocupación.",
+      "Motion.OccupancySensor.AlrmBurglar": "Motion.OccupancySensor.AlrmBurglar",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's car alarm audio detection to trigger occupancy.": "Al usar a la vez las opciones de sensor de ocupación y detección inteligente, utilizar la detección de audio de alarmas de coche de UniFi Protect para activar la ocupación.",
+      "Motion.OccupancySensor.AlrmCarHorn": "Motion.OccupancySensor.AlrmCarHorn",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's car horn audio detection to trigger occupancy.": "Al usar a la vez las opciones de sensor de ocupación y detección inteligente, utilizar la detección de audio de cláxones de UniFi Protect para activar la ocupación.",
+      "Motion.OccupancySensor.AlrmCmonx": "Motion.OccupancySensor.AlrmCmonx",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's CO alarm audio detection to trigger occupancy.": "Al usar a la vez las opciones de sensor de ocupación y detección inteligente, utilizar la detección de audio de alarmas de CO de UniFi Protect para activar la ocupación.",
+      "Motion.OccupancySensor.alrmGlassBreak": "Motion.OccupancySensor.alrmGlassBreak",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's glass break audio detection to trigger occupancy.": "Al usar a la vez las opciones de sensor de ocupación y detección inteligente, utilizar la detección de audio de rotura de cristales de UniFi Protect para activar la ocupación.",
+      "Motion.OccupancySensor.AlrmSiren": "Motion.OccupancySensor.AlrmSiren",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's siren audio detection to trigger occupancy.": "Al usar a la vez las opciones de sensor de ocupación y detección inteligente, utilizar la detección de audio de sirenas de UniFi Protect para activar la ocupación.",
+      "Motion.OccupancySensor.AlrmSmoke": "Motion.OccupancySensor.AlrmSmoke",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's smoke alarm audio detection to trigger occupancy.": "Al usar a la vez las opciones de sensor de ocupación y detección inteligente, utilizar la detección de audio de alarmas de humo de UniFi Protect para activar la ocupación.",
+      "Motion.OccupancySensor.AlrmSpeak": "Motion.OccupancySensor.AlrmSpeak",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's speaking audio detection to trigger occupancy.": "Al usar a la vez las opciones de sensor de ocupación y detección inteligente, utilizar la detección de audio de voz de UniFi Protect para activar la ocupación.",
+      "Motion.OccupancySensor.Smoke_cmonx": "Motion.OccupancySensor.Smoke_cmonx",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's CO and smoke alarm audio detection to trigger occupancy.": "Al usar a la vez las opciones de sensor de ocupación y detección inteligente, utilizar la detección de audio de alarmas de CO y humo de UniFi Protect para activar la ocupación.",
+      "Motion.SmartDetect": "Motion.SmartDetect",
+      "Use UniFi Protect smart detection for HomeKit motion events when on a supported device.": "Usar la detección inteligente de UniFi Protect para los eventos de movimiento de HomeKit en un dispositivo compatible.",
+      "Motion.SmartDetect.ObjectSensors": "Motion.SmartDetect.ObjectSensors",
+      "Add contact sensors for each smart detection object type that UniFi Protect supports.": "Añadir sensores de contacto para cada tipo de objeto de detección inteligente que admite UniFi Protect.",
+      "Motion.SmartDetect.ObjectSensors.LicensePlate": "Motion.SmartDetect.ObjectSensors.LicensePlate",
+      "Add a contact sensor accessory that will match a specific license plate detected by UniFi Protect. You may specify multiple license plates by using hyphens to distinguish unique license plates (e.g. PLATE1-PLATE2-PLATE3).": "Añadir un accesorio sensor de contacto que corresponde a una matrícula concreta detectada por UniFi Protect. Puedes indicar varias matrículas separándolas con guiones (p. ej., MATRICULA1-MATRICULA2-MATRICULA3).",
+      "Motion.Switch": "Motion.Switch",
+      "Add a switch accessory to activate or deactivate motion detection in HomeKit.": "Añadir un accesorio interruptor para activar o desactivar la detección de movimiento en HomeKit.",
+      "Motion.Trigger": "Motion.Trigger",
+      "Add a switch accessory to manually trigger a motion detection event in HomeKit.": "Añadir un accesorio interruptor para activar manualmente un evento de detección de movimiento en HomeKit.",
+      "Nvr.Service.Playlist": "Nvr.Service.Playlist",
+      "Publish an M3U playlist of Protect cameras on the specified port of this Homebridge server that is suitable for use in apps (e.g. Channels DVR) that can make camera livestreams available through them.": "Publicar una lista M3U de las cámaras Protect en el puerto indicado de este servidor Homebridge, apta para apps (p. ej., Channels DVR) que pueden ofrecer las transmisiones en directo de las cámaras.",
+      "Nvr.DelayDeviceRemoval": "Nvr.DelayDeviceRemoval",
+      "Delay, in seconds, before removing devices that are no longer detected on the Protect controller. If disabled, devices are removed in realtime when the Protect controller does so.": "Retardo, en segundos, antes de eliminar los dispositivos que ya no se detectan en el controlador Protect. Si está desactivado, los dispositivos se eliminan en tiempo real cuando lo hace el controlador Protect.",
+      "Nvr.Publish.Telemetry": "Nvr.Publish.Telemetry",
+      "Publish all the realtime telemetry received from the Protect controller to MQTT.": "Publicar en MQTT toda la telemetría en tiempo real recibida del controlador Protect.",
+      "Nvr.Recording.Switch": "Nvr.Recording.Switch",
+      "Add switch accessories to control the native recording capabilities of the UniFi Protect NVR.": "Añadir accesorios interruptores para controlar la grabación nativa del NVR UniFi Protect.",
+      "Nvr.SystemInfo": "Nvr.SystemInfo",
+      "Add sensor accessories to display the Protect controller system information (currently only the temperature).": "Añadir accesorios sensores para mostrar la información del sistema del controlador Protect (por ahora, solo la temperatura).",
+      "SecuritySystem.Alarm": "SecuritySystem.Alarm",
+      "Add a switch accessory to trigger the security system accessory, when using the liveview feature option.": "Añadir un accesorio interruptor para activar el accesorio sistema de seguridad, al usar la opción liveview.",
+      "Sensor.MoistureSensor": "Sensor.MoistureSensor",
+      "Expose the Protect leak sensor as a contact sensor instead of a leak sensor. This is useful for automation scenarios since HomeKit contact sensors offer more flexible automation options than leak sensors, which are primarily designed for alerts.": "Mostrar el sensor de fugas Protect como sensor de contacto en lugar de sensor de fugas. Es útil para las automatizaciones, ya que los sensores de contacto de HomeKit ofrecen más opciones de automatización que los sensores de fugas, pensados sobre todo para alertas.",
+      "UniFi.Access.Lock": "UniFi.Access.Lock",
+      "Add a lock accessory to unlock. Currently, Protect only supports unlocking Access readers with a camera on the same controller as Protect.": "Añadir un accesorio cerradura para desbloquear. Por ahora, Protect solo permite desbloquear lectores Access con cámara en el mismo controlador que Protect.",
+      "Video.Transcode.Hardware": "Video.Transcode.Hardware",
+      "Use hardware-accelerated transcoding when available (Apple Macs, Intel Quick Sync Video-enabled CPUs, Raspberry Pi 4).": "Usar la transcodificación acelerada por hardware cuando esté disponible (Mac de Apple, CPU Intel con Quick Sync Video, Raspberry Pi 4).",
+      "Video.Stream.UseApi": "Video.Stream.UseApi",
+      "Use the native Protect livestream API to view livestreams.": "Usar la API nativa de transmisión en directo de Protect para ver las transmisiones en directo.",
+      "Video.Transcode": "Video.Transcode",
+      "When streaming to low-latency clients (e.g. at home), transcode livestreams, instead of transmuxing them.": "Al transmitir a clientes de baja latencia (p. ej., en casa), transcodificar las transmisiones en directo en lugar de remultiplexarlas.",
+      "Video.Transcode.Bitrate": "Video.Transcode.Bitrate",
+      "Bitrate, in kilobits per second, to use when transcoding to low-latency (e.g. at home) clients, ignoring the bitrate HomeKit requests. HomeKit typically requests lower video quality than you may desire in your environment.": "Tasa de bits, en kilobits por segundo, para transcodificar a clientes de baja latencia (p. ej., en casa), sin tener en cuenta la que pide HomeKit. HomeKit suele pedir menos calidad de vídeo de la que podrías querer.",
+      "Video.Transcode.HighLatency": "Video.Transcode.HighLatency",
+      "When streaming to high-latency clients (e.g. cellular connections), transcode livestreams instead of transmuxing them.": "Al transmitir a clientes de alta latencia (p. ej., conexiones móviles), transcodificar las transmisiones en directo en lugar de remultiplexarlas.",
+      "Video.Transcode.HighLatency.Bitrate": "Video.Transcode.HighLatency.Bitrate",
+      "Bitrate, in kilobits per second, to use when transcoding to high-latency (e.g. cellular) clients, ignoring the bitrate HomeKit requests. HomeKit typically requests lower video quality than you may desire in your environment.": "Tasa de bits, en kilobits por segundo, para transcodificar a clientes de alta latencia (p. ej., móviles), sin tener en cuenta la que pide HomeKit. HomeKit suele pedir menos calidad de vídeo de la que podrías querer.",
+      "Video.Stream.Only.High": "Video.Stream.Only.High",
+      "When viewing livestreams, force the use of the high quality video stream from the Protect controller.": "Al ver transmisiones en directo, forzar el flujo de vídeo de alta calidad del controlador Protect.",
+      "Video.Stream.Only.Medium": "Video.Stream.Only.Medium",
+      "When viewing livestreams, force the use of the medium quality video stream from the Protect controller.": "Al ver transmisiones en directo, forzar el flujo de vídeo de media calidad del controlador Protect.",
+      "Video.Stream.Only.Low": "Video.Stream.Only.Low",
+      "When viewing livestreams, force the use of the low quality video stream from the Protect controller.": "Al ver transmisiones en directo, forzar el flujo de vídeo de baja calidad del controlador Protect.",
+      "Video.Crop": "Video.Crop",
+      "Crop the camera video stream. Enabling this option will also force transcoding of livestreams.": "Recortar el flujo de vídeo de la cámara. Activar esta opción también fuerza la transcodificación de las transmisiones en directo.",
+      "Video.Crop.X": "Video.Crop.X",
+      "Left offset of the crop window, as a percentage of the original image width.": "Desplazamiento izquierdo del recorte, como porcentaje del ancho de la imagen original.",
+      "Video.Crop.Y": "Video.Crop.Y",
+      "Top offset of the crop window, as a percentage of the original image height.": "Desplazamiento superior del recorte, como porcentaje del alto de la imagen original.",
+      "Video.Crop.Width": "Video.Crop.Width",
+      "Width of the crop window, as a percentage of original image width.": "Ancho del recorte, como porcentaje del ancho de la imagen original.",
+      "Video.Crop.Height": "Video.Crop.Height",
+      "Height of the crop window, as a percentage of original image height.": "Alto del recorte, como porcentaje del alto de la imagen original.",
+      "Video.HighResSnapshots": "Video.HighResSnapshots",
+      "Enable higher quality snapshots.": "Activar instantáneas de mayor calidad.",
+      "Video.HKSV.StatusLedIndicator": "Video.HKSV.StatusLedIndicator",
+      "Use the camera status indicator light to show when an HKSV event is being recorded.": "Usar la luz indicadora de estado de la cámara para mostrar cuándo se graba un evento HKSV.",
+      "Video.HKSV.Recording.Switch": "Video.HKSV.Recording.Switch",
+      "Add a switch accessory to enable or disable HKSV event recording.": "Añadir un accesorio interruptor para activar o desactivar la grabación de eventos HKSV.",
+      "Video.HKSV.Record.Only.High": "Video.HKSV.Record.Only.High",
+      "When recording HomeKit Secure Video events, force the use of the high quality video stream from the Protect controller.": "Al grabar eventos de HomeKit Secure Video, forzar el flujo de vídeo de alta calidad del controlador Protect.",
+      "Video.HKSV.Record.Only.Medium": "Video.HKSV.Record.Only.Medium",
+      "When recording HomeKit Secure Video events, force the use of the medium quality video stream from the Protect controller.": "Al grabar eventos de HomeKit Secure Video, forzar el flujo de vídeo de media calidad del controlador Protect.",
+      "Video.HKSV.Record.Only.Low": "Video.HKSV.Record.Only.Low",
+      "When recording HomeKit Secure Video events, force the use of the low quality video stream from the Protect controller.": "Al grabar eventos de HomeKit Secure Video, forzar el flujo de vídeo de baja calidad del controlador Protect.",
+      "Device": "Dispositivo",
+      "Doorbell": "Timbre",
+      "Logging": "Registro",
+      "Motion": "Movimiento",
+      "NVR": "NVR",
+      "Security System": "Sistema de seguridad",
+      "Sensor": "Sensor",
+      "UniFi Access": "UniFi Access",
+      "Video": "Vídeo",
+      "HomeKit Secure Video": "HomeKit Secure Video",
+      "UniFi consoles by address, for those discovery does not find; each is signed in to in Add accessories, and its login kept in the vault.": "Consolas UniFi por dirección, para las que la búsqueda no encuentra; se inicia sesión en cada una en Añadir accesorios, y sus datos de acceso se guardan en el almacén.",
+      "Feature options of a Homebridge block that no setting says (Enable.<option> or Disable.<option>, optionally followed by a device's MAC), one per entry. The bridge moves the others into the settings.": "Las opciones de función de un bloque de Homebridge que ningún ajuste expresa (Enable.<option> o Disable.<option>, seguidas si hace falta del MAC de un dispositivo), una por entrada. El puente pasa las demás a los ajustes.",
+      "One option per entry, as the Homebridge plugin's README spells them.": "Una opción por entrada, escrita como en el README del plugin de Homebridge."
     },
     "pt": {
       "e.g. I'll be there soon.": "Por exemplo: Já vou.",
-      "One option per entry. The plugin's page sets them for you; the README lists them all.": "Uma opção por entrada. A página do plugin define-as por si; o README lista-as todas.",
       "Additional Settings (Optional)": "Definições adicionais (opcional)",
-      "Camera MAC Address": "Endereço MAC da câmara",
-      "Camera Override": "Substituição de câmara",
       "Controller Address": "Endereço do controlador",
       "Controller Name": "Nome do controlador",
-      "Controller Password": "Palavra-passe do controlador",
-      "Controller Username": "Nome de utilizador do controlador",
       "Debug Logging": "Registo de depuração",
       "Delay between doorbell rings. Setting this to a non-zero value will prevent multiple rings of a doorbell over the specified duration. Default: 0.": "Intervalo entre toques de uma campainha. Um valor diferente de zero ignora os toques repetidos de uma campainha durante esse tempo. Predefinição: 0.",
       "Direct RTSP / RTSPS URL": "URL RTSP / RTSPS direto",
       "Direct Snapshot URL": "URL de instantâneo direto",
       "Doorbell Message": "Mensagem da campainha",
-      "Doorbell Message Presets": "Mensagens predefinidas da campainha",
       "Doorbell Messages": "Mensagens da campainha",
       "Doorbell Ring Delay (seconds)": "Intervalo entre toques da campainha (segundos)",
       "Enable additional logging for FFmpeg. This will create additional logging when video streams are running. Default: false.": "Ativa um registo mais detalhado do FFmpeg, que escreve mais enquanto há transmissões de vídeo. Predefinição: desativado.",
       "Enable debug logging for this plugin. This creates a large volume of log output and should only be used when troubleshooting. Default: false.": "Ativa o registo de depuração deste plugin. Gera um grande volume de mensagens e só deve ser usado para resolver problemas. Predefinição: desativado.",
       "Extra message presets for this controller's doorbells with a screen. While doorbell messages are enabled, each preset appears as a switch that shows it.": "Mensagens predefinidas adicionais para as campainhas com ecrã deste controlador. Com as mensagens da campainha ativadas, cada mensagem aparece como um interruptor que a mostra.",
       "FFmpeg Location": "Localização do FFmpeg",
-      "Feature Option": "Opção de funcionalidade",
       "Feature Options": "Opções de funcionalidades",
-      "Feature options that turn plugin features on or off, everywhere or for one controller or device, such as Disable.Device. The feature options tab edits them for you.": "Opções que ativam ou desativam funcionalidades do plugin, em todo o lado ou para um controlador ou dispositivo, como Disable.Device. O separador de opções de funcionalidades edita-as automaticamente.",
       "Full HTTP or HTTPS URL pointing at the camera's snapshot endpoint. Credentials may be embedded. Self-signed certificates are accepted.": "URL HTTP ou HTTPS completo do ponto de acesso de instantâneos da câmara. Pode incluir credenciais. São aceites certificados autoassinados.",
       "Full RTSP or RTSPS URL pointing directly at the camera's own RTSP server, bypassing the Protect controller. Credentials may be embedded.": "URL RTSP ou RTSPS completo que aponta diretamente para o servidor RTSP da câmara, sem passar pelo controlador Protect. Pode incluir credenciais.",
       "Hostname or IP address of your UniFi Protect controller.": "Nome de anfitrião ou endereço IP do controlador UniFi Protect.",
       "Length of time to display the message on your doorbell. Use 0 to display the message indefinitely. Default: 60.": "Tempo durante o qual a mensagem é apresentada na campainha. Com 0, é apresentada indefinidamente. Predefinição: 60.",
       "Local IP address the M3U playlist service (Nvr.Service.Playlist feature option) listens on. Default: all interfaces.": "Endereço IP local em que o serviço de lista de reprodução M3U (opção de funcionalidade Nvr.Service.Playlist) escuta. Predefinição: todas as interfaces.",
-      "M3U Playlist Access Token": "Token de acesso à lista de reprodução M3U",
       "M3U Playlist Bind Address": "Endereço de escuta da lista de reprodução M3U",
-      "MAC address of the third-party camera as reported by the Protect controller. Comparison is case- and separator-insensitive.": "Endereço MAC da câmara de terceiros tal como o controlador Protect o indica. A comparação ignora maiúsculas e separadores.",
       "MQTT Base Topic": "Tópico MQTT base",
       "MQTT Broker URL": "URL do broker MQTT",
-      "MQTT Settings": "Definições de MQTT",
       "Message Duration (seconds)": "Duração da mensagem (segundos)",
       "Message Name": "Nome da mensagem",
       "Message to display on your doorbell. Default: None.": "Mensagem a apresentar na campainha. Predefinição: nenhuma.",
       "Name for this UniFi Protect controller to be used for logging purposes. Default: Defined by the controller.": "Nome deste controlador UniFi Protect usado no registo. Predefinição: o indicado pelo controlador.",
       "Name to use for logging purposes. Default: UniFi Protect.": "Nome usado no registo. Predefinição: UniFi Protect.",
-      "ONVIF Password": "Palavra-passe ONVIF",
       "ONVIF Port": "Porta ONVIF",
       "ONVIF Service Path": "Caminho do serviço ONVIF",
       "ONVIF Username": "Nome de utilizador ONVIF",
       "ONVIF service port remembered for the discovery panel. Leave empty to let the panel try common defaults.": "Porta do serviço ONVIF memorizada para o painel de deteção. Deixe vazio para o painel experimentar os valores habituais.",
       "Optional ONVIF device service path remembered for the discovery panel. Defaults to /onvif/device_service when blank.": "Caminho opcional do serviço do dispositivo ONVIF, memorizado para o painel de deteção. Vazio, é /onvif/device_service.",
-      "Optional Settings": "Definições opcionais",
       "Override Controller Address": "Endereço alternativo do controlador",
       "Override the address used when livestreaming. This is useful in VPN and remote scenarios where you want to override the address of the UniFi Protect controller. Warning: due to the way stacked Protect controller installations work, this option is unavailable for those configurations.": "Substitui o endereço usado na transmissão em direto. Útil com VPN ou em acesso remoto, para substituir o endereço do controlador UniFi Protect. Aviso: devido ao funcionamento das instalações Protect empilhadas, esta opção não está disponível nelas.",
-      "Password remembered for the ONVIF discovery panel. Stored in plaintext alongside the controller credentials.": "Palavra-passe memorizada para o painel de deteção ONVIF. Guardada em texto simples junto das credenciais do controlador.",
       "Path to the FFmpeg executable. Most users should not use this setting. Default: the first ffmpeg found in PATH.": "Caminho do executável do FFmpeg. A maioria dos utilizadores não precisa desta definição. Predefinição: o primeiro ffmpeg encontrado no PATH.",
-      "Per-camera RTSP and snapshot URL overrides for ONVIF and other third-party cameras adopted into UniFi Protect. The Protect controller often does not relay these cameras' streams reliably; supply the camera's own URLs here to bypass the controller. Only applied to cameras the controller has flagged as third-party.": "URL RTSP e de instantâneo próprios de cada câmara, para câmaras ONVIF e outras câmaras de terceiros adotadas no UniFi Protect. O controlador Protect muitas vezes não retransmite bem as transmissões destas câmaras; indique aqui os URL da própria câmara para contornar o controlador. Só se aplica às câmaras que o controlador assinala como de terceiros.",
       "Plugin Feature Options (Optional)": "Opções de funcionalidades do plugin (opcional)",
       "Plugin Name": "Nome do plugin",
-      "The UniFi Protect controllers to connect to, each with its address and the local user the plugin signs in with.": "Os controladores UniFi Protect a que ligar, cada um com o seu endereço e o utilizador local com que o plugin inicia sessão.",
       "The base MQTT topic to publish to. Default: unifi/protect.": "O tópico MQTT base em que publicar. Predefinição: unifi/protect.",
-      "Third-Party Camera URL Overrides": "URL alternativos de câmaras de terceiros",
       "URL for the MQTT broker you'd like to publish event messages to. Default: None.": "URL do broker MQTT em que publicar as mensagens de eventos. Predefinição: nenhum.",
       "UniFi Protect Controller": "Controlador UniFi Protect",
       "UniFi Protect Controllers": "Controladores UniFi Protect",
-      "UniFi Protect password for this controller's local user.": "Palavra-passe UniFi Protect do utilizador local deste controlador.",
-      "UniFi Protect username for this controller. Create a local user for Homeswift on the controller, with the Full Management role so the plugin can turn on RTSP streams and change device settings.": "Nome de utilizador UniFi Protect deste controlador. Crie no controlador um utilizador local para o Homeswift, com a função Full Management, para que o plugin possa ativar as transmissões RTSP e alterar as definições dos dispositivos.",
       "Username remembered for the ONVIF discovery panel. Stored in plaintext alongside the controller credentials.": "Nome de utilizador memorizado para o painel de deteção ONVIF. Guardado em texto simples junto das credenciais do controlador.",
       "Validate the MQTT broker's TLS certificate when connecting over mqtts:// or ssl://. Only disable this if your broker uses a self-signed certificate. Default: enabled.": "Valida o certificado TLS do broker MQTT nas ligações por mqtts:// ou ssl://. Desative apenas se o broker usar um certificado autoassinado. Predefinição: ativado.",
       "Validate the controller's TLS certificate against trusted certificate authorities when connecting. Leave this disabled unless your controller uses a certificate signed by a trusted certificate authority - UniFi controllers use self-signed certificates by default. When disabled, the controller's certificate is pinned the first time the plugin connects, and connections presenting a different certificate are refused. Default: disabled.": "Valida o certificado TLS do controlador junto de autoridades de certificação de confiança ao ligar. Deixe desativado, a menos que o controlador use um certificado assinado por uma autoridade de certificação de confiança: os controladores UniFi usam certificados autoassinados por omissão. Desativado, o certificado do controlador é fixado na primeira ligação do plugin, e as ligações que apresentem outro certificado são recusadas. Predefinição: desativado.",
       "Verbose FFmpeg Logging": "Registo detalhado do FFmpeg",
       "Verify MQTT Broker TLS Certificate": "Verificar o certificado TLS do broker MQTT",
       "Verify TLS Certificate": "Verificar o certificado TLS",
-      "When set, clients must request the M3U playlist with ?token=<value> in the URL. Without a token, anyone who can reach the playlist port can retrieve your camera stream URLs.": "Quando definido, os clientes têm de pedir a lista de reprodução M3U com ?token=<value> no URL. Sem token, qualquer pessoa que chegue à porta da lista pode obter os URL das transmissões das câmaras."
+      "Audio": "Áudio",
+      "Audio support.": "Suporte de áudio.",
+      "Audio.Filter.Noise": "Audio.Filter.Noise",
+      "Audio filter for ambient noise suppression.": "Filtro de áudio para suprimir o ruído ambiente.",
+      "Audio.Filter.Noise.FftNr": "Audio.Filter.Noise.FftNr",
+      "Noise reduction amount, in decibels, for the FFmpeg afftdn filter.": "Nível de redução de ruído, em decibéis, para o filtro afftdn do FFmpeg.",
+      "Audio.Filter.Noise.HighPass": "Audio.Filter.Noise.HighPass",
+      "Frequency, in Hertz, for the FFmpeg highpass filter.": "Frequência, em hertz, para o filtro highpass do FFmpeg.",
+      "Audio.Filter.Noise.LowPass": "Audio.Filter.Noise.LowPass",
+      "Frequency, in Hertz, for the FFmpeg lowpass filter.": "Frequência, em hertz, para o filtro lowpass do FFmpeg.",
+      "Audio.TwoWay": "Audio.TwoWay",
+      "Two-way audio support on supported cameras.": "Áudio bidirecional nas câmaras compatíveis.",
+      "Audio.TwoWay.Direct": "Audio.TwoWay.Direct",
+      "Send two-way audio directly to supported cameras, bypassing the controller. Useful for working around bugs in some Protect controller firmware versions.": "Enviar o áudio bidirecional diretamente para as câmaras compatíveis, sem passar pelo controlador. Útil para contornar erros de algumas versões do firmware dos controladores Protect.",
+      "Device.StatusLed": "Device.StatusLed",
+      "Enable the status indicator light for this device in HomeKit.": "Ativar a luz indicadora de estado deste dispositivo no HomeKit.",
+      "Device.StatusLed.Switch": "Device.StatusLed.Switch",
+      "Add a switch accessory to control the status indicator light in HomeKit.": "Adicionar um acessório interruptor para controlar a luz indicadora de estado no HomeKit.",
+      "Device.NightVision": "Device.NightVision",
+      "Enable the night vision indicator light for this device in HomeKit.": "Ativar a luz indicadora de visão noturna deste dispositivo no HomeKit.",
+      "Device.NightVision.Dimmer": "Device.NightVision.Dimmer",
+      "Add a dimmer accessory to control the night vision state in HomeKit.": "Adicionar um acessório regulador para controlar a visão noturna no HomeKit.",
+      "Device.Standalone": "Device.Standalone",
+      "Make this a standalone device in HomeKit that will need to be added to HomeKit through the Home app.": "Tornar este dispositivo independente no HomeKit, sendo necessário adicioná-lo ao HomeKit através da app Casa.",
+      "Device.SelfHealing": "Device.SelfHealing",
+      "Attempt to restart misbehaving devices. This is always done very conservatively and only after periods of extended device-specific issues.": "Tentar reiniciar os dispositivos com falhas. Isto é sempre feito com muita prudência e apenas após períodos prolongados de problemas específicos do dispositivo.",
+      "Device.SyncName": "Device.SyncName",
+      "Synchronize the UniFi Protect name of this device with HomeKit. Synchronization is one-way only, syncing the device name from UniFi Protect to HomeKit.": "Sincronizar o nome UniFi Protect deste dispositivo com o HomeKit. A sincronização é apenas num sentido: o nome passa do UniFi Protect para o HomeKit.",
+      "Doorbell.AuthSensor": "Doorbell.AuthSensor",
+      "Add a contact sensor that gets activates when a fingerprint or NFC successfully authenticates on a Protect doorbell.": "Adicionar um sensor de contacto que é ativado quando uma impressão digital ou um NFC é autenticado numa campainha Protect.",
+      "Doorbell.Mute": "Doorbell.Mute",
+      "Add a switch accessory to control whether HomeKit will chime when the doorbell is pressed.": "Adicionar um acessório interruptor para escolher se o HomeKit toca quando a campainha é premida.",
+      "Doorbell.Messages": "Doorbell.Messages",
+      "Enable the doorbell messages feature.": "Ativar a funcionalidade de mensagens da campainha.",
+      "Doorbell.Messages.FromDoorbell": "Doorbell.Messages.FromDoorbell",
+      "Use messages saved to the Protect NVR as message switches.": "Usar as mensagens guardadas no NVR Protect como interruptores de mensagem.",
+      "Doorbell.Volume.Dimmer": "Doorbell.Volume.Dimmer",
+      "Add a dimmer accessory to control the Protect chime volume in HomeKit.": "Adicionar um acessório regulador para controlar o volume do carrilhão Protect no HomeKit.",
+      "Doorbell.PhysicalChime": "Doorbell.PhysicalChime",
+      "Add switch accessories to control the physical chimes attached to a Protect doorbell.": "Adicionar acessórios interruptores para controlar os carrilhões físicos ligados a uma campainha Protect.",
+      "Doorbell.PhysicalChime.Duration.Digital": "Doorbell.PhysicalChime.Duration.Digital",
+      "Chime duration, in milliseconds, of a digital physical chime attached to a Protect doorbell.": "Duração do toque, em milissegundos, de um carrilhão físico digital ligado a uma campainha Protect.",
+      "Doorbell.PackageCamera.Flashlight": "Doorbell.PackageCamera.Flashlight",
+      "Add a light accessory to control the flashlight on a Protect doorbell package camera.": "Adicionar um acessório de luz para controlar a lanterna da câmara de encomendas de uma campainha Protect.",
+      "Doorbell.Trigger": "Doorbell.Trigger",
+      "Add a switch accessory to trigger doorbell ring events on a Protect camera or doorbell.": "Adicionar um acessório interruptor para acionar eventos de toque numa câmara ou campainha Protect.",
+      "Log.Doorbell": "Log.Doorbell",
+      "Log doorbell ring events in Homebridge.": "Registar os eventos de toque da campainha no Homebridge.",
+      "Log.HKSV": "Log.HKSV",
+      "Log HomeKit Secure Video recording events in Homebridge.": "Registar os eventos de gravação do HomeKit Secure Video no Homebridge.",
+      "Log.Motion": "Log.Motion",
+      "Log motion events in Homebridge.": "Registar os eventos de movimento no Homebridge.",
+      "Motion.Duration": "Motion.Duration",
+      "Duration, in seconds, of a single motion event, before allowing a new one.": "Duração, em segundos, de um evento de movimento antes de permitir um novo.",
+      "Motion.OccupancySensor": "Motion.OccupancySensor",
+      "Add an occupancy sensor accessory using motion sensor activity to determine occupancy. By default, any motion will trigger occupancy. If the smart detection feature option is enabled, it will be used instead.": "Adicionar um acessório sensor de ocupação que usa a atividade do sensor de movimento para determinar a ocupação. Por predefinição, qualquer movimento ativa a ocupação. Se a opção de deteção inteligente estiver ativada, é usada em vez disso.",
+      "Motion.OccupancySensor.Duration": "Motion.OccupancySensor.Duration",
+      "Duration, in seconds, to wait without receiving a motion event to determine when occupancy is no longer detected.": "Duração, em segundos, a aguardar sem receber eventos de movimento para considerar que a ocupação deixou de ser detetada.",
+      "Motion.OccupancySensor.Animal": "Motion.OccupancySensor.Animal",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's animal detection to trigger occupancy.": "Ao usar em conjunto as opções de sensor de ocupação e deteção inteligente, usar a deteção de animais do UniFi Protect para ativar a ocupação.",
+      "Motion.OccupancySensor.Face": "Motion.OccupancySensor.Face",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's face detection to trigger occupancy.": "Ao usar em conjunto as opções de sensor de ocupação e deteção inteligente, usar a deteção de rostos do UniFi Protect para ativar a ocupação.",
+      "Motion.OccupancySensor.LicensePlate": "Motion.OccupancySensor.LicensePlate",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's license plate detection to trigger occupancy.": "Ao usar em conjunto as opções de sensor de ocupação e deteção inteligente, usar a deteção de matrículas do UniFi Protect para ativar a ocupação.",
+      "Motion.OccupancySensor.Package": "Motion.OccupancySensor.Package",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's package detection to trigger occupancy.": "Ao usar em conjunto as opções de sensor de ocupação e deteção inteligente, usar a deteção de encomendas do UniFi Protect para ativar a ocupação.",
+      "Motion.OccupancySensor.Person": "Motion.OccupancySensor.Person",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's person detection to trigger occupancy.": "Ao usar em conjunto as opções de sensor de ocupação e deteção inteligente, usar a deteção de pessoas do UniFi Protect para ativar a ocupação.",
+      "Motion.OccupancySensor.Vehicle": "Motion.OccupancySensor.Vehicle",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's vehicle detection to trigger occupancy.": "Ao usar em conjunto as opções de sensor de ocupação e deteção inteligente, usar a deteção de veículos do UniFi Protect para ativar a ocupação.",
+      "Motion.OccupancySensor.AlrmBabyCry": "Motion.OccupancySensor.AlrmBabyCry",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's baby crying audio detection to trigger occupancy.": "Ao usar em conjunto as opções de sensor de ocupação e deteção inteligente, usar a deteção de áudio de choro de bebé do UniFi Protect para ativar a ocupação.",
+      "Motion.OccupancySensor.AlrmBark": "Motion.OccupancySensor.AlrmBark",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's bark audio detection to trigger occupancy.": "Ao usar em conjunto as opções de sensor de ocupação e deteção inteligente, usar a deteção de áudio de latidos do UniFi Protect para ativar a ocupação.",
+      "Motion.OccupancySensor.AlrmBurglar": "Motion.OccupancySensor.AlrmBurglar",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's car alarm audio detection to trigger occupancy.": "Ao usar em conjunto as opções de sensor de ocupação e deteção inteligente, usar a deteção de áudio de alarmes de carro do UniFi Protect para ativar a ocupação.",
+      "Motion.OccupancySensor.AlrmCarHorn": "Motion.OccupancySensor.AlrmCarHorn",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's car horn audio detection to trigger occupancy.": "Ao usar em conjunto as opções de sensor de ocupação e deteção inteligente, usar a deteção de áudio de buzinas do UniFi Protect para ativar a ocupação.",
+      "Motion.OccupancySensor.AlrmCmonx": "Motion.OccupancySensor.AlrmCmonx",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's CO alarm audio detection to trigger occupancy.": "Ao usar em conjunto as opções de sensor de ocupação e deteção inteligente, usar a deteção de áudio de alarmes de CO do UniFi Protect para ativar a ocupação.",
+      "Motion.OccupancySensor.alrmGlassBreak": "Motion.OccupancySensor.alrmGlassBreak",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's glass break audio detection to trigger occupancy.": "Ao usar em conjunto as opções de sensor de ocupação e deteção inteligente, usar a deteção de áudio de quebra de vidros do UniFi Protect para ativar a ocupação.",
+      "Motion.OccupancySensor.AlrmSiren": "Motion.OccupancySensor.AlrmSiren",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's siren audio detection to trigger occupancy.": "Ao usar em conjunto as opções de sensor de ocupação e deteção inteligente, usar a deteção de áudio de sirenes do UniFi Protect para ativar a ocupação.",
+      "Motion.OccupancySensor.AlrmSmoke": "Motion.OccupancySensor.AlrmSmoke",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's smoke alarm audio detection to trigger occupancy.": "Ao usar em conjunto as opções de sensor de ocupação e deteção inteligente, usar a deteção de áudio de alarmes de fumo do UniFi Protect para ativar a ocupação.",
+      "Motion.OccupancySensor.AlrmSpeak": "Motion.OccupancySensor.AlrmSpeak",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's speaking audio detection to trigger occupancy.": "Ao usar em conjunto as opções de sensor de ocupação e deteção inteligente, usar a deteção de áudio de fala do UniFi Protect para ativar a ocupação.",
+      "Motion.OccupancySensor.Smoke_cmonx": "Motion.OccupancySensor.Smoke_cmonx",
+      "When using both the occupancy sensor and smart detection feature options, use UniFi Protect's CO and smoke alarm audio detection to trigger occupancy.": "Ao usar em conjunto as opções de sensor de ocupação e deteção inteligente, usar a deteção de áudio de alarmes de CO e fumo do UniFi Protect para ativar a ocupação.",
+      "Motion.SmartDetect": "Motion.SmartDetect",
+      "Use UniFi Protect smart detection for HomeKit motion events when on a supported device.": "Usar a deteção inteligente do UniFi Protect para os eventos de movimento do HomeKit num dispositivo compatível.",
+      "Motion.SmartDetect.ObjectSensors": "Motion.SmartDetect.ObjectSensors",
+      "Add contact sensors for each smart detection object type that UniFi Protect supports.": "Adicionar sensores de contacto para cada tipo de objeto da deteção inteligente suportado pelo UniFi Protect.",
+      "Motion.SmartDetect.ObjectSensors.LicensePlate": "Motion.SmartDetect.ObjectSensors.LicensePlate",
+      "Add a contact sensor accessory that will match a specific license plate detected by UniFi Protect. You may specify multiple license plates by using hyphens to distinguish unique license plates (e.g. PLATE1-PLATE2-PLATE3).": "Adicionar um acessório sensor de contacto que corresponde a uma matrícula específica detetada pelo UniFi Protect. É possível indicar várias matrículas separando-as com hífenes (p. ex. MATRICULA1-MATRICULA2-MATRICULA3).",
+      "Motion.Switch": "Motion.Switch",
+      "Add a switch accessory to activate or deactivate motion detection in HomeKit.": "Adicionar um acessório interruptor para ativar ou desativar a deteção de movimento no HomeKit.",
+      "Motion.Trigger": "Motion.Trigger",
+      "Add a switch accessory to manually trigger a motion detection event in HomeKit.": "Adicionar um acessório interruptor para acionar manualmente um evento de deteção de movimento no HomeKit.",
+      "Nvr.Service.Playlist": "Nvr.Service.Playlist",
+      "Publish an M3U playlist of Protect cameras on the specified port of this Homebridge server that is suitable for use in apps (e.g. Channels DVR) that can make camera livestreams available through them.": "Publicar uma lista M3U das câmaras Protect na porta indicada deste servidor Homebridge, adequada para apps (p. ex. Channels DVR) que conseguem disponibilizar as transmissões em direto das câmaras.",
+      "Nvr.DelayDeviceRemoval": "Nvr.DelayDeviceRemoval",
+      "Delay, in seconds, before removing devices that are no longer detected on the Protect controller. If disabled, devices are removed in realtime when the Protect controller does so.": "Atraso, em segundos, antes de remover os dispositivos que deixaram de ser detetados no controlador Protect. Se estiver desativado, os dispositivos são removidos em tempo real quando o controlador Protect o faz.",
+      "Nvr.Publish.Telemetry": "Nvr.Publish.Telemetry",
+      "Publish all the realtime telemetry received from the Protect controller to MQTT.": "Publicar no MQTT toda a telemetria em tempo real recebida do controlador Protect.",
+      "Nvr.Recording.Switch": "Nvr.Recording.Switch",
+      "Add switch accessories to control the native recording capabilities of the UniFi Protect NVR.": "Adicionar acessórios interruptores para controlar a gravação nativa do NVR UniFi Protect.",
+      "Nvr.SystemInfo": "Nvr.SystemInfo",
+      "Add sensor accessories to display the Protect controller system information (currently only the temperature).": "Adicionar acessórios sensores para mostrar as informações do sistema do controlador Protect (por agora, apenas a temperatura).",
+      "SecuritySystem.Alarm": "SecuritySystem.Alarm",
+      "Add a switch accessory to trigger the security system accessory, when using the liveview feature option.": "Adicionar um acessório interruptor para acionar o acessório sistema de segurança, ao usar a opção liveview.",
+      "Sensor.MoistureSensor": "Sensor.MoistureSensor",
+      "Expose the Protect leak sensor as a contact sensor instead of a leak sensor. This is useful for automation scenarios since HomeKit contact sensors offer more flexible automation options than leak sensors, which are primarily designed for alerts.": "Apresentar o sensor de fugas Protect como sensor de contacto em vez de sensor de fugas. É útil para automatizações, porque os sensores de contacto do HomeKit oferecem mais opções de automatização do que os sensores de fugas, pensados sobretudo para alertas.",
+      "UniFi.Access.Lock": "UniFi.Access.Lock",
+      "Add a lock accessory to unlock. Currently, Protect only supports unlocking Access readers with a camera on the same controller as Protect.": "Adicionar um acessório fechadura para destrancar. Por agora, o Protect só permite destrancar leitores Access com câmara no mesmo controlador que o Protect.",
+      "Video.Transcode.Hardware": "Video.Transcode.Hardware",
+      "Use hardware-accelerated transcoding when available (Apple Macs, Intel Quick Sync Video-enabled CPUs, Raspberry Pi 4).": "Usar a transcodificação acelerada por hardware quando disponível (Mac da Apple, CPU Intel com Quick Sync Video, Raspberry Pi 4).",
+      "Video.Stream.UseApi": "Video.Stream.UseApi",
+      "Use the native Protect livestream API to view livestreams.": "Usar a API nativa de transmissão em direto do Protect para ver as transmissões em direto.",
+      "Video.Transcode": "Video.Transcode",
+      "When streaming to low-latency clients (e.g. at home), transcode livestreams, instead of transmuxing them.": "Ao transmitir para clientes de baixa latência (p. ex. em casa), transcodificar as transmissões em direto em vez de as remultiplexar.",
+      "Video.Transcode.Bitrate": "Video.Transcode.Bitrate",
+      "Bitrate, in kilobits per second, to use when transcoding to low-latency (e.g. at home) clients, ignoring the bitrate HomeKit requests. HomeKit typically requests lower video quality than you may desire in your environment.": "Taxa de bits, em kilobits por segundo, a usar na transcodificação para clientes de baixa latência (p. ex. em casa), ignorando a pedida pelo HomeKit. O HomeKit costuma pedir uma qualidade de vídeo inferior à que se pode desejar.",
+      "Video.Transcode.HighLatency": "Video.Transcode.HighLatency",
+      "When streaming to high-latency clients (e.g. cellular connections), transcode livestreams instead of transmuxing them.": "Ao transmitir para clientes de alta latência (p. ex. ligações móveis), transcodificar as transmissões em direto em vez de as remultiplexar.",
+      "Video.Transcode.HighLatency.Bitrate": "Video.Transcode.HighLatency.Bitrate",
+      "Bitrate, in kilobits per second, to use when transcoding to high-latency (e.g. cellular) clients, ignoring the bitrate HomeKit requests. HomeKit typically requests lower video quality than you may desire in your environment.": "Taxa de bits, em kilobits por segundo, a usar na transcodificação para clientes de alta latência (p. ex. móveis), ignorando a pedida pelo HomeKit. O HomeKit costuma pedir uma qualidade de vídeo inferior à que se pode desejar.",
+      "Video.Stream.Only.High": "Video.Stream.Only.High",
+      "When viewing livestreams, force the use of the high quality video stream from the Protect controller.": "Ao ver transmissões em direto, forçar o fluxo de vídeo de alta qualidade do controlador Protect.",
+      "Video.Stream.Only.Medium": "Video.Stream.Only.Medium",
+      "When viewing livestreams, force the use of the medium quality video stream from the Protect controller.": "Ao ver transmissões em direto, forçar o fluxo de vídeo de média qualidade do controlador Protect.",
+      "Video.Stream.Only.Low": "Video.Stream.Only.Low",
+      "When viewing livestreams, force the use of the low quality video stream from the Protect controller.": "Ao ver transmissões em direto, forçar o fluxo de vídeo de baixa qualidade do controlador Protect.",
+      "Video.Crop": "Video.Crop",
+      "Crop the camera video stream. Enabling this option will also force transcoding of livestreams.": "Recortar o fluxo de vídeo da câmara. Ativar esta opção também força a transcodificação das transmissões em direto.",
+      "Video.Crop.X": "Video.Crop.X",
+      "Left offset of the crop window, as a percentage of the original image width.": "Deslocamento esquerdo da área de recorte, em percentagem da largura da imagem original.",
+      "Video.Crop.Y": "Video.Crop.Y",
+      "Top offset of the crop window, as a percentage of the original image height.": "Deslocamento superior da área de recorte, em percentagem da altura da imagem original.",
+      "Video.Crop.Width": "Video.Crop.Width",
+      "Width of the crop window, as a percentage of original image width.": "Largura da área de recorte, em percentagem da largura da imagem original.",
+      "Video.Crop.Height": "Video.Crop.Height",
+      "Height of the crop window, as a percentage of original image height.": "Altura da área de recorte, em percentagem da altura da imagem original.",
+      "Video.HighResSnapshots": "Video.HighResSnapshots",
+      "Enable higher quality snapshots.": "Ativar instantâneos de maior qualidade.",
+      "Video.HKSV.StatusLedIndicator": "Video.HKSV.StatusLedIndicator",
+      "Use the camera status indicator light to show when an HKSV event is being recorded.": "Usar a luz indicadora de estado da câmara para mostrar quando um evento HKSV está a ser gravado.",
+      "Video.HKSV.Recording.Switch": "Video.HKSV.Recording.Switch",
+      "Add a switch accessory to enable or disable HKSV event recording.": "Adicionar um acessório interruptor para ativar ou desativar a gravação de eventos HKSV.",
+      "Video.HKSV.Record.Only.High": "Video.HKSV.Record.Only.High",
+      "When recording HomeKit Secure Video events, force the use of the high quality video stream from the Protect controller.": "Ao gravar eventos do HomeKit Secure Video, forçar o fluxo de vídeo de alta qualidade do controlador Protect.",
+      "Video.HKSV.Record.Only.Medium": "Video.HKSV.Record.Only.Medium",
+      "When recording HomeKit Secure Video events, force the use of the medium quality video stream from the Protect controller.": "Ao gravar eventos do HomeKit Secure Video, forçar o fluxo de vídeo de média qualidade do controlador Protect.",
+      "Video.HKSV.Record.Only.Low": "Video.HKSV.Record.Only.Low",
+      "When recording HomeKit Secure Video events, force the use of the low quality video stream from the Protect controller.": "Ao gravar eventos do HomeKit Secure Video, forçar o fluxo de vídeo de baixa qualidade do controlador Protect.",
+      "Device": "Dispositivo",
+      "Doorbell": "Campainha",
+      "Logging": "Registo",
+      "Motion": "Movimento",
+      "NVR": "NVR",
+      "Security System": "Sistema de segurança",
+      "Sensor": "Sensor",
+      "UniFi Access": "UniFi Access",
+      "Video": "Vídeo",
+      "HomeKit Secure Video": "HomeKit Secure Video",
+      "UniFi consoles by address, for those discovery does not find; each is signed in to in Add accessories, and its login kept in the vault.": "Consolas UniFi por endereço, para as que a descoberta não encontra; cada uma inicia sessão em Adicionar acessórios, e as credenciais ficam guardadas no cofre.",
+      "Feature options of a Homebridge block that no setting says (Enable.<option> or Disable.<option>, optionally followed by a device's MAC), one per entry. The bridge moves the others into the settings.": "As opções de funcionalidade de um bloco do Homebridge que nenhuma definição exprime (Enable.<option> ou Disable.<option>, seguidas se preciso do MAC de um dispositivo), uma por entrada. A ponte passa as outras para as definições.",
+      "One option per entry, as the Homebridge plugin's README spells them.": "Uma opção por entrada, escrita como no README do plugin do Homebridge."
     }
   }
 }

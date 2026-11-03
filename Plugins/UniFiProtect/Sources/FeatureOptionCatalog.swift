@@ -1,8 +1,8 @@
 import Foundation
 
 /// The feature option catalog of `homebridge-unifi-protect` (protect-options.ts): the same categories, option
-/// names, defaults, values and descriptions, so the `options` entries users have keep their meaning. The web
-/// page reads it to offer each device the options that apply to it.
+/// names, defaults, values and descriptions, so the `options` entries users have keep their meaning. Each option is a
+/// setting made from it (ProtectCanonicalSettings.swift), declared in config.schema.json.
 enum FeatureOptionCatalog {
     static let categories: [FeatureCategoryEntry] = [
         FeatureCategoryEntry(name: "Audio", description: "Audio", modelKey: ["camera"]),

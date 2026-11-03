@@ -168,10 +168,5 @@ import Testing
         #expect(FeatureOptionCatalog.options["Motion"]?.first { $0.name == "Duration" }?.defaultValue == .number(10))
         #expect(FeatureOptionCatalog.options["Motion"]?.first { $0.name == "OccupancySensor.Duration" }?.defaultValue == .number(300))
         #expect(FeatureOptionCatalog.options["Video.HKSV"]?.contains { $0.name == "Recording.Switch" } == true)
-        // The page's catalog keeps every key the Homebridge page read.
-        let json = UniFiProtectPlugin.catalogJSON
-        #expect(json.array("categories").count == names.count)
-        #expect(json.at("options.Motion")?.arrayValue?.first { $0.string("name") == "SmartDetect.ObjectSensors.LicensePlate" }?.string("defaultValue") == "")
-        #expect(json.at("options.Device")?.arrayValue?.first { $0.string("name") == "StatusLed.Switch" }?.strings("hasSensorProperty") == ["ledSettings"])
     }
 }

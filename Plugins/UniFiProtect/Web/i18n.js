@@ -284,7 +284,17 @@ HomeswiftI18n.add({
     "Add a switch accessory to enable or disable HKSV event recording.": "Ajouter un accessoire interrupteur pour activer ou désactiver l'enregistrement des événements HKSV.",
     "When recording HomeKit Secure Video events, force the use of the high quality video stream from the Protect controller.": "Pour l'enregistrement des événements HomeKit Secure Video, forcer le flux vidéo de haute qualité du contrôleur Protect.",
     "When recording HomeKit Secure Video events, force the use of the medium quality video stream from the Protect controller.": "Pour l'enregistrement des événements HomeKit Secure Video, forcer le flux vidéo de moyenne qualité du contrôleur Protect.",
-    "When recording HomeKit Secure Video events, force the use of the low quality video stream from the Protect controller.": "Pour l'enregistrement des événements HomeKit Secure Video, forcer le flux vidéo de basse qualité du contrôleur Protect."
+    "When recording HomeKit Secure Video events, force the use of the low quality video stream from the Protect controller.": "Pour l'enregistrement des événements HomeKit Secure Video, forcer le flux vidéo de basse qualité du contrôleur Protect.",
+    "Controllers": "Contrôleurs",
+    "Settings for every device": "Réglages de tous les appareils",
+    "Another controller": "Un autre contrôleur",
+    "No controller yet": "Aucun contrôleur pour l'instant",
+    "Add accessories finds the UniFi consoles on the network, or one by its address, and signs in to it with a local account.": "Ajouter des accessoires trouve les consoles UniFi du réseau, ou l'une par son adresse, et s'y connecte avec un compte local.",
+    "Settings": "Réglages",
+    "Third-party camera": "Caméra tierce",
+    "Copy": "Copier",
+    "Find a camera's URLs": "Trouver les URL d'une caméra",
+    "A third-party camera adopted in Protect streams from its own URLs. Homeswift asks the camera for them over ONVIF; put the ones you pick in the camera's Settings.": "Une caméra tierce adoptée dans Protect diffuse depuis ses propres URL. Homeswift les demande à la caméra par ONVIF ; mettez celles que vous choisissez dans les Réglages de la caméra."
   },
   "es": {
     "Manage your UniFi Protect cameras and devices in HomeKit.": "Gestiona tus cámaras y dispositivos UniFi Protect en HomeKit.",
@@ -570,7 +580,17 @@ HomeswiftI18n.add({
     "Add a switch accessory to enable or disable HKSV event recording.": "Añadir un accesorio interruptor para activar o desactivar la grabación de eventos HKSV.",
     "When recording HomeKit Secure Video events, force the use of the high quality video stream from the Protect controller.": "Al grabar eventos de HomeKit Secure Video, forzar el flujo de vídeo de alta calidad del controlador Protect.",
     "When recording HomeKit Secure Video events, force the use of the medium quality video stream from the Protect controller.": "Al grabar eventos de HomeKit Secure Video, forzar el flujo de vídeo de media calidad del controlador Protect.",
-    "When recording HomeKit Secure Video events, force the use of the low quality video stream from the Protect controller.": "Al grabar eventos de HomeKit Secure Video, forzar el flujo de vídeo de baja calidad del controlador Protect."
+    "When recording HomeKit Secure Video events, force the use of the low quality video stream from the Protect controller.": "Al grabar eventos de HomeKit Secure Video, forzar el flujo de vídeo de baja calidad del controlador Protect.",
+    "Controllers": "Controladores",
+    "Settings for every device": "Ajustes de todos los dispositivos",
+    "Another controller": "Otro controlador",
+    "No controller yet": "Todavía no hay ningún controlador",
+    "Add accessories finds the UniFi consoles on the network, or one by its address, and signs in to it with a local account.": "Añadir accesorios encuentra las consolas UniFi de la red, o una por su dirección, e inicia sesión en ella con una cuenta local.",
+    "Settings": "Ajustes",
+    "Third-party camera": "Cámara de terceros",
+    "Copy": "Copiar",
+    "Find a camera's URLs": "Buscar las URL de una cámara",
+    "A third-party camera adopted in Protect streams from its own URLs. Homeswift asks the camera for them over ONVIF; put the ones you pick in the camera's Settings.": "Una cámara de terceros adoptada en Protect emite desde sus propias URL. Homeswift se las pide a la cámara por ONVIF; pon las que elijas en los Ajustes de la cámara."
   },
   "pt": {
     "Manage your UniFi Protect cameras and devices in HomeKit.": "Faça a gestão das câmaras e dispositivos UniFi Protect no HomeKit.",
@@ -856,6 +876,16 @@ HomeswiftI18n.add({
     "Add a switch accessory to enable or disable HKSV event recording.": "Adicionar um acessório interruptor para ativar ou desativar a gravação de eventos HKSV.",
     "When recording HomeKit Secure Video events, force the use of the high quality video stream from the Protect controller.": "Ao gravar eventos do HomeKit Secure Video, forçar o fluxo de vídeo de alta qualidade do controlador Protect.",
     "When recording HomeKit Secure Video events, force the use of the medium quality video stream from the Protect controller.": "Ao gravar eventos do HomeKit Secure Video, forçar o fluxo de vídeo de média qualidade do controlador Protect.",
-    "When recording HomeKit Secure Video events, force the use of the low quality video stream from the Protect controller.": "Ao gravar eventos do HomeKit Secure Video, forçar o fluxo de vídeo de baixa qualidade do controlador Protect."
+    "When recording HomeKit Secure Video events, force the use of the low quality video stream from the Protect controller.": "Ao gravar eventos do HomeKit Secure Video, forçar o fluxo de vídeo de baixa qualidade do controlador Protect.",
+    "Controllers": "Controladores",
+    "Settings for every device": "Definições de todos os dispositivos",
+    "Another controller": "Outro controlador",
+    "No controller yet": "Ainda sem controlador",
+    "Add accessories finds the UniFi consoles on the network, or one by its address, and signs in to it with a local account.": "Adicionar acessórios encontra as consolas UniFi da rede, ou uma pelo seu endereço, e inicia sessão nela com uma conta local.",
+    "Settings": "Definições",
+    "Third-party camera": "Câmara de terceiros",
+    "Copy": "Copiar",
+    "Find a camera's URLs": "Encontrar os URL de uma câmara",
+    "A third-party camera adopted in Protect streams from its own URLs. Homeswift asks the camera for them over ONVIF; put the ones you pick in the camera's Settings.": "Uma câmara de terceiros adotada no Protect transmite a partir dos seus próprios URL. O Homeswift pede-os à câmara por ONVIF; ponha os que escolher nas Definições da câmara."
   }
 });

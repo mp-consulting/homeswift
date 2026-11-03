@@ -1,580 +1,112 @@
-// The UniFi Protect page: the Homebridge plugin's settings page (homebridge-ui/public) on Homeswift. The
-// controllers of this instance's block with their state; discovery of UniFi consoles; adding and editing a
-// controller, checked by logging in; the feature options editor with its scopes (global, controller,
-// device) and the third-party camera URLs found over ONVIF; and the support links. The page edits this
-// instance's block of config.json the way the settings form does; saving applies it.
+// The UniFi Protect page: the controllers this instance runs, each with its state and its devices; finding a
+// third-party camera's URLs over ONVIF; and the support links. It writes no settings
+// (docs/adr/0002-schema-declares-every-setting.md): a controller's, a device's (a third-party camera's URLs among them)
+// and the plugin's open the Settings pages, and another controller is set up in Add accessories.
 (() => {
   "use strict";
-  const { $, el, request, explain, readBlock, updateBlock } = homeswift;
+  const { $, el, request, explain, breadcrumb, setupCard } = homeswift;
   const { t } = HomeswiftI18n;
-  /// Text from the plugin (an error in an answer, a feature option's description), in the page's language when
-  /// the catalog knows it.
+  /// Text from the plugin (an error in an answer), in the page's language when the catalog knows it.
   const said = (text) => HomeswiftI18n.message(text);
   const P = window.ProtectOptions;
-  const pluginName = "UniFi Protect";
+  const screens = ["controllersScreen", "onvifScreen", "supportScreen"];
 
-  const categoryIcons = {
-    Audio: "♪", Device: "▣", Doorbell: "◎", Log: "≡", Motion: "↯", Nvr: "▤", SecuritySystem: "⛨", Sensor: "◐", "UniFi.Access": "⚿", Video: "▶", "Video.HKSV": "⏺",
-  };
-  const categoryColors = {
-    Audio: "#fd7e14", Device: "#0d6efd", Doorbell: "#e83e8c", Log: "#6c757d", Motion: "#20c997", Nvr: "#6f42c1", SecuritySystem: "#dc3545",
-    Sensor: "#17a2b8", "UniFi.Access": "#ffc107", Video: "#198754", "Video.HKSV": "#495057",
-  };
+  // MARK: Where settings are edited: the plugin's Settings page, and each controller's or device's there.
 
-  const state = {
-    block: null,          // this instance's block of config.json
-    catalog: { categories: [], options: {} },
-    controllerIndex: null,
-    devices: [],
-    editingIndex: null,
-    openCategories: new Set(),
-    savedOptions: "",     // the block as saved, to know what is unsaved on the options screen
-    thirdPartyPanelOpen: false,
-  };
+  const pluginSettings = `/plugins/${location.pathname.split("/")[2] || ""}/settings`;
+  const settingsOf = (mac) => `${pluginSettings}?accessory=${encodeURIComponent(`UniFi Protect:${String(mac).replace(/[:-]/g, "").toUpperCase()}`)}`;
 
-  const controllers = () => state.block?.controllers || [];
-  const currentController = () => controllers()[state.controllerIndex];
+  function showScreen(id) {
+    for (const screen of screens) $("#" + screen).classList.toggle("hidden", screen !== id);
+  }
+
+  function back() {
+    breadcrumb(null);
+    showScreen("controllersScreen");
+    renderControllers();
+  }
 
   /// Runs `work` with the button disabled and, when it takes a moment, a spinner on it; errors go to the caller.
   const act = (button, work) => homeswift.act(button, work, null);
 
-  const screens = ["controllersScreen", "discoveryScreen", "setupScreen", "featureOptionsScreen", "supportScreen"];
-  function showScreen(id) {
-    for (const screen of screens) $("#" + screen).classList.toggle("hidden", screen !== id);
-    window.scrollTo({ top: 0 });
-  }
-
-  // MARK: The block in config.json
-
-  async function loadBlock() {
-    state.block = await readBlock();
-    state.block.name ||= pluginName;
-    state.savedOptions = JSON.stringify(state.block);
-  }
-
-  /// Saves the block: the plugin reloads with it.
-  async function saveBlock() {
-    const result = await updateBlock(() => state.block);
-    state.savedOptions = JSON.stringify(state.block);
-    return result;
-  }
-
   // MARK: Controllers
-
-  let runtime = {};   // address → what the running instance knows of it
 
   async function renderControllers() {
     const list = $("#controllersList");
-    const configured = controllers();
-    $("#noControllers").classList.toggle("hidden", configured.length > 0);
+    let live = [];
     try {
-      const answer = await request("controllers");
-      runtime = Object.fromEntries((answer.controllers || []).map((c) => [c.address, c]));
-    } catch { runtime = {}; }
-    list.replaceChildren(...configured.map((controller, index) => controllerCard(controller, index)));
+      ({ controllers: live } = await request("controllers"));
+    } catch (e) {
+      list.replaceChildren(el("p", { class: "error", text: e.message }));
+      return;
+    }
+    const setup = setupCard({
+      title: live.length ? t("Another controller") : t("No controller yet"),
+      text: t("Add accessories finds the UniFi consoles on the network, or one by its address, and signs in to it with a local account."),
+    });
+    list.replaceChildren(...live.map(controllerCard), setup);
   }
 
-  function controllerCard(controller, index) {
+  function controllerCard(controller) {
     const badge = el("span", { class: "pill status standby", text: t("Checking") });
     const slot = el("div", {});
-    const live = runtime[controller.address];
-    const facts = live ? el("div", { class: "facts" },
-      el("div", { class: "fact" }, el("span", { text: t("Devices") }), el("b", { text: String(live.devices.length) })),
-      el("div", { class: "fact" }, el("span", { text: t("Events") }), el("b", { text: live.events ? t("Live") : live.connected ? t("Every 2 minutes") : "—" })),
-      el("div", { class: "fact" }, el("span", { text: t("Certificate") }), el("b", { text: controller.verifyTls ? t("Verified") : live.tlsFingerprint ? t("Pinned") : t("Not yet seen") }))) : null;
-    const remove = async () => {
-      if (!await HomeswiftCommon.confirmDialog(t("Remove {name}?", { name: controller.name || controller.address }))) return;
-      state.block.controllers.splice(index, 1);
-      try { await saveBlock(); } catch (e) { HomeswiftCommon.showAlert(t("Unable to remove the controller: {error}", { error: e.message })); }
-      await renderControllers();
-      if (!controllers().length) showDiscovery(false);
-    };
-    // The card's actions in its menu, bottom right, as on the other pages' cards.
+    const devices = controller.devices ?? [];
     const card = el("div", { class: "card controller" },
       el("div", { class: "controller-head" },
         el("span", { class: "tile accessory", "aria-hidden": "true" }, HomeswiftCommon.icon("system")),
         el("div", { class: "who" }, el("strong", { text: controller.name || controller.address }), el("div", { class: "muted", text: controller.address })),
         badge),
-      facts, slot,
+      el("div", { class: "facts" },
+        el("div", { class: "fact" }, el("span", { text: t("Devices") }), el("b", { text: String(devices.length) })),
+        el("div", { class: "fact" }, el("span", { text: t("Events") }), el("b", { text: controller.events ? t("Live") : controller.connected ? t("Every 2 minutes") : "—" })),
+        el("div", { class: "fact" }, el("span", { text: t("Certificate") }), el("b", { text: controller.tlsFingerprint ? t("Pinned") : t("Not yet seen") }))),
+      slot,
+      devices.length ? el("div", { class: "found" }, devices.map(deviceRow)) : null,
       el("div", { class: "card-foot" },
-        el("span", { class: "muted", text: live ? (live.connected ? t("Connected") : t("Not connected yet: see the log.")) : t("Not running") }),
-        HomeswiftCommon.menuButton(t("Actions for {name}", { name: controller.name || controller.address }), () => [
-          { label: t("Feature options"), icon: "sliders", onSelect: () => openFeatureOptions(index) },
-          { label: t("Edit"), icon: "edit", onSelect: () => openEditController(index) },
-          { label: t("Remove"), icon: "trash", danger: true, onSelect: remove },
-        ])));
+        el("span", { class: "muted", text: controller.connected ? t("Connected") : t("Not connected yet: see the log.") }),
+        controller.mac ? el("a", { class: "button", href: settingsOf(controller.mac), actionIcon: "gear", text: t("Settings") }) : null));
     request("check-status", { method: "POST", body: { address: controller.address } }).then(({ online }) => {
       badge.className = `pill status ${online ? "on" : "away"}`;
       badge.textContent = online ? t("Online") : t("Offline");
       if (!online) {
         slot.replaceChildren(explain({
           error: "The controller did not answer an HTTPS request on port 443 within 5 seconds (status check from the Homeswift server; loopback and link-local addresses are refused), so it is shown as Offline.",
-          context: "The user is looking at the list of configured UniFi Protect controllers in the plugin's page.",
-          device: P.assistantController(controller),
+          context: "The user is looking at the UniFi Protect controllers the plugin runs in its page.",
+          device: { name: controller.name, connected: controller.connected },
         }));
       }
     }).catch(() => { badge.textContent = t("Unknown"); });
     return card;
   }
 
-  // MARK: Discovery
-
-  function showDiscovery(cancellable) {
-    $("#deviceList").replaceChildren();
-    $("#cancelDiscoveryBtn").classList.toggle("hidden", !cancellable);
-    showScreen("discoveryScreen");
+  /// A device of a controller: its kind and state, and its Settings (a third-party camera's URLs among them).
+  function deviceRow(device) {
+    const kind = device.thirdParty ? t("Third-party camera") : device.modelKey;
+    return el("div", { class: "card item" },
+      el("span", { class: "tile accessory", "aria-hidden": "true" }, HomeswiftCommon.icon(device.modelKey === "camera" ? "camera" : device.modelKey === "light" ? "bulb" : "sensor")),
+      el("div", {}, el("strong", { text: device.name }), el("div", { class: "muted", text: [kind, device.online ? t("Online") : t("Offline")].join(" · ") })),
+      el("a", { class: "button", href: settingsOf(device.mac), actionIcon: "gear", text: t("Settings") }));
   }
 
-  const discoveryContext = "Discovering UniFi consoles from the plugin's page with the Ubiquiti discovery protocol (UDP port 10001 broadcast on the local subnets plus a unicast scan of nearby /24 subnets, 5 seconds).";
-
-  async function discover(button) {
-    const list = $("#deviceList");
-    list.replaceChildren(el("p", { class: "muted", text: t("Searching…") }));
-    try {
-      const { devices } = await act(button, () => request("discover"));
-      const configured = controllers().map((c) => c.address);
-      const available = devices.filter((d) => !configured.includes(d.ip));
-      if (!available.length) {
-        const message = devices.length ? t("All discovered devices are already configured.") : t("No devices found. Make sure your UniFi console is on and connected.");
-        list.replaceChildren(el("p", { class: devices.length ? "ok" : "warn", text: message }),
-          devices.length ? null : explain({ error: message, context: discoveryContext }));
-        return;
-      }
-      list.replaceChildren(el("p", { class: "muted", text: t("Found devices:") }), ...available.map((device) => el("button", {
-        class: "card item", type: "button", onclick: () => openAddController(device.ip),
-      }, el("div", {}, el("strong", { text: device.name }), el("div", { class: "muted", text: [device.ip, device.model, device.mac].filter(Boolean).join(" · ") })),
-      el("span", { class: "pill", text: t("Select") }))));
-    } catch (e) {
-      list.replaceChildren(el("p", { class: "error", text: t("Discovery error: {error}", { error: e.message }) }),
-        explain({ error: P.scrubText("Discovery error: " + e.message), context: discoveryContext }));
-    }
-  }
-
-  // MARK: Add or edit a controller
-
-  function openAddController(address) {
-    state.editingIndex = null;
-    $("#setupTitle").textContent = t("Add UniFi Protect controller");
-    $("#setupSubtitle").textContent = t("Enter your UniFi Protect controller details and login credentials.");
-    $("#inputAddress").value = address || "";
-    $("#inputUsername").value = "";
-    $("#inputPassword").value = "";
-    $("#inputVerifyTls").checked = false;
-    $("#setupError").classList.add("hidden");
-    $("#cancelSetupBtn").classList.toggle("hidden", !controllers().length && !address);
-    showScreen("setupScreen");
-    (address ? $("#inputUsername") : $("#inputAddress")).focus();
-  }
-
-  function openEditController(index) {
-    state.editingIndex = index;
-    const controller = controllers()[index];
-    $("#setupTitle").textContent = t("Edit controller");
-    $("#setupSubtitle").textContent = t("Editing {name}", { name: controller.name || controller.address });
-    $("#inputAddress").value = controller.address || "";
-    $("#inputUsername").value = controller.username || "";
-    $("#inputPassword").value = controller.password || "";
-    $("#inputVerifyTls").checked = controller.verifyTls === true;
-    $("#setupError").classList.add("hidden");
-    $("#cancelSetupBtn").classList.remove("hidden");
-    showScreen("setupScreen");
-  }
-
-  function setupError(message, verifyTls, address) {
-    $("#setupErrorText").textContent = message;
-    $("#setupError").classList.remove("hidden");
-    $("#setupAssistant").replaceChildren(explain({
-      error: P.scrubText(message, [address]),
-      context: "Logging in to the UniFi Protect controller and loading its devices (bootstrap, 20 second limit) from the plugin's page failed.",
-      device: P.assistantController({ verifyTls }),
-    }));
-  }
-
-  async function submitSetup(event) {
-    event.preventDefault();
-    const address = $("#inputAddress").value.trim();
-    const username = $("#inputUsername").value.trim();
-    const password = $("#inputPassword").value.trim();
-    const verifyTls = $("#inputVerifyTls").checked;
-    if (!address || !username || !password) {
-      $("#setupErrorText").textContent = t("Please fill in all fields.");
-      $("#setupError").classList.remove("hidden");
-      return;
-    }
-    $("#setupError").classList.add("hidden");
-    const button = $("#saveControllerBtn");
-    button.textContent = t("Validating…");
-    try {
-      await act(button, async () => {
-        const { devices, error } = await request("devices", { method: "POST", body: { address, username, password, verifyTls } });
-        if (!devices?.length) {
-          setupError(t("Unable to connect. {error}", { error: error ? said(error) : t("Check your address and credentials.") }), verifyTls, address);
-          return;
-        }
-        state.block.controllers ||= [];
-        // verifyTls is always written, so unchecking it overrides a saved value.
-        const entry = { address, password, username, verifyTls };
-        if (devices[0]?.name) entry.name = devices[0].name;
-        if (state.editingIndex !== null) {
-          state.block.controllers[state.editingIndex] = { ...state.block.controllers[state.editingIndex], ...entry };
-        } else {
-          state.block.controllers.push(entry);
-        }
-        await saveBlock();
-        showScreen("controllersScreen");
-        await renderControllers();
-      });
-    } catch (e) {
-      setupError(t("Error: {error}", { error: e.message }), verifyTls, address);
-    } finally {
-      button.textContent = t("Save controller");
-    }
-  }
-
-  // MARK: Feature options
-
-  const isOptionsDirty = () => JSON.stringify(state.block) !== state.savedOptions;
-  const configuredOptions = () => state.block.options || [];
-
-  function markDirty() {
-    $("#unsavedChanges").classList.toggle("hidden", !isOptionsDirty());
-  }
-
-  async function openFeatureOptions(index) {
-    state.controllerIndex = index;
-    const controller = currentController();
-    showScreen("featureOptionsScreen");
-    $("#optionsLoading").classList.remove("hidden");
-    $("#optionsContainer").replaceChildren();
-    $("#deviceInfoPanel").classList.add("hidden");
-    $("#thirdPartyOverridesPanel").classList.add("hidden");
-    $("#optionsSearch").value = "";
-    $("#optionsProblem").classList.add("hidden");
-    showDeviceProblem(null, null);
-    markDirty();
-    try {
-      const [catalog, answer] = await Promise.all([
-        request("options"),
-        request("devices", { method: "POST", body: { address: controller.address, username: controller.username, password: controller.password, verifyTls: controller.verifyTls === true } }),
-      ]);
-      state.catalog = catalog;
-      state.devices = (answer.devices || []).map((device) => ({ ...device, name: device.name ?? device.marketName }));
-      if (!state.devices.length) showOptionsProblem(controller, t("Unable to load the devices of this controller. {error}", { error: answer.error ? said(answer.error) : t("Check its address and credentials.") }));
-      buildScopeSelector(controller);
-      renderOptions();
-    } catch (e) {
-      showOptionsProblem(controller, t("Failed to load: {error}", { error: e.message }));
-    } finally {
-      $("#optionsLoading").classList.add("hidden");
-    }
-  }
-
-  function showOptionsProblem(controller, message) {
-    const box = $("#optionsProblem");
-    box.className = "problem";
-    box.replaceChildren(el("p", { class: "error", text: message }), explain({
-      error: P.scrubText(message, [controller?.address]),
-      context: "Loading the devices of a configured UniFi Protect controller for the feature options screen of the plugin's page failed.",
-      device: P.assistantController(controller),
-    }));
-  }
-
-  function showDeviceProblem(device, problem) {
-    const box = $("#infoAssistant");
-    if (!problem) { box.classList.add("hidden"); box.replaceChildren(); return; }
-    box.className = "problem warn";
-    box.replaceChildren(el("p", { text: t("{device}: {problem}", { device: device.name || t("This device"), problem }) }), explain({
-      error: problem, context: "The user is looking at the feature options of a UniFi Protect device in the plugin's page.", device: P.assistantDevice(device),
-    }));
-  }
-
-  const modelLabels = { cameras: t("Cameras"), chimes: t("Chimes"), lights: t("Lights"), sensors: t("Sensors"), viewers: t("Viewers") };
-
-  function buildScopeSelector(controller) {
-    const select = $("#scopeSelect");
-    select.replaceChildren(el("option", { value: "global", text: t("Global options") }),
-      el("option", { value: "controller:" + controller.address, text: t("Controller: {name}", { name: controller.name || controller.address }) }));
-    const groups = {};
-    for (const device of state.devices) {
-      if (device.modelKey === "nvr") continue;
-      (groups[device.modelKey + "s"] ||= []).push(device);
-    }
-    for (const [key, items] of Object.entries(groups)) {
-      select.append(el("optgroup", { label: modelLabels[key] || key }, items.map((device) => el("option", { value: "device:" + device.mac, text: device.name || device.marketName || device.type }))));
-    }
-  }
-
-  // The camera of the scope, live while it is on screen (the UI's camera.js and /api/cameras), when it is one of
-  // the accessories this bridge runs.
-  let preview = null;
-  let cameraIDs = null;
-  async function showPreview(device) {
-    const panel = $("#infoPreview");
-    const id = device && device.modelKey === "camera" ? `UniFi Protect:${device.mac}` : null;
-    if (preview && preview.camera.id === id) return;
-    preview?.destroy();
-    preview = null;
-    panel.replaceChildren();
-    panel.classList.add("hidden");
-    if (!id || !window.HomeswiftCamera) return;
-    try {
-      cameraIDs ||= new Set((await HomeswiftCommon.api("/api/accessories")).filter((a) => a.camera).map((a) => a.id));
-    } catch { return; }
-    if (!cameraIDs.has(id) || currentScope().device !== device) return;
-    preview = HomeswiftCamera.view({ id, name: device.name || device.marketName || t("Camera"), doorbell: device.featureFlags?.isDoorbell === true });
-    panel.append(preview.element);
-    panel.classList.remove("hidden");
-  }
-
-  function currentScope() {
-    const value = $("#scopeSelect").value || "global";
-    if (value === "global") return { device: null, id: null, type: "global" };
-    const colon = value.indexOf(":");
-    const type = value.slice(0, colon), id = value.slice(colon + 1);
-    if (type === "controller") return { device: null, id, type };
-    return { device: state.devices.find((d) => d.mac === id), id, type: "device" };
-  }
-
-  function updateCascade(type) {
-    const order = ["global", "controller", "device"];
-    const active = order.indexOf(type);
-    const hints = {
-      global: [t("Editing this scope"), t("Inherits global"), t("Inherits global")],
-      controller: [t("Base values"), t("Editing this scope"), t("Inherits controller")],
-      device: [t("Base values"), t("Intermediate"), t("Editing this scope")],
-    };
-    document.querySelectorAll("#scopeCascade .scope-level").forEach((level, index) => {
-      level.classList.toggle("active", index === active);
-      level.classList.toggle("inherited", index < active);
-      level.querySelector(".scope-hint").textContent = hints[type][index];
-    });
-    document.querySelectorAll("#scopeCascade .scope-connector").forEach((connector, index) => connector.classList.toggle("active", index < active));
-  }
-
-  const view = { modifiedOnly: false, search: "" };
-
-  function categoryOptions(category, scope, search) {
-    if (!P.validOptionCategory(scope.device, category)) return null;
-    return (state.catalog.options[category.name] || []).filter((option) => {
-      if (scope.device && scope.device.modelKey !== "nvr" && !P.validOption(scope.device, option)) return false;
-      return !search || (option.name + " " + option.description + " " + said(option.description)).toLowerCase().includes(search);
-    });
-  }
-
-  function renderOptions() {
-    const container = $("#optionsContainer");
-    const scope = currentScope();
-    updateCascade(scope.type);
-    view.search = ($("#optionsSearch").value || "").toLowerCase();
-    view.modifiedOnly = $("#modifiedOnlyToggle").checked;
-    if (scope.device && scope.device.modelKey !== "nvr") {
-      $("#deviceInfoPanel").classList.remove("hidden");
-      $("#infoModel").textContent = scope.device.marketName || scope.device.type;
-      $("#infoMac").textContent = scope.device.mac;
-      $("#infoIp").textContent = scope.device.host || (scope.device.modelKey === "sensor" ? t("{connection} device", { connection: scope.device.connectionType === "lora" ? "SuperLink" : "Bluetooth" }) : t("N/A"));
-      const status = $("#infoStatus");
-      if (typeof scope.device.state === "string") {
-        status.textContent = scope.device.state.charAt(0).toUpperCase() + scope.device.state.slice(1).toLowerCase();
-        status.className = scope.device.state === "CONNECTED" ? "ok" : "error";
-      } else {
-        status.textContent = t("Connected");
-        status.className = "ok";
-      }
-      showDeviceProblem(scope.device, P.deviceProblem(scope.device));
-      showPreview(scope.device);
-    } else {
-      showPreview(null);
-      $("#deviceInfoPanel").classList.add("hidden");
-      showDeviceProblem(null, null);
-    }
-    renderThirdPartyPanel(scope);
-    const cards = [];
-    let modified = 0;
-    for (const category of state.catalog.categories) {
-      let options = categoryOptions(category, scope, view.search);
-      if (!options?.length) continue;
-      const stats = P.categoryStats(configuredOptions(), category, options, scope, currentController()?.address);
-      modified += stats.modified;
-      if (view.modifiedOnly) {
-        options = options.filter((option) => P.isOptionModified(configuredOptions(), P.optionKey(category, option), scope.id));
-        if (!options.length) continue;
-      }
-      cards.push(categoryCard(category, options, stats, scope));
-    }
-    if (!cards.length) cards.push(el("p", { class: "muted", text: view.modifiedOnly ? t("No modified options") : view.search ? t("No options match your search") : t("No options available") }));
-    container.replaceChildren(...cards);
-    updateModifiedSummary(modified);
-  }
-
-  function updateModifiedSummary(count) {
-    $("#modifiedOnlyToggle").disabled = count === 0 && !$("#modifiedOnlyToggle").checked;
-    $("#modifiedOnlyToggle").closest("label").title = $("#modifiedOnlyToggle").disabled ? t("No modified options match the current search.") : "";
-    const summary = $("#modifiedSummary");
-    summary.textContent = count ? `(${count})` : "";
-    summary.className = count ? "warn" : "";
-  }
-
-  function categoryCard(category, options, stats, scope) {
-    const color = categoryColors[category.name] || "#6c757d";
-    const isOpen = state.openCategories.has(category.name) || (stats.modified > 0 && !state.openCategories.size) || !!view.search;
-    const count = el("span", { class: "category-count" });
-    const fill = el("span", { class: "category-progress-fill" });
-    const badge = el("span", { class: "modified-badge" });
-    const head = el("button", { class: "category-head", type: "button", "aria-expanded": String(isOpen) },
-      el("span", { class: "category-icon", text: categoryIcons[category.name] || "•" }),
-      el("span", { class: "category-title", text: said(category.description.replace(/ feature options\.?/i, "")) }),
-      count, el("span", { class: "category-progress" }, fill), badge, el("span", { class: "chevron", text: "⌄" }));
-    const card = el("div", { class: `card category${isOpen ? " open" : ""}`, "data-category": category.name });
-    card.style.setProperty("--category-color", color);
-    const fillHeader = (s) => {
-      count.textContent = t("{enabled}/{total} on", { enabled: s.enabled, total: s.total });
-      fill.style.setProperty("--progress", String(s.fraction));
-      badge.textContent = String(s.modified);
-      badge.classList.toggle("hidden", !s.modified);
-    };
-    fillHeader(stats);
-    head.addEventListener("click", () => {
-      const open = card.classList.toggle("open");
-      head.setAttribute("aria-expanded", String(open));
-      if (open) state.openCategories.add(category.name); else state.openCategories.delete(category.name);
-    });
-    const body = el("div", { class: "category-body" }, options.map((option) => optionRow(category, option, scope, () => {
-      if (view.modifiedOnly && !P.isOptionModified(configuredOptions(), P.optionKey(category, option), scope.id)) { renderOptions(); return; }
-      fillHeader(P.categoryStats(configuredOptions(), category, categoryOptions(category, scope, view.search) || [], scope, currentController()?.address));
-      let total = 0;
-      for (const other of state.catalog.categories) {
-        const entries = categoryOptions(other, scope, view.search);
-        if (entries) total += P.categoryStats(configuredOptions(), other, entries, scope, currentController()?.address).modified;
-      }
-      updateModifiedSummary(total);
-    })));
-    card.append(head, body);
-    return card;
-  }
-
-  /// The units the options' descriptions name ("in seconds"), and the scopes, in the page's language.
-  const unitLabels = {
-    second: t("second"), seconds: t("seconds"), minute: t("minute"), minutes: t("minutes"), hour: t("hour"), hours: t("hours"),
-    millisecond: t("millisecond"), milliseconds: t("milliseconds"), decibel: t("decibel"), decibels: t("decibels"), hertz: t("Hertz"),
-    "kilobits per second": t("kilobits per second"), percentage: t("percentage"),
-  };
-  const scopeLabels = { global: t("global"), controller: t("controller"), device: t("device") };
-
-  function optionRow(category, option, scope, changed) {
-    const key = P.optionKey(category, option);
-    const checkbox = el("input", { type: "checkbox", "aria-label": key });
-    const badge = el("span", {});
-    const valueInput = option.defaultValue !== undefined ? el("input", { type: option.inputSize ? "text" : "number", min: "0", step: "1", "aria-label": t("{option} value", { option: key }) }) : null;
-    const unit = option.description.match(/\bin (seconds?|minutes?|hours?|milliseconds?|decibels?|Hertz|kilobits per second|percentage)\b/i)?.[1];
-    const valueRow = valueInput ? el("div", { class: "option-value" }, valueInput, unit ? el("span", { class: "muted", text: unitLabels[unit.toLowerCase()] || unit }) : null,
-      el("span", { class: "muted", text: t("(default: {value})", { value: option.defaultValue === "" ? t("none") : String(option.defaultValue) }) })) : null;
-    const reset = el("button", { class: "reset-option", type: "button", title: t("Reset to inherited value"), "aria-label": t("Reset to inherited value"), text: "↺" });
-    const row = el("div", { class: "option" },
-      el("label", { class: "switch" }, checkbox, el("span", {})),
-      el("div", { class: "option-text" },
-        el("div", {}, el("span", { class: "option-name", text: option.name || said(category.description) }),
-          el("span", { class: "default-indicator", text: option.default ? t("default: on") : t("default: off") }), badge),
-        el("div", { class: "option-description", text: said(option.description) }), valueRow),
-      reset);
-    const sync = () => {
-      const s = P.getOptionState(configuredOptions(), key, option, scope, currentController()?.address);
-      let scopeClass = "";
-      if (s.explicit) scopeClass = "scope-" + scope.type;
-      else if (s.scope === "controller") scopeClass = "scope-controller";
-      else if (s.scope === "global" && scope.type !== "global") scopeClass = "scope-global";
-      else if (s.enabled !== option.default) scopeClass = "non-default";
-      row.className = `option ${scopeClass}${option.group && option.name !== option.group ? " grouped" : ""}`;
-      if (s.explicit) { badge.className = `scope-badge ${scope.type}`; badge.textContent = scopeLabels[scope.type] || scope.type; }
-      else if (s.scope === "controller" || (s.scope === "global" && scope.type !== "global")) { badge.className = `scope-badge inherited ${s.scope}`; badge.textContent = "↓ " + (scopeLabels[s.scope] || s.scope); }
-      else { badge.className = ""; badge.textContent = ""; }
-      checkbox.checked = s.enabled;
-      if (!s.explicit && document.activeElement === reset) checkbox.focus();
-      reset.classList.toggle("hidden", !s.explicit);
-      if (valueRow) {
-        valueRow.classList.toggle("hidden", !s.enabled);
-        const current = String(s.value ?? option.defaultValue);
-        if (valueInput.value !== current) valueInput.value = current;
-      }
-    };
-    checkbox.addEventListener("change", () => {
-      state.block.options = P.setOption(configuredOptions(), key, checkbox.checked, scope, option, currentController()?.address);
-      sync(); changed(); markDirty();
-    });
-    valueInput?.addEventListener("change", () => {
-      const text = valueInput.value.trim();
-      const parsed = option.inputSize ? text : parseInt(text, 10);
-      if (option.inputSize ? text.includes(".") : (isNaN(parsed) || parsed < 0)) return;
-      state.block.options = P.setOption(configuredOptions(), key, true, scope, option, currentController()?.address, parsed);
-      sync(); changed(); markDirty();
-    });
-    reset.addEventListener("click", (event) => {
-      event.stopPropagation();
-      state.block.options = P.removeOption(configuredOptions(), key, scope);
-      sync(); changed(); markDirty();
-    });
-    sync();
-    return row;
-  }
-
-  // MARK: Third-party camera URLs
-
-  const discoveries = new Map();   // normalized MAC → { host, port, profiles, thumbnails, warnings, collapsedFrom, queue }
-
-  function renderThirdPartyPanel(scope) {
-    const panel = $("#thirdPartyOverridesPanel");
-    const controller = currentController();
-    if (!scope.device || scope.device.modelKey !== "camera" || !scope.device.isThirdPartyCamera || !controller) { panel.classList.add("hidden"); return; }
-    if (P.dedupeCameraOverrides(controller)) markDirty();
-    const mac = scope.device.mac;
-    const existing = (controller.cameraOverrides || []).find((entry) => P.normalizeMac(entry.mac) === P.normalizeMac(mac));
-    $("#thirdPartyRtspUrl").value = existing?.rtspUrl || "";
-    $("#thirdPartySnapshotUrl").value = existing?.snapshotUrl || "";
-    // The camera's address is the controller's to know; the rest is remembered in the override.
-    $("#thirdPartyOnvifHost").value = scope.device.host || "";
-    $("#thirdPartyOnvifPort").value = existing?.onvifPort != null ? String(existing.onvifPort) : "";
-    $("#thirdPartyOnvifUser").value = existing?.onvifUsername || "";
-    $("#thirdPartyOnvifPass").value = existing?.onvifPassword || "";
-    $("#thirdPartyOnvifPath").value = existing?.onvifServicePath || "";
-    say("");
-    $("#thirdPartyProfileSelectorWrap").classList.add("hidden");
-    $("#thirdPartyDiscoverAssistant").replaceChildren();
-    if (discoveries.has(P.normalizeMac(mac))) renderProfileSelector(mac);
-    panel.classList.remove("hidden");
-    panel.classList.toggle("open", state.thirdPartyPanelOpen);
-    $("#thirdPartyOverridesHeader").onclick = () => { state.thirdPartyPanelOpen = !state.thirdPartyPanelOpen; panel.classList.toggle("open", state.thirdPartyPanelOpen); };
-    const bind = (id, field) => { $(id).oninput = () => { P.updateCameraOverride(controller, mac, field, $(id).value); markDirty(); }; };
-    bind("#thirdPartyRtspUrl", "rtspUrl");
-    bind("#thirdPartySnapshotUrl", "snapshotUrl");
-    bind("#thirdPartyOnvifPort", "onvifPort");
-    bind("#thirdPartyOnvifUser", "onvifUsername");
-    bind("#thirdPartyOnvifPass", "onvifPassword");
-    bind("#thirdPartyOnvifPath", "onvifServicePath");
-    $("#thirdPartyDiscoverBtn").onclick = (event) => act(event.currentTarget, () => discoverOnvif(mac));
-    $("#thirdPartyProfileSelect").onchange = () => applyProfile(mac, parseInt($("#thirdPartyProfileSelect").value, 10));
-  }
+  // MARK: A third-party camera's URLs, over ONVIF
 
   function say(text, kind = "") {
-    const status = $("#thirdPartyDiscoverStatus");
+    const status = $("#onvifStatus");
     status.textContent = text;
     status.className = `status-line ${kind}`;
   }
 
-  async function discoverOnvif(mac) {
-    const controller = currentController();
-    const host = $("#thirdPartyOnvifHost").value.trim();
-    const username = $("#thirdPartyOnvifUser").value.trim();
-    const password = $("#thirdPartyOnvifPass").value;
-    const servicePath = $("#thirdPartyOnvifPath").value.trim();
-    const port = $("#thirdPartyOnvifPort").value;
+  async function discoverOnvif() {
+    const host = $("#onvifHost").value.trim();
+    const username = $("#onvifUser").value.trim();
+    const password = $("#onvifPass").value;
+    const servicePath = $("#onvifPath").value.trim();
+    const port = $("#onvifPort").value;
+    const found = $("#onvifProfiles");
+    found.replaceChildren();
     if (!host || !username) { say(t("IP address and username are required."), "error"); return; }
-    // What was entered or prefilled is remembered before talking to the camera.
-    P.updateCameraOverride(controller, mac, "onvifPort", port);
-    P.updateCameraOverride(controller, mac, "onvifUsername", username);
-    P.updateCameraOverride(controller, mac, "onvifPassword", password);
-    P.updateCameraOverride(controller, mac, "onvifServicePath", servicePath);
-    markDirty();
     say(t("Discovering…"));
-    const assistantSlot = $("#thirdPartyDiscoverAssistant");
+    const assistantSlot = $("#onvifAssistant");
     assistantSlot.replaceChildren();
     const explainFailure = (message) => assistantSlot.replaceChildren(explain({
       error: P.scrubText(message, [host]),
@@ -590,140 +122,49 @@
       }
       const raw = (result.profiles || []).filter((p) => p.rtspUrl || p.snapshotUrl);
       if (!raw.length) { say(t("Camera did not return any URLs."), "warn"); return; }
-      discoveries.set(P.normalizeMac(mac), { collapsedFrom: raw.length, host, port: result.port, profiles: P.dedupeProfilesByUrl(raw), thumbnails: new Map(), warnings: result.warnings || [], queue: Promise.resolve() });
-      renderProfileSelector(mac);
+      const profiles = P.dedupeProfilesByUrl(raw);
+      const text = profiles.length > 1 ? t("Found {n} profiles on port {port}. Pick the one to use.", { n: profiles.length, port: String(result.port) })
+        : t("Discovered URLs on port {port}.", { port: String(result.port) });
+      say([text, ...(result.warnings || []).map(said)].join(" "), result.warnings?.length ? "warn" : "ok");
+      found.replaceChildren(...profiles.map((profile, index) => profileRow(profile, index, host)));
     } catch (e) {
       say(t("Discovery failed: {error}", { error: e.message }), "error");
       explainFailure("Discovery failed: " + e.message);
     }
   }
 
-  function renderProfileSelector(mac) {
-    const entry = discoveries.get(P.normalizeMac(mac));
-    if (!entry?.profiles?.length) return;
-    const select = $("#thirdPartyProfileSelect");
-    let selected = entry.profiles.findIndex((p) => p.rtspUrl && p.rtspUrl === $("#thirdPartyRtspUrl").value);
-    if (selected < 0) selected = 0;
-    select.replaceChildren(...entry.profiles.map((profile, index) => el("option", { value: String(index), text: P.formatProfileLabel(profile, index) })));
-    select.value = String(selected);
-    select.disabled = entry.profiles.length <= 1;
-    $("#thirdPartyProfileSelectorWrap").classList.remove("hidden");
-    applyProfile(mac, selected);
-    // The other thumbnails, one at a time: cheap cameras drop parallel snapshot requests.
-    entry.profiles.forEach((_, index) => { if (index !== selected) loadThumbnail(mac, index); });
-    const port = String(entry.port);
-    let text = entry.profiles.length > 1 ? t("Found {n} profiles on port {port}. Pick the one to use.", { n: entry.profiles.length, port })
-      : entry.collapsedFrom > 1 ? t("Camera reports {n} profiles but they all map to the same stream. Discovered URLs on port {port}.", { n: entry.collapsedFrom, port })
-        : t("Discovered URLs on port {port}.", { port });
-    if (entry.warnings.length) { text += " " + entry.warnings.map(said).join(" "); say(text, "warn"); } else { say(text, "ok"); }
-  }
-
-  function showThumbnail(mac, index) {
-    const cached = discoveries.get(P.normalizeMac(mac))?.thumbnails.get(index);
-    const image = $("#thirdPartyProfileThumb");
-    image.classList.toggle("hidden", !cached);
-    $("#thirdPartyProfileThumbPlaceholder").classList.toggle("hidden", !!cached);
-    if (cached) image.src = cached; else image.removeAttribute("src");
-  }
-
-  function loadThumbnail(mac, index) {
-    const entry = discoveries.get(P.normalizeMac(mac));
-    const profile = entry?.profiles[index];
-    if (!entry || entry.thumbnails.has(index)) return entry?.queue;
-    if (!profile?.snapshotUrl) { entry.thumbnails.set(index, null); return entry.queue; }
-    entry.queue = entry.queue.then(async () => {
-      if (entry.thumbnails.has(index)) return;
-      try {
-        const result = await request("snapshot", { method: "POST", body: { host: entry.host, url: profile.snapshotUrl } });
-        entry.thumbnails.set(index, result?.ok && result.data ? `data:${result.contentType || "image/jpeg"};base64,${result.data}` : null);
-      } catch { entry.thumbnails.set(index, null); }
-      if (parseInt($("#thirdPartyProfileSelect").value, 10) === index) showThumbnail(mac, index);
-    }).catch(() => {});
-    return entry.queue;
-  }
-
-  function applyProfile(mac, index) {
-    const controller = currentController();
-    const profile = discoveries.get(P.normalizeMac(mac))?.profiles[index];
-    if (!profile || !controller) return;
-    $("#thirdPartyRtspUrl").value = profile.rtspUrl || "";
-    $("#thirdPartySnapshotUrl").value = profile.snapshotUrl || "";
-    P.updateCameraOverride(controller, mac, "rtspUrl", profile.rtspUrl || "");
-    P.updateCameraOverride(controller, mac, "snapshotUrl", profile.snapshotUrl || "");
-    markDirty();
-    showThumbnail(mac, index);
-    loadThumbnail(mac, index);
-  }
-
-  async function saveOptions(button) {
-    await act(button, async () => {
-      try {
-        const result = await saveBlock();
-        markDirty();
-        const pending = result?.restartNeeded || [];
-        if (pending.length) HomeswiftCommon.showAlert(t("Saved. Restart Homeswift to apply: {changes}.", { changes: pending.join("; ") }));
-      } catch (e) { HomeswiftCommon.showAlert(e.message); }
-    });
-  }
-
-  async function discardOptions() {
-    if (!await HomeswiftCommon.confirmDialog(t("Discard the changes?"))) return;
-    state.block = JSON.parse(state.savedOptions);
-    markDirty();
-    renderOptions();
-  }
-
-  async function leaveOptions() {
-    if (isOptionsDirty() && !await HomeswiftCommon.confirmDialog(t("Leave without saving the changes?"))) return;
-    if (isOptionsDirty()) state.block = JSON.parse(state.savedOptions);
-    markDirty();
-    showScreen("controllersScreen");
-    renderControllers();
+  /// A profile's URLs to copy into the camera's Settings, with its snapshot, one profile at a time (cheap cameras
+  /// drop parallel snapshot requests).
+  let thumbnails = Promise.resolve();
+  function profileRow(profile, index, host) {
+    const thumb = el("span", { class: "thumb", text: t("No preview") });
+    if (profile.snapshotUrl) {
+      thumbnails = thumbnails.then(async () => {
+        try {
+          const result = await request("snapshot", { method: "POST", body: { host, url: profile.snapshotUrl } });
+          if (result?.ok && result.data) thumb.replaceChildren(el("img", { alt: t("Stream preview"), src: `data:${result.contentType || "image/jpeg"};base64,${result.data}` }));
+        } catch { /* no preview */ }
+      });
+    }
+    const url = (label, value) => value ? el("div", { class: "muted" }, `${label}: `, el("span", { class: "mono", text: value })) : null;
+    const copy = () => navigator.clipboard?.writeText([profile.rtspUrl, profile.snapshotUrl].filter(Boolean).join("\n"));
+    return el("div", { class: "card item" }, thumb,
+      el("div", {}, el("strong", { text: P.formatProfileLabel(profile, index) }), url(t("Direct RTSP / RTSPS URL"), profile.rtspUrl), url(t("Direct snapshot URL"), profile.snapshotUrl)),
+      el("button", { type: "button", actionIcon: "copy", text: t("Copy"), onclick: copy }));
   }
 
   // MARK: Start
 
   function bind() {
-    $("#discoverBtn").addEventListener("click", (event) => discover(event.currentTarget));
-    $("#manualEntryBtn").addEventListener("click", () => openAddController());
-    $("#cancelDiscoveryBtn").addEventListener("click", () => { showScreen("controllersScreen"); renderControllers(); });
-    $("#setupForm").addEventListener("submit", submitSetup);
-    $("#cancelSetupBtn").addEventListener("click", () => {
-      if (controllers().length) { showScreen("controllersScreen"); renderControllers(); } else { showDiscovery(false); }
-    });
-    $("#addControllerBtn").addEventListener("click", () => showDiscovery(controllers().length > 0));
-    $("#supportBtn").addEventListener("click", () => showScreen("supportScreen"));
-    $("#backFromSupportBtn").addEventListener("click", () => { showScreen("controllersScreen"); renderControllers(); });
-    $("#optionsSearch").parentElement.append(HomeswiftCommon.clearFilters([[$("#optionsSearch"), ""], [$("#modifiedOnlyToggle"), false]]));
-    let searchTimer = null;
-    $("#optionsSearch").addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = setTimeout(renderOptions, 300); });
-    $("#scopeSelect").addEventListener("change", renderOptions);
-    $("#modifiedOnlyToggle").addEventListener("change", renderOptions);
-    $("#backFromOptionsBtn").addEventListener("click", leaveOptions);
-    $("#saveOptionsBtn").addEventListener("click", (event) => saveOptions(event.currentTarget));
-    $("#discardOptionsBtn").addEventListener("click", discardOptions);
-    window.addEventListener("beforeunload", (event) => { if (state.block && isOptionsDirty()) event.preventDefault(); });
+    $("#pluginSettingsLink").href = pluginSettings;
+    $("#onvifBtn").addEventListener("click", () => { showScreen("onvifScreen"); breadcrumb(t("Find a camera's URLs"), back); });
+    $("#backFromOnvifBtn").addEventListener("click", back);
+    $("#onvifDiscoverBtn").addEventListener("click", (event) => act(event.currentTarget, discoverOnvif));
+    $("#supportBtn").addEventListener("click", () => { showScreen("supportScreen"); breadcrumb(t("Support"), back); });
+    $("#backFromSupportBtn").addEventListener("click", back);
   }
 
-  async function start() {
-    bind();
-    try {
-      await loadBlock();
-    } catch (e) {
-      $("main").append(el("p", { class: "card error", text: e.message }));
-      return;
-    }
-    // Duplicate camera overrides from older versions or hand edits collapse into one entry per camera.
-    let deduped = false;
-    for (const controller of controllers()) deduped = P.dedupeCameraOverrides(controller) || deduped;
-    if (deduped) { try { await saveBlock(); } catch { /* kept unsaved */ } }
-    if (controllers().length) {
-      showScreen("controllersScreen");
-      renderControllers();
-    } else {
-      showDiscovery(false);
-    }
-  }
-
-  start();
+  bind();
+  showScreen("controllersScreen");
+  renderControllers();
 })();

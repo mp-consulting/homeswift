@@ -372,24 +372,18 @@ import Testing
         let host = try await environment.start()
         defer { Task { await host.stop() } }
         let plugin = try #require(environment.plugin)
-        let options = try await plugin.handleWebRequest(PluginWebRequest(method: "GET", path: "options", user: "admin"))
-        #expect(options.json.array("categories").count == 11)
-        let devices = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "devices",
-            body: ["address": "192.168.1.1", "username": "homeswift", "password": "secret"], user: "admin"))
-        let list = devices.json.array("devices")
-        #expect(list.first?.string("modelKey") == "nvr")
-        #expect(list.map { $0.string("modelKey") ?? "" } == ["nvr", "camera", "camera", "chime", "light", "sensor", "viewer"])
-        #expect(list.dropFirst().first?.string("name") == "Driveway")
-        // The configured controller's own password, over the certificate the running plugin pinned.
-        let configured = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "devices",
-            body: ["address": "192.168.1.1", "username": "homeswift"], user: "admin"))
-        #expect(configured.json.array("devices").count == list.count)
-        let refused = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "devices",
-            body: ["address": "192.168.1.1", "username": "homeswift", "password": "wrong"], user: "admin"))
-        #expect(refused.json.array("devices").isEmpty)
-        #expect(refused.json.string("error") == "Invalid login credentials given. Please check your login and password." || refused.json.string("error")?.contains("Invalid login") == true)
+        // What Setup reads of a controller: its bootstrap, or the API's error.
+        guard case .read(let bootstrap) = await plugin.read(address: "192.168.1.1", username: "homeswift", password: "secret", verifyTls: false) else {
+            Issue.record("expected the bootstrap"); return
+        }
+        #expect(bootstrap.at("nvr")?.string("modelKey") == "nvr")
+        guard case .failed(let message) = await plugin.read(address: "192.168.1.1", username: "homeswift", password: "wrong", verifyTls: false) else {
+            Issue.record("expected a refusal"); return
+        }
+        #expect(message.contains("Invalid login"))
         let status = try await plugin.handleWebRequest(PluginWebRequest(method: "GET", path: "controllers", user: "admin"))
         #expect(status.json.array("controllers").first?.bool("connected") == true)
+        #expect(status.json.array("controllers").first?.string("mac")?.isEmpty == false)
         let missing = try await plugin.handleWebRequest(PluginWebRequest(method: "GET", path: "nope", user: "admin"))
         #expect(missing.status == 404)
     }

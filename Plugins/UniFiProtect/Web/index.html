@@ -19,131 +19,32 @@
     </div>
   </div>
 
-  <!-- The controllers: the page opens here once one is configured. -->
+  <!-- The controllers the instance runs, with their devices; Setup adds others. -->
   <section id="controllersScreen" class="screen hidden">
-    <div class="section-head"><h2 data-i18n>Configured controllers</h2></div>
-    <p id="noControllers" class="card muted hidden" data-i18n>No controllers configured yet. Add one to get started.</p>
+    <div class="section-head"><h2 data-i18n>Controllers</h2></div>
     <div id="controllersList" class="controllers"></div>
-    <div class="actions row-actions">
-      <button id="addControllerBtn" class="primary" data-i18n data-action-icon="plus">Add controller</button>
-      <button id="supportBtn" data-i18n>Support</button>
+    <div class="actions">
+      <a id="pluginSettingsLink" class="button" data-i18n data-action-icon="gear">Settings for every device</a>
+      <button id="onvifBtn" data-i18n data-action-icon="search">Find a camera's URLs</button>
+      <button id="supportBtn" data-i18n data-action-icon="link">Support</button>
     </div>
   </section>
 
-  <!-- Discovery of UniFi consoles, or manual entry. -->
-  <section id="discoveryScreen" class="screen hidden">
-    <div class="section-head"><h2 data-i18n>Discover your controller</h2></div>
+  <!-- A third-party camera's RTSP and snapshot URLs, found over ONVIF, for its Settings. -->
+  <section id="onvifScreen" class="screen hidden">
+    <div class="section-head"><h2 data-i18n>Find a camera's URLs</h2><button id="backFromOnvifBtn" class="link" data-i18n data-action-icon="restore">Back</button></div>
     <div class="card">
-      <p class="muted" data-i18n>Scan your network for UniFi Protect controllers, or enter the address manually.</p>
-      <p class="note" data-i18n>Make sure your UniFi console is powered on and connected to the same network.</p>
-      <div class="actions row-actions">
-        <button id="discoverBtn" class="primary" data-i18n data-action-icon="search">Discover controllers</button>
-        <button id="manualEntryBtn" data-i18n>Manual entry</button>
-        <button id="cancelDiscoveryBtn" class="link hidden" data-i18n data-action-icon="close">Cancel</button>
+      <p class="muted" data-i18n>A third-party camera adopted in Protect streams from its own URLs. Homeswift asks the camera for them over ONVIF; put the ones you pick in the camera's Settings.</p>
+      <div class="form-grid">
+        <label class="field"><span class="field-title" data-i18n>IP address</span><input id="onvifHost" type="text" placeholder="e.g. 192.168.1.50" autocomplete="off" spellcheck="false" data-i18n></label>
+        <label class="field"><span class="field-title" data-i18n>ONVIF port <span class="muted" data-i18n>(optional)</span></span><input id="onvifPort" type="number" placeholder="auto" min="1" max="65535" data-i18n></label>
+        <label class="field"><span class="field-title" data-i18n>Username</span><input id="onvifUser" type="text" autocomplete="off" spellcheck="false"></label>
+        <label class="field"><span class="field-title" data-i18n>Password</span><input id="onvifPass" type="password" autocomplete="off"></label>
+        <label class="field wide"><span class="field-title" data-i18n>Service path <span class="muted" data-i18n>(optional, /onvif/device_service by default)</span></span><input id="onvifPath" type="text" placeholder="/onvif/device_service" autocomplete="off" spellcheck="false"></label>
       </div>
-      <div id="deviceList" class="found"></div>
-    </div>
-  </section>
-
-  <!-- Add or edit a controller. -->
-  <section id="setupScreen" class="screen hidden">
-    <div class="section-head"><h2 id="setupTitle" data-i18n>Add UniFi Protect controller</h2></div>
-    <form id="setupForm" class="card" novalidate>
-      <p id="setupSubtitle" class="muted" data-i18n>Enter your UniFi Protect controller details and login credentials.</p>
-      <div class="fields">
-        <label class="field"><span class="field-title" data-i18n>Controller</span>
-          <input id="inputAddress" type="text" placeholder="Hostname or IP (e.g. unvr.local)" autocomplete="off" spellcheck="false" required data-i18n>
-          <span class="help" data-i18n>The address of your UniFi Protect controller.</span></label>
-        <label class="field"><span class="field-title" data-i18n>Username</span>
-          <input id="inputUsername" type="text" autocomplete="username" placeholder="Local user account username" required data-i18n></label>
-        <label class="field"><span class="field-title" data-i18n>Password</span>
-          <input id="inputPassword" type="password" autocomplete="current-password" placeholder="Local user account password" required data-i18n></label>
-      </div>
-      <label class="toggle">
-        <span class="switch"><input id="inputVerifyTls" type="checkbox"><span></span></span>
-        <span><span class="field-title" data-i18n>Verify TLS</span>
-          <span class="help" data-i18n>Validate the controller's TLS certificate. Leave this off unless your controller uses a certificate signed by a trusted certificate
-          authority: UniFi controllers use self-signed certificates, which are pinned the first time instead.</span></span>
-      </label>
-      <div id="setupError" class="problem hidden"><p id="setupErrorText" class="error"></p><div id="setupAssistant"></div></div>
-      <p class="note"><strong data-i18n>Local account required.</strong> <span data-i18n>Ubiquiti.com/UI.com accounts are not supported.</span> <span data-i18n>Create one in the</span> <em>Admins &amp; Users</em> <span data-i18n>tab of your UniFi console.</span></p>
-      <div class="save-bar">
-        <span class="muted"></span>
-        <button id="cancelSetupBtn" type="button" data-i18n data-action-icon="close">Cancel</button>
-        <button id="saveControllerBtn" class="primary" type="submit" data-i18n data-action-icon="check">Save controller</button>
-      </div>
-    </form>
-  </section>
-
-  <!-- Feature options: scope on the side, options by category. -->
-  <section id="featureOptionsScreen" class="screen hidden">
-    <div class="section-head"><h2 data-i18n>Feature options</h2><button id="backFromOptionsBtn" class="link" data-i18n data-action-icon="restore">Back</button></div>
-    <div class="options-layout">
-      <aside class="scope-side">
-        <div class="card compact-card">
-          <label class="field"><span class="field-title" data-i18n>Scope</span><select id="scopeSelect"></select></label>
-        </div>
-        <div class="card compact-card" id="scopeCascade">
-          <div class="scope-level" data-scope="global"><span class="scope-dot">G</span><span><b data-i18n>Global</b><span class="scope-hint muted" data-i18n>All devices</span></span></div>
-          <div class="scope-connector" aria-hidden="true"></div>
-          <div class="scope-level" data-scope="controller"><span class="scope-dot">C</span><span><b data-i18n>Controller</b><span class="scope-hint muted" data-i18n>Overrides global</span></span></div>
-          <div class="scope-connector" aria-hidden="true"></div>
-          <div class="scope-level" data-scope="device"><span class="scope-dot">D</span><span><b data-i18n>Device</b><span class="scope-hint muted" data-i18n>Final value</span></span></div>
-        </div>
-        <div id="deviceInfoPanel" class="card compact-card hidden">
-          <div id="infoPreview" class="info-preview hidden"></div>
-          <div class="facts">
-            <div class="fact"><span data-i18n>Model</span><b id="infoModel"></b></div>
-            <div class="fact"><span>MAC</span><b id="infoMac" class="mono"></b></div>
-            <div class="fact"><span>IP</span><b id="infoIp" class="mono"></b></div>
-            <div class="fact"><span data-i18n>Status</span><b id="infoStatus"></b></div>
-          </div>
-        </div>
-        <div class="card compact-card legend">
-          <span class="muted" data-i18n>Legend</span>
-          <span><i class="bar global"></i> <span data-i18n>Set at global</span></span>
-          <span><i class="bar controller"></i> <span data-i18n>Set at controller</span></span>
-          <span><i class="bar device"></i> <span data-i18n>Set at device</span></span>
-        </div>
-      </aside>
-      <div class="options-main">
-        <div class="toolbar">
-          <input id="optionsSearch" class="search" type="search" placeholder="Search options…" data-i18n>
-          <label class="toggle compact"><span class="switch"><input id="modifiedOnlyToggle" type="checkbox"><span></span></span><span><span data-i18n>Modified</span> <span id="modifiedSummary"></span></span></label>
-        </div>
-        <p id="optionsLoading" class="muted" data-i18n>Loading options…</p>
-        <div id="infoAssistant" class="hidden"></div>
-        <div id="thirdPartyOverridesPanel" class="card category hidden">
-          <button id="thirdPartyOverridesHeader" class="category-head" type="button"><span class="category-icon" style="--category-color: #0d6efd">◉</span><span class="category-title" data-i18n>Third-party camera URLs</span><span class="chevron">⌄</span></button>
-          <div id="thirdPartyOverridesBody" class="category-body">
-            <p class="muted" data-i18n>The Protect controller often does not relay this camera's stream. Enter the camera's IP and credentials to discover its URLs automatically, or paste the URLs below.</p>
-            <div class="fields">
-              <label class="field"><span class="field-title" data-i18n>IP address</span><input id="thirdPartyOnvifHost" type="text" placeholder="e.g. 192.168.1.50" autocomplete="off" spellcheck="false" data-i18n></label>
-              <label class="field"><span class="field-title" data-i18n>ONVIF port <span class="muted" data-i18n>(optional)</span></span><input id="thirdPartyOnvifPort" type="number" placeholder="auto" min="1" max="65535" data-i18n></label>
-              <label class="field"><span class="field-title" data-i18n>Username</span><input id="thirdPartyOnvifUser" type="text" autocomplete="off" spellcheck="false"></label>
-              <label class="field"><span class="field-title" data-i18n>Password</span><input id="thirdPartyOnvifPass" type="password" autocomplete="off"></label>
-              <label class="field wide"><span class="field-title" data-i18n>Service path <span class="muted" data-i18n>(optional, /onvif/device_service by default)</span></span><input id="thirdPartyOnvifPath" type="text" placeholder="/onvif/device_service" autocomplete="off" spellcheck="false"></label>
-            </div>
-            <div class="row-actions"><span id="thirdPartyDiscoverStatus" class="status-line"></span><button id="thirdPartyDiscoverBtn" class="primary" type="button" data-i18n data-action-icon="search">Discover URLs</button></div>
-            <div id="thirdPartyDiscoverAssistant"></div>
-            <div id="thirdPartyProfileSelectorWrap" class="hidden profile-picker">
-              <label class="field"><span class="field-title" data-i18n>Stream profile</span><select id="thirdPartyProfileSelect"></select></label>
-              <div class="thumb"><img id="thirdPartyProfileThumb" alt="Stream preview" class="hidden" data-i18n><span id="thirdPartyProfileThumbPlaceholder" class="muted" data-i18n>No preview</span></div>
-              <p class="help" data-i18n>Pick the camera stream HomeKit should use. Higher resolutions look better but cost more bandwidth and CPU.</p>
-            </div>
-            <label class="field"><span class="field-title" data-i18n>Direct RTSP / RTSPS URL</span><input id="thirdPartyRtspUrl" type="text" placeholder="rtsp://user:pass@host:port/path" autocomplete="off" spellcheck="false"></label>
-            <label class="field"><span class="field-title" data-i18n>Direct snapshot URL</span><input id="thirdPartySnapshotUrl" type="text" placeholder="http://host:port/snapshot" autocomplete="off" spellcheck="false"></label>
-            <p class="help" data-i18n>Leave both URL fields blank to remove the override.</p>
-          </div>
-        </div>
-        <div id="optionsProblem" class="hidden"></div>
-        <div id="optionsContainer"></div>
-        <div id="unsavedChanges" class="card save-bar hidden">
-          <span class="dirty" data-i18n>You have unsaved changes. Saving applies them: the plugin restarts with them.</span>
-          <button id="discardOptionsBtn" data-i18n data-action-icon="close">Discard</button>
-          <button id="saveOptionsBtn" class="primary" data-i18n data-action-icon="check">Save</button>
-        </div>
-      </div>
+      <div class="row-actions"><span id="onvifStatus" class="status-line"></span><button id="onvifDiscoverBtn" class="primary" type="button" data-i18n data-action-icon="search">Discover URLs</button></div>
+      <div id="onvifAssistant"></div>
+      <div id="onvifProfiles" class="found"></div>
     </div>
   </section>
 
@@ -172,7 +73,6 @@
 <script src="/common.js"></script>
 <script src="/plugin.js"></script>
 <script src="i18n.js"></script>
-<script src="/camera.js"></script>
 <script src="options.js"></script>
 <script src="app.js"></script>
 </body>
