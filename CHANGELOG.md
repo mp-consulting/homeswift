@@ -23,8 +23,19 @@ All notable changes to this project are documented here. The format follows
   Accessory Setting of it and its other accessories; its plugin reloads without it, and it is only a Discovered Device
   again.
 
+- An accessory's Settings, one sheet from its ⋯ menu's **Settings…**, from its plugin's Devices and as Setup's last step:
+  Name, room (saying whether the Home app follows), Hidden, Not in Home, Parts, the plugin's own Accessory Settings
+  ("Default (X)" while a plugin-wide default applies), then Exclude and Forget, each field saved as it is changed. The
+  plugin's settings form and these fields share one renderer.
+- A plugin's Settings page, `/plugins/<slug>/settings` (`/plugins/<slug>` for a plugin without a page of its own): its
+  account with **Set up again**, its Plugin Settings saved in one write (the plugin reloads once), and every device it
+  finds, each opening its Settings, included again or set up again.
+
 ### Changed
 
+- The accessory menu's Rename, room, Hide and Visible in Home app items are gone: they are in its Settings sheet. The
+  Expert form and its JSON tab are gone: `/plugins/<slug>/expert` and `/expert/json` lead to the plugin's Settings, a
+  plugin's page links to them beside Pause, and config.json's editor is the one place to write a block as it is.
 - `update_settings` asks first only for a change that Excludes an accessory, puts it Not in Home, changes its Parts, or
   changes Plugin Settings: a rename, a room, Hidden and a plugin's own Accessory Settings run at once. A tool that is not
   destructive can ask for some calls (`MCPTool.confirmsWhen`).

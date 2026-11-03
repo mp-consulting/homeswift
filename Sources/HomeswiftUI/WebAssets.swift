@@ -2360,8 +2360,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   // ---- Routing -------------------------------------------------------------
 
-  // A path is a view and its arguments: /status (or /), /accessories, /plugins, /plugins/<slug>/expert[/json]
-  // (a block's settings; /plugins/<slug> itself is the plugin's own page when it has one), /plugins/add/<platform>,
+  // A path is a view and its arguments: /status (or /), /accessories, /plugins, /plugins/<slug>/settings
+  // (a block's Settings; /plugins/<slug> itself is the plugin's own page when it has one), /plugins/add/<platform>,
   // /config, /logs[/<accessory>]?since=…&level=…&q=…, /account. Pages below a section keep it lit in the header.
   const views = {};
   let leaveGuard = null;   // a page with unsaved changes: false keeps it
@@ -3762,19 +3762,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     ];
   }
 
-  /// Whether the Home app has the accessory: off, HomeKit loses it (and its room, scenes and automations) while
-  /// Homeswift and Matter keep it, so a Matter device of its own can be in Apple Home through Matter alone.
-  function homeKitToggle(accessory) {
-    const visible = !accessory.hiddenFromHomeKit;
-    return { label: t("Visible in Home app"), icon: "house", checked: visible, checkbox: true, toggle: true, onSelect: async () => {
-      if (visible && !await HomeswiftCommon.confirmDialog(t("{name} leaves the Home app, with its room, scenes and automations. Homeswift and Matter keep it; shown again, the Home app adds it as a new accessory.", { name: accessory.name }))) return;
-      try {
-        await api(`/api/settings/accessories/${encodeURIComponent(accessory.id)}`, { method: "PATCH", body: { notInHome: visible ? true : null } });
-        route();
-      } catch (e) { HomeswiftCommon.showAlert(e.message); }
-    } };
-  }
-
   /// What the menu of an accessory's widget offers, after its sizes.
   /// An accessory's ⋯ menu after All controls, in groups as a context menu orders them: what to look at or do with
   /// it, how it sits on the wall (`arrange`, the wall's size choices, first), then the administrator's way to its
@@ -3792,9 +3779,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         try { await setPaused(accessory.platform, accessory.platformName, false); route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
       } } : null,
       isAdmin() ? { label: t("Show its log"), icon: "logs", href: `/logs/${accessory.slug ?? encodeURIComponent(accessory.id)}` } : null,
-      isAdmin() && !accessory.mirroredFrom && accessory.platform ? homeKitToggle(accessory) : null,
+      // Its Accessory Settings in one sheet (settings.js): Name, room, Hidden, Not in Home, Parts, the plugin's own,
+      // Exclude and Forget.
+      isAdmin() && accessory.platform ? { label: t("Settings…"), icon: "gear", onSelect: () => HomeswiftSettings.openAccessory({ accessoryID: accessory.id, name: accessory.name,
+        glyph: HomeswiftWidgets.categoryIcon(accessory.category) ?? "accessory" }) } : null,
       ...(isAdmin() && !accessory.mirroredFrom ? matterActions(accessory) : []),
-      accessory.platform && isAdmin() ? { label: t("Plugin settings"), icon: "gear", href: `/plugins/${slug(accessory.platformName || accessory.platform)}` } : null,
+      accessory.platform && isAdmin() ? { label: t("Plugin settings"), icon: "plugin", href: `/plugins/${slug(accessory.platformName || accessory.platform)}/settings` } : null,
     ];
     return [use, layout, manage].map((group) => group.filter(Boolean)).filter((group) => group.length)
       .flatMap((group, index) => index ? [{ separator: true }, ...group] : group);
@@ -4601,7 +4591,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       const instance = running(block);
       const [state, kind] = blockState(block, plugin, instance);
       // The name opens what the menu's first item opens: the plugin's page, else the form.
-      const opens = plugin && plugin.hasPages && instance && !instance.paused ? pluginPage(block) : block.system ? settingsLink(block) : expertLink(block);
+      const opens = plugin && plugin.hasPages && instance && !instance.paused ? pluginPage(block) : block.system ? settingsLink(block) : pluginSettings(block);
       // Under the name, what it is when the name does not say it already ("Daikin Cloud" says DaikinCloud): the plugin,
       // else its platform.
       const bare = (name) => name.replace(/[\s_-]+/g, "").toLowerCase();
@@ -4624,18 +4614,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           el("div", { class: "plugin-card-actions" }, el("a", { class: "button", href: opens, actionIcon: plugin?.hasPages && instance && !instance.paused ? "open" : "gear", text: plugin?.hasPages && instance && !instance.paused ? t("Open its page") : t("Settings") }), menuButton(t("Actions for {name}", { name: blockTitle(block) }), () => blockActions(block, plugin, instance)))));
     };
 
-    /// What the menu of a plugin's card offers: its page, the block as a form or as JSON (Expert), pause or
-    /// resume, and removal.
+    /// What the menu of a plugin's card offers: its page, its Settings, config.json, pause or resume, and removal.
     function blockActions(block, plugin, instance) {
-      if (block.system) return [{ label: t("Settings"), icon: "gear", href: settingsLink(block) }, { label: t("Edit as JSON"), icon: "code", href: expertLink(block, "json") }];
+      if (block.system) return [{ label: t("Settings"), icon: "gear", href: settingsLink(block) }, { label: t("Edit config.json"), icon: "code", href: "/settings/config" }];
       const toggle = async (paused) => {
         try { await setPaused(block.platform, block.name, paused); route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
       };
       return [
         plugin && plugin.hasPages && instance && !instance.paused ? { label: t("Open its page"), icon: "open", href: pluginPage(block) } : null,
         plugin ? { label: t("Add accessories"), icon: "plus", href: `/setup#${encodeURIComponent(block.slug)}` } : null,
-        { label: t("Edit settings (Expert)"), icon: "edit", href: expertLink(block) },
-        { label: t("Edit as JSON (Expert)"), icon: "code", href: expertLink(block, "json") },
+        { label: t("Settings"), icon: "gear", href: pluginSettings(block) },
+        { label: t("Edit config.json"), icon: "code", href: "/settings/config" },
         instance && !instance.paused ? { label: t("Pause"), icon: "pause", onSelect: () => toggle(true) } : null,
         instance?.paused ? { label: t("Resume"), icon: "play", onSelect: () => toggle(false) } : null,
         { label: t("Remove"), icon: "trash", danger: true, onSelect: () => removeBlock(block) },
@@ -4718,11 +4707,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     try { await api(`/api/config/platforms/${block.index}${vault}`, { method: "DELETE" }); leaveGuard = null; after(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
   }
 
-  /// A block's address: its plugin's own page when it has one, else its settings. `expertLink` is always the form
-  /// (or the JSON), the whole block as config.json keeps it.
+  /// A block's address: its plugin's own page when it has one, else its Settings. `pluginSettings` is always its
+  /// Settings (/plugins/<slug>/settings), page or not.
   const settingsLink = (block) => `/plugins/${block.slug}`;
   const pluginPage = settingsLink;
-  const expertLink = (block, mode = "form") => `${settingsLink(block)}/expert${mode === "json" ? "/json" : ""}`;
+  const pluginSettings = (block) => `${settingsLink(block)}/settings`;
 
   /// Where a page sits, each level a way back; the last is the page itself.
   function breadcrumb(...levels) {
@@ -4732,10 +4721,18 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
   // ---- A plugin's settings: its own page ------------------------------------
   // /plugins/<slug> for a block of config.json, /plugins/add/<platform> to add one. A running plugin with its own
-  // page shows that page there: the form is its Expert part, at /plugins/<slug>/expert (or /expert/json). The form comes from the plugin's config.schema.json (or the runtime's own for the web UI's block),
-  // JSON otherwise; the save bar stays in view, and leaving with unsaved changes asks first.
+  // page shows that page there, and its Settings at /plugins/<slug>/settings (settings.js: its Plugin Settings, account
+  // and devices); one without a page has them at /plugins/<slug>. The old /expert addresses lead there. Adding a block,
+  // and the runtime's own blocks (the web UI's, the Assistant's), keep the form below, from the plugin's
+  // config.schema.json (or the runtime's own), JSON when there is none; the save bar stays in view, and leaving with
+  // unsaved changes asks first. The whole block as JSON is config.json's editor's (Settings › Config).
 
-  views.settings = async (main, [first, second, third]) => {
+  views.settings = async (main, [first, second]) => {
+    // The Expert form and its JSON were here: their addresses open the Settings.
+    if (first !== "add" && second === "expert") {
+      history.replaceState(null, "", `/plugins/${encodeURIComponent(first)}/settings`);
+      second = "settings";
+    }
     const isNew = first === "add";
     const [plugins, config] = await Promise.all([api("/api/plugins"), api("/api/config", { raw: true }).then(JSON.parse)]);
     // A bridge that does not send the rule (an older build) leaves the note off, rather than failing the page.
@@ -4748,7 +4745,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     }
     const platform = isNew ? second : found.platform;
     const plugin = plugins.plugins.find((p) => p.platform === platform);
-    const view = isNew ? null : second === "expert" ? (third === "json" ? "json" : "form") : null;
+    const view = isNew ? null : second === "settings" ? "settings" : null;
     if (isNew && !plugin) throw new Error(t("No plugin provides {platform}.", { platform }));
     const block = found ?? { index: plugins.blocks.length, platform, name: uniqueName(plugin.name, plugins.blocks), system: false };
     const instance = plugins.platforms.find((p) => p.platform === block.platform && p.name === block.name);
@@ -4756,6 +4753,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // Its page is a page of its own, which the server sends for this address once signed in: load it, once (should
     // the server answer with this page again, the form shows rather than a loop).
     if (hasPage && !view && !history.state?.reloaded) { history.replaceState({ reloaded: true }, ""); location.reload(); return; }
+    if (!isNew && !block.system) {
+      return HomeswiftSettings.pluginPage(main, { block, plugin, instance, plugins, kit: {
+        buildForm, isSecretKey, readSecrets: (list) => { secretRule = readSecretRule(list); }, blockTitle, blockState, removeBlock, problemList, savedText,
+        describeSetup, setLeaveGuard: (guard) => { leaveGuard = guard; },
+      } });
+    }
     const current = isNew ? { platform, name: block.name } : (config.platforms || [])[block.index] || { platform, name: block.name };
 
     let schema = null;
@@ -4792,42 +4795,20 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if (value && typeof value === "object") return Object.entries(value).some(([key, child]) => holdsSecret(child, underSecret || isSecretKey(key, child)));
       return false;
     };
-    const secretNote = el("p", { class: "secret-note", role: "note", text: t("A secret set in JSON is encrypted in config.json when you save. Set it in Form or on the plugin's own page, where it is easier to get right.") });
+    const secretNote = el("p", { class: "secret-note", role: "note", text: t("A secret set in JSON is encrypted in config.json when you save.") });
     secretNote.hidden = true;
     if (schema) {
-      // The form first; the block as JSON one tap away, for what the form does not show. Each view starts
-      // from the other's value, and Save takes the one on screen.
-      let mode = view === "json" ? "json" : "form";
+      // The form; the whole block as JSON is config.json's editor's.
       let form = buildForm(schema, current);
-      const formView = el("div", { class: mode === "form" ? "" : "hidden" }, form.element);
-      const jsonView = el("div", { class: mode === "json" ? "" : "hidden" }, el("p", { class: "muted", text: t("The block as config.json keeps it.") }), secretNote, editor);
-      const switchError = el("p", { class: "error" });
-      const tabs = el("div", { class: "group view-switch", role: "tablist", "aria-label": t("Edit as") },
-        [["form", t("Form")], ["json", "JSON"]].map(([value, text]) => el("button", { type: "button", role: "tab", "data-mode": value, class: value === mode ? "on" : "", "aria-selected": String(value === mode), onclick: () => {
-          if (value === mode) return;
-          switchError.textContent = "";
-          try {
-            if (value === "json") {
-              textarea.value = JSON.stringify({ platform, ...form.getValue() }, null, 2);
-              editor.repaint();
-            } else {
-              form = buildForm(schema, { platform, ...fromJSON() });
-              formView.replaceChildren(form.element);
-            }
-          } catch (e) { switchError.textContent = t("The JSON is not valid: {error}", { error: e.message }); return; }
-          mode = value;
-          formView.classList.toggle("hidden", mode !== "form");
-          jsonView.classList.toggle("hidden", mode !== "json");
-          for (const tab of tabs.children) { tab.classList.toggle("on", tab.dataset.mode === mode); tab.setAttribute("aria-selected", String(tab.dataset.mode === mode)); }
-        } }, HomeswiftCommon.icon(value === "form" ? "sliders" : "code"), el("span", { text }))));
-      body = el("div", { class: "card form-card" }, tabs, switchError, formView, jsonView);
+      const formView = el("div", {}, form.element);
+      body = el("div", { class: "card form-card" }, formView,
+        el("p", { class: "help form-foot" }, t("Something this form does not show is in config.json, the one place to write it as it is."), " ", el("a", { href: "/settings/config", text: t("Edit config.json") })));
       if (platform === "HomeswiftUI") body.classList.add("local-ui-settings");
-      getValue = () => (mode === "form" ? form.getValue() : fromJSON());
-      // The Assistant's suggestion goes into the view on screen, as unsaved changes to review and save.
+      getValue = () => form.getValue();
+      // The Assistant's suggestion goes into the form, as unsaved changes to review and save.
       useSuggestion = (value) => {
-        const next = { ...value, platform };
-        if (mode === "form") { form = buildForm(schema, next); formView.replaceChildren(form.element); }
-        else { textarea.value = JSON.stringify(next, null, 2); editor.repaint(); }
+        form = buildForm(schema, { ...value, platform });
+        formView.replaceChildren(form.element);
         body.dispatchEvent(new Event("input", { bubbles: true }));
       };
     } else {
@@ -4927,7 +4908,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         }
         // A new block, or a renamed one, lives at its own address now.
         const name = value.name || platform;
-        if (isNew || name !== block.name) { leaveGuard = null; navigate((hasPage ? expertLink : settingsLink)({ slug: slug(name) }), { replace: true }); return; }
+        if (isNew || name !== block.name) { leaveGuard = null; navigate(settingsLink({ slug: slug(name) }), { replace: true }); return; }
         update();
       } catch (e) {
         message.className = "error";
@@ -4953,7 +4934,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     leaveGuard = async () => !dirty() || isNew || await HomeswiftCommon.confirmDialog(t("Leave without saving your changes?"));
     leaveGuard.quiet = () => isNew || !dirty();
     show(main,
-      breadcrumb([t("Plugins"), "/plugins"], [blockTitle(block), isNew ? "/plugins" : settingsLink(block)], [isNew ? t("Add") : hasPage ? t("Expert") : t("Settings")]),
+      breadcrumb([t("Plugins"), "/plugins"], [blockTitle(block), isNew ? "/plugins" : settingsLink(block)], [isNew ? t("Add") : t("Settings")]),
       el("div", { class: "page-head settings-head" },
         tile(block.icon ?? (block.system ? "gear" : "plugin"), block.system ? "grey" : "orange"),
         el("div", { class: "who" },
@@ -4961,10 +4942,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           el("p", { class: "muted", text: [...new Set([plugin ? plugin.name : platform, platform])].filter((part) => part !== block.name).concat(
             instance ? [tn("{n} accessory on {bridge}", "{n} accessories on {bridge}", instance.accessories, { bridge: instance.bridge })] : []).join(" · ") })),
         el("div", { class: "tools" }, el("span", { class: `pill status ${kind}`, text: state }))),
-      // A plugin with its own page does the everyday work there (pairing, devices); this is the raw block.
-      hasPage ? el("div", { class: "card page-note" },
-        el("p", {}, el("strong", { text: t("Expert.") }), " ", t("Every setting of the block, as config.json keeps it, including what {plugin}'s page does not show. A save reloads the plugin.", { plugin: plugin.name })),
-        el("a", { class: "button", href: pluginPage(block), actionIcon: "back", text: t("Back to its page") })) : null,
       platform === "HomeswiftAiKit" && useSuggestion && !isNew ? assistantSettings({
         formValue: () => { try { return { ...getValue(), platform }; } catch { return { ...current, platform }; } },
         useValue: useSuggestion, save, dirty }) : null,
@@ -5327,8 +5304,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   const singular = (text) => text.replace(/ies$/, "y").replace(/(ss|x|ch|sh)es$/, "$1").replace(/([^su])s$/, "$1");
 
   /// A form from a Homebridge-style config.schema.json; key order follows the schema (and its layout). Its words come
-  /// from the schema's own `i18n` (`{ "fr": { "English": "Français" }, … }`), English where it has none.
-  function buildForm(root, value) {
+  /// from the schema's own `i18n` (`{ "fr": { "English": "Français" }, … }`), English where it has none. One renderer
+  /// for Plugin Settings and Plugin Accessory Settings: `defaults`, by top-level key, is the value a field takes while
+  /// it has none of its own (an accessory's plugin-wide default, `get_settings`' `default.value`), shown as
+  /// "Default (X)" and given back by clearing it; `onCommit(key, value, state)`, when given, is told of each top-level
+  /// field as it is committed (a switch flipped, a text left or Enter), `value` undefined once cleared, with `state`, a
+  /// quiet line beside the field's title for its saved or error state.
+  function buildForm(root, value, { defaults = null, onCommit = null } = {}) {
     const words = (root.i18n && root.i18n[HomeswiftI18n.language]) || {};
     const tr = (text) => (typeof text === "string" && text && words[text]) || text;
     const schema = root.schema || root;
@@ -5344,8 +5326,8 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       if (test && element) conditional.push({ element, test, index, require });
     };
 
-    const field = (key, property, current, required, index) => {
-      const made = makeField(key, property, current, required, index);
+    const field = (key, property, current, required, index, fallback) => {
+      const made = makeField(key, property, current, required, index, fallback);
       watch(made.element, property.condition ?? property["x-schema-form"]?.condition, index);
       // Required only while a condition holds (`x-schema-form.requiredWhen`, read as `condition`s are): a block whose
       // settings depend on another (an account or keys, by the route chosen) marks the ones it needs now.
@@ -5394,8 +5376,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         get: () => (mode.value === "never" ? undefined : mode.value === "time" ? fromTime() : custom.value.trim() || undefined),
       };
     };
-    const makeField = (key, property, current, required, index) => {
+    const makeField = (key, property, current, required, index, fallback) => {
       const title = tr(property.title) || key;
+      // A default from elsewhere (`defaults`): what the field shows while it is empty, in words.
+      const inherits = fallback !== undefined;
+      const defaultText = (shown) => shown === undefined || shown === null || shown === "" ? t("Default") : t("Default ({value})", { value: String(shown) });
       const help = property.description ? el("div", { class: "help", text: tr(property.description) }) : null;
       const marked = required || property["x-schema-form"]?.requiredWhen !== undefined;
       const wrap = (control) => el("label", { class: "field" }, el("span", { class: "field-title" }, title, marked ? el("span", { class: `muted required-mark${required ? "" : " hidden"}`, text: ` · ${t("required")}` }) : null), control, help);
@@ -5405,8 +5390,17 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       // A value config.json has that is not among the choices stays one, so a save does not drop it.
       if (options && current !== undefined && !options.some((o) => JSON.stringify(o.value) === JSON.stringify(current))) options.unshift({ value: current, title: String(current) });
       if (options) {
-        const select = el("select", {}, el("option", { value: "", text: "—" }), ...options.map((o) => el("option", { value: JSON.stringify(o.value), text: o.title, selected: current !== undefined ? JSON.stringify(o.value) === JSON.stringify(current) : JSON.stringify(o.value) === JSON.stringify(property.default) })));
+        const named = (value) => options.find((o) => JSON.stringify(o.value) === JSON.stringify(value))?.title ?? value;
+        const select = el("select", {}, el("option", { value: "", text: inherits ? defaultText(named(fallback ?? property.default)) : "—" }), ...options.map((o) => el("option", { value: JSON.stringify(o.value), text: o.title, selected: current !== undefined ? JSON.stringify(o.value) === JSON.stringify(current) : !inherits && JSON.stringify(o.value) === JSON.stringify(property.default) })));
         return { element: wrap(select), get: () => (select.value === "" ? undefined : JSON.parse(select.value)) };
+      }
+      if (type === "boolean" && inherits) {
+        // A switch cannot say "as the plugin-wide default": a choice of the default, on or off.
+        const shown = fallback ?? property.default;
+        const select = el("select", {},
+          el("option", { value: "", text: defaultText(shown === undefined || shown === null ? null : shown ? t("On [setting]") : t("Off [setting]")) }),
+          el("option", { value: "true", text: t("On [setting]"), selected: current === true }), el("option", { value: "false", text: t("Off [setting]"), selected: current === false }));
+        return { element: wrap(select), get: () => (select.value === "" ? undefined : select.value === "true") };
       }
       if (type === "boolean") {
         // `x-schema-form.invert`: the switch shows the opposite of the value, for a key that turns something off
@@ -5421,7 +5415,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         } };
       }
       if (type === "integer" || type === "number") {
-        const input = el("input", { type: "number", value: current ?? "", placeholder: tr(property.placeholder ?? property["x-schema-form"]?.placeholder) ?? property.default ?? "", min: property.minimum, max: property.maximum, step: property.step ?? (type === "integer" ? 1 : "any"), required });
+        const input = el("input", { type: "number", value: current ?? "", placeholder: inherits ? defaultText(fallback ?? property.default) : tr(property.placeholder ?? property["x-schema-form"]?.placeholder) ?? property.default ?? "", min: property.minimum, max: property.maximum, step: property.step ?? (type === "integer" ? 1 : "any"), required });
         return { element: wrap(input), get: () => (input.value === "" ? undefined : Number(input.value)) };
       }
       if (type === "object" && property.properties) {
@@ -5477,7 +5471,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           el("button", { actionIcon: "plus", text: noun ? t("Add {item}", { item: noun.toLowerCase() }) : t("Add"), onclick: () => addRow(undefined) }));
         return { element, get: () => { const v = rows.map((r) => r.get()).filter((x) => x !== undefined); return v.length ? v : undefined; } };
       }
-      const input = el("input", { type: property["x-schema-form"] && property["x-schema-form"].type === "password" ? "password" : "text", value: current ?? "", placeholder: tr(property.placeholder ?? property["x-schema-form"]?.placeholder) ?? property.default ?? "", required });
+      const input = el("input", { type: property["x-schema-form"] && property["x-schema-form"].type === "password" ? "password" : "text", value: current ?? "", placeholder: inherits ? defaultText(fallback ?? property.default) : tr(property.placeholder ?? property["x-schema-form"]?.placeholder) ?? property.default ?? "", required });
       if (property["x-schema-form"]?.type === "file") return { element: el("div", {}, wrap(input), dropZone(key, input, property["x-schema-form"].accept)), get: () => (input.value === "" ? undefined : input.value) };
       // A secret's key (the rule references resolve by): a value typed, or an entry of the vault.
       if (isSecretKey(key)) return secretField(wrap, input);
@@ -5543,8 +5537,15 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     const render = (key) => {
       const property = properties[key];
       if (!property || fields.has(key)) return null;
-      const f = field(key, property, value[key], requiredTop.has(key) || property.required === true);
+      const fallback = defaults && key in defaults ? defaults[key] ?? null : undefined;
+      const f = field(key, property, value[key], requiredTop.has(key) || property.required === true, undefined, fallback);
       fields.set(key, f);
+      if (onCommit) {
+        // Its saved or error state, quiet, after its title.
+        const state = el("span", { class: "field-state", role: "status", "aria-live": "polite" });
+        (f.element.querySelector(".field-title") ?? f.element).append(state);
+        f.element.addEventListener("change", () => onCommit(key, f.get(), state));
+      }
       return f.element;
     };
     const layoutItem = (item) => {
@@ -6682,7 +6683,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     enumLabels: HomeswiftWidgets.enumLabels, labelFor: HomeswiftWidgets.labelFor, withSlugs,
   });
   // The Settings pages (admin.js) draw with the same helpers.
-  window.HomeswiftApp = { api, navigate, route, finder, uniqueName, pageHead, breadcrumb, show, openSheet, savedText, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, onReturn, assistantPage, configPage };
+  window.HomeswiftApp = { api, navigate, route, finder, uniqueName, pageHead, breadcrumb, show, openSheet, savedText, buildForm, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, onReturn, assistantPage, configPage };
 
   loadAuth().catch((e) => { $("#auth").classList.remove("hidden"); $("#auth-error").textContent = e.message; });
 })();
@@ -10748,29 +10749,13 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// A room for the settings: none is "" for a mirrored accessory (not the room its controller suggests), else cleared.
   const roomSetting = (accessory, room) => room || (accessory?.mirroredFrom ? "" : null);
 
-  /// Renames an accessory, in the Home app too (its plugin's block keeps the name); empty gives it back its plugin's.
-  async function rename(accessory) {
-    const name = await HomeswiftCommon.promptDialog(t("A new name for {name}, in the Home app too. Empty gives it back the name its plugin gives it.", { name: displayName(accessory) }), displayName(accessory));
-    if (name === null || name.trim() === displayName(accessory)) return;
-    try {
-      await changeSettings({ [accessory.id]: { name: name.trim() || null } });
-      app.route();
-    } catch (e) { HomeswiftCommon.showAlert(e.message); }
-  }
-
-  /// What an accessory card's menu adds: its room, its name, Quick Controls, hiding. A plugin's accessory is renamed in
-  /// the Home app too; another controller's (mirrored) keeps a name for these pages only, as one given before does.
+  /// What an accessory card's menu adds: the Quick Controls (the Arrangement). Its room, Name, Hidden and Not in Home are
+  /// Accessory Settings, in its Settings sheet (settings.js, the menu's Settings…).
   function layoutActions(accessory) {
     const done = (promise) => promise.then(() => app.route()).catch((e) => HomeswiftCommon.showAlert(e.message));
-    // Room, Hidden and Name are its Accessory Settings; Quick Controls are the layout's.
-    const change = (fields) => done(changeSettings({ [accessory.id]: "room" in fields ? { ...fields, room: roomSetting(accessory, fields.room) } : fields }));
-    const renames = accessory.platform && !accessory.mirroredFrom;
     return [
-      { label: accessory.room ? t("Room: {room}…", { room: accessory.room }) : t("Put in a room…"), icon: "room", onSelect: () => chooseRoom(accessory, change) },
-      renames ? { label: t("Rename…"), icon: "edit", onSelect: () => rename(accessory) } : null,
       { label: accessory.favourite ? t("Remove from Quick Controls") : t("Add to Quick Controls"), icon: "star", onSelect: () => done(changeLayout({ accessories: { [accessory.id]: { favourite: !accessory.favourite } } })) },
-      { label: accessory.hidden ? t("Show it again") : t("Hide"), icon: "eye", onSelect: () => change({ hidden: !accessory.hidden }) },
-    ].filter(Boolean);
+    ];
   }
 
   async function chooseRoom(accessory, change, note = "") {
@@ -12466,8 +12451,6 @@ HomeswiftI18n.add("es", {
   "Door locks, hubs and readers, followed in real time": "Cerraduras, hubs y lectores de puerta, seguidos en tiempo real",
   "Cameras and doorbells with HomeKit Secure Video, sensors and lights": "Cámaras y timbres con HomeKit Secure Video, sensores y luces",
   "Apple Home's accessories in Homeswift, through a Mac": "Los accesorios de la app Casa en Homeswift, a través de un Mac",
-  "Visible in Home app": "Visible en la app Casa",
-  "{name} leaves the Home app, with its room, scenes and automations. Homeswift and Matter keep it; shown again, the Home app adds it as a new accessory.": "{name} sale de la app Casa, con su habitación, sus escenas y sus automatizaciones. Homeswift y Matter lo conservan; si se vuelve a mostrar, la app Casa lo añade como un accesorio nuevo.",
   "Not started": "Sin iniciar",
   "Matter needs IPv6, and this machine has none. Turn IPv6 on (on a Synology: Control Panel, Network, Network Interface), then restart homeswift.": "Matter necesita IPv6 y esta máquina no lo tiene. Activa IPv6 (en un Synology: Panel de control, Red, Interfaz de red) y reinicia homeswift.",
   "Matter could not start this device: {error}": "Matter no pudo iniciar este dispositivo: {error}",
@@ -12951,7 +12934,6 @@ HomeswiftI18n.add("es", {
   "a lock, door or alarm: a person confirms it (set_security_accessory, or the web UI)": "una cerradura, puerta o alarma: la confirma una persona (set_security_accessory, o la interfaz web)",
   "a lock, door or alarm: automations do not change them": "una cerradura, puerta o alarma: las automatizaciones no las cambian",
   "a message is required": "se necesita un mensaje",
-  "A new name for {name}, in the Home app too. Empty gives it back the name its plugin gives it.": "Un nombre nuevo para {name}, también en la app Casa. Si lo dejas vacío, vuelve al nombre que le da su plugin.",
   "A new block: Add writes it to config.json.": "Un bloque nuevo: Añadir lo escribe en config.json.",
   "A new setup code applies to new pairings only: the Home app keeps the bridge.": "Un nuevo código de configuración solo se aplica a los nuevos emparejamientos: la app Casa conserva el puente.",
   "A phrase of several random words is long, strong and easy to remember.": "Una frase de varias palabras al azar es larga, segura y fácil de recordar.",
@@ -13122,7 +13104,6 @@ HomeswiftI18n.add("es", {
   "Away": "Fuera",
   "Back": "Atrás",
   "Back from the cache, not added again by its plugin": "Recuperado de la caché, pero su plugin no lo ha vuelto a añadir",
-  "Back to its page": "Volver a su página",
   "Back to the chat": "Volver al chat",
   "Back to the usual layout": "Volver a la disposición habitual",
   "Back up now": "Hacer copia ahora",
@@ -13391,10 +13372,6 @@ HomeswiftI18n.add("es", {
   "Earlier chats": "Chats anteriores",
   "Edit": "Editar",
   "Edit {name}": "Editar {name}",
-  "Edit as": "Editar como",
-  "Edit as JSON": "Editar como JSON",
-  "Edit as JSON (Expert)": "Editar como JSON (vista experta)",
-  "Edit settings (Expert)": "Editar ajustes (vista experta)",
   "Edit the budgets": "Editar los presupuestos",
   "empty": "vacía",
   "Empty the log? Every line goes, in memory and the files kept on disk (up to a week). This cannot be undone.": "¿Vaciar el registro? Se borran todas las líneas, en memoria y en los archivos guardados en disco (hasta una semana). No se puede deshacer.",
@@ -13416,8 +13393,6 @@ HomeswiftI18n.add("es", {
   "Every one": "Todas",
   "Every outcome": "Todos los resultados",
   "Every plugin's accessories leave HomeKit, and the plugins start again on empty caches, adding the devices they reach.": "Los accesorios de todos los plugins salen de HomeKit y los plugins vuelven a empezar con las cachés vacías, añadiendo los dispositivos a los que llegan.",
-  "Every setting of the block, as config.json keeps it, including what {plugin}'s page does not show. A save reloads the plugin.": "Todos los ajustes del bloque, tal como los guarda config.json, incluido lo que la página de {plugin} no muestra. Al guardar, el plugin se recarga.",
-  "Every setting of this plugin's block, as config.json keeps it, including what this page does not show.": "Todos los ajustes del bloque de este plugin, tal como los guarda config.json, incluido lo que esta página no muestra.",
   "Every subscribed browser has unsubscribed": "Todos los navegadores suscritos han cancelado la suscripción",
   "Everything an administrator does, except users and tokens.": "Todo lo que hace un administrador, salvo usuarios y tokens.",
   "Everything kept": "Todo lo guardado",
@@ -13425,8 +13400,6 @@ HomeswiftI18n.add("es", {
   "Expand": "Expandir",
   "Expected a key in double quotes": "Se esperaba una clave entre comillas dobles",
   "Expected a scene": "Se esperaba una escena",
-  "Expert": "Vista experta",
-  "Expert.": "Vista experta.",
   "Expired": "Caducado",
   "Expires": "Caduca",
   "Explain": "Explicar",
@@ -13465,7 +13438,6 @@ HomeswiftI18n.add("es", {
   "Forget “{title}”": "Olvidar «{title}»",
   "Forget it": "Olvidarla",
   "Forget this chat": "Olvidar este chat",
-  "Form": "Formulario",
   "Format": "Formatear",
   "Found: save to keep it.": "Encontrada: guarda para conservarla.",
   "Fr": "Vi",
@@ -13966,7 +13938,6 @@ HomeswiftI18n.add("es", {
   "Purifying · {how}": "Purificando · {how}",
   "Purple and orange with an eerie flicker.": "Morado y naranja con un parpadeo inquietante.",
   "Push payload too large ({0} bytes)": "Contenido push demasiado grande ({0} bytes)",
-  "Put in a room…": "Asignar a una habitación…",
   "QR code for an authenticator app": "Código QR para una app de autenticación",
   "Quick controls": "Controles rápidos",
   "Rainbow wave": "Ola arcoíris",
@@ -14054,7 +14025,6 @@ HomeswiftI18n.add("es", {
   "Right": "Derecha",
   "Romantic": "Romántico",
   "Room": "Habitación",
-  "Room: {room}…": "Habitación: {room}…",
   "rooms must be names": "rooms debe contener nombres",
   "Rotation Direction": "Sentido de giro",
   "Rotation Speed": "Velocidad de giro",
@@ -14150,7 +14120,6 @@ HomeswiftI18n.add("es", {
   "Show {name}": "Mostrar {name}",
   "show all controls": "mostrar todos los controles",
   "Show as a table": "Mostrar como tabla",
-  "Show it again": "Volver a mostrarlo",
   "Show its log": "Mostrar su registro",
   "Show less": "Mostrar menos",
   "Show more": "Mostrar más",
@@ -14439,8 +14408,7 @@ HomeswiftI18n.add("es", {
   "the backup folder {0} is not writable": "no se puede escribir en la carpeta de copias de seguridad {0}",
   "the backup has no config.json": "la copia de seguridad no tiene config.json",
   "the backup's config.json cannot run: {0}": "el config.json de la copia de seguridad no puede funcionar: {0}",
-  "The block as config.json keeps it.": "El bloque tal como lo guarda config.json.",
-  "A secret set in JSON is encrypted in config.json when you save. Set it in Form or on the plugin's own page, where it is easier to get right.": "Un secreto escrito en JSON se cifra en config.json al guardar. Escríbelo en Formulario o en la página del propio plugin, donde es más fácil acertar.",
+  "A secret set in JSON is encrypted in config.json when you save.": "Un secreto escrito en JSON se cifra en config.json al guardar.",
   "The block as JSON": "El bloque en JSON",
   "the block must keep its platform": "el bloque debe conservar su plataforma",
   "The blocks of config.json. A save applies at once: the plugin reloads with its accessories kept.": "Los bloques de config.json. Al guardar se aplica al momento: el plugin se recarga y conserva sus accesorios.",
@@ -14479,7 +14447,6 @@ HomeswiftI18n.add("es", {
   "The homeswift version": "La versión de homeswift",
   "The image could not be read.": "No se ha podido leer la imagen.",
   "the image is too large: {0} MB at most": "la imagen es demasiado grande: {0} MB como máximo",
-  "The JSON is not valid: {error}": "El JSON no es válido: {error}",
   "The last administrator": "El último administrador",
   "The last administrator stays one: make another user an administrator first.": "El último administrador sigue siéndolo: haz antes administrador a otro usuario.",
   "the layout must be a JSON object": "la disposición debe ser un objeto JSON",
@@ -15120,6 +15087,51 @@ HomeswiftI18n.add("es", {
   "Email or phone number": "Correo electrónico o número de teléfono",
   "Change the settings of one accessory?": "¿Cambiar los ajustes de un accesorio?",
   "Change the settings of {n} accessories?": "¿Cambiar los ajustes de {n} accesorios?",
+  "Saved · {plugin} reloads": "Guardado · {plugin} se recarga",
+  "Saved; the hub said: {error}": "Guardado; el hub respondió: {error}",
+  "The name its plugin gives it": "El nombre que le da su plugin",
+  "Named in {source}: rename it there.": "Su nombre viene de {source}: cámbialo allí.",
+  "In the Home app too. Empty gives it back the name its plugin gives it.": "También en la app Casa. Vacío, recupera el nombre que le da su plugin.",
+  "Also moves it in {source}.": "También lo mueve en {source}.",
+  "Also moves it in the Home app (Room Sync is on).": "También lo mueve en la app Casa (la sincronización de habitaciones está activada).",
+  "On Homeswift's pages only: the Home app keeps its own room. Room Sync, in the Accessories page's Rooms menu, moves it there too.": "Solo en las páginas de Homeswift: la app Casa mantiene su propia habitación. La sincronización de habitaciones, en el menú Habitaciones de la página Accesorios, también lo mueve allí.",
+  "Hidden": "Oculto",
+  "Off the wall; still in the Home app.": "Fuera del muro; sigue en la app Casa.",
+  "Not in Home": "Fuera de Casa",
+  "Out of the Home app, which loses its room, scenes and automations; the wall and Matter keep it.": "Fuera de la app Casa, que pierde su habitación, sus escenas y automatizaciones; el muro y Matter lo mantienen.",
+  "Take {name} out of the Home app?": "¿Quitar {name} de la app Casa?",
+  "The Home app loses it, with its room, scenes and automations. Homeswift and Matter keep it; put back, the Home app adds it as a new accessory.": "La app Casa lo pierde, con su habitación, sus escenas y automatizaciones. Homeswift y Matter lo mantienen; si lo vuelves a poner, la app Casa lo añade como un accesorio nuevo.",
+  "Take it out": "Quitarlo",
+  "Parts": "Partes",
+  "Switched off, a part is left out while the device stays. A change reloads {plugin}.": "Desactivada, una parte se deja fuera y el dispositivo se queda. Un cambio recarga {plugin}.",
+  "A change reloads {plugin}.": "Un cambio recarga {plugin}.",
+  "Exclude {name}?": "¿Excluir {name}?",
+  "{plugin} stops making it an accessory: it leaves the Home app, the wall and Matter until you include it again from {plugin}'s devices.": "{plugin} deja de convertirlo en accesorio: sale de la app Casa, del muro y de Matter hasta que lo vuelvas a incluir desde los dispositivos de {plugin}.",
+  "Forget": "Olvidar",
+  "Forget {name}?": "¿Olvidar {name}?",
+  "This drops its sign-in and all its settings: its name, room and {plugin}'s settings for it.": "Esto elimina su inicio de sesión y todos sus ajustes: su nombre, su habitación y los ajustes de {plugin} para él.",
+  "It leaves the Home app with its room, scenes and automations. If {plugin} still finds it, it is a device to set up again.": "Sale de la app Casa con su habitación, sus escenas y automatizaciones. Si {plugin} todavía lo encuentra, es un dispositivo que configurar de nuevo.",
+  "{plugin} makes no accessory of it: it is out of the Home app, the wall and Matter.": "{plugin} no lo convierte en accesorio: está fuera de la app Casa, del muro y de Matter.",
+  "Out of the Home app, the wall and Matter, until you include it again from {plugin}'s devices.": "Fuera de la app Casa, del muro y de Matter, hasta que lo vuelvas a incluir desde los dispositivos de {plugin}.",
+  "Drops its sign-in and its settings; it is only a device {plugin} finds again.": "Elimina su inicio de sesión y sus ajustes; solo es un dispositivo que {plugin} vuelve a encontrar.",
+  "Excluded: {plugin} makes no accessory of it. Its settings wait until it is included again.": "Excluido: {plugin} no lo convierte en accesorio. Sus ajustes esperan a que se vuelva a incluir.",
+  "Where it shows": "Dónde aparece",
+  "{plugin} declares no settings of its own.": "{plugin} no declara ajustes propios.",
+  "Unsaved changes · a save reloads {name} once": "Cambios sin guardar · al guardar, {name} se recarga una vez",
+  "Saved. {name} reloaded with it.": "Guardado. {name} se ha recargado con ello.",
+  "Its sign-in is kept in the vault, never in these settings: set it up again to change it.": "Su inicio de sesión se guarda en la caja fuerte, nunca en estos ajustes: vuelve a configurarlo para cambiarlo.",
+  "For {name} as a whole. A save reloads it once, its accessories kept.": "Para {name} en su conjunto. Al guardar se recarga una vez y conserva sus accesorios.",
+  "Something this form does not show is in config.json, the one place to write it as it is.": "Lo que este formulario no muestra está en config.json, el único lugar donde escribirlo tal cual.",
+  "Edit config.json": "Editar config.json",
+  "What {plugin} finds, set up or not.": "Lo que {plugin} encuentra, configurado o no.",
+  "Not set up yet: its devices show once it is.": "Aún sin configurar: sus dispositivos aparecen cuando lo esté.",
+  "Settings of {name}": "Ajustes de {name}",
+  "Left out by the settings above": "Excluido por los ajustes de arriba",
+  "Settings…": "Ajustes…",
+  "Its settings": "Sus ajustes",
+  "Default": "Predeterminado",
+  "Default ({value})": "Predeterminado ({value})",
+  "Declared by {plugin} for it. A change reloads {plugin}.": "Declarados por {plugin} para él. Un cambio recarga {plugin}.",
 });
 
 """#),
@@ -15195,8 +15207,6 @@ HomeswiftI18n.add("fr", {
   "Door locks, hubs and readers, followed in real time": "Serrures, hubs et lecteurs de porte, suivis en temps réel",
   "Cameras and doorbells with HomeKit Secure Video, sensors and lights": "Caméras et sonnettes avec HomeKit Secure Video, capteurs et éclairages",
   "Apple Home's accessories in Homeswift, through a Mac": "Les accessoires de l'app Maison dans Homeswift, via un Mac",
-  "Visible in Home app": "Visible dans l'app Maison",
-  "{name} leaves the Home app, with its room, scenes and automations. Homeswift and Matter keep it; shown again, the Home app adds it as a new accessory.": "{name} quitte l'app Maison, avec sa pièce, ses scènes et ses automatisations. Homeswift et Matter le gardent ; affiché de nouveau, l'app Maison l'ajoute comme un nouvel accessoire.",
   "Not started": "Non démarré",
   "Matter needs IPv6, and this machine has none. Turn IPv6 on (on a Synology: Control Panel, Network, Network Interface), then restart homeswift.": "Matter a besoin d'IPv6, et cette machine n'en a pas. Activez IPv6 (sur un Synology : Panneau de configuration, Réseau, Interface réseau), puis redémarrez homeswift.",
   "Matter could not start this device: {error}": "Matter n'a pas pu démarrer cet appareil : {error}",
@@ -15680,7 +15690,6 @@ HomeswiftI18n.add("fr", {
   "a lock, door or alarm: a person confirms it (set_security_accessory, or the web UI)": "une serrure, une porte ou une alarme : une personne doit confirmer (set_security_accessory, ou l'interface web)",
   "a lock, door or alarm: automations do not change them": "une serrure, une porte ou une alarme : les automatisations n'y touchent pas",
   "a message is required": "un message est requis",
-  "A new name for {name}, in the Home app too. Empty gives it back the name its plugin gives it.": "Un nouveau nom pour {name}, dans l'app Maison aussi. Vide, il reprend le nom que lui donne son plugin.",
   "A new block: Add writes it to config.json.": "Un nouveau bloc : Ajouter l'écrit dans config.json.",
   "A new setup code applies to new pairings only: the Home app keeps the bridge.": "Un nouveau code de configuration ne s'applique qu'aux nouveaux jumelages : l'app Maison garde le pont.",
   "A phrase of several random words is long, strong and easy to remember.": "Une phrase de plusieurs mots aléatoires est longue, robuste et facile à retenir.",
@@ -15851,7 +15860,6 @@ HomeswiftI18n.add("fr", {
   "Away": "Absent",
   "Back": "Retour",
   "Back from the cache, not added again by its plugin": "Restauré depuis le cache, sans être ajouté de nouveau par son plugin",
-  "Back to its page": "Retour à sa page",
   "Back to the chat": "Retour à la conversation",
   "Back to the usual layout": "Revenir à la disposition habituelle",
   "Back up now": "Sauvegarder maintenant",
@@ -16120,10 +16128,6 @@ HomeswiftI18n.add("fr", {
   "Earlier chats": "Conversations précédentes",
   "Edit": "Modifier",
   "Edit {name}": "Modifier {name}",
-  "Edit as": "Modifier en",
-  "Edit as JSON": "Modifier en JSON",
-  "Edit as JSON (Expert)": "Modifier en JSON (vue expert)",
-  "Edit settings (Expert)": "Modifier les réglages (vue expert)",
   "Edit the budgets": "Modifier les budgets",
   "empty": "vide",
   "Empty the log? Every line goes, in memory and the files kept on disk (up to a week). This cannot be undone.": "Vider le journal ? Toutes les lignes disparaissent, en mémoire et dans les fichiers conservés sur disque (jusqu'à une semaine). C'est irréversible.",
@@ -16145,8 +16149,6 @@ HomeswiftI18n.add("fr", {
   "Every one": "Toutes",
   "Every outcome": "Tous les résultats",
   "Every plugin's accessories leave HomeKit, and the plugins start again on empty caches, adding the devices they reach.": "Les accessoires de tous les plugins quittent HomeKit, et les plugins redémarrent avec des caches vides, en ajoutant les appareils qu'ils joignent.",
-  "Every setting of the block, as config.json keeps it, including what {plugin}'s page does not show. A save reloads the plugin.": "Tous les réglages du bloc, tels que config.json les conserve, y compris ce que la page de {plugin} n'affiche pas. Un enregistrement recharge le plugin.",
-  "Every setting of this plugin's block, as config.json keeps it, including what this page does not show.": "Tous les réglages du bloc de ce plugin, tels que config.json les garde, y compris ce que cette page n'affiche pas.",
   "Every subscribed browser has unsubscribed": "Tous les navigateurs abonnés se sont désabonnés",
   "Everything an administrator does, except users and tokens.": "Tout ce que fait un administrateur, sauf les utilisateurs et les jetons.",
   "Everything kept": "Tout l'historique",
@@ -16154,8 +16156,6 @@ HomeswiftI18n.add("fr", {
   "Expand": "Déplier",
   "Expected a key in double quotes": "Une clé entre guillemets doubles est attendue",
   "Expected a scene": "Une scène est attendue",
-  "Expert": "Vue expert",
-  "Expert.": "Vue expert.",
   "Expired": "Expiré",
   "Expires": "Expiration",
   "Explain": "Expliquer",
@@ -16194,7 +16194,6 @@ HomeswiftI18n.add("fr", {
   "Forget “{title}”": "Oublier « {title} »",
   "Forget it": "L'oublier",
   "Forget this chat": "Oublier cette conversation",
-  "Form": "Formulaire",
   "Format": "Mettre en forme",
   "Found: save to keep it.": "Trouvée : enregistrez pour la garder.",
   "Fr": "Ve",
@@ -16695,7 +16694,6 @@ HomeswiftI18n.add("fr", {
   "Purifying · {how}": "Purification · {how}",
   "Purple and orange with an eerie flicker.": "Violet et orange, avec un scintillement inquiétant.",
   "Push payload too large ({0} bytes)": "Contenu push trop volumineux ({0} octets)",
-  "Put in a room…": "Mettre dans une pièce…",
   "QR code for an authenticator app": "Code QR pour une app d'authentification",
   "Quick controls": "Commandes rapides",
   "Rainbow wave": "Vague arc-en-ciel",
@@ -16783,7 +16781,6 @@ HomeswiftI18n.add("fr", {
   "Right": "Droite",
   "Romantic": "Romantique",
   "Room": "Pièce",
-  "Room: {room}…": "Pièce : {room}…",
   "rooms must be names": "rooms doit contenir des noms",
   "Rotation Direction": "Sens de rotation",
   "Rotation Speed": "Vitesse de rotation",
@@ -16879,7 +16876,6 @@ HomeswiftI18n.add("fr", {
   "Show {name}": "Afficher {name}",
   "show all controls": "afficher toutes les commandes",
   "Show as a table": "Afficher sous forme de tableau",
-  "Show it again": "Afficher à nouveau",
   "Show its log": "Afficher son journal",
   "Show less": "Afficher moins",
   "Show more": "Afficher plus",
@@ -17168,8 +17164,7 @@ HomeswiftI18n.add("fr", {
   "the backup folder {0} is not writable": "le dossier de sauvegarde {0} n'est pas accessible en écriture",
   "the backup has no config.json": "la sauvegarde n'a pas de config.json",
   "the backup's config.json cannot run: {0}": "le config.json de la sauvegarde ne peut pas fonctionner : {0}",
-  "The block as config.json keeps it.": "Le bloc tel que config.json le conserve.",
-  "A secret set in JSON is encrypted in config.json when you save. Set it in Form or on the plugin's own page, where it is easier to get right.": "Un secret saisi en JSON est chiffré dans config.json à l'enregistrement. Saisissez-le dans Formulaire ou sur la page du plugin, où il est plus facile de le régler juste.",
+  "A secret set in JSON is encrypted in config.json when you save.": "Un secret saisi en JSON est chiffré dans config.json à l'enregistrement.",
   "The block as JSON": "Le bloc en JSON",
   "the block must keep its platform": "le bloc doit garder sa plateforme",
   "The blocks of config.json. A save applies at once: the plugin reloads with its accessories kept.": "Les blocs de config.json. Un enregistrement s'applique aussitôt : le plugin se recharge en gardant ses accessoires.",
@@ -17208,7 +17203,6 @@ HomeswiftI18n.add("fr", {
   "The homeswift version": "La version de homeswift",
   "The image could not be read.": "L'image n'a pas pu être lue.",
   "the image is too large: {0} MB at most": "l'image est trop volumineuse : {0} MB au maximum",
-  "The JSON is not valid: {error}": "Le JSON n'est pas valide : {error}",
   "The last administrator": "Le dernier administrateur",
   "The last administrator stays one: make another user an administrator first.": "Le dernier administrateur le reste : faites d'abord d'un autre utilisateur un administrateur.",
   "the layout must be a JSON object": "la disposition doit être un objet JSON",
@@ -17849,6 +17843,51 @@ HomeswiftI18n.add("fr", {
   "Email or phone number": "E-mail ou numéro de téléphone",
   "Change the settings of one accessory?": "Modifier les réglages d'un accessoire ?",
   "Change the settings of {n} accessories?": "Modifier les réglages de {n} accessoires ?",
+  "Saved · {plugin} reloads": "Enregistré · {plugin} redémarre",
+  "Saved; the hub said: {error}": "Enregistré ; le hub a répondu : {error}",
+  "The name its plugin gives it": "Le nom que lui donne son plugin",
+  "Named in {source}: rename it there.": "Nommé dans {source} : renommez-le là-bas.",
+  "In the Home app too. Empty gives it back the name its plugin gives it.": "Dans l'app Maison aussi. Vide, il reprend le nom que lui donne son plugin.",
+  "Also moves it in {source}.": "Le déplace aussi dans {source}.",
+  "Also moves it in the Home app (Room Sync is on).": "Le déplace aussi dans l'app Maison (la synchronisation des pièces est activée).",
+  "On Homeswift's pages only: the Home app keeps its own room. Room Sync, in the Accessories page's Rooms menu, moves it there too.": "Sur les pages de Homeswift seulement : l'app Maison garde sa propre pièce. La synchronisation des pièces, dans le menu Pièces de la page Accessoires, l'y déplace aussi.",
+  "Hidden": "Masqué",
+  "Off the wall; still in the Home app.": "Absent du mur ; toujours dans l'app Maison.",
+  "Not in Home": "Hors de Maison",
+  "Out of the Home app, which loses its room, scenes and automations; the wall and Matter keep it.": "Absent de l'app Maison, qui perd sa pièce, ses scènes et ses automatisations ; le mur et Matter le gardent.",
+  "Take {name} out of the Home app?": "Retirer {name} de l'app Maison ?",
+  "The Home app loses it, with its room, scenes and automations. Homeswift and Matter keep it; put back, the Home app adds it as a new accessory.": "L'app Maison le perd, avec sa pièce, ses scènes et ses automatisations. Homeswift et Matter le gardent ; remis, l'app Maison l'ajoute comme un nouvel accessoire.",
+  "Take it out": "Le retirer",
+  "Parts": "Éléments",
+  "Switched off, a part is left out while the device stays. A change reloads {plugin}.": "Désactivé, un élément est laissé de côté et l'appareil reste. Un changement redémarre {plugin}.",
+  "A change reloads {plugin}.": "Un changement redémarre {plugin}.",
+  "Exclude {name}?": "Exclure {name} ?",
+  "{plugin} stops making it an accessory: it leaves the Home app, the wall and Matter until you include it again from {plugin}'s devices.": "{plugin} cesse d'en faire un accessoire : il quitte l'app Maison, le mur et Matter jusqu'à ce que vous l'incluiez de nouveau depuis les appareils de {plugin}.",
+  "Forget": "Oublier",
+  "Forget {name}?": "Oublier {name} ?",
+  "This drops its sign-in and all its settings: its name, room and {plugin}'s settings for it.": "Cela supprime sa connexion et tous ses réglages : son nom, sa pièce et les réglages de {plugin} pour lui.",
+  "It leaves the Home app with its room, scenes and automations. If {plugin} still finds it, it is a device to set up again.": "Il quitte l'app Maison avec sa pièce, ses scènes et ses automatisations. Si {plugin} le trouve encore, c'est un appareil à configurer de nouveau.",
+  "{plugin} makes no accessory of it: it is out of the Home app, the wall and Matter.": "{plugin} n'en fait aucun accessoire : il est absent de l'app Maison, du mur et de Matter.",
+  "Out of the Home app, the wall and Matter, until you include it again from {plugin}'s devices.": "Absent de l'app Maison, du mur et de Matter, jusqu'à ce que vous l'incluiez de nouveau depuis les appareils de {plugin}.",
+  "Drops its sign-in and its settings; it is only a device {plugin} finds again.": "Supprime sa connexion et ses réglages ; ce n'est plus qu'un appareil que {plugin} retrouve.",
+  "Excluded: {plugin} makes no accessory of it. Its settings wait until it is included again.": "Exclu : {plugin} n'en fait aucun accessoire. Ses réglages attendent qu'il soit inclus de nouveau.",
+  "Where it shows": "Où il apparaît",
+  "{plugin} declares no settings of its own.": "{plugin} ne déclare aucun réglage propre.",
+  "Unsaved changes · a save reloads {name} once": "Modifications non enregistrées · l'enregistrement redémarre {name} une fois",
+  "Saved. {name} reloaded with it.": "Enregistré. {name} a redémarré avec.",
+  "Its sign-in is kept in the vault, never in these settings: set it up again to change it.": "Sa connexion est gardée dans le coffre, jamais dans ces réglages : configurez-la de nouveau pour la changer.",
+  "For {name} as a whole. A save reloads it once, its accessories kept.": "Pour {name} dans son ensemble. L'enregistrement le redémarre une fois, ses accessoires gardés.",
+  "Something this form does not show is in config.json, the one place to write it as it is.": "Ce que ce formulaire ne montre pas est dans config.json, le seul endroit où l'écrire tel quel.",
+  "Edit config.json": "Modifier config.json",
+  "What {plugin} finds, set up or not.": "Ce que {plugin} trouve, configuré ou non.",
+  "Not set up yet: its devices show once it is.": "Pas encore configuré : ses appareils apparaissent ensuite.",
+  "Settings of {name}": "Réglages de {name}",
+  "Left out by the settings above": "Laissé de côté par les réglages ci-dessus",
+  "Settings…": "Réglages…",
+  "Its settings": "Ses réglages",
+  "Default": "Par défaut",
+  "Default ({value})": "Par défaut ({value})",
+  "Declared by {plugin} for it. A change reloads {plugin}.": "Déclarés par {plugin} pour lui. Un changement redémarre {plugin}.",
 });
 
 """#),
@@ -17924,8 +17963,6 @@ HomeswiftI18n.add("pt", {
   "Door locks, hubs and readers, followed in real time": "Fechaduras, hubs e leitores de porta, acompanhados em tempo real",
   "Cameras and doorbells with HomeKit Secure Video, sensors and lights": "Câmaras e campainhas com HomeKit Secure Video, sensores e luzes",
   "Apple Home's accessories in Homeswift, through a Mac": "Os acessórios da app Casa no Homeswift, através de um Mac",
-  "Visible in Home app": "Visível na app Casa",
-  "{name} leaves the Home app, with its room, scenes and automations. Homeswift and Matter keep it; shown again, the Home app adds it as a new accessory.": "{name} sai da app Casa, com a sua divisão, cenas e automatizações. O Homeswift e o Matter mantêm-no; mostrado de novo, a app Casa adiciona-o como um acessório novo.",
   "Not started": "Não iniciado",
   "Matter needs IPv6, and this machine has none. Turn IPv6 on (on a Synology: Control Panel, Network, Network Interface), then restart homeswift.": "O Matter precisa de IPv6 e esta máquina não o tem. Ative o IPv6 (num Synology: Painel de controlo, Rede, Interface de rede) e reinicie o homeswift.",
   "Matter could not start this device: {error}": "O Matter não conseguiu iniciar este dispositivo: {error}",
@@ -18409,7 +18446,6 @@ HomeswiftI18n.add("pt", {
   "a lock, door or alarm: a person confirms it (set_security_accessory, or the web UI)": "uma fechadura, porta ou alarme: uma pessoa tem de confirmar (set_security_accessory, ou a interface web)",
   "a lock, door or alarm: automations do not change them": "uma fechadura, porta ou alarme: as automatizações não lhes tocam",
   "a message is required": "é preciso uma mensagem",
-  "A new name for {name}, in the Home app too. Empty gives it back the name its plugin gives it.": "Um novo nome para {name}, também na app Casa. Se ficar vazio, volta ao nome que o seu plugin lhe dá.",
   "A new block: Add writes it to config.json.": "Um bloco novo: Adicionar escreve-o no config.json.",
   "A new setup code applies to new pairings only: the Home app keeps the bridge.": "Um novo código de configuração só se aplica a novos emparelhamentos: a app Casa mantém a ponte.",
   "A phrase of several random words is long, strong and easy to remember.": "Uma frase de várias palavras aleatórias é longa, forte e fácil de memorizar.",
@@ -18580,7 +18616,6 @@ HomeswiftI18n.add("pt", {
   "Away": "Ausente",
   "Back": "Voltar",
   "Back from the cache, not added again by its plugin": "Recuperado da cache, mas não voltou a ser adicionado pelo seu plugin",
-  "Back to its page": "Voltar à página",
   "Back to the chat": "Voltar à conversa",
   "Back to the usual layout": "Voltar à disposição habitual",
   "Back up now": "Fazer cópia agora",
@@ -18849,10 +18884,6 @@ HomeswiftI18n.add("pt", {
   "Earlier chats": "Conversas anteriores",
   "Edit": "Editar",
   "Edit {name}": "Editar {name}",
-  "Edit as": "Editar como",
-  "Edit as JSON": "Editar como JSON",
-  "Edit as JSON (Expert)": "Editar como JSON (vista avançada)",
-  "Edit settings (Expert)": "Editar definições (vista avançada)",
   "Edit the budgets": "Editar os orçamentos",
   "empty": "vazia",
   "Empty the log? Every line goes, in memory and the files kept on disk (up to a week). This cannot be undone.": "Esvaziar o registo? Todas as linhas desaparecem, em memória e nos ficheiros guardados em disco (até uma semana). Não é possível anular.",
@@ -18874,8 +18905,6 @@ HomeswiftI18n.add("pt", {
   "Every one": "Todas",
   "Every outcome": "Todos os resultados",
   "Every plugin's accessories leave HomeKit, and the plugins start again on empty caches, adding the devices they reach.": "Os acessórios de todos os plugins saem do HomeKit e os plugins recomeçam com caches vazias, adicionando os dispositivos que alcançam.",
-  "Every setting of the block, as config.json keeps it, including what {plugin}'s page does not show. A save reloads the plugin.": "Todas as definições do bloco, tal como o config.json as guarda, incluindo o que a página de {plugin} não mostra. Ao guardar, o plugin recarrega.",
-  "Every setting of this plugin's block, as config.json keeps it, including what this page does not show.": "Todas as definições do bloco deste plugin, tal como o config.json as guarda, incluindo o que esta página não mostra.",
   "Every subscribed browser has unsubscribed": "Todos os navegadores subscritos cancelaram a subscrição",
   "Everything an administrator does, except users and tokens.": "Tudo o que um administrador faz, exceto utilizadores e tokens.",
   "Everything kept": "Tudo o que está guardado",
@@ -18883,8 +18912,6 @@ HomeswiftI18n.add("pt", {
   "Expand": "Expandir",
   "Expected a key in double quotes": "Era esperada uma chave entre aspas duplas",
   "Expected a scene": "Era esperada uma cena",
-  "Expert": "Vista avançada",
-  "Expert.": "Vista avançada.",
   "Expired": "Expirado",
   "Expires": "Expira",
   "Explain": "Explicar",
@@ -18923,7 +18950,6 @@ HomeswiftI18n.add("pt", {
   "Forget “{title}”": "Esquecer «{title}»",
   "Forget it": "Esquecer",
   "Forget this chat": "Esquecer esta conversa",
-  "Form": "Formulário",
   "Format": "Formatar",
   "Found: save to keep it.": "Encontrada: guarde para a manter.",
   "Fr": "Sex",
@@ -19424,7 +19450,6 @@ HomeswiftI18n.add("pt", {
   "Purifying · {how}": "A purificar · {how}",
   "Purple and orange with an eerie flicker.": "Roxo e laranja com um tremeluzir inquietante.",
   "Push payload too large ({0} bytes)": "Conteúdo push demasiado grande ({0} bytes)",
-  "Put in a room…": "Colocar numa divisão…",
   "QR code for an authenticator app": "Código QR para uma app de autenticação",
   "Quick controls": "Controlos rápidos",
   "Rainbow wave": "Onda arco-íris",
@@ -19512,7 +19537,6 @@ HomeswiftI18n.add("pt", {
   "Right": "Direita",
   "Romantic": "Romântico",
   "Room": "Divisão",
-  "Room: {room}…": "Divisão: {room}…",
   "rooms must be names": "rooms tem de conter nomes",
   "Rotation Direction": "Sentido de rotação",
   "Rotation Speed": "Velocidade de rotação",
@@ -19608,7 +19632,6 @@ HomeswiftI18n.add("pt", {
   "Show {name}": "Mostrar {name}",
   "show all controls": "mostrar todos os controlos",
   "Show as a table": "Mostrar como tabela",
-  "Show it again": "Mostrar novamente",
   "Show its log": "Mostrar o registo",
   "Show less": "Mostrar menos",
   "Show more": "Mostrar mais",
@@ -19897,8 +19920,7 @@ HomeswiftI18n.add("pt", {
   "the backup folder {0} is not writable": "não é possível escrever na pasta de cópias de segurança {0}",
   "the backup has no config.json": "a cópia de segurança não tem config.json",
   "the backup's config.json cannot run: {0}": "o config.json da cópia de segurança não pode funcionar: {0}",
-  "The block as config.json keeps it.": "O bloco tal como o config.json o guarda.",
-  "A secret set in JSON is encrypted in config.json when you save. Set it in Form or on the plugin's own page, where it is easier to get right.": "Um segredo definido em JSON fica cifrado no config.json ao guardar. Defina-o no Formulário ou na página do próprio plugin, onde é mais fácil acertar.",
+  "A secret set in JSON is encrypted in config.json when you save.": "Um segredo definido em JSON fica cifrado no config.json ao guardar.",
   "The block as JSON": "O bloco em JSON",
   "the block must keep its platform": "o bloco tem de manter a sua plataforma",
   "The blocks of config.json. A save applies at once: the plugin reloads with its accessories kept.": "Os blocos do config.json. Ao guardar, aplica-se de imediato: o plugin recarrega e mantém os acessórios.",
@@ -19937,7 +19959,6 @@ HomeswiftI18n.add("pt", {
   "The homeswift version": "A versão do homeswift",
   "The image could not be read.": "Não foi possível ler a imagem.",
   "the image is too large: {0} MB at most": "a imagem é demasiado grande: {0} MB no máximo",
-  "The JSON is not valid: {error}": "O JSON não é válido: {error}",
   "The last administrator": "O último administrador",
   "The last administrator stays one: make another user an administrator first.": "O último administrador continua a sê-lo: torne primeiro outro utilizador administrador.",
   "the layout must be a JSON object": "a disposição tem de ser um objeto JSON",
@@ -20578,6 +20599,51 @@ HomeswiftI18n.add("pt", {
   "Email or phone number": "E-mail ou número de telefone",
   "Change the settings of one accessory?": "Alterar as definições de um acessório?",
   "Change the settings of {n} accessories?": "Alterar as definições de {n} acessórios?",
+  "Saved · {plugin} reloads": "Guardado · {plugin} é recarregado",
+  "Saved; the hub said: {error}": "Guardado; o hub respondeu: {error}",
+  "The name its plugin gives it": "O nome que o plugin lhe dá",
+  "Named in {source}: rename it there.": "O nome vem de {source}: mude-o lá.",
+  "In the Home app too. Empty gives it back the name its plugin gives it.": "Também na app Casa. Vazio, volta ao nome que o plugin lhe dá.",
+  "Also moves it in {source}.": "Também o move em {source}.",
+  "Also moves it in the Home app (Room Sync is on).": "Também o move na app Casa (a sincronização das divisões está ativada).",
+  "On Homeswift's pages only: the Home app keeps its own room. Room Sync, in the Accessories page's Rooms menu, moves it there too.": "Só nas páginas do Homeswift: a app Casa mantém a sua própria divisão. A sincronização das divisões, no menu Divisões da página Acessórios, também o move lá.",
+  "Hidden": "Oculto",
+  "Off the wall; still in the Home app.": "Fora do mural; continua na app Casa.",
+  "Not in Home": "Fora da Casa",
+  "Out of the Home app, which loses its room, scenes and automations; the wall and Matter keep it.": "Fora da app Casa, que perde a sua divisão, cenas e automatizações; o mural e o Matter mantêm-no.",
+  "Take {name} out of the Home app?": "Retirar {name} da app Casa?",
+  "The Home app loses it, with its room, scenes and automations. Homeswift and Matter keep it; put back, the Home app adds it as a new accessory.": "A app Casa perde-o, com a sua divisão, cenas e automatizações. O Homeswift e o Matter mantêm-no; reposto, a app Casa adiciona-o como um acessório novo.",
+  "Take it out": "Retirar",
+  "Parts": "Partes",
+  "Switched off, a part is left out while the device stays. A change reloads {plugin}.": "Desativada, uma parte fica de fora e o dispositivo mantém-se. Uma alteração recarrega {plugin}.",
+  "A change reloads {plugin}.": "Uma alteração recarrega {plugin}.",
+  "Exclude {name}?": "Excluir {name}?",
+  "{plugin} stops making it an accessory: it leaves the Home app, the wall and Matter until you include it again from {plugin}'s devices.": "{plugin} deixa de o tornar num acessório: sai da app Casa, do mural e do Matter até ser incluído de novo a partir dos dispositivos de {plugin}.",
+  "Forget": "Esquecer",
+  "Forget {name}?": "Esquecer {name}?",
+  "This drops its sign-in and all its settings: its name, room and {plugin}'s settings for it.": "Isto apaga o início de sessão e todas as definições: o nome, a divisão e as definições de {plugin} para ele.",
+  "It leaves the Home app with its room, scenes and automations. If {plugin} still finds it, it is a device to set up again.": "Sai da app Casa com a sua divisão, cenas e automatizações. Se {plugin} ainda o encontrar, é um dispositivo a configurar de novo.",
+  "{plugin} makes no accessory of it: it is out of the Home app, the wall and Matter.": "{plugin} não o torna num acessório: está fora da app Casa, do mural e do Matter.",
+  "Out of the Home app, the wall and Matter, until you include it again from {plugin}'s devices.": "Fora da app Casa, do mural e do Matter, até ser incluído de novo a partir dos dispositivos de {plugin}.",
+  "Drops its sign-in and its settings; it is only a device {plugin} finds again.": "Apaga o início de sessão e as definições; passa a ser só um dispositivo que {plugin} volta a encontrar.",
+  "Excluded: {plugin} makes no accessory of it. Its settings wait until it is included again.": "Excluído: {plugin} não o torna num acessório. As definições ficam à espera de que seja incluído de novo.",
+  "Where it shows": "Onde aparece",
+  "{plugin} declares no settings of its own.": "{plugin} não declara definições próprias.",
+  "Unsaved changes · a save reloads {name} once": "Alterações não guardadas · guardar recarrega {name} uma vez",
+  "Saved. {name} reloaded with it.": "Guardado. {name} foi recarregado com isso.",
+  "Its sign-in is kept in the vault, never in these settings: set it up again to change it.": "O início de sessão fica no cofre, nunca nestas definições: configure-o de novo para o alterar.",
+  "For {name} as a whole. A save reloads it once, its accessories kept.": "Para {name} no seu todo. Guardar recarrega-o uma vez, mantendo os acessórios.",
+  "Something this form does not show is in config.json, the one place to write it as it is.": "O que este formulário não mostra está no config.json, o único sítio onde o escrever tal como é.",
+  "Edit config.json": "Editar o config.json",
+  "What {plugin} finds, set up or not.": "O que {plugin} encontra, configurado ou não.",
+  "Not set up yet: its devices show once it is.": "Ainda não configurado: os dispositivos aparecem depois.",
+  "Settings of {name}": "Definições de {name}",
+  "Left out by the settings above": "Deixado de fora pelas definições acima",
+  "Settings…": "Definições…",
+  "Its settings": "As definições",
+  "Default": "Predefinição",
+  "Default ({value})": "Predefinição ({value})",
+  "Declared by {plugin} for it. A change reloads {plugin}.": "Declaradas por {plugin} para ele. Uma alteração recarrega {plugin}.",
 });
 
 """#),
@@ -21328,6 +21394,7 @@ HomeswiftI18n.add("pt", {
 <script src="/admin.js"></script>
 <script src="/import.js"></script>
 <script src="/setup.js"></script>
+<script src="/settings.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>
@@ -21460,7 +21527,7 @@ HomeswiftI18n.add("pt", {
   const instance = document.querySelector('meta[name="homeswift-plugin"]')?.dataset ?? {};
   const platform = instance.platform || "";
   const name = instance.name || platform;
-  /// The page's address, /plugins/<slug>: its Expert part is below it.
+  /// The page's address, /plugins/<slug>: its Settings are at /plugins/<slug>/settings.
   const address = `/plugins/${location.pathname.split("/")[2] || ""}`;
   const prefix = `/api/plugins/${encodeURIComponent(platform)}/${encodeURIComponent(name)}/`;
 
@@ -21705,6 +21772,8 @@ HomeswiftI18n.add("pt", {
     // Pause, at the right of the breadcrumb: the plugin stops calling its devices (an app sharing the account
     // keeps its session) until Resume, which a banner offers while it is paused.
     const nav = el("nav", { class: "breadcrumb", "aria-label": t("Breadcrumb") }, trail);
+    // Its Settings (the Plugin Settings, its account and its devices), at the right of the breadcrumb, before Pause.
+    nav.append(el("a", { class: "button small settings-link", href: `${address}/settings`, actionIcon: "gear", text: t("Settings") }));
     main.prepend(nav);
     breadcrumb(null);
     api("/api/plugins").then(({ platforms }) => {
@@ -21727,16 +21796,6 @@ HomeswiftI18n.add("pt", {
           el("button", { actionIcon: "play", class: "primary", text: t("Resume"), onclick: (event) => act(event.currentTarget, () => HomeswiftCommon.setPaused(platform, name, false).then(() => location.reload())) })));
       }
     }).catch(() => {});
-    // Expert, last on the page once the page's own script has laid it out: the whole block as config.json
-    // keeps it, as a form or as JSON, for what the page itself does not set.
-    const expert = (mode) => `${address}/expert${mode === "json" ? "/json" : ""}`;
-    const section = el("section", { class: "expert", "aria-labelledby": "expert-title" },
-      el("div", { class: "section-head" }, el("h2", { id: "expert-title", text: t("Expert") })),
-      el("div", { class: "card page-note" },
-        el("p", { class: "muted", text: t("Every setting of this plugin's block, as config.json keeps it, including what this page does not show.") }),
-        el("div", { class: "expert-links" }, el("a", { class: "button", href: expert("form") }, HomeswiftCommon.icon("sliders"), el("span", { text: t("Form") })), el("a", { class: "button", href: expert("json") }, HomeswiftCommon.icon("code"), el("span", { text: "JSON" })))));
-    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => main.append(section));
-    else main.append(section);
   }
 
   // ---- This instance's block of config.json -------------------------------------------------------------
@@ -22693,6 +22752,479 @@ HomeswiftI18n.add("pt", {
 ]
 
 """#),
+        "settings.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
+// Settings (docs/adr/0002-schema-declares-every-setting.md): an accessory's Accessory Settings in one view, drawn from
+// GET /api/settings/accessories/<id> (the sheet the wall's ⋯ opens, the plugin's Devices, Setup's last step), and a
+// plugin instance's Settings page (/plugins/<slug>/settings): its Plugin Settings form, its account and its devices.
+// Both draw the plugin's fields with app.js's one schema renderer (HomeswiftApp.buildForm). app.js lends its helpers
+// once the first view is drawn.
+(() => {
+  "use strict";
+
+  const { el, tile } = HomeswiftCommon;
+  const { t, tn } = HomeswiftI18n;
+  const app = () => window.HomeswiftApp;
+  const api = (...args) => app().api(...args);
+  const enc = encodeURIComponent;
+  const confirmAction = (options) => HomeswiftAdmin.confirmAction(options);
+  /// An accessory's settings route, with the block it is in for one that is not on the bridge.
+  const accessoryPath = (id, instance) => `/api/settings/accessories/${enc(id)}${instance ? `?instance=${enc(instance)}` : ""}`;
+
+  /// A field's quiet state beside its title: Saving…, then Saved for a moment (with what reloaded), or the error,
+  /// which stays until the next change.
+  function setState(node, kind, text) {
+    if (!node) return;
+    clearTimeout(node.timer);
+    node.dataset.state = kind;
+    node.textContent = text;
+    if (kind === "ok") node.timer = setTimeout(() => { node.textContent = ""; node.dataset.state = ""; }, 2400);
+  }
+  const stateNode = () => el("span", { class: "field-state", role: "status", "aria-live": "polite" });
+
+  /// What a write did, in a few words for a field's state.
+  function savedWords(result, instance) {
+    if ((result.reloaded ?? []).length) return t("Saved · {plugin} reloads", { plugin: instance });
+    const failed = (result.hubMoves ?? []).find((move) => move.error);
+    if (failed) return t("Saved; the hub said: {error}", { error: HomeswiftI18n.message(failed.error) });
+    return t("Saved");
+  }
+
+  /// A section of the editor: a heading with what it is about, then its rows. One surface: sections, not cards.
+  const section = (title, note, ...rows) => el("section", { class: "settings-section" },
+    title ? el("div", { class: "settings-section-head" }, el("h3", { text: title }), note ? el("p", { class: "help", text: note }) : null) : null,
+    ...rows);
+
+  /// A switch row: its title, what it means, and its state.
+  function switchRow({ title, help, checked, disabled = false, onChange }) {
+    const input = el("input", { type: "checkbox", checked, disabled });
+    const state = stateNode();
+    input.addEventListener("change", () => onChange(input.checked, state, input));
+    return { input, node: el("label", { class: "toggle" }, el("span", { class: "switch" }, input, el("span")),
+      el("span", {}, el("span", { class: "field-title" }, title, state), help ? el("span", { class: "help", text: help }) : null)) };
+  }
+
+  // ---- An accessory's settings ------------------------------------------------------------------------------
+
+  /// The Accessory Settings editor of `accessoryID` (`instance`, its block's name, for a device not on the bridge),
+  /// every field saving on its own: Name, room, Hidden, Not in Home, Parts, then the plugin's own (from its
+  /// accessorySchema, with "Default (X)" while a plugin-wide default applies), then Exclude and Forget. `device`, the
+  /// discovery's entry when the caller has it, gives the Parts; otherwise the plugin is asked. `onChange(key)` is
+  /// told of each change saved, `onGone()` once it is forgotten; `onTitle(name)` of its name as it changes.
+  function accessoryEditor({ accessoryID, instance = null, device = null, onChange = () => {}, onGone = () => {}, onTitle = () => {} }) {
+    const node = el("div", { class: "accessory-settings", "aria-busy": "true" }, el("p", { class: "setup-loading muted" }, el("span", { class: "spinner", "aria-hidden": "true" }), el("span", { text: t("Loading…") })));
+    // Enter commits a field (its change saves it) rather than submitting a form the editor sits in (Setup's sheet).
+    node.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.isComposing && event.target.matches?.("input:not([type=checkbox])")) { event.preventDefault(); event.target.blur(); }
+    });
+    const ready = load();
+    return { node, ready };
+
+    async function load() {
+      let answer, rooms, schemaFile;
+      try {
+        [answer, rooms] = await Promise.all([api(accessoryPath(accessoryID, instance)), api("/api/rooms").catch(() => ({ rooms: [], syncRoomNames: false }))]);
+        // The plugin's words for its own fields (its schema's `i18n`), when it declares some.
+        schemaFile = Object.values(answer.fields ?? {}).some((field) => !field.core)
+          ? await api(`/api/plugins/${enc(answer.platform)}/schema`, { raw: true }).then(JSON.parse).catch(() => null) : null;
+      } catch (e) {
+        node.removeAttribute("aria-busy");
+        node.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));
+        return;
+      }
+      draw(answer, rooms, schemaFile);
+    }
+
+    function draw(answer, home, schemaFile) {
+      node.removeAttribute("aria-busy");
+      const settings = answer.settings ?? {};
+      const fields = answer.fields ?? {};
+      const plugin = answer.instance;
+      const mirrored = answer.mirroredFrom ?? null;
+      const id = answer.accessory;
+      const where = answer.instance;
+      /// Saves one key (null clears it); answers whether it was saved.
+      const save = async (patch, state, key) => {
+        setState(state, "busy", t("Saving…"));
+        try {
+          const result = await api(accessoryPath(id, where), { method: "PATCH", body: patch });
+          setState(state, "ok", savedWords(result, plugin));
+          for (const [name, value] of Object.entries(patch)) {
+            if (value === null) delete settings[name]; else settings[name] = value;
+          }
+          onChange(key);
+          return true;
+        } catch (e) {
+          // The schema's words without their place in config.json (`_accessories.<id>.<key> must be…`): the field is the place.
+          setState(state, "error", e.problems ? e.problems.map((problem) => HomeswiftI18n.message(problem.text).replace(/^_accessories\.\S+\s+/, "")).join("; ") : e.message);
+          return false;
+        }
+      };
+
+      // Name: one name, on these pages and in the Home app. A mirrored accessory is named where it comes from.
+      const nameState = stateNode();
+      const name = el("input", { type: "text", value: settings.name ?? "", maxLength: fields.name?.schema?.maxLength ?? 64, readOnly: Boolean(mirrored || fields.name?.readOnly),
+        placeholder: answer.name ?? t("The name its plugin gives it"), autocomplete: "off", spellcheck: false });
+      if (mirrored) name.value = answer.name ?? "";
+      name.addEventListener("change", async () => {
+        const text = name.value.trim().replace(/\s+/g, " ");
+        name.value = text;
+        if (text === (settings.name ?? "")) return;
+        if (await save({ name: text || null }, nameState, "name")) onTitle(text || answer.name || id);
+      });
+      const nameField = el("label", { class: "field" }, el("span", { class: "field-title" }, t("Name"), nameState), name,
+        el("span", { class: "help", text: mirrored ? t("Named in {source}: rename it there.", { source: mirrored }) : t("In the Home app too. Empty gives it back the name its plugin gives it.") }));
+
+      // Room: one of the rooms, or a new name that adds it. Whether Apple Home follows, said beside it.
+      const roomState = stateNode();
+      const listID = `rooms-${Math.random().toString(36).slice(2)}`;
+      const room = el("input", { type: "text", value: settings.room ?? "", maxLength: fields.room?.schema?.maxLength ?? 64, placeholder: t("No room"), autocomplete: "off", spellcheck: false });
+      room.setAttribute("list", listID);
+      const roomNames = (home.rooms ?? []).map((one) => one.name);
+      const datalist = el("datalist", { id: listID }, roomNames.map((one) => el("option", { value: one })));
+      const homeFollows = mirrored || home.syncRoomNames === true;
+      room.addEventListener("change", async () => {
+        const text = room.value.trim();
+        room.value = text;
+        if (text === (settings.room ?? "")) return;
+        // None is "" for a mirrored accessory (not the room its controller suggests), else cleared.
+        await save({ room: text || (mirrored ? "" : null) }, roomState, "room");
+      });
+      const roomField = el("label", { class: "field" }, el("span", { class: "field-title" }, t("Room"), roomState), room, datalist,
+        el("span", { class: "help", text: mirrored ? t("Also moves it in {source}.", { source: mirrored })
+          : homeFollows ? t("Also moves it in the Home app (Room Sync is on).")
+            : t("On Homeswift's pages only: the Home app keeps its own room. Room Sync, in the Accessories page's Rooms menu, moves it there too.") }));
+
+      // Hidden and Not in Home: where it shows.
+      const hidden = switchRow({ title: t("Hidden"), help: t("Off the wall; still in the Home app."), checked: settings.hidden === true,
+        onChange: async (on, state, input) => { if (!await save({ hidden: on || null }, state, "hidden")) input.checked = !on; } });
+      const notInHome = mirrored ? null : switchRow({ title: t("Not in Home"), help: t("Out of the Home app, which loses its room, scenes and automations; the wall and Matter keep it."),
+        checked: settings.notInHome === true,
+        onChange: async (on, state, input) => {
+          if (on && !await confirmAction({ title: t("Take {name} out of the Home app?", { name: answer.name ?? id }),
+            text: t("The Home app loses it, with its room, scenes and automations. Homeswift and Matter keep it; put back, the Home app adds it as a new accessory."),
+            confirmLabel: t("Take it out"), confirmIcon: "house" })) { input.checked = false; return; }
+          if (!await save({ notInHome: on || null }, state, "notInHome")) input.checked = !on;
+        } });
+
+      // Parts: from the discovery, which knows their names; the plugin reloads with each.
+      const partsBox = el("div", { class: "settings-parts" });
+      const partsSection = section(t("Parts"), t("Switched off, a part is left out while the device stays. A change reloads {plugin}.", { plugin }), partsBox);
+      partsSection.hidden = true;
+      const drawParts = (found) => {
+        const parts = found?.parts ?? [];
+        if (!parts.length || settings.excluded) return;
+        const own = settings.parts ?? {};
+        partsBox.replaceChildren(...parts.map((part) => switchRow({
+          title: t(part.name), checked: own[part.id] ?? part.included,
+          onChange: async (on, state, input) => {
+            if (!await save({ parts: { ...(settings.parts ?? {}), [part.id]: on } }, state, "parts")) input.checked = !on;
+          },
+        }).node));
+        partsSection.hidden = false;
+      };
+      if (device) drawParts(device);
+      else if (fields.parts) {
+        api("/api/setup/discover", { method: "POST", body: { platform: answer.platform, name: answer.instance } })
+          .then((found) => drawParts(found.devices.find((one) => one.deviceID === answer.deviceID)), () => {});
+      }
+
+      // The plugin's own Accessory Settings, by the same renderer as its Plugin Settings.
+      const own = Object.entries(fields).filter(([, field]) => !field.core);
+      let pluginSection = null;
+      if (own.length) {
+        const properties = Object.fromEntries(own.map(([key, field]) => [key, field.schema]));
+        const defaults = Object.fromEntries(own.filter(([, field]) => field.default).map(([key, field]) => [key, field.default.value]));
+        const values = Object.fromEntries(own.filter(([key]) => key in settings).map(([key]) => [key, settings[key]]));
+        const form = app().buildForm({ schema: { type: "object", properties }, i18n: schemaFile?.i18n }, values, {
+          defaults,
+          // Cleared, a field takes the plugin-wide default again (null clears the key).
+          onCommit: (key, value, state) => save({ [key]: value === undefined ? null : value }, state, key),
+        });
+        pluginSection = section(t("Plugin settings"), t("Declared by {plugin} for it. A change reloads {plugin}.", { plugin }), form.element);
+      }
+
+      // Exclude (or Include) and Forget, set apart at the end.
+      const excluded = settings.excluded === true;
+      const exclude = excluded
+        ? el("button", { type: "button", actionIcon: "plus", text: t("Include"), onclick: (event) => HomeswiftCommon.busyButton(event.currentTarget, async () => {
+          await api(accessoryPath(id, answer.instance), { method: "PATCH", body: { excluded: null } });
+          onChange("excluded");
+          reload();
+        }) })
+        : el("button", { type: "button", class: "danger", actionIcon: "minus", text: t("Exclude"), onclick: async (event) => {
+          const button = event.currentTarget;
+          if (!await confirmAction({ title: t("Exclude {name}?", { name: answer.name ?? id }),
+            text: t("{plugin} stops making it an accessory: it leaves the Home app, the wall and Matter until you include it again from {plugin}'s devices.", { plugin }),
+            confirmLabel: t("Exclude"), confirmIcon: "minus" })) return;
+          HomeswiftCommon.busyButton(button, async () => {
+            await api(accessoryPath(id, answer.instance), { method: "PATCH", body: { excluded: true } });
+            onChange("excluded");
+            reload();
+          });
+        } });
+      const forget = el("button", { type: "button", class: "danger", actionIcon: "trash", text: t("Forget"), onclick: async (event) => {
+        const button = event.currentTarget;
+        if (!await confirmAction({ title: t("Forget {name}?", { name: answer.name ?? id }),
+          text: [t("This drops its sign-in and all its settings: its name, room and {plugin}'s settings for it.", { plugin }),
+            t("It leaves the Home app with its room, scenes and automations. If {plugin} still finds it, it is a device to set up again.", { plugin })],
+          confirmLabel: t("Forget"), confirmIcon: "trash" })) return;
+        HomeswiftCommon.busyButton(button, async () => {
+          await api(accessoryPath(id, answer.instance), { method: "DELETE" });
+          onGone();
+        });
+      } });
+      const dangerRow = (title, text, button) => el("div", { class: "settings-danger-row" }, el("div", {}, el("strong", { text: title }), el("p", { class: "help", text })), button);
+      const danger = el("section", { class: "settings-section settings-danger" },
+        dangerRow(excluded ? t("Excluded") : t("Exclude"), excluded ? t("{plugin} makes no accessory of it: it is out of the Home app, the wall and Matter.", { plugin })
+          : t("Out of the Home app, the wall and Matter, until you include it again from {plugin}'s devices.", { plugin }), exclude),
+        dangerRow(t("Forget"), t("Drops its sign-in and its settings; it is only a device {plugin} finds again.", { plugin }), forget));
+
+      // The renderer's own buttons (a list's Add) never submit a form around the editor.
+      for (const button of pluginSection?.querySelectorAll("button:not([type])") ?? []) button.type = "button";
+      node.replaceChildren(...[
+        excluded ? el("p", { class: "settings-note", role: "note", text: t("Excluded: {plugin} makes no accessory of it. Its settings wait until it is included again.", { plugin }) }) : null,
+        section(null, null, nameField, roomField),
+        section(t("Where it shows"), null, hidden.node, notInHome?.node ?? null),
+        partsSection,
+        pluginSection,
+        danger,
+      ].filter(Boolean));
+    }
+
+    async function reload() {
+      node.setAttribute("aria-busy", "true");
+      await load();
+    }
+  }
+
+  /// The editor in a side sheet, from the wall's ⋯, a plugin's Devices or Setup: its name and plugin at the top, Done
+  /// at the bottom. `after(changed)` runs once it has gone, with whether anything was saved (or it was forgotten).
+  function openAccessory({ accessoryID, instance = null, device = null, name = null, glyph = "accessory", trigger = null, after = null }) {
+    let changed = false, gone = false;
+    app().openSheet((done) => {
+      const title = el("h2", { id: "accessory-settings-title", text: name ?? device?.name ?? accessoryID });
+      const editor = accessoryEditor({ accessoryID, instance, device,
+        onChange: () => { changed = true; },
+        onGone: () => { gone = true; changed = true; done(true); },
+        onTitle: (text) => { title.textContent = text; } });
+      editor.ready.then(() => { if (!document.activeElement || document.activeElement === document.body) title.focus?.(); });
+      return el("div", { class: "account-form accessory-settings-sheet" },
+        el("div", { class: "setup-sheet-head" }, tile(glyph, "blue"),
+          el("div", {}, title, el("p", { class: "muted setup-method", text: t("Settings") }))),
+        editor.node,
+        el("div", { class: "actions" }, el("button", { type: "button", class: "primary", actionIcon: "check", text: t("Done"), onclick: () => done() })));
+    }, "accessory-settings-title", {
+      returnFocus: trigger,
+      onClose: () => {
+        if (after) after(changed, gone);
+        else if (changed) app().route();
+        if (!gone && trigger?.isConnected) trigger.focus();
+      },
+    });
+  }
+
+  // ---- A plugin instance's Settings page ---------------------------------------------------------------------
+
+  /// What a device's status is called, and its tone: set up is the usual state, a quiet dot.
+  const statuses = {
+    setUp: [() => t("Set up"), "on"],
+    notResponding: [() => t("Not responding"), "away"],
+    discovered: [() => t("Ready"), "on"],
+    needsAuthorization: [() => t("Needs setup"), "away"],
+    excluded: [() => t("Excluded"), "paused"],
+  };
+
+  /// /plugins/<slug>/settings (a plugin without a page of its own: /plugins/<slug>): its account, its Plugin Settings as
+  /// one form saved at once (the plugin reloads once), its devices, then config.json and removal. `kit` is app.js's.
+  async function pluginPage(main, { block, plugin, instance, plugins, kit }) {
+    const platform = block.platform;
+    const path = `/api/settings/plugins/${enc(platform)}/${enc(block.name)}`;
+    const [current, schemaFile] = await Promise.all([api(path), api(`/api/plugins/${enc(platform)}/schema`, { raw: true }).then(JSON.parse).catch(() => null)]);
+    kit.readSecrets(plugins);
+    const hasPage = Boolean(plugin?.hasPages && instance && !instance.paused);
+    const accountMethod = plugin?.accountAuthorization && plugin.accountAuthorization !== "none" ? plugin.accountAuthorization : null;
+
+    // The form, from the schema file (its layout and words) with the values the settings route gives (secrets as the
+    // placeholder, kept as they are). A plugin with an account keeps its sign-in in the vault: no credential here.
+    let form = null, getValue = () => ({ ...current.settings });
+    const formBox = el("div", { class: "plugin-settings-form" });
+    const root = schemaFile ? { ...schemaFile, schema: structuredClone(schemaFile.schema ?? {}) } : null;
+    if (root && accountMethod) {
+      const properties = root.schema.properties ?? root.schema;
+      for (const key of Object.keys(properties)) if (kit.isSecretKey(key)) delete properties[key];
+    }
+    const build = (value) => {
+      form = app().buildForm(root, value);
+      formBox.replaceChildren(form.element);
+      getValue = form.getValue;
+    };
+    if (root && Object.keys(root.schema.properties ?? {}).length) build(current.settings);
+    else formBox.replaceChildren(el("p", { class: "muted", text: t("{plugin} declares no settings of its own.", { plugin: plugin?.name ?? platform }) }));
+
+    // One Save for the form: only what changed is sent, a key taken out cleared (null).
+    const sorted = (value) => Array.isArray(value) ? value.map(sorted)
+      : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, sorted(value[key])])) : value;
+    const same = (a, b) => JSON.stringify(sorted(a)) === JSON.stringify(sorted(b));
+    const patchFrom = (before, after) => {
+      const patch = {};
+      for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+        if (!(key in after)) { patch[key] = null; continue; }
+        if (same(before[key], after[key])) continue;
+        const [a, b] = [before[key], after[key]];
+        // Objects key by key, as the route merges them; lists and values replaced.
+        patch[key] = a && b && typeof a === "object" && typeof b === "object" && !Array.isArray(a) && !Array.isArray(b) ? patchFrom(a, b) : b;
+      }
+      return patch;
+    };
+    let saved = structuredClone(current.settings);
+    const dirty = () => { try { return !same(saved, getValue()); } catch { return false; } };
+    const message = el("span", { class: "muted" });
+    // An icon and a label each, as the other save bars: at phone width Revert keeps its icon alone.
+    const save = el("button", { class: "primary settings-action" }, HomeswiftCommon.icon("check"), el("span", { text: t("Save") }));
+    const revert = el("button", { class: "settings-action" }, HomeswiftCommon.icon("restore"), el("span", { text: t("Revert") }));
+    const update = () => {
+      const changed = dirty();
+      save.disabled = !changed;
+      revert.disabled = !changed;
+      if (!message.classList.contains("error") && !message.classList.contains("ok")) {
+        message.className = changed ? "dirty" : "muted";
+        message.textContent = changed ? t("Unsaved changes · a save reloads {name} once", { name: block.name }) : t("Saved");
+      }
+    };
+    formBox.addEventListener("input", () => { message.className = ""; update(); });
+    formBox.addEventListener("change", () => { message.className = ""; update(); });
+    formBox.addEventListener("click", () => setTimeout(update, 0));
+    save.addEventListener("click", () => HomeswiftCommon.busyButton(save, async () => {
+      message.className = "muted";
+      message.textContent = t("Saving…");
+      try {
+        const value = getValue();
+        const result = await api(path, { method: "PATCH", body: patchFrom(saved, value) });
+        saved = structuredClone(value);
+        message.className = "ok";
+        message.textContent = (result.reloaded ?? []).length ? t("Saved. {name} reloaded with it.", { name: block.name }) : kit.savedText(result);
+        // A block renamed lives at its own address now.
+        if (value.name && value.name !== block.name) { kit.setLeaveGuard(null); app().navigate(`/plugins/${HomeswiftCommon.slug(value.name)}/settings`, { replace: true }); return; }
+      } catch (e) {
+        message.className = "error";
+        if (!e.problems) { message.textContent = e.message; return; }
+        message.replaceChildren(el("span", { text: t("The plugin's schema refuses this:") }), kit.problemList(e.problems.map((problem) => ({ text: HomeswiftI18n.message(problem.text) }))));
+      }
+      update();
+    }, { report: (e) => { message.className = "error"; message.textContent = e.message; } }));
+    revert.addEventListener("click", () => { if (form) build(saved); message.className = ""; update(); });
+
+    // The account, for a plugin that signs in: where it stands and Set up again, which opens Setup.
+    const accountRow = accountMethod ? el("div", { class: "settings-row" },
+      tile(accountMethod === "buttonPress" || accountMethod === "deviceCode" ? "pair" : accountMethod === "apiKey" ? "key" : "user", "orange"),
+      el("div", { class: "who" }, el("strong", { text: t("Account") }),
+        el("span", { class: "help account-state", text: t("Checking…") })),
+      el("button", { type: "button", actionIcon: "pair", text: t("Set up again"), onclick: (event) => HomeswiftSetup.setUp({ block, plugin, trigger: event.currentTarget, after: () => devices.load() }) })) : null;
+
+    // The devices of the instance, as Setup's discovery finds them.
+    const devices = devicesSection({ block, plugin, accountRow });
+    const describe = !block.system && form ? kit.describeSetup({ platform, pluginName: plugin ? plugin.name : platform, current: () => { try { return getValue(); } catch { return current.settings; } },
+      use: (value) => { build({ ...value }); formBox.dispatchEvent(new Event("input", { bubbles: true })); } }) : null;
+
+    const [state, kind] = kit.blockState(block, plugin, instance);
+    kit.setLeaveGuard(Object.assign(async () => !dirty() || await HomeswiftCommon.confirmDialog(t("Leave without saving your changes?")), { quiet: () => !dirty() }));
+    app().show(main,
+      app().breadcrumb([t("Plugins"), "/plugins"], ...(hasPage ? [[kit.blockTitle(block), `/plugins/${block.slug}`]] : []), [hasPage ? t("Settings") : kit.blockTitle(block)]),
+      el("div", { class: "page-head settings-head" },
+        tile(block.icon ?? plugin?.icon ?? "plugin", "orange"),
+        el("div", { class: "who" },
+          el("h1", { text: kit.blockTitle(block) }),
+          el("p", { class: "muted", text: [...new Set([plugin ? plugin.name : platform, platform])].filter((part) => part !== block.name).concat(
+            instance ? [tn("{n} accessory on {bridge}", "{n} accessories on {bridge}", instance.accessories, { bridge: instance.bridge })] : []).join(" · ") })),
+        el("div", { class: "tools" },
+          el("span", { class: `pill status ${kind}`, text: state }),
+          hasPage ? el("a", { class: "button", href: `/plugins/${block.slug}`, actionIcon: "open", text: t("Open its page") }) : null)),
+      describe,
+      el("div", { class: "card plugin-settings" },
+        accountRow ? section(t("Account"), t("Its sign-in is kept in the vault, never in these settings: set it up again to change it."), accountRow) : null,
+        el("section", { class: "settings-section" },
+          el("div", { class: "settings-section-head" }, el("h3", { text: t("Settings") }), el("p", { class: "help", text: t("For {name} as a whole. A save reloads it once, its accessories kept.", { name: block.name }) })),
+          formBox,
+          form ? el("div", { class: "settings-bar" }, message, revert, save) : null),
+        devices.node,
+        el("section", { class: "settings-section settings-foot" },
+          el("p", { class: "help" }, t("Something this form does not show is in config.json, the one place to write it as it is."), " ",
+            el("a", { href: "/settings/config", text: t("Edit config.json") })))),
+      el("div", { class: "danger-zone" },
+        el("div", {}, el("strong", { text: t("Remove this plugin") }),
+          el("p", { class: "muted", text: t("Takes the block out of config.json. Its accessories leave the Home app, with their rooms, scenes and automations.") })),
+        el("button", { actionIcon: "trash", class: "danger", text: t("Remove"), onclick: () => kit.removeBlock(block, () => app().navigate("/plugins")) })));
+    update();
+    devices.load();
+  }
+
+  /// A plugin instance's Discovered Devices: each with where it stands and what can be done with it: a set-up one opens
+  /// its settings, an Excluded one is included, one that Needs Authorization is set up again. `accountRow`'s state line
+  /// says where the account stands once the plugin has answered.
+  function devicesSection({ block, plugin, accountRow }) {
+    const list = el("div", { class: "settings-devices", "aria-live": "polite" });
+    const count = el("span", { class: "muted" });
+    const again = el("button", { type: "button", class: "link", actionIcon: "search", text: t("Find again"), onclick: () => load() });
+    const node = el("section", { class: "settings-section" },
+      el("div", { class: "settings-section-head with-tools" },
+        el("div", {}, el("h3", {}, t("Devices"), " ", count), el("p", { class: "help", text: t("What {plugin} finds, set up or not.", { plugin: block.name }) })), again),
+      list);
+    let loading = 0;
+    async function load() {
+      const run = ++loading;
+      list.setAttribute("aria-busy", "true");
+      again.disabled = true;
+      if (!list.children.length) list.replaceChildren(el("p", { class: "setup-loading muted" }, el("span", { class: "spinner", "aria-hidden": "true" }), el("span", { text: t("Looking for devices…") })));
+      try {
+        const found = await api("/api/setup/discover", { method: "POST", body: { platform: block.platform, name: block.name } });
+        if (run !== loading) return;
+        const state = accountRow?.querySelector(".account-state");
+        if (state) state.textContent = found.accountSetUp ? t("Set up") : t("Not set up yet: its devices show once it is.");
+        count.textContent = found.devices.length ? String(found.devices.length) : "";
+        list.replaceChildren(...(found.devices.length ? found.devices.map((device) => deviceRow(block, plugin, device, load))
+          : [el("p", { class: "muted", text: accountRow && !found.accountSetUp ? t("Its devices show here once it is set up.") : t("This plugin finds no devices by itself: its settings name them.") })]));
+      } catch (e) {
+        if (run === loading) list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));
+      } finally {
+        if (run === loading) { list.removeAttribute("aria-busy"); again.disabled = false; }
+      }
+    }
+    return { node, load };
+  }
+
+  function deviceRow(block, plugin, device, reload) {
+    const [state, tone] = statuses[device.status] ?? statuses.discovered;
+    const accessoryID = device.accessoryID || `${block.platform}:${device.deviceID}`;
+    const glyph = HomeswiftWidgets.categoryIcon(device.category) ?? "accessory";
+    const opens = ["setUp", "notResponding", "discovered"].includes(device.status);
+    const detail = device.excludedBySettings ? t("Left out by the settings above") : [device.model, device.address].filter(Boolean).join(" · ") || device.deviceID;
+    let action = null;
+    if (device.excludedBySettings) action = null;
+    else if (device.status === "excluded") {
+      action = el("button", { type: "button", actionIcon: "plus", text: t("Include"), onclick: (event) => HomeswiftCommon.busyButton(event.currentTarget, async () => {
+        await api(accessoryPath(accessoryID, block.name), { method: "PATCH", body: { excluded: null } });
+        await reload();
+      }) });
+    } else if (device.status === "needsAuthorization") {
+      action = el("button", { type: "button", class: "primary", actionIcon: "pair", text: t("Set up again"), onclick: (event) => HomeswiftSetup.setUp({ block, plugin, device, trigger: event.currentTarget, after: reload }) });
+    } else if (opens) {
+      // An icon and a label; at phone width the gear alone, round, so the name keeps the row.
+      action = el("button", { type: "button", class: "settings-open", "aria-label": t("Settings of {name}", { name: device.name }), title: t("Settings of {name}", { name: device.name }),
+        onclick: (event) => openAccessory({ accessoryID, instance: block.name, device, name: device.name, glyph, trigger: event.currentTarget, after: (changed) => { if (changed) reload(); } }) },
+        HomeswiftCommon.icon("gear"), el("span", { text: t("Settings") }));
+    }
+    return el("div", { class: `settings-device${device.status === "excluded" ? " is-excluded" : ""}` },
+      tile(glyph, device.status === "excluded" ? "grey" : device.status === "needsAuthorization" ? "orange" : "blue"),
+      el("div", { class: "who" }, el("strong", { text: device.name }),
+        el("span", { class: "help", text: detail, title: detail })),
+      tone === "on" ? el("span", { class: "status-dot", role: "img", "aria-label": state(), title: state() }) : el("span", { class: `pill status ${tone}`, text: state() }),
+      action ?? el("span", { class: "setup-spacer" }));
+  }
+
+  window.HomeswiftSettings = { accessoryEditor, openAccessory, pluginPage };
+})();
+
+"""#),
         "setup.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // Setup (GLOSSARY.md, "Setup"): /setup lists what each plugin finds, with where each device stands, and sets up the
 // devices and accounts that ask for a code, a button press, a sign-in or keys, in one sheet whatever the plugin. The
@@ -22951,9 +23483,12 @@ HomeswiftI18n.add("pt", {
       } catch (e) { HomeswiftCommon.showAlert(e.message); }
     };
     const items = [
+      // Its Accessory Settings, the same sheet as the wall's.
+      setUp || device.status === "discovered" ? { label: t("Settings…"), icon: "gear", onSelect: () => HomeswiftSettings.openAccessory({ accessoryID: accessoryID(block, device), instance: block.name, device,
+        name: device.name, glyph: HomeswiftWidgets.categoryIcon(device.category) ?? "accessory", after: (changed) => { if (changed) reload(); } }) } : null,
       setUp && device.authorization !== "none" ? { label: t("Set up again"), icon: "pair", onSelect: () => open({ block, plugin, device, known, after: reload }) } : null,
       // Left out by the plugin's own settings: included again there, not here.
-      device.excludedBySettings ? { label: t("Open its settings"), icon: "gear", href: `/plugins/${encodeURIComponent(block.slug)}/expert` }
+      device.excludedBySettings ? { label: t("Open its settings"), icon: "gear", href: `/plugins/${encodeURIComponent(block.slug)}/settings` }
         : excluded ? { label: t("Include"), icon: "plus", onSelect: toggle(false) } : { label: t("Exclude"), icon: "minus", onSelect: toggle(true) },
     ].filter(Boolean);
     const needs = device.status === "needsAuthorization";
@@ -23077,11 +23612,13 @@ HomeswiftI18n.add("pt", {
       form.addEventListener("submit", (event) => event.preventDefault());
       const fill = (...nodes) => { body.replaceChildren(...nodes.filter(Boolean)); body.classList.remove("entering"); void body.offsetWidth; body.classList.add("entering"); };
 
-      /// The end: what reached the Home app, when the sheet knows.
-      function finish(added = null) {
+      /// The end: what reached the Home app, when the sheet knows. A device's Setup ends on its Accessory Settings
+      /// (settings.js), the fields its plugin declares as the wall's sheet draws them, each saved as it is changed.
+      function finish(added = null, accessory = null) {
         stage(stages.length - 1);
         // The Setup is over: Done (or Return) closes the sheet, and nothing is sent again.
         form.onsubmit = (event) => { event.preventDefault(); dismiss(); };
+        const editor = device && accessory ? HomeswiftSettings.accessoryEditor({ accessoryID: accessory, instance: block.name, device }) : null;
         fill(
           el("div", { class: "setup-done" }, el("span", { class: "setup-check", "aria-hidden": "true" }, HomeswiftCommon.icon("check")),
             el("p", {}, el("strong", { text: device ? t("{name} is set up.", { name: title })
@@ -23089,13 +23626,14 @@ HomeswiftI18n.add("pt", {
             el("p", { class: "muted", text: added?.length ? t("They reach the Home app in a moment.") : t("Its accessories reach the Home app in a moment.") })),
           added?.length ? el("ul", { class: "setup-added" }, ...added.map((found, index) =>
             el("li", { style: `--index: ${Math.min(index, 8)}` }, tile(HomeswiftWidgets.categoryIcon(found.category) ?? glyph, "blue"), el("span", { text: found.name })))) : null,
+          editor ? el("div", { class: "setup-settings" }, el("h3", { text: t("Its settings") }), editor.node) : null,
           el("div", { class: "actions" }, el("button", { class: "primary", type: "submit", actionIcon: "check", text: t("Done") })));
         body.querySelector(".actions button")?.focus();
       }
 
       /// What the account, or a device just set up (a console), reaches, to pick: every device ticked; those left out are
       /// excluded. A console's devices come once the plugin has connected to it: it is asked a few times.
-      async function pick({ keep, tries = 1, owner = plugin?.name ?? block.name }) {
+      async function pick({ keep, tries = 1, owner = plugin?.name ?? block.name, accessory = null }) {
         fill(loading(t("Looking for devices…")));
         let found = [], failure = null;
         for (let attempt = 0; attempt < tries && !closed; attempt++) {
@@ -23119,7 +23657,7 @@ HomeswiftI18n.add("pt", {
           again.focus({ preventScroll: true });
           return;
         }
-        if (!found.length) { finish(); return; }
+        if (!found.length) { finish(null, accessory); return; }
         if (!stages.includes(devicesStage)) stages.splice(stages.length - 1, 0, devicesStage);
         stage(stages.indexOf(devicesStage));
         const boxes = found.map((one) => el("input", { type: "checkbox", checked: true, value: one.deviceID }));
@@ -23167,8 +23705,8 @@ HomeswiftI18n.add("pt", {
           session = null;
           if (picking) pick({ keep: () => true });
           // A console signed in: the cameras, doors and sensors it brings, not the devices that were there already.
-          else if (device && known) pick({ keep: (one) => one.authorization === "none" && !known.has(one.deviceID) && one.deviceID !== device.deviceID, tries: 5, owner: title });
-          else finish();
+          else if (device && known) pick({ keep: (one) => one.authorization === "none" && !known.has(one.deviceID) && one.deviceID !== device.deviceID, tries: 5, owner: title, accessory: answer.accessoryID });
+          else finish(null, answer.accessoryID);
           return;
         }
         session = answer.session;
@@ -23280,7 +23818,11 @@ HomeswiftI18n.add("pt", {
     } catch (e) { HomeswiftCommon.showAlert(e.message); }
   }
 
-  window.HomeswiftSetup = { view, resume };
+  /// The Setup sheet for a plugin's account (no `device`) or one of its devices, from another page (a plugin's
+  /// Settings): `after()` once it is done.
+  const setUp = ({ block, plugin, device = null, trigger = null, after = () => {} }) => open({ block, plugin, device, trigger, after });
+
+  window.HomeswiftSetup = { view, resume, setUp };
 })();
 
 """#),
@@ -23566,8 +24108,6 @@ header nav a svg { display: none; }
 .page-note { display: flex; align-items: center; gap: var(--space-14); justify-content: space-between; margin: 0 0 var(--space-14); padding: var(--space-12) var(--space-16) var(--space-12) var(--space-18); }
 .page-note p { margin: 0; font-size: var(--text-md); }
 .page-note .button, .danger-zone button { flex: none; white-space: nowrap; }
-/* A plugin page's Expert part, last: the block as a form or as JSON, in the UI's own settings view. */
-.expert .page-note { flex-wrap: wrap; }
 /* A plugin card's name opens its page; Pause sits at the right of a plugin page's breadcrumb. */
 .card-title { color: inherit; text-decoration: none; }
 @media (hover: hover) and (pointer: fine) { .card-title:hover strong { text-decoration: underline; } }
@@ -23592,7 +24132,6 @@ button.small.pause-toggle.action-with-icon::before { width: 12px; height: 12px; 
   [data-tip-align="end"]:hover::after { translate: 0 0; }
 }
 @media (prefers-reduced-motion: reduce) { [data-tip]::after { transition: opacity var(--fast) linear; } }
-.expert-links { display: flex; gap: var(--space-8); flex: none; }
 .settings-bar {
   position: sticky; bottom: 14px; z-index: 3; display: flex; align-items: center; gap: var(--space-10); margin: var(--space-14) 0 0;
   padding: var(--space-8) var(--space-8) var(--space-8) var(--space-20); border-radius: var(--radius-pill);
@@ -25491,7 +26030,7 @@ pre.json { margin: 0; padding: var(--space-10) var(--space-12); border-radius: v
   .icon-on-phone .sparkle { width: 19px; height: 19px; }
   /* A note beside its button (a plugin's Expert part), and removal: the text across, the button under it. */
   .page-note, .danger-zone { flex-direction: column; align-items: stretch; gap: var(--space-10); }
-  .page-note > :is(button, .button), .danger-zone > button, .page-note > .expert-links { align-self: flex-start; }
+  .page-note > :is(button, .button), .danger-zone > button { align-self: flex-start; }
   .describe-note { flex-basis: 100%; padding-left: var(--space-20); }
   .describe-setup .describe-note::before { content: none; }
   /* The activity's two menus side by side, the custom range under them. */
@@ -26753,8 +27292,6 @@ fieldset > .help { margin-bottom: var(--space-10); }
 .view-switch > button { display: inline-flex; align-items: center; gap: var(--space-6); }
 .view-switch > button > svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
-.expert-links > .button { display: inline-flex; align-items: center; gap: var(--space-6); }
-.expert-links > .button > svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
 .settings-action { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-6); }
 /* Secrets only: off, a plain button; on, filled with the gold the secret keys take, so the state reads at a glance and
@@ -27773,6 +28310,75 @@ html.wall-full:not(.wall-awake) .wall-dots { opacity: 0.6; }
   html.wall-full #view { animation: none; }
   html.wall-full .accessory-walls.wall-pages { scroll-behavior: auto; }
 }
+
+/* Settings (settings.js): an accessory's Accessory Settings in one sheet, and a plugin's Settings page, each one surface
+   of sections, a hairline between them, a heading and what it is about inline; no card inside a card. A field's saved or
+   error state is a quiet word beside its title. */
+.settings-section { padding: var(--space-16) 0; border-top: 1px solid var(--line); }
+.settings-section:first-child { border-top: 0; padding-top: 0; }
+.settings-section:last-child { padding-bottom: 0; }
+.settings-section-head { margin-bottom: var(--space-4); }
+.settings-section-head h3 { margin: 0; font-size: var(--text-lg); font-weight: var(--weight-semibold); }
+.settings-section-head h3 .muted { font-weight: var(--weight-regular); font-size: var(--text-sm); }
+.settings-section-head .help { margin-top: 2px; }
+.settings-section-head.with-tools { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-12); }
+.settings-section-head.with-tools > button { flex: none; }
+.settings-section > .field:first-child, .settings-section-head + .field { margin-top: var(--space-6); }
+.settings-section .toggle { margin: var(--space-12) 0 0; }
+.settings-section .fields { grid-template-columns: 1fr; }
+.field-state { margin-left: var(--space-8); font-size: var(--text-xs); font-weight: var(--weight-regular); color: var(--muted); }
+.field-state[data-state="ok"] { color: var(--ok); }
+.field-state[data-state="error"] { display: block; margin: 2px 0 0; color: var(--error); }
+@media (prefers-reduced-motion: no-preference) { .field-state:not(:empty) { animation: fade var(--normal) var(--ease-out); } }
+.settings-note { margin: 0 0 var(--space-12); padding: var(--space-10) var(--space-12); border-radius: var(--radius-md); background: var(--material-thin); color: var(--muted); font-size: var(--text-sm); }
+.settings-danger-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-14); padding: var(--space-10) 0; }
+.settings-danger-row + .settings-danger-row { border-top: 1px solid var(--line); }
+.settings-danger-row .help { margin-top: 2px; }
+.settings-danger-row > button { flex: none; }
+.accessory-settings-sheet .setup-sheet-head { margin-bottom: var(--space-16); }
+.accessory-settings-sheet .setup-sheet-head h2 { overflow-wrap: anywhere; }
+.accessory-settings-sheet .setup-sheet-head .setup-method { margin: 2px 0 0; }
+.setup-settings { width: 100%; margin-top: var(--space-16); padding-top: var(--space-16); border-top: 1px solid var(--line); text-align: left; }
+.setup-settings > h3 { margin: 0 0 var(--space-8); font-size: var(--text-lg); }
+/* A plugin's Settings page: its account, its form and its save bar, its devices, in one card. */
+.plugin-settings { padding-top: var(--space-20); padding-bottom: var(--space-20); }
+.plugin-settings .settings-bar { margin-top: var(--space-16); }
+.settings-row, .settings-device { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: var(--space-12); align-items: center; padding: var(--space-10) 0; }
+.settings-device { border-bottom: 1px solid var(--line); }
+.settings-device:last-child { border-bottom: 0; }
+.settings-row .who strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A device's name is how it is told apart: it wraps rather than being cut. */
+.settings-device .who strong { display: block; overflow-wrap: anywhere; }
+.settings-device > .tile, .settings-row > .tile { flex: none; }
+button.settings-open { display: inline-flex; align-items: center; gap: var(--space-6); }
+button.settings-open > svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.settings-row .who .help, .settings-device .who .help { display: block; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-row { grid-template-columns: auto minmax(0, 1fr) auto; }
+.settings-device.is-excluded .who { opacity: 0.6; }
+.settings-devices[aria-busy] .settings-device { opacity: 0.55; transition: opacity var(--normal) var(--ease-out) 150ms; }
+.settings-foot .help, .form-foot { margin: 0; }
+.form-foot { margin-top: var(--space-14); }
+/* A plugin page's way to its Settings, at the right of its breadcrumb before Pause. */
+.breadcrumb a.button.small.settings-link { flex: none; margin-left: auto; min-height: 0; height: 28px; padding: 0 11px; gap: var(--space-6); font-size: var(--text-xs); color: var(--text); font-weight: var(--weight-medium); }
+.breadcrumb a.button.small.settings-link.action-with-icon::before { width: 12px; height: 12px; }
+@media (max-width: 640px) {
+  /* The dot and the button stay on the name's line; a pill goes under the name. */
+  .settings-device { row-gap: var(--space-8); }
+  .settings-device > .status-dot { grid-row: 1; grid-column: 3; }
+  .settings-device > :last-child { grid-row: 1; grid-column: 4; }
+  .settings-device > .pill { grid-row: 2; grid-column: 2; justify-self: start; }
+  /* Settings as its gear alone, a circle as the other round buttons at phone width, its label kept for assistive technology. */
+  button.settings-open { width: 40px; height: 40px; min-height: 40px; padding: 0; justify-content: center; border-radius: 50%; }
+  button.settings-open > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .settings-danger-row { flex-direction: column; align-items: stretch; gap: var(--space-8); }
+  .settings-danger-row > button { align-self: flex-start; }
+}
+.settings-foot a, .form-foot a { color: var(--accent-ink); text-decoration: none; font-weight: var(--weight-medium); }
+@media (hover: hover) and (pointer: fine) { .settings-foot a:hover, .form-foot a:hover { text-decoration: underline; } }
+/* A long block name in the breadcrumb is cut, not pushed past a phone's edge (its page's title has it whole). */
+.breadcrumb ol { min-width: 0; }
+.breadcrumb li { max-width: 100%; }
+.breadcrumb li > a, .breadcrumb li > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 """#),
         "sw.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""

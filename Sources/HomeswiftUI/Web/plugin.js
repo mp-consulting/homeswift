@@ -6,7 +6,7 @@
   const instance = document.querySelector('meta[name="homeswift-plugin"]')?.dataset ?? {};
   const platform = instance.platform || "";
   const name = instance.name || platform;
-  /// The page's address, /plugins/<slug>: its Expert part is below it.
+  /// The page's address, /plugins/<slug>: its Settings are at /plugins/<slug>/settings.
   const address = `/plugins/${location.pathname.split("/")[2] || ""}`;
   const prefix = `/api/plugins/${encodeURIComponent(platform)}/${encodeURIComponent(name)}/`;
 
@@ -251,6 +251,8 @@
     // Pause, at the right of the breadcrumb: the plugin stops calling its devices (an app sharing the account
     // keeps its session) until Resume, which a banner offers while it is paused.
     const nav = el("nav", { class: "breadcrumb", "aria-label": t("Breadcrumb") }, trail);
+    // Its Settings (the Plugin Settings, its account and its devices), at the right of the breadcrumb, before Pause.
+    nav.append(el("a", { class: "button small settings-link", href: `${address}/settings`, actionIcon: "gear", text: t("Settings") }));
     main.prepend(nav);
     breadcrumb(null);
     api("/api/plugins").then(({ platforms }) => {
@@ -273,16 +275,6 @@
           el("button", { actionIcon: "play", class: "primary", text: t("Resume"), onclick: (event) => act(event.currentTarget, () => HomeswiftCommon.setPaused(platform, name, false).then(() => location.reload())) })));
       }
     }).catch(() => {});
-    // Expert, last on the page once the page's own script has laid it out: the whole block as config.json
-    // keeps it, as a form or as JSON, for what the page itself does not set.
-    const expert = (mode) => `${address}/expert${mode === "json" ? "/json" : ""}`;
-    const section = el("section", { class: "expert", "aria-labelledby": "expert-title" },
-      el("div", { class: "section-head" }, el("h2", { id: "expert-title", text: t("Expert") })),
-      el("div", { class: "card page-note" },
-        el("p", { class: "muted", text: t("Every setting of this plugin's block, as config.json keeps it, including what this page does not show.") }),
-        el("div", { class: "expert-links" }, el("a", { class: "button", href: expert("form") }, HomeswiftCommon.icon("sliders"), el("span", { text: t("Form") })), el("a", { class: "button", href: expert("json") }, HomeswiftCommon.icon("code"), el("span", { text: "JSON" })))));
-    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => main.append(section));
-    else main.append(section);
   }
 
   // ---- This instance's block of config.json -------------------------------------------------------------

@@ -496,8 +496,8 @@
 
   // ---- Routing -------------------------------------------------------------
 
-  // A path is a view and its arguments: /status (or /), /accessories, /plugins, /plugins/<slug>/expert[/json]
-  // (a block's settings; /plugins/<slug> itself is the plugin's own page when it has one), /plugins/add/<platform>,
+  // A path is a view and its arguments: /status (or /), /accessories, /plugins, /plugins/<slug>/settings
+  // (a block's Settings; /plugins/<slug> itself is the plugin's own page when it has one), /plugins/add/<platform>,
   // /config, /logs[/<accessory>]?since=…&level=…&q=…, /account. Pages below a section keep it lit in the header.
   const views = {};
   let leaveGuard = null;   // a page with unsaved changes: false keeps it
@@ -1898,19 +1898,6 @@
     ];
   }
 
-  /// Whether the Home app has the accessory: off, HomeKit loses it (and its room, scenes and automations) while
-  /// Homeswift and Matter keep it, so a Matter device of its own can be in Apple Home through Matter alone.
-  function homeKitToggle(accessory) {
-    const visible = !accessory.hiddenFromHomeKit;
-    return { label: t("Visible in Home app"), icon: "house", checked: visible, checkbox: true, toggle: true, onSelect: async () => {
-      if (visible && !await HomeswiftCommon.confirmDialog(t("{name} leaves the Home app, with its room, scenes and automations. Homeswift and Matter keep it; shown again, the Home app adds it as a new accessory.", { name: accessory.name }))) return;
-      try {
-        await api(`/api/settings/accessories/${encodeURIComponent(accessory.id)}`, { method: "PATCH", body: { notInHome: visible ? true : null } });
-        route();
-      } catch (e) { HomeswiftCommon.showAlert(e.message); }
-    } };
-  }
-
   /// What the menu of an accessory's widget offers, after its sizes.
   /// An accessory's ⋯ menu after All controls, in groups as a context menu orders them: what to look at or do with
   /// it, how it sits on the wall (`arrange`, the wall's size choices, first), then the administrator's way to its
@@ -1928,9 +1915,12 @@
         try { await setPaused(accessory.platform, accessory.platformName, false); route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
       } } : null,
       isAdmin() ? { label: t("Show its log"), icon: "logs", href: `/logs/${accessory.slug ?? encodeURIComponent(accessory.id)}` } : null,
-      isAdmin() && !accessory.mirroredFrom && accessory.platform ? homeKitToggle(accessory) : null,
+      // Its Accessory Settings in one sheet (settings.js): Name, room, Hidden, Not in Home, Parts, the plugin's own,
+      // Exclude and Forget.
+      isAdmin() && accessory.platform ? { label: t("Settings…"), icon: "gear", onSelect: () => HomeswiftSettings.openAccessory({ accessoryID: accessory.id, name: accessory.name,
+        glyph: HomeswiftWidgets.categoryIcon(accessory.category) ?? "accessory" }) } : null,
       ...(isAdmin() && !accessory.mirroredFrom ? matterActions(accessory) : []),
-      accessory.platform && isAdmin() ? { label: t("Plugin settings"), icon: "gear", href: `/plugins/${slug(accessory.platformName || accessory.platform)}` } : null,
+      accessory.platform && isAdmin() ? { label: t("Plugin settings"), icon: "plugin", href: `/plugins/${slug(accessory.platformName || accessory.platform)}/settings` } : null,
     ];
     return [use, layout, manage].map((group) => group.filter(Boolean)).filter((group) => group.length)
       .flatMap((group, index) => index ? [{ separator: true }, ...group] : group);
@@ -2737,7 +2727,7 @@
       const instance = running(block);
       const [state, kind] = blockState(block, plugin, instance);
       // The name opens what the menu's first item opens: the plugin's page, else the form.
-      const opens = plugin && plugin.hasPages && instance && !instance.paused ? pluginPage(block) : block.system ? settingsLink(block) : expertLink(block);
+      const opens = plugin && plugin.hasPages && instance && !instance.paused ? pluginPage(block) : block.system ? settingsLink(block) : pluginSettings(block);
       // Under the name, what it is when the name does not say it already ("Daikin Cloud" says DaikinCloud): the plugin,
       // else its platform.
       const bare = (name) => name.replace(/[\s_-]+/g, "").toLowerCase();
@@ -2760,18 +2750,17 @@
           el("div", { class: "plugin-card-actions" }, el("a", { class: "button", href: opens, actionIcon: plugin?.hasPages && instance && !instance.paused ? "open" : "gear", text: plugin?.hasPages && instance && !instance.paused ? t("Open its page") : t("Settings") }), menuButton(t("Actions for {name}", { name: blockTitle(block) }), () => blockActions(block, plugin, instance)))));
     };
 
-    /// What the menu of a plugin's card offers: its page, the block as a form or as JSON (Expert), pause or
-    /// resume, and removal.
+    /// What the menu of a plugin's card offers: its page, its Settings, config.json, pause or resume, and removal.
     function blockActions(block, plugin, instance) {
-      if (block.system) return [{ label: t("Settings"), icon: "gear", href: settingsLink(block) }, { label: t("Edit as JSON"), icon: "code", href: expertLink(block, "json") }];
+      if (block.system) return [{ label: t("Settings"), icon: "gear", href: settingsLink(block) }, { label: t("Edit config.json"), icon: "code", href: "/settings/config" }];
       const toggle = async (paused) => {
         try { await setPaused(block.platform, block.name, paused); route(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
       };
       return [
         plugin && plugin.hasPages && instance && !instance.paused ? { label: t("Open its page"), icon: "open", href: pluginPage(block) } : null,
         plugin ? { label: t("Add accessories"), icon: "plus", href: `/setup#${encodeURIComponent(block.slug)}` } : null,
-        { label: t("Edit settings (Expert)"), icon: "edit", href: expertLink(block) },
-        { label: t("Edit as JSON (Expert)"), icon: "code", href: expertLink(block, "json") },
+        { label: t("Settings"), icon: "gear", href: pluginSettings(block) },
+        { label: t("Edit config.json"), icon: "code", href: "/settings/config" },
         instance && !instance.paused ? { label: t("Pause"), icon: "pause", onSelect: () => toggle(true) } : null,
         instance?.paused ? { label: t("Resume"), icon: "play", onSelect: () => toggle(false) } : null,
         { label: t("Remove"), icon: "trash", danger: true, onSelect: () => removeBlock(block) },
@@ -2854,11 +2843,11 @@
     try { await api(`/api/config/platforms/${block.index}${vault}`, { method: "DELETE" }); leaveGuard = null; after(); } catch (e) { HomeswiftCommon.showAlert(e.message); }
   }
 
-  /// A block's address: its plugin's own page when it has one, else its settings. `expertLink` is always the form
-  /// (or the JSON), the whole block as config.json keeps it.
+  /// A block's address: its plugin's own page when it has one, else its Settings. `pluginSettings` is always its
+  /// Settings (/plugins/<slug>/settings), page or not.
   const settingsLink = (block) => `/plugins/${block.slug}`;
   const pluginPage = settingsLink;
-  const expertLink = (block, mode = "form") => `${settingsLink(block)}/expert${mode === "json" ? "/json" : ""}`;
+  const pluginSettings = (block) => `${settingsLink(block)}/settings`;
 
   /// Where a page sits, each level a way back; the last is the page itself.
   function breadcrumb(...levels) {
@@ -2868,10 +2857,18 @@
 
   // ---- A plugin's settings: its own page ------------------------------------
   // /plugins/<slug> for a block of config.json, /plugins/add/<platform> to add one. A running plugin with its own
-  // page shows that page there: the form is its Expert part, at /plugins/<slug>/expert (or /expert/json). The form comes from the plugin's config.schema.json (or the runtime's own for the web UI's block),
-  // JSON otherwise; the save bar stays in view, and leaving with unsaved changes asks first.
+  // page shows that page there, and its Settings at /plugins/<slug>/settings (settings.js: its Plugin Settings, account
+  // and devices); one without a page has them at /plugins/<slug>. The old /expert addresses lead there. Adding a block,
+  // and the runtime's own blocks (the web UI's, the Assistant's), keep the form below, from the plugin's
+  // config.schema.json (or the runtime's own), JSON when there is none; the save bar stays in view, and leaving with
+  // unsaved changes asks first. The whole block as JSON is config.json's editor's (Settings › Config).
 
-  views.settings = async (main, [first, second, third]) => {
+  views.settings = async (main, [first, second]) => {
+    // The Expert form and its JSON were here: their addresses open the Settings.
+    if (first !== "add" && second === "expert") {
+      history.replaceState(null, "", `/plugins/${encodeURIComponent(first)}/settings`);
+      second = "settings";
+    }
     const isNew = first === "add";
     const [plugins, config] = await Promise.all([api("/api/plugins"), api("/api/config", { raw: true }).then(JSON.parse)]);
     // A bridge that does not send the rule (an older build) leaves the note off, rather than failing the page.
@@ -2884,7 +2881,7 @@
     }
     const platform = isNew ? second : found.platform;
     const plugin = plugins.plugins.find((p) => p.platform === platform);
-    const view = isNew ? null : second === "expert" ? (third === "json" ? "json" : "form") : null;
+    const view = isNew ? null : second === "settings" ? "settings" : null;
     if (isNew && !plugin) throw new Error(t("No plugin provides {platform}.", { platform }));
     const block = found ?? { index: plugins.blocks.length, platform, name: uniqueName(plugin.name, plugins.blocks), system: false };
     const instance = plugins.platforms.find((p) => p.platform === block.platform && p.name === block.name);
@@ -2892,6 +2889,12 @@
     // Its page is a page of its own, which the server sends for this address once signed in: load it, once (should
     // the server answer with this page again, the form shows rather than a loop).
     if (hasPage && !view && !history.state?.reloaded) { history.replaceState({ reloaded: true }, ""); location.reload(); return; }
+    if (!isNew && !block.system) {
+      return HomeswiftSettings.pluginPage(main, { block, plugin, instance, plugins, kit: {
+        buildForm, isSecretKey, readSecrets: (list) => { secretRule = readSecretRule(list); }, blockTitle, blockState, removeBlock, problemList, savedText,
+        describeSetup, setLeaveGuard: (guard) => { leaveGuard = guard; },
+      } });
+    }
     const current = isNew ? { platform, name: block.name } : (config.platforms || [])[block.index] || { platform, name: block.name };
 
     let schema = null;
@@ -2928,42 +2931,20 @@
       if (value && typeof value === "object") return Object.entries(value).some(([key, child]) => holdsSecret(child, underSecret || isSecretKey(key, child)));
       return false;
     };
-    const secretNote = el("p", { class: "secret-note", role: "note", text: t("A secret set in JSON is encrypted in config.json when you save. Set it in Form or on the plugin's own page, where it is easier to get right.") });
+    const secretNote = el("p", { class: "secret-note", role: "note", text: t("A secret set in JSON is encrypted in config.json when you save.") });
     secretNote.hidden = true;
     if (schema) {
-      // The form first; the block as JSON one tap away, for what the form does not show. Each view starts
-      // from the other's value, and Save takes the one on screen.
-      let mode = view === "json" ? "json" : "form";
+      // The form; the whole block as JSON is config.json's editor's.
       let form = buildForm(schema, current);
-      const formView = el("div", { class: mode === "form" ? "" : "hidden" }, form.element);
-      const jsonView = el("div", { class: mode === "json" ? "" : "hidden" }, el("p", { class: "muted", text: t("The block as config.json keeps it.") }), secretNote, editor);
-      const switchError = el("p", { class: "error" });
-      const tabs = el("div", { class: "group view-switch", role: "tablist", "aria-label": t("Edit as") },
-        [["form", t("Form")], ["json", "JSON"]].map(([value, text]) => el("button", { type: "button", role: "tab", "data-mode": value, class: value === mode ? "on" : "", "aria-selected": String(value === mode), onclick: () => {
-          if (value === mode) return;
-          switchError.textContent = "";
-          try {
-            if (value === "json") {
-              textarea.value = JSON.stringify({ platform, ...form.getValue() }, null, 2);
-              editor.repaint();
-            } else {
-              form = buildForm(schema, { platform, ...fromJSON() });
-              formView.replaceChildren(form.element);
-            }
-          } catch (e) { switchError.textContent = t("The JSON is not valid: {error}", { error: e.message }); return; }
-          mode = value;
-          formView.classList.toggle("hidden", mode !== "form");
-          jsonView.classList.toggle("hidden", mode !== "json");
-          for (const tab of tabs.children) { tab.classList.toggle("on", tab.dataset.mode === mode); tab.setAttribute("aria-selected", String(tab.dataset.mode === mode)); }
-        } }, HomeswiftCommon.icon(value === "form" ? "sliders" : "code"), el("span", { text }))));
-      body = el("div", { class: "card form-card" }, tabs, switchError, formView, jsonView);
+      const formView = el("div", {}, form.element);
+      body = el("div", { class: "card form-card" }, formView,
+        el("p", { class: "help form-foot" }, t("Something this form does not show is in config.json, the one place to write it as it is."), " ", el("a", { href: "/settings/config", text: t("Edit config.json") })));
       if (platform === "HomeswiftUI") body.classList.add("local-ui-settings");
-      getValue = () => (mode === "form" ? form.getValue() : fromJSON());
-      // The Assistant's suggestion goes into the view on screen, as unsaved changes to review and save.
+      getValue = () => form.getValue();
+      // The Assistant's suggestion goes into the form, as unsaved changes to review and save.
       useSuggestion = (value) => {
-        const next = { ...value, platform };
-        if (mode === "form") { form = buildForm(schema, next); formView.replaceChildren(form.element); }
-        else { textarea.value = JSON.stringify(next, null, 2); editor.repaint(); }
+        form = buildForm(schema, { ...value, platform });
+        formView.replaceChildren(form.element);
         body.dispatchEvent(new Event("input", { bubbles: true }));
       };
     } else {
@@ -3063,7 +3044,7 @@
         }
         // A new block, or a renamed one, lives at its own address now.
         const name = value.name || platform;
-        if (isNew || name !== block.name) { leaveGuard = null; navigate((hasPage ? expertLink : settingsLink)({ slug: slug(name) }), { replace: true }); return; }
+        if (isNew || name !== block.name) { leaveGuard = null; navigate(settingsLink({ slug: slug(name) }), { replace: true }); return; }
         update();
       } catch (e) {
         message.className = "error";
@@ -3089,7 +3070,7 @@
     leaveGuard = async () => !dirty() || isNew || await HomeswiftCommon.confirmDialog(t("Leave without saving your changes?"));
     leaveGuard.quiet = () => isNew || !dirty();
     show(main,
-      breadcrumb([t("Plugins"), "/plugins"], [blockTitle(block), isNew ? "/plugins" : settingsLink(block)], [isNew ? t("Add") : hasPage ? t("Expert") : t("Settings")]),
+      breadcrumb([t("Plugins"), "/plugins"], [blockTitle(block), isNew ? "/plugins" : settingsLink(block)], [isNew ? t("Add") : t("Settings")]),
       el("div", { class: "page-head settings-head" },
         tile(block.icon ?? (block.system ? "gear" : "plugin"), block.system ? "grey" : "orange"),
         el("div", { class: "who" },
@@ -3097,10 +3078,6 @@
           el("p", { class: "muted", text: [...new Set([plugin ? plugin.name : platform, platform])].filter((part) => part !== block.name).concat(
             instance ? [tn("{n} accessory on {bridge}", "{n} accessories on {bridge}", instance.accessories, { bridge: instance.bridge })] : []).join(" · ") })),
         el("div", { class: "tools" }, el("span", { class: `pill status ${kind}`, text: state }))),
-      // A plugin with its own page does the everyday work there (pairing, devices); this is the raw block.
-      hasPage ? el("div", { class: "card page-note" },
-        el("p", {}, el("strong", { text: t("Expert.") }), " ", t("Every setting of the block, as config.json keeps it, including what {plugin}'s page does not show. A save reloads the plugin.", { plugin: plugin.name })),
-        el("a", { class: "button", href: pluginPage(block), actionIcon: "back", text: t("Back to its page") })) : null,
       platform === "HomeswiftAiKit" && useSuggestion && !isNew ? assistantSettings({
         formValue: () => { try { return { ...getValue(), platform }; } catch { return { ...current, platform }; } },
         useValue: useSuggestion, save, dirty }) : null,
@@ -3463,8 +3440,13 @@
   const singular = (text) => text.replace(/ies$/, "y").replace(/(ss|x|ch|sh)es$/, "$1").replace(/([^su])s$/, "$1");
 
   /// A form from a Homebridge-style config.schema.json; key order follows the schema (and its layout). Its words come
-  /// from the schema's own `i18n` (`{ "fr": { "English": "Français" }, … }`), English where it has none.
-  function buildForm(root, value) {
+  /// from the schema's own `i18n` (`{ "fr": { "English": "Français" }, … }`), English where it has none. One renderer
+  /// for Plugin Settings and Plugin Accessory Settings: `defaults`, by top-level key, is the value a field takes while
+  /// it has none of its own (an accessory's plugin-wide default, `get_settings`' `default.value`), shown as
+  /// "Default (X)" and given back by clearing it; `onCommit(key, value, state)`, when given, is told of each top-level
+  /// field as it is committed (a switch flipped, a text left or Enter), `value` undefined once cleared, with `state`, a
+  /// quiet line beside the field's title for its saved or error state.
+  function buildForm(root, value, { defaults = null, onCommit = null } = {}) {
     const words = (root.i18n && root.i18n[HomeswiftI18n.language]) || {};
     const tr = (text) => (typeof text === "string" && text && words[text]) || text;
     const schema = root.schema || root;
@@ -3480,8 +3462,8 @@
       if (test && element) conditional.push({ element, test, index, require });
     };
 
-    const field = (key, property, current, required, index) => {
-      const made = makeField(key, property, current, required, index);
+    const field = (key, property, current, required, index, fallback) => {
+      const made = makeField(key, property, current, required, index, fallback);
       watch(made.element, property.condition ?? property["x-schema-form"]?.condition, index);
       // Required only while a condition holds (`x-schema-form.requiredWhen`, read as `condition`s are): a block whose
       // settings depend on another (an account or keys, by the route chosen) marks the ones it needs now.
@@ -3530,8 +3512,11 @@
         get: () => (mode.value === "never" ? undefined : mode.value === "time" ? fromTime() : custom.value.trim() || undefined),
       };
     };
-    const makeField = (key, property, current, required, index) => {
+    const makeField = (key, property, current, required, index, fallback) => {
       const title = tr(property.title) || key;
+      // A default from elsewhere (`defaults`): what the field shows while it is empty, in words.
+      const inherits = fallback !== undefined;
+      const defaultText = (shown) => shown === undefined || shown === null || shown === "" ? t("Default") : t("Default ({value})", { value: String(shown) });
       const help = property.description ? el("div", { class: "help", text: tr(property.description) }) : null;
       const marked = required || property["x-schema-form"]?.requiredWhen !== undefined;
       const wrap = (control) => el("label", { class: "field" }, el("span", { class: "field-title" }, title, marked ? el("span", { class: `muted required-mark${required ? "" : " hidden"}`, text: ` · ${t("required")}` }) : null), control, help);
@@ -3541,8 +3526,17 @@
       // A value config.json has that is not among the choices stays one, so a save does not drop it.
       if (options && current !== undefined && !options.some((o) => JSON.stringify(o.value) === JSON.stringify(current))) options.unshift({ value: current, title: String(current) });
       if (options) {
-        const select = el("select", {}, el("option", { value: "", text: "—" }), ...options.map((o) => el("option", { value: JSON.stringify(o.value), text: o.title, selected: current !== undefined ? JSON.stringify(o.value) === JSON.stringify(current) : JSON.stringify(o.value) === JSON.stringify(property.default) })));
+        const named = (value) => options.find((o) => JSON.stringify(o.value) === JSON.stringify(value))?.title ?? value;
+        const select = el("select", {}, el("option", { value: "", text: inherits ? defaultText(named(fallback ?? property.default)) : "—" }), ...options.map((o) => el("option", { value: JSON.stringify(o.value), text: o.title, selected: current !== undefined ? JSON.stringify(o.value) === JSON.stringify(current) : !inherits && JSON.stringify(o.value) === JSON.stringify(property.default) })));
         return { element: wrap(select), get: () => (select.value === "" ? undefined : JSON.parse(select.value)) };
+      }
+      if (type === "boolean" && inherits) {
+        // A switch cannot say "as the plugin-wide default": a choice of the default, on or off.
+        const shown = fallback ?? property.default;
+        const select = el("select", {},
+          el("option", { value: "", text: defaultText(shown === undefined || shown === null ? null : shown ? t("On [setting]") : t("Off [setting]")) }),
+          el("option", { value: "true", text: t("On [setting]"), selected: current === true }), el("option", { value: "false", text: t("Off [setting]"), selected: current === false }));
+        return { element: wrap(select), get: () => (select.value === "" ? undefined : select.value === "true") };
       }
       if (type === "boolean") {
         // `x-schema-form.invert`: the switch shows the opposite of the value, for a key that turns something off
@@ -3557,7 +3551,7 @@
         } };
       }
       if (type === "integer" || type === "number") {
-        const input = el("input", { type: "number", value: current ?? "", placeholder: tr(property.placeholder ?? property["x-schema-form"]?.placeholder) ?? property.default ?? "", min: property.minimum, max: property.maximum, step: property.step ?? (type === "integer" ? 1 : "any"), required });
+        const input = el("input", { type: "number", value: current ?? "", placeholder: inherits ? defaultText(fallback ?? property.default) : tr(property.placeholder ?? property["x-schema-form"]?.placeholder) ?? property.default ?? "", min: property.minimum, max: property.maximum, step: property.step ?? (type === "integer" ? 1 : "any"), required });
         return { element: wrap(input), get: () => (input.value === "" ? undefined : Number(input.value)) };
       }
       if (type === "object" && property.properties) {
@@ -3613,7 +3607,7 @@
           el("button", { actionIcon: "plus", text: noun ? t("Add {item}", { item: noun.toLowerCase() }) : t("Add"), onclick: () => addRow(undefined) }));
         return { element, get: () => { const v = rows.map((r) => r.get()).filter((x) => x !== undefined); return v.length ? v : undefined; } };
       }
-      const input = el("input", { type: property["x-schema-form"] && property["x-schema-form"].type === "password" ? "password" : "text", value: current ?? "", placeholder: tr(property.placeholder ?? property["x-schema-form"]?.placeholder) ?? property.default ?? "", required });
+      const input = el("input", { type: property["x-schema-form"] && property["x-schema-form"].type === "password" ? "password" : "text", value: current ?? "", placeholder: inherits ? defaultText(fallback ?? property.default) : tr(property.placeholder ?? property["x-schema-form"]?.placeholder) ?? property.default ?? "", required });
       if (property["x-schema-form"]?.type === "file") return { element: el("div", {}, wrap(input), dropZone(key, input, property["x-schema-form"].accept)), get: () => (input.value === "" ? undefined : input.value) };
       // A secret's key (the rule references resolve by): a value typed, or an entry of the vault.
       if (isSecretKey(key)) return secretField(wrap, input);
@@ -3679,8 +3673,15 @@
     const render = (key) => {
       const property = properties[key];
       if (!property || fields.has(key)) return null;
-      const f = field(key, property, value[key], requiredTop.has(key) || property.required === true);
+      const fallback = defaults && key in defaults ? defaults[key] ?? null : undefined;
+      const f = field(key, property, value[key], requiredTop.has(key) || property.required === true, undefined, fallback);
       fields.set(key, f);
+      if (onCommit) {
+        // Its saved or error state, quiet, after its title.
+        const state = el("span", { class: "field-state", role: "status", "aria-live": "polite" });
+        (f.element.querySelector(".field-title") ?? f.element).append(state);
+        f.element.addEventListener("change", () => onCommit(key, f.get(), state));
+      }
       return f.element;
     };
     const layoutItem = (item) => {
@@ -4818,7 +4819,7 @@
     enumLabels: HomeswiftWidgets.enumLabels, labelFor: HomeswiftWidgets.labelFor, withSlugs,
   });
   // The Settings pages (admin.js) draw with the same helpers.
-  window.HomeswiftApp = { api, navigate, route, finder, uniqueName, pageHead, breadcrumb, show, openSheet, savedText, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, onReturn, assistantPage, configPage };
+  window.HomeswiftApp = { api, navigate, route, finder, uniqueName, pageHead, breadcrumb, show, openSheet, savedText, buildForm, waitForRestart, updateCard, updatePhase, restartBridge, formatDuration, setLeaveGuard: (guard) => { leaveGuard = guard; }, onReturn, assistantPage, configPage };
 
   loadAuth().catch((e) => { $("#auth").classList.remove("hidden"); $("#auth-error").textContent = e.message; });
 })();

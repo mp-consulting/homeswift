@@ -223,10 +223,10 @@ Settings are `name`, `room` (`""` for none), `hidden` (off the web UI's wall), `
 declared in its schema's `accessorySchema`). `name`, `room`, `hidden` and `notInHome` apply without reloading the
 plugin, which never sees them; `excluded`, `parts` and the plugin's own reload it. The web UI's settings and MCP's
 `get_settings`/`update_settings` read and write them, checked against the schema.
-`notInHome` keeps the accessory out of the Home app (the web UI's **Visible in Home app**): it stays on the bridge for the
+`notInHome` keeps the accessory out of the Home app (the web UI's **Not in Home**, in the accessory's Settings): it stays on the bridge for the
 web UI, the MCP server and Matter, so a Matter device of its own can be in Apple Home through Matter alone. An older
 `"_hiddenFromHomeKit": [ids]` list still applies, and moves into `_accessories` with the block's next settings write.
-`name` renames an accessory, in the Home app too (the web UI's **Rename**). The runtime puts the name on Accessory
+`name` renames an accessory, in the Home app too (the Name in the accessory's Settings on the web UI). The runtime puts the name on Accessory
 Information's Name and on the services named after the accessory
 (`Dyson` and `Dyson Temperature` become `Desk` and `Desk Temperature`), and gives the primary service a Configured
 Name if it has none: the Home app keeps its own name for a paired accessory and does not follow Name, but it follows

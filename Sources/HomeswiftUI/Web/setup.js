@@ -255,9 +255,12 @@
       } catch (e) { HomeswiftCommon.showAlert(e.message); }
     };
     const items = [
+      // Its Accessory Settings, the same sheet as the wall's.
+      setUp || device.status === "discovered" ? { label: t("Settings…"), icon: "gear", onSelect: () => HomeswiftSettings.openAccessory({ accessoryID: accessoryID(block, device), instance: block.name, device,
+        name: device.name, glyph: HomeswiftWidgets.categoryIcon(device.category) ?? "accessory", after: (changed) => { if (changed) reload(); } }) } : null,
       setUp && device.authorization !== "none" ? { label: t("Set up again"), icon: "pair", onSelect: () => open({ block, plugin, device, known, after: reload }) } : null,
       // Left out by the plugin's own settings: included again there, not here.
-      device.excludedBySettings ? { label: t("Open its settings"), icon: "gear", href: `/plugins/${encodeURIComponent(block.slug)}/expert` }
+      device.excludedBySettings ? { label: t("Open its settings"), icon: "gear", href: `/plugins/${encodeURIComponent(block.slug)}/settings` }
         : excluded ? { label: t("Include"), icon: "plus", onSelect: toggle(false) } : { label: t("Exclude"), icon: "minus", onSelect: toggle(true) },
     ].filter(Boolean);
     const needs = device.status === "needsAuthorization";
@@ -381,11 +384,13 @@
       form.addEventListener("submit", (event) => event.preventDefault());
       const fill = (...nodes) => { body.replaceChildren(...nodes.filter(Boolean)); body.classList.remove("entering"); void body.offsetWidth; body.classList.add("entering"); };
 
-      /// The end: what reached the Home app, when the sheet knows.
-      function finish(added = null) {
+      /// The end: what reached the Home app, when the sheet knows. A device's Setup ends on its Accessory Settings
+      /// (settings.js), the fields its plugin declares as the wall's sheet draws them, each saved as it is changed.
+      function finish(added = null, accessory = null) {
         stage(stages.length - 1);
         // The Setup is over: Done (or Return) closes the sheet, and nothing is sent again.
         form.onsubmit = (event) => { event.preventDefault(); dismiss(); };
+        const editor = device && accessory ? HomeswiftSettings.accessoryEditor({ accessoryID: accessory, instance: block.name, device }) : null;
         fill(
           el("div", { class: "setup-done" }, el("span", { class: "setup-check", "aria-hidden": "true" }, HomeswiftCommon.icon("check")),
             el("p", {}, el("strong", { text: device ? t("{name} is set up.", { name: title })
@@ -393,13 +398,14 @@
             el("p", { class: "muted", text: added?.length ? t("They reach the Home app in a moment.") : t("Its accessories reach the Home app in a moment.") })),
           added?.length ? el("ul", { class: "setup-added" }, ...added.map((found, index) =>
             el("li", { style: `--index: ${Math.min(index, 8)}` }, tile(HomeswiftWidgets.categoryIcon(found.category) ?? glyph, "blue"), el("span", { text: found.name })))) : null,
+          editor ? el("div", { class: "setup-settings" }, el("h3", { text: t("Its settings") }), editor.node) : null,
           el("div", { class: "actions" }, el("button", { class: "primary", type: "submit", actionIcon: "check", text: t("Done") })));
         body.querySelector(".actions button")?.focus();
       }
 
       /// What the account, or a device just set up (a console), reaches, to pick: every device ticked; those left out are
       /// excluded. A console's devices come once the plugin has connected to it: it is asked a few times.
-      async function pick({ keep, tries = 1, owner = plugin?.name ?? block.name }) {
+      async function pick({ keep, tries = 1, owner = plugin?.name ?? block.name, accessory = null }) {
         fill(loading(t("Looking for devices…")));
         let found = [], failure = null;
         for (let attempt = 0; attempt < tries && !closed; attempt++) {
@@ -423,7 +429,7 @@
           again.focus({ preventScroll: true });
           return;
         }
-        if (!found.length) { finish(); return; }
+        if (!found.length) { finish(null, accessory); return; }
         if (!stages.includes(devicesStage)) stages.splice(stages.length - 1, 0, devicesStage);
         stage(stages.indexOf(devicesStage));
         const boxes = found.map((one) => el("input", { type: "checkbox", checked: true, value: one.deviceID }));
@@ -471,8 +477,8 @@
           session = null;
           if (picking) pick({ keep: () => true });
           // A console signed in: the cameras, doors and sensors it brings, not the devices that were there already.
-          else if (device && known) pick({ keep: (one) => one.authorization === "none" && !known.has(one.deviceID) && one.deviceID !== device.deviceID, tries: 5, owner: title });
-          else finish();
+          else if (device && known) pick({ keep: (one) => one.authorization === "none" && !known.has(one.deviceID) && one.deviceID !== device.deviceID, tries: 5, owner: title, accessory: answer.accessoryID });
+          else finish(null, answer.accessoryID);
           return;
         }
         session = answer.session;
@@ -584,5 +590,9 @@
     } catch (e) { HomeswiftCommon.showAlert(e.message); }
   }
 
-  window.HomeswiftSetup = { view, resume };
+  /// The Setup sheet for a plugin's account (no `device`) or one of its devices, from another page (a plugin's
+  /// Settings): `after()` once it is done.
+  const setUp = ({ block, plugin, device = null, trigger = null, after = () => {} }) => open({ block, plugin, device, trigger, after });
+
+  window.HomeswiftSetup = { view, resume, setUp };
 })();

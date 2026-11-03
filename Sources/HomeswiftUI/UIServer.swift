@@ -260,7 +260,7 @@ public final class UIServer: Sendable {
     // MARK: Pages
 
     /// The pages. The UI's own are one page whose script draws the view its path names (`/accessories`,
-    /// `/plugins/dyson-pure-cool/expert`, `/logs/desk-lamp?since=24h`), so any path without a file is that page.
+    /// `/plugins/dyson-pure-cool/settings`, `/logs/desk-lamp?since=24h`), so any path without a file is that page.
     /// A plugin instance's own page is at `/plugins/<its slug>`, its files beside it.
     private func page(for parts: [String], _ request: Request) -> Reply {
         let files: [String: WebFile]

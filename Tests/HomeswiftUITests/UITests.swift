@@ -755,7 +755,7 @@ struct UIServerTests {
         #expect(try await browser.get("/plugins/nope/app.js").status == 404)
         #expect(try await browser.get("/plugin.js").status == 200)
         // The UI's views are the UI's page, whatever their path.
-        for path in ["/plugins/lamps/expert/json", "/plugins/nope", "/logs/desk-lamp?since=24h", "/accessories"] {
+        for path in ["/plugins/lamps/settings", "/plugins/lamps/expert/json", "/plugins/nope", "/logs/desk-lamp?since=24h", "/accessories"] {
             let view = try await browser.get(path)
             #expect(view.status == 200 && view.body.contains("<title>Homeswift</title>"), "\(path)")
         }

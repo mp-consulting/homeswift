@@ -35,29 +35,13 @@
   /// A room for the settings: none is "" for a mirrored accessory (not the room its controller suggests), else cleared.
   const roomSetting = (accessory, room) => room || (accessory?.mirroredFrom ? "" : null);
 
-  /// Renames an accessory, in the Home app too (its plugin's block keeps the name); empty gives it back its plugin's.
-  async function rename(accessory) {
-    const name = await HomeswiftCommon.promptDialog(t("A new name for {name}, in the Home app too. Empty gives it back the name its plugin gives it.", { name: displayName(accessory) }), displayName(accessory));
-    if (name === null || name.trim() === displayName(accessory)) return;
-    try {
-      await changeSettings({ [accessory.id]: { name: name.trim() || null } });
-      app.route();
-    } catch (e) { HomeswiftCommon.showAlert(e.message); }
-  }
-
-  /// What an accessory card's menu adds: its room, its name, Quick Controls, hiding. A plugin's accessory is renamed in
-  /// the Home app too; another controller's (mirrored) keeps a name for these pages only, as one given before does.
+  /// What an accessory card's menu adds: the Quick Controls (the Arrangement). Its room, Name, Hidden and Not in Home are
+  /// Accessory Settings, in its Settings sheet (settings.js, the menu's Settings…).
   function layoutActions(accessory) {
     const done = (promise) => promise.then(() => app.route()).catch((e) => HomeswiftCommon.showAlert(e.message));
-    // Room, Hidden and Name are its Accessory Settings; Quick Controls are the layout's.
-    const change = (fields) => done(changeSettings({ [accessory.id]: "room" in fields ? { ...fields, room: roomSetting(accessory, fields.room) } : fields }));
-    const renames = accessory.platform && !accessory.mirroredFrom;
     return [
-      { label: accessory.room ? t("Room: {room}…", { room: accessory.room }) : t("Put in a room…"), icon: "room", onSelect: () => chooseRoom(accessory, change) },
-      renames ? { label: t("Rename…"), icon: "edit", onSelect: () => rename(accessory) } : null,
       { label: accessory.favourite ? t("Remove from Quick Controls") : t("Add to Quick Controls"), icon: "star", onSelect: () => done(changeLayout({ accessories: { [accessory.id]: { favourite: !accessory.favourite } } })) },
-      { label: accessory.hidden ? t("Show it again") : t("Hide"), icon: "eye", onSelect: () => change({ hidden: !accessory.hidden }) },
-    ].filter(Boolean);
+    ];
   }
 
   async function chooseRoom(accessory, change, note = "") {
