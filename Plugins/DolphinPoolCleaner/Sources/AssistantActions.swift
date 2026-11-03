@@ -7,8 +7,11 @@ extension DolphinPoolCleanerPlugin {
         AssistantAction(
             name: "list_robots", title: "Look at the pool robots",
             description: "The plugin's state (status: notConfigured, signingIn, ready, retrying, failed or stopped, with error when the last sign-in failed) "
-                + "and the account's robots: serialNumber, name, model, whether the robot is connected and cleaning, the cleaning mode, "
-                + "the filter bag (ok, needs_cleaning, unknown), the minutes left in the cycle, the water temperature in °C and any fault. "
+                + "and the account's robots: serialNumber (the Device Id: the accessory is DolphinPoolCleaner:<serialNumber>), name, model, "
+                + "whether the robot is connected and cleaning, the cleaning mode, the filter bag (ok, needs_cleaning, unknown), the minutes "
+                + "left in the cycle, the water temperature in °C and any fault; an Excluded robot has excluded: true and no state. "
+                + "A robot's settings (its Name, cleaningMode, enableTemperature, enableFilterStatus, Excluded) are read with get_settings "
+                + "and written with update_settings by accessory; pollingInterval and iotRegion by plugin. "
                 + "With status notConfigured or failed, the user signs in again on Add accessories in the web UI (an AI agent through start_setup).",
             path: "robots", access: .read),
     ]
@@ -38,6 +41,10 @@ extension DolphinPoolCleanerPlugin {
         "the power supply is off; water temperature only shows while the robot is in the water (the last reading is kept in",
         "last-temperatures.json in the plugin's directory, plugins/DolphinPoolCleaner-<name>/ under the Homeswift config",
         "directory). Robot fault codes: 1 motor, 2 out of water, 3 communication, 4 filter blocked, 5 impeller blocked,",
-        "6 overheating. Never ask the user for their password, verification codes, tokens or API keys.",
+        "6 overheating. Settings are read with get_settings and written with update_settings: by plugin for \"pollingInterval\" and",
+        "\"iotRegion\", by accessory (DolphinPoolCleaner:<serial number>) for a robot's Name, \"cleaningMode\" (all, short,",
+        "floor, wall, water, ultra, cove, spot), \"enableTemperature\" and \"enableFilterStatus\", or to Exclude it. The email and",
+        "the refresh token are in the vault, set through Setup only. Never ask the user for their password, verification codes,",
+        "tokens or API keys.",
     ].joined(separator: " ")
 }

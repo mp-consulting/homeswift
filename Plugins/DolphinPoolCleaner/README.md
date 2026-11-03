@@ -5,7 +5,8 @@ cleaning in the mode you choose, the water temperature, and the filter bag as a 
 works with the switch ("Hey Siri, turn on the pool robot").
 
 A port of [`@mp-consulting/homebridge-dolphin-pool-cleaner`](https://github.com/mp-consulting/homebridge-dolphin-pool-cleaner).
-The platform block is the same, so a Homebridge configuration works unchanged, refresh token included.
+A Homebridge configuration loads unchanged, refresh token included; what Homeswift writes is its canonical shape
+([Configuration](#configuration)).
 
 Robots that use the **MyDolphin Plus** app and are connected to its cloud: M400, M600, M700, S200 to S400,
 E50 to E70, Liberty 300 and 400, Sigma.
@@ -17,18 +18,23 @@ server's `start_setup` and `continue_setup`:
 
 1. Enter your MyDolphin Plus email. Cognito sends a verification code (by email, SMS or an authenticator app,
    whichever your account uses).
-2. Enter the code. Setup keeps a **refresh token** (never your password) in the bridge's vault, writes your email
-   in the block, and the plugin starts with the account's robots.
+2. Enter the code. Setup keeps your email and a **refresh token** (never your password) in the bridge's vault,
+   takes a Homebridge block's `email`, `password` and `refreshToken` out of config.json, and the plugin starts with
+   the account's robots.
 
 With the web UI on, the Plugins page has an **Open** button for this plugin. While the account is not signed in,
 its page leads to Setup. Afterwards it lists the account's robots with their live state (cleaning or idle,
-filter, time left, faults) and opens a robot's settings when you click its card: its name, default cleaning mode,
-polling interval, and whether the temperature sensor and the filter indicator appear; **Save Configuration**
-writes them in the block and the plugin reloads with them. **Sign in again** opens Setup, for instance after
-"Refresh token expired" in the log. With the Assistant on, **Explain** sits next to errors; it never receives the
-email address, codes, tokens or serial numbers.
+filter, time left, faults), Excluded ones included; a robot's card opens its settings on the plugin's **Settings**
+page (`/plugins/<slug>/settings?accessory=DolphinPoolCleaner:<serial number>`): its Name, default cleaning mode,
+whether the temperature sensor and the filter indicator appear, and Excluded. The polling interval is the plugin's
+own setting there. The page itself writes no settings. **Sign in again** opens Setup, for instance after "Refresh
+token expired" in the log. With the Assistant on, **Explain** sits next to errors; it never receives the email
+address, codes, tokens or serial numbers.
 
 ## Configuration
+
+What Homeswift writes (docs/adr/0001-canonical-accessory-settings.md): the plugin's settings in the block, each
+robot's in `_accessories` by its serial number (its Device Id), the account in the vault.
 
 ```json
 {
@@ -36,42 +42,38 @@ email address, codes, tokens or serial numbers.
     {
       "platform": "DolphinPoolCleaner",
       "name": "Dolphin Pool Cleaner",
-      "email": "your@email.com",
-      "refreshToken": "eyJjdHkiOiJKV1Qi…",
       "pollingInterval": 60,
-      "devices": [
-        {
-          "serialNumber": "ABC123XYZ",
-          "name": "Pool Robot",
-          "cleaningMode": "all",
-          "enableTemperature": true,
-          "enableFilterStatus": true
-        }
-      ]
+      "_accessories": {
+        "ABC123XYZ": { "name": "Pool Robot", "cleaningMode": "all", "enableTemperature": true, "enableFilterStatus": true }
+      }
     }
   ]
 }
 ```
 
-| Option | Default | What it does |
+| Plugin Setting | Default | What it does |
 |---|---|---|
-| `email` | | MyDolphin Plus account email |
-| `password` | | Used only without a refresh token; Setup never stores it |
-| `refreshToken` | | A Homebridge block's; the one Setup keeps in the vault is preferred, then this, then the password |
 | `iotRegion` | `eu-west-1` | AWS IoT region of the robot (production robots are all in eu-west-1) |
 | `pollingInterval` | `60` | Seconds between status polls, 30 at least (the schema allows up to 600) |
 
-A refresh token (Setup's or the block's) or `email` and `password` is required; without them the plugin logs it
-and waits for Setup. Per robot, under `devices`:
+Each robot's Accessory Settings (the schema's `accessorySchema`; every robot is of the Device Kind `robot`), besides its
+Name and Excluded:
 
-| Option | Default | What it does |
+| Accessory Setting | Default | What it does |
 |---|---|---|
-| `serialNumber` | | The robot's serial number, on the power supply's label |
-| `name` | the robot's name in the app | The name of the switch and sensors in HomeKit |
 | `cleaningMode` | `all` | The mode a start from HomeKit uses (`regular` is an alias of `all`) |
 | `enableTemperature` | `true` | The water temperature sensor |
 | `enableFilterStatus` | `true` | The filter maintenance indicator |
-| `deviceType`, `robotImageUrl` | | Saved by the page for display; the plugin reads both from the account |
+
+An Excluded robot is not polled and not an accessory; the page still lists it. The account needs a refresh token
+(Setup's in the vault, else the block's `refreshToken`) or a block's `email` and `password`; without them the plugin
+logs it and waits for Setup.
+
+A Homebridge block still loads: its `email`, `password` and `refreshToken`, and its `devices` list (by
+`serialNumber`, with `name`, `cleaningMode`, `enableTemperature`, `enableFilterStatus`; `deviceType` and
+`robotImageUrl` were the wizard's, for display), read where `_accessories` says nothing. The first settings write
+(the Settings page, `update_settings`, Setup) moves `devices` into `_accessories` (`name` as the Name) and drops it;
+the account's keys stay in the block until Setup signs in again, which keeps them in the vault.
 
 Cleaning modes: `all` (all surfaces), `short` (fast), `floor`, `wall`, `water` (waterline), `ultra`, `cove`,
 `spot`, and on robots that have them `tictac`, `pickup`, `custom`, `stairs`. The mode is sent only when the
@@ -119,7 +121,8 @@ the UI's pages load images from their own origin only.
   flipped back.
 - Signing in is Setup's, not the page's: the Cognito session stays on the server and the refresh token goes in
   the vault, not in `config.json`; the browser sees neither.
-- The page lists the account's robots, not only the block's, and their cards show their live state.
+- The page lists the account's robots, not only the block's, and their cards show their live state. It writes
+  no settings: a robot's card opens its settings on the Settings page, which the bridge keeps in `_accessories`.
 - The `/ai/*` Assistant routes are the runtime's (`HomeswiftAiKit`), not the plugin's.
 - MQTT, the WebSocket and SigV4 presigning are HomeswiftNetwork's (`MQTTClient`, `AWSSignatureV4`), shared with
   other plugins; `ShadowClient` uses them directly. A dropped connection is retried every 5 seconds, 5 times, as
@@ -130,5 +133,5 @@ the UI's pages load images from their own origin only.
   behind to fight the next instance for the client id: a sign-in in progress ends without connecting.
 - A `pollingInterval` above 2147483 seconds (Node's longest timer, about 24.8 days) is that maximum; in
   Homebridge the timer then fires every millisecond.
-- The Assistant (the web UI's chat, MCP clients) can read the robots and their state (`list_robots`). Signing in
-  is Setup's (`start_setup` for an AI agent).
+- The Assistant (the web UI's chat, MCP clients) can read the robots and their state (`list_robots`), and their
+  settings with `get_settings` and `update_settings`. Signing in is Setup's (`start_setup` for an AI agent).

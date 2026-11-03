@@ -4,8 +4,9 @@ import HomeswiftNetwork
 import HomeswiftPlugin
 
 // Setup (GLOSSARY.md, "Setup"): the MyDolphin account is the instance's, an Account Login whose second step is the
-// code Maytronics sends (Cognito's CUSTOM_AUTH, as the Homebridge plugin's setup wizard). The refresh token goes in the
-// vault, never in config.json; the robots come with the account and need nothing more.
+// code Maytronics sends (Cognito's CUSTOM_AUTH, as the Homebridge plugin's setup wizard). The email and the refresh token
+// are the account's credentials: they go in the vault, never in config.json, and a Homebridge block's `email`,
+// `password` and `refreshToken` go from it. The robots come with the account, each of the Device Kind `robot`.
 extension DolphinPoolCleanerPlugin {
     public static let accountAuthorization = AuthorizationMethod.accountLogin
 
@@ -17,7 +18,7 @@ extension DolphinPoolCleanerPlugin {
     public func accountAuthorized() async -> Bool? { storedRefreshToken != nil || configuration.hasCredentials }
 
     public func discover() async throws -> [DiscoveredDevice] {
-        robots.map { DiscoveredDevice(deviceID: $0.serialNumber, name: $0.name, model: "Dolphin", isSetUp: true) }
+        robots.map { DiscoveredDevice(deviceID: $0.serialNumber, name: $0.name, model: "Dolphin", isSetUp: true, kind: Self.robotKind) }
     }
 
     /// The email, then each code Cognito asks for; the Cognito session between the steps is in the Setup's state.
@@ -59,6 +60,9 @@ extension DolphinPoolCleanerPlugin {
         guard robot["success"] == true else { throw SetupError(robot["error"]?.stringValue ?? "MyDolphin authentication failed") }
         guard let refreshToken = robot["refreshToken"]?.stringValue else { throw SetupError("Maytronics sent no refresh token") }
         logger.info("Signed in through Setup", metadata: ["robot": "\(robot["robotName"]?.stringValue ?? "")"])
-        return .done(SetupOutcome(credentials: ["refreshToken": .string(refreshToken)], settings: ["email": .string(email)]))
+        // The login in the vault; the block's own keys for it go.
+        return .done(SetupOutcome(
+            credentials: ["refreshToken": .string(refreshToken), "email": .string(email)],
+            settings: ["email": .null, "password": .null, "refreshToken": .null]))
     }
 }

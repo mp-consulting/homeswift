@@ -388,8 +388,9 @@ struct PluginTests {
         guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .account, answers: ["code": "123456"], state: state)) else {
             Issue.record("expected done"); return
         }
-        #expect(outcome.credentials == ["refreshToken": "new-refresh"])
-        #expect(outcome.settings == ["email": "owner@example.com"])
+        // The login goes to the vault, and a Homebridge block's keys for it leave the block.
+        #expect(outcome.credentials == ["refreshToken": "new-refresh", "email": "owner@example.com"])
+        #expect(outcome.settings == ["email": .null, "password": .null, "refreshToken": .null])
         let respond = try #require(environment.server.requests(to: "RespondToAuthChallenge").first.flatMap(environment.server.json(of:)))
         #expect(respond["ChallengeName"] == "CUSTOM_CHALLENGE")
         #expect(respond["Session"] == "cognito-session")
@@ -402,7 +403,91 @@ struct PluginTests {
         let context = try #require(host.context(platform: DolphinPoolCleanerPlugin.platform, name: host.platforms.first?.name))
         try context.saveCredentials(outcome.credentials ?? .null)
         #expect(await environment.plugin?.storedRefreshToken == "new-refresh")
+        #expect(await environment.plugin?.accountEmail == "owner@example.com")
         await host.stop()
+    }
+
+    // MARK: Settings
+
+    /// A Homebridge block's `devices` moves into `_accessories` by serial number; what is there already stays, an entry
+    /// without a serial number stays in `devices`, and the account's keys are left for the vault.
+    @Test func canonicalSettingsMovesTheDevicesList() throws {
+        let block = try JSONValue(any: [
+            "platform": "DolphinPoolCleaner", "name": "Dolphin Pool Cleaner", "email": "owner@example.com", "refreshToken": "token", "pollingInterval": 120,
+            "devices": [
+                ["serialNumber": "E3086OFG2M", "name": "Pool Robot", "deviceType": 62, "robotImageUrl": "https://example.com/robot.png",
+                 "cleaningMode": "regular", "enableTemperature": "false", "enableFilterStatus": true],
+                ["serialNumber": 12345678, "cleaningMode": "floor"],
+                ["serialNumber": "KEPT", "name": "Ignored", "cleaningMode": "wall"],
+                ["name": "No serial"],
+            ],
+            "_accessories": ["KEPT": ["name": "Kept"]],
+        ] as [String: Any])
+        let canonical = DolphinPoolCleanerPlugin.canonical(block)
+        #expect(canonical == (try JSONValue(any: [
+            "platform": "DolphinPoolCleaner", "name": "Dolphin Pool Cleaner", "email": "owner@example.com", "refreshToken": "token", "pollingInterval": 120,
+            "devices": [["name": "No serial"]],
+            "_accessories": [
+                "E3086OFG2M": ["name": "Pool Robot", "cleaningMode": "all", "enableTemperature": false, "enableFilterStatus": true],
+                "12345678": ["cleaningMode": "floor"],
+                "KEPT": ["name": "Kept", "cleaningMode": "wall"],
+            ],
+        ] as [String: Any])))
+        // Canonical already: unchanged.
+        #expect(DolphinPoolCleanerPlugin.canonical(canonical) == canonical)
+    }
+
+    /// The running instance answers `canonicalSettings` and the robots' Device Kind, `robot`.
+    @Test func theRunningInstanceWritesTheCanonicalBlock() async throws {
+        let host = try await environment.start()
+        let block = try JSONValue(any: [
+            "platform": "DolphinPoolCleaner", "name": "Dolphin Pool Cleaner", "devices": [["serialNumber": "E3086OFG2M", "enableTemperature": false]],
+        ] as [String: Any])
+        let canonical = await host.canonicalSettings(platform: DolphinPoolCleanerPlugin.platform, name: "Dolphin Pool Cleaner", block: block)
+        #expect(canonical["devices"] == nil && canonical["_accessories"] == ["E3086OFG2M": ["enableTemperature": false]])
+        #expect(await host.deviceKind(platform: DolphinPoolCleanerPlugin.platform, name: "Dolphin Pool Cleaner", deviceID: "E3086OFG2M") == "robot")
+        let devices = try await host.discover(platform: DolphinPoolCleanerPlugin.platform, name: "Dolphin Pool Cleaner").devices
+        #expect(devices.map(\.deviceID) == ["E3086OFG2M"] && devices.map(\.kind) == ["robot"])
+        await host.stop()
+    }
+
+    /// A robot's own settings in `_accessories` overrule a Homebridge entry's; the entry fills in what they leave out.
+    @Test func aRobotsAccessorySettingsOverruleTheDevicesList() async throws {
+        let host = try await environment.start(settings: [
+            "refreshToken": "refresh-token",
+            "devices": [["serialNumber": "E3086OFG2M", "cleaningMode": "wall", "enableFilterStatus": false]],
+            "_accessories": ["E3086OFG2M": ["cleaningMode": "floor"]],
+        ])
+        let accessory = try #require(host.mainBridge.server.accessories.first { $0.id == robotID })
+        #expect(accessory.service(.filterMaintenance) == nil)
+        try await accessory.service(.switch)?.characteristic(.on).write(.bool(true))
+        #expect(environment.clouds.first?.calls.contains("mode floor") == true)
+        await host.stop()
+
+        // The canonical shape alone.
+        let canonical = DolphinTestEnvironment()
+        let second = try await canonical.start(settings: ["refreshToken": "refresh-token", "_accessories": ["E3086OFG2M": ["enableFilterStatus": false]]])
+        #expect(second.mainBridge.server.accessories.first { $0.id == robotID }?.service(.filterMaintenance) == nil)
+        await second.stop()
+    }
+
+    /// An Excluded robot is neither an accessory nor polled; the page lists it as Excluded.
+    @Test func anExcludedRobotStaysOff() async throws {
+        let host = try await environment.start(settings: ["refreshToken": "refresh-token", "_accessories": ["E3086OFG2M": ["excluded": true]]])
+        #expect(!host.mainBridge.server.accessories.contains { $0.id == robotID })
+        #expect(await environment.plugin?.device(serialNumber: "E3086OFG2M") == nil)
+        let robots = try await environment.request("GET", "robots")
+        #expect(robots.json["robots"]?[0]?["serialNumber"] == "E3086OFG2M" && robots.json["robots"]?[0]?["excluded"] == true)
+        await host.stop()
+    }
+
+    /// The schema declares the robots' settings and no longer the account or the devices list.
+    @Test func theSchemaDeclaresTheAccessorySettings() throws {
+        let schema = try JSONValue(string: try #require(DolphinPoolCleanerPlugin.configurationSchemaJSON))
+        let fields = try #require(schema["accessorySchema"]?["properties"]?.objectValue)
+        #expect(Set(fields.keys) == Set(DolphinPoolCleanerPlugin.robotKeys))
+        let properties = try #require(schema["schema"]?["properties"]?.objectValue)
+        #expect(Set(properties.keys) == ["name", "iotRegion", "pollingInterval"])
     }
 
     @Test func setupErrors() async throws {
