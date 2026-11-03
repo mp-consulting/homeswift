@@ -237,7 +237,6 @@ extension ElgatoKeyLightsPlugin {
   $("#assistant-hint").replaceChildren(tipBefore, el("strong", { text: "HomeswiftAiKit" }), tipAfter);
   assistant().then((state) => $("#assistant-hint").classList.toggle("hidden", Boolean(state.enabled)));
 
-  $("#plugin-settings").href = pluginSettings;
   poll(refresh);
 })();
 
@@ -426,7 +425,7 @@ HomeswiftI18n.add({
       <p class="muted" data-i18n>The lights this instance knows, as it sees them right now. Identify flashes a light so you can tell which is which.</p>
     </div>
   </div>
-  <div class="section-head"><h2 data-i18n>Your lights</h2><div class="actions"><button id="discover-toggle" aria-expanded="false" aria-controls="discovered" data-i18n data-action-icon="search">On the network</button><button id="check-toggle" aria-expanded="false" aria-controls="check-light" data-i18n data-action-icon="send">Check an address</button><a id="plugin-settings" class="button" data-i18n data-action-icon="gear">Settings</a></div></div>
+  <div class="section-head"><h2 data-i18n>Your lights</h2><div class="actions"><button id="discover-toggle" aria-expanded="false" aria-controls="discovered" data-i18n data-action-icon="search">On the network</button><button id="check-toggle" aria-expanded="false" aria-controls="check-light" data-i18n data-action-icon="send">Check an address</button></div></div>
   <div id="discovered" class="card add-box hidden"></div>
   <div id="check-light" class="card add-box hidden"></div>
   <div id="lights" class="grid"></div>

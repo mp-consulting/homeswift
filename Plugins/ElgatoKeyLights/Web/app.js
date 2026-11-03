@@ -228,6 +228,5 @@
   $("#assistant-hint").replaceChildren(tipBefore, el("strong", { text: "HomeswiftAiKit" }), tipAfter);
   assistant().then((state) => $("#assistant-hint").classList.toggle("hidden", Boolean(state.enabled)));
 
-  $("#plugin-settings").href = pluginSettings;
   poll(refresh);
 })();
