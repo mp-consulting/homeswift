@@ -11,8 +11,8 @@ import HomeswiftAI
 /// `name`, `room`, `hidden`, `notInHome`, `excluded` and `parts` are the Core Accessory Settings
 /// (docs/adr/0003-room-and-visibility-in-accessory-settings.md); the other keys are the plugin's own (Plugin Accessory
 /// Settings), which it declares in its config.schema.json's `accessorySchema` and reads with `decode`. `name`, `room`,
-/// `hidden` and `notInHome` apply live: they never reach the plugin (`HomeswiftConfiguration.decode` takes them out of its
-/// block), so a plugin's context sees them unset.
+/// `hidden` and `notInHome` apply live: they leave the plugin's JSON (`HomeswiftConfiguration.decode` takes them out of its
+/// block), so a change to them never reloads it; its context's Accessory Settings have their current values.
 ///
 /// A device's own accessory is keyed by its Device Id; another accessory of the device by its Accessory Id without the
 /// platform (`<deviceID>:<more>`), so each of them has its own Name, room, Hidden and Not in Home.

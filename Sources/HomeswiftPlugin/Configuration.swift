@@ -255,7 +255,13 @@ public struct HomeswiftConfiguration: Sendable {
         entry.accessoryNames = names
         entry.accessoryRooms = rooms
         entry.hiddenOnWall = hiddenOnWall
+        // The live settings as they are now, for a plugin that reads them (a device's Name for its own list): they
+        // changed without reloading it, so the runtime keeps its context's copy in step (`PluginHost.apply`).
         for deviceID in liveOnly where entry.accessorySettings[deviceID] == nil { entry.accessorySettings[deviceID] = AccessorySettings() }
+        for (deviceID, name) in names { entry.accessorySettings[deviceID]?.name = name }
+        for (deviceID, room) in rooms { entry.accessorySettings[deviceID]?.room = room }
+        for deviceID in hiddenOnWall { entry.accessorySettings[deviceID]?.hidden = true }
+        for id in hidden where id.hasPrefix("\(platform):") { entry.accessorySettings[String(id.dropFirst(platform.count + 1))]?.notInHome = true }
         return entry
     }
 

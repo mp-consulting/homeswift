@@ -419,10 +419,11 @@ struct PluginHostTests {
         // Name only).
         #expect(try JSONValue(data: block.json)["_accessories"] == ["lamp-1": ["excluded": false, "offset": 2]])
         #expect(block.accessorySettings["lamp-1"]?.plugin == ["offset": 2])
-        #expect(block.accessorySettings["lamp-2"] == AccessorySettings() && block.accessoryNames == ["lamp-2": "Shelf"])
+        #expect(block.accessorySettings["lamp-2"] == AccessorySettings(name: "Shelf") && block.accessoryNames == ["lamp-2": "Shelf"])
+        #expect(block.accessorySettings["lamp-1"]?.room == "Office" && block.accessorySettings["lamp-1"]?.hidden == true)
         // A block built in code reads the same way.
         let built = try HomeswiftConfiguration.Platform(platform: "Recording", name: "Lamps", settings: ["_accessories": ["lamp-2": ["name": "Shelf", "room": "Hall"]]])
-        #expect(try JSONValue(data: built.json)["_accessories"] == nil && built.accessorySettings["lamp-2"] == AccessorySettings())
+        #expect(try JSONValue(data: built.json)["_accessories"] == nil && built.accessorySettings["lamp-2"] == AccessorySettings(name: "Shelf", room: "Hall"))
         #expect(built.accessoryNames == ["lamp-2": "Shelf"] && built.accessoryRooms == ["lamp-2": "Hall"])
         #expect(first.roomSync == false)
         for bad in [#"{ "lamp-1": { "room": 3 } }"#, #"{ "lamp-1": { "hidden": "yes" } }"#, #"{ "lamp-1": { "notInHome": 1.5 } }"#] {
