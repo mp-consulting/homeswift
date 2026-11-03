@@ -8,10 +8,11 @@ extension EcoFlowPlugin {
     public static let webFiles: [String: WebFile] = [
         "app.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The EcoFlow page: each device the plugin reads, its battery, and its power as IN and OUT, laid out by kind as the
-// app does. The page refreshes every few seconds while it is visible; it reads `GET power` from the plugin.
+// app does. The page refreshes every few seconds while it is visible; it reads `GET power` from the plugin. It writes no
+// settings: the devices come with the account (Setup), and each one's name is its Settings'.
 (() => {
   "use strict";
-  const { t, tn } = HomeswiftI18n;
+  const { t } = HomeswiftI18n;
   const { $, el, request } = homeswift;
 
   const list = $("#devices");
@@ -447,37 +448,6 @@ extension EcoFlowPlugin {
     if (focused) list.querySelector(`.device[data-id="${CSS.escape(focused)}"] .handle`)?.focus({ preventScroll: true });
   }
 
-  // The devices the plugin reads that the configuration's `devices` does not list, with the button that adds them
-  // under the name they report: listed, a device is read by its serial number, and its name can be changed in the
-  // plugin's settings.
-  const unsaved = $("#unsaved");
-  // Drawn again only when the devices it lists change: a button made anew at every reading would lose a click.
-  let unsavedShown = "";
-  function renderUnsaved() {
-    const missing = known.filter((device) => device.configured === false);
-    const key = missing.map((device) => `${device.id}\n${device.name}`).join("\n");
-    if (key === unsavedShown) return;
-    unsavedShown = key;
-    unsaved.classList.toggle("hidden", missing.length === 0);
-    if (missing.length === 0) return;
-    unsaved.replaceChildren(
-      el("p", { class: "note", text: tn("{n} device is not in the configuration yet. Add it to keep it by its serial number and to rename it in the settings.",
-        "{n} devices are not in the configuration yet. Add them to keep them by their serial numbers and to rename them in the settings.", missing.length) }),
-      el("button", { actionIcon: "plus", class: "primary", text: t("Add to the configuration"),
-        onclick: (event) => homeswift.act(event.currentTarget, () => addToConfiguration(missing)) }));
-  }
-
-  // Each device once in the block's `devices`, an entry already there kept as it is. The plugin reloads with them.
-  async function addToConfiguration(devices) {
-    await homeswift.updateDevices((entries) => {
-      for (const device of devices) {
-        if (!entries.some((entry) => entry.id === device.id)) entries.push({ id: device.id, name: device.name });
-      }
-    });
-    lastAnswer = "";
-    await refresh();
-  }
-
   // The cards are drawn again only when the readings changed: the plugin's values change at its own poll.
   let lastAnswer = "";
   async function refresh() {
@@ -494,7 +464,6 @@ extension EcoFlowPlugin {
       pending = body.waiting ?? [];
       loadHistory(true);
       render();
-      renderUnsaved();
     } catch (error) {
       lastAnswer = "";
       // A card being dragged, or an order being saved, keeps the cards: the next poll says it again.
@@ -522,9 +491,6 @@ HomeswiftI18n.add({
     "Offline: no readings since the plugin started": "Hors ligne : aucune valeur depuis le démarrage du plugin",
     "Move {name}": "Déplacer {name}",
     "Drag to reorder, or use the arrow keys": "Faites glisser pour réorganiser, ou utilisez les flèches",
-    "{n} device is not in the configuration yet. Add it to keep it by its serial number and to rename it in the settings.": "{n} appareil n'est pas encore dans la configuration. Ajoutez-le pour le garder par son numéro de série et le renommer dans les réglages.",
-    "{n} devices are not in the configuration yet. Add them to keep them by their serial numbers and to rename them in the settings.": "{n} appareils ne sont pas encore dans la configuration. Ajoutez-les pour les garder par leur numéro de série et les renommer dans les réglages.",
-    "Add to the configuration": "Ajouter à la configuration",
     "Loading": "Chargement",
     "Waiting for its first readings": "En attente de ses premières valeurs",
     "Loading the devices": "Chargement des appareils",
@@ -590,9 +556,6 @@ HomeswiftI18n.add({
     "Offline: no readings since the plugin started": "Sin conexión: ninguna lectura desde que se inició el plugin",
     "Move {name}": "Mover {name}",
     "Drag to reorder, or use the arrow keys": "Arrastra para reordenar, o usa las flechas",
-    "{n} device is not in the configuration yet. Add it to keep it by its serial number and to rename it in the settings.": "{n} dispositivo aún no está en la configuración. Añádelo para conservarlo por su número de serie y cambiarle el nombre en los ajustes.",
-    "{n} devices are not in the configuration yet. Add them to keep them by their serial numbers and to rename them in the settings.": "{n} dispositivos aún no están en la configuración. Añádelos para conservarlos por su número de serie y cambiarles el nombre en los ajustes.",
-    "Add to the configuration": "Añadir a la configuración",
     "Loading": "Cargando",
     "Waiting for its first readings": "Esperando sus primeros valores",
     "Loading the devices": "Cargando los dispositivos",
@@ -658,9 +621,6 @@ HomeswiftI18n.add({
     "Offline: no readings since the plugin started": "Offline: nenhuma leitura desde que o plugin foi iniciado",
     "Move {name}": "Mover {name}",
     "Drag to reorder, or use the arrow keys": "Arraste para reordenar, ou use as setas",
-    "{n} device is not in the configuration yet. Add it to keep it by its serial number and to rename it in the settings.": "{n} dispositivo ainda não está na configuração. Adicione-o para o manter pelo número de série e mudar o nome nas definições.",
-    "{n} devices are not in the configuration yet. Add them to keep them by their serial numbers and to rename them in the settings.": "{n} dispositivos ainda não estão na configuração. Adicione-os para os manter pelos números de série e mudar o nome nas definições.",
-    "Add to the configuration": "Adicionar à configuração",
     "Loading": "A carregar",
     "Waiting for its first readings": "À espera das primeiras leituras",
     "Loading the devices": "A carregar os dispositivos",
@@ -833,9 +793,6 @@ HomeswiftI18n.add({
   .note { font-size: 0.8125rem; color: var(--muted); margin: 0; }
 
   /* Devices read but not in the configuration: a sentence and the button that saves them, above the cards. */
-  .card.unsaved { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 0 0 14px; }
-  .card.unsaved.hidden { display: none; }
-  .card.unsaved .note { flex: 1 1 20em; }
 
   /* No readings yet: the shared empty card, with a sentence on why and when the page looks again. */
   .card.empty { text-align: center; padding: 28px 20px; }
@@ -865,7 +822,6 @@ HomeswiftI18n.add({
       <p class="note" data-i18n>Solar, home, grid and battery power, as the devices report them now. IN is power coming in, OUT is power going out.</p>
     </div>
   </div>
-  <section id="unsaved" class="card unsaved hidden" aria-live="polite"></section>
   <section id="devices" class="devices" aria-live="polite"></section>
 </main>
 <script src="/i18n.js"></script>

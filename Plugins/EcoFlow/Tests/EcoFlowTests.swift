@@ -122,7 +122,7 @@ struct EcoFlowTests {
     }
 
     /// The page's order is kept by the plugin and answers `power` in it; a device it has not placed comes after the
-    /// others. Each device says whether the configuration lists it.
+    /// others.
     @Test func thePagesOrderIsKept() async throws {
         await environment.api.add(EcoFlowDevice(id: "dev-2", name: "Second", online: true))
         await environment.api.add(EcoFlowDevice(id: "dev-3", name: "Third", online: true))
@@ -133,7 +133,6 @@ struct EcoFlowTests {
         }
         #expect(await eventually { (try? await power().count) == 3 })
         #expect(try await power().map { $0["id"]?.stringValue } == ["dev-1", "dev-2", "dev-3"])
-        #expect(try await power().map { $0["configured"] } == [.bool(true), .bool(false), .bool(false)])
 
         let saved = try await plugin.handleWebRequest(PluginWebRequest(method: "POST", path: "order", body: ["ids": ["dev-3", "dev-1"]], user: "admin"))
         #expect(saved.status == 200)

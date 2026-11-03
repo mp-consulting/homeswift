@@ -25,11 +25,12 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
         public var route: String?
         /// The EcoFlow account email, for the app route.
         public var email: String?
-        /// The EcoFlow account password, for the app route. Stored in config.json, which only the bridge's owner can read.
+        /// The EcoFlow account password, for the app route: in the vault (Setup); a block's still works, moved there by
+        /// `canonicalSettings`.
         public var password: String?
-        /// The developer access key.
+        /// The developer access key, likewise in the vault.
         public var accessKey: String?
-        /// The developer secret key. Stored in config.json, which only the bridge's owner can read.
+        /// The developer secret key, likewise in the vault.
         public var secretKey: String?
         /// `us` or `eu`: the region the developer account was created in. `us` by default.
         public var region: String?
@@ -39,6 +40,8 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
         /// Seconds between reads of the developer API; 30 at least, 60 by default. The app's stream is read every few
         /// seconds whatever this is.
         public var pollingInterval: Int?
+        /// Serial numbers with names, read first by the app's route; `canonicalSettings` moves the names into each device's
+        /// Accessory Settings.
         public var devices: [Device]?
     }
 
@@ -388,14 +391,11 @@ public actor EcoFlowPlugin: HomeswiftPlugin {
     }
 
     private func power() -> PluginWebResponse {
-        let listed = Set((configuration.devices ?? []).map(\.id))
         let devices: [JSONValue] = ordered(latest).map { device in
             let power = device.state.power
             return .object([
                 "id": .string(device.id),
                 "name": .string(displayName(device)),
-                // Whether the device has an entry in the configuration's `devices`: the page offers to add the others.
-                "configured": .bool(listed.contains(device.id)),
                 "online": .bool(device.online),
                 "source": .string(device.source.rawValue),
                 "batteryLevel": device.state.knowsBatteryLevel ? .number(Double(device.state.battery.batteryLevel)) : .null,
