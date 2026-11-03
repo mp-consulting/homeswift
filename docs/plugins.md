@@ -424,7 +424,8 @@ Two hooks, both optional, help the settings editor and the writers:
   last step, Exclude and Include) and writes what it answers. Turn the plugin's Homebridge shapes (a `devices` list,
   exclude lists by name or id, typed arrays, feature-option strings) into Accessory Settings in `_accessories` by Device
   Id and declared Plugin Settings, and drop the legacy keys; it may use what the plugin knows now (its devices' names,
-  to read a list of names). Leave what it cannot read as it is. The default answers the block unchanged. It is asked on
+  to read a list of names). Leave what it cannot read as it is (`AccessoryEntries` moves an exclude list that way, an
+  entry's own values winning). The default answers the block unchanged. It is asked on
   a dry run too, so it only answers: anything more, such as moving a legacy token into the vault before dropping it from
   the block, goes in `context.whenSettingsWritten { … }`, which runs once the write is checked, just before config.json
   is written, and never on a dry run or a refused write (an effect that throws stops the write, so make it idempotent).
