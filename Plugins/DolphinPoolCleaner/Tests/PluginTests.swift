@@ -443,12 +443,32 @@ struct PluginTests {
         let block = try JSONValue(any: [
             "platform": "DolphinPoolCleaner", "name": "Dolphin Pool Cleaner", "devices": [["serialNumber": "E3086OFG2M", "enableTemperature": false]],
         ] as [String: Any])
-        let canonical = await host.canonicalSettings(platform: DolphinPoolCleanerPlugin.platform, name: "Dolphin Pool Cleaner", block: block)
-        #expect(canonical["devices"] == nil && canonical["_accessories"] == ["E3086OFG2M": ["enableTemperature": false]])
+        let (canonical, whenWritten) = await host.canonicalSettings(platform: DolphinPoolCleanerPlugin.platform, name: "Dolphin Pool Cleaner", block: block)
+        #expect(canonical["devices"] == nil && canonical["_accessories"] == ["E3086OFG2M": ["enableTemperature": false]] && whenWritten.isEmpty)
         #expect(await host.deviceKind(platform: DolphinPoolCleanerPlugin.platform, name: "Dolphin Pool Cleaner", deviceID: "E3086OFG2M") == "robot")
         let devices = try await host.discover(platform: DolphinPoolCleanerPlugin.platform, name: "Dolphin Pool Cleaner").devices
         #expect(devices.map(\.deviceID) == ["E3086OFG2M"] && devices.map(\.kind) == ["robot"])
         await host.stop()
+    }
+
+    /// A Homebridge block's account keys move into the vault once the block is written, and leave it; the plugin signs in
+    /// with them from there.
+    @Test func theAccountsKeysMoveIntoTheVault() async throws {
+        let host = try await environment.start(settings: ["email": "owner@example.com", "password": "secret"])
+        let context = try #require(host.context(platform: DolphinPoolCleanerPlugin.platform, name: "Dolphin Pool Cleaner"))
+        let block = try JSONValue(any: ["platform": "DolphinPoolCleaner", "name": "Dolphin Pool Cleaner", "email": "owner@example.com", "password": "secret", "pollingInterval": 60] as [String: Any])
+        let (canonical, whenWritten) = await host.canonicalSettings(platform: DolphinPoolCleanerPlugin.platform, name: "Dolphin Pool Cleaner", block: block)
+        #expect(canonical == ["platform": "DolphinPoolCleaner", "name": "Dolphin Pool Cleaner", "pollingInterval": 60])
+        // Nothing moves before the write.
+        #expect(context.credentials() == nil)
+        try await whenWritten.run()
+        #expect(context.credentials() == ["email": "owner@example.com", "password": "secret"])
+        await host.stop()
+
+        // The block without them, the vault with them: the same sign-in.
+        let again = try await environment.start(settings: ["pollingInterval": 60])
+        #expect(environment.settings.last == AccountSettings(email: "owner@example.com", password: "secret", refreshToken: nil, iotRegion: nil))
+        await again.stop()
     }
 
     /// A robot's own settings in `_accessories` overrule a Homebridge entry's; the entry fills in what they leave out.

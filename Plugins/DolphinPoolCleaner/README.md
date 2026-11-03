@@ -72,8 +72,8 @@ logs it and waits for Setup.
 A Homebridge block still loads: its `email`, `password` and `refreshToken`, and its `devices` list (by
 `serialNumber`, with `name`, `cleaningMode`, `enableTemperature`, `enableFilterStatus`; `deviceType` and
 `robotImageUrl` were the wizard's, for display), read where `_accessories` says nothing. The first settings write
-(the Settings page, `update_settings`, Setup) moves `devices` into `_accessories` (`name` as the Name) and drops it;
-the account's keys stay in the block until Setup signs in again, which keeps them in the vault.
+(the Settings page, `update_settings`, Setup) moves `devices` into `_accessories` (`name` as the Name) and drops it,
+and moves the account's keys into the vault, where Setup's refresh token, when there is one, stays.
 
 Cleaning modes: `all` (all surfaces), `short` (fast), `floor`, `wall`, `water` (waterline), `ultra`, `cove`,
 `spot`, and on robots that have them `tictac`, `pickup`, `custom`, `stairs`. The mode is sent only when the

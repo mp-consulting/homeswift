@@ -76,7 +76,7 @@ public actor DolphinPoolCleanerPlugin: HomeswiftPlugin {
     public func start() async throws {
         logger.debug("Initializing platform: \(configuration.name ?? Self.name)")
         // Without an account the plugin stays up, so Setup can sign in.
-        guard configuration.hasCredentials || storedRefreshToken != nil else {
+        guard hasAccount else {
             logger.error("Missing required configuration: refreshToken or email/password")
             status = .notConfigured
             return
@@ -161,7 +161,7 @@ public actor DolphinPoolCleanerPlugin: HomeswiftPlugin {
         // `stop()` may have run meanwhile: it found no cloud to close, so none must open.
         guard !shuttingDown else { throw CancellationError() }
         let settings = AccountSettings(
-            email: accountEmail, password: configuration.password, refreshToken: storedRefreshToken ?? configuration.refreshToken, iotRegion: configuration.iotRegion)
+            email: accountEmail, password: accountPassword, refreshToken: storedRefreshToken ?? configuration.refreshToken, iotRegion: configuration.iotRegion)
         let cloud = dependencies.makeCloud?(settings, logger)
             ?? MaytronicsCloud(settings: settings, transport: dependencies.transport, mqtt: dependencies.mqtt, timing: dependencies.timing, logger: logger)
         self.cloud = cloud

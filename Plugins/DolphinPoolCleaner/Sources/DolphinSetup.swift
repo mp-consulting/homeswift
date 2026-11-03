@@ -15,7 +15,12 @@ extension DolphinPoolCleanerPlugin {
 
     /// Signed in: a refresh token Setup kept, or the block's (a Homebridge block pasted in: a refresh token, or an email
     /// and a password).
-    public func accountAuthorized() async -> Bool? { storedRefreshToken != nil || configuration.hasCredentials }
+    public func accountAuthorized() async -> Bool? { hasAccount }
+
+    /// A refresh token, or an email and a password, in the vault or the block.
+    var hasAccount: Bool {
+        storedRefreshToken != nil || configuration.refreshToken.nonEmpty != nil || (accountEmail != nil && accountPassword != nil)
+    }
 
     public func discover() async throws -> [DiscoveredDevice] {
         robots.map { DiscoveredDevice(deviceID: $0.serialNumber, name: $0.name, model: "Dolphin", isSetUp: true, kind: Self.robotKind) }

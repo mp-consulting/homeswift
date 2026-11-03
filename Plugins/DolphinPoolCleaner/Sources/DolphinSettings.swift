@@ -5,8 +5,9 @@ import HomeswiftPlugin
 // Settings (docs/plugins.md, "Settings"): the Plugin Settings are `iotRegion` and `pollingInterval`; each robot's
 // Accessory Settings sit in `_accessories` by its serial number (its Device Id): its Name, and its Plugin Accessory
 // Settings `cleaningMode`, `enableTemperature` and `enableFilterStatus`. The account's credentials (the email and the
-// refresh token Setup gives) are in the vault. The Homebridge plugin's `devices` list, and its `email`, `password` and
-// `refreshToken`, still load and are read where the canonical places say nothing; `canonicalSettings` moves the list.
+// refresh token Setup gives, or a Homebridge block's password) are in the vault. The Homebridge plugin's `devices` list,
+// and its `email`, `password` and `refreshToken`, still load and are read where the canonical places say nothing;
+// `canonicalSettings` moves them.
 extension DolphinPoolCleanerPlugin {
     /// Every robot is a pool robot: the one Device Kind.
     static let robotKind = "robot"
@@ -31,7 +32,34 @@ extension DolphinPoolCleanerPlugin {
         context.credentials()?["email"]?.stringValue.nonEmpty ?? configuration.email.nonEmpty
     }
 
-    public func canonicalSettings(_ block: JSONValue) async -> JSONValue { Self.canonical(block) }
+    /// The password a Homebridge block gave, which `canonicalSettings` moved into the vault, else the block's own.
+    var accountPassword: String? {
+        context.credentials()?["password"]?.stringValue.nonEmpty ?? configuration.password.nonEmpty
+    }
+
+    /// The account's keys of a block and the vault's fields they go in.
+    static let credentialKeys = ["email", "password", "refreshToken"]
+
+    /// The block in its canonical shape (`canonical`), its account's keys (`email`, `password`, `refreshToken`) moved into
+    /// the vault once the block is written (`whenSettingsWritten`), where the vault has none of its own: a refresh token
+    /// Setup kept stays, and with it the block's password goes unused.
+    public func canonicalSettings(_ block: JSONValue) async -> JSONValue {
+        let canonical = Self.canonical(block)
+        guard var fields = canonical.objectValue, Self.credentialKeys.contains(where: { fields[$0] != nil }) else { return canonical }
+        // The block may only name a secret (a `vault:` reference, a sealed copy): the running configuration has it resolved.
+        let resolved = ["email": configuration.email, "password": configuration.password, "refreshToken": configuration.refreshToken]
+        let held = context.credentials()?.objectValue ?? [:]
+        var moved = held
+        for key in Self.credentialKeys where held[key]?.stringValue.nonEmpty == nil && fields[key] != nil {
+            if let value = resolved[key].flatMap({ $0 }).nonEmpty { moved[key] = .string(value) }
+        }
+        if moved != held {
+            let context = context, credentials = JSONValue.object(moved)
+            await context.whenSettingsWritten { try context.saveCredentials(credentials) }
+        }
+        for key in Self.credentialKeys where moved[key]?.stringValue.nonEmpty != nil { fields.removeValue(forKey: key) }
+        return .object(fields)
+    }
 
     /// The Plugin Accessory Settings of a robot, as `accessorySchema` declares them.
     static let robotKeys = ["cleaningMode", "enableTemperature", "enableFilterStatus"]
@@ -40,7 +68,7 @@ extension DolphinPoolCleanerPlugin {
     /// as `all`), `enableTemperature` and `enableFilterStatus` as they are (booleans and numbers written as strings read as
     /// Homebridge reads them), `deviceType` and `robotImageUrl` (the wizard's, for display) dropped. What `_accessories`
     /// has already stays; an entry without a serial number stays in `devices`. The account's keys (`email`, `password`,
-    /// `refreshToken`) are left: they belong in the vault, which this does not write.
+    /// `refreshToken`) are `canonicalSettings`'s.
     static func canonical(_ block: JSONValue) -> JSONValue {
         guard var fields = block.objectValue, let devices = fields["devices"]?.arrayValue else { return block }
         var entries = fields["_accessories"]?.objectValue ?? [:]
