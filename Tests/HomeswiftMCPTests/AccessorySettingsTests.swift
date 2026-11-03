@@ -344,6 +344,12 @@ struct AccessorySettingsTests {
         #expect(read["settings"]?["token"]?.stringValue?.hasPrefix("__SECRET_") == true)
         #expect(read["accessorySchema"]?["properties"]?["offset"] != nil && read["settings"]?["_accessories"] == nil)
 
+        // MCP tokens stay redacted, as get_config has them: a handle could be passed on under another secret's key.
+        let mcp = try #require(try await client.tool("get_settings", ["plugin": ["platform": "HomeswiftAiKit"]])["structuredContent"])
+        #expect(mcp["settings"]?["mcp"]?["http"]?["token"] == .string(Redaction.placeholder))
+        // config.json's values: hidden from a user who is not an administrator, as get_config is.
+        #expect(HomeswiftCatalog.administratorOnly.isSuperset(of: ["get_config", "get_settings"]))
+
         let token = try #require(read["settings"]?["token"])
         let changed = try await client.tool("update_settings", ["plugin": ["platform": "Devices"], "settings": ["pollingRate": 500, "defaultFade": nil, "token": token]], answer: accept)
         #expect(changed["isError"] != true)

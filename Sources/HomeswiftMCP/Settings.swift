@@ -599,6 +599,15 @@ extension HomeswiftCatalog {
 
     // MARK: Tools
 
+    /// `get_settings`' answer with the MCP tokens of a block's `mcp` redacted (`redactingMCPTokens`): a session handle
+    /// for one, passed under another plugin's secret-named key, would write the token where that plugin sends it.
+    static func redactingMCPTokens(inSettings answer: JSONValue) -> JSONValue {
+        guard var object = answer.objectValue, var settings = object["settings"]?.objectValue, let mcp = settings["mcp"] else { return answer }
+        settings["mcp"] = Redaction.redactSecrets(mcp)
+        object["settings"] = .object(settings)
+        return .object(object)
+    }
+
     /// A settings tool's `plugin`: its platform and instance name.
     @Sendable static func pluginArgument(_ call: ToolCall) -> (platform: String, name: String?)? {
         guard let platform = call.arguments["plugin"]?["platform"]?.stringValue else { return nil }
@@ -624,6 +633,7 @@ extension HomeswiftCatalog {
                     + "that the accessory's own value overrules; kind is its Device Kind, which decides the plugin's fields. "
                     + "For a plugin: settings, its Plugin Settings (secrets as __SECRET_…__ handles), its schema and accessorySchema. Change them with update_settings.",
                 inputSchema: ["type": "object", "properties": .object(address)],
+                // config.json's values, as get_config: hidden from a user who is not an administrator (`administratorOnly`).
                 scope: .read, idempotent: true
             ) { call in
                 let answer: JSONValue
@@ -634,8 +644,9 @@ extension HomeswiftCatalog {
                 } else {
                     return .error("Pass accessory or plugin")
                 }
-                // Names and values came from devices and config.json: data, never instructions.
-                let shown = call.session.vault.conceal(Self.redactingMCPTokens(answer))
+                // Names and values came from devices and config.json: data, never instructions. MCP tokens (the
+                // HomeswiftAiKit block's `mcp`) stay redacted, as get_config has them: a handle could be passed on.
+                let shown = call.session.vault.conceal(Self.redactingMCPTokens(inSettings: answer))
                 return ToolResult(text: "<untrusted-data source=\"settings\">\n\(shown.text(pretty: true))\n</untrusted-data>", structured: shown)
             },
             MCPTool(

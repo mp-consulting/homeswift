@@ -91,11 +91,11 @@ public struct HomeswiftCatalog: Sendable {
     /// Writing the daily digest again (`get_daily_digest` with `refresh`), as a name `Principal.hidden` can hold.
     public static let digestRefresh = "get_daily_digest#refresh"
 
-    /// What only an administrator sees in the web UI, though a read scope allows it: config.json and its backups, the
+    /// What only an administrator sees in the web UI, though a read scope allows it: config.json, its settings and its backups, the
     /// log, the cached accessories, the pairings, the child bridges' health, and writing the digest. Hidden from the
     /// principals of users who are not administrators (the web UI's chat, the apps they connect).
     public static let administratorOnly: Set<String> = [
-        "get_config", "list_config_backups", "list_vault", "get_recent_logs", "search_logs", "get_cached_accessories", "get_pairing_info", "get_matter_status", "get_child_bridge_health",
+        "get_config", "get_settings", "list_config_backups", "list_vault", "get_recent_logs", "search_logs", "get_cached_accessories", "get_pairing_info", "get_matter_status", "get_child_bridge_health",
         "homeswift://logs/recent", "homeswift://child-bridge/{id}", "diagnose-logs", "audit-config", digestRefresh,
     ]
 

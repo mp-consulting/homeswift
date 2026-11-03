@@ -92,7 +92,7 @@ do, and **Allow**. The connector is then there in the Claude apps signed in to t
 What it may do is one of the scopes below, chosen on that page up to the user's role: an administrator may
 give `admin`, any other user `control` at most, and the page never picks `admin` in advance, whatever the app
 asks. As in the web UI, an app of a user who is not an administrator controls accessories and runs scenes but
-does not see the log, config.json, the pairings or the child bridges' health (those tools, resources and
+does not see the log, config.json (nor `get_settings`, which reads it), the pairings or the child bridges' health (those tools, resources and
 prompts are not listed for it), nor writes the daily digest again. The user's role is read again at every
 request, so demoting a user narrows the apps they connected, and `readOnly` caps them all at `read`. Sessions show in the audit log as the app and its user,
 `Claude (rosaly)`. **Account › Connected apps** lists a user's apps, with what each may do and when it last
@@ -229,7 +229,7 @@ its snapshot settings. TLV8 and data values mean nothing as text: they are null 
   `name`, `room`, `hidden`, `notInHome`, `excluded`, `parts`; and the plugin's own), and `fields`, each with its JSON
   schema, `core`, `readOnly` (a mirrored accessory's Name) and `default` `{setting, value}` when a Plugin Setting gives
   it a plugin-wide default; `kind` is its Device Kind, which decides the plugin's fields shown. For a plugin it answers
-  its Plugin Settings (secrets as handles, as `get_config` gives them), its `schema` and `accessorySchema`.
+  its Plugin Settings (secrets as handles and MCP tokens redacted, as `get_config` gives them), its `schema` and `accessorySchema`.
   `update_settings` merges `settings` into them (objects key by key, `null` clears a key) or, with `accessories`,
   settings by Accessory Id in one write; every key must be declared (Core, or the plugin's schema), its value is checked,
   and the answer gives each accessory's `settings` and the keys `changed`, and what reloaded. Name, room, Hidden and Not
