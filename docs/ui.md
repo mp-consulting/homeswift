@@ -146,10 +146,9 @@ screenshots, and what a plugin does to get good ones.
   scenes and automations kept. Its plugin's block keeps it (`name` under its Device Id in `_accessories`) and the
   bridge puts it on the accessory's Name and Configured Name, which the Home app follows; a rename in the Home app is
   kept the same way. Empty gives it back the name its plugin gives it. An accessory mirrored from another controller
-  (Wingman's) is renamed there: it has **Name on these pages** instead, a name these pages show and the Home app does
-  not.
+  (Wingman's) is renamed there: its Name is read-only here.
 - **Visible in Home app** (a widget's ⋯ menu, administrators): off, the accessory leaves the Home app, with its room,
-  scenes and automations, while Homeswift and Matter keep it (`_hiddenFromHomeKit` in its plugin's block).
+  scenes and automations, while Homeswift and Matter keep it (`notInHome` in its Accessory Settings).
 - **Edit** shows grid guides, size controls and corner handles, and lets tiles be dragged onto any cell of the grid,
   gaps included: the others make way, and the wall keeps every widget's cell until **Pack the widgets together** (the
   wall's menu) lets them flow again ([widgets.md](widgets.md)). The wall is
@@ -164,18 +163,20 @@ screenshots, and what a plugin does to get good ones.
   (`/api/cameras/<id>/snapshot?width=&height=`). Off screen it fetches nothing. A camera has four live viewers at most;
   one turned off in the Home app, or whose plugin is paused, shows nothing; one that sends no picture shows television
   snow behind its message (a still frame under reduced motion).
-- **Rooms** (Glass UI's accessory layout): a card's **⋯** puts the accessory in a room (a new name adds the room), gives
-  it a name for these pages (the Home app keeps its own), adds it to the Quick Controls, or hides it; hidden accessories
-  stay out unless **Show hidden** (`?hidden=1`). Accessories mirrored from another controller (the Home app's, through
+- **Rooms**: a card's **⋯** puts the accessory in a room (a new name adds the room), adds it to the Quick Controls, or
+  hides it; hidden accessories stay out unless **Show hidden** (`?hidden=1`). Its room and Hidden are Accessory Settings
+  (`room`, `hidden` in its plugin's block, `PATCH /api/settings/accessories/<id>`); the Quick Controls and the rooms'
+  order are the Arrangement, the layout's. Accessories mirrored from another controller (the Home app's, through
   the Wingman plugin) carry a small house badge, sit in that controller's room until given one here, and have a filter
-  of their own, the **Apple Home** switch (`?from=Apple%20Home`). The layout is the bridge's, shared by every user, in
-  `accessory-layout.json` next to config.json (owner-only; `/api/rooms`). The Home app never sees it; the MCP tools do:
+  of their own, the **Apple Home** switch (`?from=Apple%20Home`). The Arrangement is the bridge's, shared by every user, in
+  `accessory-layout.json` next to config.json (owner-only; `/api/rooms`), where older versions also kept rooms, Hidden and
+  display names: those are read until the accessory's settings are next written, which moves them there. The Home app never sees it; the MCP tools do:
   `list_accessories` and `set_accessories` filter by these rooms.
 - **Rooms on the hubs**: in **Edit**, with the wall **By room**, each room's heading is a field: type a new name, then
   Enter (or click away) renames the room, Escape keeps it. A tile dragged into another room's wall moves the accessory to
   that room, or out of any into **No room**; every room shows there, empty ones too, to take a drop. The **Rooms** menu orders the rooms (drag them) and renames
-  one too (choose it). Its **Sync rooms with the hubs** switch, off until turned on (`syncRoomNames` in
-  `accessory-layout.json`), makes a renamed room's new name reach the plugins' hubs: every room of a Philips Hue Bridge,
+  one too (choose it). Its **Sync rooms with the hubs** switch, Room Sync, off until turned on (`roomSync` in config.json's
+  bridge block, applied without a restart), makes a renamed room's new name reach the plugins' hubs: every room of a Philips Hue Bridge,
   an IKEA DIRIGERA hub, an eWeLink home or Apple Home (through Wingman) named as the room was, case and accents aside,
   is renamed with it, and the log says so (`Room "Salon" renamed "Lounge" on Hue`). From Apple Home it goes both ways:
   a room renamed in the Home app renames Homeswift's room of the old name, and the other hubs' with it. A room renamed
@@ -395,7 +396,15 @@ The JSON view marks the line of a syntax error as you type, and Save waits until
 changes against the plugin's schema (a type, a bound, a choice outside the list, a required setting): the problems
 show under the editor with their lines marked, **Line 12** puts the caret there, and **Save anyway** keeps a value the
 plugin accepts that its schema does not list. Settings left as they were are not checked, so an old mistake never stops
-another change; a plugin's own page and **Pause** write without the check.
+another change; a plugin's own page and **Pause** are checked the same way (`PUT /api/config/block/<platform>/<name>`),
+and only **Save anyway** writes without the check.
+
+The settings routes are what MCP's `get_settings` and `update_settings` read and write (docs/mcp.md), for
+administrators, secrets as the placeholder: `GET`/`PATCH /api/settings/accessories/<accessoryId>` an accessory's
+Accessory Settings and their fields (`?instance=` names the block of an accessory not on the bridge whose platform has
+several), `PATCH /api/settings/accessories` several accessories' in one write (`{"<accessoryId>": {…}}`), and
+`GET`/`PATCH /api/settings/plugins/<platform>/<name>` an instance's Plugin Settings with its `schema` and
+`accessorySchema`. A `PATCH` merges its body, objects key by key, and `null` clears a key.
 
 ### Add accessories
 
@@ -815,7 +824,8 @@ Plugins/<Name>/Web Plugins/<Name>/Sources/WebFiles.swift <Type>` (a test checks 
   labelled value of a `.facts` grid. `homeswift.act(button, work, report)` runs `work` with the button disabled and a
   spinner and hands an error's message to `report` (`alert` by default; with `report` null the error is thrown).
 - **Its block.** `homeswift.readBlock()` and `homeswift.updateBlock(change)` read and write the instance's block of
-  config.json (`GET`/`PUT /api/config/block/<platform>/<name>`): a write applies at once and the plugin reloads. For a
+  config.json (`GET`/`PUT /api/config/block/<platform>/<name>`): a write is checked against the plugin's schema, as every
+  save is, applies at once and the plugin reloads. For a
   block with a `devices` list keyed by MAC address there are `updateDevices`, `updateDevice`, `putDevice` and
   `findDevice`; `poll(refresh)` refreshes while the page is visible, and `renderKeyed` redraws only the cards whose item
   changed.

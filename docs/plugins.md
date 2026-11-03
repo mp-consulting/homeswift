@@ -215,17 +215,25 @@ identity and pairing, like Homebridge's. A block with `"_paused": true` is **pau
 run, so nothing reaches its devices or their cloud (an iOS app sharing the account keeps its session), and its
 accessories stay in HomeKit, with their rooms and automations, answering No Response until it resumes (reads,
 writes, identify and snapshots fail without reaching the plugin's handlers: `Accessory.isUnavailable`).
-`"_hiddenFromHomeKit": [ids]` keeps the block's accessories with these ids out of the Home app (the web UI's **Visible in Home app**, MCP's
-`set_homekit_visibility`): they stay on the bridge for the web UI, the MCP server and Matter, so a Matter device of its
-own can be in Apple Home through Matter alone. Changing the list does not reload the plugin.
-`"_accessories": { "<Device Id>": { "name": "Desk" } }` renames an accessory, in the Home app too (the web UI's
-**Rename**, MCP's `rename_accessory`). The Device Id is the accessory's id after `<platform>:` (its whole id without
-that prefix). The runtime puts the name on Accessory Information's Name and on the services named after the accessory
+`"_accessories": { "<key>": { … } }` holds the block's Accessory Settings (GLOSSARY.md;
+docs/adr/0001-canonical-accessory-settings.md, 0003-room-and-visibility-in-accessory-settings.md), keyed by Device Id, or
+for a device's other accessories by their Accessory Id without `<platform>:` (`<deviceID>:<more>`). The Core Accessory
+Settings are `name`, `room` (`""` for none), `hidden` (off the web UI's wall), `notInHome` (out of the Home app),
+`excluded` and `parts` (`{ "SideDoor": false }`); the other keys are the plugin's own (its Plugin Accessory Settings,
+declared in its schema's `accessorySchema`). `name`, `room`, `hidden` and `notInHome` apply without reloading the
+plugin, which never sees them; `excluded`, `parts` and the plugin's own reload it. The web UI's settings and MCP's
+`get_settings`/`update_settings` read and write them, checked against the schema.
+`notInHome` keeps the accessory out of the Home app (the web UI's **Visible in Home app**): it stays on the bridge for the
+web UI, the MCP server and Matter, so a Matter device of its own can be in Apple Home through Matter alone. An older
+`"_hiddenFromHomeKit": [ids]` list still applies, and moves into `_accessories` with the block's next settings write.
+`name` renames an accessory, in the Home app too (the web UI's **Rename**). The runtime puts the name on Accessory
+Information's Name and on the services named after the accessory
 (`Dyson` and `Dyson Temperature` become `Desk` and `Desk Temperature`), and gives the primary service a Configured
 Name if it has none: the Home app keeps its own name for a paired accessory and does not follow Name, but it follows
 Configured Name and writes it when someone renames the accessory there, which the bridge keeps in `_accessories` too.
 Aids and iids stay, and a rename does not reload the plugin; without the name, the plugin's names come back. A plugin
 does nothing for it, but should not set Name or Configured Name again on its own after adding an accessory.
+`bridge.roomSync` is Room Sync (GLOSSARY.md), which needs no restart.
 `disabledPlugins` lists platform names to skip; their accessories leave HomeKit. Homebridge's `accessories`
 blocks are not supported.
 
@@ -343,10 +351,14 @@ settings it brings and reloads the plugin; the web UI's **Add accessories** page
   Authorization is what tells it (a TV's MAC, read once paired). Credentials kept means Authorized: keep none for an
   account or a device that is not, or answer `accountAuthorized()` when the plugin keeps its tokens itself.
 - **Accessory Settings** live in the block's `_accessories`, by Device Id (docs/adr/0001-canonical-accessory-settings.md):
-  `excluded` and `name` for every plugin, the rest the plugin's own (`context.accessorySettings(for:)`, `decode`). An
+  the Core ones for every plugin (`name`, `room`, `hidden`, `notInHome`, `excluded`, `parts`; the plugin sees `excluded`
+  and `parts`, the others apply without it), the rest the plugin's own, declared in its schema's `accessorySchema`
+  ([Settings](#settings)) and read with `context.accessorySettings(for:)` and `decode`. An
   Excluded device is never an accessory: the runtime refuses its `add` and takes it off the bridge, and the plugin should
   stop polling it (`context.isExcluded`). A Homebridge-shaped block (a `devices` list, exclude lists) still loads: read
-  both, the Setup's first.
+  both, the Setup's first, and turn it into the canonical shape in `canonicalSettings` ([Settings](#settings)).
+- **`DiscoveredDevice.kind`**: its Device Kind (`camera`, `sensor`), which decides the Plugin Accessory Settings the
+  editor shows for it (`x-kinds`).
 - **Parts.** A device that brings things a person may leave out (a UA Gate's side door, a door's position sensor, a
   doorbell) lists them in `DiscoveredDevice.parts` (`DevicePart(id, name:, icon:, included:)`). Add accessories shows
   each with a switch under its device; the choice goes in the device's Accessory Settings' `parts` (`{ "SideDoor": false }`),
@@ -356,6 +368,53 @@ settings it brings and reloads the plugin; the web UI's **Add accessories** page
   block's own list (a TV's `ip`, a Wingman's `host`) is a device `discover()` lists by that address, and its Setup
   keeps it under the Device Id the Authorization reads.
 - **Its page** leads to Setup (`homeswift.setupCard`, docs/ui.md) rather than signing in or pairing itself.
+
+### Settings
+
+A plugin's `config.schema.json` declares every setting it stores (docs/adr/0002-schema-declares-every-setting.md): its
+Plugin Settings under `schema`, as Homebridge's, and its Plugin Accessory Settings under `accessorySchema`, whose
+`properties` are JSON schemas of the same kind, one per key of an accessory's entry in `_accessories`:
+
+```json
+{
+  "pluginAlias": "UniFiProtect",
+  "schema": { "type": "object", "properties": { "motionDuration": { "type": "integer", "title": "Motion duration", "description": "…" } } },
+  "accessorySchema": {
+    "properties": {
+      "motionDuration": {
+        "type": "integer", "minimum": 1, "title": "Motion duration", "description": "Seconds a motion event lasts for this camera",
+        "x-kinds": ["camera"], "x-default": "motionDuration"
+      },
+      "offset": { "type": "number", "minimum": -5, "maximum": 5, "title": "Temperature offset", "description": "Added to the sensor's reading" }
+    }
+  },
+  "i18n": { "fr": { "Motion duration": "Durée d'un mouvement", "…": "…" } }
+}
+```
+
+- `x-kinds` (optional): the Device Kinds the field is for; the editor shows it only for a device of one of them, and the
+  settings writers refuse it for another. Without it the field is every accessory's.
+- `x-default` (optional): the Plugin Setting that is the field's plugin-wide default; an accessory's own value overrules
+  it. `get_settings` gives it as `default: {setting, value}`.
+- A field's `title`, `description` and choices are translated from the schema's `i18n`, as the main schema's are
+  (`TranslationTests` checks both). A field named like a Core Accessory Setting (`name`, `room`, `hidden`, `notInHome`,
+  `excluded`, `parts`) or starting with `_` is not allowed (`HomeswiftCatalog.accessorySchemaProblems`).
+
+Every write of a setting is checked against it: `update_settings` and the web UI's settings refuse a key the schema does
+not declare, while the raw config tools (`patch_config`, `update_config`, the config.json editor) let an undeclared key
+in `_accessories` through, so a block written before still saves, and check what is declared. `get_plugin_config_schema`
+and `GET /api/plugins/<platform>/schema` give `accessorySchema` with the rest.
+
+Two hooks, both optional, help the settings editor and the writers:
+
+- **`deviceKind(of deviceID:) async -> String?`**: the Device Kind of one of the running instance's devices, for the
+  fields to show (`x-kinds`). nil (the default) falls back on the kind the last discovery gave (`DiscoveredDevice.kind`).
+- **`canonicalSettings(_ block: JSONValue) async -> JSONValue`**: the block in its canonical shape. The bridge asks the
+  running instance just before each settings write to the block (`update_settings` and the web UI's settings, Setup's
+  last step, Exclude and Include) and writes what it answers. Turn the plugin's Homebridge shapes (a `devices` list,
+  exclude lists by name or id, typed arrays, feature-option strings) into Accessory Settings in `_accessories` by Device
+  Id and declared Plugin Settings, and drop the legacy keys; it may use what the plugin knows now (its devices' names,
+  to read a list of names). Leave what it cannot read as it is. The default answers the block unchanged.
 
 ### Web pages
 
@@ -406,8 +465,8 @@ scene allows in `PluginScene.capabilities` (`rename`, `update`, `delete`) and it
 can keep them "as they are". Write, then read the hub back: it stays the only keeper. Hue (`HueScenes.swift`) and
 DIRIGERA (`DirigeraScenes.swift`, from lpgera/dirigera) do.
 
-A hub that keeps rooms can follow Homeswift's: with the layout's `syncRoomNames` on (the Accessories page's **Rename
-on the hubs too**), a room renamed in Homeswift is renamed on the hubs. `rooms()` lists the hub's rooms as `PluginRoom`
+A hub that keeps rooms can follow Homeswift's: with Room Sync on (`bridge.roomSync`, the Accessories page's **Sync rooms
+with the hubs**), a room renamed in Homeswift is renamed on the hubs. `rooms()` lists the hub's rooms as `PluginRoom`
 (its id, name, and `place` when the instance has several hubs or homes); Homeswift calls it only on a rename, so it may
 ask the hub. `renameRoom(id:name:)` renames one; Homeswift picks those named as the room was, case and accents aside,
 and logs what each did. Hue (`HueRooms.swift`, rooms but not zones), DIRIGERA (`DirigeraRooms.swift`, from
@@ -436,14 +495,15 @@ and `stop_scene` puts them back, as after any scene.
 public static let assistantActions = [
     AssistantAction(
         name: "probe", title: "Check an address",
-        description: "Asks the light at an address who it is. Add it with put_list_entry (platform ElgatoKeyLights, list devices, match mac).",
+        description: "Asks the light at an address who it is. Add it to the block's devices with update_settings (plugin ElgatoKeyLights).",
         path: "probe", access: .read,
         inputSchema: ["type": "object", "required": ["host"], "properties": ["host": ["type": "string"]]]),
 ]
 ```
 
 The description is the model's only guide: say what comes back and which tool writes it into config.json
-(`put_list_entry` adds or replaces one entry of a list, keyed by `mac` unless told otherwise). Secrets in
+(`update_settings`, by accessory for its Accessory Settings or by plugin for Plugin Settings; it merges objects key by key
+and replaces a list whole, so a list is read with `get_settings` first). Secrets in
 the answer reach the model as handles it passes on without reading (`docs/ai.md`).
 
 `assistantBackground` is what the Assistant should know to explain the plugin's errors: what its error
