@@ -19,7 +19,8 @@ extension DolphinPoolCleanerPlugin {
 
     /// A refresh token, or an email and a password, in the vault or the block.
     var hasAccount: Bool {
-        storedRefreshToken != nil || configuration.refreshToken.nonEmpty != nil || (accountEmail != nil && accountPassword != nil)
+        let account = accountSettings()
+        return account.refreshToken.nonEmpty != nil || (account.email != nil && account.password != nil)
     }
 
     public func discover() async throws -> [DiscoveredDevice] {

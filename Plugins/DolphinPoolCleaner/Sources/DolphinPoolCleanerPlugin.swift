@@ -160,8 +160,7 @@ public actor DolphinPoolCleanerPlugin: HomeswiftPlugin {
         cloud = nil
         // `stop()` may have run meanwhile: it found no cloud to close, so none must open.
         guard !shuttingDown else { throw CancellationError() }
-        let settings = AccountSettings(
-            email: accountEmail, password: accountPassword, refreshToken: storedRefreshToken ?? configuration.refreshToken, iotRegion: configuration.iotRegion)
+        let settings = accountSettings()
         let cloud = dependencies.makeCloud?(settings, logger)
             ?? MaytronicsCloud(settings: settings, transport: dependencies.transport, mqtt: dependencies.mqtt, timing: dependencies.timing, logger: logger)
         self.cloud = cloud

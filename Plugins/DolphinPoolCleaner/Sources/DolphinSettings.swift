@@ -27,15 +27,18 @@ extension DolphinPoolCleanerPlugin {
             enableFilterStatus: own?.enableFilterStatus ?? legacy?.enableFilterStatus)
     }
 
-    /// The account's email: the one Setup kept in the vault, else a Homebridge block's.
-    var accountEmail: String? {
-        context.credentials()?["email"]?.stringValue.nonEmpty ?? configuration.email.nonEmpty
+    /// The account's sign-in, from one read of the vault: the email, password and refresh token Setup (or
+    /// `canonicalSettings`) kept there, else a Homebridge block's.
+    func accountSettings() -> AccountSettings {
+        let held = context.credentials()
+        func kept(_ key: String) -> String? { held?[key]?.stringValue.nonEmpty }
+        return AccountSettings(
+            email: kept("email") ?? configuration.email.nonEmpty, password: kept("password") ?? configuration.password.nonEmpty,
+            refreshToken: kept("refreshToken") ?? configuration.refreshToken, iotRegion: configuration.iotRegion)
     }
 
-    /// The password a Homebridge block gave, which `canonicalSettings` moved into the vault, else the block's own.
-    var accountPassword: String? {
-        context.credentials()?["password"]?.stringValue.nonEmpty ?? configuration.password.nonEmpty
-    }
+    /// The account's email: the one Setup kept in the vault, else a Homebridge block's.
+    var accountEmail: String? { accountSettings().email }
 
     /// The account's keys of a block and the vault's fields they go in.
     static let credentialKeys = ["email", "password", "refreshToken"]
