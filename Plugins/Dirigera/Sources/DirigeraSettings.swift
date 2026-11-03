@@ -39,19 +39,36 @@ extension DirigeraPlugin {
     /// The block in its canonical shape, from what the hubs gave at their last read: `excludeDevices` and `excludeScenes`
     /// as Excluded devices and scenes (a part's name or id excludes its product), the Excluded scenes accessory of a hub
     /// (`scenes:<host>`, before each scene was a device of its own) as each of its scenes Excluded, and each hub's
-    /// `token` dropped once the vault holds the hub's (moved there when it is only in config.json).
+    /// `token` dropped once the vault holds the hub's: one only config.json holds moves there once the block is written
+    /// (`whenSettingsWritten`), the block answered as if it had.
     public func canonicalSettings(_ block: JSONValue) async -> JSONValue {
-        // A token config.json holds goes into the plugin's vault entry first: the block may only name it (a `vault:`
-        // reference, a sealed copy), the running configuration has it resolved.
+        // The block may only name a token (a `vault:` reference, a sealed copy): the running configuration has it resolved.
         stored = store.load() ?? stored
+        var moving: [String: String] = [:]
         for hub in configuration.hubs ?? [] {
             let host = hub.host.trimmingCharacters(in: .whitespaces)
             if stored[host]?.token == nil, let token = hub.token?.trimmingCharacters(in: .whitespaces), !token.isEmpty {
-                keep(token: token, fingerprint: nil, for: host)
+                moving[host] = token
+            }
+        }
+        if !moving.isEmpty {
+            let store = store, moving = moving
+            await context.whenSettingsWritten { [weak self] in
+                // What the vault has by then (a fingerprint the trust saved, a token Setup kept) is kept.
+                var hubs = store.load() ?? [:]
+                for (host, token) in moving where hubs[host]?.token == nil { hubs[host, default: StoredHub()].token = token }
+                try store.save(hubs)
+                await self?.reloadStored()
             }
         }
         let known = hubs.mapValues { (devices: Array($0.devices.values), scenes: $0.scenes) }
-        return Self.canonical(block, hubs: known, vaultHas: Set(stored.filter { $0.value.token != nil }.keys))
+        let vaultHas = Set(stored.filter { $0.value.token != nil }.keys).union(moving.keys)
+        return Self.canonical(block, hubs: known, vaultHas: vaultHas)
+    }
+
+    /// The hubs as the vault keeps them now.
+    func reloadStored() {
+        stored = store.load() ?? stored
     }
 
     /// `hubs`: each hub's devices and scenes by host; `vaultHas`: the hosts whose token the vault keeps.

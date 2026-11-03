@@ -775,6 +775,25 @@ struct DirigeraSetupTests {
         await host.stop()
     }
 
+    /// Asked for the canonical block (a dry run asks too), the plugin moves nothing: the token reaches the vault only once
+    /// the block is written (`whenSettingsWritten`), the block answered as if it had.
+    @Test func canonicalSettingsMovesTheTokenOnlyOnceWritten() async throws {
+        let host = try await environment.start()
+        _ = try await accessory(host, scenesID)
+        let block = try JSONValue(any: ["platform": "Dirigera", "name": "IKEA DIRIGERA", "hubs": [["host": "192.0.2.20", "token": FakeHub.token]]] as [String: Any])
+        let vault = CredentialVault(storage: environment.directory)
+        func vaultHasToken() throws -> Bool {
+            try vault.names().contains { $0.hasPrefix("plugin.") && $0.hasSuffix(".hubs.json") && (try? vault.entry(named: $0)?.fields["token"]?.contains(FakeHub.token)) == true }
+        }
+        let (canonical, whenWritten): (block: JSONValue, whenWritten: SettingsWrite.Effects) =
+            await host.canonicalSettings(platform: DirigeraPlugin.platform, name: DirigeraPlugin.name, block: block)
+        #expect(canonical["hubs"]?.arrayValue?.first?["token"] == nil)
+        #expect(try !vaultHasToken())
+        try await whenWritten.run()
+        #expect(try vaultHasToken())
+        await host.stop()
+    }
+
     /// The token pairing kept wins over one config.json still has. Read on a plugin made for Setup and never started: a
     /// running one would try the stale token on the hub, be refused and drop the token.
     @Test func theVaultsTokenWinsOverConfigJSONs() async throws {
