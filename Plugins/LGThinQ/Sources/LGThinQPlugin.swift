@@ -6,9 +6,9 @@ import Logging
 
 /// LG ThinQ appliances through LG's cloud, as `homebridge-lg-thinq` does: air conditioners, air purifiers and
 /// the AeroTower, refrigerators, washers, dryers and WashTowers, dishwashers, dehumidifiers, ovens, microwaves,
-/// range hoods and stylers, on ThinQ v2 (pushed over AWS IoT MQTT) and ThinQ v1 (polled). The configuration is
-/// the Homebridge plugin's; the sign-in is Setup's (LGSetup.swift), the devices and their options are on the plugin's page
-/// in the web UI. See README.md.
+/// range hoods and stylers, on ThinQ v2 (pushed over AWS IoT MQTT) and ThinQ v1 (polled). A Homebridge block loads as
+/// it is; the sign-in is Setup's (LGSetup.swift), each appliance's options are its Accessory Settings (LGSettings.swift),
+/// edited on the plugin's Settings page. See README.md.
 public actor LGThinQPlugin: HomeswiftPlugin {
     public static let platform = "LGThinQ"
     public static let icon: String? = "logo-lg"
@@ -68,14 +68,15 @@ public actor LGThinQPlugin: HomeswiftPlugin {
     /// The page's routes: `GET account` is the sign-in's state (whether the block signs in, its region and way), `GET
     /// devices` what this instance runs, `GET account-devices` every device of the account the instance signed in with
     /// (for the Assistant too, which never holds the refresh token). Signing in is Setup's (LGSetup.swift), which the page
-    /// leads to. The page saves the block itself, and restarts through the UI's own API.
+    /// leads to. The page writes no settings: they are the Settings page's (docs/adr/0002-schema-declares-every-setting.md).
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
         switch (request.method, request.path) {
         case ("GET", "account"):
             let text = { (value: String?) -> JSONValue in value.flatMap { $0.isEmpty ? nil : JSONValue.string($0) } ?? .null }
             return PluginWebResponse([
                 "authorized": .bool(await accountAuthorized() == true), "authMode": .string(configuration.auth_mode == "account" ? "account" : "token"),
-                "country": text(configuration.country), "language": text(configuration.language), "username": text(configuration.username),
+                "country": text(configuration.country), "language": text(configuration.language),
+                "username": text(context.credentials(as: StoredToken.self)?.username ?? configuration.username),
             ])
         case ("GET", "devices"):
             let devices = await platformInstance?.webDevices() ?? []
@@ -176,6 +177,7 @@ extension LGThinQPlatform {
         guard !stopped else { return nil }
         if (try? await thinq.isReady()) == nil { return nil }
         let listing = await thinq.deviceListing()
+        remember(listing)
         if listing.devices.isEmpty, !listing.complete { return nil }
         let configured = Set(configuredDevices.compactMap(\.id))
         let devices = listing.devices.sorted { $0.name < $1.name }.map { device -> JSONValue in
@@ -183,7 +185,8 @@ extension LGThinQPlatform {
                 "id": .string(device.id), "name": .string(device.name), "type": .string(device.type), "model": .string(device.model),
                 "platform": .string(device.platform ?? ""), "online": .bool(device.online),
                 "supported": .bool(DeviceRegistry.handler(for: device.type, platform: device.platform) != nil),
-                "configured": .bool(configuredDevices.isEmpty || configured.contains(device.id)), "running": .bool(handlers[device.id] != nil),
+                "configured": .bool(configuredDevices.isEmpty || configured.contains(device.id)), "excluded": .bool(context.isExcluded(device.id)),
+                "running": .bool(handlers[device.id] != nil), "accessory": .string("\(BaseDevice.platformPrefix):\(device.id)"),
             ]
         }
         return (devices, listing.complete)

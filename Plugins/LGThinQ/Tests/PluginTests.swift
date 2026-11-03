@@ -60,17 +60,21 @@ import _CryptoExtras
         #expect(LGThinQPlugin.webFiles["index.html"]?.contentType == "text/html; charset=utf-8")
     }
 
-    /// Every type with options of its own has fields on the settings page: AERO_TOWER and WASH_TOWER_2 too.
-    @Test func thePageHasFieldsForEveryTypeWithOptions() throws {
-        let script = try #require(LGThinQPlugin.webFiles["app.js"]?.body)
-        for (type, descriptor) in DeviceRegistry.descriptors where !descriptor.defaults.isEmpty {
-            #expect(script.contains("\(type):") || script.contains("\"\(type)\"") || script.contains("DEVICE_TYPE_FIELDS.\(type) ="), "\(type) has no fields on the page")
-            for key in descriptor.defaults.keys where key != "ac_buttons" {
-                #expect(script.contains("key: \"\(key)\""), "\(key) has no field on the page")
+    /// Every type's options are Plugin Accessory Settings of its Device Kind (`x-kinds`), AERO_TOWER and WASH_TOWER_2 too;
+    /// the account's keys and the Homebridge devices list are no Plugin Settings.
+    @Test func theSchemaDeclaresEveryTypesOptions() throws {
+        let schema = try JSONValue(string: try #require(LGThinQPlugin.configurationSchemaJSON))
+        let fields = try #require(schema["accessorySchema"]?["properties"]?.objectValue)
+        #expect(Set(fields.keys) == LGThinQPlugin.accessoryKeys)
+        for (type, descriptor) in DeviceRegistry.descriptors {
+            for key in descriptor.defaults.keys {
+                let kinds = fields[key]?["x-kinds"]?.arrayValue?.compactMap(\.stringValue) ?? []
+                #expect(kinds.contains(type), "\(key) is not declared for \(type)")
             }
         }
-        #expect(script.contains("DEVICE_TYPE_FIELDS.AERO_TOWER = DEVICE_TYPE_FIELDS.AIR_PURIFIER"))
-        #expect(script.contains("\"WASH_TOWER_2\""))
+        #expect(fields["serial_number"]?["x-kinds"] == nil)
+        let properties = try #require(schema["schema"]?["properties"]?.objectValue)
+        #expect(Set(properties.keys) == ["name", "auth_mode", "country", "language", "thinq1", "refresh_interval"])
     }
 
     /// The Assistant's background (homebridge-ui/assistant.js), with the port's files and messages.
