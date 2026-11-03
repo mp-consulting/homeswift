@@ -3943,19 +3943,11 @@ select option:disabled { color: var(--muted); }
 .scene.light:not(.pictured) .eye { background: rgba(255, 255, 255, 0.55); color: #1d1d1f; }
 .scene.light:not(.pictured) .badge { background: #1d1d1f; color: #fff; }
 
-/* The transition's speed scale, the devices left out of the Home app, and the save bar. */
+/* A range's head, and the Excluded devices of the lighting pages. */
 .range-head { display: flex; align-items: baseline; gap: var(--space-10); flex-wrap: wrap; }
-.range-head output { font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
-.field input.speed { width: 100%; }
-.speed-scale { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); margin: var(--space-4) 0 2px; font-size: var(--text-xs); color: var(--muted); text-align: center; }
-.speed-scale span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 2px; border-left: 1px solid var(--line); }
-.speed-scale span:first-child { border-left: 0; }
 .hidden-devices { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); margin-top: var(--space-14); font-size: var(--text-md); }
 .hidden-devices:empty { display: none; }
 
-@media (max-width: 640px) {
-  .speed-scale { display: none; }
-}
 @media (prefers-reduced-motion: reduce) {
   .tab-pane { animation: none; }
   .scene { transition: none; }

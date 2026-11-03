@@ -860,8 +860,8 @@ Plugins/<Name>/Web Plugins/<Name>/Sources/WebFiles.swift <Type>` (a test checks 
   there: `homeswift.settingsAddress` is the instance's Settings, `homeswift.accessorySettings(accessoryID)` one
   accessory's there (`?accessory=`, its Accessory Settings over the page: its Name, room, Excluded and the plugin's own),
   and `homeswift.scenePictures({ settings })` gives a scene tile's menu the link. `poll(refresh)` refreshes while the
-  page is visible, `renderKeyed` redraws only the cards whose item changed, and `canonicalMAC`, `isMAC` and `sameMAC`
-  compare MAC addresses however they are spelled.
+  page is visible, `renderKeyed` redraws only the cards whose item changed, and `canonicalMAC` spells a MAC address as the
+  server does.
 - **Setup.** A page signs in and pairs nowhere: `homeswift.setupCard({ title, text, glyph, tone, start })` is a card
   whose button opens the instance's row on Add accessories (`homeswift.setupAddress({ start })`, `/setup?start#<slug>`;
   with `start`, its account's Setup sheet opens there), for a page whose account or hub is not set up yet or a "Sign in

@@ -3668,7 +3668,9 @@
             };
             rows.push(entry);
             list.append(row);
-            ordered();
+            // Only the row before it changes (its Move down turns on): not every row again for each one a list opens with.
+            rows.at(-2)?.placed?.(rows.length - 2);
+            entry.placed(rows.length - 1);
             return;
           }
           const row = el("div", { class: "item" });

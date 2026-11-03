@@ -290,8 +290,6 @@
       ? octets.map((octet) => octet.padStart(2, "0")).join("") : text.replace(/[:\-. ]/g, "");
     return /^[0-9a-f]{12}$/i.test(digits) ? digits.toUpperCase().replace(/(..)(?!$)/g, "$1:") : text.toUpperCase();
   }
-  const isMAC = (mac) => /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(canonicalMAC(mac));
-  const sameMAC = (a, b) => canonicalMAC(a) === canonicalMAC(b);
 
   /// Calls `refresh` now and every `interval` while the page is visible.
   function poll(refresh, interval = 2000) {
@@ -374,40 +372,6 @@
     const dark = Math.min(...under.map((l) => (l + 0.05) / 0.062));
     if (Math.max(white, dark) < 4.5) return "deep";
     return dark > white ? "light" : "";
-  }
-
-  // The transition as a 12-step speed scale, slowest first; the block keeps its milliseconds (`transitionMs`), a
-  // value between steps showing as the nearest. Step 9, 100 ms, is the default.
-  const speedSteps = [2000, 1500, 1000, 800, 600, 400, 300, 200, 100, 60, 30, 0];
-  const stepFor = (ms) => speedSteps.reduce((best, value, index) => Math.abs(value - ms) < Math.abs(speedSteps[best] - ms) ? index : best, 0) + 1;
-
-  /// The Transition field: a slider over the speed scale, its reading, the scale's names under it and `help`.
-  /// `onInput` runs when a person moves it. Answers `{ element, set(ms), value() }`: `set` shows a duration (100 ms
-  /// when none) without calling `onInput`, `value` answers the chosen one in milliseconds.
-  function speedScale({ help, onInput } = {}) {
-    const names = [[2, t("Very slow")], [4, t("Slow")], [7, t("Medium")], [9, t("Fast")], [11, t("Very fast")], [12, t("Extreme")]];
-    const nameOf = (step) => names.find(([last]) => step <= last)[1];
-    const reading = el("output");
-    const slider = el("input", { type: "range", class: "speed", min: 1, max: 12, step: 1, "aria-label": t("Transition") });
-    const show = () => {
-      const step = Number(slider.value);
-      const ms = speedSteps[step - 1];
-      reading.textContent = ms === 0 ? t("{speed} · at once", { speed: nameOf(step) }) : t("{speed} · {ms} ms", { speed: nameOf(step), ms });
-      slider.setAttribute("aria-valuetext", reading.textContent);
-    };
-    slider.addEventListener("input", () => { show(); onInput?.(); });
-    // The names under the scale, each as wide as its steps.
-    const scale = el("div", { class: "speed-scale", "aria-hidden": "true" }, names.map(([last, text], index) =>
-      el("span", { text, style: `grid-column: span ${last - (names[index - 1]?.[0] ?? 0)}` })));
-    const element = el("label", { class: "field" },
-      el("span", { class: "range-head" }, el("span", { class: "field-title", text: t("Transition") }), reading), slider, scale,
-      help ? el("span", { class: "help", text: help }) : null);
-    show();
-    return {
-      element,
-      set(ms) { slider.value = stepFor(ms ?? 100); show(); },
-      value: () => speedSteps[Number(slider.value) - 1],
-    };
   }
 
   // A picture a person gave a scene takes no drop outside a tile, so one dropped beside a tile does not open.
@@ -719,7 +683,7 @@
   window.homeswift = {
     platform, name, request, home: "/plugins", $, el, icon, tile, fact, assistant, explain, ask, breadcrumb, api, act, formatTemperature, temperature,
     settingsAddress, accessorySettings, drawHidden, poll, renderKeyed,
-    canonicalMAC, isMAC, sameMAC, tabs, textStyle, speedScale, scenePictures, finder,
+    canonicalMAC, tabs, textStyle, scenePictures, finder,
     setupAddress, setupCard,
   };
 })();

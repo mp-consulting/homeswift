@@ -5532,7 +5532,9 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             };
             rows.push(entry);
             list.append(row);
-            ordered();
+            // Only the row before it changes (its Move down turns on): not every row again for each one a list opens with.
+            rows.at(-2)?.placed?.(rows.length - 2);
+            entry.placed(rows.length - 1);
             return;
           }
           const row = el("div", { class: "item" });
@@ -14815,14 +14817,6 @@ HomeswiftI18n.add("es", {
   "Your user key and an application token from pushover.net.": "Tu clave de usuario y un token de aplicación de pushover.net.",
   "your username adds nothing": "tu nombre de usuario no aporta nada",
 
-  "Very slow": "Muy lenta",
-  "Slow": "Lenta",
-  "Fast": "Rápida",
-  "Very fast": "Muy rápida",
-  "Extreme": "Extrema",
-  "{speed} · at once": "{speed} · inmediata",
-  "{speed} · {ms} ms": "{speed} · {ms} ms",
-  "Transition": "Transición",
   "This file is not a picture.": "Este archivo no es una imagen.",
   "Change the picture…": "Cambiar la imagen…",
   "Choose a picture…": "Elegir una imagen…",
@@ -17571,14 +17565,6 @@ HomeswiftI18n.add("fr", {
   "Your user key and an application token from pushover.net.": "Votre clé utilisateur et un jeton d'application de pushover.net.",
   "your username adds nothing": "votre nom d'utilisateur n'apporte rien",
 
-  "Very slow": "Très lente",
-  "Slow": "Lente",
-  "Fast": "Rapide",
-  "Very fast": "Très rapide",
-  "Extreme": "Extrême",
-  "{speed} · at once": "{speed} · immédiate",
-  "{speed} · {ms} ms": "{speed} · {ms} ms",
-  "Transition": "Transition",
   "This file is not a picture.": "Ce fichier n'est pas une image.",
   "Change the picture…": "Changer l'image…",
   "Choose a picture…": "Choisir une image…",
@@ -20327,14 +20313,6 @@ HomeswiftI18n.add("pt", {
   "Your user key and an application token from pushover.net.": "A chave de utilizador e um token de aplicação de pushover.net.",
   "your username adds nothing": "o nome de utilizador não acrescenta nada",
 
-  "Very slow": "Muito lenta",
-  "Slow": "Lenta",
-  "Fast": "Rápida",
-  "Very fast": "Muito rápida",
-  "Extreme": "Extrema",
-  "{speed} · at once": "{speed} · imediata",
-  "{speed} · {ms} ms": "{speed} · {ms} ms",
-  "Transition": "Transição",
   "This file is not a picture.": "Este ficheiro não é uma imagem.",
   "Change the picture…": "Alterar a imagem…",
   "Choose a picture…": "Escolher uma imagem…",
@@ -21893,8 +21871,6 @@ HomeswiftI18n.add("pt", {
       ? octets.map((octet) => octet.padStart(2, "0")).join("") : text.replace(/[:\-. ]/g, "");
     return /^[0-9a-f]{12}$/i.test(digits) ? digits.toUpperCase().replace(/(..)(?!$)/g, "$1:") : text.toUpperCase();
   }
-  const isMAC = (mac) => /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(canonicalMAC(mac));
-  const sameMAC = (a, b) => canonicalMAC(a) === canonicalMAC(b);
 
   /// Calls `refresh` now and every `interval` while the page is visible.
   function poll(refresh, interval = 2000) {
@@ -21977,40 +21953,6 @@ HomeswiftI18n.add("pt", {
     const dark = Math.min(...under.map((l) => (l + 0.05) / 0.062));
     if (Math.max(white, dark) < 4.5) return "deep";
     return dark > white ? "light" : "";
-  }
-
-  // The transition as a 12-step speed scale, slowest first; the block keeps its milliseconds (`transitionMs`), a
-  // value between steps showing as the nearest. Step 9, 100 ms, is the default.
-  const speedSteps = [2000, 1500, 1000, 800, 600, 400, 300, 200, 100, 60, 30, 0];
-  const stepFor = (ms) => speedSteps.reduce((best, value, index) => Math.abs(value - ms) < Math.abs(speedSteps[best] - ms) ? index : best, 0) + 1;
-
-  /// The Transition field: a slider over the speed scale, its reading, the scale's names under it and `help`.
-  /// `onInput` runs when a person moves it. Answers `{ element, set(ms), value() }`: `set` shows a duration (100 ms
-  /// when none) without calling `onInput`, `value` answers the chosen one in milliseconds.
-  function speedScale({ help, onInput } = {}) {
-    const names = [[2, t("Very slow")], [4, t("Slow")], [7, t("Medium")], [9, t("Fast")], [11, t("Very fast")], [12, t("Extreme")]];
-    const nameOf = (step) => names.find(([last]) => step <= last)[1];
-    const reading = el("output");
-    const slider = el("input", { type: "range", class: "speed", min: 1, max: 12, step: 1, "aria-label": t("Transition") });
-    const show = () => {
-      const step = Number(slider.value);
-      const ms = speedSteps[step - 1];
-      reading.textContent = ms === 0 ? t("{speed} · at once", { speed: nameOf(step) }) : t("{speed} · {ms} ms", { speed: nameOf(step), ms });
-      slider.setAttribute("aria-valuetext", reading.textContent);
-    };
-    slider.addEventListener("input", () => { show(); onInput?.(); });
-    // The names under the scale, each as wide as its steps.
-    const scale = el("div", { class: "speed-scale", "aria-hidden": "true" }, names.map(([last, text], index) =>
-      el("span", { text, style: `grid-column: span ${last - (names[index - 1]?.[0] ?? 0)}` })));
-    const element = el("label", { class: "field" },
-      el("span", { class: "range-head" }, el("span", { class: "field-title", text: t("Transition") }), reading), slider, scale,
-      help ? el("span", { class: "help", text: help }) : null);
-    show();
-    return {
-      element,
-      set(ms) { slider.value = stepFor(ms ?? 100); show(); },
-      value: () => speedSteps[Number(slider.value) - 1],
-    };
   }
 
   // A picture a person gave a scene takes no drop outside a tile, so one dropped beside a tile does not open.
@@ -22322,7 +22264,7 @@ HomeswiftI18n.add("pt", {
   window.homeswift = {
     platform, name, request, home: "/plugins", $, el, icon, tile, fact, assistant, explain, ask, breadcrumb, api, act, formatTemperature, temperature,
     settingsAddress, accessorySettings, drawHidden, poll, renderKeyed,
-    canonicalMAC, isMAC, sameMAC, tabs, textStyle, speedScale, scenePictures, finder,
+    canonicalMAC, tabs, textStyle, scenePictures, finder,
     setupAddress, setupCard,
   };
 })();
@@ -27846,19 +27788,11 @@ select option:disabled { color: var(--muted); }
 .scene.light:not(.pictured) .eye { background: rgba(255, 255, 255, 0.55); color: #1d1d1f; }
 .scene.light:not(.pictured) .badge { background: #1d1d1f; color: #fff; }
 
-/* The transition's speed scale, the devices left out of the Home app, and the save bar. */
+/* A range's head, and the Excluded devices of the lighting pages. */
 .range-head { display: flex; align-items: baseline; gap: var(--space-10); flex-wrap: wrap; }
-.range-head output { font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
-.field input.speed { width: 100%; }
-.speed-scale { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); margin: var(--space-4) 0 2px; font-size: var(--text-xs); color: var(--muted); text-align: center; }
-.speed-scale span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 2px; border-left: 1px solid var(--line); }
-.speed-scale span:first-child { border-left: 0; }
 .hidden-devices { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); margin-top: var(--space-14); font-size: var(--text-md); }
 .hidden-devices:empty { display: none; }
 
-@media (max-width: 640px) {
-  .speed-scale { display: none; }
-}
 @media (prefers-reduced-motion: reduce) {
   .tab-pane { animation: none; }
   .scene { transition: none; }
