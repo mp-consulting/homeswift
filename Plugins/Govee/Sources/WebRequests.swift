@@ -14,11 +14,11 @@ extension GoveePlugin {
 
     /// The settings page's requests (`homebridge-ui/server.js`): `discover`, `test-login`, `cached-devices`,
     /// `clear-cache`, `scenes`, `diys`, `device-capabilities` and `scene-icons`, plus `devices`, the instance's
-    /// devices and how it reaches them. `Web/` is the page.
+    /// devices and how it reaches them. `Web/` is the page, which writes no settings: those are the Settings page's.
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
         switch request.path {
         case "devices":
-            return PluginWebResponse(["devices": .array(await deviceStatus())])
+            return PluginWebResponse(["devices": .array(await deviceStatus()), "signedIn": .bool(account != nil || accountLogin() != nil)])
         case "discover":
             return await discover(request.body)
         case "test-login":
@@ -53,6 +53,12 @@ extension GoveePlugin {
                 "ble": .string(device.transports.label(device.transports.hasBLE, device.transports.useBLE)),
             ]
             if let date = device.lastUpdate { entry["lastUpdate"] = .number((date.timeIntervalSince1970 * 1000).rounded()) }
+            // A light's scenes from its settings, by `<kind>:<sceneId>`, for the page's Scene Library.
+            let scenes = (deviceSettings[device.id]?["scenes"]?.arrayValue ?? []).compactMap { scene -> JSONValue? in
+                guard let id = scene["sceneId"].flatMap(Configuration.integer) else { return nil }
+                return .string("\(scene["kind"]?.stringValue ?? "scene"):\(id)")
+            }
+            if !scenes.isEmpty { entry["scenes"] = .array(scenes) }
             list.append(.object(entry))
         }
         return list
@@ -91,7 +97,7 @@ extension GoveePlugin {
     /// No login in the body, and none configured; or a username without its password.
     struct MissingCredentials: Error, CustomStringConvertible {
         var description: String
-        static let none = MissingCredentials(description: "Enter your Govee credentials in the Settings tab first.")
+        static let none = MissingCredentials(description: "Sign in to your Govee account on Add accessories first.")
         static let incomplete = MissingCredentials(description: "Username and password are required")
     }
 
@@ -154,8 +160,16 @@ extension GoveePlugin {
         }
     }
 
+    /// The devices found at the last start, each with whether it is on the bridge (`onBridge`) and left out (`excluded`:
+    /// Excluded, or by the block's own `ignoreDevice` or `ignoreMatter`).
     private func cachedDevices() -> [JSONValue] {
-        discovered.isEmpty ? discoveredFile.load() ?? [] : discovered
+        (discovered.isEmpty ? discoveredFile.load() ?? [] : discovered).map { item in
+            guard var entry = item.objectValue, let id = entry["deviceId"]?.stringValue else { return item }
+            entry["onBridge"] = .bool(devices[id] != nil)
+            entry["excluded"] = .bool(isIgnored(id, model: entry["model"]?.stringValue))
+            entry["kind"] = .string(Self.kind(ofModel: entry["model"]?.stringValue))
+            return .object(entry)
+        }
     }
 
     /// Forgets the kept token, the IoT certificate, the discovered devices and the devices' state.

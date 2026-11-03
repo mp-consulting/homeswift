@@ -8,9 +8,10 @@ extension GoveePlugin {
         "the Govee cloud's device list (\"httpRefreshTime\", default and minimum 30 s) refreshes sensors. LAN uses the Govee LAN API:",
         "multicast discovery on 239.255.255.250 (scan port 4001, replies on 4002, commands to port 4003); it needs the device on the same",
         "network or a \"customIPAddress\" plus a DHCP reservation across VLANs, and only models with LAN control turned on in the Govee app.",
-        "LAN and BLE work without Govee credentials; the cloud needs the Govee account email and password. The first login triggers",
-        "Govee's new-device check (app status 454): Govee emails a one-time verification code to enter in \"code\" (Verification Code),",
-        "then restart; \"the Govee verification code was not accepted\" means a wrong or expired code (clear it to get a new one). A login",
+        "LAN and BLE work without Govee credentials; the cloud needs the Govee account, signed in through Setup (Add accessories in the",
+        "web UI, start_setup for an AI agent), which keeps the email, the password and the login in the vault. The first login triggers",
+        "Govee's new-device check (app status 454): Govee emails a one-time verification code, which Setup asks for; \"the Govee",
+        "verification code was not accepted\" means a wrong or expired code (sign in again to get a new one). A login",
         "Homebridge kept in its govee_cache is imported at the first start (homebridgeStoragePath, else ~/.homebridge), so Govee does",
         "not ask again. \"Govee login failed: <message> (HTTP n)\" or \"without an account token\" usually means wrong credentials, or the",
         "account needs attention in the Govee Home app (verification, new terms). \"account token was rejected, logging in again\" is",
@@ -23,8 +24,13 @@ extension GoveePlugin {
         "Linux it uses the adapter hci0 (NOBLE_HCI_DEVICE_ID picks another) through a raw HCI socket, which needs root or CAP_NET_RAW,",
         "and finds devices by MAC address; \"Bluetooth not available on this system\" disables it. \"ignoreMatter\" skips Matter-capable",
         "models. Devices are identified by deviceId (colon-separated hex) and model (SKU such as H6159); \"is not currently supported\"",
-        "means an unknown model. The Scene Library falls back to a bundled catalogue without credentials. Never ask the user for their",
-        "password, verification code, tokens or API keys.",
+        "means an unknown model. The Scene Library falls back to a bundled catalogue without credentials. Settings are read with",
+        "get_settings and written with update_settings: by plugin for the connections, intervals and ignoreMatter; by accessory",
+        "(Govee:<deviceId>) for a device's Name, Excluded and its own settings, which depend on its Device Kind (light, switch, thermo,",
+        "leak, fan, heater, humidifier, dehumidifier, purifier, diffuser, kettle, iceMaker): showAs, a light's customIPAddress,",
+        "customAddress, brightnessStep, adaptiveLightingShift, aws* and lanScenes, scenes, musicModeLive and the scene slots, a plug's",
+        "temperatureSource, a sensor's lowBattThreshold, showExtraSwitch, hideLight, tempReporting, a kettle's hideMode*/showCustomMode*.",
+        "Never ask the user for their password, verification code, tokens or API keys.",
     ].joined(separator: " ")
 
     /// The page's routes for the Assistant: the instance's devices, the account's, scenes and DIY effects for a
@@ -32,32 +38,31 @@ extension GoveePlugin {
     public static let assistantActions: [AssistantAction] = [
         AssistantAction(
             name: "list_devices", title: "Look at the Govee devices",
-            description: "The devices this instance runs, by deviceId: name, model, the config.json list their entry goes in (list: lightDevices, "
-                + "switchDevices, thermoDevices…), kind, and for each way of reaching them (lan, aws, ble) enabled, disabled or unsupported; "
-                + "lastUpdate is when the device last reported, in milliseconds since 1970. A device that never reports, or has every way "
-                + "disabled or unsupported, cannot be controlled.",
+            description: "The devices this instance runs, by deviceId (the Device Id: the accessory is Govee:<deviceId>): name, model, the "
+                + "Homebridge list of its type (list: lightDevices, switchDevices, thermoDevices…), the handler it got (kind), for each way of "
+                + "reaching them (lan, aws, ble) enabled, disabled or unsupported, and a light's scenes in HomeKit (kind:sceneId); lastUpdate is "
+                + "when the device last reported, in milliseconds since 1970. A device that never reports, or has every way disabled or "
+                + "unsupported, cannot be controlled.",
             path: "devices", access: .read),
         AssistantAction(
             name: "discovered_devices", title: "Look at the discovered devices",
             description: "The devices the instance found at its last start, in the Govee account and on the LAN: deviceId, deviceName, model, "
-                + "deviceType (the config.json list for its entry) and ip when the LAN answered. Settings of a device go in an entry of that list "
-                + "written with update_settings (plugin {\"platform\": \"Govee\"}, settings {<deviceType>: [entries]}), e.g. {\"deviceId\", \"label\"}, or "
-                + "{\"deviceId\", \"customIPAddress\"} for a light the LAN scan does not reach, or {\"deviceId\", \"ignoreDevice\": true}. "
-                + "update_settings replaces the whole list: read it with get_settings first and keep its other entries and their keys.",
+                + "deviceType (the Homebridge list of its type), kind (its Device Kind), onBridge, excluded, and ip when the LAN answered. A device's "
+                + "settings are written with update_settings by accessory Govee:<deviceId>: name, excluded, or {\"customIPAddress\"} for a light the "
+                + "LAN scan does not reach; get_settings for the accessory lists the fields its kind has.",
             path: "cached-devices", access: .read),
         AssistantAction(
             name: "discover", title: "Ask Govee for the devices",
             description: "Asks Govee's cloud for the account's devices now (the instance's login): deviceId, deviceName, model, deviceType "
-                + "(the config.json list for its entry), goodsType, pactType, pactCode, versionSoft, versionHard. Fails without a username and "
-                + "password in the block.",
+                + "(the Homebridge list of its type), goodsType, pactType, pactCode, versionSoft, versionHard. Fails without a signed-in account.",
             path: "discover", access: .read),
         AssistantAction(
             name: "scenes", title: "Look at a light's scenes",
             description: "The scene library Govee offers for a light, by category: each scene has sceneId, name and code (and variants). source is "
                 + "cloud, or offline (the bundled library, with a warning) when Govee cannot be reached. The answer can be long. A scene becomes a "
-                + "HomeKit switch when it is in the light's scenes array: {\"name\", \"sceneCode\": code, \"sceneId\", \"kind\": \"scene\"} in its "
-                + "lightDevices entry, written with update_settings (plugin {\"platform\": \"Govee\"}, settings {\"lightDevices\": [entries]}), which replaces the whole list: "
-                + "read it with get_settings first and keep its other entries and keys.",
+                + "HomeKit switch when it is in the light's scenes, an Accessory Setting: {\"name\", \"sceneCode\": code, \"sceneId\", \"kind\": \"scene\"}, "
+                + "written with update_settings by accessory Govee:<deviceId>, which replaces the whole list: read it with get_settings first and "
+                + "keep its other scenes.",
             method: "POST", path: "scenes", access: .read,
             inputSchema: [
                 "type": "object", "required": ["deviceId", "model"],
@@ -79,8 +84,8 @@ extension GoveePlugin {
         AssistantAction(
             name: "clear_cache", title: "Forget the Govee login",
             description: "Deletes the kept login and AWS IoT certificate, the discovered devices and the devices' kept state, for a login that "
-                + "keeps failing or a changed account. The next start logs in again (Govee may email a verification code, which goes in the block's "
-                + "code option); restart the bridge afterwards.",
+                + "keeps failing or a changed account. The next start logs in again with the password the vault keeps (when Govee asks for a "
+                + "verification code, sign in again through Setup); restart the bridge afterwards.",
             method: "POST", path: "clear-cache", access: .configure, confirm: true),
     ]
 }
