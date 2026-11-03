@@ -65,7 +65,12 @@ extension WingmanPlugin {
     /// accessories (a name each accessory of that name), `excludeBridges` as Excluded bridges, and each `devices` entry of
     /// a Wingman whose token the vault keeps as its Accessory Settings (its name, host and port).
     public func canonicalSettings(_ block: JSONValue) async -> JSONValue {
-        let accessories = await candidates()
+        var accessories = await candidates()
+        // A name moves once every Wingman has read its homes: one not read yet may mirror an accessory of that name too.
+        for link in links.values where await link.candidates == nil {
+            accessories = []
+            break
+        }
         let ids = (block["devices"]?.arrayValue ?? []).compactMap { $0["id"]?.stringValue }.filter { !$0.isEmpty }
         let paired = Set(context.haveCredentials(ids.map(Optional.some)).compactMap(\.self))
         return Self.canonical(block, accessories: accessories.map { ($0.id, $0.name) }, bridges: accessories.compactMap(\.bridge?.name), paired: paired)
