@@ -62,7 +62,6 @@ h2 { margin: 0 0 10px; }
   const pluginSettings = `/plugins/${location.pathname.split("/")[2] || ""}/settings`;
   const settingsOf = (deviceID) => `${pluginSettings}?accessory=${encodeURIComponent(`PhilipsHue:${deviceID}`)}`;
   const openSettings = (deviceID) => { location.href = settingsOf(deviceID); };
-  $("#plugin-settings").href = pluginSettings;
 
   // MARK: The bridge
 
@@ -92,7 +91,7 @@ h2 { margin: 0 0 10px; }
           el("div", { class: "muted", text: [status.host, status.bridgeID?.toUpperCase()].filter(Boolean).join(" · ") })),
         el("span", { class: `pill status ${kind}`, text: state }),
         HomeswiftCommon.menuButton(t("Actions for {name}", { name: [name, status.host].filter(Boolean).join(" ") }),
-          () => [{ label: t("Pair again"), icon: "pair", href: homeswift.setupAddress({ start: true }) }, { label: t("Settings"), icon: "gear", href: pluginSettings }])),
+          () => [{ label: t("Pair again"), icon: "pair", href: homeswift.setupAddress({ start: true }) }])),
       el("div", { class: "facts" }, ...[[t("Address"), status.host], [t("Lights"), status.lights ?? 0], [t("Sensors"), status.sensors ?? 0], [t("Scenes"), status.scenes ?? 0]]
         .map(([label, value]) => fact(label, String(value ?? "")))),
       status.error ? explain({
@@ -572,7 +571,6 @@ HomeswiftI18n.add({
       <h1>Philips Hue</h1>
       <p class="muted" data-i18n>Your Hue Bridge, its lights with their effects, its sensors and switches, and the scenes of each room, straight from the bridge on your network.</p>
     </div>
-    <div class="actions"><a id="plugin-settings" class="button" data-i18n data-action-icon="gear">Settings</a></div>
   </div>
 
   <div id="bridge"></div>
