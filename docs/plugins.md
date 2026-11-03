@@ -399,6 +399,11 @@ Plugin Settings under `schema`, as Homebridge's, and its Plugin Accessory Settin
 - An object without `properties` is a map, its values declared by `additionalProperties` (text when it is not an
   object): the editor shows a row per entry, its key and its value, with Add and Remove, and saves an entry taken out as
   a `null` in it.
+- An array of objects shows a row per entry, which opens to edit, with Move up, Move down and Remove: its order is kept
+  (a TV's sources as its input menu lists them). A row is named by its entry's `name`, `displayName`, `customName`,
+  `title`, `label`, `id`, `host`, `address` or `ip`, the first that has a value; `x-rowTitle` on `items` (a key, or a list of keys tried in turn)
+  names another. An array whose `items` are choices (an `enum`, or a `oneOf` of them) is a set of checkboxes, written in
+  the choices' order; `uniqueItems: false` keeps a menu per entry instead, for a list that may hold a choice twice.
 - `x-default` (optional): the Plugin Setting that is the field's plugin-wide default; an accessory's own value overrules
   it. `get_settings` gives it as `default: {setting, value}`.
 - A field's `title`, `description` and choices are translated from the schema's `i18n`, as the main schema's are

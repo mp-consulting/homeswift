@@ -3587,11 +3587,43 @@
       }
       if (type === "array") {
         const items = property.items || { type: "string" };
+        // A list of choices (`items` an `enum`, or a `oneOf` of them) is a set of checkboxes, written in the choices'
+        // order, unless `uniqueItems: false` lets a choice come twice; a value config.json has that is not a choice
+        // stays, ticked.
+        const choices = items.oneOf && items.oneOf.every((o) => Array.isArray(o.enum)) ? items.oneOf.map((o) => ({ value: o.enum[0], title: tr(o.title) ?? String(o.enum[0]) }))
+          : Array.isArray(items.enum) ? items.enum.map((v) => ({ value: v, title: String(v) })) : null;
+        if (choices && property.uniqueItems !== false) {
+          const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+          const chosen = Array.isArray(current) ? current : [];
+          for (const value of chosen) if (!choices.some((choice) => same(choice.value, value))) choices.push({ value, title: String(value) });
+          const boxes = choices.map((choice) => ({ choice, input: el("input", { type: "checkbox", checked: chosen.some((value) => same(value, choice.value)) }) }));
+          const element = el("fieldset", { class: "choice-set" }, el("legend", { text: title }), help,
+            el("div", { class: "choices" }, boxes.map(({ choice, input }) => el("label", { class: "check" }, input, el("span", { text: choice.title })))));
+          return { element, get: () => {
+            const v = boxes.filter(({ input }) => input.checked).map(({ choice }) => choice.value);
+            return v.length || current !== undefined ? v : undefined;
+          } };
+        }
         // What one entry is called, for its Add button and an unnamed row: the items' own title, else in English the
         // list's title made singular.
         const noun = items.title ? tr(items.title) : HomeswiftI18n.language === "en" ? singular(title) : null;
+        // A row's name: the key `x-rowTitle` names (or the first of a list of them that has a value), else the usual ones.
+        const titleKeys = [...[items["x-rowTitle"] ?? []].flat(), "name", "displayName", "customName", "title", "label", "id", "host", "address", "ip"];
+        const rowTitle = (value) => titleKeys.map((key) => value[key]).find((text) => (typeof text === "string" && text.trim()) || typeof text === "number");
         const list = el("div", {});
         const rows = [];
+        const changed = () => list.dispatchEvent(new Event("input", { bubbles: true }));
+        /// The rows in their order again, after a move: each Move button turned off at its end, an unnamed row renumbered.
+        const ordered = () => rows.forEach((row, index) => row.placed?.(index));
+        const move = (entry, by) => {
+          const from = rows.indexOf(entry), to = from + by;
+          if (to < 0 || to >= rows.length) return;
+          rows.splice(from, 1);
+          rows.splice(to, 0, entry);
+          list.insertBefore(entry.node, by < 0 ? rows[to + 1].node : rows[to - 1].node.nextSibling);
+          ordered();
+          changed();
+        };
         const addRow = (itemValue) => {
           const entry = {};
           if (items.type === "object" && items.properties) {
@@ -3601,22 +3633,40 @@
             const detail = el("span", { class: "entry-detail" });
             const describe = () => {
               const value = nested.getValue();
-              name.textContent = value.name || value.displayName || `${noun ?? title} ${rows.indexOf(entry) + 1}`;
-              detail.textContent = [value.ip || value.host, value.mac].filter(Boolean).join(" · ");
+              name.textContent = rowTitle(value) ?? `${noun ?? title} ${rows.indexOf(entry) + 1}`;
+              detail.textContent = [value.ip || value.host, value.mac].filter((text) => text && text !== name.textContent).join(" · ");
+              up.setAttribute("aria-label", t("Move {name} up", { name: name.textContent }));
+              down.setAttribute("aria-label", t("Move {name} down", { name: name.textContent }));
             };
+            // Up and down: the order of a list counts (a TV's sources as its input menu shows them). A click on them
+            // does not open or close the row.
+            const mover = (glyph, by, tip) => {
+              const button = el("button", { type: "button", class: "icon-button entry-move", title: tip }, HomeswiftCommon.icon(glyph));
+              button.addEventListener("click", (event) => { event.preventDefault(); move(entry, by); button.focus(); });
+              return button;
+            };
+            const up = mover("up", -1, t("Move up"));
+            const down = mover("down", 1, t("Move down"));
             const row = el("details", { class: "entry", open: itemValue === undefined },
-              el("summary", {}, name, detail, el("button", { actionIcon: "trash", class: "link danger", text: t("Remove"), onclick: (event) => {
+              el("summary", {}, name, detail, up, down, el("button", { actionIcon: "trash", class: "link danger", text: t("Remove"), onclick: (event) => {
                 event.preventDefault();
                 row.remove();
                 rows.splice(rows.indexOf(entry), 1);
-                list.dispatchEvent(new Event("input", { bubbles: true }));
+                ordered();
+                changed();
               } })),
               nested.element);
             nested.element.addEventListener("input", describe);
             entry.get = nested.getValue;
+            entry.node = row;
+            entry.placed = (index) => {
+              up.disabled = index === 0;
+              down.disabled = index === rows.length - 1;
+              describe();
+            };
             rows.push(entry);
             list.append(row);
-            describe();
+            ordered();
             return;
           }
           const row = el("div", { class: "item" });

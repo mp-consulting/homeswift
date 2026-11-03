@@ -2746,4 +2746,8 @@ HomeswiftI18n.add("pt", {
   "Default": "Predefinição",
   "Default ({value})": "Predefinição ({value})",
   "Declared by {plugin} for it. A change reloads {plugin}.": "Declaradas por {plugin} para ele. Uma alteração recarrega {plugin}.",
+  "Move up": "Subir",
+  "Move down": "Descer",
+  "Move {name} up": "Subir {name}",
+  "Move {name} down": "Descer {name}",
 });

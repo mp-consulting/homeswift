@@ -2746,4 +2746,8 @@ HomeswiftI18n.add("fr", {
   "Default": "Par défaut",
   "Default ({value})": "Par défaut ({value})",
   "Declared by {plugin} for it. A change reloads {plugin}.": "Déclarés par {plugin} pour lui. Un changement redémarre {plugin}.",
+  "Move up": "Monter",
+  "Move down": "Descendre",
+  "Move {name} up": "Monter {name}",
+  "Move {name} down": "Descendre {name}",
 });

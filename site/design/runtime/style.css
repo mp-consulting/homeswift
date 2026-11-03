@@ -1777,6 +1777,22 @@ fieldset { min-width: 0; border: 1px solid var(--line); border-radius: var(--rad
 legend { color: var(--muted); padding: 0 var(--space-8); font-weight: var(--weight-medium); }
 .item { border: 1px solid var(--line); border-radius: var(--radius-lg); padding: var(--space-6) var(--space-14) var(--space-12); margin: var(--space-10) 0; background: var(--material-thin); }
 .item-head { display: flex; justify-content: space-between; align-items: center; gap: var(--space-10); }
+/* A list of choices: a checkbox per choice, wrapping into columns. */
+.choice-set .choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: var(--space-4) var(--space-14); }
+.choice-set .check { margin: var(--space-6) 0; font-weight: var(--weight-regular); }
+/* A list entry's Move up and down, before Remove. */
+details.entry > summary .entry-move { background: none; border: 0; box-shadow: none; color: var(--muted); }
+details.entry > summary .entry-move:disabled { opacity: 0.35; }
+@media (hover: hover) and (pointer: fine) { details.entry > summary .entry-move:not(:disabled):hover { background: var(--callout-tint); color: var(--text); } }
+/* A phone: the row's name shortened rather than pushing Remove out, and Remove a round button of its icon, the size of
+   Move up and down (its text stays its accessible name). */
+@media (max-width: 640px) {
+  details.entry > summary { gap: var(--space-6); padding-inline: var(--space-12) var(--space-8); }
+  details.entry > summary .entry-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  details.entry > summary .entry-detail { display: none; }
+  details.entry > summary .danger { width: 40px; height: 40px; min-height: 40px; min-width: 40px; padding: 0; gap: 0; font-size: 0; flex: none; justify-content: center; border-radius: 50%; }
+  details.entry > summary .entry-name { flex: 1; }
+}
 /* A map's row (an object without properties): its key, its value, Remove, on one line; the key and the value share it. */
 .map-row { display: flex; align-items: center; gap: var(--space-10); margin-top: var(--space-8); }
 .map-row > input, .map-row > .field, .map-row > .toggle { flex: 1 1 0; min-width: 0; margin: 0; }

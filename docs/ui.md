@@ -829,7 +829,8 @@ Apricot frost, the design system of `style.css` ([design-system.md](design-syste
 **A settings form.** Ship a `config.schema.json` in the plugin's directory and run `swift Scripts/embed-assets.swift
 plugin Plugins/<Name> <Type>` to embed it (a test checks it is current); the Plugins page then shows a form. The form
 understands the Homebridge dialect: `properties` in order, `required: true` on a property, `oneOf` with `enum` and
-`title` for menus, `placeholder`, `default`, `description`, arrays of objects or of values, nested objects, the
+`title` for menus, `placeholder`, `default`, `description`, arrays of objects (rows to reorder, named as
+docs/plugins.md's "Settings" says) or of values (checkboxes for an array of choices), nested objects, the
 top-level `layout` with `fieldset` groups, and `condition`s ([Plugins](#plugins)). Keys the schema does not know
 (`_bridge` for one) are kept as they are.
 

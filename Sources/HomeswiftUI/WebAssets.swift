@@ -5451,11 +5451,43 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       }
       if (type === "array") {
         const items = property.items || { type: "string" };
+        // A list of choices (`items` an `enum`, or a `oneOf` of them) is a set of checkboxes, written in the choices'
+        // order, unless `uniqueItems: false` lets a choice come twice; a value config.json has that is not a choice
+        // stays, ticked.
+        const choices = items.oneOf && items.oneOf.every((o) => Array.isArray(o.enum)) ? items.oneOf.map((o) => ({ value: o.enum[0], title: tr(o.title) ?? String(o.enum[0]) }))
+          : Array.isArray(items.enum) ? items.enum.map((v) => ({ value: v, title: String(v) })) : null;
+        if (choices && property.uniqueItems !== false) {
+          const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+          const chosen = Array.isArray(current) ? current : [];
+          for (const value of chosen) if (!choices.some((choice) => same(choice.value, value))) choices.push({ value, title: String(value) });
+          const boxes = choices.map((choice) => ({ choice, input: el("input", { type: "checkbox", checked: chosen.some((value) => same(value, choice.value)) }) }));
+          const element = el("fieldset", { class: "choice-set" }, el("legend", { text: title }), help,
+            el("div", { class: "choices" }, boxes.map(({ choice, input }) => el("label", { class: "check" }, input, el("span", { text: choice.title })))));
+          return { element, get: () => {
+            const v = boxes.filter(({ input }) => input.checked).map(({ choice }) => choice.value);
+            return v.length || current !== undefined ? v : undefined;
+          } };
+        }
         // What one entry is called, for its Add button and an unnamed row: the items' own title, else in English the
         // list's title made singular.
         const noun = items.title ? tr(items.title) : HomeswiftI18n.language === "en" ? singular(title) : null;
+        // A row's name: the key `x-rowTitle` names (or the first of a list of them that has a value), else the usual ones.
+        const titleKeys = [...[items["x-rowTitle"] ?? []].flat(), "name", "displayName", "customName", "title", "label", "id", "host", "address", "ip"];
+        const rowTitle = (value) => titleKeys.map((key) => value[key]).find((text) => (typeof text === "string" && text.trim()) || typeof text === "number");
         const list = el("div", {});
         const rows = [];
+        const changed = () => list.dispatchEvent(new Event("input", { bubbles: true }));
+        /// The rows in their order again, after a move: each Move button turned off at its end, an unnamed row renumbered.
+        const ordered = () => rows.forEach((row, index) => row.placed?.(index));
+        const move = (entry, by) => {
+          const from = rows.indexOf(entry), to = from + by;
+          if (to < 0 || to >= rows.length) return;
+          rows.splice(from, 1);
+          rows.splice(to, 0, entry);
+          list.insertBefore(entry.node, by < 0 ? rows[to + 1].node : rows[to - 1].node.nextSibling);
+          ordered();
+          changed();
+        };
         const addRow = (itemValue) => {
           const entry = {};
           if (items.type === "object" && items.properties) {
@@ -5465,22 +5497,40 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
             const detail = el("span", { class: "entry-detail" });
             const describe = () => {
               const value = nested.getValue();
-              name.textContent = value.name || value.displayName || `${noun ?? title} ${rows.indexOf(entry) + 1}`;
-              detail.textContent = [value.ip || value.host, value.mac].filter(Boolean).join(" · ");
+              name.textContent = rowTitle(value) ?? `${noun ?? title} ${rows.indexOf(entry) + 1}`;
+              detail.textContent = [value.ip || value.host, value.mac].filter((text) => text && text !== name.textContent).join(" · ");
+              up.setAttribute("aria-label", t("Move {name} up", { name: name.textContent }));
+              down.setAttribute("aria-label", t("Move {name} down", { name: name.textContent }));
             };
+            // Up and down: the order of a list counts (a TV's sources as its input menu shows them). A click on them
+            // does not open or close the row.
+            const mover = (glyph, by, tip) => {
+              const button = el("button", { type: "button", class: "icon-button entry-move", title: tip }, HomeswiftCommon.icon(glyph));
+              button.addEventListener("click", (event) => { event.preventDefault(); move(entry, by); button.focus(); });
+              return button;
+            };
+            const up = mover("up", -1, t("Move up"));
+            const down = mover("down", 1, t("Move down"));
             const row = el("details", { class: "entry", open: itemValue === undefined },
-              el("summary", {}, name, detail, el("button", { actionIcon: "trash", class: "link danger", text: t("Remove"), onclick: (event) => {
+              el("summary", {}, name, detail, up, down, el("button", { actionIcon: "trash", class: "link danger", text: t("Remove"), onclick: (event) => {
                 event.preventDefault();
                 row.remove();
                 rows.splice(rows.indexOf(entry), 1);
-                list.dispatchEvent(new Event("input", { bubbles: true }));
+                ordered();
+                changed();
               } })),
               nested.element);
             nested.element.addEventListener("input", describe);
             entry.get = nested.getValue;
+            entry.node = row;
+            entry.placed = (index) => {
+              up.disabled = index === 0;
+              down.disabled = index === rows.length - 1;
+              describe();
+            };
             rows.push(entry);
             list.append(row);
-            describe();
+            ordered();
             return;
           }
           const row = el("div", { class: "item" });
@@ -15158,6 +15208,10 @@ HomeswiftI18n.add("es", {
   "Default": "Predeterminado",
   "Default ({value})": "Predeterminado ({value})",
   "Declared by {plugin} for it. A change reloads {plugin}.": "Declarados por {plugin} para él. Un cambio recarga {plugin}.",
+  "Move up": "Subir",
+  "Move down": "Bajar",
+  "Move {name} up": "Subir {name}",
+  "Move {name} down": "Bajar {name}",
 });
 
 """#),
@@ -17910,6 +17964,10 @@ HomeswiftI18n.add("fr", {
   "Default": "Par défaut",
   "Default ({value})": "Par défaut ({value})",
   "Declared by {plugin} for it. A change reloads {plugin}.": "Déclarés par {plugin} pour lui. Un changement redémarre {plugin}.",
+  "Move up": "Monter",
+  "Move down": "Descendre",
+  "Move {name} up": "Monter {name}",
+  "Move {name} down": "Descendre {name}",
 });
 
 """#),
@@ -20662,6 +20720,10 @@ HomeswiftI18n.add("pt", {
   "Default": "Predefinição",
   "Default ({value})": "Predefinição ({value})",
   "Declared by {plugin} for it. A change reloads {plugin}.": "Declaradas por {plugin} para ele. Uma alteração recarrega {plugin}.",
+  "Move up": "Subir",
+  "Move down": "Descer",
+  "Move {name} up": "Subir {name}",
+  "Move {name} down": "Descer {name}",
 });
 
 """#),
@@ -25615,6 +25677,22 @@ fieldset { min-width: 0; border: 1px solid var(--line); border-radius: var(--rad
 legend { color: var(--muted); padding: 0 var(--space-8); font-weight: var(--weight-medium); }
 .item { border: 1px solid var(--line); border-radius: var(--radius-lg); padding: var(--space-6) var(--space-14) var(--space-12); margin: var(--space-10) 0; background: var(--material-thin); }
 .item-head { display: flex; justify-content: space-between; align-items: center; gap: var(--space-10); }
+/* A list of choices: a checkbox per choice, wrapping into columns. */
+.choice-set .choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: var(--space-4) var(--space-14); }
+.choice-set .check { margin: var(--space-6) 0; font-weight: var(--weight-regular); }
+/* A list entry's Move up and down, before Remove. */
+details.entry > summary .entry-move { background: none; border: 0; box-shadow: none; color: var(--muted); }
+details.entry > summary .entry-move:disabled { opacity: 0.35; }
+@media (hover: hover) and (pointer: fine) { details.entry > summary .entry-move:not(:disabled):hover { background: var(--callout-tint); color: var(--text); } }
+/* A phone: the row's name shortened rather than pushing Remove out, and Remove a round button of its icon, the size of
+   Move up and down (its text stays its accessible name). */
+@media (max-width: 640px) {
+  details.entry > summary { gap: var(--space-6); padding-inline: var(--space-12) var(--space-8); }
+  details.entry > summary .entry-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  details.entry > summary .entry-detail { display: none; }
+  details.entry > summary .danger { width: 40px; height: 40px; min-height: 40px; min-width: 40px; padding: 0; gap: 0; font-size: 0; flex: none; justify-content: center; border-radius: 50%; }
+  details.entry > summary .entry-name { flex: 1; }
+}
 /* A map's row (an object without properties): its key, its value, Remove, on one line; the key and the value share it. */
 .map-row { display: flex; align-items: center; gap: var(--space-10); margin-top: var(--space-8); }
 .map-row > input, .map-row > .field, .map-row > .toggle { flex: 1 1 0; min-width: 0; margin: 0; }
