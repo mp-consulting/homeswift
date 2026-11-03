@@ -424,7 +424,7 @@ diff, and **Use it** puts it in the form to review and save. Passwords and token
 A save also checks what it
 changes against the plugin's schema (a type, a bound, a choice outside the list, a required setting): the problems show
 in the save bar, and nothing is written. Settings left as they were are not checked, so an old mistake never stops
-another change; a plugin's own page and **Pause** are checked the same way (`PUT /api/config/block/<platform>/<name>`),
+another change; **Pause** is checked the same way (`PUT /api/config/block/<platform>/<name>`),
 and only config.json's editor's **Save anyway** writes without the check.
 
 The settings routes are what MCP's `get_settings` and `update_settings` read and write (docs/mcp.md), for
@@ -854,12 +854,13 @@ Plugins/<Name>/Web Plugins/<Name>/Sources/WebFiles.swift <Type>` (a test checks 
   way the UI's own pages do; `homeswift.tile(icon, tone)` draws an icon on a colour and `homeswift.fact(label, value)` a
   labelled value of a `.facts` grid. `homeswift.act(button, work, report)` runs `work` with the button disabled and a
   spinner and hands an error's message to `report` (`alert` by default; with `report` null the error is thrown).
-- **Its block.** `homeswift.readBlock()` and `homeswift.updateBlock(change)` read and write the instance's block of
-  config.json (`GET`/`PUT /api/config/block/<platform>/<name>`): a write is checked against the plugin's schema, as every
-  save is, applies at once and the plugin reloads. For a
-  block with a `devices` list keyed by MAC address there are `updateDevices`, `updateDevice`, `putDevice` and
-  `findDevice`; `poll(refresh)` refreshes while the page is visible, and `renderKeyed` redraws only the cards whose item
-  changed.
+- **Its settings.** A page shows views, diagnostics and actions, and writes no settings
+  (docs/adr/0002-schema-declares-every-setting.md): its schema declares them and the Settings page edits them. It links
+  there: `homeswift.settingsAddress` is the instance's Settings, `homeswift.accessorySettings(accessoryID)` one
+  accessory's there (`?accessory=`, its Accessory Settings over the page: its Name, room, Excluded and the plugin's own),
+  and `homeswift.scenePictures({ settings })` gives a scene tile's menu the link. `poll(refresh)` refreshes while the
+  page is visible, `renderKeyed` redraws only the cards whose item changed, and `canonicalMAC`, `isMAC` and `sameMAC`
+  compare MAC addresses however they are spelled.
 - **Setup.** A page signs in and pairs nowhere: `homeswift.setupCard({ title, text, glyph, tone, start })` is a card
   whose button opens the instance's row on Add accessories (`homeswift.setupAddress({ start })`, `/setup?start#<slug>`;
   with `start`, its account's Setup sheet opens there), for a page whose account or hub is not set up yet or a "Sign in

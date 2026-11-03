@@ -20,8 +20,7 @@
 
   // Where settings are edited: the plugin's Settings page, and each light's, sensor's or scene's there (its Accessory
   // Settings: a light's id, `device:<id>` for a sensor, a scene's id).
-  const pluginSettings = `/plugins/${location.pathname.split("/")[2] || ""}/settings`;
-  const settingsOf = (deviceID) => `${pluginSettings}?accessory=${encodeURIComponent(`PhilipsHue:${deviceID}`)}`;
+  const settingsOf = (deviceID) => homeswift.accessorySettings(`PhilipsHue:${deviceID}`);
   const openSettings = (deviceID) => { location.href = settingsOf(deviceID); };
 
   // MARK: The bridge
@@ -193,17 +192,14 @@
 
   // MARK: Scenes
 
-  // A scene's picture: dropped on its tile or chosen from its menu (plugin.js); its ⋯ menu's Home app item opens the
-  // scene's settings, where it is Excluded, as its speed does.
+  // A scene's picture: dropped on its tile or chosen from its menu (plugin.js); its ⋯ menu's Settings… opens the
+  // scene's Accessory Settings, where it is Excluded and its speed set.
   const pictures = homeswift.scenePictures({
     gallery: true,
-    refresh: () => refresh(), toggleHidden: (sceneID) => openSettings(sceneID),
+    refresh: () => refresh(), settings: (scene, sceneID) => settingsOf(sceneID),
     // A smart scene follows the time of day: the bridge takes no transition or Autoplay for it. Autoplay is the
     // scene's own on the bridge, as the Hue app's: it plays whenever it is recalled, here, in the Home app or there.
-    more: (scene) => scene.smart ? [] : [
-      { label: t("Speed…"), icon: "sliders", href: settingsOf(scene.id) },
-      scene.palette ? autoplayItem(scene) : null,
-    ].filter(Boolean),
+    more: (scene) => !scene.smart && scene.palette ? [autoplayItem(scene)] : [],
   });
 
   /// The menu's Autoplay switch: it flips in place, the menu staying open, once the bridge has it.

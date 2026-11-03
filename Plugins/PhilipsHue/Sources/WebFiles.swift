@@ -59,8 +59,7 @@ h2 { margin: 0 0 10px; }
 
   // Where settings are edited: the plugin's Settings page, and each light's, sensor's or scene's there (its Accessory
   // Settings: a light's id, `device:<id>` for a sensor, a scene's id).
-  const pluginSettings = `/plugins/${location.pathname.split("/")[2] || ""}/settings`;
-  const settingsOf = (deviceID) => `${pluginSettings}?accessory=${encodeURIComponent(`PhilipsHue:${deviceID}`)}`;
+  const settingsOf = (deviceID) => homeswift.accessorySettings(`PhilipsHue:${deviceID}`);
   const openSettings = (deviceID) => { location.href = settingsOf(deviceID); };
 
   // MARK: The bridge
@@ -232,17 +231,14 @@ h2 { margin: 0 0 10px; }
 
   // MARK: Scenes
 
-  // A scene's picture: dropped on its tile or chosen from its menu (plugin.js); its ⋯ menu's Home app item opens the
-  // scene's settings, where it is Excluded, as its speed does.
+  // A scene's picture: dropped on its tile or chosen from its menu (plugin.js); its ⋯ menu's Settings… opens the
+  // scene's Accessory Settings, where it is Excluded and its speed set.
   const pictures = homeswift.scenePictures({
     gallery: true,
-    refresh: () => refresh(), toggleHidden: (sceneID) => openSettings(sceneID),
+    refresh: () => refresh(), settings: (scene, sceneID) => settingsOf(sceneID),
     // A smart scene follows the time of day: the bridge takes no transition or Autoplay for it. Autoplay is the
     // scene's own on the bridge, as the Hue app's: it plays whenever it is recalled, here, in the Home app or there.
-    more: (scene) => scene.smart ? [] : [
-      { label: t("Speed…"), icon: "sliders", href: settingsOf(scene.id) },
-      scene.palette ? autoplayItem(scene) : null,
-    ].filter(Boolean),
+    more: (scene) => !scene.smart && scene.palette ? [autoplayItem(scene)] : [],
   });
 
   /// The menu's Autoplay switch: it flips in place, the menu staying open, once the bridge has it.
@@ -405,7 +401,6 @@ HomeswiftI18n.add({
     "No scene matches the search and filters.": "Aucune scène ne correspond à la recherche et aux filtres.",
     "Autoplay is on": "Lecture auto activée",
     "Autoplay": "Lecture auto",
-    "Speed…": "Vitesse…",
     "Play {name}": "Lire {name}",
     "Pause {name}": "Mettre {name} en pause",
     "Connected": "Connecté",
@@ -461,7 +456,6 @@ HomeswiftI18n.add({
     "No scene matches the search and filters.": "Ninguna escena coincide con la búsqueda y los filtros.",
     "Autoplay is on": "Reproducción automática activada",
     "Autoplay": "Reproducción automática",
-    "Speed…": "Velocidad…",
     "Play {name}": "Reproducir {name}",
     "Pause {name}": "Pausar {name}",
     "Connected": "Conectado",
@@ -517,7 +511,6 @@ HomeswiftI18n.add({
     "No scene matches the search and filters.": "Nenhuma cena corresponde à pesquisa e aos filtros.",
     "Autoplay is on": "Reprodução automática ativada",
     "Autoplay": "Reprodução automática",
-    "Speed…": "Velocidade…",
     "Play {name}": "Reproduzir {name}",
     "Pause {name}": "Pausar {name}",
     "Connected": "Ligada",

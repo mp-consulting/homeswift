@@ -42,8 +42,7 @@
 
   // MARK: Where settings are edited: the plugin's Settings page, and each device's there (its Accessory Settings).
 
-  const pluginSettings = `/plugins/${location.pathname.split("/")[2] || ""}/settings`;
-  const settingsOf = (deviceID) => `${pluginSettings}?accessory=${encodeURIComponent(`DaikinCloud:${deviceID}`)}`;
+  const settingsOf = (deviceID) => homeswift.accessorySettings(`DaikinCloud:${deviceID}`);
 
   // MARK: Tabs
 

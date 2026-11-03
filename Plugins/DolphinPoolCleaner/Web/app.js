@@ -25,8 +25,7 @@
 
   // MARK: Where settings are edited: the plugin's Settings page, and each robot's there.
 
-  const pluginSettings = `/plugins/${location.pathname.split("/")[2] || ""}/settings`;
-  const robotSettings = (serial) => `${pluginSettings}?accessory=${encodeURIComponent(`DolphinPoolCleaner:${serial}`)}`;
+  const robotSettings = (serial) => homeswift.accessorySettings(`DolphinPoolCleaner:${serial}`);
 
   // Older versions saved "regular", which the plugin treats as "all".
   const normalizeMode = (mode) => (mode === "regular" ? "all" : mode);

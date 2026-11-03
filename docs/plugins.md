@@ -428,7 +428,9 @@ Two hooks, both optional, help the settings editor and the writers:
 ### Web pages
 
 A plugin can give the web UI a page of its own: a `Web/` directory next to `Sources`, embedded as
-`webFiles`, and a `handleWebRequest(_:)` that answers the page's requests. `docs/ui.md` has the details
+`webFiles`, and a `handleWebRequest(_:)` that answers the page's requests: views, diagnostics and actions, never a
+settings write (the Settings page edits what the schema declares, [Settings](#settings); the page links to it with
+`homeswift.accessorySettings`). `docs/ui.md` has the details
 and `Plugins/ElgatoKeyLights/Web` is the example. The page speaks the user's language with `t()` and a `Web/i18n.js`
 of its own ([translations.md](translations.md)).
 

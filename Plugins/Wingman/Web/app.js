@@ -13,8 +13,7 @@
   // MARK: Where settings are edited: the plugin's Settings page (its devices: the Wingmen, the mirrored accessories and
   // the bridges), and each Wingman's Settings sheet there.
 
-  const pluginSettings = `/plugins/${location.pathname.split("/")[2] || ""}/settings`;
-  const settingsOf = (id) => `${pluginSettings}?accessory=${encodeURIComponent(`${platform}:${id}`)}`;
+  const settingsOf = (id) => homeswift.accessorySettings(`${platform}:${id}`);
 
   // MARK: The paired Wingmen
 

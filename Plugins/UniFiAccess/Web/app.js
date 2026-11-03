@@ -10,8 +10,7 @@
 
   // MARK: Where settings are edited: the plugin's Settings page, and each controller's or device's there.
 
-  const pluginSettings = `/plugins/${location.pathname.split("/")[2] || ""}/settings`;
-  const settingsOf = (deviceID) => `${pluginSettings}?accessory=${encodeURIComponent(`UniFi Access:${String(deviceID).toUpperCase()}`)}`;
+  const settingsOf = (deviceID) => homeswift.accessorySettings(`UniFi Access:${String(deviceID).toUpperCase()}`);
 
   function show(id) {
     for (const screen of ["controllers-screen", "support-screen"]) $(`#${screen}`).classList.toggle("hidden", screen !== id);

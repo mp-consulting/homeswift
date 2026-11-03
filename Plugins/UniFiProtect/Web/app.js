@@ -13,8 +13,7 @@
 
   // MARK: Where settings are edited: the plugin's Settings page, and each controller's or device's there.
 
-  const pluginSettings = `/plugins/${location.pathname.split("/")[2] || ""}/settings`;
-  const settingsOf = (mac) => `${pluginSettings}?accessory=${encodeURIComponent(`UniFi Protect:${String(mac).replace(/[:-]/g, "").toUpperCase()}`)}`;
+  const settingsOf = (mac) => homeswift.accessorySettings(`UniFi Protect:${String(mac).replace(/[:-]/g, "").toUpperCase()}`);
 
   function showScreen(id) {
     for (const screen of screens) $("#" + screen).classList.toggle("hidden", screen !== id);

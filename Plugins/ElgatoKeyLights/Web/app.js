@@ -14,9 +14,9 @@
 
   // MARK: Where settings are edited: the plugin's Settings page, and each light's there.
 
-  const pluginSettings = `/plugins/${location.pathname.split("/")[2] || ""}/settings`;
+  const pluginSettings = homeswift.settingsAddress;
   const accessoryID = (mac) => `ElgatoKeyLights:${canonicalMAC(mac)}`;
-  const lightSettings = (mac) => `${pluginSettings}?accessory=${encodeURIComponent(accessoryID(mac))}`;
+  const lightSettings = (mac) => homeswift.accessorySettings(accessoryID(mac));
 
   // MARK: The lights
 

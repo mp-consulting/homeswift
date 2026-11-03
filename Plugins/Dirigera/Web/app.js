@@ -16,8 +16,7 @@
 
   // Where settings are edited: the plugin's Settings page, and each device's (by its accessory's id) or scene's (by its
   // id on the hub) there.
-  const pluginSettings = `/plugins/${location.pathname.split("/")[2] || ""}/settings`;
-  const settingsOf = (deviceID) => `${pluginSettings}?accessory=${encodeURIComponent(`Dirigera:${deviceID}`)}`;
+  const settingsOf = (deviceID) => homeswift.accessorySettings(`Dirigera:${deviceID}`);
   const openSettings = (deviceID) => { location.href = settingsOf(deviceID); };
 
   // MARK: Hubs
@@ -161,9 +160,9 @@
     return { glyph: glyphs[key ?? "home"], gradient: `linear-gradient(135deg, ${tone})`, text: homeswift.textStyle(tone.split(",")) };
   }
 
-  // A scene's picture: dropped on its tile or chosen from its menu (plugin.js); the menu's Home app item opens the
-  // scene's settings, where it is Excluded.
-  const pictures = homeswift.scenePictures({ refresh: () => refresh(), toggleHidden: (sceneID) => openSettings(sceneID) });
+  // A scene's picture: dropped on its tile or chosen from its menu (plugin.js); the menu's Settings… opens the scene's
+  // Accessory Settings, where it is Excluded.
+  const pictures = homeswift.scenePictures({ refresh: () => refresh(), settings: (scene, sceneID) => settingsOf(sceneID) });
 
   function sceneTile(scene) {
     const { glyph, gradient, text } = sceneStyle(scene);

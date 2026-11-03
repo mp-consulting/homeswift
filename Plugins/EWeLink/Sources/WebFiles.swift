@@ -26,8 +26,7 @@ extension EWeLinkPlugin {
 
   // MARK: Where settings are edited: the plugin's Settings page, and each device's there.
 
-  const pluginSettings = `/plugins/${location.pathname.split("/")[2] || ""}/settings`;
-  const deviceSettings = (deviceId) => `${pluginSettings}?accessory=${encodeURIComponent(`eWeLink:${deviceId}`)}`;
+  const deviceSettings = (deviceId) => homeswift.accessorySettings(`eWeLink:${deviceId}`);
 
   // MARK: Problems, with the Assistant's explanation when it is set up
 

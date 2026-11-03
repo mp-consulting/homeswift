@@ -110,8 +110,7 @@ details.type.empty > summary .entry-name { color: var(--muted); }
 
   // MARK: Where settings are edited: the plugin's Settings page, and each device's there.
 
-  const pluginSettings = `/plugins/${location.pathname.split("/")[2] || ""}/settings`;
-  const deviceSettings = (deviceId) => `${pluginSettings}?accessory=${encodeURIComponent(`Govee:${deviceId}`)}`;
+  const deviceSettings = (deviceId) => homeswift.accessorySettings(`Govee:${deviceId}`);
 
   // MARK: Device types, as the Homebridge page lists them
 

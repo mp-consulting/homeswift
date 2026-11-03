@@ -14563,7 +14563,6 @@ HomeswiftI18n.add("es", {
   "This browser is not subscribed": "Este navegador no está suscrito",
   "This browser is not subscribed.": "Este navegador no está suscrito.",
   "This certificate cannot be read.": "No se puede leer este certificado.",
-  "This device is not in the configuration.": "Este dispositivo no está en la configuración.",
   "this homeswift keeps no log on disk": "este homeswift no guarda ningún registro en disco",
   "this homeswift records no metrics": "este homeswift no registra métricas",
   "This homeswift's log, live, and up to a week back.": "El registro de este homeswift, en directo, y hasta una semana atrás.",
@@ -14780,8 +14779,6 @@ HomeswiftI18n.add("es", {
   "It gets no more notifications until it turns them on again.": "No recibirá más hasta que las vuelva a activar.",
   "Remove the picture of {name}? Its tile goes back to its colours.": "¿Quitar la imagen de {name}? Su mosaico vuelve a sus colores.",
   "Delete this image from the bridge?": "¿Eliminar esta imagen del puente?",
-  "Show in the Home app": "Mostrar en la app Casa",
-  "Leave out of the Home app": "Quitar de la app Casa",
   "Import a Homebridge config": "Importar una config de Homebridge",
   "Bring the platforms of an existing Homebridge into homeswift. You review every item before anything is saved.": "Trae las plataformas de un Homebridge existente a homeswift. Revisas cada elemento antes de guardar nada.",
   "Your Homeswift is ready": "Tu Homeswift está listo",
@@ -14910,7 +14907,7 @@ HomeswiftI18n.add("es", {
   "Categories": "Categorías",
   "Yes": "Sí",
   "No": "No",
-  "Not in the Home app:": "No están en la app Casa:",
+  "Excluded:": "Excluidos:",
 
   "Energy": "Energía",
   "Solar, home, grid and batteries": "Solar, casa, red y baterías",
@@ -17318,7 +17315,6 @@ HomeswiftI18n.add("fr", {
   "This browser is not subscribed": "Ce navigateur n'est pas abonné",
   "This browser is not subscribed.": "Ce navigateur n'est pas abonné.",
   "This certificate cannot be read.": "Ce certificat est illisible.",
-  "This device is not in the configuration.": "Cet appareil n'est pas dans la configuration.",
   "this homeswift keeps no log on disk": "ce homeswift ne garde aucun journal sur disque",
   "this homeswift records no metrics": "ce homeswift n'enregistre aucune métrique",
   "This homeswift's log, live, and up to a week back.": "Le journal de ce homeswift, en direct, et jusqu'à une semaine en arrière.",
@@ -17535,8 +17531,6 @@ HomeswiftI18n.add("fr", {
   "It gets no more notifications until it turns them on again.": "Il n'en recevra plus jusqu'à ce qu'il les réactive.",
   "Remove the picture of {name}? Its tile goes back to its colours.": "Retirer l'image de {name} ? Sa tuile reprend ses couleurs.",
   "Delete this image from the bridge?": "Supprimer cette image du pont ?",
-  "Show in the Home app": "Afficher dans l'app Maison",
-  "Leave out of the Home app": "Retirer de l'app Maison",
   "Import a Homebridge config": "Importer une config Homebridge",
   "Bring the platforms of an existing Homebridge into homeswift. You review every item before anything is saved.": "Reprenez les plateformes d'un Homebridge existant dans homeswift. Vous vérifiez chaque élément avant toute sauvegarde.",
   "Your Homeswift is ready": "Votre Homeswift est prêt",
@@ -17665,7 +17659,7 @@ HomeswiftI18n.add("fr", {
   "Categories": "Catégories",
   "Yes": "Oui",
   "No": "Non",
-  "Not in the Home app:": "Absents de l'app Maison :",
+  "Excluded:": "Exclus :",
 
   "Energy": "Énergie",
   "Solar, home, grid and batteries": "Solaire, maison, réseau et batteries",
@@ -20073,7 +20067,6 @@ HomeswiftI18n.add("pt", {
   "This browser is not subscribed": "Este navegador não está subscrito",
   "This browser is not subscribed.": "Este navegador não está subscrito.",
   "This certificate cannot be read.": "Não é possível ler este certificado.",
-  "This device is not in the configuration.": "Este dispositivo não está na configuração.",
   "this homeswift keeps no log on disk": "este homeswift não guarda nenhum registo em disco",
   "this homeswift records no metrics": "este homeswift não regista métricas",
   "This homeswift's log, live, and up to a week back.": "O registo deste homeswift, em direto, e até uma semana atrás.",
@@ -20290,8 +20283,6 @@ HomeswiftI18n.add("pt", {
   "It gets no more notifications until it turns them on again.": "Não receberá mais até as voltar a ativar.",
   "Remove the picture of {name}? Its tile goes back to its colours.": "Remover a imagem de {name}? O seu mosaico volta às suas cores.",
   "Delete this image from the bridge?": "Eliminar esta imagem da ponte?",
-  "Show in the Home app": "Mostrar na app Casa",
-  "Leave out of the Home app": "Retirar da app Casa",
   "Import a Homebridge config": "Importar uma configuração do Homebridge",
   "Bring the platforms of an existing Homebridge into homeswift. You review every item before anything is saved.": "Traga as plataformas de um Homebridge existente para o homeswift. Reveja cada item antes de guardar seja o que for.",
   "Your Homeswift is ready": "O Homeswift está pronto",
@@ -20420,7 +20411,7 @@ HomeswiftI18n.add("pt", {
   "Categories": "Categorias",
   "Yes": "Sim",
   "No": "Não",
-  "Not in the Home app:": "Fora da app Casa:",
+  "Excluded:": "Excluídos:",
 
   "Energy": "Energia",
   "Solar, home, grid and batteries": "Solar, casa, rede e baterias",
@@ -21556,6 +21547,10 @@ HomeswiftI18n.add("pt", {
   const name = instance.name || platform;
   /// The page's address, /plugins/<slug>: its Settings are at /plugins/<slug>/settings.
   const address = `/plugins/${location.pathname.split("/")[2] || ""}`;
+  /// Where this instance's settings are edited (its Plugin Settings and its devices), and one accessory's there (its
+  /// Accessory Settings, over the page): a page links to them and writes no settings itself.
+  const settingsAddress = `${address}/settings`;
+  const accessorySettings = (accessoryID) => `${settingsAddress}?accessory=${encodeURIComponent(accessoryID)}`;
   const prefix = `/api/plugins/${encodeURIComponent(platform)}/${encodeURIComponent(name)}/`;
 
   const { $, el, icon, tile, fact, markdown, sparkle, api, assistantRequest, formatTemperature, temperature } = HomeswiftCommon;
@@ -21800,7 +21795,7 @@ HomeswiftI18n.add("pt", {
     // keeps its session) until Resume, which a banner offers while it is paused.
     const nav = el("nav", { class: "breadcrumb", "aria-label": t("Breadcrumb") }, trail);
     // Its Settings (the Plugin Settings, its account and its devices), at the right of the breadcrumb, before Pause.
-    nav.append(el("a", { class: "button small settings-link", href: `${address}/settings`, actionIcon: "gear", text: t("Settings") }));
+    nav.append(el("a", { class: "button small settings-link", href: settingsAddress, actionIcon: "gear", text: t("Settings") }));
     main.prepend(nav);
     breadcrumb(null);
     api("/api/plugins").then(({ platforms }) => {
@@ -21825,22 +21820,6 @@ HomeswiftI18n.add("pt", {
     }).catch(() => {});
   }
 
-  // ---- This instance's block of config.json -------------------------------------------------------------
-  // Read and written by platform and name: a write applies at once (the plugin reloads), and the page never
-  // handles the rest of the file.
-
-  const blockPath = `/api/config/block/${encodeURIComponent(platform)}/${encodeURIComponent(name)}`;
-
-  /// This instance's block of config.json.
-  const readBlock = () => api(blockPath);
-
-  /// Changes the block (`change` edits it, or returns its replacement) and writes it; answers what the write
-  /// did (applied, or what waits for a restart).
-  async function updateBlock(change) {
-    const block = await readBlock();
-    return api(blockPath, { method: "PUT", body: change(block) ?? block });
-  }
-
   /// A MAC address however it is spelled, octets without their leading zero too, as AA:BB:CC:DD:EE:FF (the
   /// server's MACAddress); anything else comes back trimmed and upper-cased.
   function canonicalMAC(mac) {
@@ -21852,40 +21831,6 @@ HomeswiftI18n.add("pt", {
   }
   const isMAC = (mac) => /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(canonicalMAC(mac));
   const sameMAC = (a, b) => canonicalMAC(a) === canonicalMAC(b);
-
-  /// The block's `devices`, changed in place by `change` and written; an empty list leaves the block.
-  function updateDevices(change) {
-    return updateBlock((block) => {
-      const devices = block.devices || [];
-      change(devices);
-      if (devices.length) block.devices = devices; else delete block.devices;
-    });
-  }
-
-  /// One device's entry, by MAC: `change` edits it in place, returns its replacement, or returns null to remove it.
-  function updateDevice(mac, change) {
-    return updateDevices((devices) => {
-      const index = devices.findIndex((device) => sameMAC(device.mac, mac));
-      if (index < 0) throw new Error(t("This device is not in the configuration."));
-      const replacement = change(devices[index]);
-      if (replacement === null) devices.splice(index, 1);
-      else if (replacement) devices[index] = replacement;
-    });
-  }
-
-  /// Adds an entry, or replaces the one with its MAC.
-  const putDevice = (entry) => updateDevices((devices) => {
-    const index = devices.findIndex((device) => sameMAC(device.mac, entry.mac));
-    if (index >= 0) devices[index] = entry; else devices.push(entry);
-  });
-
-  /// The entry of a device in the block, or null.
-  const findDevice = async (mac) => ((await readBlock()).devices || []).find((device) => sameMAC(device.mac, mac)) ?? null;
-
-  /// Sets a key of a draft entry, or removes it when it holds the default: config.json keeps what was chosen.
-  function setKey(draft, key, value, fallback) {
-    if (value === undefined || value === "" || value === fallback) delete draft[key]; else draft[key] = value;
-  }
 
   /// Calls `refresh` now and every `interval` while the page is visible.
   function poll(refresh, interval = 2000) {
@@ -21917,24 +21862,6 @@ HomeswiftI18n.add("pt", {
   /// Runs `work` with the button disabled and, when it takes a moment, a spinner on it; answers what `work`
   /// answers. Errors go to `report`; with `report` null they are thrown to the caller once the button is back.
   const act = (button, work, report = alert) => HomeswiftCommon.busyButton(button, work, { delay: 150, report: report === null ? null : (e) => report(e.message) });
-
-  /// Adds `name` to the block's list `key` (an exclude list such as `excludeScenes`), or takes it out when it is
-  /// there (in any case), and writes the block at once; an empty list leaves the block. Answers the block as
-  /// written, or null after an error, which it shows.
-  async function toggleList(key, name) {
-    try {
-      await updateBlock((draft) => {
-        const list = draft[key] || [];
-        const index = list.findIndex((item) => item.toLowerCase() === name.toLowerCase());
-        if (index >= 0) list.splice(index, 1); else list.push(name);
-        if (list.length) draft[key] = list; else delete draft[key];
-      });
-      return await readBlock();
-    } catch (e) {
-      HomeswiftCommon.showAlert(e.message);
-      return null;
-    }
-  }
 
   // ---- Pieces of the lighting pages (Philips Hue, IKEA DIRIGERA) ------------------------------------------
 
@@ -22028,12 +21955,11 @@ HomeswiftI18n.add("pt", {
   /// Scene tiles' pictures: dropped on a tile or chosen from its ⋯ menu, shrunk here to 640 pixels and sent as a JPEG
   /// data: URL to the plugin's `scene-picture` route (POST; GET `scene-picture?id=` reads one, `scene-picture-remove`
   /// takes it away). A scene's `picture` is its version: each is fetched once, a newer one replacing it. `refresh`
-  /// runs after a change; `settings(scene, key)`, the address of the scene's Settings (a scene a plugin makes a
-  /// Discovered Device is Excluded there, `/plugins/<slug>/settings?accessory=<Accessory Id>`), gives the menu a
-  /// Settings… link; else `toggleHidden(key)` leaves the scene out of the Home app, or brings it back. `more(scene)` is
-  /// the page's own items for the menu. Answers `decorate(tileNode, scene, hideKey)`, which adds the tile's menu, takes
+  /// runs after a change; `settings(scene, deviceID)`, the address of the scene's Settings (a scene a plugin makes a
+  /// Discovered Device is Excluded there: `accessorySettings(<Accessory Id>)`), gives the menu a Settings… link.
+  /// `more(scene)` is the page's own items for the menu. Answers `decorate(tileNode, scene, deviceID)`, which adds the tile's menu, takes
   /// drops and paints the picture.
-  function scenePictures({ refresh, settings = null, toggleHidden = null, more = () => [], gallery = false }) {
+  function scenePictures({ refresh, settings = null, more = () => [], gallery = false }) {
     let artworks = [];
     const normalize = (name) => name.trim().toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
     const matchedArtwork = (scene) => artworks.find((item) => normalize(item.name) === normalize(scene.name) || (scene.smart && item.id === "first-light"));
@@ -22123,16 +22049,15 @@ HomeswiftI18n.add("pt", {
       });
     }
 
-    /// The tile's menu: a picture for it, and its settings (or whether the Home app shows it). A click on it (menuButton stops those)
+    /// The tile's menu: a picture for it, and its settings. A click on it (menuButton stops those)
     /// or a key does not reach the tile.
-    function sceneMenu(scene, tileNode, hideKey) {
+    function sceneMenu(scene, tileNode, deviceID) {
       const button = HomeswiftCommon.menuButton(t("Actions for {name}", { name: scene.name }), () => [
         gallery ? { label: t("Scene image"), icon: "image", onSelect: () => chooseGallery(scene, tileNode) } : null,
         { label: scene.picture ? t("Change the picture…") : t("Choose a picture…"), icon: "camera", onSelect: () => choosePicture(scene, tileNode) },
         scene.picture ? { label: t("Remove the picture"), icon: "trash", onSelect: () => removePicture(scene) } : null,
         ...more(scene),
-        settings ? { label: t("Settings…"), icon: "gear", href: settings(scene, hideKey) }
-          : toggleHidden ? { label: scene.hidden ? t("Show in the Home app") : t("Leave out of the Home app"), icon: "eye", onSelect: () => toggleHidden(hideKey) } : null,
+        settings ? { label: t("Settings…"), icon: "gear", href: settings(scene, deviceID) } : null,
       ]);
       button.classList.add("eye");
       button.addEventListener("keydown", (event) => event.stopPropagation());
@@ -22141,8 +22066,8 @@ HomeswiftI18n.add("pt", {
 
     return {
       hasPicture: (scene) => Boolean(scene.picture || matchedArtwork(scene)),
-      decorate(tileNode, scene, hideKey) {
-        tileNode.append(sceneMenu(scene, tileNode, hideKey));
+      decorate(tileNode, scene, deviceID) {
+        tileNode.append(sceneMenu(scene, tileNode, deviceID));
         dropZone(tileNode, scene);
         // The picture once loaded; the colours stay until then, and when there is none.
         Promise.all([pictureFor(scene), galleryReady]).then(([data]) => {
@@ -22169,14 +22094,14 @@ HomeswiftI18n.add("pt", {
       el("a", { class: "button primary", href: setupAddress({ start }), actionIcon: glyph, text: action }));
   }
 
-  /// The names a block's list leaves out of the Home app, as buttons that bring one back (`onShow(name)`); drawn again
-  /// only when they change.
+  /// The names of the Excluded devices, as buttons that open one's settings, where it is included again
+  /// (`onShow(name)`); drawn again only when they change.
   function drawHidden(container, names, onShow) {
     const key = JSON.stringify(names);
     if (container.dataset.json === key) return;
     container.dataset.json = key;
-    container.replaceChildren(...(names.length ? [el("span", { class: "muted", text: t("Not in the Home app:") }),
-      ...names.map((name) => el("button", { actionIcon: "eye", text: name, title: t("Show in the Home app"), onclick: () => onShow(name) }))] : []));
+    container.replaceChildren(...(names.length ? [el("span", { class: "muted", text: t("Excluded:") }),
+      ...names.map((name) => el("button", { actionIcon: "gear", text: name, title: t("Settings of {name}", { name }), onclick: () => onShow(name) }))] : []));
   }
 
   /// Text as a search compares it: accents aside, any case.
@@ -22332,7 +22257,7 @@ HomeswiftI18n.add("pt", {
   }
   window.homeswift = {
     platform, name, request, home: "/plugins", $, el, icon, tile, fact, assistant, explain, ask, breadcrumb, api, act, formatTemperature, temperature,
-    readBlock, updateBlock, updateDevices, updateDevice, putDevice, findDevice, setKey, toggleList, drawHidden, poll, renderKeyed,
+    settingsAddress, accessorySettings, drawHidden, poll, renderKeyed,
     canonicalMAC, isMAC, sameMAC, tabs, textStyle, speedScale, scenePictures, finder,
     setupAddress, setupCard,
   };
