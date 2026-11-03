@@ -672,7 +672,9 @@ struct DirigeraSetupTests {
         let devices = try await host.discover(platform: DirigeraPlugin.platform, name: DirigeraPlugin.name).devices
         #expect(devices.contains { $0.deviceID == "bulb-1" && $0.name == "Sofa Lamp" && $0.isSetUp && $0.authorization == .none })
         #expect(devices.contains { $0.deviceID == "vallhorn-1" && $0.model == "VALLHORN Wireless Motion Sensor" })
-        #expect(devices.contains { $0.deviceID == "scenes:192.0.2.20" && $0.name == "IKEA Scenes" && $0.isSetUp })
+        // Each scene is a device of its own; a wake-up scene, on the hub's schedule, has no switch and is not one.
+        #expect(devices.contains { $0.deviceID == "scene-1" && $0.name == "Movie night" && $0.kind == "scene" && $0.address == "192.0.2.20" && $0.isSetUp })
+        #expect(!devices.contains { $0.deviceID == "scene-2" || $0.deviceID == "scenes:192.0.2.20" })
         #expect(!devices.contains { $0.deviceID == "vallhorn-motion" })
         await host.stop()
     }
@@ -701,8 +703,8 @@ struct DirigeraSetupTests {
         let hallway = try #require(devices.first { $0.deviceID == "bulb-2" })
         #expect(hallway.excludedBySettings && !hallway.isSetUp)
         #expect(devices.first { $0.deviceID == "styrbar-1" }?.excludedBySettings == true)
-        let scenes = try #require(devices.first { $0.deviceID == "scenes:192.0.2.20" })
-        #expect(scenes.name == "Home Scenes" && scenes.excludedBySettings)
+        let scene = try #require(devices.first { $0.deviceID == "scene-1" })
+        #expect(scene.excludedBySettings && scene.kind == "scene")
         #expect(devices.first { $0.deviceID == "bulb-1" }?.isSetUp == true)
         await host.stop()
     }
@@ -720,6 +722,56 @@ struct DirigeraSetupTests {
         let devices = try await host.discover(platform: DirigeraPlugin.platform, name: DirigeraPlugin.name).devices
         #expect(devices.first { $0.deviceID == "bulb-1" }?.isSetUp == false)
         #expect(devices.first { $0.deviceID == "bulb-1" }?.excludedBySettings == false)
+        await host.stop()
+    }
+
+    /// Each device and scene has its Device Kind, from the running instance too.
+    @Test func devicesHaveTheirKinds() async throws {
+        let host = try await environment.start()
+        _ = try await accessory(host, sofaID)
+        let kinds = Dictionary(try await host.discover(platform: DirigeraPlugin.platform, name: DirigeraPlugin.name).devices.map { ($0.deviceID, $0.kind) }, uniquingKeysWith: { first, _ in first })
+        #expect(kinds["bulb-1"] == "light" && kinds["plug-1"] == "outlet" && kinds["door-1"] == "sensor" && kinds["vallhorn-1"] == "sensor")
+        #expect(kinds["leak-1"] == "sensor" && kinds["blind-1"] == "blinds" && kinds["purifier-1"] == "airPurifier" && kinds["styrbar-1"] == "controller")
+        #expect(kinds["scene-1"] == "scene")
+        for (id, kind) in [("bulb-1", "light"), ("styrbar-1", "controller"), ("scene-1", "scene")] {
+            #expect(await host.deviceKind(platform: DirigeraPlugin.platform, name: DirigeraPlugin.name, deviceID: id) == kind)
+        }
+        await host.stop()
+    }
+
+    /// A scene Excluded in its Accessory Settings has no switch: its hub's scenes accessory, which has no other, goes.
+    @Test func anExcludedSceneHasNoSwitch() async throws {
+        let host = try await environment.start(settings: ["hubs": [["host": "192.0.2.20", "token": FakeHub.token]], "_accessories": ["scene-1": ["excluded": true]]])
+        _ = try await accessory(host, sofaID)
+        #expect(!host.mainBridge.server.accessories.contains { $0.id == scenesID })
+        await host.stop()
+    }
+
+    /// The Homebridge-shaped lists move into `_accessories` by the hub's names (a part's name excludes its product), a
+    /// scenes accessory Excluded as each of its scenes, and a hub's token into the vault, out of config.json.
+    @Test func canonicalSettingsMovesTheListsAndTheToken() async throws {
+        let host = try await environment.start()
+        _ = try await accessory(host, scenesID)
+        let block = try JSONValue(any: [
+            "platform": "Dirigera", "name": "IKEA DIRIGERA", "transitionMs": 0,
+            "hubs": [["host": "192.0.2.20", "token": FakeHub.token, "name": "Home"]],
+            "excludeDevices": ["Hallway", "styrbar-up", "Gone"], "excludeScenes": ["movie night"],
+            "_accessories": ["scenes:192.0.2.20": ["excluded": true, "room": "Living Room"], "bulb-2": ["name": "Hall"]],
+        ] as [String: Any])
+        let canonical = await host.canonicalSettings(platform: DirigeraPlugin.platform, name: DirigeraPlugin.name, block: block)
+        #expect(canonical == (try JSONValue(any: [
+            "platform": "Dirigera", "name": "IKEA DIRIGERA", "transitionMs": 0,
+            "hubs": [["host": "192.0.2.20", "name": "Home"]], "excludeDevices": ["Gone"],
+            "_accessories": [
+                "scenes:192.0.2.20": ["room": "Living Room"], "bulb-2": ["name": "Hall", "excluded": true], "styrbar-1": ["excluded": true],
+                "scene-1": ["excluded": true],
+            ],
+        ] as [String: Any])))
+        let vault = CredentialVault(storage: environment.directory)
+        let entry = try #require(try vault.names().first { $0.hasPrefix("plugin.") && $0.hasSuffix(".hubs.json") })
+        #expect(try vault.entry(named: entry)?.fields["token"]?.contains(FakeHub.token) == true)
+        // A token the vault does not have stays: nothing knows it but config.json.
+        #expect(DirigeraPlugin.canonical(block, hubs: [:], vaultHas: [])["hubs"] == block["hubs"])
         await host.stop()
     }
 

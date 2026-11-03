@@ -1,19 +1,25 @@
 // The IKEA DIRIGERA page: the hubs (from config.json and paired through Setup on Add accessories: this page leads there);
 // the lights, outlets, sensors, blinds, air purifiers and remotes as the Accessories page draws them (its widgets); the hubs' scenes as tiles (a tap
-// runs one, the eye leaves it out of the Home app); and the settings. Refreshed every two seconds while visible;
-// saving writes this instance's block. The Setup card, tabs, scene pictures, speed scale and tile text come from
-// plugin.js.
+// runs one). Refreshed every two seconds while visible. It writes no settings (docs/adr/0002-schema-declares-every-setting.md):
+// the plugin's open its Settings page, and a device's or a scene's (Excluded) its own there. The Setup card, tabs,
+// scene pictures and tile text come from plugin.js.
 (() => {
   "use strict";
   const { t } = HomeswiftI18n;
-  const { $, el, icon, tile, fact, explain, request, act, readBlock, updateBlock, setKey, poll, renderKeyed } = homeswift;
+  const { $, el, icon, tile, fact, explain, request, poll, renderKeyed } = homeswift;
 
   let hubs = [];
   let devices = [];
   let scenes = [];
-  let block = {};
 
   homeswift.tabs("dirigera-tab");
+
+  // Where settings are edited: the plugin's Settings page, and each device's (by its accessory's id) or scene's (by its
+  // id on the hub) there.
+  const pluginSettings = `/plugins/${location.pathname.split("/")[2] || ""}/settings`;
+  const settingsOf = (deviceID) => `${pluginSettings}?accessory=${encodeURIComponent(`Dirigera:${deviceID}`)}`;
+  const openSettings = (deviceID) => { location.href = settingsOf(deviceID); };
+  $("#plugin-settings").href = pluginSettings;
 
   // MARK: Hubs
 
@@ -49,7 +55,7 @@
         tile("bridge", hub.paired && !hub.error ? "blue" : "grey"),
         el("div", { class: "who" }, el("strong", { text: name }), el("div", { class: "muted", text: hub.host })),
         el("span", { class: `pill status ${kind}`, text: state }),
-        HomeswiftCommon.menuButton(t("Actions for {name}", { name: [name, hub.host].filter(Boolean).join(" ") }), () => [setUp])),
+        HomeswiftCommon.menuButton(t("Actions for {name}", { name: [name, hub.host].filter(Boolean).join(" ") }), () => [setUp, { label: t("Settings"), icon: "gear", href: pluginSettings }])),
       hub.paired ? el("div", { class: "facts" }, ...[[t("Address"), hub.host], [t("Devices"), hub.devices ?? 0], [t("Scenes"), hub.scenes ?? 0]]
         .map(([label, value]) => fact(label, String(value)))) : null,
       hub.paired && hub.error ? explain({
@@ -69,9 +75,9 @@
     accessories = all.filter((accessory) => accessory.platform === "Dirigera" && accessory.platformName === homeswift.name && !accessory.id.startsWith("Dirigera:scenes:"));
   }
 
-  /// The devices left out of the Home app, as buttons that bring one back.
+  /// The devices left out of the Home app, as buttons that open their settings.
   function drawHidden(names) {
-    homeswift.drawHidden($("#hidden-devices"), names, (name) => toggleList("excludeDevices", name));
+    homeswift.drawHidden($("#hidden-devices"), names, (name) => { const device = devices.find((item) => item.name === name); if (device) openSettings(device.group); });
   }
 
   // The devices' finder, over the plugin's widgets (plugin.js, as the Hue page's): a search, a room, and filters by
@@ -128,9 +134,9 @@
     const item = devices.find((entry) => entry.group === id);
     return [
       { label: t("Identify"), icon: "identify", onSelect: () => request("identify", { method: "POST", body: { host: item?.host, id } }).catch((e) => HomeswiftCommon.showAlert(e.message)) },
-      item ? { label: t("Leave out of the Home app"), icon: "eye", onSelect: () => toggleList("excludeDevices", item.name) } : null,
+      { label: t("Settings"), icon: "gear", href: settingsOf(id) },
       { label: t("Show its log"), icon: "logs", href: `/logs/${encodeURIComponent(accessory.id)}` },
-    ].filter(Boolean);
+    ];
   }
 
   // MARK: Scenes
@@ -156,9 +162,9 @@
     return { glyph: glyphs[key ?? "home"], gradient: `linear-gradient(135deg, ${tone})`, text: homeswift.textStyle(tone.split(",")) };
   }
 
-  // A scene's picture: dropped on its tile or chosen from its menu (plugin.js); its ⋯ menu also leaves it out of the
-  // Home app, by name.
-  const pictures = homeswift.scenePictures({ refresh: () => refresh(), toggleHidden: (name) => toggleList("excludeScenes", name) });
+  // A scene's picture: dropped on its tile or chosen from its menu (plugin.js); the menu's Home app item opens the
+  // scene's settings, where it is Excluded.
+  const pictures = homeswift.scenePictures({ refresh: () => refresh(), toggleHidden: (sceneID) => openSettings(sceneID) });
 
   function sceneTile(scene) {
     const { glyph, gradient, text } = sceneStyle(scene);
@@ -187,7 +193,7 @@
     };
     tileNode.addEventListener("click", run);
     tileNode.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); run(); } });
-    return pictures.decorate(tileNode, scene, scene.name);
+    return pictures.decorate(tileNode, scene, scene.id);
   }
 
   function drawScenes() {
@@ -197,50 +203,6 @@
       return;
     }
     renderKeyed(list, scenes, (scene) => `${scene.host}/${scene.id}`, sceneTile);
-  }
-
-  // MARK: Settings
-
-  let dirty = false;
-  const markDirty = () => { dirty = true; $("#save-state").textContent = t("Unsaved changes."); };
-
-  const speed = homeswift.speedScale({
-    help: t("How fast a light reaches a new level or colour. Fast is the default; Extreme changes at once, snappiest for animated scenes."),
-    onInput: markDirty,
-  });
-  const scenesToggle = el("input", { type: "checkbox", id: "scenes-toggle" });
-
-  function buildSettings() {
-    $("#speed").append(speed.element);
-    scenesToggle.addEventListener("change", markDirty);
-    $("#options").append(el("label", { class: "toggle" }, el("span", { class: "switch" }, scenesToggle, el("span")),
-      el("span", {}, el("span", { class: "field-title", text: t("Scenes") }), el("span", { class: "help", text: t("A switch for each scene of the hub. On runs it; off within 30 seconds undoes it.") }))));
-    $("#save").addEventListener("click", (event) => act(event.currentTarget, save));
-  }
-
-  function fillSettings() {
-    if (dirty) return;
-    speed.set(block.transitionMs);
-    $("#save-state").textContent = t("Changes are kept once you save.");
-    scenesToggle.checked = block.scenes ?? true;
-  }
-
-  async function save() {
-    await updateBlock((draft) => {
-      setKey(draft, "transitionMs", speed.value(), 100);
-      setKey(draft, "scenes", scenesToggle.checked, true);
-    });
-    dirty = false;
-    block = await readBlock();
-    $("#save-state").textContent = t("Saved. The plugin restarted with these settings.");
-  }
-
-  /// Adds or removes a name from one of the block's lists (`excludeDevices`, `excludeScenes`), saved at once.
-  async function toggleList(key, name) {
-    const written = await homeswift.toggleList(key, name);
-    if (!written) return;
-    block = written;
-    setTimeout(refresh, 1500);
   }
 
   // MARK: Refresh
@@ -271,7 +233,5 @@
     drawScenes();
   }
 
-  buildSettings();
-  readBlock().then((value) => { block = value || {}; fillSettings(); }).catch(() => {});
   poll(refresh, 2000);
 })();

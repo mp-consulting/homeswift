@@ -8,8 +8,8 @@ extension DirigeraPlugin {
     public static let webFiles: [String: WebFile] = [
         "app.css": WebFile(contentType: "text/css; charset=utf-8", body: #"""
 /* The IKEA DIRIGERA page on the UI's materials: the hubs (or the card leading to their Setup), the devices as the Accessories page's
-   widgets, the hub's scenes as tiles, and the settings. The bridge card, tabs, scene tiles, speed scale
-   and save bar are style.css's, shared with the Philips Hue page. */
+   widgets, the hub's scenes as tiles. The bridge card, tabs and scene tiles are style.css's, shared with the Philips Hue
+   page. */
 
 .page-head { align-items: center; }
 h2 { margin: 0 0 10px; }
@@ -36,20 +36,26 @@ h2 { margin: 0 0 10px; }
         "app.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The IKEA DIRIGERA page: the hubs (from config.json and paired through Setup on Add accessories: this page leads there);
 // the lights, outlets, sensors, blinds, air purifiers and remotes as the Accessories page draws them (its widgets); the hubs' scenes as tiles (a tap
-// runs one, the eye leaves it out of the Home app); and the settings. Refreshed every two seconds while visible;
-// saving writes this instance's block. The Setup card, tabs, scene pictures, speed scale and tile text come from
-// plugin.js.
+// runs one). Refreshed every two seconds while visible. It writes no settings (docs/adr/0002-schema-declares-every-setting.md):
+// the plugin's open its Settings page, and a device's or a scene's (Excluded) its own there. The Setup card, tabs,
+// scene pictures and tile text come from plugin.js.
 (() => {
   "use strict";
   const { t } = HomeswiftI18n;
-  const { $, el, icon, tile, fact, explain, request, act, readBlock, updateBlock, setKey, poll, renderKeyed } = homeswift;
+  const { $, el, icon, tile, fact, explain, request, poll, renderKeyed } = homeswift;
 
   let hubs = [];
   let devices = [];
   let scenes = [];
-  let block = {};
 
   homeswift.tabs("dirigera-tab");
+
+  // Where settings are edited: the plugin's Settings page, and each device's (by its accessory's id) or scene's (by its
+  // id on the hub) there.
+  const pluginSettings = `/plugins/${location.pathname.split("/")[2] || ""}/settings`;
+  const settingsOf = (deviceID) => `${pluginSettings}?accessory=${encodeURIComponent(`Dirigera:${deviceID}`)}`;
+  const openSettings = (deviceID) => { location.href = settingsOf(deviceID); };
+  $("#plugin-settings").href = pluginSettings;
 
   // MARK: Hubs
 
@@ -85,7 +91,7 @@ h2 { margin: 0 0 10px; }
         tile("bridge", hub.paired && !hub.error ? "blue" : "grey"),
         el("div", { class: "who" }, el("strong", { text: name }), el("div", { class: "muted", text: hub.host })),
         el("span", { class: `pill status ${kind}`, text: state }),
-        HomeswiftCommon.menuButton(t("Actions for {name}", { name: [name, hub.host].filter(Boolean).join(" ") }), () => [setUp])),
+        HomeswiftCommon.menuButton(t("Actions for {name}", { name: [name, hub.host].filter(Boolean).join(" ") }), () => [setUp, { label: t("Settings"), icon: "gear", href: pluginSettings }])),
       hub.paired ? el("div", { class: "facts" }, ...[[t("Address"), hub.host], [t("Devices"), hub.devices ?? 0], [t("Scenes"), hub.scenes ?? 0]]
         .map(([label, value]) => fact(label, String(value)))) : null,
       hub.paired && hub.error ? explain({
@@ -105,9 +111,9 @@ h2 { margin: 0 0 10px; }
     accessories = all.filter((accessory) => accessory.platform === "Dirigera" && accessory.platformName === homeswift.name && !accessory.id.startsWith("Dirigera:scenes:"));
   }
 
-  /// The devices left out of the Home app, as buttons that bring one back.
+  /// The devices left out of the Home app, as buttons that open their settings.
   function drawHidden(names) {
-    homeswift.drawHidden($("#hidden-devices"), names, (name) => toggleList("excludeDevices", name));
+    homeswift.drawHidden($("#hidden-devices"), names, (name) => { const device = devices.find((item) => item.name === name); if (device) openSettings(device.group); });
   }
 
   // The devices' finder, over the plugin's widgets (plugin.js, as the Hue page's): a search, a room, and filters by
@@ -164,9 +170,9 @@ h2 { margin: 0 0 10px; }
     const item = devices.find((entry) => entry.group === id);
     return [
       { label: t("Identify"), icon: "identify", onSelect: () => request("identify", { method: "POST", body: { host: item?.host, id } }).catch((e) => HomeswiftCommon.showAlert(e.message)) },
-      item ? { label: t("Leave out of the Home app"), icon: "eye", onSelect: () => toggleList("excludeDevices", item.name) } : null,
+      { label: t("Settings"), icon: "gear", href: settingsOf(id) },
       { label: t("Show its log"), icon: "logs", href: `/logs/${encodeURIComponent(accessory.id)}` },
-    ].filter(Boolean);
+    ];
   }
 
   // MARK: Scenes
@@ -192,9 +198,9 @@ h2 { margin: 0 0 10px; }
     return { glyph: glyphs[key ?? "home"], gradient: `linear-gradient(135deg, ${tone})`, text: homeswift.textStyle(tone.split(",")) };
   }
 
-  // A scene's picture: dropped on its tile or chosen from its menu (plugin.js); its ⋯ menu also leaves it out of the
-  // Home app, by name.
-  const pictures = homeswift.scenePictures({ refresh: () => refresh(), toggleHidden: (name) => toggleList("excludeScenes", name) });
+  // A scene's picture: dropped on its tile or chosen from its menu (plugin.js); the menu's Home app item opens the
+  // scene's settings, where it is Excluded.
+  const pictures = homeswift.scenePictures({ refresh: () => refresh(), toggleHidden: (sceneID) => openSettings(sceneID) });
 
   function sceneTile(scene) {
     const { glyph, gradient, text } = sceneStyle(scene);
@@ -223,7 +229,7 @@ h2 { margin: 0 0 10px; }
     };
     tileNode.addEventListener("click", run);
     tileNode.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); run(); } });
-    return pictures.decorate(tileNode, scene, scene.name);
+    return pictures.decorate(tileNode, scene, scene.id);
   }
 
   function drawScenes() {
@@ -233,50 +239,6 @@ h2 { margin: 0 0 10px; }
       return;
     }
     renderKeyed(list, scenes, (scene) => `${scene.host}/${scene.id}`, sceneTile);
-  }
-
-  // MARK: Settings
-
-  let dirty = false;
-  const markDirty = () => { dirty = true; $("#save-state").textContent = t("Unsaved changes."); };
-
-  const speed = homeswift.speedScale({
-    help: t("How fast a light reaches a new level or colour. Fast is the default; Extreme changes at once, snappiest for animated scenes."),
-    onInput: markDirty,
-  });
-  const scenesToggle = el("input", { type: "checkbox", id: "scenes-toggle" });
-
-  function buildSettings() {
-    $("#speed").append(speed.element);
-    scenesToggle.addEventListener("change", markDirty);
-    $("#options").append(el("label", { class: "toggle" }, el("span", { class: "switch" }, scenesToggle, el("span")),
-      el("span", {}, el("span", { class: "field-title", text: t("Scenes") }), el("span", { class: "help", text: t("A switch for each scene of the hub. On runs it; off within 30 seconds undoes it.") }))));
-    $("#save").addEventListener("click", (event) => act(event.currentTarget, save));
-  }
-
-  function fillSettings() {
-    if (dirty) return;
-    speed.set(block.transitionMs);
-    $("#save-state").textContent = t("Changes are kept once you save.");
-    scenesToggle.checked = block.scenes ?? true;
-  }
-
-  async function save() {
-    await updateBlock((draft) => {
-      setKey(draft, "transitionMs", speed.value(), 100);
-      setKey(draft, "scenes", scenesToggle.checked, true);
-    });
-    dirty = false;
-    block = await readBlock();
-    $("#save-state").textContent = t("Saved. The plugin restarted with these settings.");
-  }
-
-  /// Adds or removes a name from one of the block's lists (`excludeDevices`, `excludeScenes`), saved at once.
-  async function toggleList(key, name) {
-    const written = await homeswift.toggleList(key, name);
-    if (!written) return;
-    block = written;
-    setTimeout(refresh, 1500);
   }
 
   // MARK: Refresh
@@ -307,8 +269,6 @@ h2 { margin: 0 0 10px; }
     drawScenes();
   }
 
-  buildSettings();
-  readBlock().then((value) => { block = value || {}; fillSettings(); }).catch(() => {});
   poll(refresh, 2000);
 })();
 
@@ -334,27 +294,21 @@ HomeswiftI18n.add({
     "Runs on the hub's schedule: it cannot be run from here or from the Home app.": "Suit la programmation du hub : elle ne se lance ni d'ici ni depuis l'app Maison.",
     "No scenes yet: make some in the IKEA Home smart app.": "Pas encore de scènes : créez-en dans l'app IKEA Home smart.",
     "Pair a hub to see its scenes.": "Jumelez un hub pour voir ses scènes.",
-    "Unsaved changes.": "Modifications non enregistrées.",
     "Medium": "Moyenne",
-    "How fast a light reaches a new level or colour. Fast is the default; Extreme changes at once, snappiest for animated scenes.": "La vitesse à laquelle une lampe atteint une nouvelle intensité ou couleur. Rapide par défaut ; Extrême change aussitôt, le plus vif pour les scènes animées.",
-    "A switch for each scene of the hub. On runs it; off within 30 seconds undoes it.": "Un interrupteur par scène du hub. L'allumer la lance ; l'éteindre dans les 30 secondes l'annule.",
-    "Changes are kept once you save.": "Les modifications sont conservées une fois enregistrées.",
-    "Saved. The plugin restarted with these settings.": "Enregistré. Le plugin a redémarré avec ces réglages.",
     "{n} device": "{n} appareil",
     "{n} devices": "{n} appareils",
     "{n} scene": "{n} scène",
     "{n} scenes": "{n} scènes",
     "Your DIRIGERA hubs, their lights, sensors, blinds and remotes room by room, and their scenes, straight from the hub on your network.": "Vos hubs DIRIGERA, leurs lampes, capteurs, stores et télécommandes pièce par pièce, et leurs scènes, directement depuis le hub de votre réseau.",
     "Devices": "Appareils",
-    "Save Configuration": "Enregistrer la configuration",
     "Not in the Home app:": "Pas dans l'app Maison :",
-    "Tap a scene to run it. Drop a picture on a tile to give the scene one. In the Home app each scene is a switch: on runs it, off within 30 seconds undoes it; a tile's ⋯ menu leaves one out.": "Touchez une scène pour la lancer. Déposez une image sur une tuile pour la donner à la scène. Dans l'app Maison, chaque scène est un interrupteur : l'allumer la lance, l'éteindre dans les 30 secondes l'annule ; le menu ⋯ d'une tuile en retire une.",
     "the picture must be a JPEG, PNG or WebP image": "l'image doit être au format JPEG, PNG ou WebP",
     "the picture is larger than {0} KB": "l'image dépasse {0} Ko",
     "the picture has no valid name": "l'image n'a pas de nom valide",
     "a scene and a picture are required": "une scène et une image sont requises",
     "a scene is required": "une scène est requise",
-    "no picture for that scene": "aucune image pour cette scène"
+    "no picture for that scene": "aucune image pour cette scène",
+    "Tap a scene to run it. Drop a picture on a tile to give the scene one. In the Home app each scene is a switch: on runs it, off within 30 seconds undoes it; a tile's ⋯ menu opens the scene's settings, where it is left out.": "Touchez une scène pour la lancer. Déposez une image sur une tuile pour la donner à la scène. Dans l'app Maison, chaque scène est un interrupteur : l'allumer la lance, l'éteindre dans les 30 secondes l'annule ; le menu ⋯ d'une tuile ouvre les réglages de la scène, où on la retire."
   },
   "es": {
     "Search devices": "Buscar dispositivos",
@@ -374,27 +328,21 @@ HomeswiftI18n.add({
     "Runs on the hub's schedule: it cannot be run from here or from the Home app.": "Sigue la programación del hub: no se puede activar desde aquí ni desde la app Casa.",
     "No scenes yet: make some in the IKEA Home smart app.": "Aún no hay escenas: créalas en la app IKEA Home smart.",
     "Pair a hub to see its scenes.": "Empareja un hub para ver sus escenas.",
-    "Unsaved changes.": "Cambios sin guardar.",
     "Medium": "Media",
-    "How fast a light reaches a new level or colour. Fast is the default; Extreme changes at once, snappiest for animated scenes.": "La rapidez con la que una luz llega a un nuevo nivel o color. Rápida es la predeterminada; Extrema cambia al instante, lo más ágil para las escenas animadas.",
-    "A switch for each scene of the hub. On runs it; off within 30 seconds undoes it.": "Un interruptor por escena del hub. Encenderlo la activa; apagarlo antes de 30 segundos la deshace.",
-    "Changes are kept once you save.": "Los cambios se conservan al guardar.",
-    "Saved. The plugin restarted with these settings.": "Guardado. El plugin se ha reiniciado con estos ajustes.",
     "{n} device": "{n} dispositivo",
     "{n} devices": "{n} dispositivos",
     "{n} scene": "{n} escena",
     "{n} scenes": "{n} escenas",
     "Your DIRIGERA hubs, their lights, sensors, blinds and remotes room by room, and their scenes, straight from the hub on your network.": "Tus hubs DIRIGERA, sus luces, sensores, persianas y mandos habitación por habitación, y sus escenas, directamente desde el hub de tu red.",
     "Devices": "Dispositivos",
-    "Save Configuration": "Guardar configuración",
     "Not in the Home app:": "No están en la app Casa:",
-    "Tap a scene to run it. Drop a picture on a tile to give the scene one. In the Home app each scene is a switch: on runs it, off within 30 seconds undoes it; a tile's ⋯ menu leaves one out.": "Toca una escena para activarla. Suelta una imagen en un mosaico para dársela a la escena. En la app Casa cada escena es un interruptor: encenderlo la activa y apagarlo antes de 30 segundos la deshace; el menú ⋯ de un mosaico quita una.",
     "the picture must be a JPEG, PNG or WebP image": "la imagen debe ser JPEG, PNG o WebP",
     "the picture is larger than {0} KB": "la imagen supera los {0} KB",
     "the picture has no valid name": "la imagen no tiene un nombre válido",
     "a scene and a picture are required": "se necesitan una escena y una imagen",
     "a scene is required": "se necesita una escena",
-    "no picture for that scene": "no hay imagen para esa escena"
+    "no picture for that scene": "no hay imagen para esa escena",
+    "Tap a scene to run it. Drop a picture on a tile to give the scene one. In the Home app each scene is a switch: on runs it, off within 30 seconds undoes it; a tile's ⋯ menu opens the scene's settings, where it is left out.": "Toca una escena para activarla. Suelta una imagen en un mosaico para dársela a la escena. En la app Casa cada escena es un interruptor: encenderlo la activa y apagarlo antes de 30 segundos la deshace; el menú ⋯ de un mosaico abre los ajustes de la escena, donde se quita."
   },
   "pt": {
     "Search devices": "Procurar dispositivos",
@@ -414,27 +362,21 @@ HomeswiftI18n.add({
     "Runs on the hub's schedule: it cannot be run from here or from the Home app.": "Segue o horário do hub: não pode ser ativada daqui nem a partir da app Casa.",
     "No scenes yet: make some in the IKEA Home smart app.": "Ainda não há cenas: crie-as na app IKEA Home smart.",
     "Pair a hub to see its scenes.": "Emparelhe um hub para ver as cenas.",
-    "Unsaved changes.": "Alterações por guardar.",
     "Medium": "Média",
-    "How fast a light reaches a new level or colour. Fast is the default; Extreme changes at once, snappiest for animated scenes.": "A rapidez com que uma luz chega a um novo nível ou cor. Rápida é a predefinida; Extrema muda de imediato, o mais vivo para as cenas animadas.",
-    "A switch for each scene of the hub. On runs it; off within 30 seconds undoes it.": "Um interruptor por cena do hub. Ligá-lo ativa-a; desligá-lo nos 30 segundos seguintes anula-a.",
-    "Changes are kept once you save.": "As alterações ficam guardadas quando guardar.",
-    "Saved. The plugin restarted with these settings.": "Guardado. O plugin reiniciou com estas definições.",
     "{n} device": "{n} dispositivo",
     "{n} devices": "{n} dispositivos",
     "{n} scene": "{n} cena",
     "{n} scenes": "{n} cenas",
     "Your DIRIGERA hubs, their lights, sensors, blinds and remotes room by room, and their scenes, straight from the hub on your network.": "Os hubs DIRIGERA, as luzes, sensores, estores e comandos divisão a divisão, e as cenas, diretamente do hub na sua rede.",
     "Devices": "Dispositivos",
-    "Save Configuration": "Guardar configuração",
     "Not in the Home app:": "Fora da app Casa:",
-    "Tap a scene to run it. Drop a picture on a tile to give the scene one. In the Home app each scene is a switch: on runs it, off within 30 seconds undoes it; a tile's ⋯ menu leaves one out.": "Toque numa cena para a ativar. Largue uma imagem num mosaico para a dar à cena. Na app Casa cada cena é um interruptor: ligá-lo ativa-a e desligá-lo nos 30 segundos seguintes anula-a; o menu ⋯ de um mosaico retira uma.",
     "the picture must be a JPEG, PNG or WebP image": "a imagem tem de ser JPEG, PNG ou WebP",
     "the picture is larger than {0} KB": "a imagem tem mais de {0} KB",
     "the picture has no valid name": "a imagem não tem um nome válido",
     "a scene and a picture are required": "são necessárias uma cena e uma imagem",
     "a scene is required": "é necessária uma cena",
-    "no picture for that scene": "não há imagem para essa cena"
+    "no picture for that scene": "não há imagem para essa cena",
+    "Tap a scene to run it. Drop a picture on a tile to give the scene one. In the Home app each scene is a switch: on runs it, off within 30 seconds undoes it; a tile's ⋯ menu opens the scene's settings, where it is left out.": "Toque numa cena para a ativar. Largue uma imagem num mosaico para a dar à cena. Na app Casa cada cena é um interruptor: ligá-lo ativa-a e desligá-lo nos 30 segundos seguintes anula-a; o menu ⋯ de um mosaico abre as definições da cena, onde é retirada."
   }
 });
 
@@ -459,6 +401,7 @@ HomeswiftI18n.add({
       <h1>IKEA DIRIGERA</h1>
       <p class="muted" data-i18n>Your DIRIGERA hubs, their lights, sensors, blinds and remotes room by room, and their scenes, straight from the hub on your network.</p>
     </div>
+    <div class="actions"><a id="plugin-settings" class="button" data-i18n data-action-icon="gear">Settings</a></div>
   </div>
 
   <div id="hubs"></div>
@@ -466,7 +409,6 @@ HomeswiftI18n.add({
   <div class="group tabs main-tabs" role="tablist">
     <button role="tab" data-tab="devices" class="on" aria-selected="true" aria-controls="tab-devices" data-i18n data-action-icon="accessory">Devices</button>
     <button role="tab" data-tab="scenes" aria-selected="false" aria-controls="tab-scenes" data-i18n data-action-icon="star">Scenes</button>
-    <button role="tab" data-tab="settings" aria-selected="false" aria-controls="tab-settings" data-i18n data-action-icon="sliders">Settings</button>
   </div>
 
   <section id="tab-devices" class="tab-pane" role="tabpanel">
@@ -476,22 +418,8 @@ HomeswiftI18n.add({
   </section>
 
   <section id="tab-scenes" class="tab-pane hidden" role="tabpanel">
-    <p class="muted intro" data-i18n>Tap a scene to run it. Drop a picture on a tile to give the scene one. In the Home app each scene is a switch: on runs it, off within 30 seconds undoes it; a tile's ⋯ menu leaves one out.</p>
+    <p class="muted intro" data-i18n>Tap a scene to run it. Drop a picture on a tile to give the scene one. In the Home app each scene is a switch: on runs it, off within 30 seconds undoes it; a tile's ⋯ menu opens the scene's settings, where it is left out.</p>
     <div id="scenes" class="scene-tiles"></div>
-  </section>
-
-  <section id="tab-settings" class="tab-pane hidden" role="tabpanel">
-    <div class="card">
-      <h2 data-i18n>Speed</h2>
-      <div id="speed"></div>
-    </div>
-    <div class="card">
-      <h2 data-i18n>In the Home app</h2>
-      <div id="options"></div>
-    </div>
-    <div class="card save-card">
-      <div class="save-bar"><span id="save-state" class="muted" data-i18n>Changes are kept once you save.</span><button id="save" class="primary" data-i18n data-action-icon="check">Save Configuration</button></div>
-    </div>
   </section>
 </main>
 <script src="/common.js"></script>
