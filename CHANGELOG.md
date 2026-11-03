@@ -18,8 +18,16 @@ All notable changes to this project are documented here. The format follows
   Device Kinds only (`x-kinds`) and take a plugin-wide default from a Plugin Setting (`x-default`). Saves check the
   `_accessories` entries they change. Plugins can answer a device's kind (`deviceKind(of:)`, `DiscoveredDevice.kind`)
   and put their Homebridge-shaped blocks in the canonical shape before each settings write (`canonicalSettings`).
+- Forget: `forget_device`, an MCP tool that asks first and has a dry run, and the web UI's
+  `DELETE /api/settings/accessories/<id>`, drop a device's Authorization (its credentials in the vault) and every
+  Accessory Setting of it and its other accessories; its plugin reloads without it, and it is only a Discovered Device
+  again.
 
 ### Changed
+
+- `update_settings` asks first only for a change that Excludes an accessory, puts it Not in Home, changes its Parts, or
+  changes Plugin Settings: a rename, a room, Hidden and a plugin's own Accessory Settings run at once. A tool that is not
+  destructive can ask for some calls (`MCPTool.confirmsWhen`).
 
 - An accessory's room, Hidden and Not in Home are Accessory Settings, in its plugin's block's `_accessories` beside its
   Name, Excluded and Parts (docs/adr/0003-room-and-visibility-in-accessory-settings.md); they apply without reloading

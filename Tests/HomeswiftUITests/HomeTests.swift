@@ -32,6 +32,15 @@ struct HomeTests {
         #expect(try await browser.put("/api/rooms", ["accessories": ["Lamps:lamp": ["room": "Desk"]]]).status == 400)
         #expect(try await browser.patch("/api/settings/accessories/Lamps:lamp", ["room": .string(String(repeating: "x", count: 65))]).status == 400)
         #expect(try await browser.patch("/api/settings/accessories/Nothing", ["room": "Desk"]).status == 404)
+
+        // Forget drops its Accessory Settings: the lamp's name and room go, the lock's Hidden stays.
+        let forgot = try await browser.send("DELETE", "/api/settings/accessories/Lamps:lamp")
+        #expect(forgot.status == 200, "\(forgot.body)")
+        #expect(forgot.json?["settingsDropped"] == ["lamp"])
+        let after = try #require(try await browser.get("/api/settings/accessories/Lamps:lamp").json)
+        #expect(after["settings"]?["name"] == nil && after["settings"]?["room"] == nil)
+        #expect(try await browser.get("/api/settings/accessories/Lamps:lock").json?["settings"]?["hidden"] == true)
+        #expect(try await browser.send("DELETE", "/api/settings/accessories/Nothing").status == 404)
         // Without the Assistant there is nothing to suggest.
         #expect(try await browser.post("/api/layout/suggest", [:]).status == 404)
     }

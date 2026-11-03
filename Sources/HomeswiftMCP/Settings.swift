@@ -501,6 +501,102 @@ extension HomeswiftCatalog {
         root["bridge"] = .object(bridge)
     }
 
+    // MARK: Confirmations
+
+    /// Whether an accessory's settings change asks the user first: one that takes it out of Apple Home or out of the bridge
+    /// (Excluded, Not in Home), or changes its Parts, which drops services with their automations. A Name, a room, Hidden,
+    /// an Include and the plugin's own Accessory Settings apply without asking: they are undone as easily as they are made.
+    static func accessoryChangeAsks(_ settings: JSONValue) -> Bool {
+        guard let settings = settings.objectValue else { return false }
+        return settings["excluded"] == .bool(true) || settings["notInHome"] == .bool(true) || settings["parts"] != nil
+    }
+
+    /// `update_settings`' confirmation (`MCPTool.confirmsWhen`): an accessory's change by `accessoryChangeAsks`, every
+    /// change of Plugin Settings (a host, a device list, a secret: what `patch_config` writes, and the plugin reloads).
+    @Sendable static func settingsChangeAsks(_ arguments: JSONValue) -> Bool {
+        if let many = arguments["accessories"]?.objectValue { return many.values.contains(where: accessoryChangeAsks) }
+        guard let settings = arguments["settings"] else { return false }
+        if arguments["accessory"]?.stringValue != nil { return accessoryChangeAsks(settings) }
+        return settings.objectValue?.isEmpty == false
+    }
+
+    // MARK: Forget
+
+    /// Whether `key` of a block's `_accessories` belongs to the device `deviceID`: its own entry, or one of its other
+    /// accessories' (`<deviceID>:<more>`, `<deviceID>.<more>`).
+    static func isKey(_ key: String, of deviceID: String) -> Bool {
+        key == deviceID || key.hasPrefix("\(deviceID):") || key.hasPrefix("\(deviceID).")
+    }
+
+    /// Forget (GLOSSARY.md): drops a device's Authorization (its credentials in the vault) and its Accessory Settings
+    /// (every `_accessories` entry of the device, its other accessories' included, and what the layout kept of their room,
+    /// Hidden and name), so it is only a Discovered Device again if its plugin still finds it. The block is put in its
+    /// canonical shape first, as the other writers do; the plugin reloads without it. The Arrangement (its place on the
+    /// wall, Quick Controls) stays. Answers the keys dropped, whether credentials were, and what the write reloaded.
+    public func forgetDevice(accessoryID: String, instance: String? = nil, dryRun: Bool = false, by writer: ConfigWriter = .person) async throws -> JSONValue {
+        let current = try readConfig()
+        var root = current.objectValue ?? [:]
+        var platforms = root["platforms"]?.arrayValue ?? []
+        let target = try settingsTarget(accessoryID, instance: instance, platforms: platforms)
+        guard let index = Self.blockIndex(of: target, in: platforms) else { throw CatalogError("No block \(target.instance) of \(target.platform)", notFound: true) }
+        var block = await canonicalBlock(platforms[index]).objectValue ?? [:]
+        Self.migrateHiddenFromHomeKit(&block, platform: target.platform)
+        var entries = block["_accessories"]?.objectValue ?? [:]
+        let dropped = entries.keys.filter { Self.isKey($0, of: target.deviceKey) || $0 == target.key }.sorted()
+        for key in dropped { entries.removeValue(forKey: key) }
+        if entries.isEmpty { block.removeValue(forKey: "_accessories") } else { block["_accessories"] = .object(entries) }
+        platforms[index] = .object(block)
+        root["platforms"] = .array(platforms)
+        let next = JSONValue.object(root)
+        // Its accessories' ids, for what the layout kept of their settings.
+        let prefix = "\(target.platform):"
+        let legacy = home.layout.value.accessories.filter { id, entry in
+            id.hasPrefix(prefix) && Self.isKey(String(id.dropFirst(prefix.count)), of: target.deviceKey) && (entry.room != nil || entry.hidden != nil || entry.name != nil)
+        }.keys
+        let context = host.context(platform: target.platform, name: target.instance)
+        let hadCredentials = context?.haveCredentials([target.deviceKey]).isEmpty == false
+        var answer: [String: JSONValue] = [
+            "accessory": .string(target.accessoryID), "platform": .string(target.platform), "instance": .string(target.instance),
+            "deviceID": .string(target.deviceKey), "settingsDropped": .array(dropped.map(JSONValue.string)), "credentialsDropped": .bool(hadCredentials),
+        ]
+        guard dropped.isEmpty == false || hadCredentials || !legacy.isEmpty else {
+            answer["note"] = .string("Nothing to forget: \(target.displayName) has no Authorization or Accessory Settings.")
+            answer["reloaded"] = []
+            if dryRun { answer["dryRun"] = true }
+            return .object(answer)
+        }
+        // Checked as it will be written before anything goes: the credentials cannot come back.
+        let checked = try await applyConfig(next, dryRun: true, current: current, checkSchemas: true, by: writer)
+        if dryRun {
+            answer["dryRun"] = true
+            answer["changes"] = checked["changes"] ?? []
+            return .object(answer)
+        }
+        // The credentials first, so the plugin the write reloads starts without them.
+        if hadCredentials { context?.removeCredentials(for: target.deviceKey) }
+        if next != current {
+            let applied = try await applyConfig(next, dryRun: false, current: current, checkSchemas: true, by: writer)
+            for (key, value) in applied.objectValue ?? [:] where ["reloaded", "started", "stopped", "restarting", "restartNeeded", "note", "backup"].contains(key) { answer[key] = value }
+        } else {
+            await host.relaunch(platform: target.platform, name: target.instance)
+            answer["reloaded"] = [.string(target.instance)]
+        }
+        if !legacy.isEmpty {
+            try home.layout.update { layout in
+                for id in legacy {
+                    guard var entry = layout.accessories[id] else { continue }
+                    entry.room = nil
+                    entry.hidden = nil
+                    entry.name = nil
+                    layout.accessories[id] = entry.isEmpty ? nil : entry
+                }
+            }
+        }
+        home.layoutChanged()
+        logger.info("Forgot a device", metadata: ["platform": "\(target.platform)", "name": "\(target.instance)", "device": "\(target.deviceKey)"])
+        return .object(answer)
+    }
+
     // MARK: Tools
 
     /// A settings tool's `plugin`: its platform and instance name.
@@ -555,7 +651,7 @@ extension HomeswiftCatalog {
                     "settings": ["type": "object", "description": "The settings to change, by key; null clears one"],
                     "accessories": ["type": "object", "maxProperties": 500, "additionalProperties": ["type": "object"], "description": "Settings by Accessory Id, for several accessories at once"],
                 ]) { $1 })],
-                scope: .admin, destructive: true, supportsDryRun: true
+                scope: .admin, supportsDryRun: true, confirmsWhen: Self.settingsChangeAsks
             ) { call in
                 let who = "MCP \(call.session.clientInfo?.name ?? "client")"
                 if let many = call.arguments["accessories"]?.objectValue {
@@ -571,6 +667,18 @@ extension HomeswiftCatalog {
                 }
                 guard let plugin = plugin(call) else { return .error("Pass accessory or plugin") }
                 return .json(try await catalog.updatePluginSettings(platform: plugin.platform, instance: plugin.name, settings: settings, dryRun: call.isDryRun, by: .client))
+            },
+            MCPTool(
+                name: "forget_device", title: "Forget a device",
+                description: "Forgets a device (accessory: its Accessory Id; plugin, its instance when the platform has several): drops its Authorization "
+                    + "(the credentials Setup kept in the vault) and all its Accessory Settings (Name, room, Hidden, Not in Home, Excluded, Parts and the plugin's own, "
+                    + "its other accessories' too). Its plugin reloads without it: it leaves Apple Home with its room, scenes and automations, and is only a "
+                    + "Discovered Device again if the plugin still finds it (start_setup sets it up anew). To keep it but leave it out, exclude it with update_settings instead. "
+                    + "dryRun previews.",
+                inputSchema: ["type": "object", "required": ["accessory"], "properties": .object(address)],
+                scope: .admin, destructive: true, supportsDryRun: true
+            ) { call in
+                .json(try await catalog.forgetDevice(accessoryID: try call.string("accessory"), instance: plugin(call)?.name, dryRun: call.isDryRun, by: .client))
             },
         ]
     }

@@ -10,6 +10,7 @@ import NIOHTTP1
 //                                                            name, for an accessory not on the bridge whose platform has several)
 //   PATCH  /api/settings/accessories/<accessoryId>           {settings…}: merged, null clears a key (`?instance=` too)
 //   PATCH  /api/settings/accessories                         {"<accessoryId>": {settings…}, …}: several in one write (`?instance=` too)
+//   DELETE /api/settings/accessories/<accessoryId>           Forget: its Authorization and Accessory Settings dropped (`?instance=` too)
 //   GET    /api/settings/plugins/<platform>/<name>            its Plugin Settings, its schema and accessorySchema
 //   PATCH  /api/settings/plugins/<platform>/<name>            {settings…}: merged, null clears a key
 extension UIServer {
@@ -25,6 +26,11 @@ extension UIServer {
                 logger.info("Web UI changed an accessory's settings", metadata: ["user": "\(username)", "accessory": "\(route[1])"])
                 noteConfigChange(by: username)
                 return .json(Redaction.redactSecrets(result))
+            case (.DELETE, "accessories", 2):
+                let result = try await catalog.forgetDevice(accessoryID: route[1], instance: instance, by: .person)
+                logger.info("Web UI forgot a device", metadata: ["user": "\(username)", "accessory": "\(route[1])"])
+                noteConfigChange(by: username)
+                return .json(result)
             case (.PATCH, "accessories", 1):
                 guard let byID = body.objectValue, !byID.isEmpty else { return .error(400, "send the settings by accessory id") }
                 let changes = try byID.sorted { $0.key < $1.key }.map { id, value -> (accessoryID: String, settings: [String: JSONValue]) in

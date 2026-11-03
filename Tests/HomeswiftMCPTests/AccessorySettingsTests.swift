@@ -372,4 +372,74 @@ struct AccessorySettingsTests {
         #expect(names.isSuperset(of: ["get_settings", "update_settings", "set_accessory_layout", "patch_config", "update_config", "get_config", "restore_config"]))
         await environment.stop()
     }
+
+    // MARK: Confirmations
+
+    /// A rename, a room or Hidden runs without asking; Excluding, Not in Home and Parts ask first, as a destructive tool does,
+    /// and so does a change of Plugin Settings.
+    @Test func asksOnlyForWhatTakesAnAccessoryAway() async throws {
+        let environment = try await environment()
+        let client = DirectClient(server: environment.server)
+        try await client.initialize()
+        let tools = try await client.call("tools/list")["tools"]?.arrayValue ?? []
+        let update = try #require(tools.first { $0["name"] == "update_settings" })
+        #expect(update["annotations"]?["destructiveHint"] == false)
+        #expect(update["inputSchema"]?["properties"]?["confirmationCode"] != nil)
+
+        // No answer given: a question would be declined.
+        let renamed = try await client.tool("update_settings", ["accessory": "Devices:lamp", "settings": ["name": "Reading Lamp", "room": "Office", "hidden": true]])
+        #expect(renamed["isError"] != true, "\(renamed)")
+        #expect(try block(environment)?["_accessories"]?["lamp"]?["name"] == "Reading Lamp")
+        let many = try await client.tool("update_settings", ["accessories": ["Devices:lamp": ["room": "Hall"], "Devices:lock": ["offset": 1]]])
+        #expect(many["isError"] != true, "\(many)")
+
+        for settings: JSONValue in [["excluded": true], ["notInHome": true], ["parts": ["Light": false]]] {
+            let refused = try await client.tool("update_settings", ["accessory": "Devices:lamp", "settings": settings])
+            #expect(refused["isError"] == true && refused["content"]?[0]?["text"]?.stringValue?.contains("did not confirm") == true, "\(settings)")
+        }
+        let batch = try await client.tool("update_settings", ["accessories": ["Devices:lamp": ["room": "Hall"], "Devices:lock": ["excluded": true]]])
+        #expect(batch["isError"] == true)
+        let plugin = try await client.tool("update_settings", ["plugin": ["platform": "Devices"], "settings": ["pollingRate": 500]])
+        #expect(plugin["isError"] == true)
+        #expect(try block(environment)?["_accessories"]?["lock"]?["excluded"] == nil)
+
+        let excluded = try await client.tool("update_settings", ["accessory": "Devices:lock", "settings": ["excluded": true]], answer: accept)
+        #expect(excluded["isError"] != true, "\(excluded)")
+        #expect(try block(environment)?["_accessories"]?["lock"]?["excluded"] == true)
+        await environment.stop()
+    }
+
+    // MARK: Forget
+
+    /// Forget drops the device's credentials and every Accessory Setting of it and its other accessories, after asking;
+    /// another device's stay.
+    @Test func forgetsADevice() async throws {
+        let environment = try await environment(#", "_accessories": { "lamp": { "name": "Desk", "offset": 1 }, "lamp:night": { "room": "Hall" }, "lamplight": { "name": "Other" } }"#)
+        let context = try #require(environment.host.context(platform: "Devices", name: "Devices"))
+        try context.saveCredentials(["token": "device-token"], for: "lamp")
+        try context.saveCredentials(["token": "other-token"], for: "lamplight")
+        let client = DirectClient(server: environment.server)
+        try await client.initialize()
+
+        let declined = try await client.tool("forget_device", ["accessory": "Devices:lamp"])
+        #expect(declined["isError"] == true)
+        #expect(context.credentials(for: "lamp") != nil)
+
+        let preview = try await environment.catalog.forgetDevice(accessoryID: "Devices:lamp", dryRun: true)
+        #expect(preview["settingsDropped"] == ["lamp", "lamp:night"] && preview["credentialsDropped"] == true)
+        #expect(context.credentials(for: "lamp") != nil)
+
+        let forgot = try await client.tool("forget_device", ["accessory": "Devices:lamp"], answer: accept)
+        #expect(forgot["isError"] != true, "\(forgot)")
+        #expect(forgot["structuredContent"]?["settingsDropped"] == ["lamp", "lamp:night"])
+        #expect(try block(environment)?["_accessories"] == ["lamplight": ["name": "Other"]])
+        #expect(context.credentials(for: "lamp") == nil)
+        #expect(context.credentials(for: "lamplight") != nil)
+        #expect(environment.auditEntries.contains { $0["tool"] == "forget_device" && $0["ok"] == true })
+
+        // Nothing left to forget.
+        let again = try await environment.catalog.forgetDevice(accessoryID: "Devices:lamp")
+        #expect(again["settingsDropped"] == [] && again["credentialsDropped"] == false)
+        await environment.stop()
+    }
 }
