@@ -10,9 +10,10 @@ extension ElgatoKeyLightsPlugin {
         AssistantAction(
             name: "probe", title: "Check an address",
             description: "Asks the light at an address who it is: name, model, MAC address, serial number, firmware. "
-                + "For a light Bonjour does not reach: add it to the block's devices with update_settings (plugin {\"platform\": \"ElgatoKeyLights\"}, "
-                + "settings {\"devices\": [entries]}, which replaces the whole list: read it with get_settings first and keep its entries) "
-                + "as {\"mac\", \"name\", \"ip\", \"model\"}, plus \"port\" when it is not 9123.",
+                + "For a light Bonjour does not reach: add it to the Plugin Setting addresses with update_settings (plugin {\"platform\": \"ElgatoKeyLights\"}, "
+                + "settings {\"addresses\": [entries]}, which replaces the whole list: read it with get_settings first and keep its entries) "
+                + "as {\"host\", \"mac\"}, plus \"port\" when it is not 9123. A light's own settings (powerOnBehavior, powerOnBrightness, "
+                + "powerOnTemperature, its name, Excluded) go through update_settings by accessory, ElgatoKeyLights:<MAC>.",
             // Configure, as adding the light it finds is: it reaches any address and port the caller names.
             path: "probe", access: .configure,
             inputSchema: [
@@ -34,8 +35,8 @@ extension ElgatoKeyLightsPlugin {
         "there is no cloud, account or password. Lights are found over Bonjour (service type _elg._tcp, TXT \"id\" = MAC address,",
         "\"md\" = model) and controlled through their HTTP API on port 9123 (/elgato/accessory-info, /elgato/lights,",
         "/elgato/lights/settings, /elgato/identify). Lights are keyed by MAC address: announcements without an id are ignored",
-        "(\"Ignoring an Elgato service without a device id\"); entries in config.json without an ip or host only name and tune a light",
-        "once Bonjour finds it. A light can be added by IP address and port on the plugin page; such a light is registered even",
+        "(\"Ignoring an Elgato service without a device id\"); a light's settings sit in the block's _accessories by MAC. A light can be",
+        "added by IP address and port in the Plugin Setting addresses (the plugin page checks an address); such a light is registered even",
         "when Bonjour fails (a container without host networking, VLANs, multicast filtering, Wi-Fi client isolation) and announcements",
         "never move it. By default the plugin connects to the light's .local host name, resolved through the ARP table and then the",
         "addresses Bonjour announced (\"Resolved <host> to <address>\"); \"useIP\" makes it use the announced IP address directly.",
@@ -46,7 +47,7 @@ extension ElgatoKeyLightsPlugin {
         "means no answer (light off or asleep, weak Wi-Fi, wrong address), \"Could not connect to the server\" that nothing listens",
         "on that port, an unreachable host that the address is on another subnet or VLAN. Closing the Elgato Control Center app and",
         "power cycling the light are common fixes. Power-on behaviour: 1 restores the last state, 2 uses the default brightness",
-        "(3-100 %) and colour temperature (2900-7000 K, 143-344 mirek); per light, 0 uses the platform's setting, and a colour",
+        "(3-100 %) and colour temperature (2900-7000 K, 143-344 mirek); a light's own setting overrules the platform's, and a colour",
         "temperature of 0 keeps the light's own. Never ask the user for passwords, tokens or API keys.",
     ].joined(separator: " ")
 }
