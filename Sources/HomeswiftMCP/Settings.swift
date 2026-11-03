@@ -404,8 +404,10 @@ extension HomeswiftCatalog {
         }
         var answer: [String: JSONValue] = ["accessories": .array(results)]
         if dryRun {
+            // Checked as the write would be, nothing written.
+            let checked = try await applyConfig(next, dryRun: true, current: current, checkSchemas: true, by: writer)
             answer["dryRun"] = true
-            answer["changes"] = .array(Self.changedKeys(from: current, to: next).map(JSONValue.string))
+            answer["changes"] = checked["changes"] ?? []
             return .object(answer)
         }
         if next != current {
