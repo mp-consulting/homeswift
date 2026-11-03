@@ -53,6 +53,16 @@ import Testing
         #expect(UniFiAccessPlugin.canonical(canonical, controllers: Self.known, logins: [controllerMAC]) == canonical)
     }
 
+    /// A device turned back on under a controller an option leaves out stays an option, wherever the controller's comes.
+    @Test func aDeviceOnUnderAControllerOffStaysWhereverItComes() throws {
+        for options in [["Enable.Device.112233445566", "Disable.Device.001122334455"], ["Disable.Device.001122334455", "Enable.Device.112233445566"]] {
+            let block = try JSONValue(any: ["platform": "UniFi Access", "name": "UniFi Access", "options": options] as [String: Any])
+            let canonical = UniFiAccessPlugin.canonical(block, controllers: Self.known, logins: [controllerMAC])
+            #expect(canonical["options"] == ["Enable.Device.112233445566"])
+            #expect(canonical["_accessories"]?["001122334455"]?["excluded"] == true)
+        }
+    }
+
     /// The settings mean what the options meant: a Plugin Setting is the option without a scope, a device's own setting
     /// the option scoped to it, and both come before the block's own options.
     @Test func settingsAreReadAsOptions() {
