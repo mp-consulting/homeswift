@@ -506,7 +506,7 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
 
         let accessory = Accessory(
             id: Self.accessoryID(lightID: light.id), name: light.name, manufacturer: light.manufacturer, model: light.model,
-            serialNumber: light.id, firmwareRevision: light.firmware.isEmpty ? "1.0.0" : light.firmware, category: .lightbulb, services: services,
+            serialNumber: light.serialNumber ?? light.id, firmwareRevision: light.firmware.isEmpty ? "1.0.0" : light.firmware, category: .lightbulb, services: services,
             // Identify is the device's, not the light service's (`PUT /resource/device/<id>`).
             onIdentify: { [deviceID = light.deviceID] in try? await client.identify(deviceID: deviceID) })
         let built = LightServices(accessory: accessory, lightbulb: lightbulb, writer: writer, command: command, effects: effects, flash: flash, points: points, adaptiveLighting: adaptiveLighting, shape: shape)

@@ -154,6 +154,9 @@ struct WingmanTests {
         #expect(light.suggestedRoom == "Salon")
         #expect(light.category == .lightbulb)
         #expect(light.information[.manufacturer]?.value == .string("Signify"))
+        // Without a serial number in HomeKit, its HomeKit id; with one, the device's own.
+        #expect(light.information[.serialNumber]?.value == .string("light-1"))
+        #expect(try await accessory(host, "tv-1").information[.serialNumber]?.value == .string("TV-SERIAL"))
         let bulb = try #require(light.service(.lightbulb))
         #expect(bulb.type.name == "Lightbulb")
         #expect(bulb.isPrimary)

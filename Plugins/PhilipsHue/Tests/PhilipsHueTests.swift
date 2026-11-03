@@ -143,7 +143,7 @@ final class FakeBridge: HueTransport, @unchecked Sendable {
          "gradient": ["points_capable": 5, "points": [["color": ["xy": ["x": 0.6915, "y": 0.3083]]], ["color": ["xy": ["x": 0.17, "y": 0.7]]]]]],
         ["id": "light-2", "type": "light", "owner": ["rid": "dev-2", "rtype": "device"], "on": ["on": false],
          "dimming": ["brightness": 80.0], "color_temperature": ["mirek": 366, "mirek_valid": true, "mirek_schema": ["mirek_minimum": 153, "mirek_maximum": 454]]],
-        ["id": "zc-2", "type": "zigbee_connectivity", "owner": ["rid": "dev-2", "rtype": "device"], "status": "connected"],
+        ["id": "zc-2", "type": "zigbee_connectivity", "owner": ["rid": "dev-2", "rtype": "device"], "status": "connected", "mac_address": "00:17:88:01:0b:aa:bb:02"],
         ["id": "room-1", "type": "room", "metadata": ["name": "Living room"], "children": [["rid": "dev-1", "rtype": "device"]],
          "services": [["rid": "group-1", "rtype": "grouped_light"]]],
         ["id": "group-1", "type": "grouped_light", "on": ["on": true], "dimming": ["brightness": 60.0]],
@@ -167,7 +167,7 @@ final class FakeBridge: HueTransport, @unchecked Sendable {
         ["id": "lux-3", "type": "light_level", "owner": ["rid": "dev-3", "rtype": "device"], "enabled": true,
          "light": ["light_level": 20001, "light_level_valid": true, "light_level_report": ["changed": "2026-10-28T08:00:00.000Z", "light_level": 20001]]],
         ["id": "power-3", "type": "device_power", "owner": ["rid": "dev-3", "rtype": "device"], "power_state": ["battery_state": "normal", "battery_level": 87]],
-        ["id": "zc-3", "type": "zigbee_connectivity", "owner": ["rid": "dev-3", "rtype": "device"], "status": "connected"],
+        ["id": "zc-3", "type": "zigbee_connectivity", "owner": ["rid": "dev-3", "rtype": "device"], "status": "connected", "mac_address": "00:17:88:01:0c:aa:bb:03"],
         ["id": "dev-4", "type": "device", "metadata": ["name": "Bedroom dimmer"],
          "product_data": ["model_id": "RWL022", "manufacturer_name": "Signify Netherlands B.V.", "product_name": "Hue dimmer switch", "software_version": "2.45.2"],
          "services": [["rid": "button-1", "rtype": "button"], ["rid": "button-2", "rtype": "button"], ["rid": "button-3", "rtype": "button"],
@@ -812,6 +812,31 @@ struct HueSensorTests {
         #expect(dimmer.service(.serviceLabel)?[.serviceLabelNamespace]?.value == 1)
         #expect(dimmer.service(.battery)?[.statusLowBattery]?.value == 1)
         await host.stop()
+    }
+
+    /// HomeKit shows a device's Zigbee MAC as its serial number, not the bridge's resource id; a device without one keeps
+    /// the id.
+    @Test func serialNumbersAreTheDevicesZigbeeMACs() async throws {
+        let host = try await environment.start()
+        let serial = { (accessory: Accessory) in accessory.information.characteristic(.serialNumber).value }
+        #expect(serial(try await accessory(host, PhilipsHuePlugin.accessoryID(lightID: "light-2"))) == .string("00:17:88:01:0b:aa:bb:02"))
+        #expect(serial(try await accessory(host, sensorID)) == .string("00:17:88:01:0c:aa:bb:03"))
+        #expect(serial(try await accessory(host, PhilipsHuePlugin.accessoryID(lightID: "light-1"))) == .string("light-1"))
+        #expect(serial(try await accessory(host, dimmerID)) == .string("dev-4"))
+        await host.stop()
+    }
+
+    /// A device with two lights (a Dymera) gives each its place after the MAC, so their serial numbers stay apart.
+    @Test func lightsOfOneDeviceHaveTheirOwnSerialNumbers() {
+        let snapshot = HueSnapshot(resources: [
+            ["id": "dev-9", "type": "device", "metadata": ["name": "Dymera"],
+             "services": [["rid": "zc-9", "rtype": "zigbee_connectivity"], ["rid": "up-9", "rtype": "light"], ["rid": "down-9", "rtype": "light"]]],
+            ["id": "up-9", "type": "light", "owner": ["rid": "dev-9", "rtype": "device"], "on": ["on": false]],
+            ["id": "down-9", "type": "light", "owner": ["rid": "dev-9", "rtype": "device"], "on": ["on": false]],
+            ["id": "zc-9", "type": "zigbee_connectivity", "owner": ["rid": "dev-9", "rtype": "device"], "status": "connected", "mac_address": "00:17:88:01:0d:aa:bb:09"],
+        ])
+        let serials = Dictionary(uniqueKeysWithValues: snapshot.lights.map { ($0.id, $0.serialNumber) })
+        #expect(serials == ["up-9": "00:17:88:01:0d:aa:bb:09-1", "down-9": "00:17:88:01:0d:aa:bb:09-2"])
     }
 
     @Test func theSensorsOptionAndExclusionsLeaveThemOut() async throws {

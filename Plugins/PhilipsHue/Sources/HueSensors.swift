@@ -128,7 +128,7 @@ extension PhilipsHuePlugin {
         }
         let accessory = Accessory(
             id: Self.sensorAccessoryID(deviceID: sensor.id), name: sensor.name, manufacturer: sensor.manufacturer, model: sensor.model,
-            serialNumber: sensor.id, firmwareRevision: sensor.firmware.isEmpty ? "1.0.0" : sensor.firmware,
+            serialNumber: sensor.serialNumber ?? sensor.id, firmwareRevision: sensor.firmware.isEmpty ? "1.0.0" : sensor.firmware,
             category: motion == nil && contact == nil && !buttons.isEmpty ? .programmableSwitch : .sensor, services: services,
             onIdentify: { [client, deviceID = sensor.id] in try? await client?.identify(deviceID: deviceID) })
         let built = SensorServices(
