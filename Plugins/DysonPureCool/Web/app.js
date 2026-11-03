@@ -11,7 +11,6 @@
   let assistantOn = false;
 
   /// Runs `work` with the button disabled and, when it takes a moment, a spinner on it; errors go to the status line.
-  const act = (button, work) => homeswift.act(button, work, (message) => toast(message, "error"));
 
   // A line under the devices for what Homebridge showed as toasts.
   const statusLine = $("#status-line");

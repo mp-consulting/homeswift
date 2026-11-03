@@ -360,7 +360,7 @@ extension DaikinCloudPlugin {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
-  .tab-pane, .subtab, .unit { animation: none; }
+  .tab-pane, .unit { animation: none; }
   .busy::after { animation: none; border-right-color: currentColor; opacity: 0.5; }
 }
 @media (max-width: 640px) {

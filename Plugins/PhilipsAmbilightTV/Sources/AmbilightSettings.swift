@@ -23,9 +23,6 @@ extension PhilipsAmbilightTVPlugin {
         "inputs", "sourceSwitches", "ambilightHueSwitch", "customApps", "customButtons", "stateSensors", "sources",
     ]
 
-    /// The keys a pairing gives, which the vault holds.
-    static let keyKeys = ["username", "password", "certFingerprint"]
-
     /// `entry` with a TV's Accessory Settings over it, key by key, and its Name; the entry as it was when they do not
     /// decode.
     static func overlay(_ settings: AccessorySettings, on entry: Configuration.Device) -> Configuration.Device {

@@ -146,7 +146,6 @@ HomeswiftI18n.add({
     "Offline": "Hors ligne",
     "Unknown": "Inconnu",
     "Disconnected": "Déconnecté",
-    "Invalid controller address. Please provide a valid network address.": "Adresse du contrôleur non valide. Indiquez une adresse réseau valide.",
     "Controllers": "Contrôleurs",
     "Another controller": "Un autre contrôleur",
     "No controller yet": "Aucun contrôleur pour l'instant",
@@ -183,7 +182,6 @@ HomeswiftI18n.add({
     "Offline": "Desconectado",
     "Unknown": "Desconocido",
     "Disconnected": "Desconectado",
-    "Invalid controller address. Please provide a valid network address.": "La dirección del controlador no es válida. Indica una dirección de red válida.",
     "Controllers": "Controladores",
     "Another controller": "Otro controlador",
     "No controller yet": "Todavía no hay ningún controlador",
@@ -220,7 +218,6 @@ HomeswiftI18n.add({
     "Offline": "Offline",
     "Unknown": "Desconhecido",
     "Disconnected": "Desligado",
-    "Invalid controller address. Please provide a valid network address.": "Endereço do controlador inválido. Indique um endereço de rede válido.",
     "Controllers": "Controladores",
     "Another controller": "Outro controlador",
     "No controller yet": "Ainda sem controlador",
@@ -259,7 +256,6 @@ HomeswiftI18n.add({
   .found .item { display: flex; align-items: center; gap: 12px; margin: 0; padding: 10px 10px 10px 14px; cursor: pointer; width: 100%; text-align: left; font: inherit; color: inherit; }
   .found .item div { flex: 1; min-width: 0; }
   .found .item .muted { font-size: 0.8125rem; }
-  .note-box { margin: 14px 0 0; padding: 10px 14px; border-radius: 14px; background: var(--material-thin); border: 1px solid var(--line); font-size: 0.875rem; }
   .support a { color: var(--accent); }
   .support li { margin: 6px 0; }
 

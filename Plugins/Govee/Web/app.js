@@ -229,7 +229,9 @@
     if (!item || !detail) return;
     for (const tile of document.querySelectorAll("#picker-body .tile-scene")) tile.setAttribute("aria-pressed", String(tile.dataset.key === key));
     const copy = (text) => el("button", { actionIcon: "copy", class: "link", text: t("Copy"), onclick: async (event) => {
-      try { await navigator.clipboard.writeText(text); event.currentTarget.textContent = t("Copied"); } catch { /* the code stays selectable */ }
+      // common.js's copy, which works over plain HTTP too; the button is kept before the await (currentTarget is not after).
+      const button = event.currentTarget;
+      try { await HomeswiftCommon.copyText(text); button.textContent = t("Copied"); } catch { /* the code stays selectable */ }
     } });
     const row = (label, value) => el("div", { class: "scene-field" }, el("span", { class: "muted", text: label }), el("span", { class: "mono", text: String(value) }), copy(String(value)));
     detail.replaceChildren(el("div", { class: "scene-panel" },

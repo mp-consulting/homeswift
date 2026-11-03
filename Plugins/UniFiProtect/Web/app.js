@@ -146,7 +146,8 @@
       });
     }
     const url = (label, value) => value ? el("div", { class: "muted" }, `${label}: `, el("span", { class: "mono", text: value })) : null;
-    const copy = () => navigator.clipboard?.writeText([profile.rtspUrl, profile.snapshotUrl].filter(Boolean).join("\n"));
+    // common.js's copy: the Clipboard API, else a selection, for a page over plain HTTP on the network.
+    const copy = () => HomeswiftCommon.copyText([profile.rtspUrl, profile.snapshotUrl].filter(Boolean).join("\n")).catch((e) => HomeswiftCommon.showAlert(e.message));
     return el("div", { class: "card item" }, thumb,
       el("div", {}, el("strong", { text: P.formatProfileLabel(profile, index) }), url(t("Direct RTSP / RTSPS URL"), profile.rtspUrl), url(t("Direct snapshot URL"), profile.snapshotUrl)),
       el("button", { type: "button", actionIcon: "copy", text: t("Copy"), onclick: copy }));
