@@ -55,7 +55,6 @@ h2 { margin: 0 0 10px; }
   const pluginSettings = `/plugins/${location.pathname.split("/")[2] || ""}/settings`;
   const settingsOf = (deviceID) => `${pluginSettings}?accessory=${encodeURIComponent(`Dirigera:${deviceID}`)}`;
   const openSettings = (deviceID) => { location.href = settingsOf(deviceID); };
-  $("#plugin-settings").href = pluginSettings;
 
   // MARK: Hubs
 
@@ -91,7 +90,7 @@ h2 { margin: 0 0 10px; }
         tile("bridge", hub.paired && !hub.error ? "blue" : "grey"),
         el("div", { class: "who" }, el("strong", { text: name }), el("div", { class: "muted", text: hub.host })),
         el("span", { class: `pill status ${kind}`, text: state }),
-        HomeswiftCommon.menuButton(t("Actions for {name}", { name: [name, hub.host].filter(Boolean).join(" ") }), () => [setUp, { label: t("Settings"), icon: "gear", href: pluginSettings }])),
+        HomeswiftCommon.menuButton(t("Actions for {name}", { name: [name, hub.host].filter(Boolean).join(" ") }), () => [setUp])),
       hub.paired ? el("div", { class: "facts" }, ...[[t("Address"), hub.host], [t("Devices"), hub.devices ?? 0], [t("Scenes"), hub.scenes ?? 0]]
         .map(([label, value]) => fact(label, String(value)))) : null,
       hub.paired && hub.error ? explain({
@@ -401,7 +400,6 @@ HomeswiftI18n.add({
       <h1>IKEA DIRIGERA</h1>
       <p class="muted" data-i18n>Your DIRIGERA hubs, their lights, sensors, blinds and remotes room by room, and their scenes, straight from the hub on your network.</p>
     </div>
-    <div class="actions"><a id="plugin-settings" class="button" data-i18n data-action-icon="gear">Settings</a></div>
   </div>
 
   <div id="hubs"></div>
