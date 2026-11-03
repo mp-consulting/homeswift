@@ -443,7 +443,11 @@ public final class PluginHost: @unchecked Sendable {
 
         for (block, old) in pairs {
             if let old {
-                guard old.block.json != block.json else { continue }
+                guard old.block.json != block.json else {
+                    // Only live settings changed: a device given its first one joins the plugin's Accessory Settings.
+                    old.context.accessorySettingsBox.withLockedValue { $0 = block.accessorySettings }
+                    continue
+                }
                 if old.block.childBridge == block.childBridge {
                     // A fresh plugin on the same context: same accessories, aids, iids and pairings.
                     await stopPlugin(old)
@@ -675,7 +679,9 @@ public final class PluginHost: @unchecked Sendable {
     func launch(_ instance: Instance, as verb: String = "Started") async {
         let context = instance.context
         instance.failure.withLockedValue { $0 = nil }
-        context.accessorySettingsBox.withLockedValue { $0 = instance.block.accessorySettings }
+        // As the configuration has them now: a change of live settings alone keeps the instance's block, not its devices.
+        let current = configuration.platforms.first { $0.platform == instance.block.platform && $0.name == instance.block.name && $0.json == instance.block.json }
+        context.accessorySettingsBox.withLockedValue { $0 = (current ?? instance.block).accessorySettings }
         // What a change of `_accessories` Excluded leaves on the bridge goes now; the plugin no longer adds it.
         for accessory in context.accessories {
             guard context.isExcluded(accessoryID: accessory.id) else { continue }

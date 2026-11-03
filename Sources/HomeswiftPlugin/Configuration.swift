@@ -138,8 +138,9 @@ public struct HomeswiftConfiguration: Sendable {
             block["platform"] = platform
             block["name"] = name ?? platform
             if paused { block["_paused"] = true }
-            let json = try JSONSerialization.data(withJSONObject: block, options: [.sortedKeys])
-            self.init(platform: platform, name: name, childBridge: childBridge, paused: paused, json: json)
+            // As config.json's blocks are read: the live Accessory Settings out of the plugin's JSON.
+            self = try HomeswiftConfiguration.platform(from: block, index: 0)
+            if let childBridge { self.childBridge = childBridge }
         }
 
     }
@@ -189,6 +190,75 @@ public struct HomeswiftConfiguration: Sendable {
         return octets.count == 6 && octets.allSatisfy { $0.count == 2 && $0.allSatisfy(\.isHexDigit) }
     }
 
+    /// One block of `platforms` (at `index`, for the errors' keys) as the runtime runs it: its live Accessory Settings
+    /// (`AccessorySettings.liveKeys`) taken out of the plugin's JSON into the properties that hold them, so changing them
+    /// does not reload it. A device whose entry holds only those still has Accessory Settings (the defaults), so the plugin
+    /// sees the device.
+    static func platform(from block: [String: Any], index: Int) throws -> Platform {
+        let decoder = JSONDecoder()
+        guard let platform = block["platform"] as? String, !platform.isEmpty else {
+            throw ConfigurationError.invalidValue(key: "platforms[\(index)].platform", expected: "a platform name")
+        }
+        let name = (block["name"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        var childBridge: ChildBridge?
+        if let child = block["_bridge"] {
+            guard child is [String: Any] else { throw ConfigurationError.invalidValue(key: "platforms[\(index)]._bridge", expected: "an object") }
+            childBridge = try decoder.decode(ChildBridge.self, from: JSONSerialization.data(withJSONObject: child))
+        }
+        if let paused = block["_paused"], !(paused is Bool) {
+            throw ConfigurationError.invalidValue(key: "platforms[\(index)]._paused", expected: "true or false")
+        }
+        var hidden: [String] = []
+        if let list = block["_hiddenFromHomeKit"] {
+            guard let ids = list as? [String] else {
+                throw ConfigurationError.invalidValue(key: "platforms[\(index)]._hiddenFromHomeKit", expected: "an array of accessory ids")
+            }
+            hidden = ids
+        }
+        var names: [String: String] = [:]
+        var rooms: [String: String] = [:]
+        var hiddenOnWall: Set<String> = []
+        // The devices whose entry holds live settings only: out of the plugin's JSON (a rename reloads nothing), but still
+        // among its Accessory Settings (`context.allAccessorySettings`), as a device set up with a Name only.
+        var liveOnly: Set<String> = []
+        var kept = block.filter { $0.key != "_hiddenFromHomeKit" }
+        if let settings = block["_accessories"] {
+            guard let byDevice = settings as? [String: Any], byDevice.values.allSatisfy({ $0 is [String: Any] }) else {
+                throw ConfigurationError.invalidValue(key: "platforms[\(index)]._accessories", expected: "an object of Accessory Settings by Device Id")
+            }
+            // The live settings leave the plugin's JSON, so changing them does not reload it; the others are its own.
+            var others: [String: Any] = [:]
+            for case let (deviceID, fields as [String: Any]) in byDevice {
+                let at = "platforms[\(index)]._accessories.\(deviceID)"
+                if let given = fields["name"] {
+                    guard let text = given as? String else { throw ConfigurationError.invalidValue(key: "\(at).name", expected: "a name") }
+                    if let name = AccessoryNaming.cleaned(text) { names[deviceID] = name }
+                }
+                if let given = fields["room"] {
+                    guard let text = given as? String else { throw ConfigurationError.invalidValue(key: "\(at).room", expected: "a room's name") }
+                    rooms[deviceID] = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                for key in ["hidden", "notInHome"] {
+                    guard let given = fields[key] else { continue }
+                    guard let flag = given as? Bool else { throw ConfigurationError.invalidValue(key: "\(at).\(key)", expected: "true or false") }
+                    if flag, key == "hidden" { hiddenOnWall.insert(deviceID) }
+                    if flag, key == "notInHome", !hidden.contains("\(platform):\(deviceID)") { hidden.append("\(platform):\(deviceID)") }
+                }
+                let rest = fields.filter { !AccessorySettings.liveKeys.contains($0.key) }
+                if rest.isEmpty { liveOnly.insert(deviceID) } else { others[deviceID] = rest }
+            }
+            kept["_accessories"] = others.isEmpty ? nil : others
+        }
+        let json = try JSONSerialization.data(withJSONObject: kept, options: [.sortedKeys])
+        var entry = Platform(platform: platform, name: name, childBridge: childBridge, paused: block["_paused"] as? Bool == true, json: json)
+        entry.hiddenFromHomeKit = hidden
+        entry.accessoryNames = names
+        entry.accessoryRooms = rooms
+        entry.hiddenOnWall = hiddenOnWall
+        for deviceID in liveOnly where entry.accessorySettings[deviceID] == nil { entry.accessorySettings[deviceID] = AccessorySettings() }
+        return entry
+    }
+
     public static func decode(_ data: Data) throws -> HomeswiftConfiguration {
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw ConfigurationError.notAnObject
@@ -209,63 +279,7 @@ public struct HomeswiftConfiguration: Sendable {
                 guard let block = block as? [String: Any] else {
                     throw ConfigurationError.invalidValue(key: "platforms[\(index)]", expected: "an object")
                 }
-                guard let platform = block["platform"] as? String, !platform.isEmpty else {
-                    throw ConfigurationError.invalidValue(key: "platforms[\(index)].platform", expected: "a platform name")
-                }
-                let name = (block["name"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-                var childBridge: ChildBridge?
-                if let child = block["_bridge"] {
-                    guard child is [String: Any] else { throw ConfigurationError.invalidValue(key: "platforms[\(index)]._bridge", expected: "an object") }
-                    childBridge = try decoder.decode(ChildBridge.self, from: JSONSerialization.data(withJSONObject: child))
-                }
-                if let paused = block["_paused"], !(paused is Bool) {
-                    throw ConfigurationError.invalidValue(key: "platforms[\(index)]._paused", expected: "true or false")
-                }
-                var hidden: [String] = []
-                if let list = block["_hiddenFromHomeKit"] {
-                    guard let ids = list as? [String] else {
-                        throw ConfigurationError.invalidValue(key: "platforms[\(index)]._hiddenFromHomeKit", expected: "an array of accessory ids")
-                    }
-                    hidden = ids
-                }
-                var names: [String: String] = [:]
-                var rooms: [String: String] = [:]
-                var hiddenOnWall: Set<String> = []
-                var kept = block.filter { $0.key != "_hiddenFromHomeKit" }
-                if let settings = block["_accessories"] {
-                    guard let byDevice = settings as? [String: Any], byDevice.values.allSatisfy({ $0 is [String: Any] }) else {
-                        throw ConfigurationError.invalidValue(key: "platforms[\(index)]._accessories", expected: "an object of Accessory Settings by Device Id")
-                    }
-                    // The live settings leave the plugin's JSON, so changing them does not reload it; the others are its own.
-                    var others: [String: Any] = [:]
-                    for case let (deviceID, fields as [String: Any]) in byDevice {
-                        let at = "platforms[\(index)]._accessories.\(deviceID)"
-                        if let given = fields["name"] {
-                            guard let text = given as? String else { throw ConfigurationError.invalidValue(key: "\(at).name", expected: "a name") }
-                            if let name = AccessoryNaming.cleaned(text) { names[deviceID] = name }
-                        }
-                        if let given = fields["room"] {
-                            guard let text = given as? String else { throw ConfigurationError.invalidValue(key: "\(at).room", expected: "a room's name") }
-                            rooms[deviceID] = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                        }
-                        for key in ["hidden", "notInHome"] {
-                            guard let given = fields[key] else { continue }
-                            guard let flag = given as? Bool else { throw ConfigurationError.invalidValue(key: "\(at).\(key)", expected: "true or false") }
-                            if flag, key == "hidden" { hiddenOnWall.insert(deviceID) }
-                            if flag, key == "notInHome", !hidden.contains("\(platform):\(deviceID)") { hidden.append("\(platform):\(deviceID)") }
-                        }
-                        let rest = fields.filter { !AccessorySettings.liveKeys.contains($0.key) }
-                        if !rest.isEmpty { others[deviceID] = rest }
-                    }
-                    kept["_accessories"] = others.isEmpty ? nil : others
-                }
-                let json = try JSONSerialization.data(withJSONObject: kept, options: [.sortedKeys])
-                var entry = Platform(platform: platform, name: name, childBridge: childBridge, paused: block["_paused"] as? Bool == true, json: json)
-                entry.hiddenFromHomeKit = hidden
-                entry.accessoryNames = names
-                entry.accessoryRooms = rooms
-                entry.hiddenOnWall = hiddenOnWall
-                configuration.platforms.append(entry)
+                configuration.platforms.append(try platform(from: block, index: index))
             }
         }
         if let disabled = root["disabledPlugins"] {
