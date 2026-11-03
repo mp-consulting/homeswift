@@ -366,9 +366,10 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
 
     private func shape(of light: HueLight) -> String {
         var parts = [light.dims ? "d" : "", light.hasColour ? "c" : "", light.mirekRange.map { "t\($0.lowerBound)-\($0.upperBound)" } ?? ""]
-        if showsEffects(light) { parts.append("e" + light.effects.joined(separator: ",")) }
-        if showsFlash(light), light.canFlash { parts.append("f") }
-        if showsGradientPoints(light), light.gradientCapacity > 1 { parts.append("g\(light.gradientCapacity)") }
+        let shown = extras(light)
+        if shown.effects { parts.append("e" + light.effects.joined(separator: ",")) }
+        if shown.flash, light.canFlash { parts.append("f") }
+        if shown.gradientPoints, light.gradientCapacity > 1 { parts.append("g\(light.gradientCapacity)") }
         return parts.joined(separator: "|")
     }
 
@@ -462,7 +463,8 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
 
         var services = [lightbulb]
         var effects: [String: Service] = [:]
-        if showsEffects(light) {
+        let shown = extras(light)
+        if shown.effects {
             for effect in light.effects {
                 let service = Self.switchService(Self.effectName(effect), subtype: "effect:\(effect)")
                 let v2 = light.effectsV2
@@ -476,7 +478,7 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
             }
         }
         var flash: Service?
-        if showsFlash(light), light.canFlash {
+        if shown.flash, light.canFlash {
             let service = Self.switchService("Flash", subtype: "flash")
             let signal = light.signals.contains("on_off") ? "on_off" : "on_off_color"
             service.characteristic(.on).onWrite { [service] value in
@@ -496,7 +498,7 @@ public actor PhilipsHuePlugin: HomeswiftPlugin {
             services.append(service)
         }
         var points: [Service] = []
-        if showsGradientPoints(light), light.gradientCapacity > 1 {
+        if shown.gradientPoints, light.gradientCapacity > 1 {
             let count = min(light.gradientCapacity, 5)
             for index in 0..<count {
                 let point = Service(.lightbulb, name: "\(light.name) \(index + 1)", subtype: "point:\(index)", optional: [.hue, .saturation])

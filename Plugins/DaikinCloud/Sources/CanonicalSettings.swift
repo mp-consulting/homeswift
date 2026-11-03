@@ -60,18 +60,9 @@ extension DaikinCloudPlugin {
             fields.removeValue(forKey: key)
             if field == "email" || field == "password" { fields.removeValue(forKey: field) }
         }
-        if let ids = fields["excludedDevicesByDeviceId"]?.arrayValue {
-            var entries = fields["_accessories"]?.objectValue ?? [:]
-            var left: [JSONValue] = []
-            for value in ids {
-                guard let id = value.stringValue, !id.isEmpty else { left.append(value); continue }
-                var entry = entries[id]?.objectValue ?? [:]
-                if entry["excluded"] == nil { entry["excluded"] = true }
-                entries[id] = .object(entry)
-            }
-            if !entries.isEmpty { fields["_accessories"] = .object(entries) }
-            if left.isEmpty { fields.removeValue(forKey: "excludedDevicesByDeviceId") } else { fields["excludedDevicesByDeviceId"] = .array(left) }
-        }
+        var entries = AccessoryEntries(fields)
+        entries.excludeList("excludedDevicesByDeviceId", in: &fields) { $0.isEmpty ? [] : [$0] }
+        entries.write(into: &fields)
         if let legacy = fields["showExtraFeatures"] {
             // On, it switched on every extra feature its own key left unset; off (or not a boolean) it was the default.
             if legacy.boolValue == true {

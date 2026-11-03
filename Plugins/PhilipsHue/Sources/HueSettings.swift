@@ -25,10 +25,20 @@ extension PhilipsHuePlugin {
         context.accessorySettings(for: lightID).decode(LightOptions.self) ?? LightOptions()
     }
 
-    /// Whether the light gets a switch per effect, a Flash switch, a light per gradient point.
-    func showsEffects(_ light: HueLight) -> Bool { lightOptions(light.id).effects ?? configuration.effects ?? true }
-    func showsFlash(_ light: HueLight) -> Bool { lightOptions(light.id).flashSwitch ?? configuration.flashSwitch ?? false }
-    func showsGradientPoints(_ light: HueLight) -> Bool { lightOptions(light.id).gradientPoints ?? configuration.gradientPoints ?? false }
+    /// What a light's accessory has beside the light: a switch per effect, a Flash switch, a light per gradient point.
+    struct LightExtras {
+        var effects: Bool
+        var flash: Bool
+        var gradientPoints: Bool
+    }
+
+    /// The light's extras: its own Accessory Settings, else the plugin-wide options (decoded once for the three).
+    func extras(_ light: HueLight) -> LightExtras {
+        let own = lightOptions(light.id)
+        return LightExtras(
+            effects: own.effects ?? configuration.effects ?? true, flash: own.flashSwitch ?? configuration.flashSwitch ?? false,
+            gradientPoints: own.gradientPoints ?? configuration.gradientPoints ?? false)
+    }
 
     /// A scene's own transition from its Accessory Settings.
     func sceneTransition(_ sceneID: String) -> Int? {
@@ -60,12 +70,7 @@ extension PhilipsHuePlugin {
     /// list; before the bridge was read, nothing moves. What `_accessories` holds already wins.
     static func canonical(_ block: JSONValue, snapshot: HueSnapshot) -> JSONValue {
         guard var fields = block.objectValue, !snapshot.lights.isEmpty || !snapshot.sensors.isEmpty || !snapshot.scenes.isEmpty else { return block }
-        var entries = fields["_accessories"]?.objectValue ?? [:]
-        func set(_ deviceID: String, _ key: String, _ value: JSONValue) {
-            var entry = entries[deviceID]?.objectValue ?? [:]
-            if entry[key] == nil { entry[key] = value }
-            entries[deviceID] = .object(entry)
-        }
+        var entries = AccessoryEntries(fields)
         let roomOf = Dictionary(snapshot.groups.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
         func scenes(matching text: String, byID: Bool) -> [HueScene] {
             let wanted = text.lowercased()
@@ -73,23 +78,13 @@ extension PhilipsHuePlugin {
                 "\(roomOf[scene.groupID] ?? "")/\(scene.name)".lowercased() == wanted || scene.name.lowercased() == wanted || (byID && scene.id.lowercased() == wanted)
             }
         }
-        /// Moves each name of the list `key` that `resolve` finds into `_accessories` as Excluded.
-        func moveList(_ key: String, _ resolve: (String) -> [String]) {
-            guard let list = fields[key]?.arrayValue else { return }
-            var left: [JSONValue] = []
-            for value in list {
-                let found = value.stringValue.map(resolve) ?? []
-                if found.isEmpty { left.append(value) } else { for id in found { set(id, "excluded", true) } }
-            }
-            if left.isEmpty { fields.removeValue(forKey: key) } else { fields[key] = .array(left) }
-        }
-        moveList("excludeLights") { name in
+        entries.excludeList("excludeLights", in: &fields) { name in
             snapshot.lights.filter { $0.name.lowercased() == name.lowercased() || $0.id.lowercased() == name.lowercased() }.map(\.id)
         }
-        moveList("excludeSensors") { name in
+        entries.excludeList("excludeSensors", in: &fields) { name in
             snapshot.sensors.filter { $0.name.lowercased() == name.lowercased() || $0.id.lowercased() == name.lowercased() }.map { sensorDeviceID($0.id) }
         }
-        moveList("excludeScenes") { name in scenes(matching: name, byID: true).map(\.id) }
+        entries.excludeList("excludeScenes", in: &fields) { name in scenes(matching: name, byID: true).map(\.id) }
         if let list = fields["sceneTransitions"]?.arrayValue {
             // "Room/Scene" first: it was read before a scene's name alone.
             let ordered = list.filter { $0["scene"]?.stringValue?.contains("/") == true } + list.filter { $0["scene"]?.stringValue?.contains("/") != true }
@@ -97,11 +92,11 @@ extension PhilipsHuePlugin {
             for value in ordered {
                 guard let scene = value["scene"]?.stringValue, let milliseconds = value["transitionMs"]?.intValue else { left.append(value); continue }
                 let found = scenes(matching: scene, byID: false)
-                if found.isEmpty { left.append(value) } else { for match in found { set(match.id, "transitionMs", .number(Double(milliseconds))) } }
+                if found.isEmpty { left.append(value) } else { for match in found { entries.setIfAbsent("transitionMs", .number(Double(milliseconds)), on: match.id) } }
             }
             if left.isEmpty { fields.removeValue(forKey: "sceneTransitions") } else { fields["sceneTransitions"] = .array(left) }
         }
-        if !entries.isEmpty { fields["_accessories"] = .object(entries) }
+        entries.write(into: &fields)
         return .object(fields)
     }
 }

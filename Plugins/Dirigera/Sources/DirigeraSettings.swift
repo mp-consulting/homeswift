@@ -79,42 +79,31 @@ extension DirigeraPlugin {
         _ block: JSONValue, hubs: [String: (devices: [DirigeraDevice], scenes: [DirigeraScene])], vaultHas: Set<String>
     ) -> JSONValue {
         guard var fields = block.objectValue else { return block }
-        var entries = fields["_accessories"]?.objectValue ?? [:]
-        func exclude(_ id: String) {
-            var entry = entries[id]?.objectValue ?? [:]
-            if entry["excluded"] == nil { entry["excluded"] = true }
-            entries[id] = .object(entry)
-        }
+        var entries = AccessoryEntries(fields)
         let devices = hubs.values.flatMap(\.devices)
         let scenes = hubs.values.flatMap(\.scenes)
-        if !devices.isEmpty, let list = fields["excludeDevices"]?.arrayValue {
+        if !devices.isEmpty {
             let groups = groups(of: devices)
-            var left: [JSONValue] = []
-            for value in list {
-                let name = value.stringValue?.lowercased() ?? ""
+            entries.excludeList("excludeDevices", in: &fields) { text in
+                let name = text.lowercased()
                 func matches(_ device: DirigeraDevice) -> Bool { device.name.lowercased() == name || device.id.lowercased() == name }
                 var found = Set(devices.filter { $0.isStandalone && matches($0) }.map(\.id))
                 for group in groups where group.id.lowercased() == name || group.devices.contains(where: matches) { found.insert(group.id) }
-                if found.isEmpty { left.append(value) } else { found.forEach(exclude) }
+                return found.sorted()
             }
-            if left.isEmpty { fields.removeValue(forKey: "excludeDevices") } else { fields["excludeDevices"] = .array(left) }
         }
-        if !scenes.isEmpty, let list = fields["excludeScenes"]?.arrayValue {
-            var left: [JSONValue] = []
-            for value in list {
-                let name = value.stringValue?.lowercased() ?? ""
-                let found = scenes.filter { $0.name.lowercased() == name || $0.id.lowercased() == name }
-                if found.isEmpty { left.append(value) } else { found.map(\.id).forEach(exclude) }
+        if !scenes.isEmpty {
+            entries.excludeList("excludeScenes", in: &fields) { text in
+                scenes.filter { $0.name.lowercased() == text.lowercased() || $0.id.lowercased() == text.lowercased() }.map(\.id)
             }
-            if left.isEmpty { fields.removeValue(forKey: "excludeScenes") } else { fields["excludeScenes"] = .array(left) }
         }
         // A hub's whole scenes accessory Excluded: each of its scenes is, and the accessory keeps its other settings.
         for (host, hub) in hubs where hub.scenes.contains(where: \.isRunnable) {
             let key = "scenes:\(host)"
-            guard var entry = entries[key]?.objectValue, entry["excluded"]?.boolValue == true else { continue }
-            hub.scenes.filter(\.isRunnable).map(\.id).forEach(exclude)
+            guard var entry = entries.entries[key]?.objectValue, entry["excluded"]?.boolValue == true else { continue }
+            hub.scenes.filter(\.isRunnable).forEach { entries.exclude($0.id) }
             entry.removeValue(forKey: "excluded")
-            if entry.isEmpty { entries.removeValue(forKey: key) } else { entries[key] = .object(entry) }
+            if entry.isEmpty { entries.entries.removeValue(forKey: key) } else { entries.entries[key] = .object(entry) }
         }
         if let list = fields["hubs"]?.arrayValue {
             fields["hubs"] = .array(list.map { item in
@@ -124,7 +113,7 @@ extension DirigeraPlugin {
                 return .object(hub)
             })
         }
-        if !entries.isEmpty { fields["_accessories"] = .object(entries) }
+        entries.write(into: &fields)
         return .object(fields)
     }
 }

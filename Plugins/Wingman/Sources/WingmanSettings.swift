@@ -80,29 +80,14 @@ extension WingmanPlugin {
     /// the Wingmen whose token and certificate the vault keeps.
     static func canonical(_ block: JSONValue, accessories: [(id: String, name: String)], bridges: [String], paired: Set<String>) -> JSONValue {
         guard var fields = block.objectValue else { return block }
-        var entries = fields["_accessories"]?.objectValue ?? [:]
-        func exclude(_ id: String) {
-            var entry = entries[id]?.objectValue ?? [:]
-            if entry["excluded"] == nil { entry["excluded"] = true }
-            entries[id] = .object(entry)
+        var entries = AccessoryEntries(fields)
+        entries.excludeList("exclude", in: &fields) { text in
+            accessories.filter { $0.id == text || $0.name.caseInsensitiveCompare(text) == .orderedSame }.map(\.id)
         }
-        if let list = fields["exclude"]?.arrayValue {
-            var left: [JSONValue] = []
-            for value in list {
-                let text = value.stringValue ?? ""
-                let found = accessories.filter { $0.id == text || $0.name.caseInsensitiveCompare(text) == .orderedSame }
-                if found.isEmpty { left.append(value) } else { found.map(\.id).forEach(exclude) }
-            }
-            if left.isEmpty { fields.removeValue(forKey: "exclude") } else { fields["exclude"] = .array(left) }
-        }
-        if let list = fields["excludeBridges"]?.arrayValue {
-            var left: [JSONValue] = []
-            for value in list {
-                guard let text = value.stringValue?.trimmingCharacters(in: .whitespaces), !text.isEmpty else { left.append(value); continue }
-                // The bridge's own spelling when a Wingman has seen it; the list's otherwise, matched in any case.
-                exclude(bridgeID(bridges.first { $0.caseInsensitiveCompare(text) == .orderedSame } ?? text))
-            }
-            if left.isEmpty { fields.removeValue(forKey: "excludeBridges") } else { fields["excludeBridges"] = .array(left) }
+        entries.excludeList("excludeBridges", in: &fields) { name in
+            let text = name.trimmingCharacters(in: .whitespaces)
+            // The bridge's own spelling when a Wingman has seen it; the list's otherwise, matched in any case.
+            return text.isEmpty ? [] : [bridgeID(bridges.first { $0.caseInsensitiveCompare(text) == .orderedSame } ?? text)]
         }
         if let list = fields["devices"]?.arrayValue {
             var left: [JSONValue] = []
@@ -111,15 +96,15 @@ extension WingmanPlugin {
                     left.append(item)
                     continue
                 }
-                var entry = entries[id]?.objectValue ?? [:]
+                var entry = entries.entries[id]?.objectValue ?? [:]
                 if entry["name"] == nil, let name = device["name"]?.stringValue, !name.isEmpty { entry["name"] = .string(name) }
                 if entry["host"] == nil, let host = device["host"]?.stringValue, !host.isEmpty { entry["host"] = .string(host) }
                 if entry["port"] == nil, let port = device["port"]?.intValue, port != defaultPort { entry["port"] = .number(Double(port)) }
-                entries[id] = .object(entry)
+                entries.entries[id] = .object(entry)
             }
             if left.isEmpty { fields.removeValue(forKey: "devices") } else { fields["devices"] = .array(left) }
         }
-        if !entries.isEmpty { fields["_accessories"] = .object(entries) }
+        entries.write(into: &fields)
         return .object(fields)
     }
 }
