@@ -127,7 +127,7 @@ left out by the plugin's own settings.
 
 With the web UI on, the Plugins page has an **Open** button for this plugin: each controller the plugin runs, whether it
 answers on port 443, and its hubs and readers with their state, each with a **Settings** button for its Accessory
-Settings; **Settings for every device** opens the plugin's Settings, and a card leads to Add accessories for another
+Settings (the plugin's own are beside Pause), and a card leads to Add accessories for another
 controller. The page writes no settings. With the Assistant on, **Explain** sits next to a controller that does not
 answer.
 

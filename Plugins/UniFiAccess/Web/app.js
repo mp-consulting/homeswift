@@ -77,7 +77,6 @@
       el("a", { class: "button", href: settingsOf(device.featureId), actionIcon: "gear", text: t("Settings") }));
   }
 
-  $("#plugin-settings").href = pluginSettings;
   $("#open-support").addEventListener("click", () => { show("support-screen"); breadcrumb(t("Support"), backToControllers); });
   $("#back-from-support").addEventListener("click", backToControllers);
 

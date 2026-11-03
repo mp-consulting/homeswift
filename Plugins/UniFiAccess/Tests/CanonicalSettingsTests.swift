@@ -93,12 +93,15 @@ import Testing
             "platform": "UniFi Access", "name": "UniFi Access", "controllers": [AccessTestEnvironment.controllerBlock],
             "options": ["Disable.Hub.DPS.001122334455"],
         ] as [String: Any])
-        let canonical = await host.canonicalSettings(platform: UniFiAccessPlugin.platform, name: "UniFi Access", block: block)
+        let (canonical, whenWritten) = await host.canonicalSettings(platform: UniFiAccessPlugin.platform, name: "UniFi Access", block: block)
         #expect(canonical["controllers"] == nil && canonical["options"] == nil)
         #expect(canonical["_accessories"]?[controllerMAC]?["address"] == "10.0.0.1")
         #expect(canonical["_accessories"]?["AABBCCDDEEFF"]?["parts"]?["DPS"] == false)
         #expect(canonical["_accessories"]?["AA0000000001"]?["parts"]?["DPS"] == false)
         let context = try #require(host.context(platform: UniFiAccessPlugin.platform, name: "UniFi Access"))
+        // The login goes into the vault when the block is written.
+        #expect(context.credentials(for: controllerMAC) == nil)
+        try await whenWritten.run()
         #expect(context.credentials(for: controllerMAC, as: UniFiAccessPlugin.ControllerLogin.self) == .init(username: "homeswift", password: "secret"))
         await host.stop()
 

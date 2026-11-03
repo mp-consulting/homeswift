@@ -143,12 +143,14 @@ extension UniFiAccessPlugin {
                 list.filter { $0.isManaged && $0.isSupported && !$0.mac.isEmpty }.map { (id: $0.identifier.uppercased(), kind: Self.kind(of: $0)) }
             }
             known.append(KnownController(mac: mac, address: controller.settings.address, devices: devices))
-            // The login the controller runs with (the block's resolved, or the vault's), kept in the vault for its MAC.
-            if haveLogins.contains(mac) {
-                logins.insert(mac)
-            } else if (try? context.saveCredentials(ControllerLogin(username: controller.settings.username, password: controller.settings.password), for: mac)) != nil {
-                logins.insert(mac)
+            // The login the controller runs with (the block's, resolved), kept in the vault for its MAC once the block is
+            // written without it.
+            if !haveLogins.contains(mac) {
+                let login = ControllerLogin(username: controller.settings.username, password: controller.settings.password)
+                let context = context
+                await context.whenSettingsWritten { try context.saveCredentials(login, for: mac) }
             }
+            logins.insert(mac)
         }
         return Self.canonical(block, controllers: known, logins: logins)
     }

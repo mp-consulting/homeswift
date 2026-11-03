@@ -86,7 +86,6 @@ extension UniFiAccessPlugin {
       el("a", { class: "button", href: settingsOf(device.featureId), actionIcon: "gear", text: t("Settings") }));
   }
 
-  $("#plugin-settings").href = pluginSettings;
   $("#open-support").addEventListener("click", () => { show("support-screen"); breadcrumb(t("Support"), backToControllers); });
   $("#back-from-support").addEventListener("click", backToControllers);
 
@@ -150,7 +149,6 @@ HomeswiftI18n.add({
     "Disconnected": "Déconnecté",
     "Invalid controller address. Please provide a valid network address.": "Adresse du contrôleur non valide. Indiquez une adresse réseau valide.",
     "Controllers": "Contrôleurs",
-    "Settings for every device": "Réglages de tous les appareils",
     "Another controller": "Un autre contrôleur",
     "No controller yet": "Aucun contrôleur pour l'instant",
     "Add accessories finds the UniFi consoles on the network, or one by its address, and signs in to it with a local account.": "Ajouter des accessoires trouve les consoles UniFi du réseau, ou l'une par son adresse, et s'y connecte avec un compte local.",
@@ -188,7 +186,6 @@ HomeswiftI18n.add({
     "Disconnected": "Desconectado",
     "Invalid controller address. Please provide a valid network address.": "La dirección del controlador no es válida. Indica una dirección de red válida.",
     "Controllers": "Controladores",
-    "Settings for every device": "Ajustes de todos los dispositivos",
     "Another controller": "Otro controlador",
     "No controller yet": "Todavía no hay ningún controlador",
     "Add accessories finds the UniFi consoles on the network, or one by its address, and signs in to it with a local account.": "Añadir accesorios encuentra las consolas UniFi de la red, o una por su dirección, e inicia sesión en ella con una cuenta local.",
@@ -226,7 +223,6 @@ HomeswiftI18n.add({
     "Disconnected": "Desligado",
     "Invalid controller address. Please provide a valid network address.": "Endereço do controlador inválido. Indique um endereço de rede válido.",
     "Controllers": "Controladores",
-    "Settings for every device": "Definições de todos os dispositivos",
     "Another controller": "Outro controlador",
     "No controller yet": "Ainda sem controlador",
     "Add accessories finds the UniFi consoles on the network, or one by its address, and signs in to it with a local account.": "Adicionar acessórios encontra as consolas UniFi da rede, ou uma pelo seu endereço, e inicia sessão nela com uma conta local.",
@@ -288,7 +284,6 @@ HomeswiftI18n.add({
     <div class="section-head"><h2 data-i18n>Controllers</h2></div>
     <div id="controllers" class="controllers"></div>
     <div class="actions" style="margin-top: 14px">
-      <a class="button" id="plugin-settings" data-i18n data-action-icon="gear">Settings for every device</a>
       <button id="open-support" data-i18n data-action-icon="link">Support</button>
     </div>
   </section>
