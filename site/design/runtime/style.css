@@ -4486,7 +4486,7 @@ html.wall-full:not(.wall-awake) .wall-dots { opacity: 0.6; }
 .settings-section { padding: var(--space-16) 0; border-top: 1px solid var(--line); }
 .settings-section:first-child { border-top: 0; padding-top: 0; }
 .settings-section:last-child { padding-bottom: 0; }
-.settings-section-head { margin-bottom: var(--space-4); }
+.settings-section-head { margin-bottom: var(--space-10); }
 .settings-section-head h3 { margin: 0; font-size: var(--text-lg); font-weight: var(--weight-semibold); }
 .settings-section-head h3 .muted { font-weight: var(--weight-regular); font-size: var(--text-sm); }
 .settings-section-head .help { margin-top: 2px; }
@@ -4506,6 +4506,8 @@ html.wall-full:not(.wall-awake) .wall-dots { opacity: 0.6; }
 .settings-danger-row > button { flex: none; }
 .accessory-settings-sheet .setup-sheet-head { margin-bottom: var(--space-16); }
 .accessory-settings-sheet .setup-sheet-head h2 { overflow-wrap: anywhere; }
+/* The sheet's title takes the focus as it opens, for the screen reader to announce it: no ring on a heading. */
+.accessory-settings-sheet .setup-sheet-head h2:focus { outline: none; }
 .accessory-settings-sheet .setup-sheet-head .setup-method { margin: 2px 0 0; }
 .setup-settings { width: 100%; margin-top: var(--space-16); padding-top: var(--space-16); border-top: 1px solid var(--line); text-align: left; }
 .setup-settings > h3 { margin: 0 0 var(--space-8); font-size: var(--text-lg); }

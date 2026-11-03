@@ -480,10 +480,12 @@
   /// Scene tiles' pictures: dropped on a tile or chosen from its ⋯ menu, shrunk here to 640 pixels and sent as a JPEG
   /// data: URL to the plugin's `scene-picture` route (POST; GET `scene-picture?id=` reads one, `scene-picture-remove`
   /// takes it away). A scene's `picture` is its version: each is fetched once, a newer one replacing it. `refresh`
-  /// runs after a change; `toggleHidden(key)` leaves the scene out of the Home app, or brings it back; `more(scene)`
+  /// runs after a change; `settings(scene, key)`, the address of the scene's Settings (a scene a plugin makes a
+  /// Discovered Device is Excluded there, `/plugins/<slug>/settings?accessory=<Accessory Id>`), gives the menu a
+  /// Settings… link; else `toggleHidden(key)` leaves the scene out of the Home app, or brings it back. `more(scene)` is
   /// the page's own items for the menu. Answers `decorate(tileNode, scene, hideKey)`, which adds the tile's menu, takes
   /// drops and paints the picture.
-  function scenePictures({ refresh, toggleHidden, more = () => [], gallery = false }) {
+  function scenePictures({ refresh, settings = null, toggleHidden = null, more = () => [], gallery = false }) {
     let artworks = [];
     const normalize = (name) => name.trim().toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
     const matchedArtwork = (scene) => artworks.find((item) => normalize(item.name) === normalize(scene.name) || (scene.smart && item.id === "first-light"));
@@ -573,7 +575,7 @@
       });
     }
 
-    /// The tile's menu: a picture for it, and whether the Home app shows it. A click on it (menuButton stops those)
+    /// The tile's menu: a picture for it, and its settings (or whether the Home app shows it). A click on it (menuButton stops those)
     /// or a key does not reach the tile.
     function sceneMenu(scene, tileNode, hideKey) {
       const button = HomeswiftCommon.menuButton(t("Actions for {name}", { name: scene.name }), () => [
@@ -581,7 +583,8 @@
         { label: scene.picture ? t("Change the picture…") : t("Choose a picture…"), icon: "camera", onSelect: () => choosePicture(scene, tileNode) },
         scene.picture ? { label: t("Remove the picture"), icon: "trash", onSelect: () => removePicture(scene) } : null,
         ...more(scene),
-        { label: scene.hidden ? t("Show in the Home app") : t("Leave out of the Home app"), icon: "eye", onSelect: () => toggleHidden(hideKey) },
+        settings ? { label: t("Settings…"), icon: "gear", href: settings(scene, hideKey) }
+          : toggleHidden ? { label: scene.hidden ? t("Show in the Home app") : t("Leave out of the Home app"), icon: "eye", onSelect: () => toggleHidden(hideKey) } : null,
       ]);
       button.classList.add("eye");
       button.addEventListener("keydown", (event) => event.stopPropagation());

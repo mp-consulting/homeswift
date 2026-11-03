@@ -339,7 +339,9 @@ try {
   await shot("hue-lights", "/plugins/philips-hue", { tab: "lights", ready: "#lights .widget" });
   await shot("hue-sensors", "/plugins/philips-hue", { tab: "sensors", ready: "#sensors .widget" });
   await shot("hue-scenes", "/plugins/philips-hue", { tab: "scenes", ready: "#scenes .scene" });
-  await shot("hue-settings", "/plugins/philips-hue", { tab: "settings", ready: "#options .toggle" });
+  // The page's settings are the instance's Settings page now (settings.js): its Plugin Settings form and its devices.
+  // A viewport as tall as the shot, so the save bar sits under the form rather than stuck at the window's foot.
+  await shot("hue-settings", "/plugins/philips-hue/settings", { ready: ".settings-device", height: 1700, tall: 1700 });
   await shot("hue-scenes-phone", "/plugins/philips-hue", { tab: "scenes", ready: "#scenes .scene", width: 390, height: 844, mobile: true, tall: 1530 });
   await shot("dirigera-devices", "/plugins/ikea-dirigera", { tab: "devices", ready: "#devices .widget" });
   await shot("dirigera-scenes", "/plugins/ikea-dirigera", { tab: "scenes", ready: "#scenes .scene" });

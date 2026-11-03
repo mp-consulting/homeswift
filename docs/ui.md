@@ -391,10 +391,13 @@ plugins compiled into this homeswift, with a search and a sort.
     which opens the Setup sheet. Its sign-in is kept in the vault, never in the form.
   - **Settings**: the Plugin Settings as a form built from the plugin's schema (the same `config.schema.json` the
     Homebridge version ships), read and saved through `GET`/`PATCH /api/settings/plugins/<platform>/<name>`. One Save
-    sends what changed (a key taken out is cleared); the plugin reloads once, its accessories kept.
+    sends what changed from the form as it opened (a key taken out is cleared; one the form does not show, such as a
+    secret kept in the vault, is left alone); the plugin reloads once, its accessories kept.
   - **Devices**: every Discovered Device of the instance, as Setup's discovery finds them, with where each stands: one set
     up opens its accessory's Settings sheet, an Excluded one has **Include**, one that Needs Authorization has **Set up
-    again**. **Find again** asks the plugin again.
+    again**. **Find again** asks the plugin again. `?accessory=<Accessory Id>` opens that accessory's sheet over the
+    page (a plugin page's link to one of its devices, or to a scene through `scenePictures`' `settings` option), and the
+    address loses it once the sheet closes.
   - What the form does not show is in config.json: the page links to its editor (Settings › Config), the one place to
     write a block as it is, **Save anyway** included. Then **Remove this plugin**.
 

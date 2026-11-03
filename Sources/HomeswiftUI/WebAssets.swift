@@ -21998,10 +21998,12 @@ HomeswiftI18n.add("pt", {
   /// Scene tiles' pictures: dropped on a tile or chosen from its ⋯ menu, shrunk here to 640 pixels and sent as a JPEG
   /// data: URL to the plugin's `scene-picture` route (POST; GET `scene-picture?id=` reads one, `scene-picture-remove`
   /// takes it away). A scene's `picture` is its version: each is fetched once, a newer one replacing it. `refresh`
-  /// runs after a change; `toggleHidden(key)` leaves the scene out of the Home app, or brings it back; `more(scene)`
+  /// runs after a change; `settings(scene, key)`, the address of the scene's Settings (a scene a plugin makes a
+  /// Discovered Device is Excluded there, `/plugins/<slug>/settings?accessory=<Accessory Id>`), gives the menu a
+  /// Settings… link; else `toggleHidden(key)` leaves the scene out of the Home app, or brings it back. `more(scene)` is
   /// the page's own items for the menu. Answers `decorate(tileNode, scene, hideKey)`, which adds the tile's menu, takes
   /// drops and paints the picture.
-  function scenePictures({ refresh, toggleHidden, more = () => [], gallery = false }) {
+  function scenePictures({ refresh, settings = null, toggleHidden = null, more = () => [], gallery = false }) {
     let artworks = [];
     const normalize = (name) => name.trim().toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
     const matchedArtwork = (scene) => artworks.find((item) => normalize(item.name) === normalize(scene.name) || (scene.smart && item.id === "first-light"));
@@ -22091,7 +22093,7 @@ HomeswiftI18n.add("pt", {
       });
     }
 
-    /// The tile's menu: a picture for it, and whether the Home app shows it. A click on it (menuButton stops those)
+    /// The tile's menu: a picture for it, and its settings (or whether the Home app shows it). A click on it (menuButton stops those)
     /// or a key does not reach the tile.
     function sceneMenu(scene, tileNode, hideKey) {
       const button = HomeswiftCommon.menuButton(t("Actions for {name}", { name: scene.name }), () => [
@@ -22099,7 +22101,8 @@ HomeswiftI18n.add("pt", {
         { label: scene.picture ? t("Change the picture…") : t("Choose a picture…"), icon: "camera", onSelect: () => choosePicture(scene, tileNode) },
         scene.picture ? { label: t("Remove the picture"), icon: "trash", onSelect: () => removePicture(scene) } : null,
         ...more(scene),
-        { label: scene.hidden ? t("Show in the Home app") : t("Leave out of the Home app"), icon: "eye", onSelect: () => toggleHidden(hideKey) },
+        settings ? { label: t("Settings…"), icon: "gear", href: settings(scene, hideKey) }
+          : toggleHidden ? { label: scene.hidden ? t("Show in the Home app") : t("Leave out of the Home app"), icon: "eye", onSelect: () => toggleHidden(hideKey) } : null,
       ]);
       button.classList.add("eye");
       button.addEventListener("keydown", (event) => event.stopPropagation());
@@ -22768,15 +22771,25 @@ HomeswiftI18n.add("pt", {
   const accessoryPath = (id, instance) => `/api/settings/accessories/${enc(id)}${instance ? `?instance=${enc(instance)}` : ""}`;
 
   /// A field's quiet state beside its title: Saving…, then Saved for a moment (with what reloaded), or the error,
-  /// which stays until the next change.
+  /// which stays until the next change and marks its control invalid.
   function setState(node, kind, text) {
     if (!node) return;
     clearTimeout(node.timer);
     node.dataset.state = kind;
     node.textContent = text;
+    if (kind === "error") node.control?.setAttribute("aria-invalid", "true"); else node.control?.removeAttribute("aria-invalid");
     if (kind === "ok") node.timer = setTimeout(() => { node.textContent = ""; node.dataset.state = ""; }, 2400);
   }
-  const stateNode = () => el("span", { class: "field-state", role: "status", "aria-live": "polite" });
+  let ids = 0;
+  const stateNode = () => el("span", { class: "field-state", role: "status", "aria-live": "polite", id: `field-state-${++ids}` });
+  /// A control named by its title alone and described by its help and its state, rather than by all the text of the
+  /// label around it (which would read the help as part of its name).
+  function describe(control, title, help, state) {
+    for (const node of [title, help]) if (node && !node.id) node.id = `field-part-${++ids}`;
+    control.setAttribute("aria-labelledby", title.id);
+    control.setAttribute("aria-describedby", [help?.id, state?.id].filter(Boolean).join(" "));
+    if (state) state.control = control;
+  }
 
   /// What a write did, in a few words for a field's state.
   function savedWords(result, instance) {
@@ -22793,11 +22806,14 @@ HomeswiftI18n.add("pt", {
 
   /// A switch row: its title, what it means, and its state.
   function switchRow({ title, help, checked, disabled = false, onChange }) {
-    const input = el("input", { type: "checkbox", checked, disabled });
+    const input = el("input", { type: "checkbox", role: "switch", checked, disabled });
     const state = stateNode();
+    const name = el("span", { text: title });
+    const note = help ? el("span", { class: "help", text: help }) : null;
+    describe(input, name, note, state);
     input.addEventListener("change", () => onChange(input.checked, state, input));
     return { input, node: el("label", { class: "toggle" }, el("span", { class: "switch" }, input, el("span")),
-      el("span", {}, el("span", { class: "field-title" }, title, state), help ? el("span", { class: "help", text: help }) : null)) };
+      el("span", {}, el("span", { class: "field-title" }, name, state), note)) };
   }
 
   // ---- An accessory's settings ------------------------------------------------------------------------------
@@ -22834,6 +22850,7 @@ HomeswiftI18n.add("pt", {
     function draw(answer, home, schemaFile) {
       node.removeAttribute("aria-busy");
       const settings = answer.settings ?? {};
+      if (settings.name || answer.name) onTitle(settings.name || answer.name);
       const fields = answer.fields ?? {};
       const plugin = answer.instance;
       const mirrored = answer.mirroredFrom ?? null;
@@ -22878,8 +22895,10 @@ HomeswiftI18n.add("pt", {
           onTitle(settings.name || answer.name || id);
         }
       });
-      const nameField = el("label", { class: "field" }, el("span", { class: "field-title" }, t("Name"), nameState), name,
-        el("span", { class: "help", text: mirrored ? t("Named in {source}: rename it there.", { source: mirrored }) : t("In the Home app too. Empty gives it back the name its plugin gives it.") }));
+      const nameTitle = el("span", { text: t("Name") });
+      const nameHelp = el("span", { class: "help", text: mirrored ? t("Named in {source}: rename it there.", { source: mirrored }) : t("In the Home app too. Empty gives it back the name its plugin gives it.") });
+      describe(name, nameTitle, nameHelp, nameState);
+      const nameField = el("label", { class: "field" }, el("span", { class: "field-title" }, nameTitle, nameState), name, nameHelp);
 
       // Room: one of the rooms, or a new name that adds it. Whether Apple Home follows, said beside it.
       const roomState = stateNode();
@@ -22896,10 +22915,12 @@ HomeswiftI18n.add("pt", {
         // None is "" for a mirrored accessory (not the room its controller suggests), else cleared.
         if (await save({ room: text || (mirrored ? "" : null) }, roomState, "room")) room.value = settings.room ?? "";
       });
-      const roomField = el("label", { class: "field" }, el("span", { class: "field-title" }, t("Room"), roomState), room, datalist,
-        el("span", { class: "help", text: mirrored ? t("Also moves it in {source}.", { source: mirrored })
-          : homeFollows ? t("Also moves it in the Home app (Room Sync is on).")
-            : t("On Homeswift's pages only: the Home app keeps its own room. Room Sync, in the Accessories page's Rooms menu, moves it there too.") }));
+      const roomTitle = el("span", { text: t("Room") });
+      const roomHelp = el("span", { class: "help", text: mirrored ? t("Also moves it in {source}.", { source: mirrored })
+        : homeFollows ? t("Also moves it in the Home app (Room Sync is on).")
+          : t("On Homeswift's pages only: the Home app keeps its own room. Room Sync, in the Accessories page's Rooms menu, moves it there too.") });
+      describe(room, roomTitle, roomHelp, roomState);
+      const roomField = el("label", { class: "field" }, el("span", { class: "field-title" }, roomTitle, roomState), room, datalist, roomHelp);
 
       // Hidden and Not in Home: where it shows.
       const hidden = switchRow({ title: t("Hidden"), help: t("Off the wall; still in the Home app."), checked: settings.hidden === true,
@@ -23006,12 +23027,14 @@ HomeswiftI18n.add("pt", {
   function openAccessory({ accessoryID, instance = null, device = null, name = null, glyph = "accessory", trigger = null, after = null }) {
     let changed = false, gone = false;
     app().openSheet((done) => {
-      const title = el("h2", { id: "accessory-settings-title", text: name ?? device?.name ?? accessoryID });
+      const title = el("h2", { id: "accessory-settings-title", tabIndex: -1, text: name ?? device?.name ?? accessoryID });
       const editor = accessoryEditor({ accessoryID, instance, device,
         onChange: () => { changed = true; },
         onGone: () => { gone = true; changed = true; done(true); },
         onTitle: (text) => { title.textContent = text; } });
-      editor.ready.then(() => { if (!document.activeElement || document.activeElement === document.body) title.focus?.(); });
+      // Once drawn, the title takes the focus (rather than Done, or a field whose keyboard would cover a phone's sheet),
+      // unless the person already moved into the editor; Tab goes on to the Name.
+      editor.ready.then(() => { if (!editor.node.contains(document.activeElement)) title.focus({ preventScroll: true }); });
       return el("div", { class: "account-form accessory-settings-sheet" },
         el("div", { class: "setup-sheet-head" }, tile(glyph, "blue"),
           el("div", {}, title, el("p", { class: "muted setup-method", text: t("Settings") }))),
@@ -23080,7 +23103,10 @@ HomeswiftI18n.add("pt", {
       }
       return patch;
     };
-    let saved = structuredClone(current.settings);
+    // What is saved, as the form reads it back: its defaults filled in and the keys it does not show left out, so a page
+    // just opened has no unsaved change and a save neither writes defaults nor clears what the form leaves alone.
+    const asForm = () => { try { return structuredClone(getValue()); } catch { return structuredClone(current.settings); } };
+    let saved = asForm();
     const dirty = () => { try { return !same(saved, getValue()); } catch { return false; } };
     const message = el("span", { class: "muted" });
     // An icon and a label each, as the other save bars: at phone width Revert keeps its icon alone.
@@ -23116,7 +23142,7 @@ HomeswiftI18n.add("pt", {
       }
       update();
     }, { report: (e) => { message.className = "error"; message.textContent = e.message; } }));
-    revert.addEventListener("click", () => { if (form) build(saved); message.className = ""; update(); });
+    revert.addEventListener("click", () => { if (form) build(saved); saved = asForm(); message.className = ""; update(); });
 
     // The account, for a plugin that signs in: where it stands and Set up again, which opens Setup.
     const accountRow = accountMethod ? el("div", { class: "settings-row" },
@@ -23159,7 +23185,19 @@ HomeswiftI18n.add("pt", {
           el("p", { class: "muted", text: t("Takes the block out of config.json. Its accessories leave the Home app, with their rooms, scenes and automations.") })),
         el("button", { actionIcon: "trash", class: "danger", text: t("Remove"), onclick: () => kit.removeBlock(block, () => app().navigate("/plugins")) })));
     update();
-    devices.load();
+    const found = devices.load();
+    // `?accessory=<Accessory Id>`, a plugin page's link to one of its devices: that accessory's Settings, over the page,
+    // with its name and parts as the discovery has them.
+    const linked = new URLSearchParams(location.search).get("accessory");
+    if (linked) {
+      const device = (await found)?.devices.find((one) => (one.accessoryID || `${platform}:${one.deviceID}`) === linked) ?? null;
+      openAccessory({ accessoryID: linked, instance: block.name, device, name: device?.name ?? null,
+        glyph: device ? HomeswiftWidgets.categoryIcon(device.category) ?? "accessory" : "accessory",
+        after: (changed) => {
+          history.replaceState(history.state, "", location.pathname);
+          if (changed) devices.load();
+        } });
+    }
   }
 
   /// A plugin instance's Discovered Devices: each with where it stands and what can be done with it: a set-up one opens
@@ -23187,6 +23225,7 @@ HomeswiftI18n.add("pt", {
         count.textContent = found.devices.length ? String(found.devices.length) : "";
         list.replaceChildren(...(found.devices.length ? found.devices.map((device) => deviceRow(block, plugin, device, load))
           : [el("p", { class: "muted", text: accountRow && !found.accountSetUp ? t("Its devices show here once it is set up.") : t("This plugin finds no devices by itself: its settings name them.") })]));
+        return found;
       } catch (e) {
         if (run === loading) list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));
       } finally {
@@ -28320,7 +28359,7 @@ html.wall-full:not(.wall-awake) .wall-dots { opacity: 0.6; }
 .settings-section { padding: var(--space-16) 0; border-top: 1px solid var(--line); }
 .settings-section:first-child { border-top: 0; padding-top: 0; }
 .settings-section:last-child { padding-bottom: 0; }
-.settings-section-head { margin-bottom: var(--space-4); }
+.settings-section-head { margin-bottom: var(--space-10); }
 .settings-section-head h3 { margin: 0; font-size: var(--text-lg); font-weight: var(--weight-semibold); }
 .settings-section-head h3 .muted { font-weight: var(--weight-regular); font-size: var(--text-sm); }
 .settings-section-head .help { margin-top: 2px; }
@@ -28340,6 +28379,8 @@ html.wall-full:not(.wall-awake) .wall-dots { opacity: 0.6; }
 .settings-danger-row > button { flex: none; }
 .accessory-settings-sheet .setup-sheet-head { margin-bottom: var(--space-16); }
 .accessory-settings-sheet .setup-sheet-head h2 { overflow-wrap: anywhere; }
+/* The sheet's title takes the focus as it opens, for the screen reader to announce it: no ring on a heading. */
+.accessory-settings-sheet .setup-sheet-head h2:focus { outline: none; }
 .accessory-settings-sheet .setup-sheet-head .setup-method { margin: 2px 0 0; }
 .setup-settings { width: 100%; margin-top: var(--space-16); padding-top: var(--space-16); border-top: 1px solid var(--line); text-align: left; }
 .setup-settings > h3 { margin: 0 0 var(--space-8); font-size: var(--text-lg); }
