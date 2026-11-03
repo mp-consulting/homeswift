@@ -447,6 +447,7 @@ struct PhilipsHueTests {
         await host.stop()
     }
 
+    /// A Homebridge block's exclude lists still load.
     @Test func excludedLightsAndScenesStayOut() async throws {
         let host = try await environment.start(settings: ["host": "192.0.2.10", "excludeLights": ["desk"], "excludeScenes": ["Living room/Concentrate"]])
         let scenes = try await accessory(host, scenesID)
@@ -762,6 +763,73 @@ struct PhilipsHueTests {
         let tropical = SceneLook.describe(colours: [HueColor.xy(hue: 240, saturation: 100), HueColor.xy(hue: 280, saturation: 90)], whites: [])
         #expect(tropical.hasPrefix("cool:"))
         #expect(SceneLook.describe(colours: [], whites: []) == "no colours set")
+    }
+
+    // MARK: Settings
+
+    /// The Homebridge-shaped lists move into `_accessories` as far as the bridge's names resolve them: Excluded lights,
+    /// sensors and scenes, a scene's transition ("Room/Scene" before its name); names it does not have stay.
+    @Test func canonicalSettingsMovesTheListsByTheBridgesNames() async throws {
+        let host = try await environment.start()
+        _ = try await accessory(host, scenesID)
+        let block = try JSONValue(any: [
+            "platform": "PhilipsHue", "name": "Philips Hue", "host": "192.0.2.10", "transitionMs": 400,
+            "excludeLights": ["desk", "Gone"], "excludeSensors": ["Bedroom dimmer"], "excludeScenes": ["Living room/Concentrate"],
+            "sceneTransitions": [["scene": "Savanna sunset", "transitionMs": 500], ["scene": "living room/Savanna sunset", "transitionMs": 3000], ["scene": "Nowhere", "transitionMs": 1]],
+            "_accessories": ["light-2": ["name": "Desk lamp"]],
+        ] as [String: Any])
+        let canonical = await host.canonicalSettings(platform: PhilipsHuePlugin.platform, name: PhilipsHuePlugin.name, block: block)
+        #expect(canonical == (try JSONValue(any: [
+            "platform": "PhilipsHue", "name": "Philips Hue", "host": "192.0.2.10", "transitionMs": 400,
+            "excludeLights": ["Gone"], "sceneTransitions": [["scene": "Nowhere", "transitionMs": 1]],
+            "_accessories": [
+                "light-2": ["name": "Desk lamp", "excluded": true], "device:dev-4": ["excluded": true], "scene-2": ["excluded": true],
+                "scene-1": ["transitionMs": 3000],
+            ],
+        ] as [String: Any])))
+        // Before the bridge was read, nothing moves.
+        #expect(PhilipsHuePlugin.canonical(block, snapshot: HueSnapshot()) == block)
+        await host.stop()
+    }
+
+    /// The canonical shape does what the lists did: Excluded lights, sensors and scenes stay out (the scenes' accessory
+    /// keeping its id), a scene takes its own transition, a light its own effects and Flash switch.
+    @Test func accessorySettingsExcludeAndTuneLightsAndScenes() async throws {
+        let host = try await environment.start(settings: [
+            "host": "192.0.2.10", "transitionMs": 400,
+            "_accessories": [
+                "light-2": ["excluded": true], "device:dev-4": ["excluded": true], "scene-2": ["excluded": true],
+                "scene-1": ["transitionMs": 3000], "light-1": ["effects": false, "flashSwitch": true],
+            ],
+        ])
+        let scenes = try await accessory(host, scenesID)
+        #expect(scenes.service(.switch, subtype: "scene:scene-2") == nil)
+        try await scenes.service(.switch, subtype: "scene:scene-1")![.on]!.write(.bool(true))
+        #expect(environment.bridge.puts.last?.body == ["recall": ["action": "active", "duration": 3000]])
+        let strip = try await accessory(host, stripID)
+        #expect(strip.service(.switch, subtype: "effect:candle") == nil && strip.service(.switch, subtype: "flash") != nil)
+        _ = try await accessory(host, PhilipsHuePlugin.sensorAccessoryID(deviceID: "dev-3"))
+        #expect(!host.mainBridge.server.accessories.contains { $0.id == deskID || $0.id == PhilipsHuePlugin.sensorAccessoryID(deviceID: "dev-4") })
+        let plugin = try #require(environment.plugin)
+        #expect(await plugin.scenes().map(\.id) == ["smart-1", "scene-1"])
+        await host.stop()
+    }
+
+    /// Each light, sensor, switch and scene is a Discovered Device of its Device Kind.
+    @Test func devicesHaveTheirKinds() async throws {
+        let host = try await environment.start()
+        _ = try await accessory(host, scenesID)
+        let plugin = try #require(environment.plugin)
+        let kinds = Dictionary(try await plugin.discover().map { ($0.deviceID, $0.kind) }, uniquingKeysWith: { first, _ in first })
+        #expect(kinds["light-1"] == "light" && kinds["device:dev-3"] == "sensor" && kinds["device:dev-4"] == "switch")
+        #expect(kinds["scene-1"] == "scene" && kinds["smart-1"] == "scene")
+        for (id, kind) in [("light-2", "light"), ("device:dev-4", "switch"), ("scene-2", "scene")] {
+            #expect(await host.deviceKind(platform: PhilipsHuePlugin.platform, name: PhilipsHuePlugin.name, deviceID: id) == kind)
+        }
+        let schema = try JSONValue(string: try #require(PhilipsHuePlugin.configurationSchemaJSON))
+        #expect(schema["accessorySchema"]?["properties"]?["transitionMs"]?["x-kinds"] == ["scene"])
+        #expect(schema["schema"]?["properties"]?["excludeScenes"] == nil)
+        await host.stop()
     }
 
     @Test func schemaIsCurrent() throws {

@@ -2,21 +2,28 @@
 // as the Accessories page draws them (its widgets: power, brightness, colour; effects in All controls), the sensors and
 // switches the same way (motion, temperature, light level, contact, battery, a button's presses), the scenes of
 // each room as tiles painted with their palette (a tap recalls one, a tap on the active one switches its room off,
-// play makes its colours move, its ⋯ menu leaves it out of the Home app), and the settings: the transition and what
-// the Home app shows. Refreshed every two seconds while visible; saving writes this instance's block. The Setup
-// card, tabs, scene pictures, speed scale and tile text come from plugin.js.
+// play makes its colours move). Refreshed every two seconds while visible. It writes no settings
+// (docs/adr/0002-schema-declares-every-setting.md): the plugin's open its Settings page, and a light's, a sensor's or a
+// scene's (Excluded, a scene's transition) its own there. The Setup card, tabs, scene pictures and tile text come from
+// plugin.js.
 (() => {
   "use strict";
   const { t } = HomeswiftI18n;
-  const { $, el, icon, tile, fact, explain, request, act, readBlock, updateBlock, setKey, poll, renderKeyed } = homeswift;
+  const { $, el, icon, tile, fact, explain, request, poll, renderKeyed } = homeswift;
 
   let status = {};
   let lights = [];
   let sensors = [];
   let groups = [];
-  let block = {};
 
   homeswift.tabs("hue-tab");
+
+  // Where settings are edited: the plugin's Settings page, and each light's, sensor's or scene's there (its Accessory
+  // Settings: a light's id, `device:<id>` for a sensor, a scene's id).
+  const pluginSettings = `/plugins/${location.pathname.split("/")[2] || ""}/settings`;
+  const settingsOf = (deviceID) => `${pluginSettings}?accessory=${encodeURIComponent(`PhilipsHue:${deviceID}`)}`;
+  const openSettings = (deviceID) => { location.href = settingsOf(deviceID); };
+  $("#plugin-settings").href = pluginSettings;
 
   // MARK: The bridge
 
@@ -46,7 +53,7 @@
           el("div", { class: "muted", text: [status.host, status.bridgeID?.toUpperCase()].filter(Boolean).join(" · ") })),
         el("span", { class: `pill status ${kind}`, text: state }),
         HomeswiftCommon.menuButton(t("Actions for {name}", { name: [name, status.host].filter(Boolean).join(" ") }),
-          () => [{ label: t("Pair again"), icon: "pair", href: homeswift.setupAddress({ start: true }) }])),
+          () => [{ label: t("Pair again"), icon: "pair", href: homeswift.setupAddress({ start: true }) }, { label: t("Settings"), icon: "gear", href: pluginSettings }])),
       el("div", { class: "facts" }, ...[[t("Address"), status.host], [t("Lights"), status.lights ?? 0], [t("Sensors"), status.sensors ?? 0], [t("Scenes"), status.scenes ?? 0]]
         .map(([label, value]) => fact(label, String(value ?? "")))),
       status.error ? explain({
@@ -80,9 +87,9 @@
     await loading;
   }
 
-  /// The lights left out of the Home app, as buttons that bring one back; drawn again only when they change.
+  /// The lights left out of the Home app, as buttons that open their settings; drawn again only when they change.
   function drawHidden(names) {
-    homeswift.drawHidden($("#hidden-devices"), names, (name) => toggleList("excludeLights", name));
+    homeswift.drawHidden($("#hidden-devices"), names, (name) => { const light = lights.find((item) => item.name === name); if (light) openSettings(light.id); });
   }
 
   // The lights' finder, over the plugin's widgets: each light with its room from the bridge.
@@ -129,18 +136,17 @@
     drawHidden(lights.filter((item) => item.hidden).map((item) => item.name));
   }
 
-  /// A widget's ⋯ menu, after All controls: Identify (a light blinks, a sensor's LED flashes), leaving it out of the
-  /// Home app (by name, in `listKey`), its log. `prefix` is its accessory id's, `items()` the list it is in.
-  const menuFor = (prefix, items, listKey) => (accessory) => {
+  /// A widget's ⋯ menu, after All controls: Identify (a light blinks, a sensor's LED flashes), its settings (where it is
+  /// Excluded), its log. `prefix` is its accessory id's.
+  const menuFor = (prefix) => (accessory) => {
     const id = accessory.id.slice(prefix.length);
-    const item = items().find((entry) => entry.id === id);
     return [
       { label: t("Identify"), icon: "identify", onSelect: () => request("identify", { method: "POST", body: { id } }).catch((e) => HomeswiftCommon.showAlert(e.message)) },
-      item ? { label: t("Leave out of the Home app"), icon: "eye", onSelect: () => toggleList(listKey, item.name) } : null,
+      { label: t("Settings"), icon: "gear", href: settingsOf(accessory.id.slice("PhilipsHue:".length)) },
       { label: t("Show its log"), icon: "logs", href: `/logs/${encodeURIComponent(accessory.id)}` },
-    ].filter(Boolean);
+    ];
   };
-  const actionsFor = menuFor("PhilipsHue:", () => lights, "excludeLights");
+  const actionsFor = menuFor("PhilipsHue:");
 
   /// A list's one line when it has nothing to show.
   const showEmpty = (list, text) => list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text })));
@@ -166,9 +172,12 @@
     const list = $("#sensors");
     const empty = (text) => showEmpty(list, text);
     sensorFinder.show(status.paired && status.sensorsOn !== false && sensorAccessories.length > 0);
-    homeswift.drawHidden($("#hidden-sensors"), sensors.filter((item) => item.hidden).map((item) => item.name), (name) => toggleList("excludeSensors", name));
+    homeswift.drawHidden($("#hidden-sensors"), sensors.filter((item) => item.hidden).map((item) => item.name), (name) => {
+      const sensor = sensors.find((item) => item.name === name);
+      if (sensor) openSettings(`device:${sensor.id}`);
+    });
     if (!status.paired) return empty(t("Pair with the bridge to see its sensors and switches."));
-    if (status.sensorsOn === false) return empty(t("Sensors and switches are off: turn them on in Settings."));
+    if (status.sensorsOn === false) return empty(t("Sensors and switches are off: turn them on in the plugin's Settings."));
     await loadIfChanged();
     if (!sensorAccessories.length) return empty(t("The bridge has no sensors or switches yet: add them in the Hue app."));
     sensorFinder.show(true);
@@ -181,19 +190,19 @@
     if (!listening) { HomeswiftWidgets.listen(); listening = true; }
   }
 
-  const sensorActions = menuFor("PhilipsHue:device:", () => sensors, "excludeSensors");
+  const sensorActions = menuFor("PhilipsHue:device:");
 
   // MARK: Scenes
 
-  // A scene's picture: dropped on its tile or chosen from its menu (plugin.js); its ⋯ menu also leaves it out of the
-  // Home app, by "<room>/<scene>".
+  // A scene's picture: dropped on its tile or chosen from its menu (plugin.js); its ⋯ menu's Home app item opens the
+  // scene's settings, where it is Excluded, as its speed does.
   const pictures = homeswift.scenePictures({
     gallery: true,
-    refresh: () => refresh(), toggleHidden: (key) => toggleList("excludeScenes", key),
+    refresh: () => refresh(), toggleHidden: (sceneID) => openSettings(sceneID),
     // A smart scene follows the time of day: the bridge takes no transition or Autoplay for it. Autoplay is the
     // scene's own on the bridge, as the Hue app's: it plays whenever it is recalled, here, in the Home app or there.
     more: (scene) => scene.smart ? [] : [
-      { label: t("Speed…"), icon: "sliders", onSelect: () => sceneSpeed(scene) },
+      { label: t("Speed…"), icon: "sliders", href: settingsOf(scene.id) },
       scene.palette ? autoplayItem(scene) : null,
     ].filter(Boolean),
   });
@@ -212,49 +221,6 @@
         return on;
       },
     };
-  }
-
-  /// A scene's own transition, kept in the block's `sceneTransitions` by "<room>/<scene>": the speed scale of the
-  /// Settings tab, showing the scene's or else the Settings tab's. Saved at the Settings speed (or Use the default), the
-  /// scene has none of its own and follows the Settings speed when it changes.
-  function sceneSpeed(scene) {
-    const key = `${scene.room}/${scene.name}`;
-    // The Settings speed as its tab shows it, saved or not; the line under the scale says whether the scene follows it.
-    const global = speed.value();
-    const settingsText = speed.element.querySelector("output").textContent;
-    const note = el("p", { class: "muted scene-speed-note" });
-    const scale = homeswift.speedScale({
-      help: t("How fast the lights reach this scene. Without a speed of its own, a scene takes the one in Settings."),
-      onInput: () => showNote(),
-    });
-    const showNote = () => {
-      note.textContent = scale.value() === global ? t("Follows the Settings speed ({speed}).", { speed: settingsText })
-        : t("A speed of its own; Settings has {speed}.", { speed: settingsText });
-    };
-    scale.set(scene.transitionMs ?? global);
-    showNote();
-    const write = (ms) => updateBlock((draft) => {
-      const list = (draft.sceneTransitions || []).filter((entry) => String(entry.scene).toLowerCase() !== key.toLowerCase());
-      if (ms != null) list.push({ scene: key, transitionMs: ms });
-      if (list.length) draft.sceneTransitions = list; else delete draft.sceneTransitions;
-    });
-    const cancel = el("button", { type: "button", actionIcon: "close", text: t("Cancel"), onclick: () => dialog.close() });
-    const reset = scene.transitionMs == null ? null : el("button", { type: "button", actionIcon: "restore", text: t("Use the default"),
-      onclick: (event) => act(event.currentTarget, async () => { await write(null); dialog.close(); setTimeout(refresh, 1500); }) });
-    const save = el("button", { type: "button", class: "primary", actionIcon: "check", text: t("Save"),
-      onclick: (event) => act(event.currentTarget, async () => {
-        const ms = scale.value() === global ? null : scale.value();
-        // Nothing to write when the scene keeps what it had (no restart of the plugin).
-        if (ms !== (scene.transitionMs ?? null)) { await write(ms); setTimeout(refresh, 1500); }
-        dialog.close();
-      }) });
-    const dialog = el("dialog", { class: "admin-dialog card", "aria-labelledby": "scene-speed-title" },
-      el("h2", { id: "scene-speed-title", text: t("Speed of {name}", { name: scene.name }) }),
-      scale.element, note,
-      el("div", { class: "actions" }, reset, cancel, save));
-    dialog.addEventListener("close", () => dialog.remove());
-    document.body.append(dialog);
-    dialog.showModal();
   }
 
   function sceneTile(scene) {
@@ -291,7 +257,7 @@
       play.addEventListener("keydown", (event) => event.stopPropagation());
       button.append(play);
     }
-    return pictures.decorate(button, scene, `${scene.room}/${scene.name}`);
+    return pictures.decorate(button, scene, scene.id);
   }
 
   // MARK: Finding a light or a scene
@@ -336,72 +302,6 @@
     });
   }
 
-  // MARK: Settings
-
-  const toggles = [
-    ["scenes", true, t("Scenes"), t("A switch for each scene, on one accessory per room or zone. Off switches the room off.")],
-    ["roomLights", false, t("Room lights"), t("A lightbulb for each room and zone: on, off and brightness for all its lights at once, in one command, as the Hue app's room controls. Worth it once the Hue Bridge is no longer in the Home app.")],
-    ["dynamicScenes", false, t("Play scenes dynamically"), t("Recall scenes with their colours slowly moving, as the Hue app's play button does.")],
-    ["effects", true, t("Effects"), t("A switch for each effect a light has: candle, fireplace, sparkle, prism…")],
-    ["flashSwitch", false, t("Flash switch"), t("A switch on each light that makes it flash for five seconds.")],
-    ["gradientPoints", false, t("Gradient points"), t("On gradient lightstrips, a light for each colour point, so each part of the strip takes its own colour.")],
-    ["sensors", true, t("Sensors and switches"), t("Motion, temperature, light level and contact sensors, and a programmable switch for each button of a dimmer, Tap or smart button. Presses reach the Home app at once, through the bridge's event stream.")],
-  ];
-  /// The toggles' checkboxes, by key.
-  const toggleInputs = new Map();
-
-  let dirty = false;
-  const markDirty = () => { dirty = true; $("#save-state").textContent = t("Unsaved changes."); };
-
-  const speed = homeswift.speedScale({
-    help: t("How fast a light reaches a new colour or brightness. Fast is the default; Extreme changes at once, snappiest for animated scenes and flashes."),
-    onInput: markDirty,
-  });
-  const polling = el("input", { type: "number", id: "pollingInterval", min: 1, max: 300, step: 1, placeholder: "2", inputmode: "numeric" });
-
-  function buildSettings() {
-    polling.addEventListener("input", markDirty);
-    $("#speed").append(speed.element,
-      el("label", { class: "field" }, el("span", { class: "field-title", text: t("Polling interval (s)") }), polling,
-        el("span", { class: "help", text: t("How often the bridge is asked for changes made in the Hue app or with a switch.") })));
-    $("#options").append(...toggles.map(([id, , label, help]) => {
-      const input = el("input", { type: "checkbox", id: `option-${id}` });
-      input.addEventListener("change", markDirty);
-      toggleInputs.set(id, input);
-      return el("label", { class: "toggle" }, el("span", { class: "switch" }, input, el("span")),
-        el("span", {}, el("span", { class: "field-title", text: label }), el("span", { class: "help", text: help })));
-    }));
-    $("#save").addEventListener("click", (event) => act(event.currentTarget, save));
-  }
-
-  function fillSettings() {
-    if (dirty) return;
-    speed.set(block.transitionMs);
-    $("#save-state").textContent = t("Changes are kept once you save.");
-    polling.value = block.pollingInterval ?? "";
-    for (const [id, fallback] of toggles) toggleInputs.get(id).checked = block[id] ?? fallback;
-  }
-
-  async function save() {
-    await updateBlock((draft) => {
-      setKey(draft, "transitionMs", speed.value(), 100);
-      const seconds = parseInt(polling.value, 10);
-      setKey(draft, "pollingInterval", Number.isNaN(seconds) ? undefined : Math.min(Math.max(seconds, 1), 300), 2);
-      for (const [id, fallback] of toggles) setKey(draft, id, toggleInputs.get(id).checked, fallback);
-    });
-    dirty = false;
-    block = await readBlock();
-    $("#save-state").textContent = t("Saved. The plugin restarted with these settings.");
-  }
-
-  /// Adds or removes a name from one of the block's lists (`excludeLights`, `excludeSensors`, `excludeScenes`), saved at once.
-  async function toggleList(key, name) {
-    const written = await homeswift.toggleList(key, name);
-    if (!written) return;
-    block = written;
-    setTimeout(refresh, 1500);
-  }
-
   // MARK: Refresh
 
   /// The status and the lists together; the lists count only once the bridge is paired.
@@ -435,7 +335,5 @@
   }
 
   let lastShown = null;
-  buildSettings();
-  readBlock().then((value) => { block = value || {}; fillSettings(); }).catch(() => {});
   poll(refresh, 2000);
 })();

@@ -8,7 +8,7 @@ extension PhilipsHuePlugin {
     public static let webFiles: [String: WebFile] = [
         "app.css": WebFile(contentType: "text/css; charset=utf-8", body: #"""
 /* The Philips Hue page on the UI's materials: the bridge (or the card leading to its Setup), the lights as the Accessories page's
-   widgets, the scenes of each room as tiles painted with their palette, and the settings. The bridge card, tabs,
+   widgets, the scenes of each room as tiles painted with their palette. The bridge card, tabs,
    scene tiles, speed scale and save bar are style.css's, shared with the DIRIGERA page. */
 
 .page-head { align-items: center; }
@@ -32,9 +32,6 @@ h2 { margin: 0 0 10px; }
 .scene.light:not(.pictured) .loop { background: rgba(255, 255, 255, 0.55); color: #1d1d1f; }
 .scene:has(.loop) .name { padding-right: 28px; }
 
-/* A scene's speed dialog: whether it follows the Settings speed, under the scale. */
-.scene-speed-note { margin: 10px 0 14px; font-size: 0.875rem; }
-
 /* Lights as the Accessories page draws them; the ones left out of the Home app below, to bring back. */
 .accessory-walls { margin: 0; }
 
@@ -44,21 +41,28 @@ h2 { margin: 0 0 10px; }
 // as the Accessories page draws them (its widgets: power, brightness, colour; effects in All controls), the sensors and
 // switches the same way (motion, temperature, light level, contact, battery, a button's presses), the scenes of
 // each room as tiles painted with their palette (a tap recalls one, a tap on the active one switches its room off,
-// play makes its colours move, its ⋯ menu leaves it out of the Home app), and the settings: the transition and what
-// the Home app shows. Refreshed every two seconds while visible; saving writes this instance's block. The Setup
-// card, tabs, scene pictures, speed scale and tile text come from plugin.js.
+// play makes its colours move). Refreshed every two seconds while visible. It writes no settings
+// (docs/adr/0002-schema-declares-every-setting.md): the plugin's open its Settings page, and a light's, a sensor's or a
+// scene's (Excluded, a scene's transition) its own there. The Setup card, tabs, scene pictures and tile text come from
+// plugin.js.
 (() => {
   "use strict";
   const { t } = HomeswiftI18n;
-  const { $, el, icon, tile, fact, explain, request, act, readBlock, updateBlock, setKey, poll, renderKeyed } = homeswift;
+  const { $, el, icon, tile, fact, explain, request, poll, renderKeyed } = homeswift;
 
   let status = {};
   let lights = [];
   let sensors = [];
   let groups = [];
-  let block = {};
 
   homeswift.tabs("hue-tab");
+
+  // Where settings are edited: the plugin's Settings page, and each light's, sensor's or scene's there (its Accessory
+  // Settings: a light's id, `device:<id>` for a sensor, a scene's id).
+  const pluginSettings = `/plugins/${location.pathname.split("/")[2] || ""}/settings`;
+  const settingsOf = (deviceID) => `${pluginSettings}?accessory=${encodeURIComponent(`PhilipsHue:${deviceID}`)}`;
+  const openSettings = (deviceID) => { location.href = settingsOf(deviceID); };
+  $("#plugin-settings").href = pluginSettings;
 
   // MARK: The bridge
 
@@ -88,7 +92,7 @@ h2 { margin: 0 0 10px; }
           el("div", { class: "muted", text: [status.host, status.bridgeID?.toUpperCase()].filter(Boolean).join(" · ") })),
         el("span", { class: `pill status ${kind}`, text: state }),
         HomeswiftCommon.menuButton(t("Actions for {name}", { name: [name, status.host].filter(Boolean).join(" ") }),
-          () => [{ label: t("Pair again"), icon: "pair", href: homeswift.setupAddress({ start: true }) }])),
+          () => [{ label: t("Pair again"), icon: "pair", href: homeswift.setupAddress({ start: true }) }, { label: t("Settings"), icon: "gear", href: pluginSettings }])),
       el("div", { class: "facts" }, ...[[t("Address"), status.host], [t("Lights"), status.lights ?? 0], [t("Sensors"), status.sensors ?? 0], [t("Scenes"), status.scenes ?? 0]]
         .map(([label, value]) => fact(label, String(value ?? "")))),
       status.error ? explain({
@@ -122,9 +126,9 @@ h2 { margin: 0 0 10px; }
     await loading;
   }
 
-  /// The lights left out of the Home app, as buttons that bring one back; drawn again only when they change.
+  /// The lights left out of the Home app, as buttons that open their settings; drawn again only when they change.
   function drawHidden(names) {
-    homeswift.drawHidden($("#hidden-devices"), names, (name) => toggleList("excludeLights", name));
+    homeswift.drawHidden($("#hidden-devices"), names, (name) => { const light = lights.find((item) => item.name === name); if (light) openSettings(light.id); });
   }
 
   // The lights' finder, over the plugin's widgets: each light with its room from the bridge.
@@ -171,18 +175,17 @@ h2 { margin: 0 0 10px; }
     drawHidden(lights.filter((item) => item.hidden).map((item) => item.name));
   }
 
-  /// A widget's ⋯ menu, after All controls: Identify (a light blinks, a sensor's LED flashes), leaving it out of the
-  /// Home app (by name, in `listKey`), its log. `prefix` is its accessory id's, `items()` the list it is in.
-  const menuFor = (prefix, items, listKey) => (accessory) => {
+  /// A widget's ⋯ menu, after All controls: Identify (a light blinks, a sensor's LED flashes), its settings (where it is
+  /// Excluded), its log. `prefix` is its accessory id's.
+  const menuFor = (prefix) => (accessory) => {
     const id = accessory.id.slice(prefix.length);
-    const item = items().find((entry) => entry.id === id);
     return [
       { label: t("Identify"), icon: "identify", onSelect: () => request("identify", { method: "POST", body: { id } }).catch((e) => HomeswiftCommon.showAlert(e.message)) },
-      item ? { label: t("Leave out of the Home app"), icon: "eye", onSelect: () => toggleList(listKey, item.name) } : null,
+      { label: t("Settings"), icon: "gear", href: settingsOf(accessory.id.slice("PhilipsHue:".length)) },
       { label: t("Show its log"), icon: "logs", href: `/logs/${encodeURIComponent(accessory.id)}` },
-    ].filter(Boolean);
+    ];
   };
-  const actionsFor = menuFor("PhilipsHue:", () => lights, "excludeLights");
+  const actionsFor = menuFor("PhilipsHue:");
 
   /// A list's one line when it has nothing to show.
   const showEmpty = (list, text) => list.replaceChildren(el("div", { class: "card empty" }, el("p", { class: "muted", text })));
@@ -208,9 +211,12 @@ h2 { margin: 0 0 10px; }
     const list = $("#sensors");
     const empty = (text) => showEmpty(list, text);
     sensorFinder.show(status.paired && status.sensorsOn !== false && sensorAccessories.length > 0);
-    homeswift.drawHidden($("#hidden-sensors"), sensors.filter((item) => item.hidden).map((item) => item.name), (name) => toggleList("excludeSensors", name));
+    homeswift.drawHidden($("#hidden-sensors"), sensors.filter((item) => item.hidden).map((item) => item.name), (name) => {
+      const sensor = sensors.find((item) => item.name === name);
+      if (sensor) openSettings(`device:${sensor.id}`);
+    });
     if (!status.paired) return empty(t("Pair with the bridge to see its sensors and switches."));
-    if (status.sensorsOn === false) return empty(t("Sensors and switches are off: turn them on in Settings."));
+    if (status.sensorsOn === false) return empty(t("Sensors and switches are off: turn them on in the plugin's Settings."));
     await loadIfChanged();
     if (!sensorAccessories.length) return empty(t("The bridge has no sensors or switches yet: add them in the Hue app."));
     sensorFinder.show(true);
@@ -223,19 +229,19 @@ h2 { margin: 0 0 10px; }
     if (!listening) { HomeswiftWidgets.listen(); listening = true; }
   }
 
-  const sensorActions = menuFor("PhilipsHue:device:", () => sensors, "excludeSensors");
+  const sensorActions = menuFor("PhilipsHue:device:");
 
   // MARK: Scenes
 
-  // A scene's picture: dropped on its tile or chosen from its menu (plugin.js); its ⋯ menu also leaves it out of the
-  // Home app, by "<room>/<scene>".
+  // A scene's picture: dropped on its tile or chosen from its menu (plugin.js); its ⋯ menu's Home app item opens the
+  // scene's settings, where it is Excluded, as its speed does.
   const pictures = homeswift.scenePictures({
     gallery: true,
-    refresh: () => refresh(), toggleHidden: (key) => toggleList("excludeScenes", key),
+    refresh: () => refresh(), toggleHidden: (sceneID) => openSettings(sceneID),
     // A smart scene follows the time of day: the bridge takes no transition or Autoplay for it. Autoplay is the
     // scene's own on the bridge, as the Hue app's: it plays whenever it is recalled, here, in the Home app or there.
     more: (scene) => scene.smart ? [] : [
-      { label: t("Speed…"), icon: "sliders", onSelect: () => sceneSpeed(scene) },
+      { label: t("Speed…"), icon: "sliders", href: settingsOf(scene.id) },
       scene.palette ? autoplayItem(scene) : null,
     ].filter(Boolean),
   });
@@ -254,49 +260,6 @@ h2 { margin: 0 0 10px; }
         return on;
       },
     };
-  }
-
-  /// A scene's own transition, kept in the block's `sceneTransitions` by "<room>/<scene>": the speed scale of the
-  /// Settings tab, showing the scene's or else the Settings tab's. Saved at the Settings speed (or Use the default), the
-  /// scene has none of its own and follows the Settings speed when it changes.
-  function sceneSpeed(scene) {
-    const key = `${scene.room}/${scene.name}`;
-    // The Settings speed as its tab shows it, saved or not; the line under the scale says whether the scene follows it.
-    const global = speed.value();
-    const settingsText = speed.element.querySelector("output").textContent;
-    const note = el("p", { class: "muted scene-speed-note" });
-    const scale = homeswift.speedScale({
-      help: t("How fast the lights reach this scene. Without a speed of its own, a scene takes the one in Settings."),
-      onInput: () => showNote(),
-    });
-    const showNote = () => {
-      note.textContent = scale.value() === global ? t("Follows the Settings speed ({speed}).", { speed: settingsText })
-        : t("A speed of its own; Settings has {speed}.", { speed: settingsText });
-    };
-    scale.set(scene.transitionMs ?? global);
-    showNote();
-    const write = (ms) => updateBlock((draft) => {
-      const list = (draft.sceneTransitions || []).filter((entry) => String(entry.scene).toLowerCase() !== key.toLowerCase());
-      if (ms != null) list.push({ scene: key, transitionMs: ms });
-      if (list.length) draft.sceneTransitions = list; else delete draft.sceneTransitions;
-    });
-    const cancel = el("button", { type: "button", actionIcon: "close", text: t("Cancel"), onclick: () => dialog.close() });
-    const reset = scene.transitionMs == null ? null : el("button", { type: "button", actionIcon: "restore", text: t("Use the default"),
-      onclick: (event) => act(event.currentTarget, async () => { await write(null); dialog.close(); setTimeout(refresh, 1500); }) });
-    const save = el("button", { type: "button", class: "primary", actionIcon: "check", text: t("Save"),
-      onclick: (event) => act(event.currentTarget, async () => {
-        const ms = scale.value() === global ? null : scale.value();
-        // Nothing to write when the scene keeps what it had (no restart of the plugin).
-        if (ms !== (scene.transitionMs ?? null)) { await write(ms); setTimeout(refresh, 1500); }
-        dialog.close();
-      }) });
-    const dialog = el("dialog", { class: "admin-dialog card", "aria-labelledby": "scene-speed-title" },
-      el("h2", { id: "scene-speed-title", text: t("Speed of {name}", { name: scene.name }) }),
-      scale.element, note,
-      el("div", { class: "actions" }, reset, cancel, save));
-    dialog.addEventListener("close", () => dialog.remove());
-    document.body.append(dialog);
-    dialog.showModal();
   }
 
   function sceneTile(scene) {
@@ -333,7 +296,7 @@ h2 { margin: 0 0 10px; }
       play.addEventListener("keydown", (event) => event.stopPropagation());
       button.append(play);
     }
-    return pictures.decorate(button, scene, `${scene.room}/${scene.name}`);
+    return pictures.decorate(button, scene, scene.id);
   }
 
   // MARK: Finding a light or a scene
@@ -378,72 +341,6 @@ h2 { margin: 0 0 10px; }
     });
   }
 
-  // MARK: Settings
-
-  const toggles = [
-    ["scenes", true, t("Scenes"), t("A switch for each scene, on one accessory per room or zone. Off switches the room off.")],
-    ["roomLights", false, t("Room lights"), t("A lightbulb for each room and zone: on, off and brightness for all its lights at once, in one command, as the Hue app's room controls. Worth it once the Hue Bridge is no longer in the Home app.")],
-    ["dynamicScenes", false, t("Play scenes dynamically"), t("Recall scenes with their colours slowly moving, as the Hue app's play button does.")],
-    ["effects", true, t("Effects"), t("A switch for each effect a light has: candle, fireplace, sparkle, prism…")],
-    ["flashSwitch", false, t("Flash switch"), t("A switch on each light that makes it flash for five seconds.")],
-    ["gradientPoints", false, t("Gradient points"), t("On gradient lightstrips, a light for each colour point, so each part of the strip takes its own colour.")],
-    ["sensors", true, t("Sensors and switches"), t("Motion, temperature, light level and contact sensors, and a programmable switch for each button of a dimmer, Tap or smart button. Presses reach the Home app at once, through the bridge's event stream.")],
-  ];
-  /// The toggles' checkboxes, by key.
-  const toggleInputs = new Map();
-
-  let dirty = false;
-  const markDirty = () => { dirty = true; $("#save-state").textContent = t("Unsaved changes."); };
-
-  const speed = homeswift.speedScale({
-    help: t("How fast a light reaches a new colour or brightness. Fast is the default; Extreme changes at once, snappiest for animated scenes and flashes."),
-    onInput: markDirty,
-  });
-  const polling = el("input", { type: "number", id: "pollingInterval", min: 1, max: 300, step: 1, placeholder: "2", inputmode: "numeric" });
-
-  function buildSettings() {
-    polling.addEventListener("input", markDirty);
-    $("#speed").append(speed.element,
-      el("label", { class: "field" }, el("span", { class: "field-title", text: t("Polling interval (s)") }), polling,
-        el("span", { class: "help", text: t("How often the bridge is asked for changes made in the Hue app or with a switch.") })));
-    $("#options").append(...toggles.map(([id, , label, help]) => {
-      const input = el("input", { type: "checkbox", id: `option-${id}` });
-      input.addEventListener("change", markDirty);
-      toggleInputs.set(id, input);
-      return el("label", { class: "toggle" }, el("span", { class: "switch" }, input, el("span")),
-        el("span", {}, el("span", { class: "field-title", text: label }), el("span", { class: "help", text: help })));
-    }));
-    $("#save").addEventListener("click", (event) => act(event.currentTarget, save));
-  }
-
-  function fillSettings() {
-    if (dirty) return;
-    speed.set(block.transitionMs);
-    $("#save-state").textContent = t("Changes are kept once you save.");
-    polling.value = block.pollingInterval ?? "";
-    for (const [id, fallback] of toggles) toggleInputs.get(id).checked = block[id] ?? fallback;
-  }
-
-  async function save() {
-    await updateBlock((draft) => {
-      setKey(draft, "transitionMs", speed.value(), 100);
-      const seconds = parseInt(polling.value, 10);
-      setKey(draft, "pollingInterval", Number.isNaN(seconds) ? undefined : Math.min(Math.max(seconds, 1), 300), 2);
-      for (const [id, fallback] of toggles) setKey(draft, id, toggleInputs.get(id).checked, fallback);
-    });
-    dirty = false;
-    block = await readBlock();
-    $("#save-state").textContent = t("Saved. The plugin restarted with these settings.");
-  }
-
-  /// Adds or removes a name from one of the block's lists (`excludeLights`, `excludeSensors`, `excludeScenes`), saved at once.
-  async function toggleList(key, name) {
-    const written = await homeswift.toggleList(key, name);
-    if (!written) return;
-    block = written;
-    setTimeout(refresh, 1500);
-  }
-
   // MARK: Refresh
 
   /// The status and the lists together; the lists count only once the bridge is paired.
@@ -477,8 +374,6 @@ h2 { margin: 0 0 10px; }
   }
 
   let lastShown = null;
-  buildSettings();
-  readBlock().then((value) => { block = value || {}; fillSettings(); }).catch(() => {});
   poll(refresh, 2000);
 })();
 
@@ -492,12 +387,9 @@ HomeswiftI18n.add({
     "Motion sensors": "Capteurs de mouvement",
     "Low battery": "Batterie faible",
     "Pair with the bridge to see its sensors and switches.": "Jumelez le pont pour voir ses capteurs et interrupteurs.",
-    "Sensors and switches are off: turn them on in Settings.": "Les capteurs et interrupteurs sont désactivés : activez-les dans les Réglages.",
     "The bridge has no sensors or switches yet: add them in the Hue app.": "Le pont n'a pas encore de capteurs ni d'interrupteurs : ajoutez-les dans l'app Hue.",
     "{shown} of {total} sensors": "{shown} capteurs sur {total}",
     "No sensor matches the search and filters.": "Aucun capteur ne correspond à la recherche et aux filtres.",
-    "Sensors and switches": "Capteurs et interrupteurs",
-    "Motion, temperature, light level and contact sensors, and a programmable switch for each button of a dimmer, Tap or smart button. Presses reach the Home app at once, through the bridge's event stream.": "Les capteurs de mouvement, de température, de luminosité et d'ouverture, et un interrupteur programmable pour chaque bouton d'un variateur, d'un Tap ou d'un bouton connecté. Les appuis arrivent aussitôt dans l'app Maison, par le flux d'événements du pont.",
     "Search lights": "Rechercher des lampes",
     "Colour lights": "Lampes couleur",
     "With effects": "Avec des effets",
@@ -514,12 +406,7 @@ HomeswiftI18n.add({
     "No scene matches the search and filters.": "Aucune scène ne correspond à la recherche et aux filtres.",
     "Autoplay is on": "Lecture auto activée",
     "Autoplay": "Lecture auto",
-    "Follows the Settings speed ({speed}).": "Suit la vitesse des Réglages ({speed}).",
-    "A speed of its own; Settings has {speed}.": "Une vitesse propre ; les Réglages ont {speed}.",
     "Speed…": "Vitesse…",
-    "Speed of {name}": "Vitesse de {name}",
-    "Use the default": "Utiliser celle par défaut",
-    "How fast the lights reach this scene. Without a speed of its own, a scene takes the one in Settings.": "La vitesse à laquelle les lampes atteignent cette scène. Sans vitesse propre, une scène prend celle des Réglages.",
     "Play {name}": "Lire {name}",
     "Pause {name}": "Mettre {name} en pause",
     "Connected": "Connecté",
@@ -527,7 +414,6 @@ HomeswiftI18n.add({
     "Hue Bridge": "Pont Hue",
     "Set up the Hue Bridge": "Configurer le pont Hue",
     "Add accessories finds the bridge on the network, or asks for its address, then for a press on its link button. The key stays in the vault, not in config.json.": "Ajouter des accessoires trouve le pont sur le réseau, ou demande son adresse, puis un appui sur son bouton de liaison. La clé reste dans le coffre, pas dans config.json.",
-    "Effects": "Effets",
     "Flash": "Clignoter",
     "Pair with the bridge to see its lights.": "Jumelez le pont pour voir ses lampes.",
     "The bridge has no lights yet: add them in the Hue app.": "Le pont n'a pas encore de lampes : ajoutez-les dans l'app Hue.",
@@ -539,33 +425,17 @@ HomeswiftI18n.add({
     "Zone off": "Zone éteinte",
     "Room on": "Pièce allumée",
     "Room off": "Pièce éteinte",
-    "A switch for each scene, on one accessory per room or zone. Off switches the room off.": "Un interrupteur par scène, sur un accessoire par pièce ou zone. L'éteindre éteint la pièce.",
-    "Play scenes dynamically": "Scènes dynamiques",
-    "Recall scenes with their colours slowly moving, as the Hue app's play button does.": "Rappelle les scènes avec leurs couleurs qui évoluent lentement, comme le bouton lecture de l'app Hue.",
-    "A switch for each effect a light has: candle, fireplace, sparkle, prism…": "Un interrupteur pour chaque effet d'une lampe : bougie, cheminée, scintillement, prisme…",
-    "Room lights": "Lampes de la pièce",
-    "A lightbulb for each room and zone: on, off and brightness for all its lights at once, in one command, as the Hue app's room controls. Worth it once the Hue Bridge is no longer in the Home app.": "Une ampoule pour chaque pièce et zone : allumer, éteindre et régler la luminosité de toutes ses lampes à la fois, en une commande, comme les commandes de pièce de l'app Hue. Utile une fois le pont Hue retiré de l'app Maison.",
-    "Flash switch": "Interrupteur Clignoter",
-    "A switch on each light that makes it flash for five seconds.": "Un interrupteur sur chaque lampe qui la fait clignoter cinq secondes.",
-    "Gradient points": "Points du dégradé",
-    "On gradient lightstrips, a light for each colour point, so each part of the strip takes its own colour.": "Sur les rubans à dégradé, une lampe par point de couleur, pour que chaque partie du ruban ait sa couleur.",
-    "Unsaved changes.": "Modifications non enregistrées.",
     "Medium": "Moyenne",
-    "How fast a light reaches a new colour or brightness. Fast is the default; Extreme changes at once, snappiest for animated scenes and flashes.": "La vitesse à laquelle une lampe atteint une nouvelle couleur ou luminosité. Rapide par défaut ; Extrême change aussitôt, le plus vif pour les scènes animées et les clignotements.",
-    "Polling interval (s)": "Intervalle d'interrogation (s)",
-    "How often the bridge is asked for changes made in the Hue app or with a switch.": "La fréquence à laquelle le pont est interrogé sur les changements faits dans l'app Hue ou avec un interrupteur.",
-    "Changes are kept once you save.": "Les modifications sont conservées une fois enregistrées.",
-    "Saved. The plugin restarted with these settings.": "Enregistré. Le plugin a redémarré avec ces réglages.",
     "Your Hue Bridge, its lights with their effects, its sensors and switches, and the scenes of each room, straight from the bridge on your network.": "Votre pont Hue, ses lampes et leurs effets, ses capteurs et interrupteurs, et les scènes de chaque pièce, directement depuis le pont de votre réseau.",
-    "Save Configuration": "Enregistrer la configuration",
     "Not in the Home app:": "Pas dans l'app Maison :",
-    "Tap a scene to recall it, and again to switch its room off. Drop a picture on a tile to give the scene one. Each room's scenes are switches in the Home app; a tile's ⋯ menu leaves one out.": "Touchez une scène pour la rappeler, puis à nouveau pour éteindre sa pièce. Déposez une image sur une tuile pour la donner à la scène. Les scènes de chaque pièce sont des interrupteurs dans l'app Maison ; le menu ⋯ d'une tuile en retire une.",
     "the picture must be a JPEG, PNG or WebP image": "l'image doit être au format JPEG, PNG ou WebP",
     "the picture is larger than {0} KB": "l'image dépasse {0} Ko",
     "the picture has no valid name": "l'image n'a pas de nom valide",
     "a scene and a picture are required": "une scène et une image sont requises",
     "a scene is required": "une scène est requise",
-    "no picture for that scene": "aucune image pour cette scène"
+    "no picture for that scene": "aucune image pour cette scène",
+    "Sensors and switches are off: turn them on in the plugin's Settings.": "Les capteurs et interrupteurs sont désactivés : activez-les dans les réglages du plugin.",
+    "Tap a scene to recall it, and again to switch its room off. Drop a picture on a tile to give the scene one. Each room's scenes are switches in the Home app; a tile's ⋯ menu opens the scene's settings, where it is left out.": "Touchez une scène pour la rappeler, puis à nouveau pour éteindre sa pièce. Déposez une image sur une tuile pour la donner à la scène. Les scènes de chaque pièce sont des interrupteurs dans l'app Maison ; le menu ⋯ d'une tuile ouvre les réglages de la scène, où on la retire."
   },
   "es": {
     "Sensors": "Sensores",
@@ -573,12 +443,9 @@ HomeswiftI18n.add({
     "Motion sensors": "Sensores de movimiento",
     "Low battery": "Batería baja",
     "Pair with the bridge to see its sensors and switches.": "Empareja el puente para ver sus sensores e interruptores.",
-    "Sensors and switches are off: turn them on in Settings.": "Los sensores e interruptores están desactivados: actívalos en Ajustes.",
     "The bridge has no sensors or switches yet: add them in the Hue app.": "El puente aún no tiene sensores ni interruptores: añádelos en la app Hue.",
     "{shown} of {total} sensors": "{shown} de {total} sensores",
     "No sensor matches the search and filters.": "Ningún sensor coincide con la búsqueda y los filtros.",
-    "Sensors and switches": "Sensores e interruptores",
-    "Motion, temperature, light level and contact sensors, and a programmable switch for each button of a dimmer, Tap or smart button. Presses reach the Home app at once, through the bridge's event stream.": "Los sensores de movimiento, temperatura, luminosidad y contacto, y un interruptor programable por cada botón de un regulador, un Tap o un botón inteligente. Las pulsaciones llegan al instante a la app Casa, por el flujo de eventos del puente.",
     "Search lights": "Buscar luces",
     "Colour lights": "Luces de color",
     "With effects": "Con efectos",
@@ -595,12 +462,7 @@ HomeswiftI18n.add({
     "No scene matches the search and filters.": "Ninguna escena coincide con la búsqueda y los filtros.",
     "Autoplay is on": "Reproducción automática activada",
     "Autoplay": "Reproducción automática",
-    "Follows the Settings speed ({speed}).": "Sigue la velocidad de Ajustes ({speed}).",
-    "A speed of its own; Settings has {speed}.": "Una velocidad propia; Ajustes tiene {speed}.",
     "Speed…": "Velocidad…",
-    "Speed of {name}": "Velocidad de {name}",
-    "Use the default": "Usar la predeterminada",
-    "How fast the lights reach this scene. Without a speed of its own, a scene takes the one in Settings.": "La rapidez con la que las luces llegan a esta escena. Sin velocidad propia, una escena usa la de Ajustes.",
     "Play {name}": "Reproducir {name}",
     "Pause {name}": "Pausar {name}",
     "Connected": "Conectado",
@@ -608,7 +470,6 @@ HomeswiftI18n.add({
     "Hue Bridge": "Puente Hue",
     "Set up the Hue Bridge": "Configurar el puente Hue",
     "Add accessories finds the bridge on the network, or asks for its address, then for a press on its link button. The key stays in the vault, not in config.json.": "Añadir accesorios encuentra el puente en la red, o pide su dirección, y luego que pulses su botón de enlace. La clave se queda en la bóveda, no en config.json.",
-    "Effects": "Efectos",
     "Flash": "Parpadear",
     "Pair with the bridge to see its lights.": "Empareja el puente para ver sus luces.",
     "The bridge has no lights yet: add them in the Hue app.": "El puente aún no tiene luces: añádelas en la app Hue.",
@@ -620,33 +481,17 @@ HomeswiftI18n.add({
     "Zone off": "Zona apagada",
     "Room on": "Habitación encendida",
     "Room off": "Habitación apagada",
-    "A switch for each scene, on one accessory per room or zone. Off switches the room off.": "Un interruptor por escena, en un accesorio por habitación o zona. Apagarlo apaga la habitación.",
-    "Play scenes dynamically": "Escenas dinámicas",
-    "Recall scenes with their colours slowly moving, as the Hue app's play button does.": "Activa las escenas con sus colores moviéndose despacio, como el botón de reproducir de la app Hue.",
-    "A switch for each effect a light has: candle, fireplace, sparkle, prism…": "Un interruptor por cada efecto de una luz: vela, chimenea, destello, prisma…",
-    "Room lights": "Luces de la habitación",
-    "A lightbulb for each room and zone: on, off and brightness for all its lights at once, in one command, as the Hue app's room controls. Worth it once the Hue Bridge is no longer in the Home app.": "Una bombilla para cada habitación y zona: encender, apagar y ajustar el brillo de todas sus luces a la vez, en un solo comando, como los controles de habitación de la app Hue. Útil cuando el puente Hue ya no está en la app Casa.",
-    "Flash switch": "Interruptor Parpadear",
-    "A switch on each light that makes it flash for five seconds.": "Un interruptor en cada luz que la hace parpadear cinco segundos.",
-    "Gradient points": "Puntos del degradado",
-    "On gradient lightstrips, a light for each colour point, so each part of the strip takes its own colour.": "En las tiras con degradado, una luz por punto de color, para que cada parte de la tira tenga su color.",
-    "Unsaved changes.": "Cambios sin guardar.",
     "Medium": "Media",
-    "How fast a light reaches a new colour or brightness. Fast is the default; Extreme changes at once, snappiest for animated scenes and flashes.": "La rapidez con la que una luz llega a un nuevo color o brillo. Rápida es la predeterminada; Extrema cambia al instante, lo más ágil para escenas animadas y parpadeos.",
-    "Polling interval (s)": "Intervalo de consulta (s)",
-    "How often the bridge is asked for changes made in the Hue app or with a switch.": "Cada cuánto se pregunta al puente por los cambios hechos en la app Hue o con un interruptor.",
-    "Changes are kept once you save.": "Los cambios se conservan al guardar.",
-    "Saved. The plugin restarted with these settings.": "Guardado. El plugin se ha reiniciado con estos ajustes.",
     "Your Hue Bridge, its lights with their effects, its sensors and switches, and the scenes of each room, straight from the bridge on your network.": "Tu puente Hue, sus luces con sus efectos, sus sensores e interruptores, y las escenas de cada habitación, directamente desde el puente de tu red.",
-    "Save Configuration": "Guardar configuración",
     "Not in the Home app:": "No están en la app Casa:",
-    "Tap a scene to recall it, and again to switch its room off. Drop a picture on a tile to give the scene one. Each room's scenes are switches in the Home app; a tile's ⋯ menu leaves one out.": "Toca una escena para activarla, y otra vez para apagar su habitación. Suelta una imagen en un mosaico para dársela a la escena. Las escenas de cada habitación son interruptores en la app Casa; el menú ⋯ de un mosaico quita una.",
     "the picture must be a JPEG, PNG or WebP image": "la imagen debe ser JPEG, PNG o WebP",
     "the picture is larger than {0} KB": "la imagen supera los {0} KB",
     "the picture has no valid name": "la imagen no tiene un nombre válido",
     "a scene and a picture are required": "se necesitan una escena y una imagen",
     "a scene is required": "se necesita una escena",
-    "no picture for that scene": "no hay imagen para esa escena"
+    "no picture for that scene": "no hay imagen para esa escena",
+    "Sensors and switches are off: turn them on in the plugin's Settings.": "Los sensores e interruptores están desactivados: actívalos en los ajustes del plugin.",
+    "Tap a scene to recall it, and again to switch its room off. Drop a picture on a tile to give the scene one. Each room's scenes are switches in the Home app; a tile's ⋯ menu opens the scene's settings, where it is left out.": "Toca una escena para activarla, y otra vez para apagar su habitación. Suelta una imagen en un mosaico para dársela a la escena. Las escenas de cada habitación son interruptores en la app Casa; el menú ⋯ de un mosaico abre los ajustes de la escena, donde se quita."
   },
   "pt": {
     "Sensors": "Sensores",
@@ -654,12 +499,9 @@ HomeswiftI18n.add({
     "Motion sensors": "Sensores de movimento",
     "Low battery": "Bateria fraca",
     "Pair with the bridge to see its sensors and switches.": "Emparelhe a ponte para ver os seus sensores e interruptores.",
-    "Sensors and switches are off: turn them on in Settings.": "Os sensores e interruptores estão desativados: ative-os em Definições.",
     "The bridge has no sensors or switches yet: add them in the Hue app.": "A ponte ainda não tem sensores nem interruptores: adicione-os na app Hue.",
     "{shown} of {total} sensors": "{shown} de {total} sensores",
     "No sensor matches the search and filters.": "Nenhum sensor corresponde à pesquisa e aos filtros.",
-    "Sensors and switches": "Sensores e interruptores",
-    "Motion, temperature, light level and contact sensors, and a programmable switch for each button of a dimmer, Tap or smart button. Presses reach the Home app at once, through the bridge's event stream.": "Os sensores de movimento, temperatura, luminosidade e contacto, e um interruptor programável para cada botão de um regulador, de um Tap ou de um botão inteligente. As pressões chegam de imediato à app Casa, pelo fluxo de eventos da ponte.",
     "Search lights": "Procurar luzes",
     "Colour lights": "Luzes a cores",
     "With effects": "Com efeitos",
@@ -676,12 +518,7 @@ HomeswiftI18n.add({
     "No scene matches the search and filters.": "Nenhuma cena corresponde à pesquisa e aos filtros.",
     "Autoplay is on": "Reprodução automática ativada",
     "Autoplay": "Reprodução automática",
-    "Follows the Settings speed ({speed}).": "Segue a velocidade das Definições ({speed}).",
-    "A speed of its own; Settings has {speed}.": "Uma velocidade própria; as Definições têm {speed}.",
     "Speed…": "Velocidade…",
-    "Speed of {name}": "Velocidade de {name}",
-    "Use the default": "Usar a predefinida",
-    "How fast the lights reach this scene. Without a speed of its own, a scene takes the one in Settings.": "A rapidez com que as luzes chegam a esta cena. Sem velocidade própria, uma cena usa a das Definições.",
     "Play {name}": "Reproduzir {name}",
     "Pause {name}": "Pausar {name}",
     "Connected": "Ligada",
@@ -689,7 +526,6 @@ HomeswiftI18n.add({
     "Hue Bridge": "Ponte Hue",
     "Set up the Hue Bridge": "Configurar a ponte Hue",
     "Add accessories finds the bridge on the network, or asks for its address, then for a press on its link button. The key stays in the vault, not in config.json.": "Adicionar acessórios encontra a ponte na rede, ou pede o endereço, e depois que prima o botão de ligação. A chave fica no cofre, não em config.json.",
-    "Effects": "Efeitos",
     "Flash": "Piscar",
     "Pair with the bridge to see its lights.": "Emparelhe a ponte para ver as luzes.",
     "The bridge has no lights yet: add them in the Hue app.": "A ponte ainda não tem luzes: adicione-as na app Hue.",
@@ -701,33 +537,17 @@ HomeswiftI18n.add({
     "Zone off": "Zona apagada",
     "Room on": "Divisão acesa",
     "Room off": "Divisão apagada",
-    "A switch for each scene, on one accessory per room or zone. Off switches the room off.": "Um interruptor por cena, num acessório por divisão ou zona. Desligá-lo apaga a divisão.",
-    "Play scenes dynamically": "Cenas dinâmicas",
-    "Recall scenes with their colours slowly moving, as the Hue app's play button does.": "Ativa as cenas com as cores a mudar devagar, como o botão de reprodução da app Hue.",
-    "A switch for each effect a light has: candle, fireplace, sparkle, prism…": "Um interruptor por cada efeito de uma luz: vela, lareira, cintilar, prisma…",
-    "Room lights": "Luzes da divisão",
-    "A lightbulb for each room and zone: on, off and brightness for all its lights at once, in one command, as the Hue app's room controls. Worth it once the Hue Bridge is no longer in the Home app.": "Uma lâmpada para cada divisão e zona: ligar, desligar e ajustar o brilho de todas as suas luzes de uma vez, num só comando, como os controlos de divisão da app Hue. Útil quando a ponte Hue já não está na app Casa.",
-    "Flash switch": "Interruptor Piscar",
-    "A switch on each light that makes it flash for five seconds.": "Um interruptor em cada luz que a faz piscar cinco segundos.",
-    "Gradient points": "Pontos do gradiente",
-    "On gradient lightstrips, a light for each colour point, so each part of the strip takes its own colour.": "Nas fitas com gradiente, uma luz por ponto de cor, para cada parte da fita ter a sua cor.",
-    "Unsaved changes.": "Alterações por guardar.",
     "Medium": "Média",
-    "How fast a light reaches a new colour or brightness. Fast is the default; Extreme changes at once, snappiest for animated scenes and flashes.": "A rapidez com que uma luz chega a uma nova cor ou brilho. Rápida é a predefinida; Extrema muda de imediato, o mais vivo para cenas animadas e piscas.",
-    "Polling interval (s)": "Intervalo de consulta (s)",
-    "How often the bridge is asked for changes made in the Hue app or with a switch.": "Com que frequência a ponte é consultada sobre as alterações feitas na app Hue ou com um interruptor.",
-    "Changes are kept once you save.": "As alterações ficam guardadas quando guardar.",
-    "Saved. The plugin restarted with these settings.": "Guardado. O plugin reiniciou com estas definições.",
     "Your Hue Bridge, its lights with their effects, its sensors and switches, and the scenes of each room, straight from the bridge on your network.": "A ponte Hue, as luzes com os seus efeitos, os sensores e interruptores, e as cenas de cada divisão, diretamente da ponte na sua rede.",
-    "Save Configuration": "Guardar configuração",
     "Not in the Home app:": "Fora da app Casa:",
-    "Tap a scene to recall it, and again to switch its room off. Drop a picture on a tile to give the scene one. Each room's scenes are switches in the Home app; a tile's ⋯ menu leaves one out.": "Toque numa cena para a ativar, e outra vez para desligar a sua divisão. Largue uma imagem num mosaico para a dar à cena. As cenas de cada divisão são interruptores na app Casa; o menu ⋯ de um mosaico retira uma.",
     "the picture must be a JPEG, PNG or WebP image": "a imagem tem de ser JPEG, PNG ou WebP",
     "the picture is larger than {0} KB": "a imagem tem mais de {0} KB",
     "the picture has no valid name": "a imagem não tem um nome válido",
     "a scene and a picture are required": "são necessárias uma cena e uma imagem",
     "a scene is required": "é necessária uma cena",
-    "no picture for that scene": "não há imagem para essa cena"
+    "no picture for that scene": "não há imagem para essa cena",
+    "Sensors and switches are off: turn them on in the plugin's Settings.": "Os sensores e interruptores estão desativados: ative-os nas definições do plugin.",
+    "Tap a scene to recall it, and again to switch its room off. Drop a picture on a tile to give the scene one. Each room's scenes are switches in the Home app; a tile's ⋯ menu opens the scene's settings, where it is left out.": "Toque numa cena para a ativar, e outra vez para desligar a sua divisão. Largue uma imagem num mosaico para a dar à cena. As cenas de cada divisão são interruptores na app Casa; o menu ⋯ de um mosaico abre as definições da cena, onde é retirada."
   }
 });
 
@@ -752,6 +572,7 @@ HomeswiftI18n.add({
       <h1>Philips Hue</h1>
       <p class="muted" data-i18n>Your Hue Bridge, its lights with their effects, its sensors and switches, and the scenes of each room, straight from the bridge on your network.</p>
     </div>
+    <div class="actions"><a id="plugin-settings" class="button" data-i18n data-action-icon="gear">Settings</a></div>
   </div>
 
   <div id="bridge"></div>
@@ -760,7 +581,6 @@ HomeswiftI18n.add({
     <button role="tab" data-tab="lights" class="on" aria-selected="true" aria-controls="tab-lights" data-i18n data-action-icon="bulb">Lights</button>
     <button role="tab" data-tab="sensors" aria-selected="false" aria-controls="tab-sensors" data-i18n data-action-icon="sensor">Sensors</button>
     <button role="tab" data-tab="scenes" aria-selected="false" aria-controls="tab-scenes" data-i18n data-action-icon="star">Scenes</button>
-    <button role="tab" data-tab="settings" aria-selected="false" aria-controls="tab-settings" data-i18n data-action-icon="sliders">Settings</button>
   </div>
 
   <section id="tab-lights" class="tab-pane" role="tabpanel">
@@ -776,23 +596,9 @@ HomeswiftI18n.add({
   </section>
 
   <section id="tab-scenes" class="tab-pane hidden" role="tabpanel">
-    <p class="muted intro" data-i18n>Tap a scene to recall it, and again to switch its room off. Drop a picture on a tile to give the scene one. Each room's scenes are switches in the Home app; a tile's ⋯ menu leaves one out.</p>
+    <p class="muted intro" data-i18n>Tap a scene to recall it, and again to switch its room off. Drop a picture on a tile to give the scene one. Each room's scenes are switches in the Home app; a tile's ⋯ menu opens the scene's settings, where it is left out.</p>
     <div id="scene-toolbar" class="finder"></div>
     <div id="scenes"></div>
-  </section>
-
-  <section id="tab-settings" class="tab-pane hidden" role="tabpanel">
-    <div class="card">
-      <h2 data-i18n>Speed</h2>
-      <div id="speed"></div>
-    </div>
-    <div class="card">
-      <h2 data-i18n>In the Home app</h2>
-      <div id="options"></div>
-    </div>
-    <div class="card save-card">
-      <div class="save-bar"><span id="save-state" class="muted" data-i18n>Changes are kept once you save.</span><button id="save" class="primary" data-i18n data-action-icon="check">Save Configuration</button></div>
-    </div>
   </section>
 </main>
 <script src="/common.js"></script>
