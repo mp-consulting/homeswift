@@ -5,7 +5,8 @@ monitoring, lights, curtains, fans, thermostats, sensors, panels, RF Bridge remo
 and eWeLink groups, plus simulations that show a switch as a blind, a garage door, a lock, a valve, a heater and
 more. A port of [`@mp-consulting/homebridge-ewelink`](https://github.com/mp-consulting/homebridge-ewelink), originally by bwp91,
 under the MIT license (notice in [THIRD-PARTY-NOTICES.md](../../THIRD-PARTY-NOTICES.md)): the
-platform name (`eWeLink`) and every option are the same, so a Homebridge block works unchanged.
+platform name (`eWeLink`) and every option are read, so a Homebridge block loads unchanged; what Homeswift writes is
+its canonical shape ([Configuration](#configuration)).
 
 - **Hybrid connection.** Commands go over the LAN first (devices found over mDNS, `_ewelink._tcp`, which mDNS
   proxies carry across VLANs; AES-128-CBC encrypted HTTP to `/zeroconf/switch`), and through the cloud otherwise.
@@ -48,53 +49,69 @@ generated from the Homebridge plugin's catalog.
 
 ## Configuration
 
+What Homeswift writes (docs/adr/0001-canonical-accessory-settings.md): the plugin's settings in the block, each
+device's in `_accessories` by its eWeLink device id (its Device Id; a channel's or an RF sub-device's accessory,
+`eWeLink:<id>SW<n>`, has its device's), the account in the vault.
+
 ```json
 {
   "platform": "eWeLink",
   "name": "eWeLink",
-  "username": "your-email@example.com",
-  "password": "your-password",
   "countryCode": "+1",
-  "mode": "auto"
+  "mode": "auto",
+  "_accessories": {
+    "1000aaaaaa": { "showAs": "valve", "disableTimer": true },
+    "1000bbbbbb": { "hideChannels": "4" },
+    "1000cccccc": { "excluded": true }
+  }
 }
 ```
 
-| Option | Type | Default | Description |
+| Plugin Setting | Type | Default | Description |
 |--------|------|---------|-------------|
-| `username` | string | Required | eWeLink email or phone number |
-| `password` | string | Required | eWeLink password (or its base64 encoding) |
-| `countryCode` | string | `+1` | Country dial code (e.g. `+1`, `+44`, `+86`): picks the API region |
+| `countryCode` | string | `+1` | Country dial code (e.g. `+1`, `+44`, `+86`): picks the API region; Setup asks for it |
 | `mode` | string | `auto` | `auto` (LAN, then the cloud), `lan` (LAN only), `wan` (cloud only) |
 | `debug` | boolean | `false` | Accessories log their debug lines (run `homeswift -D` to see them) |
-| `disableDeviceLogging` | boolean | `false` | No per-device state lines at info level |
+| `disableDeviceLogging` | boolean | `false` | No per-device state lines at info level; a device's own setting overrules it |
 | `offlineAsOff` | boolean | `false` | Offline devices read as off instead of "No Response" |
 | `commandQueueInterval` | number | `250` | Milliseconds between queued cloud commands |
 | `commandQueueConcurrency` | number | `3` | Cloud commands in flight at once |
-| `ignoredDevices` | string[] | | Device ids to leave out |
-| `singleDevices`, `multiDevices`, `thDevices`, `lightDevices`, `fanDevices`, `sensorDevices`, `rfDevices` | array | | Per-device settings, by `deviceId` (below) |
 | `bridgeSensors` | array | | RF sub-device settings, by `fullDeviceId` (`curtainType` `blind`, `door`, `window` turns an RF curtain into a timed cover) |
 | `groups` | array | | Accepted; eWeLink's own groups come from the account |
 
-### Per-device settings
+### Accessory Settings
 
-| List | Keys |
+Besides Excluded, a device has the Accessory Settings of its Device Kind (the schema's `accessorySchema`, `x-kinds`):
+its category (`single`, `multi`, `thermostat`, `light`, `fan`, `sensor`, `rf_bridge`, `outlet`, `air_conditioner`,
+`panel`…), whose list its entry went in under Homebridge.
+
+| Device Kind | Keys |
 |---|---|
-| `singleDevices` | `showAs` (`default`, `outlet`, `switch`, `valve`, `tap`, `lock`, `garage`, `gate`, `sensor`, `sensor_leak`, `p_button`, `doorbell`, `purifier`, `tv`, `heater`, `cooler`), `isInched`, `inUsePowerThreshold`, `sensorType`, `tempSource` (heater/cooler), `disableTimer` (valve/tap), `type` (lock), `offset`, `offsetFactor` (air conditioner, panel), `lowBattThreshold` |
-| `multiDevices` | `showAs` (`default`, `outlet`, `blind`, `door`, `window`, `garage`, `lock`, `valve`...), `hideChannels` (`1,2` or full ids), `inchChannels` (hides the master), `operationTime`, `operationTimeDown` (seconds, covers) |
-| `thDevices` | `showAs` (`default`, `thermostat`, `heater`, `cooler`, `humidifier`, `dehumidifier`), `tempOffset`, `offsetFactor`, `humidityOffset`, `humidityOffsetFactor`, `minTarget`, `maxTarget`, `targetTempThreshold` (hysteresis, °C), `showHeatCool` |
-| `lightDevices` | `showAs: fan` (a dimmer as a fan), `brightnessStep`, `deviceModel: offlineAsOff`, `adaptiveLightingShift` (mireds warmer; -1 leaves Adaptive Lighting off) |
-| `fanDevices` | `hideLight` |
-| `sensorDevices` | `hideTemp`, `hideHumidity`, `hideSwitch`, `tempOffset`, `humidityOffset`, `lowBattery` |
-| `rfDevices` | `subdevices`: `index`, `label`, `showAs` (`motion`, `contact`, `water`, `smoke`, `co`, `co2`, `occupancy`, `button`, `doorbell`), `resetTime`, `operationTime`, `operationTimeDown` |
+| `single` | `showAs` (`default`, `outlet`, `switch`, `valve`, `tap`, `lock`, `garage`, `gate`, `sensor`, `sensor_leak`, `p_button`, `doorbell`, `purifier`, `tv`, `heater`, `cooler`), `isInched`, `inUsePowerThreshold`, `sensorType`, `tempSource` (heater/cooler), `disableTimer` (valve/tap), `type` (lock), `lowBattThreshold` |
+| `outlet` | `isInched`, `inUsePowerThreshold` |
+| `air_conditioner`, `panel` | `offset`, `offsetFactor` |
+| `multi` | `showAs` (`default`, `outlet`, `blind`, `door`, `window`, `garage`, `gate`, `lock`, `valve`), `hideChannels` (`1,2` or full ids), `inchChannels` (hides the master), `operationTime`, `operationTimeDown` (seconds, covers), `sensorType`, `tempSource`, `disableTimer`, `type` |
+| `thermostat` | `showAs` (`default`, `thermostat`, `heater`, `cooler`, `humidifier`, `dehumidifier`), `tempOffset`, `offsetFactor`, `humidityOffset`, `humidityOffsetFactor`, `minTarget`, `maxTarget`, `targetTempThreshold` (hysteresis, °C), `showHeatCool` |
+| `light` | `showAs: fan` (a dimmer as a fan), `brightnessStep`, `deviceModel: offlineAsOff`, `adaptiveLightingShift` (mireds warmer; -1 leaves Adaptive Lighting off) |
+| `fan` | `hideLight` |
+| `sensor` | `hideTemp`, `hideHumidity`, `hideSwitch`, `tempOffset`, `humidityOffset`, `lowBattery` |
+| `rf_bridge` | `subdevices`: `index`, `label`, `showAs` (`motion`, `contact`, `water`, `smoke`, `co`, `co2`, `occupancy`, `button`, `doorbell`), `resetTime`, `operationTime`, `operationTimeDown` |
+| every kind | `disableDeviceLogging`, the plugin's being its default |
 
 A light with brightness and colour temperature has Adaptive Lighting, which a colour set in the eWeLink app turns off.
 
-Every other key of the Homebridge plugin's types (`ipAddress`, `deviceModel`, `overrideLogging`, `language`, `hideDevFromHB`...) is accepted and, as there, has no effect.
+A Homebridge block still loads: its `username` and `password`, `ignoredDevices`, and the seven lists `singleDevices`,
+`multiDevices`, `thDevices`, `lightDevices`, `fanDevices`, `sensorDevices` and `rfDevices`, by `deviceId`, read under
+`_accessories`. The first settings write (the Settings page, `update_settings`, Setup) moves the lists' entries into
+`_accessories` (a device in two lists takes its own category's first) and drops the lists, makes `ignoredDevices`
+Excluded devices (a channel's id, which never matched a device, stays in it), and moves the account into the vault.
+The keys that never had an effect (`label`, `ignoreDevice`, `ipAddress`, `overrideLogging`, `language`,
+`hideDevFromHB`…) are accepted and dropped then; accessory ids do not change.
 
 ## Signing in
 
 The account is signed in to on **Add accessories** (Setup, docs/plugins.md): the email or phone number, the password
-and the country code, checked with a login. The password goes in the bridge's vault, not in `config.json`, and the
+and the country code, checked with a login. The username and the password go in the bridge's vault, not in `config.json`, and the
 session the login gives in the plugin's own vault entry. An AI agent does the same through the MCP server's
 `start_setup` and `continue_setup`. A block with a `username` and a `password`, pasted from Homebridge, signs in by
 itself.
@@ -105,10 +122,9 @@ itself.
 signed in, a card leads to its Setup on Add accessories; once it is, the account with **Sign in again**, the account's
 devices with their LAN address (a 3 s mDNS scan runs while the cloud answers), the RF sub-devices under their bridge
 with their buttons, online, LAN and RF badges, and an **Explain** for offline devices and devices missing on the LAN
-when the Assistant is set up; the connection mode, debug and `offlineAsOff`; **Save configuration** writes the
-instance's block and the plugin reloads with it. When the block changes elsewhere (the Expert editor, another tab,
-the Assistant), the page fills the settings in again the next time it comes into view, as the Homebridge page does
-on `configChanged`.
+when the Assistant is set up, and a **Settings** link on each device to its Accessory Settings
+(`/plugins/<slug>/settings?accessory=eWeLink:<deviceId>`). The page writes no settings: the connection mode, debug,
+`offlineAsOff` and the rest are on the plugin's Settings page.
 
 The page's requests: `GET devices`, `POST test-device`, `GET accessories` (the instance's accessories with their kept
 values, Homebridge's `/getCachedAccessories`), `GET status`. They use the session the plugin logged in with.
@@ -129,6 +145,7 @@ sealed in the vault (`plugin.<instance>.ewelink-tokens.json`).
 - `hideChannels` hides the channels it names (by number or full id), and `inchChannels` the master channel; the
   Homebridge plugin only logged them.
 - Ignored devices leave HomeKit; Homebridge kept their cached tile.
+- `disableDeviceLogging` can be set per device, the plugin's being its default.
 - An accessory's services are rebuilt when its type changes (Homeswift replaces accessories rather than mutating
   them); the aid and iids stay.
 - A multi-channel device's channel n drives outlet n - 1 (eWeLink numbers outlets from 0) and the master
