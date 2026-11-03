@@ -119,7 +119,7 @@ final class Feature: @unchecked Sendable {
 
     /// Builds the switch when the unit supports the feature and the configuration shows it.
     func setUp() {
-        guard isSupported, context.settings.isEnabled(spec.configKey) else { return }
+        guard isSupported, context.isEnabled(spec.configKey) else { return }
         context.logger.debug("[\(accessoryName)] Device has \(spec.name), add Switch Service")
         let service = Service(.switch, name: spec.name, subtype: "\(managementPointID):\(spec.subtype)", extra: [Characteristic(.configuredName, value: .string(spec.name))])
         service.characteristic(.on).onWrite { [weak self] value in try await self?.set(value.boolValue ?? false) }

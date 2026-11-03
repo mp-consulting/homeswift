@@ -1,7 +1,7 @@
-// The Daikin Cloud page, after the Homebridge plugin's settings UI: the devices the account has; the plugin's
-// settings (feature switches, polling, network, hidden devices), saved to this instance's block; the sign-in's
+// The Daikin Cloud page, after the Homebridge plugin's settings UI: the devices the account has; the sign-in's
 // state, its connection test and signing out (signing in is Setup's, on Add accessories, which the page leads to);
-// and help, with the quota the plugin saw on its last call.
+// and help, with the quota the plugin saw on its last call. It writes no settings
+// (docs/adr/0002-schema-declares-every-setting.md): the plugin's open its Settings page, and a device's its own there.
 (() => {
   "use strict";
   const { $, el, request, explain, breadcrumb, act, poll } = homeswift;
@@ -13,8 +13,6 @@
   const numberFormat = new Intl.NumberFormat(HomeswiftI18n.locale);
   const formatNumber = (value) => (value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value)) ? numberFormat.format(Number(value)) : String(value ?? ""));
   const operationModeLabel = (mode) => (mode ? OPERATION_MODE_LABELS[mode] || String(mode).replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().replace(/^./, (c) => c.toUpperCase()) : "");
-  const isValidNumber = (value, min, max) => { const n = parseInt(value, 10); return !isNaN(n) && n >= min && n <= max; };
-  const isValidIPv4 = (ip) => !ip || /^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.){3}(25[0-5]|(2[0-4]|1\d|[1-9]|)\d)$/.test(ip);
   function formatTime(ms) {
     const days = Math.floor(ms / 86400000), hours = Math.floor((ms % 86400000) / 3600000);
     const minutes = Math.floor((ms % 3600000) / 60000), seconds = Math.floor((ms % 60000) / 1000);
@@ -29,12 +27,12 @@
 
   const assistantDevice = (d) => ({ name: d.name, id: d.id, model: d.model, type: d.type, online: !!d.online, features: Array.isArray(d.features) ? d.features : [] });
   function assistantContext(extra) {
+    const session = auth.status?.session;
     return [
       extra,
       `Authentication method: ${authMode.current}.`,
-      block?.updateIntervalInMinutes ? `Update interval: ${block.updateIntervalInMinutes} minutes.` : "",
-      authMode.current === "mobile_app" ? `WebSocket: ${block?.enableWebSocket !== false ? "on" : "off"}.` : "",
-      `HTTP transport: ${block?.httpTransport === "curl" ? "curl subprocess" : "Homeswift's built-in HTTP client (NIO, BoringSSL)"}.`,
+      session?.pollMinutes ? `Update interval: ${session.pollMinutes} minutes.` : "",
+      authMode.current === "mobile_app" && session?.running ? `WebSocket: ${session.webSocket ? "connected" : "not connected"}.` : "",
     ].filter(Boolean).join(" ");
   }
   /// Puts an Explain button in `slot` for `message`, or empties it.
@@ -42,25 +40,10 @@
     slot.replaceChildren(message ? explain({ error: message, context: assistantContext(context), device }) : "");
   }
 
-  // MARK: config.json: this instance's block, read and written through the signed-in UI, as Homebridge's
-  // getPluginConfig/updatePluginConfig/savePluginConfig. A save reloads the plugin with the block.
+  // MARK: Where settings are edited: the plugin's Settings page, and each device's there (its Accessory Settings).
 
-  let block = null;   // this instance's block as last read or saved
-
-  async function readBlock() {
-    block = await homeswift.readBlock();
-  }
-
-  /// Merges `changes` into the block (undefined removes a key) and saves it.
-  async function saveBlock(changes) {
-    let next = null;
-    const result = await homeswift.updateBlock((current) => {
-      next = current;
-      for (const [key, value] of Object.entries(changes)) { if (value === undefined) delete next[key]; else next[key] = value; }
-    });
-    block = next;
-    return result;
-  }
+  const pluginSettings = `/plugins/${location.pathname.split("/")[2] || ""}/settings`;
+  const settingsOf = (deviceID) => `${pluginSettings}?accessory=${encodeURIComponent(`DaikinCloud:${deviceID}`)}`;
 
   // MARK: Tabs
 
@@ -73,7 +56,6 @@
     }
     for (const pane of document.querySelectorAll(".tab-pane")) pane.classList.toggle("hidden", pane.id !== `tab-${tab}`);
     breadcrumb(tab === "devices" ? null : tabs.querySelector(`[data-tab="${tab}"]`).textContent, () => switchTab("devices"));
-    if (tab === "settings") settings.load();
   }
   tabs.addEventListener("click", (event) => { const tab = event.target.closest("button")?.dataset.tab; if (tab) switchTab(tab); });
 
@@ -105,7 +87,8 @@
       $("#auth-status-card").classList.toggle("hidden", !status.authenticated);
       if (status.authenticated) {
         $("#auth-setup").replaceChildren();
-        if (status.authMode && !block?.authMode) authMode.current = status.authMode;
+        const mode = status.session?.mode ?? status.authMode;
+        if (mode) authMode.current = mode;
         authMode.render();
         badge.className = `pill status ${status.isExpired ? "away" : ""}`;
         badge.textContent = status.isExpired ? t("Expired") : t("Connected");
@@ -169,7 +152,7 @@
     async revoke(button) {
       if (!await HomeswiftCommon.confirmDialog(t("Revoke access? The plugin stops until you sign in again on Add accessories."))) return;
       await act(button, async () => {
-        await request("auth/revoke", { method: "POST", body: { clientId: block?.clientId, clientSecret: block?.clientSecret } });
+        await request("auth/revoke", { method: "POST", body: {} });
         await this.load();
         devices.load();
       });
@@ -178,7 +161,7 @@
   $("#btn-test").addEventListener("click", (event) => auth.test(event.currentTarget));
   $("#btn-revoke").addEventListener("click", (event) => auth.revoke(event.currentTarget));
 
-  // MARK: How the account signs in: the block's `authMode`, else the token's; Setup chooses it.
+  // MARK: How the account signs in: the running instance's `authMode`, else the token's; Setup chooses it.
 
   const authMode = {
     current: "developer_portal",
@@ -189,14 +172,10 @@
       const daily = mobile ? 3000 : 200;
       $("#rate-limit-display").textContent = t("{n} requests/day", { n: daily });
       $("#rate-limit-info").textContent = t("The Daikin API limits you to {n} requests per day.", { n: daily });
-      $("#websocket-setting-row").classList.toggle("hidden", !mobile);
-      $("#updateIntervalInMinutes").placeholder = t("{n} (recommended)", { n: mobile ? 5 : 15 });
-      $("#forceUpdateDelay").placeholder = t("{n} (recommended)", { n: mobile ? 10 : 60 });
     },
   };
 
-  // MARK: Devices: one request shared by the Devices tab and the Settings tab's device list; Refresh skips the
-  // plugin's five-minute cache.
+  // MARK: Devices: one request at a time; Refresh skips the plugin's five-minute cache.
 
   const deviceList = {
     inFlight: null,
@@ -254,8 +233,6 @@
         return;
       }
       this.items = result.devices;
-      settings.devices = result.devices;
-      settings.renderDevices();
       if (!result.devices.length) {
         list.replaceChildren(el("div", { class: "card empty" },
           el("p", { text: t("No devices found") }),
@@ -273,7 +250,7 @@
 
     card(device) {
       const on = device.powerState === "on";
-      const hidden = (block?.excludedDevicesByDeviceId || []).includes(device.id);
+      const hidden = device.excluded === true;
       const fact = (label, value) => homeswift.fact(label, value || "—", { title: value || "" });
       const problem = this.problem(device);
       return el("div", { class: `card unit ${hidden ? "is-hidden" : ""}` },
@@ -285,189 +262,16 @@
         el("div", { class: "facts" },
           fact(t("Room"), device.roomTemp), fact(t("Outdoor"), device.outdoorTemp),
           fact(t("Mode"), operationModeLabel(device.operationMode)), fact(t("Model"), device.model)),
-        hidden ? el("p", { class: "muted note", text: t("Hidden from HomeKit. Settings › Devices shows it again.") }) : null,
+        hidden ? el("p", { class: "muted note", text: t("Excluded: not in HomeKit. Its settings bring it back.") }) : null,
         problem ? explain({
           error: problem,
           context: assistantContext("The user is looking at the device list of the Daikin Cloud plugin's page."),
           device: assistantDevice(device),
-        }) : null);
+        }) : null,
+        el("div", { class: "actions" }, el("a", { class: "button", href: settingsOf(device.id), actionIcon: "gear", text: t("Settings") })));
     },
   };
   $("#btn-refresh-devices").addEventListener("click", (event) => act(event.currentTarget, () => devices.load({ refresh: true })));
-
-  // MARK: Settings: a draft of the block's settings; Save writes it and the plugin reloads.
-
-  const FEATURES = [
-    ["showPowerfulMode", t("Powerful Mode"), t("Boost heating/cooling performance")],
-    ["showEconoMode", t("Econo Mode"), t("Energy-saving operation")],
-    ["showStreamerMode", t("Streamer Mode"), t("Air purification")],
-    ["showOutdoorSilentMode", t("Outdoor Silent Mode"), t("Reduce outdoor unit noise")],
-    ["showIndoorSilentMode", t("Indoor Silent Mode"), t("Quiet fan operation")],
-    ["showAutoFanMode", t("Auto Fan Mode"), t("Automatic fan speed (switch)")],
-    ["showOscillationSwitch", t("Oscillation Switch"), t("Swing as a separate switch (stays visible when grouped into a single tile)")],
-    ["showSeparateFanControl", t("Separate Fan Tile"), t("Fan speed + oscillation as a standalone Fan tile (stays visible when grouped into a single tile)")],
-    ["showDryMode", t("Dry Mode"), t("Dehumidification")],
-    ["showFanOnlyMode", t("Fan Only Mode"), t("Fan without heating/cooling")],
-    ["showHolidayMode", t("Holiday Mode"), t("Holiday / away mode as a switch")],
-    ["showFirmwareUpdateSwitch", t("Firmware Update"), t("Install staged gateway firmware updates from HomeKit. Never enabled implicitly — the unit is unavailable while it updates")],
-  ];
-  // Switches that follow the legacy "Show Extra Features" flag when their own key is not set.
-  const FEATURE_KEYS = ["showPowerfulMode", "showEconoMode", "showStreamerMode", "showOutdoorSilentMode", "showIndoorSilentMode", "showAutoFanMode",
-    "showOscillationSwitch", "showDryMode", "showFanOnlyMode", "showHolidayMode"];
-  // Standalone toggles, off unless set.
-  const STANDALONE_KEYS = ["showSeparateFanControl", "showFirmwareUpdateSwitch"];
-
-  const settings = {
-    draft: null,
-    saved: "",
-    devices: [],
-    loaded: false,
-
-    async load() {
-      if (this.loaded && this.dirty()) return;
-      try {
-        await readBlock();
-        this.populate(block);
-        this.loaded = true;
-      } catch (e) {
-        this.status("error", e.message);
-      }
-    },
-
-    /// The draft from the block, with the plugin's rule: only a boolean overrides; absent or null follows
-    /// showExtraFeatures for extra features, and is off for standalone ones.
-    populate(config) {
-      const legacy = config?.showExtraFeatures === true;
-      const draft = {};
-      for (const key of FEATURE_KEYS) draft[key] = typeof config?.[key] === "boolean" ? config[key] : legacy;
-      for (const key of STANDALONE_KEYS) draft[key] = config?.[key] === true;
-      draft.updateIntervalInMinutes = String(config?.updateIntervalInMinutes || 15);
-      draft.forceUpdateDelay = String(Math.round((config?.forceUpdateDelay || 60000) / 1000));
-      draft.oidcCallbackServerBindAddr = config?.oidcCallbackServerBindAddr || "0.0.0.0";
-      draft.httpTransport = config?.httpTransport === "curl" ? "curl" : "node";
-      draft.enableWebSocket = config?.enableWebSocket !== false;
-      draft.excludedDevicesByDeviceId = [...(config?.excludedDevicesByDeviceId || [])];
-      this.draft = draft;
-      this.saved = JSON.stringify(draft);
-      this.render();
-    },
-
-    dirty() { return this.draft && JSON.stringify(this.draft) !== this.saved; },
-
-    render() {
-      const draft = this.draft;
-      if (!draft) return;
-      $("#feature-toggles").replaceChildren(...FEATURES.map(([key, title, help]) => this.toggle(title, help, draft[key], (on) => { draft[key] = on; this.changed(); })));
-      $("#updateIntervalInMinutes").value = draft.updateIntervalInMinutes;
-      $("#forceUpdateDelay").value = draft.forceUpdateDelay;
-      $("#oidcCallbackServerBindAddr").value = draft.oidcCallbackServerBindAddr;
-      $("#httpTransport").value = draft.httpTransport;
-      $("#enableWebSocket").checked = draft.enableWebSocket;
-      this.renderDevices();
-      this.changed();
-    },
-
-    toggle(title, help, checked, onChange, side) {
-      const input = el("input", { type: "checkbox", checked });
-      input.addEventListener("change", () => onChange(input.checked, input));
-      return el("label", { class: "row-toggle" },
-        el("span", { class: "who" }, el("span", { class: "field-title", text: title }), help ? el("span", { class: "help", text: help }) : null),
-        el("span", { class: "side" }, side || null, el("span", { class: "switch" }, input, el("span"))));
-    },
-
-    renderDevices() {
-      const box = $("#device-toggles");
-      if (!this.draft) return;
-      if (!this.devices.length) {
-        box.replaceChildren(el("p", { class: "muted", text: t("No devices found. Sign in on Add accessories to see your devices.") }));
-        return;
-      }
-      box.replaceChildren(...this.devices.map((device) => {
-        const visible = !this.draft.excludedDevicesByDeviceId.includes(device.id);
-        const state = el("span", { class: `state ${visible ? "" : "off"}`, text: visible ? t("Visible") : t("Hidden") });
-        const row = this.toggle(device.name, null, visible, (on) => {
-          const ids = this.draft.excludedDevicesByDeviceId.filter((id) => id !== device.id);
-          if (!on) ids.push(device.id);
-          this.draft.excludedDevicesByDeviceId = ids;
-          state.textContent = on ? t("Visible") : t("Hidden");
-          state.className = `state ${on ? "" : "off"}`;
-          this.changed();
-        }, state);
-        row.querySelector(".who").append(el("span", { class: "mono", text: device.id }));
-        return row;
-      }));
-    },
-
-    valid() {
-      const checks = [
-        ["oidcCallbackServerBindAddr", (v) => isValidIPv4(v.trim())],
-        ["updateIntervalInMinutes", (v) => isValidNumber(v, 1, 60)],
-        // Seconds here; the block keeps milliseconds (5000-300000).
-        ["forceUpdateDelay", (v) => isValidNumber(v, 5, 300)],
-      ];
-      return checks.map(([id, check]) => {
-        const input = $(`#${id}`);
-        const ok = check(input.value);
-        input.classList.toggle("invalid", !ok);
-        return ok;
-      }).every(Boolean);
-    },
-
-    changed() {
-      const dirty = this.dirty();
-      $("#btn-settings-save").disabled = !dirty;
-      $("#btn-settings-discard").disabled = !dirty;
-      if (dirty) this.status("dirty", t("Unsaved changes"));
-      else if ($("#settings-status").className !== "ok") this.status("muted", t("Saving applies at once: the plugin reloads with the new settings."));
-    },
-
-    status(kind, text) {
-      const line = $("#settings-status");
-      line.className = kind;
-      line.textContent = text;
-    },
-
-    async save(button) {
-      if (!this.valid()) { this.status("error", t("Check the highlighted fields.")); return; }
-      const draft = this.draft;
-      const changes = {
-        updateIntervalInMinutes: parseInt(draft.updateIntervalInMinutes, 10) || 15,
-        forceUpdateDelay: (parseInt(draft.forceUpdateDelay, 10) || 60) * 1000,
-        oidcCallbackServerBindAddr: draft.oidcCallbackServerBindAddr.trim() || "0.0.0.0",
-        excludedDevicesByDeviceId: draft.excludedDevicesByDeviceId,
-        enableWebSocket: draft.enableWebSocket,
-        httpTransport: draft.httpTransport === "curl" ? "curl" : "node",
-      };
-      for (const key of [...FEATURE_KEYS, ...STANDALONE_KEYS]) changes[key] = draft[key];
-      await act(button, async () => {
-        this.status("muted", t("Saving…"));
-        const result = await saveBlock(changes);
-        this.saved = JSON.stringify(this.draft);
-        const pending = result.restartNeeded || [];
-        this.status("ok", pending.length ? t("Saved. Restart Homeswift to apply the rest ({changes}).", { changes: pending.join("; ") }) : t("Saved. The plugin reloaded with the new settings."));
-        this.changed();
-        devices.load();
-        setTimeout(() => auth.load(), 1500);
-      }, (message) => this.status("error", t("Failed: {error}", { error: message })));
-    },
-  };
-  for (const [id, key] of [["updateIntervalInMinutes", "updateIntervalInMinutes"], ["forceUpdateDelay", "forceUpdateDelay"], ["oidcCallbackServerBindAddr", "oidcCallbackServerBindAddr"]]) {
-    $(`#${id}`).addEventListener("input", (event) => { if (settings.draft) { settings.draft[key] = event.currentTarget.value; settings.valid(); settings.changed(); } });
-  }
-  $("#httpTransport").addEventListener("change", (event) => { settings.draft.httpTransport = event.currentTarget.value; settings.changed(); });
-  $("#enableWebSocket").addEventListener("change", (event) => { settings.draft.enableWebSocket = event.currentTarget.checked; settings.changed(); });
-  $("#btn-settings-save").addEventListener("click", (event) => settings.save(event.currentTarget));
-  $("#btn-settings-discard").addEventListener("click", () => { settings.draft = JSON.parse(settings.saved); settings.render(); });
-  $("#subtabs").addEventListener("click", (event) => {
-    const subtab = event.target.closest("button")?.dataset.subtab;
-    if (!subtab) return;
-    for (const button of $("#subtabs").querySelectorAll("button")) {
-      button.classList.toggle("on", button.dataset.subtab === subtab);
-      button.setAttribute("aria-selected", String(button.dataset.subtab === subtab));
-    }
-    for (const pane of document.querySelectorAll(".subtab")) pane.classList.toggle("hidden", pane.id !== `subtab-${subtab}`);
-  });
-  window.addEventListener("beforeunload", (event) => { if (settings.dirty()) { event.preventDefault(); event.returnValue = ""; } });
 
   // MARK: Help: the quota the plugin recorded on its last call (no API call).
 
@@ -501,15 +305,6 @@
   // MARK: Start
 
   (async () => {
-    try {
-      await readBlock();
-      if (block?.authMode) authMode.current = block.authMode === "mobile_app" ? "mobile_app" : "developer_portal";
-      settings.populate(block);
-      settings.loaded = true;
-    } catch (e) {
-      $("#session-line").classList.remove("hidden");
-      $("#session-line").textContent = e.message;
-    }
     authMode.render();
     // The token renews itself; the page follows.
     poll(() => auth.load(), 60000);

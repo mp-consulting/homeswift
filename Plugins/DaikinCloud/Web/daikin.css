@@ -1,5 +1,5 @@
 /* The Daikin Cloud page's own pieces, on the UI's materials: tabs like the Homebridge plugin's settings page,
-   a card per unit with its state as facts, the settings with a save bar, and the sign-in's state. */
+   a card per unit with its state as facts, and the sign-in's state. */
 
 .page-head { align-items: center; }
 .tile.daikin { background: linear-gradient(160deg, #3fb6f0, #007dbb); }
@@ -17,25 +17,6 @@
 .power { font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.04em; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
 .power.on { color: var(--ok); border-color: rgba(31, 157, 85, 0.4); }
 #session-line { margin: -4px 0 12px; }
-
-/* Settings */
-.settings-card { display: grid; gap: 14px; }
-.subtabs { justify-self: start; }
-.subtab { min-height: 120px; animation: fade var(--normal) var(--ease-out); }
-.subtab > .note { margin-bottom: 4px; }
-.row-toggle { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
-.row-toggle:last-child { border-bottom: 0; }
-@media (hover: hover) and (pointer: fine) { .row-toggle:hover .field-title { color: var(--accent); } }
-.row-toggle .field-title { margin: 0 0 2px; }
-.row-toggle .help { display: block; }
-.row-toggle .side { display: inline-flex; align-items: center; gap: 10px; flex: none; }
-.row-toggle .state { font-size: 0.8125rem; min-width: 52px; text-align: right; }
-.row-toggle .state.off { color: var(--muted); }
-.row-toggle .who { min-width: 0; }
-.row-toggle .mono { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
-input:invalid, input.invalid { border-color: var(--error) !important; }
-.save-bar > .dirty { flex: 1; font-size: 0.8125rem; color: var(--warn); font-weight: 500; }
-.save-bar > .ok, .save-bar > .error { flex: 1; font-size: 0.8125rem; }
 
 /* Authentication */
 .actions { flex-wrap: wrap; }

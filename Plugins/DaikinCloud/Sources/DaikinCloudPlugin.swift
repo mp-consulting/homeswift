@@ -11,9 +11,10 @@ import NIOPosix
 /// tank, and optional switches for Powerful, Econo, Streamer, silent modes, Auto fan, Oscillation, Dry, Fan
 /// only, Holiday and firmware updates, with a separate Fan tile on request.
 ///
-/// The configuration is the one of `@mp-consulting/homebridge-daikin-cloud`. Logging in happens on the
-/// plugin's page in the web UI: the Developer Portal's OAuth flow (with its HTTPS callback server) or the
-/// Onecta app's email and password. See README.md.
+/// A block of `@mp-consulting/homebridge-daikin-cloud` loads; what the bridge writes is the canonical shape
+/// (DaikinSettings.swift): the account's credentials in the vault, each device's settings in `_accessories`. Signing in
+/// is Setup's (DaikinSetup.swift): the Developer Portal's OAuth flow (with its HTTPS callback server) or the Onecta app's
+/// email and password. See README.md.
 public actor DaikinCloudPlugin: HomeswiftPlugin {
     public static let platform = "DaikinCloud"
     public static let icon: String? = "thermo"
@@ -75,7 +76,8 @@ public actor DaikinCloudPlugin: HomeswiftPlugin {
 
     init(configuration: Configuration, context: PluginContext, dependencies: Dependencies) {
         self.configuration = configuration
-        settings = DaikinSettings(configuration)
+        // The credentials Setup kept in the vault win over the block's own (a Homebridge block's).
+        settings = DaikinSettings(configuration, credentials: context.credentials(), accessorySettings: context.allAccessorySettings)
         self.context = context
         self.dependencies = dependencies
         http = DaikinHTTP(transport: dependencies.transport(DaikinHTTP.transport(for: settings.httpTransport)))
@@ -94,26 +96,26 @@ public actor DaikinCloudPlugin: HomeswiftPlugin {
         if DaikinHTTP.transport(for: settings.httpTransport) == .curl {
             logger.info("[Config] HTTP transport: curl subprocess (WAF fingerprint workaround). Note: WebSocket connections still use the built-in TLS — disable WebSocket if it cannot connect.")
         }
-        let validation = DaikinSettings.validate(configuration.raw)
+        let validation = DaikinSettings.validate(settings.raw)
         for warning in validation.warnings { logger.warning("[Config] \(warning)") }
         if settings.authMode == .mobileApp {
             guard settings.mobileCredentials != nil else {
                 logger.warning("[Config] Daikin email and/or password not configured.")
                 logger.warning("[Config] Mobile App mode expects the config keys \"daikinEmail\" and \"daikinPassword\".")
-                logger.warning("[Config] Please configure the plugin on its page in the Homeswift UI.")
+                logger.warning("[Config] Please sign in on Add accessories in the Homeswift UI.")
                 logger.info("--------------- End Daikin info for debugging reasons --------------------")
                 return
             }
         } else if !settings.hasDeveloperCredentials {
             logger.warning("[Config] Client ID and/or Client Secret not configured.")
-            logger.warning("[Config] Please configure the plugin on its page in the Homeswift UI.")
+            logger.warning("[Config] Please sign in on Add accessories in the Homeswift UI.")
             logger.info("--------------- End Daikin info for debugging reasons --------------------")
             return
         }
         // With credentials, the remaining errors (a localhost callback address, a bad port) do not stop the
         // plugin, but must be seen.
         for error in validation.errors { logger.error("[Config] \(error)") }
-        logger.debug("[Config] Homeswift config \(DaikinSettings.redacted(configuration.raw, excluded: settings.excludedDeviceIDs).text())")
+        logger.debug("[Config] Homeswift config \(DaikinSettings.redacted(settings.raw, excluded: settings.excludedDeviceIDs).text())")
         if TokenFile.load(tokenFile(settings.authMode)) != nil {
             logger.debug("[Config] Token set exists in the vault.")
         } else {

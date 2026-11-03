@@ -10,7 +10,7 @@ import HomeswiftPlugin
 /// | `GET auth/status` | The token of either login: authenticated, expiry, refreshable |
 /// | `POST auth/revoke` | Revokes and deletes the tokens |
 /// | `POST auth/test` | Lists the devices with the saved token |
-/// | `GET devices/list?mode=&refresh=` | The devices, reused for five minutes (or the instance's own) |
+/// | `GET devices/list?mode=&refresh=` | The devices, reused for five minutes (or the instance's own), with their Device Kind and whether each is Excluded |
 /// | `GET rate-limit` | The quota the plugin recorded on its last call (no API call) |
 extension DaikinCloudPlugin {
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
@@ -88,7 +88,7 @@ extension DaikinCloudPlugin {
         if NetworkInfo.isLoopback(bindAddress), !NetworkInfo.isLoopback(address) {
             // The browser goes to the external address, which can never reach a loopback-only server.
             throw DaikinError("The callback server bind address is \(bindAddress) (this machine only), but the callback address is \(address), "
-                + "so Daikin's redirect could never reach it. Set \"Callback Server Bind Address\" to 0.0.0.0 (or this host's LAN IP) in Settings > Network, "
+                + "so Daikin's redirect could never reach it. Set \"Callback Server Bind Address\" to 0.0.0.0 (or this host's LAN IP) in the plugin's Settings, "
                 + "then start authentication again.")
         }
         let port = try Self.callbackPort(body["callbackServerPort"])
@@ -336,7 +336,19 @@ extension DaikinCloudPlugin {
 
     // MARK: Devices
 
+    /// The devices, each with whether it is Excluded (`excluded`), for the page and Setup.
     func listDevices(mode requested: AuthMode?, refresh: Bool) async -> JSONValue {
+        let answer = await fetchDevices(mode: requested, refresh: refresh)
+        guard var fields = answer.objectValue, let devices = fields["devices"]?.arrayValue else { return answer }
+        fields["devices"] = .array(devices.map { device in
+            guard var entry = device.objectValue, let id = entry["id"]?.stringValue else { return device }
+            entry["excluded"] = .bool(settings.isExcluded(id))
+            return .object(entry)
+        })
+        return .object(fields)
+    }
+
+    private func fetchDevices(mode requested: AuthMode?, refresh: Bool) async -> JSONValue {
         let (tokens, mode) = token(for: requested)
         guard let tokens, !tokens.access_token.isEmpty else {
             return ["success": false, "devices": [], "message": "Not authenticated. Please authenticate first."]
@@ -409,7 +421,7 @@ extension DaikinCloudPlugin {
             "id": device["id"] ?? .null,
             "name": .string(nonEmpty(climate?["name"]?["value"]) ?? nonEmpty(device["id"]) ?? "Unknown Device"),
             "model": .string(nonEmpty(gateway?["modelInfo"]?["value"]) ?? nonEmpty(device["deviceModel"]) ?? "Unknown Model"),
-            "type": .string(type),
+            "type": .string(type), "kind": .string(kind(ofDevice: device)),
             "online": .bool(device["isCloudConnectionUp"]?["value"]?.boolValue ?? false),
             "features": .array(features),
             "roomTemp": temperature("roomTemperature"),
