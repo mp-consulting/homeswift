@@ -3,14 +3,16 @@ import Homeswift
 import HomeswiftNetwork
 import HomeswiftPlugin
 
-// Setup (GLOSSARY.md, "Setup"): each controller is a device whose Device Id is its MAC (`AABBCCDDEEFF`, the id
-// feature options give it), authorized with an Account Login: a local account of the console. The instance has no
-// account of its own: one block runs several controllers, each with its own login, and the Homebridge plugin already
-// treats a controller as a device (`Disable.Device.<controller MAC>` turns it off). The login goes in the vault under
-// the controller's MAC and its address in its Accessory Settings, as Philips Ambilight's TVs; the block's `controllers`
-// still work as they were, their passwords sealed in config.json. The hubs and readers come with their controller and
-// need nothing more; `Disable.Device.<id>` is their exclusion of the block's own, and an Excluded device is one more
-// `Disable.Device.<id>` before the block's options (docs/adr/0001-canonical-accessory-settings.md).
+// Setup (GLOSSARY.md, "Setup"): each controller is a device of the Device Kind `controller` whose Device Id is its MAC
+// (`AABBCCDDEEFF`, the id feature options give it), authorized with an Account Login: a local account of the console.
+// The instance has no account of its own: one block runs several controllers, each with its own login, and the
+// Homebridge plugin already treats a controller as a device (`Disable.Device.<controller MAC>` turns it off). The login
+// goes in the vault under the controller's MAC and its address, MQTT and TLS settings in its Accessory Settings, as
+// Philips Ambilight's TVs; the block's `controllers` of a Homebridge block still work as they were, and
+// `canonicalSettings` moves a running one there (AccessCanonicalSettings.swift). The hubs (`hub`) and readers (`reader`)
+// come with their controller and need nothing more; an Excluded device is one more `Disable.Device.<id>` before the
+// block's options, and `Disable.Device.<id>` in a Homebridge block their exclusion of the block's own
+// (docs/adr/0001-canonical-accessory-settings.md).
 extension UniFiAccessPlugin {
     /// A controller's local account, kept in the vault under its MAC.
     struct ControllerLogin: Codable, Sendable, Equatable {
@@ -101,7 +103,7 @@ extension UniFiAccessPlugin {
             let deviceID = console.mac.isEmpty ? "address:\(console.ip)" : AccessSettings.normalizeMac(console.mac)
             guard !known.contains(deviceID) else { continue }
             found.append(DiscoveredDevice(deviceID: deviceID, name: console.name.isEmpty ? console.ip : console.name, model: console.modelLong.isEmpty ? nil : console.modelLong,
-                                          address: console.ip, authorization: .accountLogin))
+                                          address: console.ip, authorization: .accountLogin, kind: Self.controllerKind))
         }
         return found
     }
@@ -115,7 +117,7 @@ extension UniFiAccessPlugin {
 
     private func controllerDevice(mac: String?, name: String, address: String, isSetUp: Bool) -> DiscoveredDevice {
         DiscoveredDevice(deviceID: mac ?? setUpDeviceID(address: address) ?? "address:\(address)", name: name, model: "UniFi Access", address: address, authorization: .accountLogin,
-                         isSetUp: isSetUp, excludedBySettings: mac.map { !configuredOptions.test("Device", device: $0, controller: $0) } ?? false)
+                         isSetUp: isSetUp, excludedBySettings: mac.map { !configuredOptions.test("Device", device: $0, controller: $0) } ?? false, kind: Self.controllerKind)
     }
 
     /// A hub or a reader of a controller; nil for what the plugin does not support.
@@ -123,7 +125,7 @@ extension UniFiAccessPlugin {
         guard device.isManaged, device.isSupported, !device.mac.isEmpty else { return nil }
         let id = device.identifier.uppercased()
         return DiscoveredDevice(deviceID: id, name: device.resolvedName, model: device.displayModel, isSetUp: isSetUp,
-                                excludedBySettings: !configuredOptions.test("Device", device: device.identifier, controller: controller))
+                                excludedBySettings: !configuredOptions.test("Device", device: device.identifier, controller: controller), kind: Self.kind(of: device))
     }
 
     /// A controller: the user name and password of a local account of its console, checked with a login and a bootstrap
