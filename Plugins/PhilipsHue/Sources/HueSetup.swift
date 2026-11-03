@@ -30,7 +30,7 @@ extension PhilipsHuePlugin {
             let room = rooms[scene.groupID] ?? ""
             return DiscoveredDevice(
                 deviceID: scene.id, name: room.isEmpty ? scene.name : "\(room) · \(scene.name)", model: scene.smart ? "Smart scene" : "Scene", isSetUp: true,
-                excludedBySettings: isListed(scene, room: room), kind: "scene")
+                excludedBySettings: configuration.scenes == false || isListed(scene, room: room), kind: "scene")
         }
         return lights + sensors + scenes
     }
