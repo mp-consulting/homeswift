@@ -61,7 +61,10 @@ extension DirigeraPlugin {
                 await self?.reloadStored()
             }
         }
-        let known = hubs.mapValues { (devices: Array($0.devices.values), scenes: $0.scenes) }
+        // A name moves once every hub has been read: one not read yet may have a device or a scene of that name too.
+        let everyRead = (configuration.hubs ?? []).allSatisfy { hubs[$0.host.trimmingCharacters(in: .whitespaces)] != nil }
+            && hubs.values.allSatisfy { !$0.devices.isEmpty }
+        let known = everyRead ? hubs.mapValues { (devices: Array($0.devices.values), scenes: $0.scenes) } : [:]
         let vaultHas = Set(stored.filter { $0.value.token != nil }.keys).union(moving.keys)
         return Self.canonical(block, hubs: known, vaultHas: vaultHas)
     }
