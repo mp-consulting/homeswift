@@ -8,23 +8,43 @@ import HomeswiftAI
 /// { "platform": "PhilipsHue", "_accessories": { "00:17:88:01:02:03:04:05-0b": { "excluded": true }, "abc": { "offset": 1.5 } } }
 /// ```
 ///
-/// `excluded` and `name` are the Core Accessory Settings; the other keys are the plugin's own (Plugin Accessory
-/// Settings), which it declares in its config.schema.json and reads with `decode`.
+/// `name`, `room`, `hidden`, `notInHome`, `excluded` and `parts` are the Core Accessory Settings
+/// (docs/adr/0003-room-and-visibility-in-accessory-settings.md); the other keys are the plugin's own (Plugin Accessory
+/// Settings), which it declares in its config.schema.json's `accessorySchema` and reads with `decode`. `name`, `room`,
+/// `hidden` and `notInHome` apply live: they never reach the plugin (`HomeswiftConfiguration.decode` takes them out of its
+/// block), so a plugin's context sees them unset.
+///
+/// A device's own accessory is keyed by its Device Id; another accessory of the device by its Accessory Id without the
+/// platform (`<deviceID>:<more>`), so each of them has its own Name, room, Hidden and Not in Home.
 public struct AccessorySettings: Sendable, Equatable {
     /// Excluded: the device is never made into an accessory.
     public var excluded: Bool
     /// The name the person gave it, in place of the device's own.
     public var name: String?
+    /// Its Room; empty for none, even when the controller it mirrors suggests one (`Accessory.suggestedRoom`).
+    public var room: String?
+    /// Hidden: published to HomeKit, but left off the web UI's wall.
+    public var hidden: Bool
+    /// Not in Home: on the bridge and the wall, but left out of Apple Home.
+    public var notInHome: Bool
     /// The parts a person included or left out (`DevicePart`), by the plugin's id: `{ "SideDoor": false }`.
     public var parts: [String: Bool]
     /// The plugin's own settings for it.
     public var plugin: [String: JSONValue]
 
-    public static let coreKeys: Set<String> = ["excluded", "name", "parts"]
+    public static let coreKeys: Set<String> = ["excluded", "name", "room", "hidden", "notInHome", "parts"]
+    /// The Core Accessory Settings that apply without reloading the plugin: they never reach it.
+    public static let liveKeys: Set<String> = ["name", "room", "hidden", "notInHome"]
 
-    public init(excluded: Bool = false, name: String? = nil, parts: [String: Bool] = [:], plugin: [String: JSONValue] = [:]) {
+    public init(
+        excluded: Bool = false, name: String? = nil, parts: [String: Bool] = [:], plugin: [String: JSONValue] = [:],
+        room: String? = nil, hidden: Bool = false, notInHome: Bool = false
+    ) {
         self.excluded = excluded
         self.name = name
+        self.room = room
+        self.hidden = hidden
+        self.notInHome = notInHome
         self.parts = parts
         self.plugin = plugin
     }
@@ -33,6 +53,9 @@ public struct AccessorySettings: Sendable, Equatable {
         let fields = json.objectValue ?? [:]
         excluded = fields["excluded"]?.boolValue ?? false
         name = fields["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        room = fields["room"]?.stringValue
+        hidden = fields["hidden"]?.boolValue ?? false
+        notInHome = fields["notInHome"]?.boolValue ?? false
         parts = (fields["parts"]?.objectValue ?? [:]).compactMapValues(\.boolValue)
         plugin = fields.filter { !Self.coreKeys.contains($0.key) }
     }
@@ -41,6 +64,9 @@ public struct AccessorySettings: Sendable, Equatable {
         var fields = plugin
         if excluded { fields["excluded"] = true }
         if let name { fields["name"] = .string(name) }
+        if let room { fields["room"] = .string(room) }
+        if hidden { fields["hidden"] = true }
+        if notInHome { fields["notInHome"] = true }
         if !parts.isEmpty { fields["parts"] = .object(parts.mapValues(JSONValue.bool)) }
         return .object(fields)
     }

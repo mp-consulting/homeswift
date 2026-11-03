@@ -160,6 +160,20 @@ public protocol HomeswiftPlugin: Sendable {
     /// `.` (eWeLink's channels, `<deviceID>SW<n>`), so Excluded reaches it. Defaults to nil: those two forms only.
     static func deviceID(ofAccessory suffix: String) -> String?
 
+    /// The Device Kind of one of its devices (GLOSSARY.md, "Device Kind": `camera`, `sensor`), which decides the Plugin
+    /// Accessory Settings the settings editor shows for it (`x-kinds` in its schema's `accessorySchema`). Asked of the
+    /// running instance; answer from what it already knows. Defaults to nil: the kind its last discovery gave
+    /// (`DiscoveredDevice.kind`), else every field.
+    func deviceKind(of deviceID: String) async -> String?
+
+    /// The block in its canonical shape (docs/adr/0001-canonical-accessory-settings.md): the plugin's Homebridge shapes
+    /// (a `devices` list, exclude lists by name or id, typed arrays, feature-option strings) turned into Accessory Settings
+    /// in `_accessories` by Device Id and declared Plugin Settings, the legacy keys dropped. The bridge asks the running
+    /// instance just before each settings write to the block (`update_settings`, Setup, Exclude and Include), and writes
+    /// what it answers; it may use what the plugin knows now (its devices' names, to read a list of names). What it cannot
+    /// read it leaves as it is. Defaults to the block unchanged.
+    func canonicalSettings(_ block: JSONValue) async -> JSONValue
+
     /// The automations the plugin's hub keeps (`PluginAutomation`), such as Apple Home's through Wingman. Defaults to
     /// none.
     func automations() async -> [PluginAutomation]
@@ -187,6 +201,8 @@ extension HomeswiftPlugin {
     public func authorize(_ request: SetupRequest) async throws -> SetupStep { .done(SetupOutcome()) }
     public func accountAuthorized() async -> Bool? { nil }
     public static func deviceID(ofAccessory suffix: String) -> String? { nil }
+    public func deviceKind(of deviceID: String) async -> String? { nil }
+    public func canonicalSettings(_ block: JSONValue) async -> JSONValue { block }
 }
 
 /// One route of a plugin's `handleWebRequest` that the Assistant may call, as the tool

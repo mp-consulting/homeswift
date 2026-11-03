@@ -17,10 +17,13 @@ import Homeswift
 /// `bridge.username` is the HAP device ID and `bridge.pin` the setup code; both are optional here (Homeswift
 /// generates and keeps them). A block with `_bridge` runs as a child bridge: its own HAP server, identity
 /// and pairing. A block with `"_paused": true` keeps its accessories in HomeKit, showing No Response, while its
-/// plugin does not run, so nothing reaches the devices or their cloud. `_hiddenFromHomeKit` lists accessory ids the
-/// bridge keeps out of HomeKit (the web UI, the MCP server and Matter still have them). `_accessories` holds Accessory
-/// Settings by Device Id; its `name`s rename accessories, in HomeKit too (`AccessoryNaming`). `accessories` blocks
-/// (Homebridge's accessory plugins) are not supported.
+/// plugin does not run, so nothing reaches the devices or their cloud. `_accessories` holds Accessory Settings by Device
+/// Id (`AccessorySettings`): its `name`s rename accessories, in HomeKit too (`AccessoryNaming`), `room` and `hidden` place
+/// them on the web UI's wall, and `notInHome` keeps them out of HomeKit (the web UI, the MCP server and Matter still have
+/// them); those four apply without reloading the plugin. `_hiddenFromHomeKit`, a list of accessory ids, is the older
+/// form of `notInHome`: read, and moved into `_accessories` by the next write of the block's settings.
+/// `bridge.roomSync` is Room Sync (GLOSSARY.md), which needs no restart. `accessories` blocks (Homebridge's accessory
+/// plugins) are not supported.
 public struct HomeswiftConfiguration: Sendable {
     public struct Bridge: Codable, Sendable, Equatable {
         public var name: String
@@ -103,14 +106,19 @@ public struct HomeswiftConfiguration: Sendable {
         public var childBridge: ChildBridge?
         /// `_paused`: the plugin does not run; its accessories stay, unavailable.
         public var paused: Bool
-        /// `_hiddenFromHomeKit`: the ids of its accessories kept out of HomeKit (`HAPServer.setHiddenFromHomeKit`);
-        /// they stay in the web UI, the MCP server and Matter. Not in `json`: changing it does not reload the plugin.
+        /// The ids of its accessories kept out of HomeKit (`HAPServer.setHiddenFromHomeKit`): Not in Home in
+        /// `_accessories` (`<platform>:<key>`), and the legacy `_hiddenFromHomeKit` list. They stay in the web UI, the MCP
+        /// server and Matter. Not in `json`: changing it does not reload the plugin.
         public var hiddenFromHomeKit: [String] = []
         /// The names given in `_accessories`, by Device Id (`AccessoryNaming`): the runtime renames the accessories, in
         /// HomeKit too. Not in `json`: a rename does not reload the plugin.
         public var accessoryNames: [String: String] = [:]
-        /// `_accessories`: Accessory Settings by Device Id (`AccessorySettings`), their names left to `accessoryNames`. In
-        /// `json` too: a change reloads the plugin.
+        /// The rooms given in `_accessories`, by key; empty for an accessory put in no room. Not in `json`.
+        public var accessoryRooms: [String: String] = [:]
+        /// The keys of `_accessories` that are Hidden: off the web UI's wall. Not in `json`.
+        public var hiddenOnWall: Set<String> = []
+        /// `_accessories`: Accessory Settings by Device Id (`AccessorySettings`), without the live ones (`liveKeys`), which
+        /// are the properties above. In `json` too: a change reloads the plugin.
         public var accessorySettings: [String: AccessorySettings] = [:]
         /// The whole block as JSON, what the plugin's `Configuration` is decoded from.
         public var json: Data
@@ -142,6 +150,9 @@ public struct HomeswiftConfiguration: Sendable {
     public var disabledPlugins: [String]
     /// How many `accessories` blocks the file has. They are not supported; the runtime warns.
     public var accessoryBlockCount: Int
+    /// `bridge.roomSync`, Room Sync (GLOSSARY.md); nil when the bridge block does not say. Not part of `bridge`: changing
+    /// it needs no restart.
+    public var roomSync: Bool?
 
     public init(bridge: Bridge = Bridge(), platforms: [Platform] = [], disabledPlugins: [String] = []) {
         self.bridge = bridge
@@ -187,6 +198,10 @@ public struct HomeswiftConfiguration: Sendable {
         if let bridge = root["bridge"] {
             guard bridge is [String: Any] else { throw ConfigurationError.invalidValue(key: "bridge", expected: "an object") }
             configuration.bridge = try decoder.decode(Bridge.self, from: JSONSerialization.data(withJSONObject: bridge))
+            if let sync = (bridge as? [String: Any])?["roomSync"] {
+                guard let on = sync as? Bool else { throw ConfigurationError.invalidValue(key: "bridge.roomSync", expected: "true or false") }
+                configuration.roomSync = on
+            }
         }
         if let platforms = root["platforms"] {
             guard let blocks = platforms as? [Any] else { throw ConfigurationError.invalidValue(key: "platforms", expected: "an array") }
@@ -214,21 +229,32 @@ public struct HomeswiftConfiguration: Sendable {
                     hidden = ids
                 }
                 var names: [String: String] = [:]
+                var rooms: [String: String] = [:]
+                var hiddenOnWall: Set<String> = []
                 var kept = block.filter { $0.key != "_hiddenFromHomeKit" }
                 if let settings = block["_accessories"] {
                     guard let byDevice = settings as? [String: Any], byDevice.values.allSatisfy({ $0 is [String: Any] }) else {
                         throw ConfigurationError.invalidValue(key: "platforms[\(index)]._accessories", expected: "an object of Accessory Settings by Device Id")
                     }
-                    // The names leave the plugin's JSON, so a rename does not reload it; the other settings are its own.
+                    // The live settings leave the plugin's JSON, so changing them does not reload it; the others are its own.
                     var others: [String: Any] = [:]
                     for case let (deviceID, fields as [String: Any]) in byDevice {
+                        let at = "platforms[\(index)]._accessories.\(deviceID)"
                         if let given = fields["name"] {
-                            guard let text = given as? String else {
-                                throw ConfigurationError.invalidValue(key: "platforms[\(index)]._accessories.\(deviceID).name", expected: "a name")
-                            }
+                            guard let text = given as? String else { throw ConfigurationError.invalidValue(key: "\(at).name", expected: "a name") }
                             if let name = AccessoryNaming.cleaned(text) { names[deviceID] = name }
                         }
-                        let rest = fields.filter { $0.key != "name" }
+                        if let given = fields["room"] {
+                            guard let text = given as? String else { throw ConfigurationError.invalidValue(key: "\(at).room", expected: "a room's name") }
+                            rooms[deviceID] = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                        }
+                        for key in ["hidden", "notInHome"] {
+                            guard let given = fields[key] else { continue }
+                            guard let flag = given as? Bool else { throw ConfigurationError.invalidValue(key: "\(at).\(key)", expected: "true or false") }
+                            if flag, key == "hidden" { hiddenOnWall.insert(deviceID) }
+                            if flag, key == "notInHome", !hidden.contains("\(platform):\(deviceID)") { hidden.append("\(platform):\(deviceID)") }
+                        }
+                        let rest = fields.filter { !AccessorySettings.liveKeys.contains($0.key) }
                         if !rest.isEmpty { others[deviceID] = rest }
                     }
                     kept["_accessories"] = others.isEmpty ? nil : others
@@ -237,6 +263,8 @@ public struct HomeswiftConfiguration: Sendable {
                 var entry = Platform(platform: platform, name: name, childBridge: childBridge, paused: block["_paused"] as? Bool == true, json: json)
                 entry.hiddenFromHomeKit = hidden
                 entry.accessoryNames = names
+                entry.accessoryRooms = rooms
+                entry.hiddenOnWall = hiddenOnWall
                 configuration.platforms.append(entry)
             }
         }

@@ -86,6 +86,20 @@ extension PluginHost {
         try await running.plugin.renameRoom(id: id, name: roomName)
     }
 
+    /// The Device Kind the running instance gives one of its devices (`HomeswiftPlugin.deviceKind(of:)`); nil when it
+    /// does not run or does not say.
+    public func deviceKind(platform: String, name: String, deviceID: String) async -> String? {
+        guard let running = runningPlugins().first(where: { $0.instance.context.platform == platform && $0.instance.context.name == name }) else { return nil }
+        return await running.plugin.deviceKind(of: deviceID)
+    }
+
+    /// The block in its canonical shape, as its running instance writes it (`HomeswiftPlugin.canonicalSettings`); the
+    /// block as it is when the instance does not run.
+    public func canonicalSettings(platform: String, name: String, block: JSONValue) async -> JSONValue {
+        guard let running = runningPlugins().first(where: { $0.instance.context.platform == platform && $0.instance.context.name == name }) else { return block }
+        return await running.plugin.canonicalSettings(block)
+    }
+
     /// What one instance did with an accessory moved in Homeswift.
     public struct HubMove: Sendable {
         public let instance: PlatformInstance
