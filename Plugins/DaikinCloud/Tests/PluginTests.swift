@@ -243,8 +243,12 @@ struct PluginTests {
         var block = try JSONValue(any: developerBlock).objectValue ?? [:]
         block["platform"] = "DaikinCloud"
         block["name"] = "Daikin Cloud"
-        let canonical = await first.canonicalSettings(platform: DaikinCloudPlugin.platform, name: "Daikin Cloud", block: .object(block))
+        // Nothing moves until the block is written (a dry run asks for it too); the block is answered as if it had.
+        let (canonical, whenWritten): (block: JSONValue, whenWritten: SettingsWrite.Effects) =
+            await first.canonicalSettings(platform: DaikinCloudPlugin.platform, name: "Daikin Cloud", block: .object(block))
         #expect(canonical["clientId"] == nil && canonical["clientSecret"] == nil && canonical["callbackServerExternalAddress"] == "127.0.0.1")
+        #expect(environment.context.credentials() == nil)
+        try await whenWritten.run()
         #expect(environment.context.credentials() == ["clientId": "client", "clientSecret": "secret"])
         await first.stop()
         let second = try await environment.start(developerBlock.filter { $0.key != "clientId" && $0.key != "clientSecret" })

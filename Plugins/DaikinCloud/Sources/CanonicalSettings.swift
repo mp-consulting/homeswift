@@ -32,8 +32,8 @@ extension DaikinCloudPlugin {
     }
 
     /// The block in its canonical shape: the credentials it holds (`daikinEmail`, `daikinPassword`, their aliases
-    /// `email` and `password`, `clientId`, `clientSecret`) moved into the vault, where the vault has none of its own, and
-    /// out of the block; `excludedDevicesByDeviceId` as Excluded devices; `showExtraFeatures` as each extra feature's switch
+    /// `email` and `password`, `clientId`, `clientSecret`) moved into the vault once the block is written, where the vault
+    /// has none of its own, and out of the block; `excludedDevicesByDeviceId` as Excluded devices; `showExtraFeatures` as each extra feature's switch
     /// it stood for, where the block sets none.
     public func canonicalSettings(_ block: JSONValue) async -> JSONValue {
         // The block may only name a credential (a `vault:` reference, a sealed copy): the running configuration has it
@@ -44,10 +44,12 @@ extension DaikinCloudPlugin {
             let aliases = [key] + (field == "email" || field == "password" ? [field] : [])
             if let value = aliases.lazy.compactMap({ DaikinSettings.nonEmpty(self.configuration.raw[$0]) }).first { moved[field] = .string(value) }
         }
+        // Moved once the block is written (`whenSettingsWritten`), the block answered as if the vault had them.
         if moved != held {
-            do { try context.saveCredentials(.object(moved)) } catch { logger.warning("[Config] Could not keep the Daikin credentials in the vault: \(message(of: error))") }
+            let context = context, credentials = JSONValue.object(moved)
+            await context.whenSettingsWritten { try context.saveCredentials(credentials) }
         }
-        let inVault = Set((context.credentials()?.objectValue ?? [:]).filter { DaikinSettings.nonEmpty($0.value) != nil }.keys)
+        let inVault = Set(moved.filter { DaikinSettings.nonEmpty($0.value) != nil }.keys)
         return Self.canonical(block, credentialsInVault: inVault)
     }
 
