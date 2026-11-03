@@ -60,6 +60,8 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
     public func start() async throws {
         var settings: [TVSettings] = []
         for (index, device) in configuredDevices().enumerated() {
+            // An Excluded TV is not run: a `devices` entry of it may still be there (keys the vault cannot read).
+            if let mac = device.mac.flatMap(MACAddress.canonical), context.isExcluded(mac) { continue }
             // An entry with no keys is a TV for Setup to pair (AmbilightSetup.swift), not one to run yet.
             guard Self.hasKeys(device) else {
                 logger.info("TV \(device.name.map { "\"\($0)\"" } ?? "#\(index + 1)") is not paired yet: set it up on Add accessories")
