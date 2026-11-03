@@ -5,7 +5,7 @@ extension PhilipsAmbilightTVPlugin {
     /// The platform block of `homebridge-philips-ambilight-tv`, key for key. Every option is optional at
     /// decoding time: a TV with something missing is skipped with a message, the others run.
     public struct Configuration: Decodable, Sendable {
-        public struct Device: Decodable, Sendable {
+        public struct Device: Codable, Sendable {
             public var name: String?
             public var mac: String?
             public var ip: String?
@@ -40,7 +40,7 @@ extension PhilipsAmbilightTVPlugin {
             public var sources: [SourceSetting]?
         }
 
-        public struct Input: Decodable, Sendable {
+        public struct Input: Codable, Sendable {
             public var name: String?
             /// `app`, `source` or `channel`.
             public var type: String?
@@ -49,19 +49,19 @@ extension PhilipsAmbilightTVPlugin {
             public var displayOrder: Int?
         }
 
-        public struct CustomApp: Decodable, Sendable {
+        public struct CustomApp: Codable, Sendable {
             public var name: String?
             public var packageName: String?
             public var className: String?
             public var action: String?
         }
 
-        public struct CustomButton: Decodable, Sendable {
+        public struct CustomButton: Codable, Sendable {
             public var name: String?
             public var key: String?
         }
 
-        public struct SourceSetting: Decodable, Sendable {
+        public struct SourceSetting: Codable, Sendable {
             public var id: String?
             public var order: Int?
             public var visible: Bool?
@@ -69,6 +69,8 @@ extension PhilipsAmbilightTVPlugin {
         }
 
         public var name: String?
+        /// TVs by address, to be paired by Setup; and a Homebridge block's TVs with their keys and options, read where
+        /// `_accessories` and the vault say nothing until `canonicalSettings` moves them (AmbilightSettings.swift).
         public var devices: [Device]?
     }
 }

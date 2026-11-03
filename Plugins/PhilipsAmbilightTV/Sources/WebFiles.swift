@@ -8,50 +8,18 @@ extension PhilipsAmbilightTVPlugin {
     public static let webFiles: [String: WebFile] = [
         "app.js": WebFile(contentType: "text/javascript; charset=utf-8", body: #"""
 // The Philips Ambilight TV page: the TVs the plugin instance knows, refreshed every two seconds while the
-// page is visible, with a remote, their inputs and an editor of their settings. A TV is found and paired on
-// Add accessories (Setup): the page leads there.
+// page is visible, with a remote and their inputs. A TV is found and paired on Add accessories (Setup): the page leads
+// there. It writes no settings (docs/adr/0002-schema-declares-every-setting.md): a TV's Settings… opens its own on the
+// plugin's Settings page, where it is also Excluded or Forgotten.
 (() => {
   "use strict";
-  const {
-    $, el, tile, request, platform, name: instance, explain, breadcrumb, api, act,
-    readBlock, updateBlock, setKey, poll, renderKeyed, canonicalMAC, isMAC, sameMAC, setupCard, setupAddress,
-  } = homeswift;
+  const { $, el, tile, request, platform, explain, breadcrumb, act, poll, renderKeyed, setupCard } = homeswift;
   const { t, tn } = HomeswiftI18n;
 
-  // MARK: A TV's entry: in the block's `devices` (the Homebridge plugin's list), or its Accessory Settings
-  // (`_accessories`, by its MAC) once Setup paired it. Both hold the same settings; a TV Setup paired keeps its MAC,
-  // which keys its keys in the vault.
+  // MARK: Where settings are edited: the plugin's Settings page, and each TV's there.
 
-  const accessoryKey = (block, mac) => Object.keys(block._accessories || {}).find((key) => sameMAC(key, mac));
-
-  /// The TV's entry, with `setUp` when it lives in its Accessory Settings; null when the block has neither.
-  async function findDevice(mac) {
-    const block = await readBlock();
-    const listed = (block.devices || []).find((device) => sameMAC(device.mac, mac));
-    if (listed) return { entry: listed, setUp: false };
-    const key = accessoryKey(block, mac);
-    if (!key) return null;
-    const { excluded, parts, ...settings } = block._accessories[key];
-    return { entry: { ...settings, mac: key }, setUp: true };
-  }
-
-  /// Changes the TV's entry: `change` edits it in place, or returns its replacement.
-  function updateDevice(mac, change) {
-    return updateBlock((block) => {
-      const devices = block.devices || [];
-      const index = devices.findIndex((device) => sameMAC(device.mac, mac));
-      if (index >= 0) {
-        devices[index] = change(devices[index]) ?? devices[index];
-        return;
-      }
-      const key = accessoryKey(block, mac);
-      if (!key) throw new Error(t("This TV is not in the configuration."));
-      const { excluded, parts, ...settings } = block._accessories[key];
-      const draft = { ...settings, mac: key };
-      const { mac: _, ...changed } = change(draft) ?? draft;
-      block._accessories[key] = { ...changed, ...(excluded ? { excluded } : {}), ...(parts ? { parts } : {}) };
-    });
-  }
+  const pluginSettings = `/plugins/${location.pathname.split("/")[2] || ""}/settings`;
+  const tvSettings = (mac) => `${pluginSettings}?accessory=${encodeURIComponent(`${platform}:${mac}`)}`;
 
   // MARK: Your TVs
 
@@ -102,10 +70,10 @@ extension PhilipsAmbilightTVPlugin {
         // The same menu as the Accessories page's cards, with what this page adds.
         HomeswiftCommon.menuButton(t("Actions for {name}", { name: tv.name }), () => [
           { label: t("Inputs"), icon: "inputs", onSelect: () => openSources(tv) },
-          { label: t("Edit"), icon: "edit", onSelect: () => openEditor(tv) },
+          // Its settings, Exclude and Forget: the accessory's Settings sheet on the plugin's Settings page.
+          { label: t("Settings…"), icon: "gear", href: tvSettings(tv.mac) },
           { label: t("Show its log"), icon: "logs", href: `/logs/${encodeURIComponent(`${platform}:${tv.mac}`)}` },
           window.HomeswiftChat?.available() ? { label: t("Ask the Assistant"), icon: HomeswiftCommon.sparkle(), onSelect: () => HomeswiftChat.ask(t("About my TV {name}: ", { name: tv.name })) } : null,
-          { label: t("Remove"), icon: "trash", danger: true, onSelect: () => removeTV(tv).catch((e) => HomeswiftCommon.showAlert(e.message)) },
         ])));
   }
 
@@ -142,494 +110,88 @@ extension PhilipsAmbilightTVPlugin {
     }
   }
 
-  // MARK: Inputs: the Homebridge plugin's sources editor. Shown inputs in the wheel's order, dragged to
-  // reorder (the row follows the pointer, the others make room) or moved with Alt+↑/↓; hidden inputs in a
-  // pool; names edited in place. Nothing is written until Save, since a save reloads the plugin.
+  // MARK: Inputs: the TV's inputs in the Home app's wheel order, shown ones first, with their IDs, for its Settings'
+  // `sources` (order, visibility, names) and `customApps`. Refresh from TV reads the TV's apps now; Detect from TV
+  // names the app on screen.
 
   const sourcesCard = $("#sources");
   const kindLabels = { tv: "TV", home: t("Home"), hdmi: "HDMI", channel: t("Channel"), app: t("App"), custom: t("Custom") };
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
-  let editing = null;   // { tv, sources: [{ id, name, kind, customName, visible }], saved: JSON }
+  let viewing = null;   // { tv, sources, note }
 
   async function openSources(tv) {
-    if (!(await closeEditor())) return;
-    editing = { tv, sources: [], saved: "" };
+    viewing = { tv, sources: [], note: null };
     breadcrumb(t("Inputs of {name}", { name: tv.name }), closeSources);
     sourcesCard.classList.remove("hidden");
     sourcesCard.replaceChildren(el("p", { class: "muted", text: t("Loading the inputs of {name}…", { name: tv.name }) }));
     sourcesCard.scrollIntoView({ behavior: reducedMotion.matches ? "auto" : "smooth", block: "start" });
     try {
       const { sources } = await request(`sources?mac=${encodeURIComponent(tv.mac)}`);
-      const all = sources.map((source) => ({ ...source, customName: source.customName ?? "" }));
-      editing.sources = [...all.filter((source) => source.visible), ...all.filter((source) => !source.visible)];
-      editing.saved = JSON.stringify(editing.sources);
+      viewing.sources = sources;
       renderSources();
     } catch (e) {
       sourcesCard.replaceChildren(el("p", { class: "error", text: e.message }));
     }
   }
 
-  /// Closes the inputs editor; false when the person keeps unsaved changes.
-  async function closeSources() {
-    if (editing && isDirty() && !await HomeswiftCommon.confirmDialog(t("Discard the changes to the inputs?"))) return false;
-    if (editing) breadcrumb(null);
-    editing = null;
+  function closeSources() {
+    if (viewing) breadcrumb(null);
+    viewing = null;
     sourcesCard.classList.add("hidden");
     sourcesCard.replaceChildren();
-    return true;
   }
 
-  const isDirty = () => editing && JSON.stringify(editing.sources) !== editing.saved;
-  const shownSources = () => editing.sources.filter((source) => source.visible);
-  const hiddenSources = () => editing.sources.filter((source) => !source.visible);
+  const sourceRow = (source) => el("li", { class: "source", "data-id": source.id },
+    el("span", { class: `kind ${source.kind}`, text: kindLabels[source.kind] ?? source.kind }),
+    el("span", { class: "source-name", text: source.customName || source.name }),
+    source.customName ? el("span", { class: "original muted", text: source.name, title: t("The name the TV gives it") }) : null,
+    el("span", { class: "source-id muted mono", text: source.id }));
 
   function renderSources() {
-    const shown = shownSources();
-    const hidden = hiddenSources();
-    const shownList = el("ol", { class: "sources", "aria-label": t("Shown inputs, in order") }, shown.map((source) => sourceRow(source, true)));
-    const hiddenList = el("ul", { class: "sources pool", "aria-label": t("Hidden inputs") }, hidden.map((source) => sourceRow(source, false)));
-    const dirty = isDirty();
+    const shown = viewing.sources.filter((source) => source.visible);
+    const hidden = viewing.sources.filter((source) => !source.visible);
+    const detected = el("p", { class: "status-line muted" });
     sourcesCard.replaceChildren(
       el("div", { class: "panel-head" },
-        el("div", {}, el("h2", { text: t("Inputs of {name}", { name: editing.tv.name }) }),
-          el("p", { class: "muted", text: editing.note ?? t("The order of the input wheel in the Home app. Drag a row by its handle, or press Alt and an arrow key. Click a name to rename it.") })),
+        el("div", {}, el("h2", { text: t("Inputs of {name}", { name: viewing.tv.name }) }),
+          el("p", { class: "muted", text: viewing.note ?? t("The order of the input wheel in the Home app. Its order, the inputs shown and their names are the TV's Settings (Source Configuration), by these IDs.") })),
         el("div", { class: "head-actions" },
+          el("a", { class: "button", actionIcon: "gear", href: tvSettings(viewing.tv.mac), text: t("Settings…") }),
           el("button", { actionIcon: "restore", class: "link", text: t("Refresh from TV"), title: t("Read the TV's apps again"), onclick: (event) => act(event.currentTarget, refreshSources) }),
           el("button", { actionIcon: "close", class: "link", text: t("Close"), onclick: closeSources }))),
       el("div", { class: "panel-columns" },
-        el("section", {}, el("div", { class: "column-head" }, el("span", { class: "pill status on", text: t("Shown · {n}", { n: shown.length }) }), el("span", { class: "muted", text: t("drag to reorder") })),
-          shown.length ? shownList : el("p", { class: "muted empty-list", text: t("No input is shown.") })),
-        el("section", {}, el("div", { class: "column-head" }, el("span", { class: "pill status standby", text: t("Hidden · {n}", { n: hidden.length }) }), el("span", { class: "muted", text: t("+ shows an input") })),
-          hidden.length ? hiddenList : el("p", { class: "muted empty-list", text: t("Every input is shown.") }))),
-      el("div", { class: `save-bar ${dirty ? "dirty" : ""}` },
-        el("span", { class: "muted", text: dirty ? t("Unsaved changes") : t("Saved. The Home app shows this order.") }),
-        el("button", { actionIcon: "restore", class: "link", text: t("Reset to the TV's order"), onclick: (event) => act(event.currentTarget, resetSources) }),
-        el("button", { actionIcon: "close", text: t("Discard"), disabled: !dirty, onclick: () => { editing.sources = JSON.parse(editing.saved); renderSources(); } }),
-        el("button", { actionIcon: "check", class: "primary", text: t("Save"), disabled: !dirty, onclick: (event) => act(event.currentTarget, saveSources) })));
-    if (shown.length) enableSorting(shownList);
+        el("section", {}, el("div", { class: "column-head" }, el("span", { class: "pill status on", text: t("Shown · {n}", { n: shown.length }) })),
+          shown.length ? el("ol", { class: "sources", "aria-label": t("Shown inputs, in order") }, shown.map(sourceRow)) : el("p", { class: "muted empty-list", text: t("No input is shown.") })),
+        el("section", {}, el("div", { class: "column-head" }, el("span", { class: "pill status standby", text: t("Hidden · {n}", { n: hidden.length }) })),
+          hidden.length ? el("ul", { class: "sources pool", "aria-label": t("Hidden inputs") }, hidden.map(sourceRow)) : el("p", { class: "muted empty-list", text: t("Every input is shown.") }))),
+      el("div", { class: "detect" },
+        el("p", { class: "help", text: t("An app the TV does not list goes in the TV's Settings (Custom Apps): open it on the TV, then Detect from TV gives its package name and launch activity.") }),
+        el("button", { actionIcon: "search", text: t("Detect from TV"), onclick: (event) => act(event.currentTarget, async () => {
+          detected.className = "status-line muted";
+          detected.textContent = t("Asking the TV which app is open…");
+          const { app } = await request(`current-app?mac=${encodeURIComponent(viewing.tv.mac)}`);
+          detected.className = "status-line ok";
+          detected.replaceChildren(t("Found {name}.", { name: app.name ?? app.packageName }), " ",
+            el("span", { class: "mono", text: [app.packageName, app.className].filter(Boolean).join(" / ") }));
+        }, (text) => { detected.className = "status-line error"; detected.replaceChildren(text); }) }),
+        detected));
   }
 
-  function sourceRow(source, shown) {
-    const name = el("input", {
-      class: "source-name", value: source.customName || source.name, placeholder: source.name, maxLength: 64,
-      "aria-label": t("Name of {name}", { name: source.name }), spellcheck: false,
-    });
-    name.addEventListener("change", () => {
-      const typed = name.value.trim();
-      source.customName = typed && typed !== source.name ? typed : "";
-      name.value = source.customName || source.name;
-      renderSources();
-    });
-    name.addEventListener("keydown", (event) => { if (event.key === "Enter") name.blur(); });
-    const toggle = el("button", {
-      class: "icon-button", text: shown ? "×" : "+", title: shown ? t("Hide") : t("Show"),
-      "aria-label": shown ? t("Hide {name}", { name: source.customName || source.name }) : t("Show {name}", { name: source.customName || source.name }),
-      onclick: () => {
-        source.visible = !shown;
-        // A shown input joins the end of the wheel; a hidden one goes to the end of the pool.
-        editing.sources = editing.sources.filter((s) => s !== source);
-        editing.sources.push(source);
-        editing.sources = [...shownSources(), ...hiddenSources()];
-        renderSources();
-      },
-    });
-    const row = el("li", { class: "source", "data-id": source.id, tabIndex: shown ? 0 : -1 },
-      shown ? handle() : null,
-      el("span", { class: `kind ${source.kind}`, text: kindLabels[source.kind] ?? source.kind }),
-      name,
-      source.customName ? el("span", { class: "original muted", text: source.name, title: t("The name the TV gives it") }) : null,
-      toggle);
-    if (shown) {
-      row.setAttribute("aria-label", t("{name}. Press Alt and an arrow key to move it.", { name: source.customName || source.name }));
-      row.addEventListener("keydown", (event) => {
-        if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown") || event.target !== row) return;
-        event.preventDefault();
-        const list = shownSources();
-        const from = list.indexOf(source);
-        const to = from + (event.key === "ArrowUp" ? -1 : 1);
-        if (to < 0 || to >= list.length) return;
-        moveShown(from, to);
-        renderSources();
-        sourcesCard.querySelector(`.source[data-id="${CSS.escape(source.id)}"]`)?.focus();
-      });
-    }
-    return row;
-  }
-
-  /// Six dots in two columns, the usual grip.
-  function handle() {
-    const grip = el("span", { class: "handle", "aria-hidden": "true", title: t("Drag to reorder") });
-    grip.innerHTML = '<svg viewBox="0 0 10 16"><circle cx="2.5" cy="3" r="1.4"/><circle cx="7.5" cy="3" r="1.4"/><circle cx="2.5" cy="8" r="1.4"/><circle cx="7.5" cy="8" r="1.4"/><circle cx="2.5" cy="13" r="1.4"/><circle cx="7.5" cy="13" r="1.4"/></svg>';
-    return grip;
-  }
-
-  /// Moves a shown input from one place in the wheel to another; hidden inputs keep their places.
-  function moveShown(from, to) {
-    const shown = shownSources();
-    const [moved] = shown.splice(from, 1);
-    shown.splice(to, 0, moved);
-    editing.sources = [...shown, ...hiddenSources()];
-  }
-
-  /// Drag by the handle with Pointer Events, so mouse, pen and touch behave the same: the row stays under
-  /// the pointer where it was grabbed, the rows it passes slide out of its way, and on release it settles
-  /// into its slot from where it was dropped (no jump).
-  function enableSorting(list) {
-    list.addEventListener("pointerdown", (event) => {
-      const handle = event.target.closest(".handle");
-      if (!handle || event.button !== 0) return;
-      event.preventDefault();
-      const row = handle.closest(".source");
-      const rows = [...list.children];
-      const from = rows.indexOf(row);
-      const rects = rows.map((r) => r.getBoundingClientRect());
-      const step = rows.length > 1 ? rects[1].top - rects[0].top : rects[0].height;
-      const startY = event.clientY;
-      let to = from;
-      let offset = 0;
-      row.setPointerCapture(event.pointerId);
-      row.classList.add("dragging");
-      list.classList.add("sorting");
-
-      const move = (moveEvent) => {
-        // Rubber-band past the ends instead of a hard stop.
-        const min = rects[0].top - rects[from].top, max = rects[rects.length - 1].top - rects[from].top;
-        const raw = moveEvent.clientY - startY;
-        const over = raw < min ? raw - min : raw > max ? raw - max : 0;
-        offset = raw - over + over * 0.3;
-        row.style.transform = `translateY(${offset}px)`;
-        const center = rects[from].top + rects[from].height / 2 + offset;
-        to = rects.reduce((count, rect, i) => (i !== from && center > rect.top + rect.height / 2 ? count + 1 : count), 0);
-        rows.forEach((other, i) => {
-          if (other === row) return;
-          const shift = from < to && i > from && i <= to ? -step : from > to && i >= to && i < from ? step : 0;
-          other.style.transform = shift ? `translateY(${shift}px)` : "";
-        });
-      };
-      const end = () => {
-        row.removeEventListener("pointermove", move);
-        row.removeEventListener("pointerup", end);
-        row.removeEventListener("pointercancel", end);
-        list.classList.remove("sorting");
-        const dropped = rects[from].top + offset;
-        if (to !== from) moveShown(from, to);
-        renderSources();
-        const placed = sourcesCard.querySelector(`.source[data-id="${CSS.escape(row.dataset.id)}"]`);
-        if (!placed) return;
-        placed.focus({ preventScroll: true });
-        if (reducedMotion.matches) return;
-        // FLIP: start the new row where the dragged one was let go, then let it settle.
-        const delta = dropped - placed.getBoundingClientRect().top;
-        if (Math.abs(delta) < 1) return;
-        placed.classList.add("settling");
-        placed.style.transform = `translateY(${delta}px)`;
-        requestAnimationFrame(() => requestAnimationFrame(() => { placed.style.transform = ""; }));
-        placed.addEventListener("transitionend", () => placed.classList.remove("settling"), { once: true });
-      };
-      row.addEventListener("pointermove", move);
-      row.addEventListener("pointerup", end);
-      row.addEventListener("pointercancel", end);
-    });
-  }
-
-  /// The `sources` setting: every input with its place, shown ones first, and a name only where it differs.
-  function sourcesSetting() {
-    return [...shownSources(), ...hiddenSources()].map((source, order) => {
-      const setting = { id: source.id, order, visible: source.visible };
-      if (source.customName) setting.customName = source.customName;
-      return setting;
-    });
-  }
-
-  async function saveSources() {
-    const tv = editing.tv;
-    await updateDevice(tv.mac, (device) => { device.sources = sourcesSetting(); });
-    editing.saved = JSON.stringify(editing.sources);
-    renderSources();
-  }
-
-  /// "Refresh from TV": the plugin reads the TV's apps now. Unsaved changes stay; new inputs join their column
-  /// at the end, inputs the TV no longer has go.
+  /// "Refresh from TV": the plugin reads the TV's apps now.
   async function refreshSources() {
-    const tv = editing.tv;
+    const tv = viewing.tv;
+    const known = new Set(viewing.sources.map((source) => source.id));
     const { sources } = await request("sources/refresh", { method: "POST", body: { mac: tv.mac } });
-    if (!editing || editing.tv !== tv) return;
-    const fresh = sources.map((source) => ({ ...source, customName: source.customName ?? "" }));
-    const known = new Set(editing.sources.map((source) => source.id));
-    const added = fresh.filter((source) => !known.has(source.id));
-    if (isDirty()) {
-      const present = new Set(fresh.map((source) => source.id));
-      const kept = editing.sources.filter((source) => present.has(source.id));
-      editing.sources = [...kept.filter((s) => s.visible), ...added.filter((s) => s.visible), ...kept.filter((s) => !s.visible), ...added.filter((s) => !s.visible)];
-    } else {
-      editing.sources = [...fresh.filter((source) => source.visible), ...fresh.filter((source) => !source.visible)];
-      editing.saved = JSON.stringify(editing.sources);
-    }
-    editing.note = added.length
+    if (!viewing || viewing.tv !== tv) return;
+    const added = sources.filter((source) => !known.has(source.id));
+    viewing.sources = sources;
+    viewing.note = added.length
       ? tn("{n} new input from the TV: {names}.", "{n} new inputs from the TV: {names}.", added.length, { names: added.map((source) => source.name).join(", ") })
       : t("The TV has no new app.");
     renderSources();
   }
 
-  async function resetSources() {
-    if (!await HomeswiftCommon.confirmDialog(t("Put the inputs of {name} back in the TV's order, all shown, with their own names?", { name: editing.tv.name }))) return;
-    const tv = editing.tv;
-    await updateDevice(tv.mac, (device) => { delete device.sources; });
-    // The plugin reloads with the TV's order; read it back.
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    await openSources(tv);
-  }
-
-  // MARK: Edit a TV: the Homebridge plugin's sections, General, Remote, Automations, Apps and Buttons, on a
-  // draft of the TV's entry; Save writes it and the plugin reloads with it. The choices (remote keys, Ambilight
-  // styles) come from the plugin's schema, so the page and the plugin never disagree.
-
-  const editorCard = $("#tv-editor");
-  let schemaPromise = null;
-  const deviceSchema = () => (schemaPromise ??= api(`/api/plugins/${encodeURIComponent(platform)}/schema`)
-    .then((schema) => schema.schema.properties.devices.items.properties));
-  const choices = (property) => (property.oneOf ? property.oneOf.map((o) => [o.enum[0], o.title]) : (property.enum || []).map((v) => [v, v]));
-  let editorState = null;   // { tv, draft, saved, section }
-
-  const fieldRow = (label, control, help) => el("label", { class: "field" }, el("span", { class: "field-title", text: label }), control, help ? el("span", { class: "help", text: help }) : null);
-
-  /// "Get MAC" next to a MAC address field: the plugin asks the TV when it is configured, else reads this
-  /// machine's ARP table, which has the TV once it answered on the network.
-  function macButton(ipOf, input, report) {
-    return el("button", { actionIcon: "search", type: "button", text: t("Get MAC"), onclick: (event) => {
-      event.preventDefault();
-      act(event.currentTarget, async () => {
-        const ip = (ipOf() ?? "").trim();
-        if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(ip)) throw new Error(t("Enter the TV's IPv4 address first."));
-        const { mac } = await request(`mac?ip=${encodeURIComponent(ip)}`);
-        input.value = mac;
-        input.dispatchEvent(new Event("input"));
-      }, report);
-    } });
-  }
-  function toggleRow(label, checked, onChange, help) {
-    const input = el("input", { type: "checkbox", checked });
-    input.addEventListener("change", () => onChange(input.checked));
-    return el("label", { class: "toggle" }, el("span", { class: "switch" }, input, el("span")),
-      el("span", {}, el("span", { class: "field-title", text: label }), help ? el("span", { class: "help", text: help }) : null));
-  }
-  function selectFor(property, value, onChange) {
-    const select = el("select", {}, choices(property).map(([v, title]) => el("option", { value: v, text: title, selected: v === (value ?? property.default) })));
-    select.addEventListener("change", () => onChange(select.value));
-    return select;
-  }
-
-  // The editor's Remote and Automations sections.
-  function remoteFields(schema, draft, changed) {
-    return ["infoButtonKey", "backButtonKey", "playPauseButtonKey"].map((key) =>
-      fieldRow(schema[key].title.replace(" Key", ""), selectFor(schema[key], draft[key], (value) => { setKey(draft, key, value, schema[key].default); changed(); }), schema[key].description));
-  }
-  function automationFields(schema, draft, changed) {
-    const sensors = new Set(draft.stateSensors || []);
-    const sensorToggle = (sensor, label) => toggleRow(label, sensors.has(sensor), (on) => {
-      if (on) sensors.add(sensor); else sensors.delete(sensor);
-      setKey(draft, "stateSensors", sensors.size ? ["power", "ambilight", "mute"].filter((s) => sensors.has(s)) : undefined);
-      changed();
-    });
-    return [
-      toggleRow(t("Source switches"), draft.sourceSwitches === true, (on) => { setKey(draft, "sourceSwitches", on, false); changed(); }, schema.sourceSwitches.description),
-      toggleRow(t("Ambilight + Hue switch"), draft.ambilightHueSwitch === true, (on) => { setKey(draft, "ambilightHueSwitch", on, false); changed(); }, schema.ambilightHueSwitch.description),
-      el("p", { class: "help sensors-help", text: schema.stateSensors.description }),
-      sensorToggle("power", t("Power sensor: motion while the TV is on")),
-      sensorToggle("ambilight", t("Ambilight sensor: motion while Ambilight is on")),
-      sensorToggle("mute", t("Mute sensor: motion while the sound is muted")),
-    ];
-  }
-
-  async function openEditor(tv) {
-    if (!(await closeSources()) || !(await closeEditor())) return;
-    editorCard.classList.remove("hidden");
-    breadcrumb(t("Edit {name}", { name: tv.name }), closeEditor);
-    editorCard.replaceChildren(el("p", { class: "muted", text: t("Loading {name}…", { name: tv.name }) }));
-    editorCard.scrollIntoView({ behavior: reducedMotion.matches ? "auto" : "smooth", block: "start" });
-    try {
-      const [schema, found] = await Promise.all([deviceSchema(), findDevice(tv.mac)]);
-      if (!found) throw new Error(t("This TV is not in the configuration."));
-      editorState = { tv, schema, setUp: found.setUp, draft: structuredClone(found.entry), saved: JSON.stringify(found.entry), section: "general" };
-      renderEditor();
-    } catch (e) {
-      editorCard.replaceChildren(el("p", { class: "error", text: e.message }));
-    }
-  }
-
-  /// Closes the editor; false when the person keeps unsaved changes.
-  async function closeEditor() {
-    if (editorState && JSON.stringify(editorState.draft) !== editorState.saved && !await HomeswiftCommon.confirmDialog(t("Discard the changes to this TV?"))) return false;
-    if (!editorCard.classList.contains("hidden")) breadcrumb(null);
-    editorState = null;
-    editorCard.classList.add("hidden");
-    editorCard.replaceChildren();
-    return true;
-  }
-
-  function renderEditor() {
-    const { tv, schema, draft } = editorState;
-    const message = el("span", { class: "muted" });
-    const report = (text) => { message.className = "error"; message.textContent = text; };
-    const save = el("button", { actionIcon: "check", class: "primary", text: t("Save"), onclick: (event) => act(event.currentTarget, saveEditor, report) });
-    const discard = el("button", { actionIcon: "close", text: t("Discard"), onclick: () => { editorState.draft = JSON.parse(editorState.saved); renderEditor(); } });
-    const changed = () => {
-      const dirty = JSON.stringify(editorState.draft) !== editorState.saved;
-      save.disabled = !dirty;
-      discard.disabled = !dirty;
-      message.className = dirty ? "dirty" : "muted";
-      message.textContent = dirty ? t("Unsaved changes") : t("Saved");
-    };
-    const sections = [["general", t("General")], ["remote", t("Remote")], ["automations", t("Automations")], ["apps", t("Apps")], ["buttons", t("Buttons")]];
-    const tabs = el("div", { class: "group tabs", role: "tablist" }, sections.map(([key, label]) => el("button", {
-      text: label, role: "tab", class: key === editorState.section ? "on" : "", "aria-selected": String(key === editorState.section),
-      onclick: () => { editorState.section = key; renderEditor(); },
-    })));
-    const text = (key, attrs = {}) => {
-      const input = el("input", { type: "text", value: draft[key] ?? "", autocomplete: "off", spellcheck: false, ...attrs });
-      input.addEventListener("input", () => { setKey(draft, key, input.value.trim()); changed(); });
-      return input;
-    };
-    let body;
-    switch (editorState.section) {
-    case "general": {
-      const interval = el("input", { type: "number", min: 1000, max: 60000, step: 1000, value: draft.pollingInterval ?? "", placeholder: String(schema.pollingInterval.default) });
-      interval.addEventListener("input", () => { setKey(draft, "pollingInterval", interval.value ? Number(interval.value) : undefined, schema.pollingInterval.default); changed(); });
-      body = el("div", {},
-        el("div", { class: "fields" },
-          fieldRow(t("Name in the Home app"), text("name", { maxLength: 64 })),
-          fieldRow(t("Address"), text("ip", { inputmode: "decimal" }), t("The TV's IPv4 address. Give it a fixed address in your router.")),
-          // A TV Setup paired goes by its MAC, which keys its keys in the vault: it stays as Setup read it.
-          editorState.setUp
-            ? fieldRow(t("MAC address"), el("input", { type: "text", value: draft.mac, readOnly: true }), t("Read from the TV when it was paired. For Wake-on-LAN, which switches the TV on from deep standby."))
-            : fieldRow(t("MAC address"), (() => {
-              const input = text("mac");
-              return el("div", { class: "with-button" }, input, macButton(() => draft.ip, input, report));
-            })(), t("For Wake-on-LAN, which switches the TV on from deep standby.")),
-          fieldRow(t("Ambilight style"), selectFor(schema.ambilightMode, draft.ambilightMode, (value) => { setKey(draft, "ambilightMode", value, schema.ambilightMode.default); changed(); }), schema.ambilightMode.description),
-          fieldRow(t("Polling interval (ms)"), interval, schema.pollingInterval.description)),
-        toggleRow(t("Switch Ambilight on whenever the TV comes on"), draft.ambilightOnStart === true, (on) => { setKey(draft, "ambilightOnStart", on, false); changed(); }),
-        toggleRow("Wake-on-LAN", draft.wakeOnLanEnabled !== false, (on) => { setKey(draft, "wakeOnLanEnabled", on, true); changed(); }, schema.wakeOnLanEnabled.description),
-        el("div", { class: "repair" },
-          el("div", {}, el("strong", { text: t("Pairing") }),
-            el("p", { class: "help", text: tv.pinned ? t("Paired, with the TV's certificate pinned. Pair again after a reset of the TV, when it refuses Homeswift.") : t("Paired without a pinned certificate. Pair again to pin it.") })),
-          el("a", { class: "button", href: setupAddress(), actionIcon: "restore", text: t("Pair again") })));
-      break;
-    }
-    case "remote":
-      body = el("div", { class: "fields" }, remoteFields(schema, draft, changed));
-      break;
-    case "automations":
-      body = el("div", {}, automationFields(schema, draft, changed));
-      break;
-    case "apps":
-      body = appsSection(schema, draft, () => { changed(); renderEditor(); });
-      break;
-    case "buttons":
-      body = buttonsSection(schema, draft, () => { changed(); renderEditor(); });
-      break;
-    }
-    editorCard.replaceChildren(
-      el("div", { class: "panel-head" },
-        el("div", {}, el("h2", { text: t("Edit {name}", { name: tv.name }) }), el("p", { class: "muted", text: t("Saving applies at once: the TV keeps its place in the Home app.") })),
-        el("button", { actionIcon: "close", class: "link", text: t("Close"), onclick: closeEditor })),
-      tabs, el("div", { class: "editor-body" }, body),
-      el("div", { class: "save-bar" }, message, discard, save));
-    changed();
-  }
-
-  /// Apps the TV does not list: added by hand, or from what is in the TV's foreground ("Detect from TV").
-  function appsSection(schema, draft, changed) {
-    const apps = draft.customApps || [];
-    const appName = el("input", { type: "text", placeholder: "EON", maxLength: 64 });
-    const packageName = el("input", { type: "text", placeholder: "com.ug.eon.android.tv", spellcheck: false });
-    const className = el("input", { type: "text", placeholder: t("Found by the plugin when left empty"), spellcheck: false });
-    const status = el("p", { class: "status-line muted" });
-    const detect = el("button", { actionIcon: "search", text: t("Detect from TV"), onclick: (event) => act(event.currentTarget, async () => {
-      status.className = "status-line muted";
-      status.textContent = t("Asking the TV which app is open…");
-      const { app } = await request(`current-app?mac=${encodeURIComponent(editorState.tv.mac)}`);
-      packageName.value = app.packageName;
-      className.value = app.className ?? "";
-      if (!appName.value) appName.value = app.name ?? "";
-      status.className = "status-line ok";
-      status.textContent = t("Found {name}.", { name: app.packageName });
-    }, (text) => { status.className = "status-line error"; status.replaceChildren(text); }) });
-    const add = el("button", { actionIcon: "plus", class: "primary", text: t("Add app"), onclick: () => {
-      if (!appName.value.trim() || !packageName.value.trim()) { status.className = "status-line error"; status.textContent = t("An app needs a name and a package name."); return; }
-      const app = { name: appName.value.trim(), packageName: packageName.value.trim() };
-      if (className.value.trim()) app.className = className.value.trim();
-      draft.customApps = [...apps.filter((a) => a.packageName !== app.packageName), app];
-      changed();
-    } });
-    return el("div", {},
-      el("p", { class: "help", text: schema.customApps.description }),
-      apps.length ? el("ul", { class: "entries" }, apps.map((app) => el("li", {},
-        el("div", {}, el("strong", { text: app.name }), el("div", { class: "muted mono", text: [app.packageName, app.className].filter(Boolean).join(" / ") })),
-        el("button", { actionIcon: "trash", class: "link danger", text: t("Remove"), onclick: () => { setKey(draft, "customApps", apps.filter((a) => a !== app).length ? apps.filter((a) => a !== app) : undefined); changed(); } }))))
-        : el("p", { class: "muted empty-list", text: t("No custom app.") }),
-      el("div", { class: "add-box" },
-        el("strong", { text: t("Add an app") }),
-        el("div", { class: "fields" }, fieldRow(t("Name"), appName), fieldRow(t("Package name"), packageName), fieldRow(t("Launch activity (optional)"), className)),
-        el("div", { class: "actions" }, detect, add), status));
-  }
-
-  /// Momentary switches that send one remote key each.
-  function buttonsSection(schema, draft, changed) {
-    const buttons = draft.customButtons || [];
-    const keys = schema.customButtons.items.properties.key.enum;
-    const used = new Set(buttons.map((b) => b.key));
-    const buttonName = el("input", { type: "text", placeholder: t("Power menu"), maxLength: 64 });
-    const key = el("select", {}, keys.filter((k) => !used.has(k)).map((k) => el("option", { value: k, text: k.replace(/([a-z])([A-Z0-9])/g, "$1 $2") })));
-    const status = el("p", { class: "status-line muted" });
-    const add = el("button", { actionIcon: "plus", class: "primary", text: t("Add button"), disabled: key.options.length === 0, onclick: () => {
-      if (!buttonName.value.trim()) { status.className = "status-line error"; status.textContent = t("A button needs a name."); return; }
-      draft.customButtons = [...buttons, { name: buttonName.value.trim(), key: key.value }];
-      changed();
-    } });
-    return el("div", {},
-      el("p", { class: "help", text: schema.customButtons.description }),
-      buttons.length ? el("ul", { class: "entries" }, buttons.map((button) => el("li", {},
-        el("div", {}, el("strong", { text: button.name }), el("div", { class: "muted", text: t("Sends {key}", { key: button.key }) })),
-        el("button", { actionIcon: "trash", class: "link danger", text: t("Remove"), onclick: () => { setKey(draft, "customButtons", buttons.filter((b) => b !== button).length ? buttons.filter((b) => b !== button) : undefined); changed(); } }))))
-        : el("p", { class: "muted empty-list", text: t("No custom button.") }),
-      el("div", { class: "add-box" },
-        el("strong", { text: t("Add a button") }),
-        el("div", { class: "fields" }, fieldRow(t("Name"), buttonName), fieldRow(t("Remote key"), key, t("Each key can be used by one button only."))),
-        el("div", { class: "actions" }, add), status));
-  }
-
-  async function saveEditor() {
-    const { tv, draft } = editorState;
-    if (!draft.name) throw new Error(t("The TV needs a name."));
-    if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(draft.ip ?? "")) throw new Error(t("The address must be an IPv4 address, like 192.168.1.20."));
-    if (!isMAC(draft.mac)) throw new Error(t("The MAC address must look like AA:BB:CC:DD:EE:FF."));
-    draft.mac = canonicalMAC(draft.mac);
-    await updateDevice(tv.mac, () => structuredClone(draft));
-    editorState.saved = JSON.stringify(draft);
-    editorState.tv = { ...tv, name: draft.name, mac: draft.mac };
-    renderEditor();
-    setTimeout(refresh, 600);
-  }
-
-  async function removeTV(tv) {
-    if (!await HomeswiftCommon.confirmDialog(t("Remove {name}? It leaves the Home app, with its scenes and automations.", { name: tv.name }))) return;
-    if (editingTV(tv) && (!(await closeSources()) || !(await closeEditor()))) return;
-    const found = await findDevice(tv.mac);
-    if (found?.setUp) {
-      // Paired through Setup: Excluded, as Add accessories does it, which can include it again.
-      await api(`/api/settings/accessories/${encodeURIComponent(`${platform}:${found.entry.mac}`)}?instance=${encodeURIComponent(instance)}`, { method: "PATCH", body: { excluded: true } });
-    } else {
-      await updateBlock((block) => {
-        block.devices = (block.devices || []).filter((device) => !sameMAC(device.mac, tv.mac));
-        if (!block.devices.length) delete block.devices;
-      });
-    }
-    await refresh();
-  }
-  const editingTV = (tv) => (editing && sameMAC(editing.tv.mac, tv.mac)) || (editorState && sameMAC(editorState.tv.mac, tv.mac));
-
-  // MARK: Adding a TV: Add accessories finds it (or takes the address in its settings) and pairs it with its PIN.
+  // MARK: Adding a TV: Add accessories finds it (or takes the address in the plugin's settings) and pairs it with its PIN.
 
   $("#setup").replaceChildren(setupCard({
     title: t("Add a TV"),
@@ -645,11 +207,12 @@ extension PhilipsAmbilightTVPlugin {
 // The Philips Ambilight TV page's strings and the plugin's errors in French, Spanish and Portuguese.
 HomeswiftI18n.add({
   "fr": {
-    "Pair your Philips Android TVs and control them from here and from the Home app.": "Jumelez vos téléviseurs Philips Android TV et contrôlez-les d'ici et depuis l'app Maison.",
+    "Your Philips Android TVs: control them from here and from the Home app. Each one's options are in its Settings.": "Vos téléviseurs Philips Android : pilotez-les d'ici et depuis l'app Maison. Les options de chacun sont dans ses Réglages.",
+    "The order of the input wheel in the Home app. Its order, the inputs shown and their names are the TV's Settings (Source Configuration), by these IDs.": "L'ordre de la roue des entrées dans l'app Maison. Cet ordre, les entrées affichées et leurs noms sont dans les Réglages du téléviseur (Configuration des sources), par ces identifiants.",
+    "An app the TV does not list goes in the TV's Settings (Custom Apps): open it on the TV, then Detect from TV gives its package name and launch activity.": "Une app que le téléviseur ne liste pas va dans ses Réglages (Apps personnalisées) : ouvrez-la sur le téléviseur, puis Détecter sur le téléviseur donne son nom de paquet et son activité de lancement.",
     "Your TVs": "Vos téléviseurs",
     "Add a TV": "Ajouter un téléviseur",
     "Add accessories finds the Philips TVs on this network and pairs them with the PIN they show. Switch the TV on first.": "Ajouter des accessoires trouve les téléviseurs Philips de ce réseau et les jumelle avec le PIN qu'ils affichent. Allumez d'abord le téléviseur.",
-    "Read from the TV when it was paired. For Wake-on-LAN, which switches the TV on from deep standby.": "Lue sur le téléviseur lors du jumelage. Pour le Wake-on-LAN, qui allume le téléviseur depuis la veille profonde.",
     "On": "Allumé",
     "Off": "Éteint",
     "Standby": "En veille",
@@ -671,11 +234,9 @@ HomeswiftI18n.add({
     "Certificate not pinned, pair again to pin it": "Certificat non épinglé, jumelez à nouveau pour l'épingler",
     "Actions for {name}": "Actions pour {name}",
     "Inputs": "Entrées",
-    "Edit": "Modifier",
     "Show its log": "Afficher son journal",
     "Ask the Assistant": "Demander à l'Assistant",
     "About my TV {name}: ": "À propos de mon téléviseur {name} : ",
-    "Remove": "Supprimer",
     "Follow video": "Suivre la vidéo",
     "Follow audio": "Suivre l'audio",
     "Follow color": "Suivre la couleur",
@@ -687,92 +248,22 @@ HomeswiftI18n.add({
     "Custom": "Perso",
     "Inputs of {name}": "Entrées de {name}",
     "Loading the inputs of {name}…": "Chargement des entrées de {name}…",
-    "Discard the changes to the inputs?": "Annuler les modifications des entrées ?",
     "Shown inputs, in order": "Entrées affichées, dans l'ordre",
     "Hidden inputs": "Entrées masquées",
-    "The order of the input wheel in the Home app. Drag a row by its handle, or press Alt and an arrow key. Click a name to rename it.": "L'ordre de la roue des entrées dans l'app Maison. Faites glisser une ligne par sa poignée, ou appuyez sur Alt et une flèche. Cliquez sur un nom pour le renommer.",
     "Refresh from TV": "Actualiser depuis le téléviseur",
     "Read the TV's apps again": "Relire les apps du téléviseur",
     "Close": "Fermer",
     "Shown · {n}": "Affichées · {n}",
-    "drag to reorder": "glisser pour réordonner",
     "No input is shown.": "Aucune entrée n'est affichée.",
     "Hidden · {n}": "Masquées · {n}",
-    "+ shows an input": "+ affiche une entrée",
     "Every input is shown.": "Toutes les entrées sont affichées.",
-    "Unsaved changes": "Modifications non enregistrées",
-    "Saved. The Home app shows this order.": "Enregistré. L'app Maison affiche cet ordre.",
-    "Reset to the TV's order": "Rétablir l'ordre du téléviseur",
-    "Discard": "Annuler les modifications",
-    "Save": "Enregistrer",
-    "Name of {name}": "Nom de {name}",
-    "Hide": "Masquer",
-    "Show": "Afficher",
-    "Hide {name}": "Masquer {name}",
-    "Show {name}": "Afficher {name}",
     "The name the TV gives it": "Le nom que lui donne le téléviseur",
-    "{name}. Press Alt and an arrow key to move it.": "{name}. Appuyez sur Alt et une flèche pour la déplacer.",
-    "Drag to reorder": "Glisser pour réordonner",
     "{n} new input from the TV: {names}.": "{n} nouvelle entrée du téléviseur : {names}.",
     "{n} new inputs from the TV: {names}.": "{n} nouvelles entrées du téléviseur : {names}.",
     "The TV has no new app.": "Le téléviseur n'a pas de nouvelle app.",
-    "Put the inputs of {name} back in the TV's order, all shown, with their own names?": "Remettre les entrées de {name} dans l'ordre du téléviseur, toutes affichées, avec leurs propres noms ?",
-    "Get MAC": "Obtenir l'adresse MAC",
-    "Enter the TV's IPv4 address first.": "Saisissez d'abord l'adresse IPv4 du téléviseur.",
-    "Source switches": "Interrupteurs de source",
-    "Ambilight + Hue switch": "Interrupteur Ambilight + Hue",
-    "Power sensor: motion while the TV is on": "Capteur d'alimentation : mouvement tant que le téléviseur est allumé",
-    "Ambilight sensor: motion while Ambilight is on": "Capteur Ambilight : mouvement tant qu'Ambilight est allumé",
-    "Mute sensor: motion while the sound is muted": "Capteur de sourdine : mouvement tant que le son est coupé",
-    "Edit {name}": "Modifier {name}",
-    "Loading {name}…": "Chargement de {name}…",
-    "This TV is not in the configuration.": "Ce téléviseur n'est pas dans la configuration.",
-    "Discard the changes to this TV?": "Annuler les modifications de ce téléviseur ?",
-    "Saved": "Enregistré",
-    "General": "Général",
-    "Remote": "Télécommande",
-    "Automations": "Automatisations",
-    "Apps": "Apps",
-    "Buttons": "Boutons",
-    "Name in the Home app": "Nom dans l'app Maison",
-    "Address": "Adresse",
-    "The TV's IPv4 address. Give it a fixed address in your router.": "L'adresse IPv4 du téléviseur. Donnez-lui une adresse fixe dans votre routeur.",
-    "MAC address": "Adresse MAC",
-    "For Wake-on-LAN, which switches the TV on from deep standby.": "Pour le Wake-on-LAN, qui allume le téléviseur depuis la veille profonde.",
-    "Ambilight style": "Style Ambilight",
-    "Polling interval (ms)": "Intervalle d'interrogation (ms)",
-    "Switch Ambilight on whenever the TV comes on": "Allumer Ambilight à chaque allumage du téléviseur",
-    "Pairing": "Jumelage",
-    "Paired, with the TV's certificate pinned. Pair again after a reset of the TV, when it refuses Homeswift.": "Jumelé, avec le certificat du téléviseur épinglé. Jumelez à nouveau après une réinitialisation du téléviseur, s'il refuse Homeswift.",
-    "Paired without a pinned certificate. Pair again to pin it.": "Jumelé sans certificat épinglé. Jumelez à nouveau pour l'épingler.",
-    "Pair again": "Jumeler à nouveau",
-    "Saving applies at once: the TV keeps its place in the Home app.": "L'enregistrement s'applique aussitôt : le téléviseur garde sa place dans l'app Maison.",
-    "Found by the plugin when left empty": "Trouvée par le plugin si vide",
     "Detect from TV": "Détecter sur le téléviseur",
     "Asking the TV which app is open…": "Interrogation du téléviseur sur l'app ouverte…",
     "Found {name}.": "{name} trouvée.",
-    "Add app": "Ajouter l'app",
-    "An app needs a name and a package name.": "Une app a besoin d'un nom et d'un nom de paquet.",
-    "No custom app.": "Aucune app personnalisée.",
-    "Add an app": "Ajouter une app",
-    "Name": "Nom",
-    "Package name": "Nom du paquet",
-    "Launch activity (optional)": "Activité de lancement (facultatif)",
-    "Power menu": "Menu d'alimentation",
-    "Add button": "Ajouter le bouton",
-    "A button needs a name.": "Un bouton a besoin d'un nom.",
-    "Sends {key}": "Envoie {key}",
-    "No custom button.": "Aucun bouton personnalisé.",
-    "Add a button": "Ajouter un bouton",
-    "Remote key": "Touche de la télécommande",
-    "Each key can be used by one button only.": "Chaque touche ne sert qu'à un seul bouton.",
-    "The TV needs a name.": "Le téléviseur a besoin d'un nom.",
-    "The address must be an IPv4 address, like 192.168.1.20.": "L'adresse doit être une adresse IPv4, comme 192.168.1.20.",
-    "The MAC address must look like AA:BB:CC:DD:EE:FF.": "L'adresse MAC doit ressembler à AA:BB:CC:DD:EE:FF.",
-    "Remove {name}? It leaves the Home app, with its scenes and automations.": "Supprimer {name} ? Il quitte l'app Maison, avec ses scènes et automatisations.",
-    "PIN": "PIN",
-    "Confirm": "Confirmer",
-    "Pair": "Jumeler",
     "no TV with that MAC": "aucun téléviseur avec cette adresse MAC",
     "The inputs are listed in the configuration (inputs), so the TV's apps are not read.": "Les entrées sont listées dans la configuration (inputs) : les apps du téléviseur ne sont donc pas lues.",
     "{0} is off. Switch it on, wait for its Home screen, then refresh.": "{0} est éteint. Allumez-le, attendez son écran d'accueil, puis actualisez.",
@@ -792,11 +283,12 @@ HomeswiftI18n.add({
     "the TV's certificate ({0}) is not the pinned one ({1})": "le certificat du téléviseur ({0}) n'est pas celui épinglé ({1})"
   },
   "es": {
-    "Pair your Philips Android TVs and control them from here and from the Home app.": "Empareja tus televisores Philips Android TV y contrólalos desde aquí y desde la app Casa.",
+    "Your Philips Android TVs: control them from here and from the Home app. Each one's options are in its Settings.": "Tus televisores Philips Android: contrólalos desde aquí y desde la app Casa. Las opciones de cada uno están en sus Ajustes.",
+    "The order of the input wheel in the Home app. Its order, the inputs shown and their names are the TV's Settings (Source Configuration), by these IDs.": "El orden de la rueda de entradas en la app Casa. Ese orden, las entradas que se muestran y sus nombres están en los Ajustes del televisor (Configuración de fuentes), por estos identificadores.",
+    "An app the TV does not list goes in the TV's Settings (Custom Apps): open it on the TV, then Detect from TV gives its package name and launch activity.": "Una app que el televisor no lista va en sus Ajustes (Apps personalizadas): ábrela en el televisor y Detectar en el televisor da su nombre de paquete y su actividad de inicio.",
     "Your TVs": "Tus televisores",
     "Add a TV": "Añadir un televisor",
     "Add accessories finds the Philips TVs on this network and pairs them with the PIN they show. Switch the TV on first.": "Añadir accesorios encuentra los televisores Philips de esta red y los empareja con el PIN que muestran. Enciende antes el televisor.",
-    "Read from the TV when it was paired. For Wake-on-LAN, which switches the TV on from deep standby.": "Leída del televisor al emparejarlo. Para Wake-on-LAN, que enciende el televisor desde el reposo profundo.",
     "On": "Encendido",
     "Off": "Apagado",
     "Standby": "En reposo",
@@ -818,11 +310,9 @@ HomeswiftI18n.add({
     "Certificate not pinned, pair again to pin it": "Certificado sin fijar, vuelve a emparejar para fijarlo",
     "Actions for {name}": "Acciones de {name}",
     "Inputs": "Entradas",
-    "Edit": "Editar",
     "Show its log": "Ver su registro",
     "Ask the Assistant": "Preguntar al Asistente",
     "About my TV {name}: ": "Sobre mi televisor {name}: ",
-    "Remove": "Eliminar",
     "Follow video": "Seguir el vídeo",
     "Follow audio": "Seguir el audio",
     "Follow color": "Seguir el color",
@@ -834,92 +324,22 @@ HomeswiftI18n.add({
     "Custom": "Propia",
     "Inputs of {name}": "Entradas de {name}",
     "Loading the inputs of {name}…": "Cargando las entradas de {name}…",
-    "Discard the changes to the inputs?": "¿Descartar los cambios de las entradas?",
     "Shown inputs, in order": "Entradas visibles, en orden",
     "Hidden inputs": "Entradas ocultas",
-    "The order of the input wheel in the Home app. Drag a row by its handle, or press Alt and an arrow key. Click a name to rename it.": "El orden de la rueda de entradas en la app Casa. Arrastra una fila por su asa o pulsa Alt y una flecha. Haz clic en un nombre para cambiarlo.",
     "Refresh from TV": "Actualizar desde el televisor",
     "Read the TV's apps again": "Volver a leer las apps del televisor",
     "Close": "Cerrar",
     "Shown · {n}": "Visibles · {n}",
-    "drag to reorder": "arrastra para reordenar",
     "No input is shown.": "No hay ninguna entrada visible.",
     "Hidden · {n}": "Ocultas · {n}",
-    "+ shows an input": "+ muestra una entrada",
     "Every input is shown.": "Todas las entradas están visibles.",
-    "Unsaved changes": "Cambios sin guardar",
-    "Saved. The Home app shows this order.": "Guardado. La app Casa muestra este orden.",
-    "Reset to the TV's order": "Restablecer el orden del televisor",
-    "Discard": "Descartar",
-    "Save": "Guardar",
-    "Name of {name}": "Nombre de {name}",
-    "Hide": "Ocultar",
-    "Show": "Mostrar",
-    "Hide {name}": "Ocultar {name}",
-    "Show {name}": "Mostrar {name}",
     "The name the TV gives it": "El nombre que le da el televisor",
-    "{name}. Press Alt and an arrow key to move it.": "{name}. Pulsa Alt y una flecha para moverla.",
-    "Drag to reorder": "Arrastra para reordenar",
     "{n} new input from the TV: {names}.": "{n} entrada nueva del televisor: {names}.",
     "{n} new inputs from the TV: {names}.": "{n} entradas nuevas del televisor: {names}.",
     "The TV has no new app.": "El televisor no tiene apps nuevas.",
-    "Put the inputs of {name} back in the TV's order, all shown, with their own names?": "¿Volver a poner las entradas de {name} en el orden del televisor, todas visibles y con sus propios nombres?",
-    "Get MAC": "Obtener MAC",
-    "Enter the TV's IPv4 address first.": "Introduce primero la dirección IPv4 del televisor.",
-    "Source switches": "Interruptores de fuente",
-    "Ambilight + Hue switch": "Interruptor Ambilight + Hue",
-    "Power sensor: motion while the TV is on": "Sensor de encendido: movimiento mientras el televisor está encendido",
-    "Ambilight sensor: motion while Ambilight is on": "Sensor de Ambilight: movimiento mientras Ambilight está encendido",
-    "Mute sensor: motion while the sound is muted": "Sensor de silencio: movimiento mientras el sonido está silenciado",
-    "Edit {name}": "Editar {name}",
-    "Loading {name}…": "Cargando {name}…",
-    "This TV is not in the configuration.": "Este televisor no está en la configuración.",
-    "Discard the changes to this TV?": "¿Descartar los cambios de este televisor?",
-    "Saved": "Guardado",
-    "General": "General",
-    "Remote": "Mando",
-    "Automations": "Automatizaciones",
-    "Apps": "Apps",
-    "Buttons": "Botones",
-    "Name in the Home app": "Nombre en la app Casa",
-    "Address": "Dirección",
-    "The TV's IPv4 address. Give it a fixed address in your router.": "La dirección IPv4 del televisor. Dale una dirección fija en tu router.",
-    "MAC address": "Dirección MAC",
-    "For Wake-on-LAN, which switches the TV on from deep standby.": "Para Wake-on-LAN, que enciende el televisor desde el reposo profundo.",
-    "Ambilight style": "Estilo de Ambilight",
-    "Polling interval (ms)": "Intervalo de consulta (ms)",
-    "Switch Ambilight on whenever the TV comes on": "Encender Ambilight cada vez que se encienda el televisor",
-    "Pairing": "Emparejamiento",
-    "Paired, with the TV's certificate pinned. Pair again after a reset of the TV, when it refuses Homeswift.": "Emparejado, con el certificado del televisor fijado. Vuelve a emparejar tras restablecer el televisor, si rechaza Homeswift.",
-    "Paired without a pinned certificate. Pair again to pin it.": "Emparejado sin certificado fijado. Vuelve a emparejar para fijarlo.",
-    "Pair again": "Volver a emparejar",
-    "Saving applies at once: the TV keeps its place in the Home app.": "Al guardar se aplica al momento: el televisor conserva su lugar en la app Casa.",
-    "Found by the plugin when left empty": "La busca el plugin si se deja vacío",
     "Detect from TV": "Detectar en el televisor",
     "Asking the TV which app is open…": "Preguntando al televisor qué app está abierta…",
     "Found {name}.": "Encontrada: {name}.",
-    "Add app": "Añadir app",
-    "An app needs a name and a package name.": "Una app necesita un nombre y un nombre de paquete.",
-    "No custom app.": "No hay apps personalizadas.",
-    "Add an app": "Añadir una app",
-    "Name": "Nombre",
-    "Package name": "Nombre del paquete",
-    "Launch activity (optional)": "Actividad de inicio (opcional)",
-    "Power menu": "Menú de encendido",
-    "Add button": "Añadir botón",
-    "A button needs a name.": "Un botón necesita un nombre.",
-    "Sends {key}": "Envía {key}",
-    "No custom button.": "No hay botones personalizados.",
-    "Add a button": "Añadir un botón",
-    "Remote key": "Tecla del mando",
-    "Each key can be used by one button only.": "Cada tecla solo puede usarla un botón.",
-    "The TV needs a name.": "El televisor necesita un nombre.",
-    "The address must be an IPv4 address, like 192.168.1.20.": "La dirección debe ser IPv4, como 192.168.1.20.",
-    "The MAC address must look like AA:BB:CC:DD:EE:FF.": "La dirección MAC debe tener la forma AA:BB:CC:DD:EE:FF.",
-    "Remove {name}? It leaves the Home app, with its scenes and automations.": "¿Eliminar {name}? Saldrá de la app Casa, con sus escenas y automatizaciones.",
-    "PIN": "PIN",
-    "Confirm": "Confirmar",
-    "Pair": "Emparejar",
     "no TV with that MAC": "no hay ningún televisor con esa MAC",
     "The inputs are listed in the configuration (inputs), so the TV's apps are not read.": "Las entradas están en la configuración (inputs), así que no se leen las apps del televisor.",
     "{0} is off. Switch it on, wait for its Home screen, then refresh.": "{0} está apagado. Enciéndelo, espera a su pantalla de inicio y actualiza.",
@@ -939,11 +359,12 @@ HomeswiftI18n.add({
     "the TV's certificate ({0}) is not the pinned one ({1})": "el certificado del televisor ({0}) no es el fijado ({1})"
   },
   "pt": {
-    "Pair your Philips Android TVs and control them from here and from the Home app.": "Emparelhe os seus televisores Philips Android TV e controle-os a partir daqui e da app Casa.",
+    "Your Philips Android TVs: control them from here and from the Home app. Each one's options are in its Settings.": "Os seus televisores Philips Android: controle-os daqui e a partir da app Casa. As opções de cada um estão nas suas Definições.",
+    "The order of the input wheel in the Home app. Its order, the inputs shown and their names are the TV's Settings (Source Configuration), by these IDs.": "A ordem da roda de entradas na app Casa. Essa ordem, as entradas mostradas e os seus nomes estão nas Definições do televisor (Configuração das fontes), por estes identificadores.",
+    "An app the TV does not list goes in the TV's Settings (Custom Apps): open it on the TV, then Detect from TV gives its package name and launch activity.": "Uma app que o televisor não lista vai nas suas Definições (Apps personalizadas): abra-a no televisor e Detetar no televisor dá o nome do pacote e a atividade de arranque.",
     "Your TVs": "Os seus televisores",
     "Add a TV": "Adicionar um televisor",
     "Add accessories finds the Philips TVs on this network and pairs them with the PIN they show. Switch the TV on first.": "Adicionar acessórios encontra os televisores Philips desta rede e emparelha-os com o PIN que mostram. Ligue primeiro o televisor.",
-    "Read from the TV when it was paired. For Wake-on-LAN, which switches the TV on from deep standby.": "Lido do televisor ao emparelhá-lo. Para o Wake-on-LAN, que liga o televisor a partir do modo de espera profundo.",
     "On": "Ligado",
     "Off": "Desligado",
     "Standby": "Em espera",
@@ -965,11 +386,9 @@ HomeswiftI18n.add({
     "Certificate not pinned, pair again to pin it": "Certificado não fixado, emparelhe novamente para o fixar",
     "Actions for {name}": "Ações de {name}",
     "Inputs": "Entradas",
-    "Edit": "Editar",
     "Show its log": "Mostrar o registo",
     "Ask the Assistant": "Perguntar ao Assistente",
     "About my TV {name}: ": "Sobre o meu televisor {name}: ",
-    "Remove": "Remover",
     "Follow video": "Seguir o vídeo",
     "Follow audio": "Seguir o áudio",
     "Follow color": "Seguir a cor",
@@ -981,92 +400,22 @@ HomeswiftI18n.add({
     "Custom": "Personalizada",
     "Inputs of {name}": "Entradas de {name}",
     "Loading the inputs of {name}…": "A carregar as entradas de {name}…",
-    "Discard the changes to the inputs?": "Descartar as alterações às entradas?",
     "Shown inputs, in order": "Entradas visíveis, por ordem",
     "Hidden inputs": "Entradas ocultas",
-    "The order of the input wheel in the Home app. Drag a row by its handle, or press Alt and an arrow key. Click a name to rename it.": "A ordem da roda de entradas na app Casa. Arraste uma linha pela pega ou prima Alt e uma seta. Clique num nome para o mudar.",
     "Refresh from TV": "Atualizar a partir do televisor",
     "Read the TV's apps again": "Ler novamente as apps do televisor",
     "Close": "Fechar",
     "Shown · {n}": "Visíveis · {n}",
-    "drag to reorder": "arraste para reordenar",
     "No input is shown.": "Nenhuma entrada está visível.",
     "Hidden · {n}": "Ocultas · {n}",
-    "+ shows an input": "+ mostra uma entrada",
     "Every input is shown.": "Todas as entradas estão visíveis.",
-    "Unsaved changes": "Alterações não guardadas",
-    "Saved. The Home app shows this order.": "Guardado. A app Casa mostra esta ordem.",
-    "Reset to the TV's order": "Repor a ordem do televisor",
-    "Discard": "Descartar",
-    "Save": "Guardar",
-    "Name of {name}": "Nome de {name}",
-    "Hide": "Ocultar",
-    "Show": "Mostrar",
-    "Hide {name}": "Ocultar {name}",
-    "Show {name}": "Mostrar {name}",
     "The name the TV gives it": "O nome que o televisor lhe dá",
-    "{name}. Press Alt and an arrow key to move it.": "{name}. Prima Alt e uma seta para a mover.",
-    "Drag to reorder": "Arraste para reordenar",
     "{n} new input from the TV: {names}.": "{n} entrada nova do televisor: {names}.",
     "{n} new inputs from the TV: {names}.": "{n} entradas novas do televisor: {names}.",
     "The TV has no new app.": "O televisor não tem apps novas.",
-    "Put the inputs of {name} back in the TV's order, all shown, with their own names?": "Repor as entradas de {name} na ordem do televisor, todas visíveis e com os nomes originais?",
-    "Get MAC": "Obter MAC",
-    "Enter the TV's IPv4 address first.": "Introduza primeiro o endereço IPv4 do televisor.",
-    "Source switches": "Interruptores de fonte",
-    "Ambilight + Hue switch": "Interruptor Ambilight + Hue",
-    "Power sensor: motion while the TV is on": "Sensor de energia: movimento enquanto o televisor está ligado",
-    "Ambilight sensor: motion while Ambilight is on": "Sensor Ambilight: movimento enquanto o Ambilight está ligado",
-    "Mute sensor: motion while the sound is muted": "Sensor de silêncio: movimento enquanto o som está cortado",
-    "Edit {name}": "Editar {name}",
-    "Loading {name}…": "A carregar {name}…",
-    "This TV is not in the configuration.": "Este televisor não está na configuração.",
-    "Discard the changes to this TV?": "Descartar as alterações a este televisor?",
-    "Saved": "Guardado",
-    "General": "Geral",
-    "Remote": "Comando",
-    "Automations": "Automatizações",
-    "Apps": "Apps",
-    "Buttons": "Botões",
-    "Name in the Home app": "Nome na app Casa",
-    "Address": "Endereço",
-    "The TV's IPv4 address. Give it a fixed address in your router.": "O endereço IPv4 do televisor. Atribua-lhe um endereço fixo no router.",
-    "MAC address": "Endereço MAC",
-    "For Wake-on-LAN, which switches the TV on from deep standby.": "Para o Wake-on-LAN, que liga o televisor a partir do modo de espera profundo.",
-    "Ambilight style": "Estilo do Ambilight",
-    "Polling interval (ms)": "Intervalo de consulta (ms)",
-    "Switch Ambilight on whenever the TV comes on": "Ligar o Ambilight sempre que o televisor se ligar",
-    "Pairing": "Emparelhamento",
-    "Paired, with the TV's certificate pinned. Pair again after a reset of the TV, when it refuses Homeswift.": "Emparelhado, com o certificado do televisor fixado. Emparelhe novamente após uma reposição do televisor, se este recusar o Homeswift.",
-    "Paired without a pinned certificate. Pair again to pin it.": "Emparelhado sem certificado fixado. Emparelhe novamente para o fixar.",
-    "Pair again": "Emparelhar novamente",
-    "Saving applies at once: the TV keeps its place in the Home app.": "Ao guardar, as alterações aplicam-se de imediato: o televisor mantém o seu lugar na app Casa.",
-    "Found by the plugin when left empty": "Encontrada pelo plugin se ficar vazia",
     "Detect from TV": "Detetar no televisor",
     "Asking the TV which app is open…": "A perguntar ao televisor que app está aberta…",
     "Found {name}.": "Encontrada: {name}.",
-    "Add app": "Adicionar app",
-    "An app needs a name and a package name.": "Uma app precisa de um nome e de um nome de pacote.",
-    "No custom app.": "Nenhuma app personalizada.",
-    "Add an app": "Adicionar uma app",
-    "Name": "Nome",
-    "Package name": "Nome do pacote",
-    "Launch activity (optional)": "Atividade de arranque (opcional)",
-    "Power menu": "Menu de energia",
-    "Add button": "Adicionar botão",
-    "A button needs a name.": "Um botão precisa de um nome.",
-    "Sends {key}": "Envia {key}",
-    "No custom button.": "Nenhum botão personalizado.",
-    "Add a button": "Adicionar um botão",
-    "Remote key": "Tecla do comando",
-    "Each key can be used by one button only.": "Cada tecla só pode ser usada por um botão.",
-    "The TV needs a name.": "O televisor precisa de um nome.",
-    "The address must be an IPv4 address, like 192.168.1.20.": "O endereço tem de ser IPv4, como 192.168.1.20.",
-    "The MAC address must look like AA:BB:CC:DD:EE:FF.": "O endereço MAC tem de ter a forma AA:BB:CC:DD:EE:FF.",
-    "Remove {name}? It leaves the Home app, with its scenes and automations.": "Remover {name}? Sai da app Casa, com as suas cenas e automatizações.",
-    "PIN": "PIN",
-    "Confirm": "Confirmar",
-    "Pair": "Emparelhar",
     "no TV with that MAC": "não há nenhum televisor com esse MAC",
     "The inputs are listed in the configuration (inputs), so the TV's apps are not read.": "As entradas estão na configuração (inputs), por isso as apps do televisor não são lidas.",
     "{0} is off. Switch it on, wait for its Home screen, then refresh.": "{0} está desligado. Ligue-o, aguarde pelo ecrã inicial e atualize.",
@@ -1116,65 +465,39 @@ HomeswiftI18n.add({
   .tv-foot .menu-button { margin-left: auto; }
   .tv-foot a { color: var(--accent); text-decoration: none; font-weight: 500; }
 
-  /* The inputs editor: a panel with two columns like the Homebridge plugin's, shown (ordered) and hidden. */
+  /* The inputs: a panel with two columns like the Homebridge plugin's editor, shown (in the wheel's order) and hidden. */
   .column-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; font-size: 0.8125rem; }
   .sources { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
   .source {
-    display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 5px 6px 5px 8px; border-radius: 14px;
+    display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 5px 12px 5px 8px; border-radius: 14px;
     background: var(--control); border: 1px solid var(--edge); box-shadow: inset 0 1px 0 var(--edge-light), var(--shadow-control);
-    transition: transform 180ms var(--ease-out), box-shadow var(--fast) var(--ease-out);
-    touch-action: pan-y; position: relative;
   }
   .pool .source { background: var(--material-thin); box-shadow: none; }
   .pool .source .source-name { color: var(--muted); }
-  .source:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  /* The dragged row is lifted and tracks the pointer 1:1, so it never animates; the others glide aside. */
-  .source.dragging { transition: box-shadow var(--fast) var(--ease-out); z-index: 2; box-shadow: 0 14px 30px rgba(25, 34, 56, 0.22), inset 0 1px 0 var(--edge-light); cursor: grabbing; }
-  .source.settling { transition: transform 260ms var(--ease-out); }
-  .sorting { user-select: none; -webkit-user-select: none; }
-  .handle { width: 24px; align-self: stretch; flex: none; cursor: grab; touch-action: none; display: grid; place-items: center; color: var(--muted); opacity: 0.6; border-radius: 8px; }
-  .handle svg { display: block; width: 10px; height: 16px; fill: currentColor; }
-  .handle:hover { opacity: 1; }
   .kind { flex: none; min-width: 54px; text-align: center; font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.03em; padding: 2px 8px; border-radius: 999px; background: var(--material-thin); border: 1px solid var(--line); color: var(--muted); }
   .kind.hdmi { color: #1f6fe0; border-color: rgba(31, 111, 224, 0.3); }
   .kind.tv, .kind.home { color: #7c4ddb; border-color: rgba(124, 77, 219, 0.3); }
   .kind.app { color: var(--ok); border-color: rgba(31, 157, 85, 0.3); }
   .kind.custom { color: var(--warn); border-color: rgba(201, 115, 26, 0.35); }
-  .source-name { flex: 1; min-width: 0; border: 1px solid transparent; background: none; box-shadow: none; padding: 6px 8px; border-radius: 10px; font-weight: 500; text-overflow: ellipsis; }
-  .source-name:hover { background: var(--material-thin); }
-  .source-name:focus { background: var(--field); }
-  .original { font-size: 0.75rem; flex: none; max-width: 30%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .icon-button { flex: none; width: 32px; height: 32px; padding: 0; font-size: 1.125rem; line-height: 1; display: grid; place-items: center; }
+  .source-name { flex: 1; min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .original, .source-id { font-size: 0.75rem; flex: none; max-width: 30%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .empty-list { margin: 0; padding: 14px; border-radius: 14px; border: 1px dashed var(--line); text-align: center; font-size: 0.8125rem; }
   .off-note p { margin: 0; }
   .off-note .explain { margin-top: 4px; }
-
-  /* The TV editor: the Homebridge plugin's sections as tabs. */
-  .tabs { align-self: start; flex-wrap: wrap; }
-  .editor-body { min-height: 160px; }
-  .repair { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 18px; padding: 14px 16px; border-radius: 16px; background: var(--material-thin); border: 1px solid var(--line); }
-  .repair p { margin: 2px 0 0; }
-  .sensors-help { margin: 16px 0 0; }
-  .entries { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
-  .entries li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border-radius: 14px; background: var(--control); border: 1px solid var(--edge); }
-  .entries li > div { min-width: 0; }
-  .entries .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .add-box { margin-top: 16px; padding: 14px 16px; border-radius: 16px; border: 1px dashed var(--line); }
-  .add-box .actions { margin-top: 10px; }
-  .save-bar.dirty > .muted { color: var(--warn); font-weight: 500; }
+  .detect { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .detect .help { margin: 0 0 10px; }
+  .status-line { margin: 10px 0 0; min-height: 1.2em; }
+  .status-line.error { color: var(--error); }
+  .status-line.ok { color: var(--ok); }
 
   #setup { margin-bottom: 16px; }
-  /* A MAC address field with its "Get MAC" button. */
-  .with-button { display: flex; gap: 8px; align-items: center; }
-  .with-button input { flex: 1; min-width: 0; }
-  .head-actions { display: flex; gap: 14px; align-items: center; flex-shrink: 0; }
+  .head-actions { display: flex; gap: 14px; align-items: center; flex-shrink: 0; flex-wrap: wrap; }
 
   @media (prefers-reduced-motion: reduce) {
     .tv { animation: none; }
-    .source { transition: none; }
   }
   @media (max-width: 640px) {
-    .original { display: none; }
+    .original, .source-id { display: none; }
   }
 </style>
 </head>
@@ -1185,7 +508,7 @@ HomeswiftI18n.add({
     <span class="tile large tone-blue" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="2.5" y="4" width="19" height="13" rx="2.5"/><path d="M8.5 20.5h7"/></svg></span>
     <div>
       <h1>Philips Ambilight TV</h1>
-      <p class="muted" data-i18n>Pair your Philips Android TVs and control them from here and from the Home app.</p>
+      <p class="muted" data-i18n>Your Philips Android TVs: control them from here and from the Home app. Each one's options are in its Settings.</p>
     </div>
   </div>
 
@@ -1193,7 +516,6 @@ HomeswiftI18n.add({
   <div class="section-head"><h2 data-i18n>Your TVs</h2></div>
   <div id="tvs" class="tvs"></div>
   <div id="sources" class="card panel hidden"></div>
-  <div id="tv-editor" class="card panel hidden"></div>
 </main>
 <script src="/common.js"></script>
 <script src="/plugin.js"></script>

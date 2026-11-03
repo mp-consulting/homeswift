@@ -25,65 +25,39 @@
   .tv-foot .menu-button { margin-left: auto; }
   .tv-foot a { color: var(--accent); text-decoration: none; font-weight: 500; }
 
-  /* The inputs editor: a panel with two columns like the Homebridge plugin's, shown (ordered) and hidden. */
+  /* The inputs: a panel with two columns like the Homebridge plugin's editor, shown (in the wheel's order) and hidden. */
   .column-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; font-size: 0.8125rem; }
   .sources { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
   .source {
-    display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 5px 6px 5px 8px; border-radius: 14px;
+    display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 5px 12px 5px 8px; border-radius: 14px;
     background: var(--control); border: 1px solid var(--edge); box-shadow: inset 0 1px 0 var(--edge-light), var(--shadow-control);
-    transition: transform 180ms var(--ease-out), box-shadow var(--fast) var(--ease-out);
-    touch-action: pan-y; position: relative;
   }
   .pool .source { background: var(--material-thin); box-shadow: none; }
   .pool .source .source-name { color: var(--muted); }
-  .source:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  /* The dragged row is lifted and tracks the pointer 1:1, so it never animates; the others glide aside. */
-  .source.dragging { transition: box-shadow var(--fast) var(--ease-out); z-index: 2; box-shadow: 0 14px 30px rgba(25, 34, 56, 0.22), inset 0 1px 0 var(--edge-light); cursor: grabbing; }
-  .source.settling { transition: transform 260ms var(--ease-out); }
-  .sorting { user-select: none; -webkit-user-select: none; }
-  .handle { width: 24px; align-self: stretch; flex: none; cursor: grab; touch-action: none; display: grid; place-items: center; color: var(--muted); opacity: 0.6; border-radius: 8px; }
-  .handle svg { display: block; width: 10px; height: 16px; fill: currentColor; }
-  .handle:hover { opacity: 1; }
   .kind { flex: none; min-width: 54px; text-align: center; font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.03em; padding: 2px 8px; border-radius: 999px; background: var(--material-thin); border: 1px solid var(--line); color: var(--muted); }
   .kind.hdmi { color: #1f6fe0; border-color: rgba(31, 111, 224, 0.3); }
   .kind.tv, .kind.home { color: #7c4ddb; border-color: rgba(124, 77, 219, 0.3); }
   .kind.app { color: var(--ok); border-color: rgba(31, 157, 85, 0.3); }
   .kind.custom { color: var(--warn); border-color: rgba(201, 115, 26, 0.35); }
-  .source-name { flex: 1; min-width: 0; border: 1px solid transparent; background: none; box-shadow: none; padding: 6px 8px; border-radius: 10px; font-weight: 500; text-overflow: ellipsis; }
-  .source-name:hover { background: var(--material-thin); }
-  .source-name:focus { background: var(--field); }
-  .original { font-size: 0.75rem; flex: none; max-width: 30%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .icon-button { flex: none; width: 32px; height: 32px; padding: 0; font-size: 1.125rem; line-height: 1; display: grid; place-items: center; }
+  .source-name { flex: 1; min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .original, .source-id { font-size: 0.75rem; flex: none; max-width: 30%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .empty-list { margin: 0; padding: 14px; border-radius: 14px; border: 1px dashed var(--line); text-align: center; font-size: 0.8125rem; }
   .off-note p { margin: 0; }
   .off-note .explain { margin-top: 4px; }
-
-  /* The TV editor: the Homebridge plugin's sections as tabs. */
-  .tabs { align-self: start; flex-wrap: wrap; }
-  .editor-body { min-height: 160px; }
-  .repair { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 18px; padding: 14px 16px; border-radius: 16px; background: var(--material-thin); border: 1px solid var(--line); }
-  .repair p { margin: 2px 0 0; }
-  .sensors-help { margin: 16px 0 0; }
-  .entries { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
-  .entries li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border-radius: 14px; background: var(--control); border: 1px solid var(--edge); }
-  .entries li > div { min-width: 0; }
-  .entries .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .add-box { margin-top: 16px; padding: 14px 16px; border-radius: 16px; border: 1px dashed var(--line); }
-  .add-box .actions { margin-top: 10px; }
-  .save-bar.dirty > .muted { color: var(--warn); font-weight: 500; }
+  .detect { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .detect .help { margin: 0 0 10px; }
+  .status-line { margin: 10px 0 0; min-height: 1.2em; }
+  .status-line.error { color: var(--error); }
+  .status-line.ok { color: var(--ok); }
 
   #setup { margin-bottom: 16px; }
-  /* A MAC address field with its "Get MAC" button. */
-  .with-button { display: flex; gap: 8px; align-items: center; }
-  .with-button input { flex: 1; min-width: 0; }
-  .head-actions { display: flex; gap: 14px; align-items: center; flex-shrink: 0; }
+  .head-actions { display: flex; gap: 14px; align-items: center; flex-shrink: 0; flex-wrap: wrap; }
 
   @media (prefers-reduced-motion: reduce) {
     .tv { animation: none; }
-    .source { transition: none; }
   }
   @media (max-width: 640px) {
-    .original { display: none; }
+    .original, .source-id { display: none; }
   }
 </style>
 </head>
@@ -94,7 +68,7 @@
     <span class="tile large tone-blue" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="2.5" y="4" width="19" height="13" rx="2.5"/><path d="M8.5 20.5h7"/></svg></span>
     <div>
       <h1>Philips Ambilight TV</h1>
-      <p class="muted" data-i18n>Pair your Philips Android TVs and control them from here and from the Home app.</p>
+      <p class="muted" data-i18n>Your Philips Android TVs: control them from here and from the Home app. Each one's options are in its Settings.</p>
     </div>
   </div>
 
@@ -102,7 +76,6 @@
   <div class="section-head"><h2 data-i18n>Your TVs</h2></div>
   <div id="tvs" class="tvs"></div>
   <div id="sources" class="card panel hidden"></div>
-  <div id="tv-editor" class="card panel hidden"></div>
 </main>
 <script src="/common.js"></script>
 <script src="/plugin.js"></script>

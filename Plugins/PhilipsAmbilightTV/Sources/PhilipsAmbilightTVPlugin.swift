@@ -9,8 +9,9 @@ import Logging
 /// Ambilight as a colour lightbulb, and optional switches and sensors for scenes and automations.
 ///
 /// Each TV is published as an accessory of its own, as Homebridge does: HomeKit allows one television per
-/// bridge. The configuration is the one of `homebridge-philips-ambilight-tv`; a TV is paired through Setup
-/// (AmbilightSetup.swift: Add accessories in the web UI, or an MCP client's `start_setup`). See README.md.
+/// bridge. A block of `homebridge-philips-ambilight-tv` still loads, and what the bridge writes is its canonical shape
+/// (AmbilightSettings.swift); a TV is paired through Setup (AmbilightSetup.swift: Add accessories in the web UI, or an MCP
+/// client's `start_setup`). See README.md.
 public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
     public static let platform = "PhilipsAmbilightTV"
     public static let icon: String? = "tv"
@@ -141,9 +142,10 @@ public actor PhilipsAmbilightTVPlugin: HomeswiftPlugin {
     // MARK: The web page
 
     /// `GET tvs` lists the TVs with their state; `GET sources?mac=` a TV's inputs in the wheel's order, for
-    /// the sources editor, and `POST sources/refresh` the same after reading the TV's apps again; `GET mac?ip=`
-    /// finds a TV's MAC address; `POST wake` sends Wake-on-LAN to any MAC address; `POST key` sends a remote
-    /// key. Pairing is Setup's (AmbilightSetup.swift). `Web/` is the page.
+    /// the page's Inputs, and `POST sources/refresh` the same after reading the TV's apps again; `GET current-app?mac=`
+    /// the app on screen; `GET mac?ip=` finds a TV's MAC address; `POST wake` sends Wake-on-LAN to any MAC address;
+    /// `POST key` sends a remote key. Pairing is Setup's (AmbilightSetup.swift), settings the Settings page's
+    /// (AmbilightSettings.swift): the page writes none. `Web/` is the page.
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse {
         switch (request.method, request.path) {
         case ("GET", "tvs"):
