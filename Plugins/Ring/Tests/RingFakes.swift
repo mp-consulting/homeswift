@@ -176,7 +176,8 @@ final class TestEnvironment: Sendable {
         timing.gatewayRetry = .milliseconds(10)
         timing.knownErrorRetry = .milliseconds(10)
         timing.hubReconnect = .milliseconds(10)
-        timing.notificationLifetime = .milliseconds(400)
+        // Long enough for an event snapshot on a slow runner: motion shows once it is loaded.
+        timing.notificationLifetime = .seconds(2)
         timing.pushQuiet = .zero
         timing.levelDebounce = .milliseconds(20)
         timing.snapshotUUIDWait = .milliseconds(50)
