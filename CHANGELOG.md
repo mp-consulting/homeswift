@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **tado°** plugin (`TadoPlatform`, new, experimental): tado° thermostats, radiator valves, hot water and air conditioners
+  through tado's cloud, signed in through Setup with tado's device code, polled in one request for all zones and as
+  often as the account's 100 requests a day allow. A clean-room implementation compatible with homebridge-tado's block.
 - The Assistant's Model is a menu of the models the chosen provider offers, read from its models list when the menu
   opens (Anthropic, OpenAI, Gemini, or the OpenAI-compatible server at the Base URL), with Default and Other… to type
   an id; `POST /api/assistant/models`. A saved key goes only to the saved provider, as for Test connection.
