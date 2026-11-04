@@ -217,7 +217,7 @@ extension HomeswiftCatalog {
     /// `default` `{setting, value}` when a Plugin Setting gives it a plugin-wide default).
     public func accessorySettingsJSON(accessoryID: String, instance: String? = nil) async throws -> JSONValue {
         let root = try readConfig()
-        let platforms = root["platforms"]?.arrayValue ?? []
+        let platforms = AccessoryAdoption.platformBlocks(of: root)
         let target = try settingsTarget(accessoryID, instance: instance, platforms: platforms)
         guard let index = Self.blockIndex(of: target, in: platforms) else { throw CatalogError("No block \(target.instance) of \(target.platform)", notFound: true) }
         let block = platforms[index]
@@ -250,7 +250,7 @@ extension HomeswiftCatalog {
     /// `get_settings` for a plugin instance: its Plugin Settings (the block without `platform` and the runtime's `_`
     /// keys; secrets as they are, for the caller to redact) and its schema's `schema` and `accessorySchema`.
     public func pluginSettingsJSON(platform: String, instance: String? = nil) throws -> JSONValue {
-        let platforms = try readConfig()["platforms"]?.arrayValue ?? []
+        let platforms = try AccessoryAdoption.platformBlocks(of: readConfig())
         let block = try Self.uniqueBlock(platform: platform, instance: instance, in: platforms).block
         let settings = (block.objectValue ?? [:]).filter { $0.key != "platform" && !$0.key.hasPrefix("_") }
         let file = schemaFile(for: platform)
@@ -392,7 +392,7 @@ extension HomeswiftCatalog {
     ) async throws -> JSONValue {
         let current = try readConfig()
         var root = current.objectValue ?? [:]
-        var platforms = root["platforms"]?.arrayValue ?? []
+        var platforms = AccessoryAdoption.platformBlocks(of: current)
         let layout = home.layout.value
         var newRooms: [String] = []
         var planned: [(target: SettingsTarget, settings: [String: JSONValue])] = []
@@ -475,7 +475,7 @@ extension HomeswiftCatalog {
             if entries.isEmpty { block.removeValue(forKey: "_accessories") } else { block["_accessories"] = .object(entries) }
             platforms[index] = .object(block)
         }
-        root["platforms"] = .array(platforms)
+        root["platforms"] = .array(AccessoryAdoption.keepingEdited(platforms, of: current))
         let next = JSONValue.object(root)
 
         var results: [JSONValue] = []
@@ -569,7 +569,7 @@ extension HomeswiftCatalog {
     private func writePluginSettings(platform: String, instance: String?, settings: [String: JSONValue], dryRun: Bool, by writer: ConfigWriter) async throws -> JSONValue {
         let current = try readConfig()
         var root = current.objectValue ?? [:]
-        var platforms = root["platforms"]?.arrayValue ?? []
+        var platforms = AccessoryAdoption.platformBlocks(of: current)
         let (index, found) = try Self.uniqueBlock(platform: platform, instance: instance, in: platforms)
         let effects = SettingsWrite.Effects()
         var block = await canonicalBlock(found, effects: effects)
@@ -578,7 +578,7 @@ extension HomeswiftCatalog {
             if let next = Self.merged(block[key], value) { block[key] = next } else { block.removeValue(forKey: key) }
         }
         platforms[index] = .object(block)
-        root["platforms"] = .array(platforms)
+        root["platforms"] = .array(AccessoryAdoption.keepingEdited(platforms, of: current))
         let next = JSONValue.object(root)
         let name = block["name"]?.stringValue ?? platform
         let before = (found.objectValue ?? [:]).filter { $0.key != "platform" && !$0.key.hasPrefix("_") }
@@ -650,7 +650,7 @@ extension HomeswiftCatalog {
     private func forget(accessoryID: String, instance: String?, dryRun: Bool, by writer: ConfigWriter, credentialsGone: inout Bool) async throws -> JSONValue {
         let current = try readConfig()
         var root = current.objectValue ?? [:]
-        var platforms = root["platforms"]?.arrayValue ?? []
+        var platforms = AccessoryAdoption.platformBlocks(of: current)
         let target = try settingsTarget(accessoryID, instance: instance, platforms: platforms)
         guard let index = Self.blockIndex(of: target, in: platforms) else { throw CatalogError("No block \(target.instance) of \(target.platform)", notFound: true) }
         let effects = SettingsWrite.Effects()
@@ -660,7 +660,7 @@ extension HomeswiftCatalog {
         for key in dropped { entries.removeValue(forKey: key) }
         if entries.isEmpty { block.removeValue(forKey: "_accessories") } else { block["_accessories"] = .object(entries) }
         platforms[index] = .object(block)
-        root["platforms"] = .array(platforms)
+        root["platforms"] = .array(AccessoryAdoption.keepingEdited(platforms, of: current))
         let next = JSONValue.object(root)
         // Its accessories' ids, for what the layout kept of their settings.
         let prefix = "\(target.platform):"

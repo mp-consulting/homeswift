@@ -37,8 +37,12 @@ public func redactCommandLine(_ commandLineArgs: [String]) -> String {
 /// last `@` before the host, so one holding a raw `@` (cameras accept them unencoded) is hidden whole.
 func redactURLPasswords(_ text: String) -> String {
     guard text.contains("://") else { return text }
-    return text.replacing(#/\b([a-zA-Z][a-zA-Z0-9+.\-]*:\/\/[^:\/?#@\s]*):[^\/?#\s]*@/#) { match in
+    let withoutPasswords = text.replacing(#/\b([a-zA-Z][a-zA-Z0-9+.\-]*:\/\/[^:\/?#@\s]*):[^\/?#\s]*@/#) { match in
         match.output.1 + ":***@"
+    }
+    // A token in the query (`rtsps://…?auth=<token>`, as Google's Nest streams carry theirs) is hidden too.
+    return withoutPasswords.replacing(#/([?&](?i:auth|token|access_token|sig|signature|key)=)[^&#\s'"]+/#) { match in
+        match.output.1 + "***"
     }
 }
 
