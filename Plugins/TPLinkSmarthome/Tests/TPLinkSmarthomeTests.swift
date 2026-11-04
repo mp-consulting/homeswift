@@ -28,10 +28,11 @@ struct TPLinkSmarthomeTests {
         #expect(outlet[.on]?.value == .bool(true))
         #expect(outlet[.outletInUse] != nil)
         #expect(accessory.service(.eveHistory) != nil)
-        // The first reading arrives on its own; 3.14 W is above the 0 W threshold.
-        #expect(await eventually { outlet[KasaEve.watts]?.value.doubleValue == 3.1 })
+        // The first reading arrives on its own; 3.14 W is above the 0 W threshold. Its values are set one after the
+        // other, the total last: once it shows, the others do.
+        #expect(await eventually { outlet[KasaEve.kilowattHours]?.value.doubleValue == 51.493 })
+        #expect(outlet[KasaEve.watts]?.value.doubleValue == 3.1)
         #expect(abs((outlet[KasaEve.volts]?.value.doubleValue ?? 0) - 122.05) <= 0.051)
-        #expect(outlet[KasaEve.kilowattHours]?.value.doubleValue == 51.493)
         #expect(abs((outlet[KasaEve.voltAmperes]?.value.doubleValue ?? 0) - 15.3) < 0.001)
         #expect(outlet[.outletInUse]?.value == .bool(true))
         await host.stop()
@@ -265,7 +266,8 @@ struct TPLinkSmarthomeTests {
         environment.lan.reply("emeter.get_realtime", #"{"power_mw":4380,"err_code":0}"#)
         let host = try await environment.start(settings: ["inUseThreshold": 1, "_accessories": [Fixtures.hs110ID: ["inUseThreshold": 10]]])
         #expect(await eventually { host.accessory(Fixtures.hs110ID)?.service(.outlet)?[KasaEve.watts]?.value.doubleValue == 4.4 })
-        #expect(host.accessory(Fixtures.hs110ID)?.service(.outlet)?[.outletInUse]?.value == .bool(false))
+        // Outlet In Use is set after the reading.
+        #expect(await eventually { host.accessory(Fixtures.hs110ID)?.service(.outlet)?[.outletInUse]?.value == .bool(false) })
         #expect(await environment.plugin?.deviceKind(of: Fixtures.hs110ID) == "outlet")
         await host.stop()
     }
