@@ -3575,8 +3575,6 @@
           }
           reset.hidden = unset;
         }
-        container.addEventListener("change", () => { followDefault(); paint(); });
-        queueMicrotask(() => { followDefault(); paint(); });
         paint();
         return { element, get: () => chosen };
       }
