@@ -29,16 +29,6 @@
         "type": "boolean",
         "description": "Answers OPTIONS and lets web pages of any site call the webhooks"
       },
-      "http_auth_user": {
-        "title": "User name",
-        "type": "string",
-        "description": "With the password, every request must give these with Basic authentication"
-      },
-      "http_auth_pass": {
-        "title": "Password",
-        "type": "string",
-        "description": "Sealed in config.json by the bridge, or a vault: reference"
-      },
       "https": {
         "title": "HTTPS",
         "type": "boolean",
@@ -1438,7 +1428,6 @@
       "Open URL": "URL d'ouverture",
       "Outlet": "Prise",
       "Outlets": "Prises",
-      "Password": "Mot de passe",
       "Peak level (ppm)": "Seuil (ppm)",
       "Plugin name as shown in the logs": "Nom du plugin tel qu'affiché dans les journaux",
       "Port": "Port",
@@ -1454,7 +1443,6 @@
       "Read by Homebridge only: Homeswift keeps the states in the plugin's own folder": "Lu par Homebridge seulement : Homeswift garde les états dans le dossier du plugin",
       "Rotation direction URL": "URL de sens de rotation",
       "Rung by event=0 (single), 1 (double) or 2 (long press)": "Sonnées par event=0 (simple), 1 (double) ou 2 (appui long)",
-      "Sealed in config.json by the bridge, or a vault: reference": "Scellé dans config.json par le pont, ou une référence vault:",
       "Security mode URL": "URL de mode de sécurité",
       "Security system": "Système de sécurité",
       "Security systems": "Systèmes de sécurité",
@@ -1526,7 +1514,6 @@
       "Type": "Type",
       "Unlock URL": "URL de déverrouillage",
       "Unlock controls URL": "URL de déverrouillage des commandes",
-      "User name": "Nom d'utilisateur",
       "Valve": "Vanne",
       "Valve type": "Type de vanne",
       "Valves": "Vannes",
@@ -1534,8 +1521,7 @@
       "Water faucet": "Robinet",
       "What the sensor measures or detects": "Ce que le capteur mesure ou détecte",
       "Window covering": "Store",
-      "Window coverings": "Stores",
-      "With the password, every request must give these with Basic authentication": "Avec le mot de passe, chaque requête doit les donner en authentification Basic"
+      "Window coverings": "Stores"
     },
     "es": {
       "0.0.0.0 by default (every IPv4 address); :: for IPv6 too, 127.0.0.1 for this machine alone": "0.0.0.0 por defecto (todas las direcciones IPv4); :: también para IPv6, 127.0.0.1 solo para esta máquina",
@@ -1612,7 +1598,6 @@
       "Open URL": "URL de apertura",
       "Outlet": "Enchufe",
       "Outlets": "Enchufes",
-      "Password": "Contraseña",
       "Peak level (ppm)": "Nivel máximo (ppm)",
       "Plugin name as shown in the logs": "Nombre del plugin tal como aparece en los registros",
       "Port": "Puerto",
@@ -1628,7 +1613,6 @@
       "Read by Homebridge only: Homeswift keeps the states in the plugin's own folder": "Solo lo lee Homebridge: Homeswift guarda los estados en la carpeta del plugin",
       "Rotation direction URL": "URL de sentido de giro",
       "Rung by event=0 (single), 1 (double) or 2 (long press)": "Suenan con event=0 (simple), 1 (doble) o 2 (pulsación larga)",
-      "Sealed in config.json by the bridge, or a vault: reference": "Sellada en config.json por el puente, o una referencia vault:",
       "Security mode URL": "URL de modo de seguridad",
       "Security system": "Sistema de seguridad",
       "Security systems": "Sistemas de seguridad",
@@ -1700,7 +1684,6 @@
       "Type": "Tipo",
       "Unlock URL": "URL de desbloqueo",
       "Unlock controls URL": "URL de desbloqueo de controles",
-      "User name": "Nombre de usuario",
       "Valve": "Válvula",
       "Valve type": "Tipo de válvula",
       "Valves": "Válvulas",
@@ -1708,8 +1691,7 @@
       "Water faucet": "Grifo",
       "What the sensor measures or detects": "Lo que mide o detecta el sensor",
       "Window covering": "Persiana",
-      "Window coverings": "Persianas",
-      "With the password, every request must give these with Basic authentication": "Con la contraseña, cada petición debe darlos con autenticación Basic"
+      "Window coverings": "Persianas"
     },
     "pt": {
       "0.0.0.0 by default (every IPv4 address); :: for IPv6 too, 127.0.0.1 for this machine alone": "0.0.0.0 por predefinição (todos os endereços IPv4); :: também para IPv6, 127.0.0.1 apenas para esta máquina",
@@ -1786,7 +1768,6 @@
       "Open URL": "URL de abrir",
       "Outlet": "Tomada",
       "Outlets": "Tomadas",
-      "Password": "Palavra-passe",
       "Peak level (ppm)": "Nível máximo (ppm)",
       "Plugin name as shown in the logs": "Nome do plugin tal como aparece nos registos",
       "Port": "Porta",
@@ -1802,7 +1783,6 @@
       "Read by Homebridge only: Homeswift keeps the states in the plugin's own folder": "Lido apenas pelo Homebridge: o Homeswift guarda os estados na pasta do plugin",
       "Rotation direction URL": "URL de sentido de rotação",
       "Rung by event=0 (single), 1 (double) or 2 (long press)": "Tocam com event=0 (simples), 1 (dupla) ou 2 (pressão longa)",
-      "Sealed in config.json by the bridge, or a vault: reference": "Selada no config.json pela ponte, ou uma referência vault:",
       "Security mode URL": "URL de modo de segurança",
       "Security system": "Sistema de segurança",
       "Security systems": "Sistemas de segurança",
@@ -1874,7 +1854,6 @@
       "Type": "Tipo",
       "Unlock URL": "URL de destrancar",
       "Unlock controls URL": "URL de desbloquear controlos",
-      "User name": "Nome de utilizador",
       "Valve": "Válvula",
       "Valve type": "Tipo de válvula",
       "Valves": "Válvulas",
@@ -1882,8 +1861,7 @@
       "Water faucet": "Torneira",
       "What the sensor measures or detects": "O que o sensor mede ou deteta",
       "Window covering": "Estore",
-      "Window coverings": "Estores",
-      "With the password, every request must give these with Basic authentication": "Com a palavra-passe, cada pedido tem de os dar com autenticação Basic"
+      "Window coverings": "Estores"
     }
   }
 }

@@ -411,6 +411,24 @@ struct HTTPWebhooksTests {
         await host.stop()
     }
 
+    @Test func setupKeepsTheCredentialsInTheVault() async throws {
+        let host = try await environment.start(settings: ["switches": [["id": "s", "name": "S"]]])
+        let plugin = try #require(environment.plugin)
+        #expect(await plugin.accountAuthorized() == false)
+        guard case .ask(let prompt, _) = try await plugin.authorize(SetupRequest(target: .account)) else {
+            Issue.record("Setup asked nothing")
+            return
+        }
+        #expect(prompt.fields.map(\.key) == ["user", "password"])
+        guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .account, answers: ["user": "u", "password": "p"])) else {
+            Issue.record("Setup did not finish")
+            return
+        }
+        #expect(outcome.credentials == ["user": "u", "password": "p"])
+        #expect(outcome.settings["http_auth_pass"] == .null)
+        await host.stop()
+    }
+
     @Test func excludedEntriesAreLeftOut() async throws {
         var settings = exampleBlock
         settings["_accessories"] = ["Kettle": ["excluded": true]]

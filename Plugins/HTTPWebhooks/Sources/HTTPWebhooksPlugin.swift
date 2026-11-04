@@ -86,9 +86,9 @@ public actor HTTPWebhooksPlugin: HomeswiftPlugin {
         }
         await context.removeAccessories(keeping: Set(accessories.map(\.accessory.id)))
 
-        let credentials = configuration.credentials
+        let credentials = credentials
         if credentials == nil {
-            logger.warning("No http_auth_user and http_auth_pass: anyone on the network can call the webhooks")
+            logger.warning("No user name and password for the webhooks (Setup, or http_auth_user and http_auth_pass): anyone on the network can call them")
         }
         let router = WebhookRouter(accessories: routes, credentials: credentials, cors: configuration.enableCORS, logger: logger)
         self.router = router
@@ -174,32 +174,5 @@ public actor HTTPWebhooksPlugin: HomeswiftPlugin {
             }
         }
         return built
-    }
-
-    // MARK: Setup
-
-    /// The entries of the block, each a device set up already: nothing to authorize, as the accessories are virtual.
-    /// A new one is added to the block's lists.
-    public func discover() async throws -> [DiscoveredDevice] {
-        var devices: [DiscoveredDevice] = []
-        var names: Set<String> = []
-        for list in Self.kinds {
-            for entry in configuration.entries(list) {
-                guard let id = entry.id, !id.isEmpty, let name = entry.name, names.insert(name).inserted else { continue }
-                let model = list == "sensors" ? entry.string("type").flatMap(SensorAccessory.Kind.init(rawValue:))?.label : Self.label(of: list)
-                guard let model else { continue }
-                let shown = context.accessorySettings(for: name).name ?? name
-                devices.append(DiscoveredDevice(deviceID: name, name: shown, model: model, address: "accessoryId=\(id)", isSetUp: true))
-            }
-        }
-        return devices
-    }
-
-    static func label(of list: String) -> String? {
-        [
-            "switches": "Switch", "pushbuttons": "Push button", "doorbells": "Doorbell", "lights": "Light", "thermostats": "Thermostat",
-            "outlets": "Outlet", "security": "Security system", "garagedooropeners": "Garage door", "windowcoverings": "Window covering",
-            "statelessswitches": "Stateless switch", "lockmechanisms": "Lock", "fanv2s": "Fan", "co2sensors": "Carbon dioxide sensor", "valves": "Valve",
-        ][list]
     }
 }

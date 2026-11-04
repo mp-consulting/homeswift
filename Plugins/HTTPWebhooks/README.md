@@ -40,7 +40,7 @@ The block of homebridge-http-webhooks works unchanged, with the same platform na
 | `webhook_port` | `51828` | The server's port, a number or a numeric string |
 | `webhook_listen_host` | `0.0.0.0` | The address it listens on: `::` for IPv6 too, `127.0.0.1` for this machine alone |
 | `webhook_enable_cors` | off | CORS headers on every answer, and `OPTIONS` answered with 200 |
-| `http_auth_user`, `http_auth_pass` | | Basic authentication on every request, when both are given. The password is a secret: the bridge seals it in config.json and takes a `vault:` reference |
+| `http_auth_user`, `http_auth_pass` | | Basic authentication on every request, when both are given. Read from a Homebridge block; Setup (**Add accessories**, the account's login) keeps them in the vault instead and takes them out of config.json |
 | `https` | off | HTTPS, when exactly `true` |
 | `https_keyfile`, `https_certfile` | | PEM key and certificate; without both, a self-signed certificate made once (for `homebridgeHttpWebhooks.com` and `localhost`), kept in the vault and made again after 364 days |
 | `cache_directory` | | Read by Homebridge only (see "State") |
@@ -64,8 +64,8 @@ lock), `open`, `open_20`, `open_40`, `open_60`, `open_80`, `close` (window cover
 covering), and HomeKit's write fails with it: the Home app shows No Response.
 
 `*_headers`, `*_url` and `*_body` are kept in config.json as written: a token there is not sealed or resolved from the
-vault, as only secret-named keys are (`http_auth_pass` is one). The log never shows headers, bodies, query strings or
-the user name and password of a URL.
+vault. The log never shows headers, bodies, query strings or the user name and password of a URL. On a redirect to
+another host, or from HTTPS to HTTP, a call drops its Authorization and every header the entry gives.
 
 ### Accessory ids
 
@@ -107,7 +107,7 @@ unknown one 404 `[ERROR Http WebHook Server] AccessoryId '<id>' not found.`; wit
 `WWW-Authenticate: Basic realm="Auth required"`. A webhook never makes an outgoing call. Values that are not numbers
 are left out (and logged); numbers are kept within the characteristic's bounds.
 
-The server listens on the LAN: set `http_auth_user` and `http_auth_pass` (the bridge warns without them), and HTTPS when
+The server listens on the LAN: give it a user name and a password through Setup (the bridge warns without them), and HTTPS when
 the network is not trusted. It takes a body of 64 KB at most, 64 connections at once, and closes a connection quiet for
 30 seconds.
 

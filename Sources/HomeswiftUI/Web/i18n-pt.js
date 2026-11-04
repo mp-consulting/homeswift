@@ -70,6 +70,8 @@ HomeswiftI18n.add("pt", {
   "Cameras and doorbells with HomeKit Secure Video, sensors and lights": "Câmaras e campainhas com HomeKit Secure Video, sensores e luzes",
   "Apple Home's accessories in Homeswift, through a Mac": "Os acessórios da app Casa no Homeswift, através de um Mac",
   "Virtual sensors, switches and locks driven by webhooks": "Sensores, interruptores e fechaduras virtuais controlados por webhooks",
+  "Choose the user name and the password every webhook must give (HTTP Basic authentication).": "Escolha o nome de utilizador e a palavra-passe que cada webhook tem de dar (autenticação HTTP Basic).",
+  "Webhook accessories are the block's entries: they need no setup of their own": "Os acessórios de webhooks são as entradas do bloco: não precisam de configuração própria",
   "Not started": "Não iniciado",
   "Matter needs IPv6, and this machine has none. Turn IPv6 on (on a Synology: Control Panel, Network, Network Interface), then restart homeswift.": "O Matter precisa de IPv6 e esta máquina não o tem. Ative o IPv6 (num Synology: Painel de controlo, Rede, Interface de rede) e reinicie o homeswift.",
   "Matter could not start this device: {error}": "O Matter não conseguiu iniciar este dispositivo: {error}",
