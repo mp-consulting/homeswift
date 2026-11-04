@@ -13,6 +13,11 @@ All notable changes to this project are documented here. The format follows
   and televisions for the HDMI inputs, the modes, the intensities and the entertainment areas. The box is found by
   Bonjour and set up with its button on Add accessories; its certificate is checked against Philips's root and the box's
   name. `HTTPClient.TLS.authority(pem:serverName:)` trusts a maker's own certificate authority.
+- The Somfy TaHoma plugin (platform `Tahoma`, a clean-room implementation compatible with homebridge-tahoma's
+  configuration, experimental): Overkiz setups (Somfy TaHoma and Connexoon, Atlantic Cozytouch, Flexom, Rexel, Hi Kumo)
+  through their cloud (Somfy Europe with Somfy's OAuth, as the TaHoma app) or a Somfy gateway's local API, its certificate checked against the Overkiz Root CA, with a
+  Developer Mode token minted for a Somfy account's gateway: covers, garage doors, gates, locks, alarms, lights, sensors,
+  heaters, water heaters and ventilation, followed through the event listener, and scenarios as switches.
 
 ## [0.20.1] - 2026-11-04
 

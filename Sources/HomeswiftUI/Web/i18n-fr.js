@@ -72,6 +72,7 @@ HomeswiftI18n.add("fr", {
   "Nest thermostats, cameras and doorbells through Google's Device Access": "Thermostats, caméras et sonnettes Nest, par le Device Access de Google",
   "Switches, sensors and more that exist only in HomeKit, for automations": "Interrupteurs, capteurs et plus qui n'existent que dans HomeKit, pour les automatisations",
   "Devices that speak MQTT, described topic by topic": "Des appareils qui parlent MQTT, décrits sujet par sujet",
+  "Somfy TaHoma, Connexoon and Cozytouch shutters, heaters and sensors": "Volets, chauffages et capteurs Somfy TaHoma, Connexoon et Cozytouch",
   "Tapo plugs and bulbs on the local network": "Prises et ampoules Tapo sur le réseau local",
   "Key Light and Ring Light: power, brightness and colour temperature": "Key Light et Ring Light : alimentation, luminosité et température de couleur",
   "Switches, lights, sensors, covers, fans and climates of ESPHome devices": "Interrupteurs, lumières, capteurs, volets, ventilateurs et climatiseurs des appareils ESPHome",
