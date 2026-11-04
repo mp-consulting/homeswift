@@ -509,6 +509,14 @@ struct TadoPluginTests {
         #expect(TadoPlugin.canonical(canonical) == canonical)
     }
 
+    @Test func telegramTokenLeavesTheBlockForTheVault() throws {
+        let block: JSONValue = ["homes": [["name": "My Home", "telegram": ["active": true, "token": "123:abc", "chatID": "42"]]]]
+        #expect(TadoPlugin.withoutTelegramToken(block)["homes"]?[0]?["telegram"] == ["active": true, "chatID": "42"])
+        let fromVault = try #require(TelegramSettings(["active": true, "chatID": "42"], vaultToken: "123:abc"))
+        #expect(fromVault.token == "123:abc")
+        #expect(TelegramSettings(["active": true, "chatID": "42"]) == nil)
+    }
+
     /// The plugin's directory, from this file's.
     static var root: URL { URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent() }
 

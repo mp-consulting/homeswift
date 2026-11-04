@@ -57,8 +57,8 @@ Every option of the Homebridge plugin is read (`polling`, `nightPolling`, `addJi
 `maxValue`, `minStep`, `easyMode`, `noBattery`, `delaySwitch`, `autoOffDelay`, `openWindowSensor`, `openWindowSwitch`,
 `separateTemperature`, `separateHumidity`, `boilerTempSupport`, `accTypeBoiler`, `acFanSpeed`, `acFanModeSwitch`,
 `acDryModeSwitch`) are the Accessory Settings of the zone's accessory: the bridge moves them out of `zones` into
-`_accessories` with its next settings write, and an inactive zone becomes an Excluded one. `telegram.token` is under a
-secret-named key, so the bridge seals it; a legacy `password` is read by nothing and goes.
+`_accessories` with its next settings write, and an inactive zone becomes an Excluded one. `telegram.token` moves into the
+vault with the same write, and is read from there; a legacy `password` is read by nothing and goes.
 
 New: `dailyRequestLimit` (100 by default), the requests tado allows the account a day.
 

@@ -191,7 +191,7 @@ struct HomeSettings: Sendable {
 
     /// Nil, with the reason, for a home without a name or a username. `zoneOverrides` gives a zone's Accessory Settings
     /// by its zone accessory's Device Id.
-    init(_ json: JSONValue, zoneOverrides: (String) -> [String: JSONValue] = { _ in [:] }) throws(SkippedHome) {
+    init(_ json: JSONValue, telegramToken: String? = nil, zoneOverrides: (String) -> [String: JSONValue] = { _ in [:] }) throws(SkippedHome) {
         guard let name = json["name"]?.text else { throw SkippedHome(reason: "a home has no name") }
         guard let username = json["username"]?.text else { throw SkippedHome(reason: "home \(name) has no username") }
         self.name = name
@@ -253,7 +253,7 @@ struct HomeSettings: Sendable {
             if let invalid = merged.invalidType { warnings.append("zone \(zone.name) has type \(invalid), taken as HEATING") }
             zones.append(merged)
         }
-        telegram = TelegramSettings(json["telegram"])
+        telegram = TelegramSettings(json["telegram"], vaultToken: telegramToken)
     }
 
     var isTokenFile: Bool { username.lowercased().hasSuffix(".json") }
@@ -272,8 +272,8 @@ struct TelegramSettings: Sendable {
     var chatID: String
     var messages: [String: String]
 
-    init?(_ json: JSONValue?) {
-        guard let json, json["active"]?.flag == true, let token = json["token"]?.text, let chat = json["chatID"]?.text else { return nil }
+    init?(_ json: JSONValue?, vaultToken: String? = nil) {
+        guard let json, json["active"]?.flag == true, let token = json["token"]?.text ?? vaultToken, let chat = json["chatID"]?.text else { return nil }
         self.token = token
         chatID = chat
         var messages: [String: String] = [:]

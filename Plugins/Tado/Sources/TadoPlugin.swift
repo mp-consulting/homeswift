@@ -72,11 +72,15 @@ public actor TadoPlugin: HomeswiftPlugin {
 
     var http: TadoHTTP { TadoHTTP(transport: dependencies.transport, sleep: dependencies.sleep) }
 
+    /// Telegram's bot token in the vault (`canonicalSettings` moves the block's there).
+    var telegramFile: SecretFile<[String: String]> { context.secretFile("telegram.json", as: [String: String].self) }
+
     /// The homes of the block, each zone with its Accessory Settings on top.
     func homeSettings(log: Bool = false) -> [HomeSettings] {
-        configuration.homes.compactMap { json in
+        let telegramToken = telegramFile.load()?["token"]
+        return configuration.homes.compactMap { json in
             do {
-                return try HomeSettings(json) { deviceID in self.context.accessorySettings(for: deviceID).plugin }
+                return try HomeSettings(json, telegramToken: telegramToken) { deviceID in self.context.accessorySettings(for: deviceID).plugin }
             } catch {
                 if log, let skipped = error as? SkippedHome { logger.warning("\(skipped.reason): the home is skipped") }
                 return nil

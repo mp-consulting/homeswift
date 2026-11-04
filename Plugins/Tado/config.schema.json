@@ -376,7 +376,7 @@
             "telegram": {
               "title": "Telegram",
               "type": "object",
-              "description": "Messages to a Telegram chat; the bot's token is set in config.json",
+              "description": "Messages to a Telegram chat; the bot's token is kept in the vault",
               "properties": {
                 "active": {
                   "title": "Active",
@@ -763,7 +763,7 @@
       "Serial number": "Numéro de série",
       "The valve's serial number": "Le numéro de série de la tête",
       "Telegram": "Telegram",
-      "Messages to a Telegram chat; the bot's token is set in config.json": "Des messages vers une discussion Telegram ; le jeton du bot se règle dans config.json",
+      "Messages to a Telegram chat; the bot's token is kept in the vault": "Des messages vers une discussion Telegram ; le jeton du bot est gardé dans le coffre",
       "Sends the messages": "Envoie les messages",
       "Chat id": "Id de la discussion",
       "The chat the bot writes to": "La discussion où le bot écrit",
@@ -930,7 +930,7 @@
       "Serial number": "Número de serie",
       "The valve's serial number": "El número de serie de la válvula",
       "Telegram": "Telegram",
-      "Messages to a Telegram chat; the bot's token is set in config.json": "Mensajes a un chat de Telegram; el token del bot se ajusta en config.json",
+      "Messages to a Telegram chat; the bot's token is kept in the vault": "Mensajes a un chat de Telegram; el token del bot se guarda en la bóveda",
       "Sends the messages": "Envía los mensajes",
       "Chat id": "Id del chat",
       "The chat the bot writes to": "El chat en el que escribe el bot",
@@ -1097,7 +1097,7 @@
       "Serial number": "Número de série",
       "The valve's serial number": "O número de série da válvula",
       "Telegram": "Telegram",
-      "Messages to a Telegram chat; the bot's token is set in config.json": "Mensagens para um chat do Telegram; o token do bot define-se no config.json",
+      "Messages to a Telegram chat; the bot's token is kept in the vault": "Mensagens para um chat do Telegram; o token do bot fica no cofre",
       "Sends the messages": "Envia as mensagens",
       "Chat id": "Id do chat",
       "The chat the bot writes to": "O chat onde o bot escreve",

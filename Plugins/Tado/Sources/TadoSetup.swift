@@ -148,7 +148,33 @@ extension TadoPlugin {
         "openWindowSwitch", "separateTemperature", "separateHumidity", "boilerTempSupport", "accTypeBoiler", "acFanSpeed", "acFanModeSwitch", "acDryModeSwitch",
     ]
 
-    public func canonicalSettings(_ block: JSONValue) async -> JSONValue { Self.canonical(block) }
+    /// Also moves a home's `telegram.token` into the vault once the block is written (the running configuration has it
+    /// resolved, whether the block holds it, a sealed copy or a reference), and answers the block without it.
+    public func canonicalSettings(_ block: JSONValue) async -> JSONValue {
+        let canonical = Self.canonical(block)
+        let typed = configuration.homes.lazy.compactMap { $0["telegram"]?["token"]?.text }.last
+        let hasToken = (canonical["homes"]?.arrayValue ?? []).contains { $0["telegram"]?["token"] != nil }
+        guard hasToken else { return canonical }
+        if let typed, telegramFile.load()?["token"] != typed {
+            let file = telegramFile
+            await context.whenSettingsWritten { try file.save(["token": typed]) }
+        } else if typed == nil, telegramFile.load()?["token"] == nil {
+            return canonical
+        }
+        return Self.withoutTelegramToken(canonical)
+    }
+
+    /// The block with each home's `telegram.token` taken out.
+    static func withoutTelegramToken(_ block: JSONValue) -> JSONValue {
+        guard var fields = block.objectValue, let homes = fields["homes"]?.arrayValue else { return block }
+        fields["homes"] = .array(homes.map { home in
+            guard var homeFields = home.objectValue, var telegram = homeFields["telegram"]?.objectValue else { return home }
+            telegram.removeValue(forKey: "token")
+            homeFields["telegram"] = .object(telegram)
+            return .object(homeFields)
+        })
+        return .object(fields)
+    }
 
     /// The block with each named zone's options in `_accessories` under the zone accessory's Device Id (an entry's own
     /// values winning), an inactive zone Excluded there and active in `zones`; a home's `password` (tado's old sign-in,
