@@ -59,11 +59,11 @@ final class HumidifierAccessory: DeviceAccessory, @unchecked Sendable {
             reportedActive = on
             auto = isAuto
             if isAuto {
-                threshold = Int(humidity.rounded())
+                self.threshold = Int(self.humidity.rounded())
             } else if let efficiency = status["nebulizationEfficiency"].flatMap(number) {
-                threshold = Int(saturating: min(efficiency, 100), in: 0...100) ?? threshold
+                self.threshold = Int(saturating: min(efficiency, 100), in: 0...100) ?? self.threshold
             }
-            return (humidity, threshold)
+            return (self.humidity, self.threshold)
         }
         humidifier.characteristic(.active).value = .int(on ? 1 : 0)
         humidifier.characteristic(.targetHumidifierDehumidifierState).value = .int(isAuto ? 0 : 1)
