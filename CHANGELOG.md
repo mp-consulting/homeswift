@@ -11,6 +11,9 @@ All notable changes to this project are documented here. The format follows
 - The FFmpeg Cameras plugin (`Camera-ffmpeg`, experimental): any camera FFmpeg can read in HomeKit, each on its own accessory, with
   snapshots, live streams, two-way audio, HomeKit Secure Video with a prebuffer, and a motion sensor, a doorbell and trigger switches
   driven over MQTT or an HTTP API; it reads homebridge-camera-ffmpeg's block as it is.
+- The Assistant's Model is a menu of the models the chosen provider offers, read from its models list when the menu
+  opens (Anthropic, OpenAI, Gemini, or the OpenAI-compatible server at the Base URL), with Default and Other… to type
+  an id; `POST /api/assistant/models`. A saved key goes only to the saved provider, as for Test connection.
 - `get_settings` and `update_settings`, MCP tools (and through `homeswift mcp`, the command line's) that read and change
   the settings of an accessory, by its Accessory Id, or of a plugin instance: the current values with what each field
   is (its schema, whether it is a Core Accessory Setting, its plugin-wide default), a merge where `null` clears a key,
