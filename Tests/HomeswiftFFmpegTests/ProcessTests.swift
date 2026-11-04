@@ -108,12 +108,23 @@ import Darwin
 
 @Suite struct FfmpegProcessTests {
     @Test func redactsPasswordsAndKeysFromCommandLines() throws {
+        // The TypeScript's redactions, with the RTSP paths it leaves hidden too.
         for redaction in try TypeScriptFixture.load().redactions {
-            #expect(redactCommandLine(redaction.args) == redaction.redacted)
+            #expect(redactCommandLine(redaction.args) == redactRTSPPaths(redaction.redacted))
         }
         #expect(redactCommandLine(["-srtp_out_suite", "AES_CM_128_HMAC_SHA1_80", "-srtp_out_params", "c2VjcmV0a2V5", "srtp://10.0.0.3:5000"])
             == "-srtp_out_suite AES_CM_128_HMAC_SHA1_80 -srtp_out_params *** srtp://10.0.0.3:5000")
-        #expect(redactCommandLine(["-i", "rtsp://admin:p@ss@w0rd@10.0.0.4:554/live"]) == "-i rtsp://admin:***@10.0.0.4:554/live")
+        #expect(redactCommandLine(["-i", "rtsp://admin:p@ss@w0rd@10.0.0.4:554/live"]) == "-i rtsp://admin:***@10.0.0.4:554/<redacted>")
+        // Credentials in the query, as many cameras take them; other parameters stay.
+        #expect(redactCommandLine(["-i", "http://10.0.0.5/snapshot.cgi?usr=admin&pwd=hunter2&res=1"]) == "-i http://10.0.0.5/snapshot.cgi?usr=admin&pwd=***&res=1")
+        // An RTSP path can be the secret (UniFi Protect's stream alias): it goes, the host, port and query stay.
+        #expect(redactCommandLine(["-i", "rtsps://192.168.5.119:7441/AbCdEf0123456789?enableSrtp"]) == "-i rtsps://192.168.5.119:7441/<redacted>?enableSrtp")
+        #expect(redactCommandLine(["-i", "RTSP://cam:554/s1/live?token=abc&x=1"]) == "-i RTSP://cam:554/<redacted>?token=***&x=1")
+        #expect(redactURLPasswords("Input #0, rtsp, from 'rtsps://10.0.0.1:7441/alias?enableSrtp':") == "Input #0, rtsp, from 'rtsps://10.0.0.1:7441/<redacted>?enableSrtp':")
+        #expect(redactURLPasswords("rtsp://cam:554") == "rtsp://cam:554")
+        #expect(redactURLPasswords("http://cam/snapshot.jpg") == "http://cam/snapshot.jpg")
+        // A token in the query, as Google's Nest RTSP streams carry it (the path is masked like every RTSP path).
+        #expect(redactCommandLine(["-i", "rtsps://stream.example/v1/CjZ?auth=STREAM-TOKEN&x=1"]) == "-i rtsps://stream.example/<redacted>?auth=***&x=1")
     }
 
     @Test func logsTheCommandLineWithoutPasswords() async {
@@ -348,7 +359,7 @@ import Darwin
         let process = FfmpegProcess(options, commandLineArgs: ["-c", "echo 'Input #0, rtsp, from rtsp://admin:pw@cam/s' >&2"])
         process.start()
         // The shell can be gone before a wait registers: poll for the log instead.
-        #expect(await eventually { logs.messages(.info).contains("Input #0, rtsp, from rtsp://admin:***@cam/s") })
+        #expect(await eventually { logs.messages(.info).contains("Input #0, rtsp, from rtsp://admin:***@cam/<redacted>") })
         #expect(logs.messages(.info).first?.hasPrefix("FFmpeg command (version: 8.0): /bin/sh") == true)
     }
 }

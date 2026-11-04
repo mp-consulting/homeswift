@@ -25,4 +25,19 @@ public enum NetworkInterfaces {
         return found
     }
 
+    /// The first IPv4 address of the interface named `name` (`eth0`, `en0`); nil when it has none.
+    public static func ipv4Address(ofInterface name: String) -> String? {
+        var list: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&list) == 0, let first = list else { return nil }
+        defer { freeifaddrs(list) }
+        var entry: UnsafeMutablePointer<ifaddrs>? = first
+        while let current = entry {
+            defer { entry = current.pointee.ifa_next }
+            guard let address = current.pointee.ifa_addr, address.pointee.sa_family == sa_family_t(AF_INET),
+                  String(cString: current.pointee.ifa_name) == name else { continue }
+            let value = address.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { UInt32(bigEndian: $0.pointee.sin_addr.s_addr) }
+            return IPv4Network.dotted(value)
+        }
+        return nil
+    }
 }

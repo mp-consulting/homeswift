@@ -1,0 +1,317 @@
+// THIS FILE IS GENERATED from ../config.schema.json by Scripts/embed-assets.swift - DO NOT EDIT.
+// swiftlint:disable all
+
+extension SonosPlugin {
+    /// The plugin's config.schema.json, as written, for settings forms and the config copilot.
+    public static let configurationSchemaJSON: String? = #"""
+{
+  "pluginAlias": "ZP",
+  "pluginType": "platform",
+  "singular": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string",
+        "required": true,
+        "default": "Sonos",
+        "description": "Plugin name as shown in the logs"
+      },
+      "service": {
+        "title": "Service",
+        "type": "string",
+        "required": false,
+        "default": "switch",
+        "description": "The HomeKit service of each zone's Sonos and Speakers services, and so its volume characteristic",
+        "oneOf": [
+          {
+            "title": "Switch, with Volume",
+            "enum": [
+              "switch"
+            ]
+          },
+          {
+            "title": "Lightbulb, with Brightness",
+            "enum": [
+              "light"
+            ]
+          },
+          {
+            "title": "Speaker, with Volume",
+            "enum": [
+              "speaker"
+            ]
+          },
+          {
+            "title": "Fan, with Rotation Speed",
+            "enum": [
+              "fan"
+            ]
+          }
+        ]
+      },
+      "brightness": {
+        "title": "Volume as Brightness",
+        "type": "boolean",
+        "default": false,
+        "description": "Show the volume as Brightness rather than Volume, for a Switch or Speaker service"
+      },
+      "speakers": {
+        "title": "Speakers service",
+        "type": "boolean",
+        "default": false,
+        "description": "Add a Speakers service per zone for the zone itself: its volume, balance, bass, treble and loudness, and joining or leaving a group"
+      },
+      "leds": {
+        "title": "LEDs",
+        "type": "boolean",
+        "default": false,
+        "description": "Add a Lightbulb for each player's LED and button lock, and an accessory for each stereo pair's other player, sub and surround"
+      },
+      "heartrate": {
+        "title": "LED poll interval (seconds)",
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 60,
+        "description": "Read the LEDs and button locks every so many seconds rather than at each read from HomeKit"
+      },
+      "alarms": {
+        "title": "Alarms",
+        "type": "boolean",
+        "default": false,
+        "description": "Add a switch for each Sonos alarm to its zone's accessory"
+      },
+      "tv": {
+        "title": "TV accessories",
+        "type": "boolean",
+        "default": false,
+        "description": "Add a Television accessory per zone, published on its own, whose inputs are the household's Sonos favourites"
+      },
+      "maxFavourites": {
+        "title": "Inputs per TV",
+        "type": "integer",
+        "minimum": 16,
+        "maximum": 96,
+        "placeholder": 96,
+        "description": "The number of input sources on each TV accessory (16 to 96)"
+      },
+      "tvIdPrefix": {
+        "title": "TV id prefix",
+        "type": "string",
+        "placeholder": "TV",
+        "description": "Replaces RINCON in the TV accessories' ids, so two bridges on one network do not collide"
+      },
+      "excludeAirPlay": {
+        "title": "Leave out AirPlay players",
+        "type": "boolean",
+        "default": false,
+        "description": "Do not add zones (nor TVs) for players that support AirPlay 2, which the Home app shows already"
+      },
+      "mdns": {
+        "title": "mDNS discovery",
+        "type": "boolean",
+        "default": true,
+        "description": "Also find the players over mDNS (Bonjour), beside SSDP"
+      },
+      "port": {
+        "title": "Event port",
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 65535,
+        "placeholder": 0,
+        "description": "The TCP port the players send their events to; 0 lets the system choose (a port of 1024 or less is taken as 0)"
+      },
+      "timeout": {
+        "title": "Timeout (seconds)",
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 60,
+        "placeholder": 15,
+        "description": "How long a request to a player may take, and the wait for a subscription's first event"
+      },
+      "subscriptionTimeout": {
+        "title": "Subscription duration (minutes)",
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 1440,
+        "placeholder": 30,
+        "description": "How long each event subscription lasts before it is renewed"
+      },
+      "resetTimeout": {
+        "title": "Reset timeout (milliseconds)",
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 60000,
+        "placeholder": 500,
+        "description": "After how long Volume Change, Track Change, Input Change and refused writes are put back"
+      }
+    }
+  },
+  "layout": [
+    "name",
+    {
+      "type": "fieldset",
+      "title": "Accessories",
+      "items": [
+        "service",
+        "brightness",
+        "speakers",
+        "leds",
+        "heartrate",
+        "alarms",
+        "tv",
+        "maxFavourites",
+        "tvIdPrefix",
+        "excludeAirPlay"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Network",
+      "items": [
+        "mdns",
+        "port"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Timing",
+      "items": [
+        "timeout",
+        "subscriptionTimeout",
+        "resetTimeout"
+      ]
+    }
+  ],
+  "accessorySchema": {
+    "properties": {}
+  },
+  "i18n": {
+    "fr": {
+      "Accessories": "Accessoires",
+      "Add a Lightbulb for each player's LED and button lock, and an accessory for each stereo pair's other player, sub and surround": "Ajouter une ampoule pour le voyant et le verrouillage des boutons de chaque lecteur, et un accessoire pour l’autre lecteur d’une paire stéréo, le caisson et les enceintes surround",
+      "Add a Speakers service per zone for the zone itself: its volume, balance, bass, treble and loudness, and joining or leaving a group": "Ajouter un service Enceintes par zone pour la zone elle-même : son volume, sa balance, ses basses, ses aigus et sa correction physiologique, et rejoindre ou quitter un groupe",
+      "Add a Television accessory per zone, published on its own, whose inputs are the household's Sonos favourites": "Ajouter un accessoire Téléviseur par zone, publié à part, dont les entrées sont les favoris Sonos du foyer",
+      "Add a switch for each Sonos alarm to its zone's accessory": "Ajouter un interrupteur pour chaque alarme Sonos à l’accessoire de sa zone",
+      "After how long Volume Change, Track Change, Input Change and refused writes are put back": "Après combien de temps Changement de volume, Changement de piste, Changement d’entrée et les écritures refusées sont rétablis",
+      "Alarms": "Alarmes",
+      "Also find the players over mDNS (Bonjour), beside SSDP": "Trouver aussi les lecteurs par mDNS (Bonjour), en plus de SSDP",
+      "Do not add zones (nor TVs) for players that support AirPlay 2, which the Home app shows already": "Ne pas ajouter de zones (ni de TV) pour les lecteurs compatibles AirPlay 2, que l’app Maison affiche déjà",
+      "Event port": "Port des événements",
+      "Fan, with Rotation Speed": "Ventilateur, avec Vitesse de rotation",
+      "How long a request to a player may take, and the wait for a subscription's first event": "La durée maximale d’une requête à un lecteur, et l’attente du premier événement d’un abonnement",
+      "How long each event subscription lasts before it is renewed": "La durée de chaque abonnement aux événements avant son renouvellement",
+      "Inputs per TV": "Entrées par TV",
+      "LED poll interval (seconds)": "Intervalle de lecture des voyants (secondes)",
+      "LEDs": "Voyants",
+      "Leave out AirPlay players": "Exclure les lecteurs AirPlay",
+      "Lightbulb, with Brightness": "Ampoule, avec Luminosité",
+      "Name": "Nom",
+      "Network": "Réseau",
+      "Plugin name as shown in the logs": "Nom du plugin tel qu’il apparaît dans les journaux",
+      "Read the LEDs and button locks every so many seconds rather than at each read from HomeKit": "Lire les voyants et les verrouillages des boutons toutes les tant de secondes plutôt qu’à chaque lecture de HomeKit",
+      "Replaces RINCON in the TV accessories' ids, so two bridges on one network do not collide": "Remplace RINCON dans les identifiants des accessoires TV, pour que deux ponts sur un même réseau n’entrent pas en conflit",
+      "Reset timeout (milliseconds)": "Délai de réinitialisation (millisecondes)",
+      "Service": "Service",
+      "Show the volume as Brightness rather than Volume, for a Switch or Speaker service": "Afficher le volume comme une luminosité plutôt qu’un volume, pour un service Interrupteur ou Enceinte",
+      "Speaker, with Volume": "Enceinte, avec Volume",
+      "Speakers service": "Service Enceintes",
+      "Subscription duration (minutes)": "Durée d’abonnement (minutes)",
+      "Switch, with Volume": "Interrupteur, avec Volume",
+      "TV accessories": "Accessoires TV",
+      "TV id prefix": "Préfixe d’identifiant TV",
+      "The HomeKit service of each zone's Sonos and Speakers services, and so its volume characteristic": "Le service HomeKit des services Sonos et Enceintes de chaque zone, et donc sa caractéristique de volume",
+      "The TCP port the players send their events to; 0 lets the system choose (a port of 1024 or less is taken as 0)": "Le port TCP auquel les lecteurs envoient leurs événements ; 0 laisse le système choisir (un port de 1024 ou moins vaut 0)",
+      "The number of input sources on each TV accessory (16 to 96)": "Le nombre d’entrées de chaque accessoire TV (16 à 96)",
+      "Timeout (seconds)": "Délai (secondes)",
+      "Timing": "Délais",
+      "Volume as Brightness": "Volume en luminosité",
+      "mDNS discovery": "Découverte mDNS"
+    },
+    "es": {
+      "Accessories": "Accesorios",
+      "Add a Lightbulb for each player's LED and button lock, and an accessory for each stereo pair's other player, sub and surround": "Añadir una bombilla para el LED y el bloqueo de botones de cada reproductor, y un accesorio para el otro reproductor de un par estéreo, el subwoofer y los surround",
+      "Add a Speakers service per zone for the zone itself: its volume, balance, bass, treble and loudness, and joining or leaving a group": "Añadir un servicio Altavoces por zona para la propia zona: su volumen, balance, graves, agudos y sonoridad, y unirse a un grupo o salir de él",
+      "Add a Television accessory per zone, published on its own, whose inputs are the household's Sonos favourites": "Añadir un accesorio Televisor por zona, publicado aparte, cuyas entradas son los favoritos de Sonos del hogar",
+      "Add a switch for each Sonos alarm to its zone's accessory": "Añadir un interruptor por cada alarma de Sonos al accesorio de su zona",
+      "After how long Volume Change, Track Change, Input Change and refused writes are put back": "Tras cuánto tiempo se restablecen Cambio de volumen, Cambio de pista, Cambio de entrada y las escrituras rechazadas",
+      "Alarms": "Alarmas",
+      "Also find the players over mDNS (Bonjour), beside SSDP": "Encontrar también los reproductores por mDNS (Bonjour), además de SSDP",
+      "Do not add zones (nor TVs) for players that support AirPlay 2, which the Home app shows already": "No añadir zonas (ni TV) para los reproductores compatibles con AirPlay 2, que la app Casa ya muestra",
+      "Event port": "Puerto de eventos",
+      "Fan, with Rotation Speed": "Ventilador, con Velocidad de rotación",
+      "How long a request to a player may take, and the wait for a subscription's first event": "Cuánto puede tardar una solicitud a un reproductor, y la espera del primer evento de una suscripción",
+      "How long each event subscription lasts before it is renewed": "Cuánto dura cada suscripción a eventos antes de renovarse",
+      "Inputs per TV": "Entradas por TV",
+      "LED poll interval (seconds)": "Intervalo de lectura de los LED (segundos)",
+      "LEDs": "LED",
+      "Leave out AirPlay players": "Excluir los reproductores AirPlay",
+      "Lightbulb, with Brightness": "Bombilla, con Brillo",
+      "Name": "Nombre",
+      "Network": "Red",
+      "Plugin name as shown in the logs": "Nombre del plugin tal como aparece en los registros",
+      "Read the LEDs and button locks every so many seconds rather than at each read from HomeKit": "Leer los LED y los bloqueos de botones cada tantos segundos en lugar de en cada lectura de HomeKit",
+      "Replaces RINCON in the TV accessories' ids, so two bridges on one network do not collide": "Sustituye RINCON en los identificadores de los accesorios TV, para que dos puentes en una misma red no choquen",
+      "Reset timeout (milliseconds)": "Tiempo de restablecimiento (milisegundos)",
+      "Service": "Servicio",
+      "Show the volume as Brightness rather than Volume, for a Switch or Speaker service": "Mostrar el volumen como brillo en lugar de volumen, para un servicio Interruptor o Altavoz",
+      "Speaker, with Volume": "Altavoz, con Volumen",
+      "Speakers service": "Servicio Altavoces",
+      "Subscription duration (minutes)": "Duración de la suscripción (minutos)",
+      "Switch, with Volume": "Interruptor, con Volumen",
+      "TV accessories": "Accesorios TV",
+      "TV id prefix": "Prefijo de identificador TV",
+      "The HomeKit service of each zone's Sonos and Speakers services, and so its volume characteristic": "El servicio de HomeKit de los servicios Sonos y Altavoces de cada zona, y por tanto su característica de volumen",
+      "The TCP port the players send their events to; 0 lets the system choose (a port of 1024 or less is taken as 0)": "El puerto TCP al que los reproductores envían sus eventos; 0 deja elegir al sistema (un puerto de 1024 o menos se toma como 0)",
+      "The number of input sources on each TV accessory (16 to 96)": "El número de entradas de cada accesorio TV (de 16 a 96)",
+      "Timeout (seconds)": "Tiempo de espera (segundos)",
+      "Timing": "Tiempos",
+      "Volume as Brightness": "Volumen como brillo",
+      "mDNS discovery": "Detección mDNS"
+    },
+    "pt": {
+      "Accessories": "Acessórios",
+      "Add a Lightbulb for each player's LED and button lock, and an accessory for each stereo pair's other player, sub and surround": "Adicionar uma lâmpada para o LED e o bloqueio dos botões de cada leitor, e um acessório para o outro leitor de um par estéreo, o subwoofer e os surround",
+      "Add a Speakers service per zone for the zone itself: its volume, balance, bass, treble and loudness, and joining or leaving a group": "Adicionar um serviço Colunas por zona para a própria zona: o seu volume, balanço, graves, agudos e loudness, e juntar-se a um grupo ou sair dele",
+      "Add a Television accessory per zone, published on its own, whose inputs are the household's Sonos favourites": "Adicionar um acessório Televisor por zona, publicado à parte, cujas entradas são os favoritos Sonos da casa",
+      "Add a switch for each Sonos alarm to its zone's accessory": "Adicionar um interruptor por cada alarme Sonos ao acessório da sua zona",
+      "After how long Volume Change, Track Change, Input Change and refused writes are put back": "Após quanto tempo Alteração de volume, Alteração de faixa, Alteração de entrada e as escritas recusadas são repostas",
+      "Alarms": "Alarmes",
+      "Also find the players over mDNS (Bonjour), beside SSDP": "Encontrar também os leitores por mDNS (Bonjour), além de SSDP",
+      "Do not add zones (nor TVs) for players that support AirPlay 2, which the Home app shows already": "Não adicionar zonas (nem TV) para os leitores compatíveis com AirPlay 2, que a app Casa já mostra",
+      "Event port": "Porta de eventos",
+      "Fan, with Rotation Speed": "Ventoinha, com Velocidade de rotação",
+      "How long a request to a player may take, and the wait for a subscription's first event": "Quanto pode demorar um pedido a um leitor, e a espera pelo primeiro evento de uma subscrição",
+      "How long each event subscription lasts before it is renewed": "Quanto dura cada subscrição de eventos antes de ser renovada",
+      "Inputs per TV": "Entradas por TV",
+      "LED poll interval (seconds)": "Intervalo de leitura dos LED (segundos)",
+      "LEDs": "LED",
+      "Leave out AirPlay players": "Excluir os leitores AirPlay",
+      "Lightbulb, with Brightness": "Lâmpada, com Brilho",
+      "Name": "Nome",
+      "Network": "Rede",
+      "Plugin name as shown in the logs": "Nome do plugin tal como aparece nos registos",
+      "Read the LEDs and button locks every so many seconds rather than at each read from HomeKit": "Ler os LED e os bloqueios dos botões a cada tantos segundos em vez de a cada leitura do HomeKit",
+      "Replaces RINCON in the TV accessories' ids, so two bridges on one network do not collide": "Substitui RINCON nos identificadores dos acessórios TV, para que duas pontes na mesma rede não colidam",
+      "Reset timeout (milliseconds)": "Tempo de reposição (milissegundos)",
+      "Service": "Serviço",
+      "Show the volume as Brightness rather than Volume, for a Switch or Speaker service": "Mostrar o volume como brilho em vez de volume, para um serviço Interruptor ou Coluna",
+      "Speaker, with Volume": "Coluna, com Volume",
+      "Speakers service": "Serviço Colunas",
+      "Subscription duration (minutes)": "Duração da subscrição (minutos)",
+      "Switch, with Volume": "Interruptor, com Volume",
+      "TV accessories": "Acessórios TV",
+      "TV id prefix": "Prefixo do identificador TV",
+      "The HomeKit service of each zone's Sonos and Speakers services, and so its volume characteristic": "O serviço HomeKit dos serviços Sonos e Colunas de cada zona, e portanto a sua característica de volume",
+      "The TCP port the players send their events to; 0 lets the system choose (a port of 1024 or less is taken as 0)": "A porta TCP para a qual os leitores enviam os seus eventos; 0 deixa o sistema escolher (uma porta de 1024 ou menos é tomada como 0)",
+      "The number of input sources on each TV accessory (16 to 96)": "O número de entradas de cada acessório TV (de 16 a 96)",
+      "Timeout (seconds)": "Tempo limite (segundos)",
+      "Timing": "Tempos",
+      "Volume as Brightness": "Volume como brilho",
+      "mDNS discovery": "Deteção mDNS"
+    }
+  }
+}
+"""#
+}

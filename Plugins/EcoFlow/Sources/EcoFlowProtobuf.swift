@@ -1,4 +1,5 @@
 import Foundation
+import HomeswiftNetwork
 
 /// The numbered fields of an EcoFlow property message, read from the protobuf wire format without its schema.
 ///
@@ -15,17 +16,7 @@ enum EcoFlowProtobuf {
     }
 
     /// The wire format's encoders, shared with the tests that build messages.
-    static func encode(_ value: UInt64) -> [UInt8] {
-        var value = value
-        var bytes: [UInt8] = []
-        repeat {
-            var byte = UInt8(value & 0x7f)
-            value >>= 7
-            if value != 0 { byte |= 0x80 }
-            bytes.append(byte)
-        } while value != 0
-        return bytes
-    }
+    static func encode(_ value: UInt64) -> [UInt8] { Protobuf.varint(value) }
 
     static func tag(_ number: Int, _ wireType: Int) -> [UInt8] { encode(UInt64(number << 3 | wireType)) }
     static func varintField(_ number: Int, _ value: UInt64) -> [UInt8] { tag(number, 0) + encode(value) }
@@ -357,25 +348,10 @@ enum EcoFlowProtobuf {
     }
 
     private static func varint(_ buffer: UnsafeRawBufferPointer, _ index: inout Int) -> UInt64? {
-        var result: UInt64 = 0
-        var shift: UInt64 = 0
-        while index < buffer.count, shift < 70 {
-            let byte = buffer[index]
-            index += 1
-            result |= UInt64(byte & 0x7F) << shift
-            if byte & 0x80 == 0 { return result }
-            shift += 7
-        }
-        return nil
+        Protobuf.readVarint(buffer, &index)
     }
 
     private static func fixed(_ buffer: UnsafeRawBufferPointer, _ index: inout Int, count: Int) -> UInt64? {
-        guard buffer.count - index >= count else { return nil }
-        var result: UInt64 = 0
-        for offset in 0..<count {
-            result |= UInt64(buffer[index + offset]) << (8 * UInt64(offset))
-        }
-        index += count
-        return result
+        Protobuf.readFixed(buffer, &index, count: count)
     }
 }

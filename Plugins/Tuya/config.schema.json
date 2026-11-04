@@ -1,0 +1,632 @@
+{
+  "pluginAlias": "TuyaPlatform",
+  "pluginType": "platform",
+  "singular": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "title": "Name",
+        "description": "The name of this instance in the logs",
+        "default": "Tuya"
+      },
+      "options": {
+        "type": "object",
+        "title": "Options",
+        "description": "The Tuya cloud project and its devices",
+        "properties": {
+          "projectType": {
+            "type": "string",
+            "title": "Project type",
+            "description": "Custom: a Custom development project. Smart Home: the account of the Tuya Smart or Smart Life app, linked to a cloud project",
+            "default": "2",
+            "oneOf": [
+              {
+                "title": "Smart Home",
+                "enum": [
+                  "2"
+                ]
+              },
+              {
+                "title": "Custom",
+                "enum": [
+                  "1"
+                ]
+              }
+            ]
+          },
+          "accessId": {
+            "type": "string",
+            "title": "Access ID",
+            "description": "The cloud project's Access ID, from the Tuya IoT Platform"
+          },
+          "endpoint": {
+            "type": "string",
+            "title": "Endpoint",
+            "description": "The data centre's OpenAPI address, such as https://openapi.tuyaeu.com. A Smart Home project uses its country's when it is empty",
+            "format": "uri"
+          },
+          "countryCode": {
+            "type": "integer",
+            "title": "Country code",
+            "description": "The calling code of the app account's country, such as 1, 33 or 49",
+            "minimum": 1
+          },
+          "username": {
+            "type": "string",
+            "title": "App account",
+            "description": "The email or phone number of the Tuya Smart or Smart Life account"
+          },
+          "appSchema": {
+            "type": "string",
+            "title": "App",
+            "description": "The app the account belongs to",
+            "default": "tuyaSmart",
+            "oneOf": [
+              {
+                "title": "Tuya Smart",
+                "enum": [
+                  "tuyaSmart"
+                ]
+              },
+              {
+                "title": "Smart Life",
+                "enum": [
+                  "smartlife"
+                ]
+              }
+            ]
+          },
+          "homeWhitelist": {
+            "type": "array",
+            "title": "Homes",
+            "description": "Only the devices of these homes, by their ids; every home when it is not set",
+            "items": {
+              "type": "integer",
+              "title": "Home ID",
+              "description": "A home's numeric id"
+            }
+          },
+          "deviceOverrides": {
+            "type": "array",
+            "title": "Overrides",
+            "description": "Changes for a device, a product or every device (global): its category, how it is published, its DPs",
+            "items": {
+              "type": "object",
+              "title": "Override",
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "title": "ID",
+                  "description": "A device id or uuid, a product id, a scene id, or global"
+                },
+                "category": {
+                  "type": "string",
+                  "title": "Category",
+                  "description": "The Tuya category code to use instead of the device's, such as kg or dj; hidden leaves the device out"
+                },
+                "unbridged": {
+                  "type": "boolean",
+                  "title": "Unbridged",
+                  "description": "Published on its own, outside the bridge: add it in the Home app as an accessory"
+                },
+                "adaptiveLighting": {
+                  "type": "boolean",
+                  "title": "Adaptive Lighting",
+                  "description": "On by default for a light with brightness and colour temperature; off turns it off"
+                },
+                "schema": {
+                  "type": "array",
+                  "title": "DP overrides",
+                  "description": "Changes to the device's DPs: a code, a type, a conversion, or hidden",
+                  "items": {
+                    "type": "object",
+                    "title": "DP override",
+                    "required": [
+                      "code"
+                    ],
+                    "properties": {
+                      "code": {
+                        "type": "string",
+                        "title": "Code",
+                        "description": "The DP's code, as the device reports it"
+                      },
+                      "newCode": {
+                        "type": "string",
+                        "title": "New code",
+                        "description": "The code Homeswift reads it as"
+                      },
+                      "type": {
+                        "type": "string",
+                        "title": "Type",
+                        "description": "The DP's type, instead of the device's",
+                        "oneOf": [
+                          {
+                            "title": "Boolean",
+                            "enum": [
+                              "Boolean"
+                            ]
+                          },
+                          {
+                            "title": "Integer",
+                            "enum": [
+                              "Integer"
+                            ]
+                          },
+                          {
+                            "title": "Enum",
+                            "enum": [
+                              "Enum"
+                            ]
+                          },
+                          {
+                            "title": "String",
+                            "enum": [
+                              "String"
+                            ]
+                          },
+                          {
+                            "title": "JSON",
+                            "enum": [
+                              "Json"
+                            ]
+                          },
+                          {
+                            "title": "Raw",
+                            "enum": [
+                              "Raw"
+                            ]
+                          }
+                        ]
+                      },
+                      "property": {
+                        "type": "object",
+                        "title": "Property",
+                        "description": "The DP's property, instead of the device's: its range, scale and step, or an Enum's values",
+                        "properties": {
+                          "min": {
+                            "type": "number",
+                            "title": "Minimum",
+                            "description": "The lowest raw value"
+                          },
+                          "max": {
+                            "type": "number",
+                            "title": "Maximum",
+                            "description": "The highest raw value"
+                          },
+                          "scale": {
+                            "type": "integer",
+                            "title": "Scale",
+                            "description": "The decimals: the value is the raw value divided by 10 to this power"
+                          },
+                          "step": {
+                            "type": "number",
+                            "title": "Step",
+                            "description": "The raw value's step"
+                          },
+                          "range": {
+                            "type": "array",
+                            "title": "Values",
+                            "description": "An Enum's values",
+                            "items": {
+                              "type": "string",
+                              "title": "Value",
+                              "description": "One of the values"
+                            }
+                          }
+                        }
+                      },
+                      "onGet": {
+                        "type": "string",
+                        "title": "Read conversion",
+                        "description": "An expression converting the device's value (value, device), such as (value * 5)"
+                      },
+                      "onSet": {
+                        "type": "string",
+                        "title": "Write conversion",
+                        "description": "An expression converting the value sent to the device; undefined does not send it"
+                      },
+                      "hidden": {
+                        "type": "boolean",
+                        "title": "Hidden",
+                        "description": "Leave the DP out, as if the device did not have it"
+                      }
+                    },
+                    "x-rowTitle": "code"
+                  }
+                }
+              },
+              "x-rowTitle": "id"
+            }
+          },
+          "debug": {
+            "type": "boolean",
+            "title": "Debug",
+            "description": "Log the API's requests and the push messages at debug level"
+          },
+          "debugLevel": {
+            "type": "string",
+            "title": "Debug filter",
+            "description": "What debug logs: api, or device ids, separated by commas; everything when it is empty"
+          }
+        }
+      }
+    }
+  },
+  "accessorySchema": {
+    "properties": {
+      "category": {
+        "type": "string",
+        "title": "Category",
+        "description": "The Tuya category code to use instead of the device's, such as kg or dj; hidden leaves the device out"
+      },
+      "unbridged": {
+        "type": "boolean",
+        "title": "Unbridged",
+        "description": "Published on its own, outside the bridge: add it in the Home app as an accessory"
+      },
+      "adaptiveLighting": {
+        "type": "boolean",
+        "title": "Adaptive Lighting",
+        "description": "On by default for a light with brightness and colour temperature; off turns it off",
+        "x-kinds": [
+          "light"
+        ]
+      },
+      "schema": {
+        "type": "array",
+        "title": "DP overrides",
+        "description": "Changes to the device's DPs: a code, a type, a conversion, or hidden",
+        "items": {
+          "type": "object",
+          "title": "DP override",
+          "required": [
+            "code"
+          ],
+          "properties": {
+            "code": {
+              "type": "string",
+              "title": "Code",
+              "description": "The DP's code, as the device reports it"
+            },
+            "newCode": {
+              "type": "string",
+              "title": "New code",
+              "description": "The code Homeswift reads it as"
+            },
+            "type": {
+              "type": "string",
+              "title": "Type",
+              "description": "The DP's type, instead of the device's",
+              "oneOf": [
+                {
+                  "title": "Boolean",
+                  "enum": [
+                    "Boolean"
+                  ]
+                },
+                {
+                  "title": "Integer",
+                  "enum": [
+                    "Integer"
+                  ]
+                },
+                {
+                  "title": "Enum",
+                  "enum": [
+                    "Enum"
+                  ]
+                },
+                {
+                  "title": "String",
+                  "enum": [
+                    "String"
+                  ]
+                },
+                {
+                  "title": "JSON",
+                  "enum": [
+                    "Json"
+                  ]
+                },
+                {
+                  "title": "Raw",
+                  "enum": [
+                    "Raw"
+                  ]
+                }
+              ]
+            },
+            "property": {
+              "type": "object",
+              "title": "Property",
+              "description": "The DP's property, instead of the device's: its range, scale and step, or an Enum's values",
+              "properties": {
+                "min": {
+                  "type": "number",
+                  "title": "Minimum",
+                  "description": "The lowest raw value"
+                },
+                "max": {
+                  "type": "number",
+                  "title": "Maximum",
+                  "description": "The highest raw value"
+                },
+                "scale": {
+                  "type": "integer",
+                  "title": "Scale",
+                  "description": "The decimals: the value is the raw value divided by 10 to this power"
+                },
+                "step": {
+                  "type": "number",
+                  "title": "Step",
+                  "description": "The raw value's step"
+                },
+                "range": {
+                  "type": "array",
+                  "title": "Values",
+                  "description": "An Enum's values",
+                  "items": {
+                    "type": "string",
+                    "title": "Value",
+                    "description": "One of the values"
+                  }
+                }
+              }
+            },
+            "onGet": {
+              "type": "string",
+              "title": "Read conversion",
+              "description": "An expression converting the device's value (value, device), such as (value * 5)"
+            },
+            "onSet": {
+              "type": "string",
+              "title": "Write conversion",
+              "description": "An expression converting the value sent to the device; undefined does not send it"
+            },
+            "hidden": {
+              "type": "boolean",
+              "title": "Hidden",
+              "description": "Leave the DP out, as if the device did not have it"
+            }
+          },
+          "x-rowTitle": "code"
+        }
+      }
+    }
+  },
+  "i18n": {
+    "fr": {
+      "A device id or uuid, a product id, a scene id, or global": "Un identifiant ou un uuid d'appareil, un identifiant de produit, de scène, ou global",
+      "A home's numeric id": "L'identifiant numérique d'un domicile",
+      "Access ID": "Access ID",
+      "Adaptive Lighting": "Éclairage adaptatif",
+      "An Enum's values": "Les valeurs d'une énumération",
+      "An expression converting the device's value (value, device), such as (value * 5)": "Une expression qui convertit la valeur de l'appareil (value, device), comme (value * 5)",
+      "An expression converting the value sent to the device; undefined does not send it": "Une expression qui convertit la valeur envoyée à l'appareil ; undefined ne l'envoie pas",
+      "App": "App",
+      "App account": "Compte de l'app",
+      "Boolean": "Booléen",
+      "Category": "Catégorie",
+      "Changes for a device, a product or every device (global): its category, how it is published, its DPs": "Des changements pour un appareil, un produit ou tous (global) : sa catégorie, sa publication, ses DP",
+      "Changes to the device's DPs: a code, a type, a conversion, or hidden": "Des changements aux DP de l'appareil : un code, un type, une conversion, ou masqué",
+      "Code": "Code",
+      "Country code": "Indicatif du pays",
+      "Custom": "Custom",
+      "Custom: a Custom development project. Smart Home: the account of the Tuya Smart or Smart Life app, linked to a cloud project": "Custom : un projet de développement Custom. Smart Home : le compte de l'app Tuya Smart ou Smart Life, lié à un projet cloud",
+      "DP override": "Remplacement de DP",
+      "DP overrides": "Remplacements de DP",
+      "Debug": "Débogage",
+      "Debug filter": "Filtre de débogage",
+      "Endpoint": "Point d'accès",
+      "Enum": "Énumération",
+      "Hidden": "Masqué",
+      "Home ID": "Identifiant du domicile",
+      "Homes": "Domiciles",
+      "ID": "Identifiant",
+      "Integer": "Entier",
+      "JSON": "JSON",
+      "Leave the DP out, as if the device did not have it": "Écarter le DP, comme si l'appareil ne l'avait pas",
+      "Log the API's requests and the push messages at debug level": "Journaliser les requêtes de l'API et les messages push au niveau débogage",
+      "Maximum": "Maximum",
+      "Minimum": "Minimum",
+      "Name": "Nom",
+      "New code": "Nouveau code",
+      "On by default for a light with brightness and colour temperature; off turns it off": "Activé par défaut pour une lumière avec luminosité et température de couleur ; désactivé l'éteint",
+      "One of the values": "Une des valeurs",
+      "Only the devices of these homes, by their ids; every home when it is not set": "Seulement les appareils de ces domiciles, par leur identifiant ; tous s'il n'est pas défini",
+      "Options": "Options",
+      "Override": "Remplacement",
+      "Overrides": "Remplacements",
+      "Project type": "Type de projet",
+      "Property": "Propriété",
+      "Published on its own, outside the bridge: add it in the Home app as an accessory": "Publié seul, hors du pont : ajoutez-le dans l'app Maison comme un accessoire",
+      "Raw": "Brut",
+      "Read conversion": "Conversion en lecture",
+      "Scale": "Échelle",
+      "Smart Home": "Smart Home",
+      "Smart Life": "Smart Life",
+      "Step": "Pas",
+      "String": "Chaîne",
+      "The DP's code, as the device reports it": "Le code du DP, tel que l'appareil l'indique",
+      "The DP's property, instead of the device's: its range, scale and step, or an Enum's values": "La propriété du DP, à la place de celle de l'appareil : sa plage, son échelle et son pas, ou les valeurs d'une énumération",
+      "The DP's type, instead of the device's": "Le type du DP, à la place de celui de l'appareil",
+      "The Tuya category code to use instead of the device's, such as kg or dj; hidden leaves the device out": "Le code de catégorie Tuya à utiliser à la place de celui de l'appareil, comme kg ou dj ; hidden l'écarte",
+      "The Tuya cloud project and its devices": "Le projet cloud Tuya et ses appareils",
+      "The app the account belongs to": "L'app du compte",
+      "The calling code of the app account's country, such as 1, 33 or 49": "L'indicatif téléphonique du pays du compte de l'app, comme 1, 33 ou 49",
+      "The cloud project's Access ID, from the Tuya IoT Platform": "L'Access ID du projet cloud, sur la Tuya IoT Platform",
+      "The code Homeswift reads it as": "Le code sous lequel Homeswift le lit",
+      "The data centre's OpenAPI address, such as https://openapi.tuyaeu.com. A Smart Home project uses its country's when it is empty": "L'adresse OpenAPI du centre de données, comme https://openapi.tuyaeu.com. Un projet Smart Home prend celle de son pays s'il est vide",
+      "The decimals: the value is the raw value divided by 10 to this power": "Les décimales : la valeur est la valeur brute divisée par 10 à cette puissance",
+      "The email or phone number of the Tuya Smart or Smart Life account": "L'e-mail ou le numéro de téléphone du compte Tuya Smart ou Smart Life",
+      "The highest raw value": "La plus grande valeur brute",
+      "The lowest raw value": "La plus petite valeur brute",
+      "The name of this instance in the logs": "Le nom de cette instance dans le journal",
+      "The raw value's step": "Le pas de la valeur brute",
+      "Tuya Smart": "Tuya Smart",
+      "Type": "Type",
+      "Unbridged": "Hors du pont",
+      "Value": "Valeur",
+      "Values": "Valeurs",
+      "What debug logs: api, or device ids, separated by commas; everything when it is empty": "Ce que le débogage journalise : api, ou des identifiants d'appareils, séparés par des virgules ; tout s'il est vide",
+      "Write conversion": "Conversion en écriture"
+    },
+    "es": {
+      "A device id or uuid, a product id, a scene id, or global": "Un identificador o uuid de dispositivo, un identificador de producto, de escena, o global",
+      "A home's numeric id": "El identificador numérico de un hogar",
+      "Access ID": "Access ID",
+      "Adaptive Lighting": "Iluminación adaptativa",
+      "An Enum's values": "Los valores de una enumeración",
+      "An expression converting the device's value (value, device), such as (value * 5)": "Una expresión que convierte el valor del dispositivo (value, device), como (value * 5)",
+      "An expression converting the value sent to the device; undefined does not send it": "Una expresión que convierte el valor enviado al dispositivo; undefined no lo envía",
+      "App": "App",
+      "App account": "Cuenta de la app",
+      "Boolean": "Booleano",
+      "Category": "Categoría",
+      "Changes for a device, a product or every device (global): its category, how it is published, its DPs": "Cambios para un dispositivo, un producto o todos (global): su categoría, su publicación, sus DP",
+      "Changes to the device's DPs: a code, a type, a conversion, or hidden": "Cambios en los DP del dispositivo: un código, un tipo, una conversión, u oculto",
+      "Code": "Código",
+      "Country code": "Prefijo del país",
+      "Custom": "Custom",
+      "Custom: a Custom development project. Smart Home: the account of the Tuya Smart or Smart Life app, linked to a cloud project": "Custom: un proyecto de desarrollo Custom. Smart Home: la cuenta de la app Tuya Smart o Smart Life, vinculada a un proyecto en la nube",
+      "DP override": "Sustitución de DP",
+      "DP overrides": "Sustituciones de DP",
+      "Debug": "Depuración",
+      "Debug filter": "Filtro de depuración",
+      "Endpoint": "Punto de acceso",
+      "Enum": "Enumeración",
+      "Hidden": "Oculto",
+      "Home ID": "Identificador del hogar",
+      "Homes": "Hogares",
+      "ID": "Identificador",
+      "Integer": "Entero",
+      "JSON": "JSON",
+      "Leave the DP out, as if the device did not have it": "Dejar fuera el DP, como si el dispositivo no lo tuviera",
+      "Log the API's requests and the push messages at debug level": "Registrar las peticiones de la API y los mensajes push en el nivel de depuración",
+      "Maximum": "Máximo",
+      "Minimum": "Mínimo",
+      "Name": "Nombre",
+      "New code": "Nuevo código",
+      "On by default for a light with brightness and colour temperature; off turns it off": "Activado por defecto en una luz con brillo y temperatura de color; desactivado lo apaga",
+      "One of the values": "Uno de los valores",
+      "Only the devices of these homes, by their ids; every home when it is not set": "Solo los dispositivos de estos hogares, por su identificador; todos si no está definido",
+      "Options": "Opciones",
+      "Override": "Sustitución",
+      "Overrides": "Sustituciones",
+      "Project type": "Tipo de proyecto",
+      "Property": "Propiedad",
+      "Published on its own, outside the bridge: add it in the Home app as an accessory": "Publicado por separado, fuera del puente: añádelo en la app Casa como un accesorio",
+      "Raw": "Sin procesar",
+      "Read conversion": "Conversión de lectura",
+      "Scale": "Escala",
+      "Smart Home": "Smart Home",
+      "Smart Life": "Smart Life",
+      "Step": "Paso",
+      "String": "Cadena",
+      "The DP's code, as the device reports it": "El código del DP, tal como lo indica el dispositivo",
+      "The DP's property, instead of the device's: its range, scale and step, or an Enum's values": "La propiedad del DP, en lugar de la del dispositivo: su rango, escala y paso, o los valores de una enumeración",
+      "The DP's type, instead of the device's": "El tipo del DP, en lugar del del dispositivo",
+      "The Tuya category code to use instead of the device's, such as kg or dj; hidden leaves the device out": "El código de categoría de Tuya que se usa en lugar del del dispositivo, como kg o dj; hidden lo deja fuera",
+      "The Tuya cloud project and its devices": "El proyecto en la nube de Tuya y sus dispositivos",
+      "The app the account belongs to": "La app de la cuenta",
+      "The calling code of the app account's country, such as 1, 33 or 49": "El prefijo telefónico del país de la cuenta de la app, como 1, 33 o 49",
+      "The cloud project's Access ID, from the Tuya IoT Platform": "El Access ID del proyecto en la nube, de la Tuya IoT Platform",
+      "The code Homeswift reads it as": "El código con el que Homeswift lo lee",
+      "The data centre's OpenAPI address, such as https://openapi.tuyaeu.com. A Smart Home project uses its country's when it is empty": "La dirección OpenAPI del centro de datos, como https://openapi.tuyaeu.com. Un proyecto Smart Home usa la de su país si está vacío",
+      "The decimals: the value is the raw value divided by 10 to this power": "Los decimales: el valor es el valor bruto dividido por 10 elevado a esta potencia",
+      "The email or phone number of the Tuya Smart or Smart Life account": "El correo o el número de teléfono de la cuenta de Tuya Smart o Smart Life",
+      "The highest raw value": "El valor bruto más alto",
+      "The lowest raw value": "El valor bruto más bajo",
+      "The name of this instance in the logs": "El nombre de esta instancia en el registro",
+      "The raw value's step": "El paso del valor bruto",
+      "Tuya Smart": "Tuya Smart",
+      "Type": "Tipo",
+      "Unbridged": "Fuera del puente",
+      "Value": "Valor",
+      "Values": "Valores",
+      "What debug logs: api, or device ids, separated by commas; everything when it is empty": "Lo que registra la depuración: api, o identificadores de dispositivos, separados por comas; todo si está vacío",
+      "Write conversion": "Conversión de escritura"
+    },
+    "pt": {
+      "A device id or uuid, a product id, a scene id, or global": "Um identificador ou uuid de dispositivo, um identificador de produto, de cena, ou global",
+      "A home's numeric id": "O identificador numérico de uma casa",
+      "Access ID": "Access ID",
+      "Adaptive Lighting": "Iluminação adaptativa",
+      "An Enum's values": "Os valores de uma enumeração",
+      "An expression converting the device's value (value, device), such as (value * 5)": "Uma expressão que converte o valor do dispositivo (value, device), como (value * 5)",
+      "An expression converting the value sent to the device; undefined does not send it": "Uma expressão que converte o valor enviado ao dispositivo; undefined não o envia",
+      "App": "App",
+      "App account": "Conta da app",
+      "Boolean": "Booleano",
+      "Category": "Categoria",
+      "Changes for a device, a product or every device (global): its category, how it is published, its DPs": "Alterações para um dispositivo, um produto ou todos (global): a sua categoria, a sua publicação, os seus DP",
+      "Changes to the device's DPs: a code, a type, a conversion, or hidden": "Alterações aos DP do dispositivo: um código, um tipo, uma conversão, ou oculto",
+      "Code": "Código",
+      "Country code": "Indicativo do país",
+      "Custom": "Custom",
+      "Custom: a Custom development project. Smart Home: the account of the Tuya Smart or Smart Life app, linked to a cloud project": "Custom: um projeto de desenvolvimento Custom. Smart Home: a conta da app Tuya Smart ou Smart Life, ligada a um projeto na nuvem",
+      "DP override": "Substituição de DP",
+      "DP overrides": "Substituições de DP",
+      "Debug": "Depuração",
+      "Debug filter": "Filtro de depuração",
+      "Endpoint": "Ponto de acesso",
+      "Enum": "Enumeração",
+      "Hidden": "Oculto",
+      "Home ID": "Identificador da casa",
+      "Homes": "Casas",
+      "ID": "Identificador",
+      "Integer": "Inteiro",
+      "JSON": "JSON",
+      "Leave the DP out, as if the device did not have it": "Deixar o DP de fora, como se o dispositivo não o tivesse",
+      "Log the API's requests and the push messages at debug level": "Registar os pedidos da API e as mensagens push no nível de depuração",
+      "Maximum": "Máximo",
+      "Minimum": "Mínimo",
+      "Name": "Nome",
+      "New code": "Novo código",
+      "On by default for a light with brightness and colour temperature; off turns it off": "Ativado por omissão numa luz com brilho e temperatura de cor; desativado desliga-o",
+      "One of the values": "Um dos valores",
+      "Only the devices of these homes, by their ids; every home when it is not set": "Apenas os dispositivos destas casas, pelo seu identificador; todas quando não está definido",
+      "Options": "Opções",
+      "Override": "Substituição",
+      "Overrides": "Substituições",
+      "Project type": "Tipo de projeto",
+      "Property": "Propriedade",
+      "Published on its own, outside the bridge: add it in the Home app as an accessory": "Publicado à parte, fora da ponte: adicione-o na app Casa como um acessório",
+      "Raw": "Bruto",
+      "Read conversion": "Conversão de leitura",
+      "Scale": "Escala",
+      "Smart Home": "Smart Home",
+      "Smart Life": "Smart Life",
+      "Step": "Passo",
+      "String": "Cadeia",
+      "The DP's code, as the device reports it": "O código do DP, tal como o dispositivo o indica",
+      "The DP's property, instead of the device's: its range, scale and step, or an Enum's values": "A propriedade do DP, em vez da do dispositivo: o seu intervalo, escala e passo, ou os valores de uma enumeração",
+      "The DP's type, instead of the device's": "O tipo do DP, em vez do do dispositivo",
+      "The Tuya category code to use instead of the device's, such as kg or dj; hidden leaves the device out": "O código de categoria Tuya a usar em vez do do dispositivo, como kg ou dj; hidden deixa-o de fora",
+      "The Tuya cloud project and its devices": "O projeto na nuvem Tuya e os seus dispositivos",
+      "The app the account belongs to": "A app da conta",
+      "The calling code of the app account's country, such as 1, 33 or 49": "O indicativo telefónico do país da conta da app, como 1, 33 ou 49",
+      "The cloud project's Access ID, from the Tuya IoT Platform": "O Access ID do projeto na nuvem, da Tuya IoT Platform",
+      "The code Homeswift reads it as": "O código com que o Homeswift o lê",
+      "The data centre's OpenAPI address, such as https://openapi.tuyaeu.com. A Smart Home project uses its country's when it is empty": "O endereço OpenAPI do centro de dados, como https://openapi.tuyaeu.com. Um projeto Smart Home usa o do seu país quando está vazio",
+      "The decimals: the value is the raw value divided by 10 to this power": "As casas decimais: o valor é o valor bruto dividido por 10 elevado a esta potência",
+      "The email or phone number of the Tuya Smart or Smart Life account": "O email ou o número de telefone da conta Tuya Smart ou Smart Life",
+      "The highest raw value": "O valor bruto mais alto",
+      "The lowest raw value": "O valor bruto mais baixo",
+      "The name of this instance in the logs": "O nome desta instância no registo",
+      "The raw value's step": "O passo do valor bruto",
+      "Tuya Smart": "Tuya Smart",
+      "Type": "Tipo",
+      "Unbridged": "Fora da ponte",
+      "Value": "Valor",
+      "Values": "Valores",
+      "What debug logs: api, or device ids, separated by commas; everything when it is empty": "O que a depuração regista: api, ou identificadores de dispositivos, separados por vírgulas; tudo quando está vazio",
+      "Write conversion": "Conversão de escrita"
+    }
+  }
+}
