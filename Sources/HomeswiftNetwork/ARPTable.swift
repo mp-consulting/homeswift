@@ -15,6 +15,37 @@ public enum ARPTable {
         #endif
     }
 
+    /// Every complete entry of the table: the IPv4 addresses this machine talked to lately and their MAC addresses
+    /// (`MACAddress.canonical`). Plugins filter it by a vendor's prefix to find devices that announce nothing.
+    public static func entries() async -> [(ip: String, mac: String)] {
+        #if canImport(Darwin)
+        guard let output = await run("/usr/sbin/arp", ["-an"]) else { return [] }
+        return darwinEntries(in: output)
+        #else
+        guard let table = try? String(contentsOfFile: "/proc/net/arp", encoding: .utf8) else { return [] }
+        return linuxEntries(in: table)
+        #endif
+    }
+
+    /// `arp -an`'s lines: `? (192.168.1.20) at 0:11:22:aa:bb:c on en0 ifscope [ethernet]`.
+    static func darwinEntries(in output: String) -> [(ip: String, mac: String)] {
+        output.split(separator: "\n").compactMap { line in
+            guard let open = line.firstIndex(of: "("), let close = line[open...].firstIndex(of: ")") else { return nil }
+            let ip = String(line[line.index(after: open)..<close])
+            guard WakeOnLAN.ipv4(ip) != nil, let mac = darwinEntry(in: String(line), ip: ip) else { return nil }
+            return (ip, mac)
+        }
+    }
+
+    /// `/proc/net/arp`'s complete entries.
+    static func linuxEntries(in table: String) -> [(ip: String, mac: String)] {
+        table.split(separator: "\n").dropFirst().compactMap { line in
+            let columns = line.split(whereSeparator: \.isWhitespace)
+            guard columns.count >= 4, columns[2] != "0x0", let mac = normalized(String(columns[3])) else { return nil }
+            return (String(columns[0]), mac)
+        }
+    }
+
     /// `? (192.168.1.20) at 0:11:22:aa:bb:c on en0 ifscope [ethernet]`: macOS drops leading zeros.
     static func darwinEntry(in output: String, ip: String) -> String? {
         let marker = "(\(ip)) at "

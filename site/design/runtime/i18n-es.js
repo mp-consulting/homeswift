@@ -63,6 +63,7 @@ HomeswiftI18n.add("es", {
   "Purifiers and fans: speed, oscillation, heat, humidity and air quality": "Purificadores y ventiladores: velocidad, oscilación, calor, humedad y calidad del aire",
   "Sonoff and other eWeLink switches, outlets, lights, curtains and sensors": "Interruptores, enchufes, luces, cortinas y sensores Sonoff y otros eWeLink",
   "Power stations and home batteries: charge, and their power live": "Estaciones de energía y baterías domésticas: carga, y su potencia en directo",
+  "Reolink cameras, doorbells, NVRs and Home Hubs: live video, motion, people and vehicles, floodlights": "Cámaras, timbres, NVR y Home Hubs de Reolink: vídeo en directo, movimiento, personas y vehículos, focos",
   "Ring alarms, cameras, doorbells, chimes and Smart Lighting": "Alarmas, cámaras, timbres, carillones y Smart Lighting de Ring",
   "Sonos speakers: play, volume and groups, favourites as TV inputs, LEDs and alarms": "Altavoces Sonos: reproducción, volumen y grupos, favoritos como entradas de TV, LED y alarmas",
   "Tuya and Smart Life devices through the Tuya cloud": "Dispositivos Tuya y Smart Life a través de la nube de Tuya",

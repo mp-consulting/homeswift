@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The Reolink plugin (platform `Reolink`, experimental, a clean-room implementation of reolink-aio's behaviour): each camera,
+  doorbell or NVR and Home Hub channel as a camera accessory of its own with live video, snapshots and HomeKit Secure
+  Video through FFmpeg, motion and AI detections (person, vehicle, pet, face, package) and doorbell presses by Baichuan
+  push with HTTP polling as the fallback, floodlights, sirens and IR lights; set up on Add accessories by address with a
+  local user. `HomeswiftFFmpeg` gains `RTSPRecordingSource` (HomeKit Secure Video from an RTSP source, with a prebuffer)
+  and `HomeswiftNetwork` `ARPTable.entries()`.
+
 ## [0.20.1] - 2026-11-04
 
 ### Fixed
