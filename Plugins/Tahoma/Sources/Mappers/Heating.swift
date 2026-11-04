@@ -47,12 +47,12 @@ class ThermostatMapper: Mapper, @unchecked Sendable {
             CharacteristicType.targetHeatingCoolingState.with(validValues: modes.sorted()),
         ], isPrimary: true)
         let target = thermostat.characteristic(.targetTemperature)
-        if let value = target.value.doubleValue { target.setClamped(value) } else { target.setClamped(minimumTemperature) }
+        target.setClamped(target.value.doubleValue ?? minimumTemperature)
         if let initialTarget { thermostat.characteristic(.targetHeatingCoolingState).value = .int(initialTarget) }
         if let initialCurrent { thermostat.characteristic(.currentHeatingCoolingState).value = .int(initialCurrent) }
         if hasProg { thermostat.characteristic(adding: TahomaCharacteristics.prog).value = false }
         if hasEco { thermostat.characteristic(adding: TahomaCharacteristics.eco).value = false }
-        if measuresEnergy { thermostat.characteristic(adding: EveCharacteristics.totalConsumption).value = .double(0) }
+        if measuresEnergy { thermostat.characteristic(adding: EveCharacteristic.totalConsumption).value = .double(0) }
         self.thermostat = thermostat
 
         thermostat.characteristic(.targetHeatingCoolingState).onWrite { [weak self] value in
@@ -137,29 +137,32 @@ class ThermostatMapper: Mapper, @unchecked Sendable {
     func showProg(_ value: Bool) { thermostat[TahomaCharacteristics.prog]?.value = .bool(value) }
     func showEco(_ value: Bool) { thermostat[TahomaCharacteristics.eco]?.value = .bool(value) }
 
-    /// A state of the device or of an attached sensor.
-    func anyState(_ name: String) -> JSONValue? {
-        if let value = state(name) { return value }
-        for sensor in sensors { if let value = environment.store.value(sensor.deviceURL, name) { return value } }
-        return nil
+    /// `core:TemperatureState`, in kelvin above 273.15.
+    func showCurrentTemperature(_ states: [String: JSONValue]) {
+        guard let temperature = states["core:TemperatureState"]?.number else { return }
+        thermostat.characteristic(.currentTemperature).setClamped(temperature > 273.15 ? temperature - 273.15 : temperature)
+    }
+
+    /// A derogated target temperature for `derogationDuration` hours.
+    func derogationCommands(_ value: Double) -> [OverkizCommand] {
+        [
+            OverkizCommand("setDerogatedTargetTemperature", .number(value)), OverkizCommand("setDerogationTime", .number(options.derogationDuration)),
+            OverkizCommand("setDerogationOnOffState", "on"),
+        ]
+    }
+
+    /// The derogated target with Prog, the target otherwise.
+    func progTemperatureCommands(_ value: Double) -> [OverkizCommand] {
+        [OverkizCommand(prog ? "setDerogatedTargetTemperature" : "setTargetTemperature", .number(value))]
     }
 
     override func apply(_ states: [String: JSONValue], from deviceURL: String) {
-        if let temperature = states["core:TemperatureState"]?.number {
-            thermostat.characteristic(.currentTemperature).setClamped(temperature > 273.15 ? temperature - 273.15 : temperature)
-        }
+        showCurrentTemperature(states)
         if deviceURL == device.deviceURL, let target = states["core:TargetTemperatureState"]?.number { showTarget(temperature: target) }
         if let energy = states["core:ElectricEnergyConsumptionState"]?.number {
-            thermostat[EveCharacteristics.totalConsumption]?.setClamped(energy / 1000)
+            thermostat[EveCharacteristic.totalConsumption]?.setClamped(energy / 1000)
         }
     }
-}
-
-/// The Eve characteristics a thermostat or a sensor of energy shows (5.13).
-enum EveCharacteristics {
-    static let totalConsumption = CharacteristicType(
-        name: "Total Consumption", uuid: HAPUUID("E863F10C-079E-48FF-8F27-9C2605A29F52"), format: .float, permissions: [.pairedRead, .events],
-        minValue: 0, maxValue: 1_000_000, minStep: 0.1)
 }
 
 /// `HitachiAirToWaterMainComponent`: the base thermostat from 0 °C.
@@ -195,22 +198,22 @@ final class PilotWireHeaterMapper: ThermostatMapper, @unchecked Sendable {
     }
 
     override func writeTemperature(_ value: Double) async throws {
-        guard targetState != HAP.off else { return }
-        let snapped = Self.snap(value, comfort: options.comfort, eco: options.eco)
-        if snapped != value { showTarget(temperature: snapped) }
-        let commands: [OverkizCommand]
-        switch snapped {
-        case 7:
-            commands = [OverkizCommand("setHeatingLevel", "frostprotection")]
-            show(target: HAP.cool, always: true)
-        case options.eco:
-            commands = [OverkizCommand("setHeatingLevel", "eco")]
-            show(target: HAP.cool, always: true)
-        default:
-            commands = [OverkizCommand("setHeatingLevel", "comfort")]
-            show(target: HAP.heat, always: true)
+        // The write stores the value asked once the handler returns: the snapped one (or, while off, the one shown
+        // before) is put back just after.
+        let target = thermostat.characteristic(.targetTemperature)
+        guard targetState != HAP.off else {
+            target.revert(to: target.value, after: scaled(0.05))
+            return
         }
-        try await execute(commands)
+        let snapped = Self.snap(value, comfort: options.comfort, eco: options.eco)
+        if snapped != value { target.revert(to: .double(snapped), after: scaled(0.05)) }
+        let (level, mode) = switch snapped {
+        case 7: ("frostprotection", HAP.cool)
+        case options.eco: ("eco", HAP.cool)
+        default: ("comfort", HAP.heat)
+        }
+        show(target: mode, always: true)
+        try await execute([OverkizCommand("setHeatingLevel", .string(level))])
     }
 
     override func apply(_ states: [String: JSONValue], from deviceURL: String) {
@@ -258,9 +261,7 @@ final class AdjustableSetpointHeaterMapper: ThermostatMapper, @unchecked Sendabl
         }
     }
 
-    override func temperatureCommands(_ value: Double) -> [OverkizCommand] {
-        [OverkizCommand(prog ? "setDerogatedTargetTemperature" : "setTargetTemperature", .number(value))]
-    }
+    override func temperatureCommands(_ value: Double) -> [OverkizCommand] { progTemperatureCommands(value) }
 
     override func computeStates() {
         guard let mode = string("core:OperatingModeState") else { return }
@@ -300,9 +301,7 @@ final class TowelDryerMapper: ThermostatMapper, @unchecked Sendable {
             : [OverkizCommand("setTowelDryerOperatingMode", .string(prog ? "internal" : "external"))]
     }
 
-    override func temperatureCommands(_ value: Double) -> [OverkizCommand] {
-        [OverkizCommand(prog ? "setDerogatedTargetTemperature" : "setTargetTemperature", .number(value))]
-    }
+    override func temperatureCommands(_ value: Double) -> [OverkizCommand] { progTemperatureCommands(value) }
 
     override func switchCommands(_ subtype: String, on: Bool) -> [OverkizCommand] {
         guard on else { return [OverkizCommand("setTowelDryerTemporaryState", "permanentHeating")] }
@@ -384,24 +383,32 @@ final class EvoHomeSetPointMapper: ThermostatMapper, @unchecked Sendable {
     override var initialTarget: Int? { HAP.auto }
 }
 
-/// `SomfyThermostat`: derogations "until further notice".
-final class SomfyThermostatMapper: ThermostatMapper, @unchecked Sendable {
-    override var modes: [Int] { [HAP.off, HAP.heat, HAP.cool, HAP.auto] }
-    override var minimumTemperature: Double { 0 }
-    override var maximumTemperature: Double { 26 }
+/// A thermostat whose modes and temperatures are derogations "until further notice", AUTO leaving them.
+class DerogationThermostatMapper: ThermostatMapper, @unchecked Sendable {
+    override var modes: [Int] { HAP.allModes }
+    /// The derogation modes of HEAT, COOL and OFF.
+    var derogationModes: (heat: String, cool: String, off: String) { ("comfort", "eco", "away") }
 
     override func stateCommands(_ target: Int) -> [OverkizCommand] {
+        let modes = derogationModes
         switch target {
-        case HAP.auto: [OverkizCommand("exitDerogation")]
-        case HAP.heat: [OverkizCommand("setDerogation", ["atHomeMode", "further_notice"])]
-        case HAP.cool: [OverkizCommand("setDerogation", ["sleepingMode", "further_notice"])]
-        default: [OverkizCommand("setDerogation", ["awayMode", "further_notice"])]
+        case HAP.auto: return [OverkizCommand("exitDerogation")]
+        case HAP.heat: return [OverkizCommand("setDerogation", [.string(modes.heat), "further_notice"])]
+        case HAP.cool: return [OverkizCommand("setDerogation", [.string(modes.cool), "further_notice"])]
+        default: return [OverkizCommand("setDerogation", [.string(modes.off), "further_notice"])]
         }
     }
 
     override func temperatureCommands(_ value: Double) -> [OverkizCommand] {
         [OverkizCommand("setDerogation", [.number(value), "further_notice"])]
     }
+}
+
+/// `SomfyThermostat`.
+final class SomfyThermostatMapper: DerogationThermostatMapper, @unchecked Sendable {
+    override var derogationModes: (heat: String, cool: String, off: String) { ("atHomeMode", "sleepingMode", "awayMode") }
+    override var minimumTemperature: Double { 0 }
+    override var maximumTemperature: Double { 26 }
 
     static let modeTemperatures = [
         "atHomeMode": "AtHome", "geofencingMode": "GeofencingMode", "manualMode": "ManualMode", "sleepingMode": "SleepingMode",
@@ -424,7 +431,7 @@ final class SomfyThermostatMapper: ThermostatMapper, @unchecked Sendable {
 
 /// `SomfyHeatingTemperatureInterface`: Prog and Eco.
 final class SomfyHeatingInterfaceMapper: ThermostatMapper, @unchecked Sendable {
-    override var modes: [Int] { [HAP.off, HAP.heat, HAP.cool, HAP.auto] }
+    override var modes: [Int] { HAP.allModes }
     override var minimumTemperature: Double { 0 }
     override var maximumTemperature: Double { 26 }
     override var hasProg: Bool { true }
@@ -462,21 +469,7 @@ final class SomfyHeatingInterfaceMapper: ThermostatMapper, @unchecked Sendable {
 }
 
 /// `ValveHeatingTemperatureInterface`.
-final class ValveHeatingInterfaceMapper: ThermostatMapper, @unchecked Sendable {
-    override var modes: [Int] { [HAP.off, HAP.heat, HAP.cool, HAP.auto] }
-
-    override func stateCommands(_ target: Int) -> [OverkizCommand] {
-        switch target {
-        case HAP.auto: [OverkizCommand("exitDerogation")]
-        case HAP.heat: [OverkizCommand("setDerogation", ["comfort", "further_notice"])]
-        case HAP.cool: [OverkizCommand("setDerogation", ["eco", "further_notice"])]
-        default: [OverkizCommand("setDerogation", ["away", "further_notice"])]
-        }
-    }
-
-    override func temperatureCommands(_ value: Double) -> [OverkizCommand] {
-        [OverkizCommand("setDerogation", [.number(value), "further_notice"])]
-    }
+final class ValveHeatingInterfaceMapper: DerogationThermostatMapper, @unchecked Sendable {
 
     override func apply(_ states: [String: JSONValue], from deviceURL: String) {
         super.apply(states, from: deviceURL)
@@ -513,12 +506,7 @@ final class PassAPCHeatingZoneMapper: ThermostatMapper, @unchecked Sendable {
     }
 
     override func temperatureCommands(_ value: Double) -> [OverkizCommand] {
-        if prog {
-            return [
-                OverkizCommand("setDerogatedTargetTemperature", .number(value)), OverkizCommand("setDerogationTime", .number(options.derogationDuration)),
-                OverkizCommand("setDerogationOnOffState", "on"),
-            ]
-        }
+        if prog { return derogationCommands(value) }
         return [OverkizCommand(eco ? "setEcoHeatingTargetTemperature" : "setComfortHeatingTargetTemperature", .number(value))]
     }
 
@@ -572,12 +560,7 @@ final class PassAPCHeatingCoolingZoneMapper: ThermostatMapper, @unchecked Sendab
 
     override func temperatureCommands(_ value: Double) -> [OverkizCommand] {
         if prog {
-            if device.has("setDerogatedTargetTemperature") {
-                return [
-                    OverkizCommand("setDerogatedTargetTemperature", .number(value)),
-                    OverkizCommand("setDerogationTime", .number(options.derogationDuration)), OverkizCommand("setDerogationOnOffState", "on"),
-                ]
-            }
+            if device.has("setDerogatedTargetTemperature") { return derogationCommands(value) }
             let ecoProfile = state("core:Eco\(mode)TargetTemperatureState") != nil && state("core:Eco\(mode)TargetTemperatureState") == state("core:TargetTemperatureState")
             return [OverkizCommand("set\(ecoProfile ? "Eco" : "Comfort")\(mode)TargetTemperature", .number(value))]
         }
@@ -586,9 +569,7 @@ final class PassAPCHeatingCoolingZoneMapper: ThermostatMapper, @unchecked Sendab
     }
 
     override func apply(_ states: [String: JSONValue], from deviceURL: String) {
-        if let temperature = states["core:TemperatureState"]?.number {
-            thermostat.characteristic(.currentTemperature).setClamped(temperature > 273.15 ? temperature - 273.15 : temperature)
-        }
+        showCurrentTemperature(states)
         if deviceURL == device.deviceURL, let target = states["core:TargetTemperatureState"]?.number, target >= 16 { showTarget(temperature: target) }
     }
 
@@ -607,7 +588,7 @@ final class PassAPCHeatingCoolingZoneMapper: ThermostatMapper, @unchecked Sendab
 
 /// `AtlanticPassAPCHeatPump`: its target temperature is read-only.
 final class PassAPCHeatPumpMapper: ThermostatMapper, @unchecked Sendable {
-    override var modes: [Int] { [HAP.off, HAP.heat, HAP.cool, HAP.auto] }
+    override var modes: [Int] { HAP.allModes }
     override var minimumTemperature: Double { 0 }
     override var targetTemperatureWritable: Bool { false }
 
@@ -631,7 +612,7 @@ final class PassAPCHeatPumpMapper: ThermostatMapper, @unchecked Sendable {
 
 /// `AtlanticPassAPCZoneControl`.
 final class PassAPCZoneControlMapper: ThermostatMapper, @unchecked Sendable {
-    override var modes: [Int] { [HAP.off, HAP.heat, HAP.cool, HAP.auto] }
+    override var modes: [Int] { HAP.allModes }
     override var targetTemperatureWritable: Bool { false }
 
     override func stateCommands(_ target: Int) -> [OverkizCommand] {
@@ -696,7 +677,7 @@ final class StateSwitchMapper: Mapper, @unchecked Sendable {
 
 /// `HitachiHeatingSystem/HitachiAirToAirHeatPump`: every write is one `globalControl`.
 final class HitachiAirToAirMapper: ThermostatMapper, @unchecked Sendable {
-    override var modes: [Int] { [HAP.off, HAP.heat, HAP.cool, HAP.auto] }
+    override var modes: [Int] { HAP.allModes }
     override var minimumTemperature: Double { 16 }
 
     override func stateCommands(_ target: Int) -> [OverkizCommand] { globalControl(state: target, temperature: targetTemperature) }
@@ -705,7 +686,7 @@ final class HitachiAirToAirMapper: ThermostatMapper, @unchecked Sendable {
 
     func globalControl(state: Int, temperature: Double) -> [OverkizCommand] {
         let onOff = state == HAP.off ? "off" : "on"
-        var heatMode: String
+        let heatMode: String
         switch state {
         case HAP.heat: heatMode = "heating"
         case HAP.cool: heatMode = "cooling"
@@ -719,7 +700,6 @@ final class HitachiAirToAirMapper: ThermostatMapper, @unchecked Sendable {
         }
         value = value.rounded()
         logger.debug("[\(label)] FROM \(currentState)/\(targetTemperature) TO \(state)/\(value)")
-        heatMode = heatMode == "auto" ? "auto" : heatMode
         return [OverkizCommand("globalControl", [.string(onOff), .number(value), "auto", .string(heatMode), "manu"])]
     }
 

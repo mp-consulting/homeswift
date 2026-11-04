@@ -71,10 +71,8 @@ class GarageDoorMapper: Mapper, @unchecked Sendable {
 
     override func apply(_ states: [String: JSONValue], from deviceURL: String) {
         guard deviceURL == device.deviceURL else { return }
-        for name in Self.doorStates { if let value = states[name]?.stringValue { show(value) } }
+        for name in GarageDoorMapper.expectedStates { if let value = states[name]?.stringValue { show(value) } }
     }
-
-    class var doorStates: [String] { GarageDoorMapper.expectedStates }
 }
 
 /// `Gate` (5.6): the garage door, with a pedestrian opening on a Lock Mechanism (subtype `pedestrian`).
@@ -84,7 +82,6 @@ final class GateMapper: GarageDoorMapper, @unchecked Sendable {
     override class var expectedStates: [String] { ["core:OpenClosedPedestrianState", "core:OpenClosedState"] }
     override class var category: AccessoryCategory { .garageDoorOpener }
     override class var kind: String { "gate" }
-    override class var doorStates: [String] { ["core:OpenClosedState"] }
 
     private(set) var pedestrian: Service?
 
@@ -117,10 +114,7 @@ final class GateMapper: GarageDoorMapper, @unchecked Sendable {
                 let milliseconds = options.pedestrianDuration * 1000
                 logger.info("[\(label)] Will stop movement in \(Int(milliseconds)) millisec")
                 let execID = update.execID
-                schedule("stop", after: scaled(options.pedestrianDuration)) { [weak self] in
-                    guard let self else { return }
-                    if isIdle { _ = try? await execute([OverkizCommand("stop")], standalone: true) } else { try? await environment.executions.cancel(execID) }
-                }
+                schedule("stop", after: scaled(options.pedestrianDuration)) { [weak self] in await self?.stopMovement(execID: execID) }
             case .completed where stateless:
                 showPedestrian(target == HAP.secured ? "closed" : "pedestrian")
                 if cyclic { schedule("cycle", after: scaled(options.cycleDuration)) { [weak self] in self?.showPedestrian("closed") } }

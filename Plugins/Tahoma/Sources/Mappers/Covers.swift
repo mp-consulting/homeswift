@@ -36,6 +36,9 @@ class RollerShutterMapper: Mapper, @unchecked Sendable {
     /// The command for a stateful device's target position.
     func positionCommands(_ position: Double) -> [OverkizCommand] { [OverkizCommand("setClosure", .number(converted(position)))] }
 
+    /// The one state an Uno variant follows for both positions, or nil for the full read rules.
+    class var followedState: String? { nil }
+
     /// `open` and `close`, or the awning's `deploy` and `undeploy`.
     var openCommand: String { "open" }
     var closeCommand: String { "close" }
@@ -63,8 +66,26 @@ class RollerShutterMapper: Mapper, @unchecked Sendable {
         return [service]
     }
 
+    /// Shows the followed state on both positions, the target only while idle; false for a mapper that reads them all.
+    func followed(_ states: [String: JSONValue], from deviceURL: String) -> Bool {
+        guard let name = Self.followedState else { return false }
+        guard deviceURL == device.deviceURL, let value = states[name].flatMap(reading) else { return true }
+        service.characteristic(.currentPosition).setClamped(converted(value))
+        if isIdle { service.characteristic(.targetPosition).setClamped(converted(value)) }
+        return true
+    }
+
+    /// The position a stateless cover shows after a move: `defaultPosition`, else `fallback`.
+    func shownPosition(or fallback: Double) -> Double { options.defaultPosition != 0 ? options.defaultPosition : fallback }
+
+    /// A failed or timed-out move: obstruction for a hazard, and the target back on the current position.
+    func showFailure(_ update: ExecutionUpdate) {
+        service[.obstructionDetected]?.value = .bool(update.failureType == "WHILEEXEC_BLOCKED_BY_HAZARD")
+        if !hasState("core:TargetClosureState") { service.characteristic(.targetPosition).value = service.characteristic(.currentPosition).value }
+    }
+
     override func apply(_ states: [String: JSONValue], from deviceURL: String) {
-        guard deviceURL == device.deviceURL else { return }
+        guard !followed(states, from: deviceURL), deviceURL == device.deviceURL else { return }
         if let closure = states["core:ClosureState"].flatMap(reading) {
             service.characteristic(.currentPosition).setClamped(converted(closure))
             if !hasState("core:TargetClosureState"), isIdle { service.characteristic(.targetPosition).setClamped(converted(closure)) }
@@ -127,8 +148,7 @@ class RollerShutterMapper: Mapper, @unchecked Sendable {
             completed(target: target)
         case .failed, .timedOut:
             service.characteristic(.positionState).value = .int(HAP.stopped)
-            service[.obstructionDetected]?.value = .bool(update.failureType == "WHILEEXEC_BLOCKED_BY_HAZARD")
-            if !hasState("core:TargetClosureState") { service.characteristic(.targetPosition).value = service.characteristic(.currentPosition).value }
+            showFailure(update)
         default:
             break
         }
@@ -137,7 +157,7 @@ class RollerShutterMapper: Mapper, @unchecked Sendable {
     func completed(target: Double) {
         service.characteristic(.positionState).value = .int(HAP.stopped)
         if stateless {
-            let shown = options.defaultPosition != 0 ? options.defaultPosition : target
+            let shown = shownPosition(or: target)
             service.characteristic(.currentPosition).setClamped(shown)
             service.characteristic(.targetPosition).setClamped(shown)
         } else {
@@ -145,17 +165,8 @@ class RollerShutterMapper: Mapper, @unchecked Sendable {
             if options.blindsOnRollerShutter, target < 98 {
                 // A 2 % move back from the closure reached, for blinds hung on a roller shutter's motor (10.9).
                 let closure = max(0, converted(target) - 2)
-                Task { try? await self.execute([OverkizCommand("setClosure", .number(closure))]) }
+                schedule("blindsOffset", after: .zero) { [weak self] in _ = try? await self?.execute([OverkizCommand("setClosure", .number(closure))]) }
             }
-        }
-    }
-
-    /// The end of a timed move: `stop` once the move's execution ended, else that execution cancelled.
-    func stopMovement(execID: String) async {
-        if isIdle {
-            _ = try? await execute([OverkizCommand("stop")], standalone: true)
-        } else {
-            try? await environment.executions.cancel(execID)
         }
     }
 
@@ -166,14 +177,13 @@ class RollerShutterMapper: Mapper, @unchecked Sendable {
             case .completed:
                 service[TahomaCharacteristics.my]?.value = false
                 if stateless {
-                    let shown = options.defaultPosition != 0 ? options.defaultPosition : 50
+                    let shown = shownPosition(or: 50)
                     service.characteristic(.currentPosition).setClamped(shown)
                     service.characteristic(.targetPosition).setClamped(shown)
                 }
             case .failed, .timedOut:
                 service[TahomaCharacteristics.my]?.value = false
-                service[.obstructionDetected]?.value = .bool(update.failureType == "WHILEEXEC_BLOCKED_BY_HAZARD")
-                if !hasState("core:TargetClosureState") { service.characteristic(.targetPosition).value = service.characteristic(.currentPosition).value }
+                showFailure(update)
             default:
                 break
             }
@@ -183,11 +193,7 @@ class RollerShutterMapper: Mapper, @unchecked Sendable {
 
 /// `PositionableRollerShutterUno`: only `core:TargetClosureState` is read (5.3.3).
 final class RollerShutterUnoMapper: RollerShutterMapper, @unchecked Sendable {
-    override func apply(_ states: [String: JSONValue], from deviceURL: String) {
-        guard deviceURL == device.deviceURL, let target = states["core:TargetClosureState"].flatMap(reading) else { return }
-        if isIdle { service.characteristic(.targetPosition).setClamped(converted(target)) }
-        service.characteristic(.currentPosition).setClamped(converted(target))
-    }
+    override class var followedState: String? { "core:TargetClosureState" }
 }
 
 /// `PositionableRollerShutterWithLowSpeedManagement` (5.3.4): `setClosureAndLinearSpeed` with `lowspeed` when
@@ -206,7 +212,7 @@ final class LowSpeedRollerShutterMapper: RollerShutterMapper, @unchecked Sendabl
         guard let text = option.stringValue else { return false }
         if ["always", "true"].contains(text.lowercased()) { return true }
         let parts = text.split(whereSeparator: { $0 == "-" || $0 == ":" }).compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
-        guard parts.count == 4 else { return false }
+        guard parts.count == 4, (0...24).contains(parts[0]), (0...24).contains(parts[2]), (0..<60).contains(parts[1]), (0..<60).contains(parts[3]) else { return false }
         let start = parts[0] * 60 + parts[1], end = parts[2] * 60 + parts[3]
         let components = calendar.dateComponents([.hour, .minute, .second], from: date)
         let now = Double((components.hour ?? 0) * 60 + (components.minute ?? 0)) + Double(components.second ?? 0) / 60
@@ -224,7 +230,7 @@ final class WindowMapper: RollerShutterMapper, @unchecked Sendable {
     override func build() throws -> [Service] {
         let services = try super.build()
         if stateless {
-            let initial = options.initPosition ?? (options.defaultPosition != 0 ? options.defaultPosition : 50)
+            let initial = options.initPosition ?? shownPosition(or: 50)
             service.characteristic(.currentPosition).setClamped(initial)
             service.characteristic(.targetPosition).setClamped(initial)
         }
@@ -248,13 +254,8 @@ final class PergolaAwningUnoMapper: RollerShutterMapper, @unchecked Sendable {
 
 /// `Pergola/BioclimaticPergola` (5.3.7): the slats only.
 final class BioclimaticPergolaMapper: RollerShutterMapper, @unchecked Sendable {
+    override class var followedState: String? { "core:SlatsOrientationState" }
     override func positionCommands(_ position: Double) -> [OverkizCommand] { [OverkizCommand("setOrientation", .number(converted(position)))] }
-
-    override func apply(_ states: [String: JSONValue], from deviceURL: String) {
-        guard deviceURL == device.deviceURL, let orientation = states["core:SlatsOrientationState"]?.number else { return }
-        service.characteristic(.currentPosition).setClamped(converted(orientation))
-        if isIdle { service.characteristic(.targetPosition).setClamped(converted(orientation)) }
-    }
 }
 
 // MARK: - Awnings (5.3.6)
@@ -267,7 +268,7 @@ class AwningMapper: RollerShutterMapper, @unchecked Sendable {
     override func positionCommands(_ position: Double) -> [OverkizCommand] { [OverkizCommand("setDeployment", .number(converted(position)))] }
 
     override func apply(_ states: [String: JSONValue], from deviceURL: String) {
-        guard deviceURL == device.deviceURL else { return }
+        guard !followed(states, from: deviceURL), deviceURL == device.deviceURL else { return }
         for name in ["core:DeploymentState", "core:ClosureState"] {
             guard let value = states[name]?.number else { continue }
             service.characteristic(.currentPosition).setClamped(converted(value))
@@ -282,11 +283,7 @@ class AwningMapper: RollerShutterMapper, @unchecked Sendable {
 
 /// `Awning/PositionableHorizontalAwningUno`: only `core:TargetClosureState`, with the awning's conversion.
 final class AwningUnoMapper: AwningMapper, @unchecked Sendable {
-    override func apply(_ states: [String: JSONValue], from deviceURL: String) {
-        guard deviceURL == device.deviceURL, let target = states["core:TargetClosureState"]?.number else { return }
-        if isIdle { service.characteristic(.targetPosition).setClamped(converted(target)) }
-        service.characteristic(.currentPosition).setClamped(converted(target))
-    }
+    override class var followedState: String? { "core:TargetClosureState" }
 }
 
 // MARK: - Venetian blinds (5.4)
@@ -324,12 +321,14 @@ class VenetianBlindMapper: RollerShutterMapper, @unchecked Sendable {
     }
 
     override func positionCommands(_ position: Double) -> [OverkizCommand] {
-        if options.blindMode {
-            if position == 100 { return [OverkizCommand("open")] }
-            if device.has(closureAndOrientation) { return [OverkizCommand(closureAndOrientation, [100, .number(converted(position))])] }
-            return [OverkizCommand("setClosure", 100), OverkizCommand("setOrientation", .number(converted(position)))]
-        }
-        return commands(position: position, angle: targetAngle)
+        options.blindMode ? blindModeCommands(position) : commands(position: position, angle: targetAngle)
+    }
+
+    /// With `blindMode`, the main slider moves the slats of a closed blind.
+    func blindModeCommands(_ position: Double) -> [OverkizCommand] {
+        if position == 100 { return [OverkizCommand("open")] }
+        if device.has(closureAndOrientation) { return [OverkizCommand(closureAndOrientation, [100, .number(converted(position))])] }
+        return [OverkizCommand("setClosure", 100), OverkizCommand("setOrientation", .number(converted(position)))]
     }
 
     func commands(position: Double, angle: Double) -> [OverkizCommand] {
@@ -377,12 +376,9 @@ class VenetianBlindMapper: RollerShutterMapper, @unchecked Sendable {
 final class AdjustableSlatsMapper: VenetianBlindMapper, @unchecked Sendable {
     override var closureAndOrientation: String { "setClosureOrOrientation" }
 
-    override func positionCommands(_ position: Double) -> [OverkizCommand] {
-        if options.blindMode {
-            if position == 100 { return [OverkizCommand("setClosure", 0)] }
-            return [OverkizCommand(closureAndOrientation, [100, .number(converted(position))])]
-        }
-        return commands(position: position, angle: targetAngle)
+    override func blindModeCommands(_ position: Double) -> [OverkizCommand] {
+        if position == 100 { return [OverkizCommand("setClosure", 0)] }
+        return [OverkizCommand(closureAndOrientation, [100, .number(converted(position))])]
     }
 
     override func commands(position: Double, angle: Double) -> [OverkizCommand] {

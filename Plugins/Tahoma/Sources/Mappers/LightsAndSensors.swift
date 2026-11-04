@@ -21,7 +21,7 @@ final class LightMapper: Mapper, @unchecked Sendable {
             light = Service(.switch, name: label, isPrimary: true)
         }
         light.characteristic(.on).onWrite { [weak self] value in
-            try await self?.execute([OverkizCommand(value.boolValue == true ? "on" : "off")])
+            try await self?.writeOnOff(value.boolValue == true)
         }
         light[.brightness]?.onWrite { [weak self] value in
             guard let self, await debounced("brightness") else { return }
@@ -62,7 +62,7 @@ final class OnOffMapper: Mapper, @unchecked Sendable {
     override func build() throws -> [Service] {
         let power = Service(.switch, name: label, isPrimary: true)
         power.characteristic(.on).onWrite { [weak self] value in
-            try await self?.execute([OverkizCommand(value.boolValue == true ? "on" : "off")])
+            try await self?.writeOnOff(value.boolValue == true)
         }
         self.power = power
         return [power]
@@ -83,7 +83,7 @@ final class DimmerExteriorHeatingMapper: Mapper, @unchecked Sendable {
     override func build() throws -> [Service] {
         let light = Service(.lightbulb, name: label, optional: [.brightness], isPrimary: true)
         light.characteristic(.on).onWrite { [weak self] value in
-            try await self?.execute([OverkizCommand(value.boolValue == true ? "on" : "off")])
+            try await self?.writeOnOff(value.boolValue == true)
         }
         light.characteristic(.brightness).onWrite { [weak self] value in
             guard let self else { return }
@@ -112,7 +112,8 @@ final class SirenMapper: Mapper, @unchecked Sendable {
     override func build() throws -> [Service] {
         let speaker = Service(.speaker, name: label, optional: [.volume], isPrimary: true)
         speaker.characteristic(.mute).value = true
-        speaker.characteristic(.mute).onWrite { [weak self] value in
+        // Mute silences a sounding alarm: a security control, as the alarm's target is.
+        speaker.characteristic(.mute).securityControl().onWrite { [weak self] value in
             try await self?.execute([OverkizCommand(value.boolValue == true ? "off" : "on")])
         }
         speaker.characteristic(.volume).onWrite { [weak self] value in
@@ -153,6 +154,13 @@ class SensorMapper: Mapper, @unchecked Sendable {
         return [sensor]
     }
 
+    /// A Contact Sensor's state from each of `names` present, in order: 1 (no contact) when `isOpen`.
+    func showContact(_ states: [String: JSONValue], _ names: [String], isOpen: (String) -> Bool) {
+        for name in names {
+            if let value = states[name]?.stringValue { sensor.characteristic(.contactSensorState).value = .int(isOpen(value) ? 1 : 0) }
+        }
+    }
+
     override func apply(_ states: [String: JSONValue], from deviceURL: String) {
         guard deviceURL == device.deviceURL else { return }
         read(states)
@@ -172,23 +180,21 @@ class SensorMapper: Mapper, @unchecked Sendable {
 /// `ContactSensor`: 0 (contact) while closed.
 final class ContactSensorMapper: SensorMapper, @unchecked Sendable {
     override func read(_ states: [String: JSONValue]) {
-        if let value = states["core:ContactState"]?.stringValue { sensor.characteristic(.contactSensorState).value = .int(value == "closed" ? 0 : 1) }
+        showContact(states, ["core:ContactState"]) { $0 != "closed" }
     }
 }
 
 /// `WindowHandle`.
 final class WindowHandleMapper: SensorMapper, @unchecked Sendable {
     override func read(_ states: [String: JSONValue]) {
-        for name in ["core:ThreeWayHandleDirectionState", "core:OpenClosedState"] {
-            if let value = states[name]?.stringValue { sensor.characteristic(.contactSensorState).value = .int(value == "closed" ? 0 : 1) }
-        }
+        showContact(states, ["core:ThreeWayHandleDirectionState", "core:OpenClosedState"]) { $0 != "closed" }
     }
 }
 
 /// `RainSensor`: a Contact Sensor that is open while it rains, as the Homebridge plugin showed it (its service stays).
 final class RainSensorMapper: SensorMapper, @unchecked Sendable {
     override func read(_ states: [String: JSONValue]) {
-        if let value = states["core:RainState"]?.stringValue { sensor.characteristic(.contactSensorState).value = .int(value == "detected" ? 1 : 0) }
+        showContact(states, ["core:RainState"]) { $0 == "detected" }
     }
 }
 
@@ -196,7 +202,7 @@ final class RainSensorMapper: SensorMapper, @unchecked Sendable {
 /// name had a trailing space and never matched, 10.10).
 final class WaterDetectionContactMapper: SensorMapper, @unchecked Sendable {
     override func read(_ states: [String: JSONValue]) {
-        if let value = states["core:WaterDetectionState"]?.stringValue { sensor.characteristic(.contactSensorState).value = .int(value == "detected" ? 0 : 1) }
+        showContact(states, ["core:WaterDetectionState"]) { $0 != "detected" }
     }
 }
 

@@ -24,7 +24,7 @@ final class PassAPCDHWMapper: WaterHeaterMapper, @unchecked Sendable {
     }
 
     override func temperatureCommands(_ value: Double) -> [OverkizCommand] {
-        [OverkizCommand(targetState == HAP.cool ? "setEcoTargetDHWTemperature" : "setComfortTargetDHWTemperature", .number(value))]
+        [OverkizCommand(eco ? "setEcoTargetDHWTemperature" : "setComfortTargetDHWTemperature", .number(value))]
     }
 
     override func switchCommands(_ subtype: String, on: Bool) -> [OverkizCommand] {
@@ -89,13 +89,7 @@ class HotWaterProductionMapper: WaterHeaterMapper, @unchecked Sendable {
 
     override func stateCommands(_ target: Int) -> [OverkizCommand] {
         if device.has("setDHWMode") {
-            var commands = targetState == HAP.off ? [OverkizCommand("setAbsenceMode", "off")] : []
-            switch target {
-            case HAP.auto: commands.append(OverkizCommand("setDHWMode", "autoMode"))
-            case HAP.heat: commands.append(OverkizCommand("setDHWMode", .string(eco ? "manualEcoActive" : "manualEcoInactive")))
-            default: commands = [OverkizCommand("setAbsenceMode", "on")]
-            }
-            return commands
+            return dhwModeCommands(target, leaveAbsence: OverkizCommand("setAbsenceMode", "off"), enterAbsence: OverkizCommand("setAbsenceMode", "on"))
         }
         if device.has("setCurrentOperatingMode") {
             switch target {
@@ -119,6 +113,16 @@ class HotWaterProductionMapper: WaterHeaterMapper, @unchecked Sendable {
             }
         }
         return []
+    }
+
+    /// `setDHWMode` for AUTO and HEAT, leaving absence first when it was OFF; `enterAbsence` for OFF.
+    func dhwModeCommands(_ target: Int, leaveAbsence: OverkizCommand, enterAbsence: OverkizCommand) -> [OverkizCommand] {
+        let leaving = targetState == HAP.off ? [leaveAbsence] : []
+        switch target {
+        case HAP.auto: return leaving + [OverkizCommand("setDHWMode", "autoMode")]
+        case HAP.heat: return leaving + [OverkizCommand("setDHWMode", .string(eco ? "manualEcoActive" : "manualEcoInactive"))]
+        default: return [enterAbsence]
+        }
     }
 
     override func temperatureCommands(_ value: Double) -> [OverkizCommand] { [OverkizCommand("setWaterTargetTemperature", .number(value))] }
@@ -149,12 +153,10 @@ class HotWaterProductionMapper: WaterHeaterMapper, @unchecked Sendable {
         guard absence == "off" else { return show(current: HAP.off, target: HAP.off) }
         switch string("\(prefix):DHWModeState") {
         case "autoMode": show(current: HAP.heat, target: HAP.auto)
-        case "manualEcoInactive":
-            showEco(false)
-            show(current: HAP.heat, target: HAP.heat)
-        case "manualEcoActive":
-            showEco(true)
-            show(current: HAP.cool, target: HAP.heat)
+        case let mode? where mode == "manualEcoInactive" || mode == "manualEcoActive":
+            let eco = mode == "manualEcoActive"
+            showEco(eco)
+            show(current: eco ? HAP.cool : HAP.heat, target: HAP.heat)
         default: break
         }
     }
@@ -168,13 +170,9 @@ final class HotWaterSplitMapper: HotWaterProductionMapper, @unchecked Sendable {
     override var temperatureStep: Double { 0.5 }
 
     override func stateCommands(_ target: Int) -> [OverkizCommand] {
-        var commands = targetState == HAP.off ? [OverkizCommand("setCurrentOperatingMode", ["relaunch": "off", "absence": "off"])] : []
-        switch target {
-        case HAP.auto: commands.append(OverkizCommand("setDHWMode", "autoMode"))
-        case HAP.heat: commands.append(OverkizCommand("setDHWMode", .string(eco ? "manualEcoActive" : "manualEcoInactive")))
-        default: commands = [OverkizCommand("setCurrentOperatingMode", ["relaunch": "off", "absence": "on"])]
-        }
-        return commands
+        dhwModeCommands(
+            target, leaveAbsence: OverkizCommand("setCurrentOperatingMode", ["relaunch": "off", "absence": "off"]),
+            enterAbsence: OverkizCommand("setCurrentOperatingMode", ["relaunch": "off", "absence": "on"]))
     }
 
     /// 54 is sent as 54.5, as the Homebridge plugin did.
@@ -199,11 +197,8 @@ final class HotWaterSplitMapper: HotWaterProductionMapper, @unchecked Sendable {
         let heating = (number("io:PowerHeatElectricalState") ?? 0) > 100 || (number("io:PowerHeatPumpState") ?? 0) > 100
         switch string("io:DHWModeState") {
         case "autoMode": show(current: heating ? HAP.heat : HAP.off, target: HAP.auto)
-        case "manualEcoInactive":
-            showEco(false)
-            show(current: heating ? HAP.heat : HAP.off, target: HAP.heat)
-        case "manualEcoActive":
-            showEco(true)
+        case let mode? where mode == "manualEcoInactive" || mode == "manualEcoActive":
+            showEco(mode == "manualEcoActive")
             show(current: heating ? HAP.heat : HAP.off, target: HAP.heat)
         default: break
         }

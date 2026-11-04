@@ -24,8 +24,6 @@ final class StateStore: Sendable {
         states.withLockedValue { $0[deviceURL] ?? [:] }
     }
 
-    func knows(_ deviceURL: String) -> Bool { states.withLockedValue { $0[deviceURL] != nil } }
-
     /// Applies new values to a known device and answers those that changed or are new, compared as JSON (an object
     /// state changes too, docs/clean-room/Tahoma.md 10.8). An unknown device changes nothing.
     func apply(_ deviceURL: String, _ new: [String: JSONValue]) -> [String: JSONValue] {
@@ -67,7 +65,8 @@ struct DeviceOptions: Sendable, Equatable {
 
     init(_ fields: [String: JSONValue]) {
         func flag(_ key: String) -> Bool { fields[key]?.boolValue ?? (fields[key]?.number.map { $0 != 0 } ?? false) }
-        func number(_ key: String) -> Double? { fields[key]?.number.flatMap { $0 != 0 ? $0 : nil } }
+        // At most a day (durations in seconds, temperatures): an option is written through the UI and MCP too.
+        func number(_ key: String) -> Double? { fields[key]?.number.flatMap { $0 != 0 && $0.isFinite ? min(max($0, -86400), 86400) : nil } }
         func text(_ key: String) -> String? { fields[key]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } }
         reverse = flag("reverse")
         defaultPosition = min(100, max(0, number("defaultPosition") ?? 0))
@@ -204,7 +203,7 @@ class Mapper: @unchecked Sendable {
     /// Waits 500 ms and says whether this is still the latest write for `key` (a slider sends one command, not thirty).
     func debounced(_ key: String) async -> Bool { await debounce(key) }
 
-    func scaled(_ seconds: Double) -> Duration { .milliseconds(Int((seconds * 1000 * environment.timeScale).rounded())) }
+    func scaled(_ seconds: Double) -> Duration { scaledDuration(seconds, by: environment.timeScale) }
 
     /// Sends commands for the device (6.4); `feedback` hears each state of its action. An empty list is "No target
     /// command" (HAP's resource does not exist); a failed post is a communication failure.
@@ -239,6 +238,11 @@ class Mapper: @unchecked Sendable {
         }
     }
 
+    /// `on` or `off`.
+    func writeOnOff(_ on: Bool) async throws {
+        try await execute([OverkizCommand(on ? "on" : "off")])
+    }
+
     /// Runs `body` after `delay` unless another timer of the same key replaces it first.
     func schedule(_ key: String, after delay: Duration, _ body: @escaping @Sendable () async -> Void) {
         let task = Task {
@@ -253,6 +257,15 @@ class Mapper: @unchecked Sendable {
         previous?.cancel()
     }
 
+    /// The end of a timed move: `stop` once the move's execution ended, else that execution cancelled.
+    func stopMovement(execID: String) async {
+        if isIdle {
+            _ = try? await execute([OverkizCommand("stop")], standalone: true)
+        } else {
+            try? await environment.executions.cancel(execID)
+        }
+    }
+
     func cancelTimer(_ key: String) {
         lock.withLockedValue { $0.timers.removeValue(forKey: key) }?.cancel()
     }
@@ -265,6 +278,13 @@ class Mapper: @unchecked Sendable {
         }
         timers.forEach { $0.cancel() }
     }
+}
+
+/// `seconds` times a test's time scale.
+func scaledDuration(_ seconds: Double, by timeScale: Double) -> Duration {
+    let milliseconds = (seconds * 1000 * timeScale).rounded()
+    guard milliseconds.isFinite, milliseconds > 0 else { return .zero }
+    return .milliseconds(Int(min(milliseconds, 1e15)))
 }
 
 extension Characteristic {
@@ -290,7 +310,8 @@ extension Service {
 enum HAP {
     static let decreasing = 0, increasing = 1, stopped = 2
     static let doorOpen = 0, doorClosed = 1, doorOpening = 2, doorClosing = 3, doorStopped = 4
-    static let unsecured = 0, secured = 1, jammed = 2, lockUnknown = 3
+    static let unsecured = 0, secured = 1, lockUnknown = 3
     static let stay = 0, away = 1, night = 2, disarm = 3, triggered = 4
     static let off = 0, heat = 1, cool = 2, auto = 3
+    static let allModes = [off, heat, cool, auto]
 }

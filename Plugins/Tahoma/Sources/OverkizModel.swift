@@ -1,5 +1,6 @@
 import Crypto
 import Foundation
+import Homeswift
 import HomeswiftAI
 import HomeswiftPlugin
 
@@ -38,13 +39,6 @@ struct OverkizDevice: Sendable, Equatable {
 
     var isMain: Bool { component == 1 }
 
-    /// The gateway's PIN, the URL's host part (`io://1234-5678-9012/7654321`).
-    var gatewayID: String? {
-        guard let scheme = deviceURL.range(of: "://") else { return nil }
-        let rest = deviceURL[scheme.upperBound...]
-        return rest.split(separator: "/", maxSplits: 1).first.map(String.init)
-    }
-
     func has(_ command: String) -> Bool { commands.contains(command) }
 
     /// The Serial Number (4.2): the URL without what lies between its first and last `/`, at most 64 characters.
@@ -71,9 +65,8 @@ struct OverkizDevice: Sendable, Equatable {
         var bytes = Array(Insecure.SHA1.hash(data: namespace + Array(name.utf8)).prefix(16))
         bytes[6] = (bytes[6] & 0x0F) | 0x50
         bytes[8] = (bytes[8] & 0x3F) | 0x80
-        let hex = bytes.map { String(format: "%02x", $0) }.joined()
-        let parts = [hex.prefix(8), hex.dropFirst(8).prefix(4), hex.dropFirst(12).prefix(4), hex.dropFirst(16).prefix(4), hex.dropFirst(20)]
-        return parts.joined(separator: "-")
+        let hex = Array(Secrets.hex(bytes))
+        return [0..<8, 8..<12, 12..<16, 16..<20, 20..<32].map { String(hex[$0]) }.joined(separator: "-")
     }
 }
 
