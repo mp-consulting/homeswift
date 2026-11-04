@@ -3597,6 +3597,8 @@
           }
           reset.hidden = unset;
         }
+        container.addEventListener("change", () => { followDefault(); paint(); });
+        queueMicrotask(() => { followDefault(); paint(); });
         paint();
         return { element, get: () => chosen };
       }
@@ -3740,6 +3742,56 @@
           el("button", { actionIcon: "plus", text: noun ? t("Add {item}", { item: noun.toLowerCase() }) : t("Add"), onclick: () => addRow(undefined) }));
         return { element, get: () => { const v = rows.map((r) => r.get()).filter((x) => x !== undefined); return v.length ? v : undefined; } };
       }
+      if (type === "string" && property["x-schema-form"]?.type === "menu" && property["x-schema-form"].source) {
+        // A pop-up menu of choices the bridge lists when it opens, from the form as it stands (the Assistant's Model:
+        // the models of the provider chosen above, with its key): Default (X), the choices, and Other… to type one.
+        // `by` and `defaults`: the field whose value picks the default shown (the provider), and each one's.
+        const { source, by, defaults: perChoice } = property["x-schema-form"];
+        let chosen = typeof current === "string" && current ? current : undefined;
+        let fallbackName = typeof property.placeholder === "string" ? property.placeholder : null;
+        const followDefault = () => { if (by && perChoice && typeof perChoice === "object") fallbackName = perChoice[getValue()[by]] ?? fallbackName; };
+        const button = el("button", { type: "button", class: "select-button", "aria-haspopup": "menu" });
+        const element = el("div", { class: "field" }, el("span", { class: "field-title" }, title), button, help);
+        const paint = () => {
+          button.textContent = chosen ?? defaultText(fallbackName);
+          button.classList.toggle("placeholder", !chosen);
+        };
+        const choose = (value) => {
+          chosen = value || undefined;
+          paint();
+          element.dispatchEvent(new Event("input", { bubbles: true }));
+          element.dispatchEvent(new Event("change", { bubbles: true }));
+        };
+        button.addEventListener("click", async (event) => {
+          const keyboard = event.detail === 0;
+          if (button.getAttribute("aria-busy") === "true") return;
+          button.setAttribute("aria-busy", "true");
+          let answer;
+          try { answer = await api(source, { method: "POST", body: { block: getValue() } }); } catch (e) { answer = { models: [], error: e.message }; }
+          button.removeAttribute("aria-busy");
+          if (typeof answer.default === "string") { fallbackName = answer.default; paint(); }
+          const listed = Array.isArray(answer.models) ? answer.models : [];
+          const ids = listed.map((one) => one.id);
+          HomeswiftCommon.menu(button, [
+            { label: defaultText(fallbackName), checked: !chosen, onSelect: () => choose(undefined) },
+            answer.error ? { heading: t("The list could not be read"), detail: answer.error } : null,
+            listed.length || (chosen && !ids.includes(chosen)) ? { separator: true } : null,
+            // One typed before, or no longer listed, stays a choice.
+            chosen && !ids.includes(chosen) ? { label: chosen, checked: true, onSelect: () => {} } : null,
+            ...listed.map((one) => ({ label: one.name || one.id, checked: one.id === chosen, onSelect: () => choose(one.id) })),
+            { separator: true },
+            { label: t("Other…"), icon: "edit", pinned: true, onSelect: async () => {
+              const text = await HomeswiftCommon.promptDialog(tr(property.description) ?? title, chosen ?? "");
+              if (text !== null) choose(text.trim());
+              button.focus();
+            } },
+          ], { keyboard, search: listed.length > 8 ? t("Search") : null });
+        });
+        container.addEventListener("change", () => { followDefault(); paint(); });
+        queueMicrotask(() => { followDefault(); paint(); });
+        paint();
+        return { element, get: () => chosen };
+      }
       const input = el("input", { type: property["x-schema-form"] && property["x-schema-form"].type === "password" ? "password" : "text", value: current ?? "", placeholder: inherits ? defaultText(fallback ?? property.default) : tr(property.placeholder ?? property["x-schema-form"]?.placeholder) ?? property.default ?? "", required });
       if (property["x-schema-form"]?.type === "file") return { element: el("div", {}, wrap(input), dropZone(key, input, property["x-schema-form"].accept)), get: () => (input.value === "" ? undefined : input.value) };
       // A secret's key (the rule references resolve by): a value typed, or an entry of the vault.
@@ -3852,8 +3904,8 @@
           node = el("div", { class: `form-subgroup${compact ? " compact" : ""}` }, el("h4", { text: tr(item.title) }), help, el("div", { class: "fields" }, ...inner));
         } else if (item.type === "fieldset" || item.title) {
           const count = el("span", { class: "group-count" });
-          // Only a group that closes says it; a list alone (a controller's entries) is no count of settings.
-          if (item.expandable && own.some((key) => properties[key]?.type !== "array")) groupCounts.push({ count, keys: own });
+          // Only a group that closes says it; a list or a box alone (a controller's entries, a budget) is no count of settings.
+          if (item.expandable && own.some((key) => !["array", "object"].includes(properties[key]?.type))) groupCounts.push({ count, keys: own });
           node = el("details", { class: "group-box", "data-section": item.section || slug(item.title || ""), open: !item.expandable || item.expanded !== false },
             el("summary", {}, item.icon ? HomeswiftCommon.icon(item.icon) : null, el("span", { text: tr(item.title) || t("More") }), count), help, el("div", { class: "fields" }, ...inner));
         } else {
@@ -3900,7 +3952,9 @@
     const countGroups = () => {
       if (!groupCounts.length) return;
       const model = getValue();
-      for (const { count, keys } of groupCounts) {
+      for (const { count, keys: all } of groupCounts) {
+        // The ones on screen: a field its condition hides (another provider's) is not counted.
+        const keys = all.filter((key) => !fields.get(key)?.element.classList.contains("hidden"));
         // Set: a value of its own other than the default the schema declares (a switch left on as it comes is not).
         const set = keys.filter((key) => isSet(model[key]) && JSON.stringify(model[key]) !== JSON.stringify(properties[key]?.default)).length;
         const one = keys.length === 1;

@@ -37,24 +37,54 @@ extension HomeswiftCatalog {
     /// and address: a form that points elsewhere tests with a key typed into it, or the bridge would send its secrets
     /// wherever the form says.
     public func testAssistantConnection(block: JSONValue?, user: String?) async -> JSONValue {
-        let saved = ((try? readConfig())?["platforms"]?.arrayValue ?? []).first { $0["platform"]?.stringValue == AIConfiguration.platform }
-        guard var tested = block ?? saved else {
-            return ConnectionTestResult(ok: false, message: "There is no HomeswiftAiKit block: choose a provider first.").json
-        }
-        let sameService = tested["provider"] == saved?["provider"] && tested["baseUrl"] == saved?["baseUrl"]
-        if !sameService, Self.holdsSuppliedSecret(tested) {
-            return ConnectionTestResult(ok: false, message: "Type the API key to test another provider or address: a saved key goes only to the saved one.").json
-        }
-        if let saved, Redaction.containsRedacted(tested) { tested = (try? Redaction.restoreSecrets(tested, from: saved)) ?? tested }
-        // A sealed key or a reference (`vault:`, `env:`) is sent as the key it stands for.
-        do {
-            tested = try ConfigurationSecrets.opening(block: tested, storage: storageDirectory)
-        } catch {
-            return ConnectionTestResult(ok: false, message: "\(error)").json
+        let tested: JSONValue
+        switch assistantBlock(block) {
+        case .success(let block): tested = block
+        case .failure(let problem): return ConnectionTestResult(ok: false, message: problem.description).json
         }
         let result = await AssistantService.testConnection(block: tested, transport: host.aiTransport, usage: host.assistant?.usage, user: user)
         logger.info("Assistant connection test", metadata: ["ok": "\(result.ok)", "provider": "\(result.provider ?? "?")", "model": "\(result.model ?? "?")"])
         return result.json
+    }
+
+    /// A problem with the block a request to the provider would be made with, in words.
+    struct AssistantBlockProblem: Error, CustomStringConvertible { var description: String }
+
+    /// The `HomeswiftAiKit` block a request to the provider goes with (the form's, saved or not; the saved one when nil),
+    /// its keys as they are sent: `__REDACTED__` from the saved block, a sealed key or a reference opened. A key the
+    /// bridge supplies goes only to the saved block's provider and address.
+    func assistantBlock(_ block: JSONValue?, purpose: String = "test") -> Result<JSONValue, AssistantBlockProblem> {
+        let saved = ((try? readConfig())?["platforms"]?.arrayValue ?? []).first { $0["platform"]?.stringValue == AIConfiguration.platform }
+        guard var tested = block ?? saved else {
+            return .failure(AssistantBlockProblem(description: "There is no HomeswiftAiKit block: choose a provider first."))
+        }
+        let sameService = tested["provider"] == saved?["provider"] && tested["baseUrl"] == saved?["baseUrl"]
+        if !sameService, Self.holdsSuppliedSecret(tested) {
+            return .failure(AssistantBlockProblem(description: "Type the API key to \(purpose) another provider or address: a saved key goes only to the saved one."))
+        }
+        if let saved, Redaction.containsRedacted(tested) { tested = (try? Redaction.restoreSecrets(tested, from: saved)) ?? tested }
+        // A sealed key or a reference (`vault:`, `env:`) is sent as the key it stands for.
+        do {
+            return .success(try ConfigurationSecrets.opening(block: tested, storage: storageDirectory))
+        } catch {
+            return .failure(AssistantBlockProblem(description: "\(error)"))
+        }
+    }
+
+    /// The models the block's provider offers (the settings form's block, saved or not; the saved one when nil), for the
+    /// Model menu: `{ models: [{ id, name }], default }`, or `{ models: [], default, error }` when the provider cannot
+    /// be asked. Its key goes as the connection test's does.
+    public func assistantModels(block: JSONValue?) async -> JSONValue {
+        let provider = (block?["provider"]?.stringValue).flatMap(AIConfiguration.ProviderKind.init(rawValue:)) ?? .anthropic
+        var answer: [String: JSONValue] = ["default": .string(provider.defaultModel), "models": []]
+        do {
+            let listed = try assistantBlock(block, purpose: "list the models of").get()
+            let models = try await AIConfiguration(block: listed).listModels(transport: host.aiTransport)
+            answer["models"] = .array(models.map(\.json))
+        } catch {
+            answer["error"] = .string(Redaction.redactText("\(error)"))
+        }
+        return .object(answer)
     }
 
     /// Whether a secret-named value of `block` is one the bridge fills in: the placeholder, a sealed value or a reference.
