@@ -1,5 +1,6 @@
 import Foundation
 import Homeswift
+import HomeswiftFFmpeg
 
 /// FFmpeg's command lines for live streams and recordings (sections 6.4 and 6.7), as argv: no shell is involved.
 enum FFmpegArguments {
@@ -79,8 +80,7 @@ enum FFmpegArguments {
         } else {
             arguments += ["-an"]
         }
-        let profile = [H264Profile.high: "high", .main: "main"][video.parameters.profile] ?? "baseline"
-        let level = [H264Level.level4_0: "4.0", .level3_2: "3.2"][video.parameters.level] ?? "3.1"
+        let profile = h264ProfileArg(video.parameters.profile), level = h264LevelArg(video.parameters.level)
         let interval = Double(video.parameters.iFrameInterval) / 1000
         let seconds = interval == interval.rounded() ? String(Int(interval)) : String(interval)
         arguments += [

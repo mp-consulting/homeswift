@@ -123,7 +123,8 @@ extension GoogleNestSDMPlugin {
       "FFmpeg's -probesize for the camera streams": "Le -probesize de FFmpeg pour les flux des caméras",
       "Device Access": "Device Access",
       "Thermostats": "Thermostats",
-      "Cameras": "Caméras"
+      "Cameras": "Caméras",
+      "libx264 -preset ultrafast -tune zerolatency": "libx264 -preset ultrafast -tune zerolatency"
     },
     "es": {
       "Name": "Nombre",
@@ -148,7 +149,8 @@ extension GoogleNestSDMPlugin {
       "FFmpeg's -probesize for the camera streams": "El -probesize de FFmpeg para las transmisiones de las cámaras",
       "Device Access": "Device Access",
       "Thermostats": "Termostatos",
-      "Cameras": "Cámaras"
+      "Cameras": "Cámaras",
+      "libx264 -preset ultrafast -tune zerolatency": "libx264 -preset ultrafast -tune zerolatency"
     },
     "pt": {
       "Name": "Nome",
@@ -173,7 +175,8 @@ extension GoogleNestSDMPlugin {
       "FFmpeg's -probesize for the camera streams": "O -probesize do FFmpeg para as transmissões das câmaras",
       "Device Access": "Device Access",
       "Thermostats": "Termostatos",
-      "Cameras": "Câmaras"
+      "Cameras": "Câmaras",
+      "libx264 -preset ultrafast -tune zerolatency": "libx264 -preset ultrafast -tune zerolatency"
     }
   }
 }

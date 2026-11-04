@@ -29,12 +29,12 @@ extension GoogleNestSDMPlugin {
         if !devicesLoaded, case .success(let account) = account() {
             devices = (try? await SDMClient(caller: caller(for: account), projectID: account.projectID).listDevices()) ?? []
         }
-        return devices.compactMap { device -> [DiscoveredDevice]? in
-            guard let kind = device.kind else { return nil }
+        return devices.flatMap { device -> [DiscoveredDevice] in
+            guard let kind = device.kind else { return [] }
             let entry = DiscoveredDevice(deviceID: device.name, name: device.displayName, model: kind.suffix, isSetUp: true, kind: kind.suffix.lowercased())
             guard kind == .thermostat, options.showFan else { return [entry] }
             return [entry, DiscoveredDevice(deviceID: "\(device.name) Fan", name: "\(device.displayName) Fan", model: "Thermostat Fan", isSetUp: true, kind: "fan")]
-        }.flatMap { $0 }.sorted { $0.name < $1.name }
+        }.sorted { $0.name < $1.name }
     }
 
     /// The project's keys, then Google's page and the address it ends on.
@@ -92,11 +92,10 @@ extension GoogleNestSDMPlugin {
             throw SetupError("Could not keep the refresh token: \(error)")
         }
         logger.info("Signed in through Setup: \(count) devices shared.")
-        var settings: [String: JSONValue] = [
-            "projectId": project["projectId"] ?? .null, "clientId": project["clientId"] ?? .null, "subscriptionId": project["subscriptionId"] ?? .null,
-            "clientSecret": .null, "refreshToken": .null,
-        ]
-        if let gcp = project["gcpProjectId"] { settings["gcpProjectId"] = gcp }
+        // The project's keys are Plugin Settings; the secrets are not the block's.
+        var settings = project
+        settings["clientSecret"] = .null
+        settings["refreshToken"] = .null
         return .done(SetupOutcome(credentials: ["clientSecret": .string(value("clientSecret"))], settings: settings))
     }
 

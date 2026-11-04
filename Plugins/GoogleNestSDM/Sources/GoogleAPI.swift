@@ -172,12 +172,18 @@ struct GoogleCaller: Sendable {
         throw NestError.http(status: 401, message: "Unauthorized")
     }
 
+    static let googleDomains = ["google.com", "googleapis.com", "googleusercontent.com", "nest.com"]
+
     /// The bytes at `url` with this Authorization header (an event image's `Basic <token>`, a clip preview's Bearer).
     func download(_ url: URL, authorization: String?) async throws -> Data {
         var request = HTTPRequest(url: url, timeout: .seconds(20))
         if let authorization {
             request.setHeader("Authorization", authorization)
         } else {
+            // The account's token goes to Google only, over HTTPS: the URL comes from an event.
+            guard url.scheme == "https", let host = url.host?.lowercased(), Self.googleDomains.contains(where: { host == $0 || host.hasSuffix(".\($0)") }) else {
+                throw NestError.invalidResponse("not a Google address")
+            }
             request.setHeader("Authorization", "Bearer \(try await tokens.token())")
         }
         let response = try await transport.send(request)

@@ -242,18 +242,15 @@ final class NestThermostat: @unchecked Sendable {
                 log.error("\(accessory.name): the thermostat does not have the mode \(mode)")
                 throw HAPStatusError(.invalidValueInRequest, reason: "The thermostat does not have this mode")
             }
-            try await command("ThermostatMode.SetMode", ["mode": .string(mode)], update: ["ThermostatMode": ["mode": .string(mode)]])
+            try await command("ThermostatMode.SetMode", ["mode": .string(mode)])
         }
         service.characteristic(.targetTemperature).onWrite { [weak self] value in
             guard let self, let celsius = value.doubleValue else { return }
             let state = state
             guard state.canSetTargetTemperature else { throw refused("Set the target temperature in heat or cool, with eco off") }
             guard await setpoints("target") else { return }
-            if state.mode == "HEAT" {
-                try await command("ThermostatTemperatureSetpoint.SetHeat", ["heatCelsius": .number(celsius)], update: ["ThermostatTemperatureSetpoint": ["heatCelsius": .number(celsius)]])
-            } else {
-                try await command("ThermostatTemperatureSetpoint.SetCool", ["coolCelsius": .number(celsius)], update: ["ThermostatTemperatureSetpoint": ["coolCelsius": .number(celsius)]])
-            }
+            let (name, key) = state.mode == "HEAT" ? ("SetHeat", "heatCelsius") : ("SetCool", "coolCelsius")
+            try await command("ThermostatTemperatureSetpoint.\(name)", [key: .number(celsius)])
         }
         for (type, key) in [(CharacteristicType.heatingThresholdTemperature, "heatCelsius"), (.coolingThresholdTemperature, "coolCelsius")] {
             service.characteristic(type).onWrite { [weak self] value in
@@ -267,13 +264,13 @@ final class NestThermostat: @unchecked Sendable {
                 if let heat = current.heat { range["heatCelsius"] = .number(heat) }
                 if let cool = current.cool { range["coolCelsius"] = .number(cool) }
                 range[key] = .number(celsius)
-                try await command("ThermostatTemperatureSetpoint.SetRange", range, update: ["ThermostatTemperatureSetpoint": .object(range)])
+                try await command("ThermostatTemperatureSetpoint.SetRange", range)
             }
         }
         eco.onWrite { [weak self] value in
             guard let self else { return }
             let mode = value.boolValue == true ? "MANUAL_ECO" : "OFF"
-            try await command("ThermostatEco.SetMode", ["mode": .string(mode)], update: ["ThermostatEco": ["mode": .string(mode)]])
+            try await command("ThermostatEco.SetMode", ["mode": .string(mode)])
         }
         fan?.characteristic(.on).onWrite { [weak self] value in
             guard let self else { return }
@@ -296,13 +293,15 @@ final class NestThermostat: @unchecked Sendable {
 
     /// Sends the command; on success its effect goes in the cache at once (the trait event that follows says the same).
     /// A command that fails is No Response in the Home app, not a success as in the Homebridge plugin.
-    private func command(_ name: String, _ params: [String: JSONValue], update: [String: JSONValue]) async throws {
+    /// `update` is the traits the command changes: by default its parameters, on the trait it is named after.
+    private func command(_ name: String, _ params: [String: JSONValue], update: [String: JSONValue]? = nil) async throws {
         let resource = cache.withLockedValue { $0.name }
         do {
             _ = try await send(resource, name, params)
         } catch {
             throw HAPStatusError(.serviceCommunicationFailure, reason: "\(error)")
         }
-        cache.withLockedValue { $0.apply(Dictionary(uniqueKeysWithValues: update.map { ("sdm.devices.traits.\($0.key)", $0.value) })) }
+        let changed = update ?? [String(name.prefix { $0 != "." }): .object(params)]
+        cache.withLockedValue { $0.apply(Dictionary(uniqueKeysWithValues: changed.map { ("sdm.devices.traits.\($0.key)", $0.value) })) }
     }
 }

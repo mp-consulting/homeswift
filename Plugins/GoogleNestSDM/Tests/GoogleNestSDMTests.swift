@@ -38,7 +38,8 @@ struct GoogleNestSDMTests {
 
     @Test func anIncompleteBlockNamesWhatIsMissingAndAddsNothing() async throws {
         let host = try await environment.start(settings: ["projectId": "PROJECT-UUID"])
-        let account = try #require(await environment.plugin?.account())
+        let check1 = await environment.plugin?.account()
+        let account = try #require(check1)
         guard case .failure(.notConfigured(let missing)) = account else { Issue.record("expected missing keys"); return }
         #expect(missing == ["clientId", "clientSecret", "refreshToken", "subscriptionId"])
         #expect(environment.google.requests.isEmpty)
@@ -58,7 +59,8 @@ struct GoogleNestSDMTests {
         #expect(fan.information.characteristic(.name).value == "Hallway Thermostat Fan")
         #expect(fan.service(.fan)?[.on]?.value == false)
 
-        let cameras = try #require(await environment.plugin?.cameras)
+        let check2 = await environment.plugin?.cameras
+        let cameras = try #require(check2)
         #expect(cameras.count == 3)
         let camera = try #require(cameras[cameraName])
         #expect(camera.accessory.name == "Garage Camera")
@@ -102,8 +104,9 @@ struct GoogleNestSDMTests {
         let host = try await environment.loaded()
         let service = try thermostat(host)
         try await service[.targetTemperature]?.write(.double(21))
-        #expect(await eventually { environment.google.command("ThermostatTemperatureSetpoint.SetHeat").last
-            == ["command": "sdm.devices.commands.ThermostatTemperatureSetpoint.SetHeat", "params": ["heatCelsius": 21]] })
+        let check3 = await eventually { environment.google.command("ThermostatTemperatureSetpoint.SetHeat").last
+            == ["command": "sdm.devices.commands.ThermostatTemperatureSetpoint.SetHeat", "params": ["heatCelsius": 21]] }
+        #expect(check3)
         try await service[.targetHeatingCoolingState]?.write(.int(3))
         #expect(environment.google.command("ThermostatMode.SetMode").last == ["command": "sdm.devices.commands.ThermostatMode.SetMode", "params": ["mode": "HEATCOOL"]])
         try await service[NestThermostat.ecoType]?.write(.bool(true))
@@ -155,9 +158,11 @@ struct GoogleNestSDMTests {
         let service = try thermostat(host)
         let resource = #""name":"enterprises/PROJECT-UUID/devices/THERMOSTAT-ID""#
         environment.google.publish(#"{"eventId":"E1","timestamp":"2026-01-01T12:00:01Z","resourceUpdate":{\#(resource),"traits":{"sdm.devices.traits.ThermostatMode":{"mode":"COOL","availableModes":["HEAT","COOL","HEATCOOL","OFF"]}}}}"#)
-        #expect(await eventually { service[.targetHeatingCoolingState]?.value.intValue == 2 })
+        let check4 = await eventually { service[.targetHeatingCoolingState]?.value.intValue == 2 }
+        #expect(check4)
         environment.google.publish(#"{"eventId":"E2","timestamp":"2026-01-01T12:00:02Z","resourceUpdate":{\#(resource),"traits":{"sdm.devices.traits.ThermostatTemperatureSetpoint":{"coolCelsius":24.5}}}}"#)
-        #expect(await eventually { service[.targetTemperature]?.value.doubleValue == 24.5 })
+        let check5 = await eventually { service[.targetTemperature]?.value.doubleValue == 24.5 }
+        #expect(check5)
         for traits in [
             #"{"sdm.devices.traits.Temperature":{"ambientTemperatureCelsius":21.3}}"#, #"{"sdm.devices.traits.Humidity":{"ambientHumidityPercent":47}}"#,
             #"{"sdm.devices.traits.ThermostatHvac":{"status":"COOLING"}}"#, #"{"sdm.devices.traits.Fan":{"timerMode":"ON","timerTimeout":"2026-01-01T12:15:00Z"}}"#,
@@ -165,22 +170,24 @@ struct GoogleNestSDMTests {
         ] {
             environment.google.publish(#"{"eventId":"E","resourceUpdate":{\#(resource),"traits":\#(traits)}}"#)
         }
-        #expect(await eventually { service[.temperatureDisplayUnits]?.value.intValue == 0 })
+        // Celsius gives other ranges: the accessory is built again under its id.
+        let check6 = await eventually { (try? thermostat(host))?[.targetTemperature]?.type.minValue == 9 }
+        #expect(check6)
         let current = try thermostat(host)
+        #expect(current[.temperatureDisplayUnits]?.value.intValue == 0)
         #expect(current[.currentTemperature]?.value.doubleValue == 21.3)
         #expect(current[.currentRelativeHumidity]?.value.doubleValue == 47)
         #expect(current[.currentHeatingCoolingState]?.value.intValue == 2)
         #expect(host.mainBridge.server.accessories.first { $0.id == fanID }?.service(.fan)?[.on]?.value == true)
-        // Celsius gives other ranges: the accessory is built again under its id.
-        #expect(current[.targetTemperature]?.type.minValue == 9)
 
         environment.google.publish(#"{"eventId":"E3","resourceUpdate":{\#(resource),"traits":{"sdm.devices.traits.ThermostatEco":{"availableModes":["OFF","MANUAL_ECO"],"mode":"MANUAL_ECO","heatCelsius":9.7,"coolCelsius":29.4}}}}"#)
-        #expect(await eventually { (try? thermostat(host))?[NestThermostat.ecoType]?.value == true })
+        let check7 = await eventually { (try? thermostat(host))?[.targetTemperature]?.type.minValue == 4.5 }
+        #expect(check7)
         let eco = try thermostat(host)
         #expect(eco[.heatingThresholdTemperature]?.value.doubleValue == 9.7)
         #expect(eco[.coolingThresholdTemperature]?.value.doubleValue == 29.4)
         #expect(eco[.targetHeatingCoolingState]?.value.intValue == 0)
-        #expect(eco[.targetTemperature]?.type.minValue == 4.5)
+        #expect(eco[NestThermostat.ecoType]?.value == true)
         await host.stop()
     }
 
@@ -189,22 +196,27 @@ struct GoogleNestSDMTests {
             $0.results["CameraEventImage.GenerateImage"] = ["url": "https://domain/sdm_event_snapshot/abc", "token": "IMAGE-TOKEN"]
         }
         let host = try await environment.loaded()
-        let camera = try #require(await environment.plugin?.cameras[cameraName])
+        let check8 = await environment.plugin?.cameras[cameraName]
+        let camera = try #require(check8)
         let motion = try #require(camera.motion[.motionDetected])
         environment.google.publish(freshEvent(#"{"eventId":"E10","timestamp":"<now>","resourceUpdate":{"name":"enterprises/PROJECT-UUID/devices/CAMERA-RTSP-ID","events":{"sdm.devices.events.CameraMotion.Motion":{"eventSessionId":"SESSION-1","eventId":"EVENT-ID-INNER"}}}}"#))
-        #expect(await eventually { motion.value == true })
+        let check9 = await eventually { motion.value == true }
+        #expect(check9)
         #expect(environment.google.command("CameraEventImage.GenerateImage").last?["params"] == ["eventId": "EVENT-ID-INNER"])
         let image = try #require(environment.google.requests.first { $0.url.absoluteString.contains("sdm_event_snapshot") })
         #expect(image.header("Authorization") == "Basic IMAGE-TOKEN")
-        #expect(await camera.snapshot() == Data("EVENT-JPEG".utf8))
+        let check10 = await camera.snapshot() == Data("EVENT-JPEG".utf8)
+        #expect(check10)
         // 20 seconds at the tests' time scale.
-        #expect(await eventually { motion.value == false })
+        let check11 = await eventually { motion.value == false }
+        #expect(check11)
         await host.stop()
     }
 
     @Test func aChimeRingsAWebRTCDoorbellWithoutAnImage() async throws {
         let host = try await environment.loaded()
-        let doorbell = try #require(await environment.plugin?.cameras[doorbellName])
+        let check12 = await environment.plugin?.cameras[doorbellName]
+        let doorbell = try #require(check12)
         let rings = NIOLockedBox()
         _ = doorbell.accessory.service(.doorbell)?.characteristic(.programmableSwitchEvent).observe { _ in rings.increment() }
         let chime = #"{"eventId":"E11","timestamp":"<now>","resourceUpdate":{"name":"enterprises/PROJECT-UUID/devices/DOORBELL-WEBRTC-ID","events":{"sdm.devices.events.DoorbellChime.Chime":{"eventSessionId":"SESSION-2","eventId":"EVENT-ID-2"}}},"eventThreadState":"STATE"}"#
@@ -214,20 +226,23 @@ struct GoogleNestSDMTests {
         environment.google.publish("not JSON")
         environment.google.publish(#"{"eventId":"E20","relationUpdate":{"type":"CREATED","subject":"s","object":"o"}}"#)
         environment.google.publish(freshEvent(chime.replacingOccurrences(of: "STATE", with: "STARTED")))
-        #expect(await eventually { rings.value == 1 })
+        let check13 = await eventually { rings.value == 1 }
+        #expect(check13)
         try await Task.sleep(for: .milliseconds(100))
         #expect(rings.value == 1)
         #expect(environment.google.command("CameraEventImage.GenerateImage").isEmpty)
-        #expect(await doorbell.snapshot() == Placeholder.jpeg)
+        let check14 = await doorbell.snapshot() == Placeholder.jpeg
+        #expect(check14)
         await host.stop()
     }
 
     @Test func messagesAreAcknowledged() async throws {
         let host = try await environment.loaded()
         environment.google.publish("not JSON")
-        #expect(await eventually {
+        let check15 = await eventually {
             environment.google.requests.contains { $0.url.absoluteString.hasSuffix(":acknowledge") && String(decoding: $0.body ?? Data(), as: UTF8.self).contains("ACK-1") }
-        })
+        }
+        #expect(check15)
         let pull = try #require(environment.google.requests.first { $0.url.absoluteString.hasSuffix(":pull") })
         #expect(pull.url.absoluteString == "https://pubsub.googleapis.com/v1/projects/gcp/subscriptions/nest:pull")
         #expect(pull.header("Authorization") == "Bearer ACCESS-TOKEN")
@@ -237,7 +252,8 @@ struct GoogleNestSDMTests {
     @Test func aRateLimitedListIsTriedAgain() async throws {
         environment.google.state.withLockedValue { $0.listFailures = 2 }
         let host = try await environment.loaded()
-        #expect(await environment.plugin?.thermostats.count == 1)
+        let check16 = await environment.plugin?.thermostats.count == 1
+        #expect(check16)
         await host.stop()
     }
 
@@ -260,7 +276,8 @@ struct GoogleNestSDMTests {
         }
         let stream = try await RTSPStream.open(device: cameraName, send: send, log: testLogger, lead: .seconds(1))
         #expect(stream.url == "rtsps://stream.example/v1/x?auth=STREAM-TOKEN")
-        #expect(await eventually { sent.withLockedValue { $0 }.contains("CameraLiveStream.ExtendRtspStream EXT-1") })
+        let check17 = await eventually { sent.withLockedValue { $0 }.contains("CameraLiveStream.ExtendRtspStream EXT-1") }
+        #expect(check17)
         await stream.stop()
         #expect(sent.withLockedValue { $0 }.last == "CameraLiveStream.StopRtspStream EXT-2")
     }
@@ -306,7 +323,8 @@ struct GoogleNestSDMTests {
     @Test func setupSharesTheHomesAndKeepsTheToken() async throws {
         let host = try await environment.start(settings: [:])
         let plugin = try #require(environment.plugin)
-        #expect(await plugin.accountAuthorized() == false)
+        let check18 = await plugin.accountAuthorized() == false
+        #expect(check18)
         guard case .ask(let first, _) = try await plugin.authorize(SetupRequest(target: .account)) else { Issue.record("expected a prompt"); return }
         #expect(first.fields.map(\.key) == ["projectId", "clientId", "clientSecret", "subscriptionId", "gcpProjectId"])
         let answers = ["projectId": "PROJECT-UUID", "clientId": "CLIENT", "clientSecret": "SECRET", "subscriptionId": "projects/gcp/subscriptions/nest"]
@@ -320,7 +338,8 @@ struct GoogleNestSDMTests {
         #expect(outcome.credentials == ["clientSecret": "SECRET"])
         #expect(outcome.settings["projectId"] == "PROJECT-UUID")
         #expect(outcome.settings["refreshToken"] == .null)
-        #expect(await plugin.tokens.load()?.refreshToken == "NEW-REFRESH")
+        let check19 = await plugin.tokens.load()?.refreshToken == "NEW-REFRESH"
+        #expect(check19)
         let exchange = try #require(environment.google.requests.first { String(decoding: $0.body ?? Data(), as: UTF8.self).contains("authorization_code") })
         #expect(URLEncoding.fields(String(decoding: exchange.body ?? Data(), as: UTF8.self))["code"] == "4/CODE")
         await host.stop()

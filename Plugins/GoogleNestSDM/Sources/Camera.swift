@@ -43,7 +43,6 @@ final class NestCamera: @unchecked Sendable {
 
     private struct State {
         var motionGeneration = 0
-        var lastMotion: ContinuousClock.Instant?
         var image: (data: Data, at: Date)?
         var motionTask: Task<Void, Never>?
     }
@@ -113,16 +112,22 @@ final class NestCamera: @unchecked Sendable {
         }
         if let thread = event.threadState, thread != "STARTED" { return }
         let webRTC = device.isWebRTC
+        // An RTSP device's image comes first, once for a message whose motion and person share their event.
+        var fetched: Set<String> = []
+        func image(_ value: JSONValue) async {
+            guard !webRTC, let id = value["eventId"]?.stringValue, fetched.insert(id).inserted else { return }
+            await fetchImage(id)
+        }
         for (key, value) in events.sorted(by: { $0.key < $1.key }) {
             switch key {
             case "sdm.devices.events.CameraMotion.Motion", "sdm.devices.events.CameraPerson.Person":
-                if !webRTC { await fetchImage(value["eventId"]?.stringValue) }
+                await image(value)
                 signalMotion()
             case "sdm.devices.events.CameraSound.Sound":
-                if !webRTC { await fetchImage(value["eventId"]?.stringValue) }
+                await image(value)
             case "sdm.devices.events.DoorbellChime.Chime":
                 guard let doorbell = controller as? DoorbellController else { continue }
-                if !webRTC { await fetchImage(value["eventId"]?.stringValue) }
+                await image(value)
                 log.debug("\(device.displayName): doorbell ring!")
                 doorbell.ringDoorbell()
             case "sdm.devices.events.CameraClipPreview.ClipPreview":
@@ -141,7 +146,6 @@ final class NestCamera: @unchecked Sendable {
         let box = state
         box.withLockedValue { current in
             current.motionGeneration += 1
-            current.lastMotion = .now
             let generation = current.motionGeneration
             current.motionTask?.cancel()
             current.motionTask = Task {
@@ -154,8 +158,7 @@ final class NestCamera: @unchecked Sendable {
     }
 
     /// `CameraEventImage.GenerateImage`, then the JPEG with `Authorization: Basic <token>` (section 3.3).
-    private func fetchImage(_ eventID: String?) async {
-        guard let eventID else { return }
+    private func fetchImage(_ eventID: String) async {
         do {
             let results = try await tools.send(device.name, "CameraEventImage.GenerateImage", ["eventId": .string(eventID)])
             guard let url = results["url"]?.stringValue.flatMap(URL.init(string:)), let token = results["token"]?.stringValue else {

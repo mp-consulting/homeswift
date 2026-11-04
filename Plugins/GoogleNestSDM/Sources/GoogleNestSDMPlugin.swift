@@ -50,6 +50,8 @@ public actor GoogleNestSDMPlugin: HomeswiftPlugin {
     private var fetched: [String: Date] = [:]
     private var fetching: Set<String> = []
     private(set) var devicesLoaded = false
+    /// One FFmpeg for every camera: its codecs are probed once.
+    private var ffmpeg: NestFFmpeg?
     var logger: Logger { context.logger }
 
     public init(configuration: Configuration, context: PluginContext) {
@@ -77,13 +79,13 @@ public actor GoogleNestSDMPlugin: HomeswiftPlugin {
 
     /// The account, or the keys it lacks (section 1.2).
     func account() -> Result<NestAccount, NestError> {
-        let values: [(String, String?)] = [
-            ("projectId", configuration.projectId), ("clientId", configuration.clientId), ("clientSecret", clientSecret),
-            ("refreshToken", refreshToken), ("subscriptionId", configuration.subscriptionId),
-        ]
-        let missing = values.filter { $0.1 == nil }.map(\.0)
-        guard missing.isEmpty, let projectID = configuration.projectId, let clientID = configuration.clientId, let secret = clientSecret,
-              let token = refreshToken, let subscription = configuration.subscriptionId else { return .failure(.notConfigured(missing)) }
+        let secret = clientSecret, token = refreshToken
+        guard let projectID = configuration.projectId, let clientID = configuration.clientId, let secret, let token,
+              let subscription = configuration.subscriptionId else {
+            let values = [("projectId", configuration.projectId), ("clientId", configuration.clientId), ("clientSecret", secret),
+                          ("refreshToken", token), ("subscriptionId", configuration.subscriptionId)]
+            return .failure(.notConfigured(values.filter { $0.1 == nil }.map(\.0)))
+        }
         return .success(NestAccount(clientID: clientID, clientSecret: secret, projectID: projectID, refreshToken: token, subscriptionID: subscription))
     }
 
@@ -137,7 +139,7 @@ public actor GoogleNestSDMPlugin: HomeswiftPlugin {
                 devicesLoaded = true
                 return
             } catch {
-                if attempt == 0 || error is NestError && (error as? NestError)?.isRateLimit == false {
+                if attempt == 0 || (error as? NestError)?.isRateLimit == false {
                     logger.error("Could not execute device LIST request: \(error)")
                 }
                 try? await Task.sleep(for: Self.retry.delay(attempt: attempt) * dependencies.timeScale)
@@ -195,7 +197,14 @@ public actor GoogleNestSDMPlugin: HomeswiftPlugin {
                 guard let caller else { throw NestError.notConfigured([]) }
                 return try await caller.download(url, authorization: authorization)
             },
-            ffmpeg: dependencies.ffmpeg(logger, options.debug), ports: dependencies.ports, timeScale: dependencies.timeScale, now: dependencies.now)
+            ffmpeg: sharedFFmpeg(), ports: dependencies.ports, timeScale: dependencies.timeScale, now: dependencies.now)
+    }
+
+    private func sharedFFmpeg() -> NestFFmpeg {
+        if let ffmpeg { return ffmpeg }
+        let made = dependencies.ffmpeg(logger, options.debug)
+        ffmpeg = made
+        return made
     }
 
     /// Sends commands, logging their failures (Google's status and message only: never a parameter or a result, which

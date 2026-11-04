@@ -79,8 +79,7 @@ struct NestOptions: Sendable {
     var debug: Bool
 
     init(_ configuration: GoogleNestSDMPlugin.Configuration, debug: Bool) {
-        let encoder = (configuration.vEncoder ?? Self.defaultEncoder).split(whereSeparator: \.isWhitespace).map(String.init)
-        self.encoder = encoder.isEmpty ? Self.defaultEncoder.split(separator: " ").map(String.init) : encoder
+        encoder = (configuration.vEncoder ?? Self.defaultEncoder).split(whereSeparator: \.isWhitespace).map(String.init)
         analyzeDuration = configuration.analyzeDuration ?? 15_000_000
         probeSize = configuration.probeSize ?? 100_000_000
         showFan = configuration.showFan ?? false

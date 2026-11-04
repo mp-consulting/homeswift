@@ -85,9 +85,9 @@ actor RTSPStream {
 
     private func schedule(expires: Date?) {
         guard !stopped, let expires else { return }
-        let seconds = max(expires.timeIntervalSinceNow - Double(lead.components.seconds) - Double(lead.components.attoseconds) / 1e18, 0)
+        let wait = max(.milliseconds(Int(expires.timeIntervalSinceNow * 1000)) - lead, .zero)
         extender = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(Int(seconds * 1000)))
+            try? await Task.sleep(for: wait)
             guard !Task.isCancelled else { return }
             await self?.extend()
         }
@@ -181,8 +181,6 @@ actor NestStreamer: CameraStreamingDelegate {
     }
 
     func attach(_ controller: CameraController) { self.controller = controller }
-
-    var sessionCount: Int { sessions.count }
 
     /// The latest event image, or the placeholder (section 6.6): SDM has no snapshot of its own, and a stream for one would
     /// spend the quota.
@@ -417,9 +415,9 @@ final class NestRecorder: CameraRecordingDelegate, @unchecked Sendable {
 
     private func record(_ configuration: CameraRecordingConfiguration, _ continuation: Packets.Continuation) async throws {
         let stream = try await open()
-        let audio = await ffmpeg.recordingAudioEncoder(configuration.audioCodec.type)
         let process: FfmpegProcess
         do {
+            let audio = await ffmpeg.recordingAudioEncoder(configuration.audioCodec.type)
             let arguments = try FFmpegArguments.recording(input: FFmpegArguments.input(rtspURL: stream.url, options: options), configuration: configuration,
                                                           audioEncoder: audio)
             process = FfmpegProcess(ffmpeg.options, commandLineArgs: arguments)
@@ -430,32 +428,27 @@ final class NestRecorder: CameraRecordingDelegate, @unchecked Sendable {
         let (output, outputContinuation) = AsyncStream.makeStream(of: Data.self, bufferingPolicy: .bufferingOldest(4096))
         process.start()
         let listening = process.onStdout { outputContinuation.yield($0) } != nil && process.onceExit { _ in outputContinuation.finish() }
-        defer { process.stop() }
-        guard listening else {
-            await stream.stop()
-            throw StreamError("FFmpeg process creation failed")
-        }
-        var reader = FMp4BoxReader()
-        var pending = Data()
         var corrupt = false
-        for await chunk in output {
-            guard !Task.isCancelled else { break }
-            let ok = reader.push(chunk) { box in
-                pending.append(box.header)
-                pending.append(box.data)
-                // Everything up to a `moov` (ftyp, moov) or an `mdat` (moof, mdat) is one packet.
-                if box.type == BOX_TYPE_MOOV || box.type == BOX_TYPE_MDAT {
-                    continuation.yield(RecordingPacket(data: pending))
-                    pending = Data()
+        if listening {
+            var reader = FMp4BoxReader()
+            var pending = Data()
+            for await chunk in output {
+                guard !Task.isCancelled else { break }
+                corrupt = !reader.push(chunk) { box in
+                    pending.append(box.header)
+                    pending.append(box.data)
+                    // Everything up to a `moov` (ftyp, moov) or an `mdat` (moof, mdat) is one packet.
+                    if box.type == BOX_TYPE_MOOV || box.type == BOX_TYPE_MDAT {
+                        continuation.yield(RecordingPacket(data: pending))
+                        pending = Data()
+                    }
                 }
-            }
-            if !ok {
-                corrupt = true
-                break
+                if corrupt { break }
             }
         }
         process.stop()
         await stream.stop()
+        guard listening else { throw StreamError("FFmpeg process creation failed") }
         if corrupt { throw StreamError("FFmpeg wrote an invalid MP4 box") }
     }
 
