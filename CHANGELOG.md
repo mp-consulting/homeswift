@@ -11,6 +11,9 @@ All notable changes to this project are documented here. The format follows
 - ESPHome, an experimental plugin (`esphome`, a clean-room implementation compatible with homebridge-esphome-ts's
   block) for ESPHome devices over their native API, plaintext or Noise-encrypted with the device's key, with
   `Noise` (Noise_NNpsk0_25519_ChaChaPoly_SHA256), `Protobuf` and `TCPStream` in `HomeswiftNetwork`.
+- The Assistant's Model is a menu of the models the chosen provider offers, read from its models list when the menu
+  opens (Anthropic, OpenAI, Gemini, or the OpenAI-compatible server at the Base URL), with Default and Other… to type
+  an id; `POST /api/assistant/models`. A saved key goes only to the saved provider, as for Test connection.
 - `get_settings` and `update_settings`, MCP tools (and through `homeswift mcp`, the command line's) that read and change
   the settings of an accessory, by its Accessory Id, or of a plugin instance: the current values with what each field
   is (its schema, whether it is a Core Accessory Setting, its plugin-wide default), a merge where `null` clears a key,
