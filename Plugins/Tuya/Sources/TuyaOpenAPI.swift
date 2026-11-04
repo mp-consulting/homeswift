@@ -15,7 +15,7 @@ struct TuyaAPIError: Error, CustomStringConvertible, Sendable {
 
     static func explanation(_ code: Int) -> String? {
         switch code {
-        case 1004, 1114: "check the endpoint, Access ID and Access Secret"
+        case 1004, 1114, 2009: "check the endpoint, Access ID and Access Secret"
         case 1106: "check the country code, username, password and app, and that the app account is linked to the cloud project"
         case 2401: "the username or password is wrong"
         case 2406: "the app account is in another data centre, or not linked to the cloud project"

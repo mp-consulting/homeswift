@@ -110,7 +110,7 @@ public actor TuyaPlugin: HomeswiftPlugin {
                 let devices = try await loadDevices(api, settings, owners: owners)
                 await addAccessories(devices)
                 return
-            } catch let error as TuyaAPIError where [1004, 1106, 1114, 2401, 2406, 28841002].contains(error.code) {
+            } catch let error as TuyaAPIError where [1004, 1106, 1114, 2009, 2401, 2406, 28841002].contains(error.code) {
                 logger.error("Could not sign in to Tuya: \(error)")
                 return
             } catch is CancellationError {
