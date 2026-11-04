@@ -1,5 +1,6 @@
 import Crypto
 import Foundation
+import Homeswift
 import HomeswiftAI
 import _CryptoExtras
 
@@ -23,9 +24,7 @@ enum TuyaSignature {
         return hex(mac).uppercased()
     }
 
-    static func hex(_ bytes: some Sequence<UInt8>) -> String {
-        bytes.map { String(format: "%02x", $0) }.joined()
-    }
+    static func hex(_ bytes: some Sequence<UInt8>) -> String { Secrets.hex(bytes) }
 
     static func sha256Hex(_ text: String) -> String { hex(SHA256.hash(data: Data(text.utf8))) }
 

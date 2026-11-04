@@ -109,6 +109,8 @@ final class TuyaDevice: Sendable {
     private let state: NIOLockedValueBox<State>
     /// The override's elements by the code they answer to, and their compiled expressions.
     private let elements: [String: TuyaConfiguration.SchemaOverride]
+    /// The device's codes an override renames, to the names the accessories use.
+    private let renamed: [String: String]
     private let onGet: [String: TuyaExpression]
     private let onSet: [String: TuyaExpression]
     private let warned = NIOLockedValueBox(Set<String>())
@@ -148,6 +150,7 @@ final class TuyaDevice: Sendable {
             }
         }
         self.elements = elements
+        renamed = Dictionary(elements.values.compactMap { element in element.newCode.map { (element.code, $0) } }, uniquingKeysWith: { first, _ in first })
         self.onGet = onGet
         self.onSet = onSet
     }
@@ -207,8 +210,8 @@ final class TuyaDevice: Sendable {
 
     private func element(for code: String) -> TuyaConfiguration.SchemaOverride? { elements[code] }
 
-    /// The code the device reports for one the accessories ask for.
-    func deviceCode(for code: String) -> String { elements[code]?.code ?? code }
+    /// The code the accessories ask for, for one the device reports: an override's `newCode`.
+    func requestedCode(for code: String) -> String { renamed[code] ?? code }
 
     /// The first of `codes` the device has (§ "Finding a DP"): through the override (renamed, retyped, hidden), else a DP
     /// with a status, or a write-only one.

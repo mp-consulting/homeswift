@@ -183,9 +183,16 @@ public actor TuyaPlugin: HomeswiftPlugin {
             records = try await api.devices(ids: ids)
         }
         self.ownerIDs = ownerIDs
+        // The specifications, six at a time, in the records' order.
         var devices: [TuyaDevice] = []
-        for record in records {
-            devices.append(await makeDevice(record, api: api))
+        for start in stride(from: 0, to: records.count, by: 6) {
+            let chunk = Array(records[start..<min(start + 6, records.count)])
+            devices += await withTaskGroup(of: (Int, TuyaDevice).self) { group in
+                for (index, record) in chunk.enumerated() { group.addTask { (index, await self.makeDevice(record, api: api)) } }
+                var made: [(Int, TuyaDevice)] = []
+                for await item in group { made.append(item) }
+                return made.sorted { $0.0 < $1.0 }.map(\.1)
+            }
         }
         devices = await discoverRemotes(devices, api: api)
         logger.info("Got \(devices.count + scenes.count) device(s) and scene(s)")
@@ -276,14 +283,14 @@ public actor TuyaPlugin: HomeswiftPlugin {
             builder.adaptiveLights = []
         }
         builder.finish()
-        let runtime = TuyaRuntime(device: device, link: link, accessoryID: id)
+        let runtime = TuyaRuntime(device: device)
         let services = runtime.makeServices(builder.drafts)
         let accessory = Accessory(
             id: id, name: device.name, manufacturer: "Tuya Inc.", model: device.productID.isEmpty ? "Tuya" : device.productID,
             serialNumber: device.uuid.isEmpty ? device.id : device.uuid, category: Self.category(builder.drafts.first?.type), services: services)
         runtime.bind(accessory.information.characteristic(adding: .statusActive), onlineCheck: false) { .bool(device.online) }
-        for light in builder.adaptiveLights where services.indices.contains(light.draftIndex) {
-            light.controller = context.adaptiveLighting(for: services[light.draftIndex], accessoryID: id)
+        for light in builder.adaptiveLights {
+            light.controller = light.service.flatMap { context.adaptiveLighting(for: $0, accessoryID: id) }
         }
         runtime.events = builder.events
         runtime.lights = builder.adaptiveLights
@@ -322,9 +329,12 @@ public actor TuyaPlugin: HomeswiftPlugin {
         switch message {
         case .status(let deviceID, let items, _):
             guard let runtime = runtimes[deviceID] else { return }
-            runtime.device.apply(items.map { ($0.code, $0.value) })
-            runtime.pushed(items)
-            for remote in runtimes.values where remote.device.parentID == deviceID { remote.refresh() }
+            let changed = runtime.device.apply(items.map { ($0.code, $0.value) })
+            runtime.pushed(items, changed: changed)
+            // An IR hub's remotes show its temperature and humidity.
+            if changed, TuyaAccessoryBuilder.irHubCategories.contains(runtime.device.category) {
+                for remote in runtimes.values where remote.device.parentID == deviceID { remote.refresh() }
+            }
         case .lifecycle(let code, let deviceID, let data):
             await lifecycle(code, deviceID: deviceID, data: data)
         }
@@ -384,8 +394,6 @@ public actor TuyaPlugin: HomeswiftPlugin {
 /// A device's accessory once built: what each characteristic reads, the events, Adaptive Lighting.
 final class TuyaRuntime: Sendable {
     let device: TuyaDevice
-    let link: TuyaDeviceLink
-    let accessoryID: String
 
     private struct State {
         var bindings: [(characteristic: Characteristic, onlineCheck: Bool, get: TuyaGetter)] = []
@@ -395,10 +403,8 @@ final class TuyaRuntime: Sendable {
 
     private let state = NIOLockedValueBox(State())
 
-    init(device: TuyaDevice, link: TuyaDeviceLink, accessoryID: String) {
+    init(device: TuyaDevice) {
         self.device = device
-        self.link = link
-        self.accessoryID = accessoryID
     }
 
     var events: [TuyaEventHandler] {
@@ -439,7 +445,7 @@ final class TuyaRuntime: Sendable {
                 }
                 if let set = spec.set { characteristic.onWrite(set) }
             }
-            draft.service = service
+            draft.onBuild?(service)
             return service
         }
     }
@@ -453,9 +459,16 @@ final class TuyaRuntime: Sendable {
     }
 
     /// A push's items: Adaptive Lighting checked against them first, then the values, then the events.
-    func pushed(_ items: [TuyaPushMessage.StatusItem]) {
+    /// `items` are the device's codes; the handlers see the accessories' (an override's `newCode`). The characteristics are
+    /// read again only when the push changed a value.
+    func pushed(_ items: [TuyaPushMessage.StatusItem], changed: Bool) {
+        let items = items.map { item in
+            var item = item
+            item.code = device.requestedCode(for: item.code)
+            return item
+        }
         for light in lights { light.check(items) }
-        refresh()
+        if changed { refresh() }
         for event in events { event(items) }
     }
 }

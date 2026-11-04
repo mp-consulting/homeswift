@@ -77,7 +77,7 @@ extension TuyaAccessoryBuilder {
         for code in codes {
             guard let item = channelItem(code) else { continue }
             let suffix = String(code.dropFirst("bright_value".count))
-            let draft = service(.lightbulb, name: codes.count == 1 ? device.name : code, subtype: code, configuredName: true)
+            let draft = channelService(.lightbulb, code, among: codes)
             if let on = find("switch\(suffix)", "switch_led\(suffix)") { self.on(draft, on) }
             let range = Swift.max(item.max, 1)
             var low = 0.0, high = 100.0
@@ -106,7 +106,7 @@ extension TuyaAccessoryBuilder {
         let energyCode = find("switch", "switch_1")?.code
         for code in codes {
             guard let item = channelItem(code) else { continue }
-            let draft = service(type, name: codes.count == 1 ? device.name : code, subtype: code, configuredName: true)
+            let draft = channelService(type, code, among: codes)
             on(draft, item)
             if code == energyCode { energy(draft) }
         }
@@ -135,7 +135,7 @@ extension TuyaAccessoryBuilder {
         let codes = device.specificationCodes.filter { Self.buttonDigits($0) != nil }
         for code in codes {
             guard let item = device.schema[code], let digits = Self.buttonDigits(code) else { continue }
-            let draft = service(.statelessProgrammableSwitch, name: codes.count == 1 ? device.name : code, subtype: code, configuredName: true)
+            let draft = channelService(.statelessProgrammableSwitch, code, among: codes)
             draft.add(.serviceLabelIndex, value: .int(digits))
             programmableSwitch(draft, item)
         }
@@ -157,7 +157,7 @@ extension TuyaAccessoryBuilder {
         for code in codes {
             guard let item = channelItem(code) else { continue }
             let mode = find("mode\(code.dropFirst("switch".count))")
-            service(.switch, name: codes.count == 1 ? device.name : code, subtype: code, configuredName: true)
+            channelService(.switch, code, among: codes)
                 .add(.on, get: { device.bool(item).map(HAPValue.bool) }) { value in
                     // A button in scene mode does not stay on.
                     let sceneMode = device.string(mode)?.hasPrefix("scene") ?? false
@@ -516,7 +516,7 @@ extension TuyaAccessoryBuilder {
         let device = device
         for code in codes {
             guard let item = find(code) else { continue }
-            let draft = service(.valve, name: codes.count == 1 ? device.name : code, subtype: code, configuredName: true)
+            let draft = channelService(.valve, code, among: codes)
             draft.add(.valveType, value: .int(1))
             draft.add(.inUse, get: { device.bool(item).map { .int($0 ? 1 : 0) } })
             active(draft, item)
@@ -705,7 +705,7 @@ extension TuyaAccessoryBuilder {
             occupancySensor(find("presence_state"))
         case "zd":
             guard require([["shock_state"]]), let item = find("shock_state") else { return false }
-            let code = device.deviceCode(for: item.code)
+            let code = item.code
             pulseMotion(service(.motionSensor), duration: .seconds(3)) { items in
                 items.contains { $0.code == code && ["vibration", "drop"].contains($0.value.stringValue ?? "") }
             }

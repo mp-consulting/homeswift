@@ -55,7 +55,7 @@ extension TuyaAccessoryBuilder {
         _ given: TuyaServiceDraft? = nil, on: TuyaSchemaItem?, brightness: TuyaSchemaItem? = nil, temperature: TuyaSchemaItem? = nil,
         colour: TuyaSchemaItem? = nil, mode: TuyaSchemaItem? = nil, colourDefaults: Bool = false
     ) -> TuyaLightType {
-        let draft = given ?? drafts.first { $0.type.uuid == ServiceType.lightbulb.uuid } ?? service(.lightbulb, name: "\(accessoryName) Light")
+        let draft = given ?? drafts.first { $0.type.uuid == ServiceType.lightbulb.uuid } ?? service(.lightbulb, name: "\(device.name) Light")
         let hsvItems: (h: TuyaSchemaItem, s: TuyaSchemaItem, v: TuyaSchemaItem)? = {
             guard let colour else { return nil }
             if let h = colour.component("h"), let s = colour.component("s"), let v = colour.component("v") { return (h, s, v) }
@@ -146,8 +146,8 @@ extension TuyaAccessoryBuilder {
             if let temperature, brightness != nil, type != .rgbc {
                 if adaptiveLightingAllowed {
                     adaptiveLights.append(TuyaAdaptiveLight(
-                        draftIndex: drafts.firstIndex { $0 === draft } ?? 0, temperatureCode: device.deviceCode(for: temperature.code),
-                        colourCodes: Set([colourCode, modeCode].compactMap { $0.map { device.deviceCode(for: $0) } }),
+                        draft: draft, temperatureCode: temperature.code,
+                        colourCodes: Set([colourCode, modeCode].compactMap { $0 }),
                         mireds: { device.number(temperature).flatMap { Self.mireds(raw: $0, item: temperature) } }, isColour: isColour))
                     logger.info("Adaptive Lighting enabled for \(device.name)")
                 } else {

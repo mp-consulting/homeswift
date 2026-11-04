@@ -35,7 +35,8 @@ final class TuyaServiceDraft {
     /// The name also given as Configured Name (the source's name helper).
     var configuredName: String?
     var specs: [Spec] = []
-    var service: Service?
+    /// Told the service once it is built.
+    var onBuild: ((Service) -> Void)?
 
     init(type: ServiceType, name: String?, subtype: String?) {
         self.type = type
@@ -62,7 +63,8 @@ typealias TuyaEventHandler = @Sendable ([TuyaPushMessage.StatusItem]) -> Void
 
 /// A light's Adaptive Lighting, attached once the accessory is built: the plugin gives it its controller.
 final class TuyaAdaptiveLight: Sendable {
-    let draftIndex: Int
+    /// The light's service, once built.
+    private let serviceBox = NIOLockedValueBox<Service?>(nil)
     let temperatureCode: String
     /// The colour and work mode DPs, as the device reports them.
     let colourCodes: Set<String>
@@ -70,8 +72,8 @@ final class TuyaAdaptiveLight: Sendable {
     let isColour: @Sendable () -> Bool
     private let box = NIOLockedValueBox<AdaptiveLightingController?>(nil)
 
-    init(draftIndex: Int, temperatureCode: String, colourCodes: Set<String>, mireds: @escaping @Sendable () -> Int?, isColour: @escaping @Sendable () -> Bool) {
-        self.draftIndex = draftIndex
+    init(draft: TuyaServiceDraft, temperatureCode: String, colourCodes: Set<String>, mireds: @escaping @Sendable () -> Int?, isColour: @escaping @Sendable () -> Bool) {
+        draft.onBuild = { [serviceBox] service in serviceBox.withLockedValue { $0 = service } }
         self.temperatureCode = temperatureCode
         self.colourCodes = colourCodes
         self.mireds = mireds
@@ -88,6 +90,8 @@ final class TuyaAdaptiveLight: Sendable {
             controller.disableIfChangedElsewhere(mireds: mireds)
         }
     }
+
+    var service: Service? { serviceBox.withLockedValue { $0 } }
 
     var controller: AdaptiveLightingController? {
         get { box.withLockedValue { $0 } }
@@ -198,12 +202,8 @@ final class TuyaAccessoryBuilder {
     var drafts: [TuyaServiceDraft] = []
     var events: [TuyaEventHandler] = []
     var adaptiveLights: [TuyaAdaptiveLight] = []
-    /// The camera's video, when the category is `sp` and the device is not virtual.
-    var wantsCamera = false
     /// The IR hub of a remote, whose temperature and humidity it shows.
     var parent: TuyaDevice?
-    /// Accessories this one's state feeds (an IR hub's remotes).
-    var accessoryName: String { device.name }
 
     init(device: TuyaDevice, link: TuyaDeviceLink, logger: Logger) {
         self.device = device
@@ -222,6 +222,11 @@ final class TuyaAccessoryBuilder {
         if configuredName { draft.configuredName = name }
         drafts.append(draft)
         return draft
+    }
+
+    /// A channel's service: subtype the DP's code, named after the device when it is the only channel, else the code.
+    func channelService(_ type: ServiceType, _ code: String, among codes: [String]) -> TuyaServiceDraft {
+        service(type, name: codes.count == 1 ? device.name : code, subtype: code, configuredName: true)
     }
 
     func find(_ codes: String...) -> TuyaSchemaItem? { device.find(codes) }
@@ -447,7 +452,7 @@ final class TuyaAccessoryBuilder {
             minValue: Double(supported.first ?? 0), maxValue: Double(supported.last ?? 0), validValues: supported)
         let ref = draft.add(type)
         guard listen else { return ref }
-        let code = device.deviceCode(for: item.code), itemType = item.type
+        let code = item.code, itemType = item.type
         let logger = logger, name = device.name
         events.append { items in
             guard let pushed = items.last(where: { $0.code == code }),
