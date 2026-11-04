@@ -268,6 +268,83 @@ struct PluginTests {
         #expect(environment.log.contains("TokenSet is invalid, removing it"))
         #expect(TokenFile.load(environment.tokenFile(named: ".daikin-controller-cloud-tokenset")) == nil)
         #expect(host.mainBridge.server.accessories.count == 1)
+        // It waits for a sign-in on the page: trying again cannot help.
+        #expect(!environment.log.contains("retrying in"))
+    }
+
+    // MARK: Starting again
+
+    /// The cloud unreachable at boot: discovery is tried again, and the devices come.
+    @Test func discoveryIsTriedAgainAfterAFailure() async throws {
+        let environment = DaikinEnvironment()
+        environment.tokens = (.developerPortal, DaikinEnvironment.validToken)
+        environment.timing.discoveryRetry = .milliseconds(20)
+        environment.cloud.failure.withLockedValue { $0 = .text("boom", status: 500) }
+        let host = try await environment.start(developerBlock)
+        defer { Task { await host.stop() } }
+        #expect(environment.log.contains("Failed to get cloud devices from Daikin Cloud: Unexpected API error (500): boom"))
+        #expect(environment.log.contains("[API Syncing] Device discovery failed, retrying in"))
+        #expect(await eventually { host.mainBridge.server.accessories.count == 3 })
+        #expect(environment.log.contains("[API Syncing] Device discovery succeeded after a retry"))
+    }
+
+    @Test func anAccountWithoutDevicesIsNotTriedAgain() async throws {
+        let environment = DaikinEnvironment(devices: [])
+        environment.tokens = (.developerPortal, DaikinEnvironment.validToken)
+        environment.timing.discoveryRetry = .milliseconds(10)
+        let host = try await environment.start(developerBlock)
+        defer { Task { await host.stop() } }
+        #expect(environment.log.contains("No devices found in the Daikin Cloud account"))
+        // Nothing is meant to happen: give a retry the time it would take.
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(environment.cloud.gets.withLockedValue { $0 } == 1)
+        #expect(!environment.log.contains("retrying in"))
+    }
+
+    @Test func refusedCredentialsAreNotTriedAgain() async throws {
+        let environment = DaikinEnvironment()
+        environment.timing.discoveryRetry = .milliseconds(10)
+        let host = try await environment.start(["authMode": "mobile_app", "daikinEmail": "me@example.com", "daikinPassword": "wrong"])
+        defer { Task { await host.stop() } }
+        #expect(environment.log.contains("[Auth] Daikin rejected the configured email or password."))
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(environment.cloud.http.all.filter { $0.url.absoluteString.contains("accounts.login") }.count == 1)
+        #expect(!environment.log.contains("retrying in"))
+    }
+
+    @Test func aFailedLoginAtTheStartIsTriedAgain() async throws {
+        let environment = DaikinEnvironment()
+        environment.timing.discoveryRetry = .milliseconds(20)
+        let cloud = environment.cloud
+        let logins = NIOLockedValueBox(0)
+        environment.cloud.http.set { request, _ in
+            if request.url.absoluteString.contains("accounts.login"), logins.withLockedValue({ value -> Int in value += 1; return value }) == 1 {
+                return .text("<html>busy</html>", status: 503)
+            }
+            return try await cloud.answer(request)
+        }
+        let host = try await environment.start(["authMode": "mobile_app", "daikinEmail": "me@example.com", "daikinPassword": "right"])
+        defer { Task { await host.stop() } }
+        #expect(environment.log.contains("[Auth] Authentication failed:"))
+        #expect(await eventually { host.mainBridge.server.accessories.count == 3 })
+        #expect(logins.withLockedValue { $0 } == 2)
+    }
+
+    /// A refresh token Daikin no longer takes, in Mobile App mode: the plugin logs in again with the configured
+    /// credentials instead of asking for a sign-in.
+    @Test func mobileAppLogsInAgainWhenTheRefreshTokenIsRefused() async throws {
+        let environment = DaikinEnvironment()
+        environment.tokens = (.mobileApp, TokenSet(access_token: "old", refresh_token: "dead", token_type: "Bearer", expires_at: 1))
+        let cloud = environment.cloud
+        environment.cloud.http.set { request, _ in
+            request.form["grant_type"] == "refresh_token" ? .json(["error": "invalid_grant", "error_description": "expired"], status: 400) : try await cloud.answer(request)
+        }
+        let host = try await environment.start(["authMode": "mobile_app", "daikinEmail": "me@example.com", "daikinPassword": "right"])
+        defer { Task { await host.stop() } }
+        #expect(host.mainBridge.server.accessories.count == 3)
+        #expect(environment.log.contains("Refresh token rejected (invalid_grant), logging in again with the configured credentials..."))
+        #expect(!environment.log.contains("TokenSet is invalid"))
+        #expect(TokenFile.load(environment.tokenFile(named: ".daikin-mobile-tokenset"))?.access_token == "dev-access")
     }
 
     /// Seen live: once the saved token had expired, the page's connection test sent it as it was and failed. It goes
@@ -401,6 +478,23 @@ struct PluginTests {
         #expect(await eventually { sockets.count == 2 })
         #expect(await eventually { environment.cloud.gets.withLockedValue { $0 } > gets })
         #expect(environment.log.contains("[WebSocket] Connected - receiving real-time updates"))
+    }
+
+    /// A group frame names no device: the devices are fetched, even with the WebSocket connected.
+    @Test func aGroupUpdateFetchesTheDevices() async throws {
+        let sockets = FakeSockets()
+        let environment = DaikinEnvironment(sockets: sockets)
+        environment.tokens = (.mobileApp, DaikinEnvironment.validToken)
+        environment.timing.forceUpdateDelay = .milliseconds(20)
+        let host = try await environment.start(["authMode": "mobile_app", "daikinEmail": "me@example.com", "daikinPassword": "right"])
+        defer { Task { await host.stop() } }
+        let session = try #require(await environment.plugin?.session)
+        #expect(await eventually { await session.webSocketConnected })
+        let gets = environment.cloud.gets.withLockedValue { $0 }
+        let socket = try #require(sockets.last)
+        socket.receive(text: #"{"event":"group:characteristic","groupId":"g","siteId":"s","data":{"name":"onOffMode","value":"off"}}"#)
+        #expect(await eventually { environment.cloud.gets.withLockedValue { $0 } == gets + 1 })
+        #expect(environment.log.contains("[WebSocket] Group update: g - onOffMode, refreshing devices"))
     }
 
     // MARK: The page

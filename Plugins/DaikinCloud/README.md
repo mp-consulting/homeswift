@@ -23,8 +23,14 @@ Platform `DaikinCloud`; a Homebridge block works unchanged.
   a ping every 30 s and reconnection with backoff.
 - **The daily quota**: polling at `updateIntervalInMinutes`, stretched to an hour while the WebSocket pushes and
   when fewer than 20 calls are left, doubled per failed poll (up to four times); one debounced poll after changes
-  from HomeKit (skipped while the WebSocket is connected); rapid writes to one setting coalesced into one request;
+  from HomeKit (skipped while the WebSocket is connected, but not for a group frame, which names no device); rapid writes to one setting coalesced into one request;
   requests blocked after a 429 until `Retry-After`; writes retried on 502/503/504, polls not.
+- **Recovery**: a start that fails while the cloud is unreachable (or a Mobile App login that fails on a network or
+  server error) is tried again after a minute, then two, up to every five minutes, until the devices are found. An
+  account without devices, a refresh token the Developer Portal refuses and an email or password Daikin refuses are
+  not tried again: they wait for a sign-in through Setup (sending refused credentials again counts towards a lockout).
+  With the Mobile App login, a refresh token Daikin refuses is replaced by logging in again with the configured
+  credentials, for polls, writes from HomeKit and the WebSocket alike.
 - **The page** (Plugins › Daikin Cloud › Open): the Homebridge plugin's settings UI, without the settings. Devices
   (state, model, temperatures, features, offline and Excluded units with Explain, a unit's **Settings**);
   Authentication (the method, the token's status and expiry, Test connection, Sign in again, Revoke; signed out, a

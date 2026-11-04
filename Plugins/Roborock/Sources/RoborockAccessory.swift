@@ -147,6 +147,8 @@ final class VacuumAccessory {
             linked.append(service)
         }
         let fan = Service(.fanv2, name: name, extra: [Characteristic(.statusFault), Characteristic(.statusActive)], linked: linked, isPrimary: true)
+        // A Robotic Vacuum Cleaner over Matter, its battery the Battery beside it.
+        fan.standsFor = .cleaningRobot
         let duid = duid, actions = actions
         fan.characteristic(.active).onWrite { value in await actions.setActive(duid, value.intValue == 1) }
         if let previous = old.service(.fanv2) { fan.takeValues(from: previous) }

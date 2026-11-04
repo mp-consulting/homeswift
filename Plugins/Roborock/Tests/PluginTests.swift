@@ -34,6 +34,8 @@ struct PluginTests {
         #expect(accessory.information[.firmwareRevision]?.value == "02.29.02")
         let fan = try #require(accessory.service(.fanv2))
         #expect(fan.isPrimary)
+        // A Robotic Vacuum Cleaner over Matter, not a fan.
+        #expect(fan.standsFor == .cleaningRobot)
         #expect(fan[.active]?.value == 0)
         #expect(fan[.statusFault]?.value == 0)
         let battery = try #require(accessory.service(.battery))
@@ -188,6 +190,8 @@ struct PluginTests {
         shape.scenes[1] = "Morning run"
         shape.dockWash = true
         _ = vacuum.build(shape)
+        // A rebuilt accessory's fan still stands for the robot.
+        #expect(vacuum.accessory.service(.fanv2)?.standsFor == .cleaningRobot)
         #expect(vacuum.accessory.service(.switch, subtype: "scene-1")?[.name]?.value == "Morning run")
         #expect(vacuum.accessory.service(.switch, subtype: "scene-1")?[.configuredName]?.value == "My morning")
         // Not renamed: it follows the language.

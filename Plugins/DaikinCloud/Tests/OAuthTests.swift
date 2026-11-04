@@ -42,7 +42,7 @@ struct OAuthTests {
         }
         let valid = try TokenResponse.parse(.json(["access_token": "a", "refresh_token": "r", "token_type": "Bearer", "expires_in": 3600]), url: tokenURL, context: "x")
         #expect(valid == TokenSet(access_token: "a", refresh_token: "r", token_type: "Bearer", expires_in: 3600))
-        #expect(throws: DaikinError("x: invalid_grant - Refresh token expired (HTTP 400)")) {
+        #expect(throws: OAuthError(message: "x: invalid_grant - Refresh token expired (HTTP 400)", code: "invalid_grant")) {
             try TokenResponse.parse(.json(["error": "invalid_grant", "error_description": "Refresh token expired"], status: 400), url: tokenURL, context: "x")
         }
         #expect(throws: DaikinError("x: idp.onecta.daikineurope.com returned HTTP 500")) {
@@ -172,7 +172,7 @@ struct OAuthTests {
         #expect(tokens.expires_at != nil)
         #expect(http.all[0].form == ["grant_type": "authorization_code", "code": "the-code", "redirect_uri": "https://h:1", "client_id": "id", "client_secret": "secret"])
         #expect(http.all[0].header("Content-Type") == "application/x-www-form-urlencoded")
-        await #expect(throws: DaikinError("Token refresh failed: invalid_grant (HTTP 400)")) {
+        await #expect(throws: OAuthError(message: "Token refresh failed: invalid_grant (HTTP 400)", code: "invalid_grant")) {
             try await DeveloperPortalOAuth.refresh("r", clientID: "id", clientSecret: "secret", http: DaikinHTTP(transport: http))
         }
         await #expect(throws: DaikinError("Token revocation failed: HTTP 500")) {
@@ -190,7 +190,11 @@ struct OAuthTests {
         let failures = NIOLockedValueBox(0)
         let http: FakeHTTP
 
-        init(login: JSONValue, register: JSONValue = ["errorCode": 0, "sessionInfo": ["login_token": "login-token-xyz"]], failures: Int = 0, code: String = "ETIMEDOUT") {
+        /// `refresh`: what the token endpoint answers a refresh grant, with HTTP 400 (an OAuth error body).
+        init(
+            login: JSONValue, register: JSONValue = ["errorCode": 0, "sessionInfo": ["login_token": "login-token-xyz"]], failures: Int = 0, code: String = "ETIMEDOUT",
+            refresh: JSONValue? = nil
+        ) {
             self.login = login
             self.register = register
             self.failures.withLockedValue { $0 = failures }
@@ -209,6 +213,7 @@ struct OAuthTests {
                 if url.contains("accounts.webSdkBootstrap") { return .json([:], headers: [("set-cookie", "gig_canary=abc123; Path=/"), ("set-cookie", "gig_canary_ver=1; Path=/")]) }
                 if url.contains("accounts.login") { return .json(login) }
                 if url.contains("accounts.register") { return .json(register) }
+                if let refresh, request.form["grant_type"] == "refresh_token" { return .json(refresh, status: 400) }
                 if url.contains("/oidc/token") { return .json(["access_token": "access-token-final", "refresh_token": "refresh-token-final", "token_type": "Bearer", "expires_in": 3600]) }
                 return .text("Unexpected", status: 500)
             }
@@ -286,7 +291,12 @@ struct OAuthTests {
         let failing = Gigya(login: ["errorCode": 206001, "regToken": "reg", "data": ["profile": [:]]], register: ["errorCode": 400006, "errorMessage": "Unallowed value"])
         await #expect(throws: DaikinError("Registration completion failed (400006): Unallowed value")) { try await mobile(failing, log: LogRecorder()).authenticate() }
         let wrong = Gigya(login: ["errorCode": 403042, "errorMessage": "Invalid LoginID"])
-        await #expect(throws: DaikinError("Login failed (403042): Invalid LoginID")) { try await mobile(wrong, log: LogRecorder()).authenticate() }
+        await #expect(throws: CredentialsRejected(message: "Login failed (403042): Invalid LoginID", gigyaErrorCode: 403042)) {
+            try await mobile(wrong, log: LogRecorder()).authenticate()
+        }
+        // A Gigya server error is not a refusal of the credentials: it may pass.
+        let busy = Gigya(login: ["errorCode": 500001, "errorMessage": "General Server Error"])
+        await #expect(throws: DaikinError("Login failed (500001): General Server Error")) { try await mobile(busy, log: LogRecorder()).authenticate() }
         let odd = Gigya(login: ["unexpected": true])
         await #expect(throws: DaikinError("Login failed: cdc.daikin.eu returned an unexpected response (HTTP 200)")) { try await mobile(odd, log: LogRecorder()).authenticate() }
     }
@@ -326,6 +336,62 @@ struct OAuthTests {
         let refused = Gigya(login: [:], failures: 99, code: "EPROTO")
         await #expect(throws: DaikinError("Request to cdc.daikin.eu failed: connect EPROTO (EPROTO)")) { try await mobile(refused, log: LogRecorder()).authenticate() }
         #expect(refused.http.count == 1)
+    }
+
+    // MARK: Logging in again
+
+    func expiredMobileTokens() throws -> TokenLocation {
+        let location = tokenLocation(directory, ".daikin-mobile-tokenset")
+        try TokenFile.save(TokenSet(access_token: "old", refresh_token: "dead", token_type: "Bearer", expires_at: 1), to: location)
+        return location
+    }
+
+    func logins(_ gigya: Gigya) -> Int { gigya.http.all.filter { $0.url.absoluteString.contains("accounts.login") }.count }
+
+    @Test func aRefusedRefreshTokenLogsInAgain() async throws {
+        let gigya = Gigya(login: ["errorCode": 0, "sessionInfo": ["login_token": "lt"]], refresh: ["error": "invalid_grant", "error_description": "expired"])
+        let log = LogRecorder()
+        let client = MobileOAuth.client(
+            file: try expiredMobileTokens(), credentials: ("john.doe@example.com", "test-password"), http: DaikinHTTP(transport: gigya.http),
+            log: { log.logger.info("\($0)") }, onError: { _ in }, sleep: { _ in })
+        // Concurrent callers share the refresh, and so the login.
+        async let first = client.accessToken()
+        async let second = client.accessToken()
+        #expect(try await [first, second] == ["access-token-final", "access-token-final"])
+        #expect(logins(gigya) == 1)
+        #expect(log.contains("Refresh token rejected (invalid_grant), logging in again with the configured credentials..."))
+        #expect(TokenFile.load(tokenLocation(directory, ".daikin-mobile-tokenset"))?.refresh_token == "refresh-token-final")
+    }
+
+    @Test func refusedCredentialsAreNotSentAgain() async throws {
+        let gigya = Gigya(login: ["errorCode": 403042, "errorMessage": "Invalid LoginID"], refresh: ["error": "invalid_grant"])
+        let client = MobileOAuth.client(
+            file: try expiredMobileTokens(), credentials: ("john.doe@example.com", "wrong"), http: DaikinHTTP(transport: gigya.http),
+            log: { _ in }, onError: { _ in }, sleep: { _ in })
+        await #expect(throws: CredentialsRejected(message: "Login failed (403042): Invalid LoginID", gigyaErrorCode: 403042)) { try await client.accessToken() }
+        do {
+            _ = try await client.accessToken()
+            Issue.record("no error")
+        } catch let error as CredentialsRejected {
+            #expect(error.message.contains("rejected earlier (Login failed (403042): Invalid LoginID)"))
+        }
+        #expect(logins(gigya) == 1)
+    }
+
+    @Test func otherRefreshFailuresDoNotLogIn() async throws {
+        // A server error is not a refused refresh token.
+        let gigya = Gigya(login: ["errorCode": 0, "sessionInfo": ["login_token": "lt"]], refresh: ["error": "server_error"])
+        let client = MobileOAuth.client(
+            file: try expiredMobileTokens(), credentials: ("john.doe@example.com", "test-password"), http: DaikinHTTP(transport: gigya.http),
+            log: { _ in }, onError: { _ in }, sleep: { _ in })
+        await #expect(throws: OAuthError(message: "Token refresh failed: server_error (HTTP 400)", code: "server_error")) { try await client.accessToken() }
+        // Without credentials there is nothing to log in with: the refusal comes back as it is.
+        let refused = Gigya(login: [:], refresh: ["error": "invalid_grant"])
+        let anonymous = MobileOAuth.client(
+            file: try expiredMobileTokens(), credentials: nil, http: DaikinHTTP(transport: refused.http), log: { _ in }, onError: { _ in }, sleep: { _ in })
+        await #expect(throws: OAuthError(message: "Token refresh failed: invalid_grant (HTTP 400)", code: "invalid_grant")) { try await anonymous.accessToken() }
+        #expect(logins(gigya) == 0)
+        #expect(logins(refused) == 0)
     }
 
     @Test func mobileRefresh() async throws {
