@@ -280,35 +280,33 @@ actor RingLocationHub {
         if !bypass.isEmpty { data["bypass"] = .array(bypass.map(JSONValue.string)) }
         let id = UUID()
         let timeout = timing.alarmModeTimeout
-        defer { removeUpdateWaiter(zid, id: id) }
-        let update: JSONValue = try await withThrowingTaskGroup(of: JSONValue.self) { group in
-            defer { group.cancelAll() }
-            group.addTask {
-                try await withCheckedThrowingContinuation { continuation in
-                    Task { await self.addUpdateWaiter(zid, id: id, continuation) }
+        let command = JSONValue.object(data)
+        var worker: Task<Void, Never>?
+        defer { worker?.cancel() }
+        let update: JSONValue = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<JSONValue, any Error>) in
+                updateWaiters[zid, default: [:]][id] = continuation
+                // Sent once the waiter is in place, so a quick answer is not missed; without an answer the wait ends
+                // after `timeout`.
+                worker = Task {
+                    do {
+                        try await self.command(zid, "security-panel.switch-mode", data: command)
+                        try await Task.sleep(for: timeout)
+                        self.failUpdateWaiter(zid, id: id, RingError.unexpected("the alarm did not answer the mode change"))
+                    } catch {
+                        self.failUpdateWaiter(zid, id: id, error)
+                    }
                 }
             }
-            group.addTask {
-                try await Task.sleep(for: timeout)
-                throw RingError.unexpected("the alarm did not answer the mode change")
-            }
-            // Sent once the waiter is in place, so a quick answer is not missed.
-            while !hasUpdateWaiter(zid, id: id) { try await Task.sleep(for: .milliseconds(5)) }
-            try await self.command(zid, "security-panel.switch-mode", data: .object(data))
-            return try await group.next()!
+        } onCancel: {
+            Task { await self.failUpdateWaiter(zid, id: id, CancellationError()) }
         }
         guard update["mode"]?.stringValue == mode else {
             throw RingError.unexpected("Failed to set alarm mode; sensors may require bypass, which can only be done in the Ring app")
         }
     }
 
-    private func addUpdateWaiter(_ zid: String, id: UUID, _ continuation: CheckedContinuation<JSONValue, any Error>) {
-        updateWaiters[zid, default: [:]][id] = continuation
-    }
-
-    private func hasUpdateWaiter(_ zid: String, id: UUID) -> Bool { updateWaiters[zid]?[id] != nil }
-
-    private func removeUpdateWaiter(_ zid: String, id: UUID) {
-        updateWaiters[zid]?.removeValue(forKey: id)?.resume(throwing: CancellationError())
+    private func failUpdateWaiter(_ zid: String, id: UUID, _ error: any Error) {
+        updateWaiters[zid]?.removeValue(forKey: id)?.resume(throwing: error)
     }
 }

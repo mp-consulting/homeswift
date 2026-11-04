@@ -244,4 +244,28 @@ struct FCMReceiverTests {
         try await eventually { connection.sent.contains { $0.first == 1 } }
         await receiver.stop()
     }
+
+    @Test func aConnectionThatAnswersNoPingIsDropped() async throws {
+        var configuration = FCMReceiver.Configuration(apiKey: "key", projectID: "project", appID: "app")
+        configuration.heartbeatInterval = .milliseconds(100)
+        var timing = FCMReceiver.Timing()
+        timing.reconnect = .milliseconds(10)
+        let connections = NIOLockedValueBox<[FakeFCMConnection]>([])
+        let receiver = FCMReceiver(configuration: configuration, credentials: Self.credentials(), http: FakeGoogle(), timing: timing) {
+            let connection = FakeFCMConnection()
+            connections.withLockedValue { $0.append(connection) }
+            return connection
+        }
+        await receiver.start()
+        var iterator = receiver.events.makeAsyncIterator()
+        try await eventually { !connections.withLockedValue { $0 }.isEmpty }
+        let first = connections.withLockedValue { $0[0] }
+        first.receive(hex("2903220a136368726f6d652d39342e302e343630362e353112002801300140fbd095ffbc31"))
+        guard case .ready = await iterator.next() else { Issue.record("not ready"); return }
+        // Pings go out but nothing comes back: the receiver gives up on the connection and opens another.
+        guard case .disconnected = await iterator.next() else { Issue.record("not dropped"); return }
+        #expect(first.sent.contains { $0.first == 0 })
+        try await eventually { connections.withLockedValue { $0 }.count >= 2 }
+        await receiver.stop()
+    }
 }

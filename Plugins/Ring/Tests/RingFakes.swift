@@ -99,6 +99,8 @@ final class FakeRingCloud: HTTPSending {
         var tokens = 0
         var devices = Fixtures.devices
         var oauth: (@Sendable (NetworkRequest) -> NetworkResponse)?
+        /// Snapshots wait while this is set.
+        var holdSnapshots = false
     }
 
     let state = NIOLockedValueBox(State())
@@ -130,6 +132,7 @@ final class FakeRingCloud: HTTPSending {
         if url.hasSuffix("clients_api/ring_devices") { return json(state.withLockedValue { $0.devices }) }
         if url.contains("clap/tickets") { return json(Fixtures.ticket) }
         if url.contains("app-snaps.ring.com") {
+            while state.withLockedValue({ $0.holdSnapshots }) { try await Task.sleep(for: .milliseconds(5)) }
             return NetworkResponse(status: 200, headers: [("x-time-millis", "1700000000000"), ("date", "Tue, 14 Nov 2023 22:13:20 GMT")], body: Fixtures.jpeg)
         }
         if url.contains("mode/location/") { return json(#"{"mode":"home","readOnly":false}"#) }
@@ -193,7 +196,7 @@ final class TestEnvironment: Sendable {
         }
     }
 
-    func start(settings: [String: Any] = ["refreshToken": Fixtures.wrapper]) async throws -> PluginHost {
+    func start(settings: [String: Any] = ["refreshToken": Fixtures.wrapper], timing: RingTiming = TestEnvironment.timing) async throws -> PluginHost {
         var registry = PluginRegistry()
         registry.register(platform: RingPlugin.platform, name: RingPlugin.name) { json, context in
             let configuration = try JSONDecoder().decode(RingPlugin.Configuration.self, from: json)
@@ -204,7 +207,7 @@ final class TestEnvironment: Sendable {
                 return socket
             }
             dependencies.push = { [push = self.push] _, _ in push }
-            dependencies.timing = Self.timing
+            dependencies.timing = timing
             let plugin = RingPlugin(configuration: configuration, context: context, dependencies: dependencies)
             self.plugins.withLockedValue { $0.append(plugin) }
             return plugin

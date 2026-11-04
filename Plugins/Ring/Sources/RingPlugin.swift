@@ -229,21 +229,36 @@ public actor RingPlugin: HomeswiftPlugin {
         let hubLocations = baseStations.union((devices["beams_bridges"]?.arrayValue ?? []).compactMap { $0["location_id"]?.stringValue })
 
         var accessories: [(built: RingBuiltAccessory, external: Bool)] = []
+        // Kept once discovery got through every location: a failed pass that is retried does not add them twice.
+        var modes: [RingLocationMode] = []
+        // Every location's hubs start together, so one that does not answer delays the others by one timeout at most.
+        for location in locations {
+            guard let locationID = location["location_id"]?.stringValue, hubLocations.contains(locationID) else { continue }
+            let hub = hubs[locationID] ?? RingLocationHub(
+                locationID: locationID, name: location["name"]?.stringValue ?? locationID, client: client, timing: dependencies.timing,
+                logger: logger, connect: dependencies.connectWebSocket)
+            hubs[locationID] = hub
+            hub.inventory.onChange.withLockedValue { [updaters] in
+                $0 = { zid, data in for update in updaters.withLockedValue({ $0[zid] ?? [] }) { update(data) } }
+            }
+            await hub.start()
+        }
+        let timeout = dependencies.timing.hubListTimeout
+        let readyHubs: Set<String> = await withTaskGroup(of: String?.self) { [hubs] group in
+            for (locationID, hub) in hubs where hubLocations.contains(locationID) {
+                group.addTask { await hub.waitUntilReady(timeout: timeout) ? locationID : nil }
+            }
+            var ready: Set<String> = []
+            for await locationID in group { if let locationID { ready.insert(locationID) } }
+            return ready
+        }
         for location in locations {
             guard let locationID = location["location_id"]?.stringValue else { continue }
             let locationName = location["name"]?.stringValue ?? locationID
             let inLocation: (JSONValue) -> Bool = { $0["location_id"]?.stringValue == locationID }
             var built: [RingBuiltAccessory] = []
-            if hubLocations.contains(locationID) {
-                let hub = hubs[locationID] ?? RingLocationHub(
-                    locationID: locationID, name: locationName, client: client, timing: dependencies.timing, logger: logger,
-                    connect: dependencies.connectWebSocket)
-                hubs[locationID] = hub
-                hub.inventory.onChange.withLockedValue { [updaters] in
-                    $0 = { zid, data in for update in updaters.withLockedValue({ $0[zid] ?? [] }) { update(data) } }
-                }
-                await hub.start()
-                if await !hub.waitUntilReady(timeout: dependencies.timing.hubListTimeout) {
+            if let hub = hubs[locationID], hubLocations.contains(locationID) {
+                if !readyHubs.contains(locationID) {
                     logger.warning("The hubs of \(locationName) did not list their devices in time; showing what they sent")
                 }
                 for device in hub.inventory.all {
@@ -263,7 +278,14 @@ public actor RingPlugin: HomeswiftPlugin {
             logger.info("Configuring \(locationCameras.count) cameras and \(built.count) devices for location \(locationName)")
             for (data, isDoorbell) in locationCameras {
                 let camera = RingCamera(data: data, isDoorbell: isDoorbell, environment: environment)
-                let accessory = try camera.makeAccessory()
+                let accessory: Accessory
+                do {
+                    accessory = try camera.makeAccessory()
+                } catch {
+                    // One camera that cannot be described does not keep the others out.
+                    logger.error("Cannot configure camera \(camera.name): \(error)")
+                    continue
+                }
                 cameras[camera.id] = camera
                 restIDs.insert(camera.id)
                 external.append(RingBuiltAccessory(seed: "\(camera.id)camera", deviceType: camera.kind, accessory: accessory, update: { camera.update($0) }))
@@ -283,12 +305,13 @@ public actor RingPlugin: HomeswiftPlugin {
                 if let mode = try? await client.locationMode(locationID), mode["readOnly"]?.boolValue != true,
                    let current = mode["mode"]?.stringValue, current != "disabled", current != "unset" {
                     let locationMode = RingLocationMode(locationID: locationID, locationName: locationName, mode: current, environment: environment)
-                    locationModes.append(locationMode)
+                    modes.append(locationMode)
                     built.append(RingBuiltAccessory(seed: "\(locationID)mode", deviceType: "location.mode", accessory: locationMode.accessory, update: { _ in }))
                 }
             }
             accessories += built.map { ($0, false) } + external.map { ($0, true) }
         }
+        locationModes = modes
 
         var kept: Set<String> = []
         for (accessory, external) in accessories {

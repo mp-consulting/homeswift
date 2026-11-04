@@ -214,10 +214,11 @@ enum RingCommon {
             let volume = parts.speakerLevel?.shown(data["volume"]?.looseDouble) ?? data["volume"]?.looseDouble ?? 0
             speaker.characteristic(.volume).show(.int(Int(saturating: volume * 100, in: 0...100) ?? 0))
         }
-        let tampered = data["tamperStatus"]?.stringValue.map { $0 == "ok" ? 0 : 1 } ?? 1
+        // A device that reports no tamper status (a Smart Lighting motion sensor) is not tampered.
+        let tampered = data["tamperStatus"]?.stringValue.map { $0 == "ok" ? 0 : 1 }
         let low = RingBattery.hub(data)?.low
         for sensor in parts.sensors {
-            sensor[.statusTampered]?.show(.int(tampered))
+            if let tampered { sensor[.statusTampered]?.show(.int(tampered)) }
             if let low { sensor[.statusLowBattery]?.show(.int(low ? 1 : 0)) }
         }
     }

@@ -439,18 +439,21 @@ public actor FCMReceiver {
         let activity = NIOLockedValueBox(ContinuousClock.now)
         let dead = NIOLockedValueBox(false)
         let heartbeat: Task<Void, Never>? = interval > .zero ? Task { [weak self] in
-            // A ping after an interval of silence; the connection is dead after two.
+            // A ping after an interval of silence; the connection is dead after two without anything received
+            // (a ping sent does not count: a half-open connection takes it without an error).
+            var lastPing: ContinuousClock.Instant?
             while !Task.isCancelled {
                 try? await Task.sleep(for: interval / 4)
-                let silence = ContinuousClock.now - activity.withLockedValue { $0 }
-                if silence >= interval * 2 {
+                let now = ContinuousClock.now
+                let received = activity.withLockedValue { $0 }
+                if now - received >= interval * 2 {
                     dead.withLockedValue { $0 = true }
                     await connection.close()
                     return
                 }
-                if silence >= interval, let ping = await self?.pingFrame() {
+                if now - max(received, lastPing ?? received) >= interval, let ping = await self?.pingFrame() {
                     try? await connection.send(ping)
-                    activity.withLockedValue { $0 = ContinuousClock.now - interval / 2 }
+                    lastPing = now
                 }
             }
         } : nil

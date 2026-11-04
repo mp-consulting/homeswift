@@ -422,7 +422,7 @@ enum RingHubAccessories {
             showFire(data)
         }
         show(data)
-        return RingBuiltAccessory(seed: "\(zid)panic", deviceType: "security-panel", accessory: accessory, update: show, follows: [])
+        return RingBuiltAccessory(seed: "\(zid)panic", deviceType: "security-panel", accessory: accessory, update: show, follows: [zid])
     }
 
     // MARK: Thermostat

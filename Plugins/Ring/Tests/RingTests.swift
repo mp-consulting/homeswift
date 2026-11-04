@@ -59,6 +59,19 @@ struct RingPushRoutingTests {
     }
 }
 
+struct RingTamperTests {
+    @Test func onlyAReportedTamperStatusShows() throws {
+        let sensor = RingCommon.sensor(.motionSensor, data: [:])
+        let parts = RingCommon.Parts(sensors: [sensor])
+        RingCommon.show([:], on: parts)
+        #expect(sensor[.statusTampered]?.value == .int(0))
+        RingCommon.show(["tamperStatus": "tamper"], on: parts)
+        #expect(sensor[.statusTampered]?.value == .int(1))
+        RingCommon.show(["tamperStatus": "ok"], on: parts)
+        #expect(sensor[.statusTampered]?.value == .int(0))
+    }
+}
+
 struct RingClientTests {
     @Test func twoFactorPrompts() async throws {
         let cloud = FakeRingCloud()
@@ -152,8 +165,9 @@ struct RingPluginTests {
         #expect(host.accessory("loc-alarm-001mode") == nil)
         // Cameras are on servers of their own.
         #expect(host.bridges.filter(\.isExternal).count == 3)
-        #expect(environment.cloud.count("doorbots/1001/subscribe") >= 1)
-        #expect(environment.cloud.count("doorbots/1001/motions_subscribe") >= 1)
+        // Subscribing follows the accessories.
+        #expect(await eventually { environment.cloud.count("doorbots/1001/subscribe") >= 1 })
+        #expect(await eventually { environment.cloud.count("doorbots/1001/motions_subscribe") >= 1 })
         await host.stop()
     }
 
@@ -190,6 +204,23 @@ struct RingPluginTests {
         // The panel answers in the mode asked for: Night is the target.
         environment.socket.receive(text: Fixtures.update("zid-security-panel", #"{"mode":"all"}"#))
         #expect(await eventually { target.value == .int(2) })
+        await host.stop()
+    }
+
+    @Test func aModeChangeThePanelNeverAnswersIsUndone() async throws {
+        var timing = TestEnvironment.timing
+        timing.alarmModeTimeout = .milliseconds(200)
+        let host = try await environment.start(timing: timing)
+        #expect(await eventually { host.accessory("zid-security-panel") != nil })
+        let target = try #require(host.accessory("zid-security-panel")?.service(.securitySystem)?[.securitySystemTargetState])
+        let before = target.value
+        #expect(before != .int(1))
+        // As HomeKit does with a write it accepted.
+        target.value = .int(1)
+        try await write(target, .int(1))
+        #expect(await eventually { environment.socket.sentText.contains { $0.contains("security-panel.switch-mode") } })
+        // No update comes back: the wait ends and HomeKit shows the mode the panel is in.
+        #expect(await eventually { target.value == before })
         await host.stop()
     }
 
@@ -232,6 +263,23 @@ struct RingPluginTests {
         await host.stop()
     }
 
+    @Test func anEventSnapshotDoesNotTakeTheCurrentOne() async throws {
+        let host = try await environment.start()
+        #expect(await eventually { await environment.plugin?.cameraList.count == 3 })
+        let camera = try #require(await environment.plugin?.cameraList.first { $0.id == "1001" })
+        environment.cloud.state.withLockedValue { $0.holdSnapshots = true }
+        let current = Task { try await camera.refreshSnapshot(uuid: nil) }
+        #expect(await eventually { environment.cloud.count("snapshots/next/1001?after-ms=0&extras=force") == 1 })
+        // A ding's frame while the current image is on its way: a request of its own.
+        let event = Task { try await camera.refreshSnapshot(uuid: "abcd-1234") }
+        #expect(await eventually { environment.cloud.count("snapshots/next/1001?uuid=abcd-1234") == 1 })
+        environment.cloud.state.withLockedValue { $0.holdSnapshots = false }
+        let images = (try await current.value, try await event.value)
+        #expect(images.0 == Fixtures.jpeg)
+        #expect(images.1 == Fixtures.jpeg)
+        await host.stop()
+    }
+
     @Test func snapshotsAreCachedAndRefreshed() async throws {
         let host = try await environment.start()
         #expect(await eventually { await environment.plugin?.cameraList.count == 3 })
@@ -264,6 +312,11 @@ struct RingPluginTests {
         let burglar = try #require(panic.service(.switch, subtype: "Burglar")?[.on])
         #expect(burglar.isSecurityControl)
         #expect(panic.service(.switch, subtype: "Fire") != nil)
+        // The panel's updates reach its panic buttons.
+        environment.socket.receive(text: Fixtures.update("zid-security-panel", #"{"alarmInfo":{"state":"burglar-alarm"}}"#))
+        #expect(await eventually { burglar.value == .bool(true) })
+        environment.socket.receive(text: Fixtures.update("zid-security-panel", #"{"alarmInfo":{"state":"none"}}"#))
+        #expect(await eventually { burglar.value == .bool(false) })
         await host.stop()
     }
 

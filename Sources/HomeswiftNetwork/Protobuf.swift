@@ -2,8 +2,8 @@ import Foundation
 
 /// The protobuf wire format (https://protobuf.dev/programming-guides/encoding/) without a schema or a code generator:
 /// varints, tags, and the four wire types devices use. `ProtobufWriter` builds a message field by field and
-/// `ProtobufMessage` reads one by field number, so a plugin describes its messages by their numbers (ESPHome's native
-/// API); EcoFlow's reader shares its varints.
+/// `ProtobufMessage` reads one by field number, so a client describes its messages by their numbers (`FCMReceiver`'s
+/// check-in and MCS messages).
 public enum Protobuf {
     public enum WireType: UInt8, Sendable {
         case varint = 0

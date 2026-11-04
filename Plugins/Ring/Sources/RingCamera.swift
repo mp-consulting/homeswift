@@ -44,7 +44,8 @@ final class RingCamera: CameraStreamingDelegate, @unchecked Sendable {
         var lastSnapshot: Data?
         var cameraTimestamp: Double = 0
         var takenAt: ContinuousClock.Instant?
-        var refreshing: Task<Data, any Error>?
+        /// The request in flight and the event snapshot it asks for (nil: the camera's current image).
+        var refreshing: (uuid: String?, task: Task<Data, any Error>)?
     }
 
     // Services
@@ -309,19 +310,19 @@ final class RingCamera: CameraStreamingDelegate, @unchecked Sendable {
         return cached
     }
 
-    /// A new snapshot into the cache, one request at a time (callers share it).
+    /// A new snapshot into the cache, one request at a time per event uuid (callers asking for the same share it).
     func refreshSnapshot(uuid: String?) async throws -> Data {
         let task = state.withLockedValue { state -> Task<Data, any Error> in
-            if let refreshing = state.refreshing { return refreshing }
+            if let refreshing = state.refreshing, refreshing.uuid == uuid { return refreshing.task }
             let task = Task { try await self.takeSnapshot(uuid: uuid) }
-            state.refreshing = task
+            state.refreshing = (uuid, task)
             return task
         }
         do {
             let image = try await task.value
             let keep = snapshotLifetime + environment.timing.snapshotKeep
             let generation = state.withLockedValue { state -> Int in
-                state.refreshing = nil
+                if state.refreshing?.task == task { state.refreshing = nil }
                 state.cached = image
                 state.cacheGeneration += 1
                 return state.cacheGeneration
@@ -333,7 +334,7 @@ final class RingCamera: CameraStreamingDelegate, @unchecked Sendable {
             return image
         } catch {
             state.withLockedValue { state in
-                state.refreshing = nil
+                if state.refreshing?.task == task { state.refreshing = nil }
                 state.cached = nil
             }
             environment.logger.debug("\(name) snapshot failed\(isOffline ? " (the camera is offline)" : ""): \(error)")
