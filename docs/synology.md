@@ -70,18 +70,22 @@ shared folder gives every file in it the share's ACL, which DSM checks instead o
 files as `-rwxrwxrwx+`, and any account or app given access to the share in **Control Panel > Shared Folder** could read
 them, or replace config.json.
 
-At each start the package removes that ACL from these files (`synoacltool -del`) and sets them back to 0600, and the
-bridge sets each one to 0600 (a chmod, not only the mode it is created with) each time it writes it. The bridge then checks the folder and its secrets, and when other accounts
-can still reach them its log says which, starting `Other accounts can reach the bridge's secrets`. Over SSH, to see
-for yourself:
+At each start the package removes that ACL from these files (`/usr/syno/bin/synoacltool -del`, as a package user's
+PATH has no synoacltool) and sets them back to 0600, and the bridge sets each one to 0600 (a chmod, not only the mode
+it is created with) each time it writes it. The bridge then checks the folder and its secrets, and when other accounts
+can still reach them its log says which, starting `Other accounts can reach the bridge's secrets`. The folder itself
+(`drwxrwxrwx+`, root's) stays the share's and may be listed. Over SSH, to see for yourself:
 
 ```bash
 ls -le /volume1/homeswift                              # no "+" after the mode of secrets.key and vault.json
-sudo synoacltool -get /volume1/homeswift/secrets.key   # no "has_ACL" in its Archive line
+sudo /usr/syno/bin/synoacltool -get /volume1/homeswift/secrets.key   # no [0], [1]… entries, no is_inherit or has_ACL
+sudo /usr/syno/bin/synoacltool -get /volume1/homeswift/vault.json
 sudo homeswift logs | grep "reach the bridge's secrets"
 ```
 
-If a file keeps its ACL, remove it as root with `sudo synoacltool -del <file>`, then `sudo homeswift restart`. Give
+If a file keeps its ACL, the journal says so with the command to run
+(`sudo journalctl -u pkguser-homeswift | grep "keeps the shared folder's ACL"`): as root,
+`sudo /usr/syno/bin/synoacltool -del <file>`, check that `-get` lists no entries, then `sudo homeswift restart`. Give
 no other account access to the **homeswift** shared folder: an account that can write the folder can still replace
 files in it. Hyper Backup reads it as root and needs no access of its own; a backup holds `secrets.key`, so keep it as
 private as the NAS.
