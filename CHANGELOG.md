@@ -117,6 +117,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Battery widgets: the charging bolt sits on the battery's centre line at every size (a small tile drew it 6 px high), the
+  three bars of the level stay apart on small and medium tiles (an icon rule's stroke filled the gaps between them), and
+  the ⋯ button of a small tile and of a battery tile shows its dots in dark mode.
 - UniFi Protect and IP Cameras start with 0.45 s less CPU: probing FFmpeg's codecs ran a Swift `Regex` on every
   line of `ffmpeg -codecs`, and now only on the lines that name decoders or encoders.
 - Security: a configuration key named `encryptionKey` (or `encryption_key`) is a secret-named key, for every plugin:
