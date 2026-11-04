@@ -1,6 +1,7 @@
 // The APsystems ECU page's strings, in French, Spanish and Portuguese.
 HomeswiftI18n.add({
   "fr": {
+    "Reading the ECUs…": "Lecture des ECU…",
     "The production your ECUs report, read from them on the local network.": "La production que vos ECU indiquent, lue sur le réseau local.",
     "Your ECUs": "Vos ECU",
     "Settings": "Réglages",
@@ -35,6 +36,7 @@ HomeswiftI18n.add({
     "Open the settings": "Ouvrir les réglages",
   },
   "es": {
+    "Reading the ECUs…": "Leyendo las ECU…",
     "The production your ECUs report, read from them on the local network.": "La producción que indican tus ECU, leída en la red local.",
     "Your ECUs": "Tus ECU",
     "Settings": "Ajustes",
@@ -69,6 +71,7 @@ HomeswiftI18n.add({
     "Open the settings": "Abrir los ajustes",
   },
   "pt": {
+    "Reading the ECUs…": "A ler as ECU…",
     "The production your ECUs report, read from them on the local network.": "A produção que as suas ECU indicam, lida na rede local.",
     "Your ECUs": "As suas ECU",
     "Settings": "Definições",

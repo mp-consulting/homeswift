@@ -11,7 +11,8 @@
      addresses are on the Settings page. */
   .page-head { align-items: center; }
   .ecus { display: grid; gap: 12px; }
-  .ecu { margin: 0; display: grid; gap: 12px; animation: materialize var(--normal) var(--ease-out); }
+  .ecu { margin: 0; display: grid; gap: 12px; min-width: 0; }
+  .ecus:not(.drawn) .ecu { animation: materialize var(--normal) var(--ease-out); }
   .ecu-head, .inverter { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; min-width: 0; }
   .ecu-head .who, .inverter .who { flex: 1; min-width: 0; }
   .ecu-head .muted, .inverter .muted { font-size: 0.8125rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -20,7 +21,9 @@
   .inverter { padding: 10px 12px; border-radius: var(--radius-md); background: var(--material-thin); border: 1px solid var(--line); }
   .inverter .facts { flex-basis: 100%; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
   .ecu-problem { font-size: 0.8125rem; color: var(--warn); margin: 0; }
-  @media (prefers-reduced-motion: reduce) { .ecu { animation: none; } }
+  .facts.live .fact b { font-variant-numeric: tabular-nums; }
+  .inverter .fact { background: none; }
+  @media (prefers-reduced-motion: reduce) { .ecus .ecu { animation: none; } }
 </style>
 </head>
 <body>
@@ -33,6 +36,7 @@
       <p class="muted" data-i18n>The production your ECUs report, read from them on the local network.</p>
     </div>
   </div>
+  <p id="loading" class="muted" data-i18n>Reading the ECUs…</p>
   <div id="empty"></div>
   <section id="ecus-section" class="hidden">
     <div class="section-head"><h2 data-i18n>Your ECUs</h2></div>

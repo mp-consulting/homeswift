@@ -12,14 +12,18 @@ extension APsystemsECUPlugin {
 // addresses are Plugin Settings, an ECU's or an inverter's own settings are its Accessory Settings.
 (() => {
   "use strict";
-  const { $, el, request, poll, fact, tile } = homeswift;
+  const { $, el, request, poll, fact, tile, renderKeyed } = homeswift;
   const { t } = HomeswiftI18n;
 
   $("#head-tile").replaceWith(tile("sun", "orange", true));
 
-  const watts = (value) => `${Math.round(value).toLocaleString()} W`;
-  const kWh = (value) => `${Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })} kWh`;
-  const time = (iso) => (iso ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—");
+  const { locale } = HomeswiftI18n;
+  const whole = new Intl.NumberFormat(locale, { maximumFractionDigits: 0 });
+  const energy = new Intl.NumberFormat(locale, { maximumFractionDigits: 2 });
+  const clock = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" });
+  const watts = (value) => `${whole.format(value)} W`;
+  const kWh = (value) => `${energy.format(value)} kWh`;
+  const time = (iso) => (iso ? clock.format(new Date(iso)) : "—");
 
   function settingsLink(accessoryID, name) {
     return accessoryID ? el("a", { class: "button small", href: homeswift.accessorySettings(accessoryID), actionIcon: "gear", text: t("Settings"),
@@ -32,10 +36,10 @@ extension APsystemsECUPlugin {
       : inverter.online ? [t("Online"), "on"] : [t("Offline"), "standby"];
     const facts = inverter.registeredOnly ? null : el("div", { class: "facts live" },
       fact(t("Power"), watts(inverter.power)),
-      inverter.powers.length > 1 ? fact(t("Panels"), inverter.powers.map((value) => Math.round(value)).join(" · ") + " W") : null,
+      inverter.powers.length > 1 ? fact(t("Panels"), inverter.powers.map((value) => whole.format(value)).join(" · ") + " W") : null,
       inverter.voltages.length && inverter.online ? fact(t("Voltage"), inverter.voltages.join(" · ") + " V") : null,
       inverter.temperature !== undefined ? fact(t("Temperature"), homeswift.formatTemperature(inverter.temperature)) : null,
-      inverter.frequency !== undefined ? fact(t("Frequency"), `${inverter.frequency.toFixed(1)} Hz`) : null,
+      inverter.frequency !== undefined ? fact(t("Frequency"), `${energy.format(inverter.frequency)} Hz`) : null,
       inverter.signal !== undefined && inverter.online ? fact(t("Signal"), `${inverter.signal} %`) : null);
     return el("div", { class: "inverter" },
       el("div", { class: "who" }, el("strong", { text: name }), el("div", { class: "muted", text: inverter.model })),
@@ -64,28 +68,32 @@ extension APsystemsECUPlugin {
       el("div", { class: "ecu-head" },
         tile("sun", answering ? "orange" : "grey"),
         el("div", { class: "who" }, el("strong", { text: name }),
-          el("div", { class: "muted", text: [ecu.model, ecu.firmware, ecu.port === 8899 ? ecu.host : `${ecu.host}:${ecu.port}`].filter(Boolean).join(" · ") })),
+          el("div", { class: "muted", text: [ecu.model, ecu.firmware, ecu.address].filter(Boolean).join(" · ") })),
         el("span", { class: `pill status ${answering ? "on" : ecu.ecuID ? "away" : "standby"}`, text: answering ? t("Answering") : ecu.ecuID ? t("Not responding") : t("Not reached yet") }),
         settingsLink(ecu.accessoryID, name)),
       facts, ...problems,
       inverters.length ? el("div", { class: "inverters", role: "list", "aria-label": t("Inverters of {name}", { name }) }, ...inverters.map(inverterRow)) : null);
   }
 
-  /// Redraws when what the plugin reports changed.
-  let shown = "";
+  /// Draws what the plugin reports: an ECU's card again only when its own reading changed (once per poll).
+  let empty = null;
   async function refresh() {
     let status;
     try { status = await request("status"); } catch { return; /* the instance is restarting */ }
-    const next = JSON.stringify(status);
-    if (next === shown) return;
-    shown = next;
     const ecus = status.ecus ?? [];
-    $("#empty").replaceChildren(ecus.length ? "" : el("div", { class: "card" },
+    $("#loading")?.remove();
+    if (empty !== !ecus.length) {
+      empty = !ecus.length;
+      $("#empty").replaceChildren(ecus.length ? "" : el("div", { class: "card" },
       el("h2", { text: t("Add your ECU") }),
       el("p", { class: "muted", text: t("The ECU does not announce itself on the network: enter its address in this plugin's settings, under ECUs. Your router lists it, often as an Espressif device; give it a fixed address there.") }),
       el("a", { class: "button primary", href: homeswift.settingsAddress, actionIcon: "gear", text: t("Open the settings") })));
-    $("#ecus-section").classList.toggle("hidden", !ecus.length);
-    $("#ecus").replaceChildren(...ecus.map(ecuCard));
+      $("#ecus-section").classList.toggle("hidden", !ecus.length);
+    }
+    const list = $("#ecus");
+    renderKeyed(list, ecus, (ecu) => `${ecu.host}:${ecu.port}`, ecuCard);
+    // Cards drawn after the first time appear as they are: only the page's first draw fades in.
+    requestAnimationFrame(() => list.classList.add("drawn"));
   }
 
   poll(refresh, 15000);
@@ -96,6 +104,7 @@ extension APsystemsECUPlugin {
 // The APsystems ECU page's strings, in French, Spanish and Portuguese.
 HomeswiftI18n.add({
   "fr": {
+    "Reading the ECUs…": "Lecture des ECU…",
     "The production your ECUs report, read from them on the local network.": "La production que vos ECU indiquent, lue sur le réseau local.",
     "Your ECUs": "Vos ECU",
     "Settings": "Réglages",
@@ -130,6 +139,7 @@ HomeswiftI18n.add({
     "Open the settings": "Ouvrir les réglages",
   },
   "es": {
+    "Reading the ECUs…": "Leyendo las ECU…",
     "The production your ECUs report, read from them on the local network.": "La producción que indican tus ECU, leída en la red local.",
     "Your ECUs": "Tus ECU",
     "Settings": "Ajustes",
@@ -164,6 +174,7 @@ HomeswiftI18n.add({
     "Open the settings": "Abrir los ajustes",
   },
   "pt": {
+    "Reading the ECUs…": "A ler as ECU…",
     "The production your ECUs report, read from them on the local network.": "A produção que as suas ECU indicam, lida na rede local.",
     "Your ECUs": "As suas ECU",
     "Settings": "Definições",
@@ -214,7 +225,8 @@ HomeswiftI18n.add({
      addresses are on the Settings page. */
   .page-head { align-items: center; }
   .ecus { display: grid; gap: 12px; }
-  .ecu { margin: 0; display: grid; gap: 12px; animation: materialize var(--normal) var(--ease-out); }
+  .ecu { margin: 0; display: grid; gap: 12px; min-width: 0; }
+  .ecus:not(.drawn) .ecu { animation: materialize var(--normal) var(--ease-out); }
   .ecu-head, .inverter { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; min-width: 0; }
   .ecu-head .who, .inverter .who { flex: 1; min-width: 0; }
   .ecu-head .muted, .inverter .muted { font-size: 0.8125rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -223,7 +235,9 @@ HomeswiftI18n.add({
   .inverter { padding: 10px 12px; border-radius: var(--radius-md); background: var(--material-thin); border: 1px solid var(--line); }
   .inverter .facts { flex-basis: 100%; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
   .ecu-problem { font-size: 0.8125rem; color: var(--warn); margin: 0; }
-  @media (prefers-reduced-motion: reduce) { .ecu { animation: none; } }
+  .facts.live .fact b { font-variant-numeric: tabular-nums; }
+  .inverter .fact { background: none; }
+  @media (prefers-reduced-motion: reduce) { .ecus .ecu { animation: none; } }
 </style>
 </head>
 <body>
@@ -236,6 +250,7 @@ HomeswiftI18n.add({
       <p class="muted" data-i18n>The production your ECUs report, read from them on the local network.</p>
     </div>
   </div>
+  <p id="loading" class="muted" data-i18n>Reading the ECUs…</p>
   <div id="empty"></div>
   <section id="ecus-section" class="hidden">
     <div class="section-head"><h2 data-i18n>Your ECUs</h2></div>
