@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- HTTP Webhooks (`HttpWebHooks`), experimental: homebridge-http-webhooks' virtual accessories, set by webhooks on the LAN
+  (Basic authentication, HTTPS) and calling URLs on HomeKit writes, written in a clean room from a functional spec.
+
 ## [0.19.0] - 2026-11-02
 
 ### Added

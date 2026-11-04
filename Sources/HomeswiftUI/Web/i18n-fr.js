@@ -69,6 +69,7 @@ HomeswiftI18n.add("fr", {
   "Door locks, hubs and readers, followed in real time": "Serrures, hubs et lecteurs de porte, suivis en temps réel",
   "Cameras and doorbells with HomeKit Secure Video, sensors and lights": "Caméras et sonnettes avec HomeKit Secure Video, capteurs et éclairages",
   "Apple Home's accessories in Homeswift, through a Mac": "Les accessoires de l'app Maison dans Homeswift, via un Mac",
+  "Virtual sensors, switches and locks driven by webhooks": "Capteurs, interrupteurs et serrures virtuels pilotés par webhooks",
   "Visible in Home app": "Visible dans l'app Maison",
   "{name} leaves the Home app, with its room, scenes and automations. Homeswift and Matter keep it; shown again, the Home app adds it as a new accessory.": "{name} quitte l'app Maison, avec sa pièce, ses scènes et ses automatisations. Homeswift et Matter le gardent ; affiché de nouveau, l'app Maison l'ajoute comme un nouvel accessoire.",
   "Not started": "Non démarré",
