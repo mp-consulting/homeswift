@@ -50,6 +50,61 @@ struct VaultToolTests {
         }
     }
 
+    /// A form block without a key, for another address, does not borrow the key in the bridge's environment; the saved
+    /// provider and address still may.
+    @Test func anotherServiceGetsNoKeyFromTheEnvironment() async throws {
+        let environment = try MCPTestEnvironment(config: """
+            {
+              "bridge": { "name": "Test Bridge", "username": "0E:11:22:33:44:55", "pin": "031-45-154", "port": 0 },
+              "platforms": [ { "platform": "HomeswiftAiKit", "provider": "anthropic" } ]
+            }
+            """)
+        let keys = ["ANTHROPIC_API_KEY": "sk-ant-environment-key"]
+        let elsewhere: JSONValue = ["platform": "HomeswiftAiKit", "provider": "anthropic", "baseUrl": "http://192.0.2.1:8080"]
+        let request = try environment.catalog.assistantBlock(elsewhere, environment: keys).get()
+        #expect(request.environment.isEmpty)
+        #expect(try AIConfiguration(block: request.block, environment: request.environment).apiKey == nil)
+        // With no key, the models of the other address are not asked for.
+        let models = await environment.catalog.assistantModels(block: elsewhere)
+        #expect(models["models"] == [] && models["error"]?.stringValue?.isEmpty == false)
+
+        let saved = try environment.catalog.assistantBlock(["platform": "HomeswiftAiKit", "provider": "anthropic"], environment: keys).get()
+        #expect(try AIConfiguration(block: saved.block, environment: saved.environment).apiKey == "sk-ant-environment-key")
+    }
+
+    /// For the saved provider and address too, the form names no secret of the bridge's that the saved block does not
+    /// hold at the same place: no `file:` or `env:` of its own, no other vault entry, no sealed value.
+    @Test func theFormBringsNoReferenceOfItsOwn() async throws {
+        let environment = try MCPTestEnvironment(config: """
+            {
+              "bridge": { "name": "Test Bridge", "username": "0E:11:22:33:44:55", "pin": "031-45-154", "port": 0 },
+              "platforms": [ { "platform": "HomeswiftAiKit", "provider": "openai-compatible", "baseUrl": "http://127.0.0.1:9/v1", "apiKey": "vault:assistant" } ]
+            }
+            """)
+        try environment.catalog.vault.set("assistant", VaultEntry(kind: .apiKey, fields: ["key": "sk-vault-key"]))
+        try environment.catalog.vault.set("other", VaultEntry(kind: .apiKey, fields: ["key": "sk-other-key"]))
+        func form(_ apiKey: String) -> JSONValue {
+            ["platform": "HomeswiftAiKit", "provider": "openai-compatible", "baseUrl": "http://127.0.0.1:9/v1", "apiKey": .string(apiKey)]
+        }
+        for apiKey in ["file:/etc/hosts", "env:HOME", "vault:other", "\(SecretBox.prefix)AAAA"] {
+            let block = form(apiKey)
+            let result = environment.catalog.assistantBlock(block)
+            guard case .failure(let problem) = result else { Issue.record("\(apiKey) was accepted"); continue }
+            #expect(problem.description.hasPrefix("apiKey is not the saved block's"), "\(apiKey)")
+            let tested = await environment.catalog.testAssistantConnection(block: block, user: nil)
+            #expect(tested["ok"] == false)
+            #expect(await environment.catalog.assistantModels(block: block)["error"]?.stringValue?.hasPrefix("apiKey is not the saved block's") == true)
+        }
+        // A sealed value under a key that is not secret-named is opened all the same: refused too.
+        let sealedModel: JSONValue = ["platform": "HomeswiftAiKit", "provider": "openai-compatible", "baseUrl": "http://127.0.0.1:9/v1", "model": .string("\(SecretBox.prefix)AAAA")]
+        #expect((try? environment.catalog.assistantBlock(sealedModel).get()) == nil)
+        let sealedElsewhere: JSONValue = ["platform": "HomeswiftAiKit", "provider": "openai-compatible", "baseUrl": "http://192.0.2.1/v1", "model": .string("\(SecretBox.prefix)AAAA")]
+        #expect((try? environment.catalog.assistantBlock(sealedElsewhere).get()) == nil)
+        // The saved reference, as the form shows it, is the saved key.
+        let opened = environment.catalog.assistantBlock(form("vault:assistant")).map(\.block["apiKey"])
+        #expect((try? opened.get()) == "sk-vault-key", "\(opened)")
+    }
+
     @Test func theDryRunWritesNothing() async throws {
         let environment = try MCPTestEnvironment(config: Self.config)
         let plan = try await environment.catalog.migrateToVault(dryRun: true)

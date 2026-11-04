@@ -4643,9 +4643,18 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           el("span", { title: t("On the bridge {name}", { name: instance.bridge }) }, HomeswiftCommon.icon(block.childBridge ? "child" : "bridge"), instance.bridge)) : null,
         el("div", { class: "card-foot" },
           el("span", { class: "muted", text: instance?.paused ? t("No calls to its devices; they show No Response in the Home app.")
+            : instance?.needsAuthorization ? (instance.accountState === "refused" ? t("Its account refused its sign-in: set it up again.") : t("Its devices show once its account is set up."))
+            : instance?.noneResponding ? t("None of its accessories responds: the log may say why.")
             : instance ? "" : block.system ? t("A block of the runtime itself.") : plugin ? t("It did not start: the log says why.") : t("No plugin compiled into this homeswift provides this platform.") }),
-          el("div", { class: "plugin-card-actions" }, el("a", { class: "button", href: opens, actionIcon: plugin?.hasPages && instance && !instance.paused ? "open" : "gear", text: plugin?.hasPages && instance && !instance.paused ? t("Open its page") : t("Settings") }), menuButton(t("Actions for {name}", { name: blockTitle(block) }), () => blockActions(block, plugin, instance)))));
+          el("div", { class: "plugin-card-actions" }, instance?.needsAuthorization ? setUpButton(block, plugin, instance)
+            : el("a", { class: "button", href: opens, actionIcon: plugin?.hasPages && instance && !instance.paused ? "open" : "gear", text: plugin?.hasPages && instance && !instance.paused ? t("Open its page") : t("Settings") }),
+          menuButton(t("Actions for {name}", { name: blockTitle(block) }), () => blockActions(block, plugin, instance)))));
     };
+
+    /// What a card whose account Needs Authorization offers first: its Setup, in a sheet over the list.
+    const setUpButton = (block, plugin, instance) => el("button", { type: "button", class: "primary", actionIcon: "pair",
+      text: instance.accountState === "notSetUp" ? t("Set up") : t("Set up again"),
+      onclick: (event) => HomeswiftSetup.setUp({ block, plugin, firstTime: instance.accountState === "notSetUp", trigger: event.currentTarget, after: () => route() }) });
 
     /// What the menu of a plugin's card offers: its page, its Settings, config.json, pause or resume, and removal.
     function blockActions(block, plugin, instance) {
@@ -4726,7 +4735,11 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// Homeswift Matter); any other, its own name.
   const builtInTitles = { HomeswiftUI: "Homeswift UI", HomeswiftMatter: "Homeswift Matter" };
   const blockTitle = (block) => (block.name === block.platform && builtInTitles[block.platform]) || block.name;
+  /// Running is green only when its devices can work: an account that Needs Authorization says what it needs ("Needs
+  /// sign-in"), and a plugin none of whose accessories responds says so.
   const blockState = (block, plugin, instance) => block.system ? [t("Built in"), "standby"] : instance?.paused ? [t("Paused"), "paused"]
+    : instance?.needsAuthorization ? [HomeswiftSetup.accountState(plugin?.accountAuthorization) ?? t("Needs setup"), "away"]
+    : instance?.noneResponding ? [t("Not responding"), "away"]
     : instance ? [t("Running"), "on"] : plugin ? [t("Not running"), "away"] : [t("No plugin"), "away"];
 
   /// Takes a block out of config.json, after asking: its accessories leave the Home app.
@@ -5468,8 +5481,6 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
           }
           reset.hidden = unset;
         }
-        container.addEventListener("change", () => { followDefault(); paint(); });
-        queueMicrotask(() => { followDefault(); paint(); });
         paint();
         return { element, get: () => chosen };
       }
@@ -12750,18 +12761,38 @@ HomeswiftI18n.add("es", {
   "Answers questions, explains errors and writes a daily digest": "Responde a preguntas, explica los errores y redacta un resumen diario",
   "Air conditioners and Altherma heat pumps through the Onecta cloud": "Aires acondicionados y bombas de calor Altherma a través de la nube Onecta",
   "Lights, outlets, sensors, blinds, purifiers and scenes, locally": "Luces, enchufes, sensores, persianas, purificadores y escenas, en local",
+  "Zigbee lights, sensors, blinds and remotes from Zigbee2MQTT, over MQTT": "Luces, sensores, persianas y mandos Zigbee de Zigbee2MQTT, por MQTT",
   "Pool robots: start and stop cleaning, water temperature and filter": "Robots de piscina: iniciar y detener la limpieza, temperatura del agua y filtro",
+  "Robot vacuums: clean, dock, battery, mop washing, scenes and brushes": "Robots aspiradores: limpieza, vuelta a la base, batería, lavado de la mopa, escenas y cepillos",
   "Purifiers and fans: speed, oscillation, heat, humidity and air quality": "Purificadores y ventiladores: velocidad, oscilación, calor, humedad y calidad del aire",
   "Sonoff and other eWeLink switches, outlets, lights, curtains and sensors": "Interruptores, enchufes, luces, cortinas y sensores Sonoff y otros eWeLink",
   "Power stations and home batteries: charge, and their power live": "Estaciones de energía y baterías domésticas: carga, y su potencia en directo",
+  "Ring alarms, cameras, doorbells, chimes and Smart Lighting": "Alarmas, cámaras, timbres, carillones y Smart Lighting de Ring",
+  "Sonos speakers: play, volume and groups, favourites as TV inputs, LEDs and alarms": "Altavoces Sonos: reproducción, volumen y grupos, favoritos como entradas de TV, LED y alarmas",
+  "Tuya and Smart Life devices through the Tuya cloud": "Dispositivos Tuya y Smart Life a través de la nube de Tuya",
+  "Bots, curtains, meters, locks, lights and IR remotes through the SwitchBot cloud": "Bots, cortinas, termómetros, cerraduras, luces y mandos IR a través de la nube de SwitchBot",
+  "Thermostats, radiator valves, hot water and air conditioners of a tado° account": "Termostatos, válvulas de radiador, agua caliente y aires acondicionados de una cuenta de tado°",
+  "Nest thermostats, cameras and doorbells through Google's Device Access": "Termostatos, cámaras y timbres Nest, mediante el Device Access de Google",
+  "Switches, sensors and more that exist only in HomeKit, for automations": "Interruptores, sensores y más que solo existen en HomeKit, para automatizaciones",
+  "Devices that speak MQTT, described topic by topic": "Dispositivos que hablan MQTT, descritos tema por tema",
+  "Tapo plugs and bulbs on the local network": "Enchufes y bombillas Tapo en la red local",
   "Key Light and Ring Light: power, brightness and colour temperature": "Key Light y Ring Light: encendido, brillo y temperatura de color",
+  "Switches, lights, sensors, covers, fans and climates of ESPHome devices": "Interruptores, luces, sensores, persianas, ventiladores y climatizadores de dispositivos ESPHome",
+  "Shelly Plus, Pro, Gen3 and Gen4 relays, covers, buttons, lights and meters": "Shelly Plus, Pro, Gen3 y Gen4: relés, persianas, botones, luces y medidores",
+  "Shelly Gen 1 relays, plugs, dimmers, bulbs, buttons and sensors": "Shelly Gen 1: relés, enchufes, reguladores, bombillas, botones y sensores",
+  "Kasa plugs, switches, power strips and bulbs on the local network": "Enchufes, interruptores, regletas y bombillas Kasa en la red local",
   "Lights with scenes and effects, plugs and sensors": "Luces con escenas y efectos, enchufes y sensores",
   "Air conditioners, washers, fridges and other appliances through LG's cloud": "Aires acondicionados, lavadoras, frigoríficos y otros electrodomésticos a través de la nube de LG",
   "Power, inputs, volume, the remote and Ambilight of Philips Android TVs": "Encendido, entradas, volumen, mando y Ambilight de los televisores Philips Android",
   "Lights, scenes, effects and sensors from a Hue Bridge, locally": "Luces, escenas, efectos y sensores de un puente Hue, en local",
   "Door locks, hubs and readers, followed in real time": "Cerraduras, hubs y lectores de puerta, seguidos en tiempo real",
+  "IP cameras over RTSP, HTTP or MJPEG, with HomeKit Secure Video, motion and doorbell": "Cámaras IP por RTSP, HTTP o MJPEG, con HomeKit Secure Video, movimiento y timbre",
   "Cameras and doorbells with HomeKit Secure Video, sensors and lights": "Cámaras y timbres con HomeKit Secure Video, sensores y luces",
   "Apple Home's accessories in Homeswift, through a Mac": "Los accesorios de la app Casa en Homeswift, a través de un Mac",
+  "Virtual sensors, switches and locks driven by webhooks": "Sensores, interruptores y cerraduras virtuales controlados por webhooks",
+  "A user name cannot contain a colon (:)": "Un nombre de usuario no puede contener dos puntos (:)",
+  "Choose the user name and the password every webhook must give (HTTP Basic authentication).": "Elige el nombre de usuario y la contraseña que debe dar cada webhook (autenticación HTTP Basic).",
+  "Webhook accessories are the block's entries: they need no setup of their own": "Los accesorios de webhooks son las entradas del bloque: no necesitan configuración propia",
   "Not started": "Sin iniciar",
   "Matter needs IPv6, and this machine has none. Turn IPv6 on (on a Synology: Control Panel, Network, Network Interface), then restart homeswift.": "Matter necesita IPv6 y esta máquina no lo tiene. Activa IPv6 (en un Synology: Panel de control, Red, Interfaz de red) y reinicia homeswift.",
   "Matter could not start this device: {error}": "Matter no pudo iniciar este dispositivo: {error}",
@@ -15333,10 +15364,21 @@ HomeswiftI18n.add("es", {
   "Press the link button on the Hue Bridge.": "Pulsa el botón de enlace del puente Hue.",
   "No Hue Bridge answered on the network. Enter its address, from the Hue app's settings.": "Ningún puente Hue respondió en la red. Introduce su dirección, en los ajustes de la app Hue.",
   "Enter the PIN the TV shows.": "Introduce el PIN que muestra el televisor.",
+  "Enter the device's encryption key: the key under api: encryption: in its ESPHome configuration.": "Introduzca la clave de cifrado del dispositivo: la clave bajo api: encryption: en su configuración de ESPHome.",
+  "The device asks for its API password: the password under api: in its ESPHome configuration.": "El dispositivo pide su contraseña de API: la contraseña bajo api: en su configuración de ESPHome.",
+  "Encryption key": "Clave de cifrado",
+  "API password": "Contraseña de API",
+  "Enter the password of {name}: the one set in its web interface or the Shelly app, under Settings, Authentication.": "Introduce la contraseña de {name}: la definida en su interfaz web o en la app Shelly, en Ajustes, Autenticación.",
+  "Enter the user name and password of {name}'s login, set in its web interface under Internet & Security, Restricted login.": "Introduce el nombre de usuario y la contraseña del acceso restringido de {name}, definidos en su interfaz web en Internet y seguridad, Acceso restringido.",
+  "The password is not right": "La contraseña no es correcta",
+  "The user name or password is not right": "El nombre de usuario o la contraseña no son correctos",
+  "The device has no address: it is not on the network now": "El dispositivo no tiene dirección: ahora no está en la red",
   "PIN": "PIN",
   "The TV did not give its MAC address. Enter it, from the TV's network settings.": "El televisor no dio su dirección MAC. Introdúcela, desde sus ajustes de red.",
   "MAC address": "Dirección MAC",
   "Sign in with your MyDolphin account: Maytronics sends you a code.": "Inicia sesión con tu cuenta MyDolphin: Maytronics te envía un código.",
+  "Sign in with your Tapo account, and turn on Third-Party Compatibility in the Tapo app.": "Inicia sesión con tu cuenta Tapo y activa la compatibilidad con servicios de terceros en la app Tapo.",
+  "A Tapo device refused this email and password.": "Un dispositivo Tapo rechazó este correo y esta contraseña.",
   "Email": "Correo electrónico",
   "Code": "Código",
   "Enter the code sent to your phone.": "Introduce el código enviado a tu teléfono.",
@@ -15351,11 +15393,20 @@ HomeswiftI18n.add("es", {
   "Client Secret": "Client Secret",
   "Sign in with Daikin on the page that opens. If it does not come back here by itself, paste the address the browser ends on.": "Inicia sesión en Daikin en la página que se abre. Si no vuelve aquí por sí sola, pega la dirección en la que termina el navegador.",
   "Address the browser ended on": "Dirección en la que terminó el navegador",
+  "Enter your Device Access project, the OAuth client of its Google Cloud project, and its Pub/Sub subscription. The README says how to make them.": "Introduce tu proyecto de Device Access, el cliente OAuth de su proyecto de Google Cloud y su suscripción de Pub/Sub. El README explica cómo crearlos.",
+  "Device Access project ID": "ID del proyecto de Device Access",
+  "OAuth client ID": "ID del cliente OAuth",
+  "OAuth client secret": "Secreto del cliente OAuth",
+  "Pub/Sub subscription (projects/…/subscriptions/…)": "Suscripción de Pub/Sub (projects/…/subscriptions/…)",
+  "Google Cloud project ID": "ID del proyecto de Google Cloud",
+  "On Google's page that opens, pick the homes and devices to share, and allow access. Google then opens www.google.com: paste the address it ends on.": "En la página de Google que se abre, elige las casas y los dispositivos que compartir y permite el acceso. Google abre después www.google.com: pega la dirección en la que termina.",
   "Enter the keys of your EcoFlow developer account, from developer.ecoflow.com.": "Introduce las claves de tu cuenta de desarrollador de EcoFlow, de developer.ecoflow.com.",
   "Access key": "Clave de acceso",
   "Secret key": "Clave secreta",
   "Choose how Homeswift signs in to Daikin.": "Elige cómo Homeswift inicia sesión en Daikin.",
   "Choose how Homeswift signs in to LG ThinQ.": "Elige cómo Homeswift inicia sesión en LG ThinQ.",
+  "Enter the email of your tado° account.": "Introduce el correo de tu cuenta de tado°.",
+  "Open the tado° page, sign in as {username} and confirm the code {code}. If the browser is signed in to another tado° account, use a private window.": "Abre la página de tado°, inicia sesión como {username} y confirma el código {code}. Si el navegador tiene abierta otra cuenta de tado°, usa una ventana privada.",
   "Sign in with": "Iniciar sesión con",
   "Daikin Developer Portal": "Daikin Developer Portal",
   "An app you make on Daikin's portal, then Daikin's sign-in page: 200 requests a day.": "Una app que creas en el portal de Daikin y luego la página de inicio de sesión de Daikin: 200 solicitudes al día.",
@@ -15447,6 +15498,18 @@ HomeswiftI18n.add("es", {
   "Move down": "Bajar",
   "Move {name} up": "Subir {name}",
   "Move {name} down": "Bajar {name}",
+  "Needs pairing": "Requiere emparejamiento",
+  "Needs sign-in": "Requiere iniciar sesión",
+  "Needs keys": "Requiere claves",
+  "Refused": "Rechazado",
+  "The account refused what {plugin} had: set it up again to reach its devices.": "La cuenta rechazó lo que tenía {plugin}: configúrala de nuevo para llegar a sus dispositivos.",
+  "Its account refused its sign-in: set it up again.": "Su cuenta rechazó el inicio de sesión: configúrala de nuevo.",
+  "Its devices show once its account is set up.": "Sus dispositivos aparecen cuando su cuenta esté configurada.",
+  "None of its accessories responds: the log may say why.": "Ninguno de sus accesorios responde: el registro puede decir por qué.",
+  "Refused: what it had no longer works. Set it up again.": "Rechazado: lo que tenía ya no funciona. Configúrala de nuevo.",
+  "Optional and not set up. {adds}": "Opcional y sin configurar. {adds}",
+  "Its devices work without it.": "Sus dispositivos funcionan sin ella.",
+  "Its sign-in is kept in the vault, never in these settings.": "Su inicio de sesión se guarda en la caja fuerte, nunca en estos ajustes.",
 });
 
 """#),
@@ -15510,18 +15573,38 @@ HomeswiftI18n.add("fr", {
   "Answers questions, explains errors and writes a daily digest": "Répond aux questions, explique les erreurs et rédige un résumé quotidien",
   "Air conditioners and Altherma heat pumps through the Onecta cloud": "Climatiseurs et pompes à chaleur Altherma via le cloud Onecta",
   "Lights, outlets, sensors, blinds, purifiers and scenes, locally": "Lumières, prises, capteurs, stores, purificateurs et scènes, en local",
+  "Zigbee lights, sensors, blinds and remotes from Zigbee2MQTT, over MQTT": "Lumières, capteurs, stores et télécommandes Zigbee de Zigbee2MQTT, par MQTT",
   "Pool robots: start and stop cleaning, water temperature and filter": "Robots de piscine : lancer et arrêter le nettoyage, température de l'eau et filtre",
+  "Robot vacuums: clean, dock, battery, mop washing, scenes and brushes": "Robots aspirateurs : nettoyage, retour à la base, batterie, lavage de la serpillière, scènes et brosses",
   "Purifiers and fans: speed, oscillation, heat, humidity and air quality": "Purificateurs et ventilateurs : vitesse, oscillation, chauffage, humidité et qualité de l'air",
   "Sonoff and other eWeLink switches, outlets, lights, curtains and sensors": "Interrupteurs, prises, lumières, rideaux et capteurs Sonoff et autres eWeLink",
   "Power stations and home batteries: charge, and their power live": "Stations électriques et batteries domestiques : charge, et leur puissance en direct",
+  "Ring alarms, cameras, doorbells, chimes and Smart Lighting": "Alarmes, caméras, sonnettes, carillons et Smart Lighting de Ring",
+  "Sonos speakers: play, volume and groups, favourites as TV inputs, LEDs and alarms": "Enceintes Sonos : lecture, volume et groupes, favoris en entrées TV, voyants et alarmes",
+  "Tuya and Smart Life devices through the Tuya cloud": "Appareils Tuya et Smart Life via le cloud Tuya",
+  "Bots, curtains, meters, locks, lights and IR remotes through the SwitchBot cloud": "Bots, rideaux, thermomètres, serrures, lampes et télécommandes IR via le cloud SwitchBot",
+  "Thermostats, radiator valves, hot water and air conditioners of a tado° account": "Thermostats, têtes de radiateur, eau chaude et climatiseurs d’un compte tado°",
+  "Nest thermostats, cameras and doorbells through Google's Device Access": "Thermostats, caméras et sonnettes Nest, par le Device Access de Google",
+  "Switches, sensors and more that exist only in HomeKit, for automations": "Interrupteurs, capteurs et plus qui n'existent que dans HomeKit, pour les automatisations",
+  "Devices that speak MQTT, described topic by topic": "Des appareils qui parlent MQTT, décrits sujet par sujet",
+  "Tapo plugs and bulbs on the local network": "Prises et ampoules Tapo sur le réseau local",
   "Key Light and Ring Light: power, brightness and colour temperature": "Key Light et Ring Light : alimentation, luminosité et température de couleur",
+  "Switches, lights, sensors, covers, fans and climates of ESPHome devices": "Interrupteurs, lumières, capteurs, volets, ventilateurs et climatiseurs des appareils ESPHome",
+  "Shelly Plus, Pro, Gen3 and Gen4 relays, covers, buttons, lights and meters": "Shelly Plus, Pro, Gen3 et Gen4 : relais, volets, boutons, lumières et compteurs",
+  "Shelly Gen 1 relays, plugs, dimmers, bulbs, buttons and sensors": "Shelly Gen 1 : relais, prises, variateurs, ampoules, boutons et capteurs",
+  "Kasa plugs, switches, power strips and bulbs on the local network": "Prises, interrupteurs, multiprises et ampoules Kasa sur le réseau local",
   "Lights with scenes and effects, plugs and sensors": "Lumières avec scènes et effets, prises et capteurs",
   "Air conditioners, washers, fridges and other appliances through LG's cloud": "Climatiseurs, lave-linge, réfrigérateurs et autres appareils via le cloud de LG",
   "Power, inputs, volume, the remote and Ambilight of Philips Android TVs": "Alimentation, entrées, volume, télécommande et Ambilight des téléviseurs Philips Android",
   "Lights, scenes, effects and sensors from a Hue Bridge, locally": "Lumières, scènes, effets et capteurs d'un pont Hue, en local",
   "Door locks, hubs and readers, followed in real time": "Serrures, hubs et lecteurs de porte, suivis en temps réel",
+  "IP cameras over RTSP, HTTP or MJPEG, with HomeKit Secure Video, motion and doorbell": "Caméras IP en RTSP, HTTP ou MJPEG, avec HomeKit Secure Video, mouvement et sonnette",
   "Cameras and doorbells with HomeKit Secure Video, sensors and lights": "Caméras et sonnettes avec HomeKit Secure Video, capteurs et éclairages",
   "Apple Home's accessories in Homeswift, through a Mac": "Les accessoires de l'app Maison dans Homeswift, via un Mac",
+  "Virtual sensors, switches and locks driven by webhooks": "Capteurs, interrupteurs et serrures virtuels pilotés par webhooks",
+  "A user name cannot contain a colon (:)": "Un nom d'utilisateur ne peut pas contenir de deux-points (:)",
+  "Choose the user name and the password every webhook must give (HTTP Basic authentication).": "Choisissez le nom d'utilisateur et le mot de passe que chaque webhook doit donner (authentification HTTP Basic).",
+  "Webhook accessories are the block's entries: they need no setup of their own": "Les accessoires à webhooks sont les entrées du bloc : ils n'ont pas besoin de configuration propre",
   "Not started": "Non démarré",
   "Matter needs IPv6, and this machine has none. Turn IPv6 on (on a Synology: Control Panel, Network, Network Interface), then restart homeswift.": "Matter a besoin d'IPv6, et cette machine n'en a pas. Activez IPv6 (sur un Synology : Panneau de configuration, Réseau, Interface réseau), puis redémarrez homeswift.",
   "Matter could not start this device: {error}": "Matter n'a pas pu démarrer cet appareil : {error}",
@@ -18093,10 +18176,21 @@ HomeswiftI18n.add("fr", {
   "Press the link button on the Hue Bridge.": "Appuyez sur le bouton de liaison du pont Hue.",
   "No Hue Bridge answered on the network. Enter its address, from the Hue app's settings.": "Aucun pont Hue n’a répondu sur le réseau. Saisissez son adresse, dans les réglages de l’app Hue.",
   "Enter the PIN the TV shows.": "Saisissez le code PIN affiché par le téléviseur.",
+  "Enter the device's encryption key: the key under api: encryption: in its ESPHome configuration.": "Saisissez la clé de chiffrement de l'appareil : la clé sous api: encryption: dans sa configuration ESPHome.",
+  "The device asks for its API password: the password under api: in its ESPHome configuration.": "L'appareil demande son mot de passe d'API : le mot de passe sous api: dans sa configuration ESPHome.",
+  "Encryption key": "Clé de chiffrement",
+  "API password": "Mot de passe d'API",
+  "Enter the password of {name}: the one set in its web interface or the Shelly app, under Settings, Authentication.": "Saisissez le mot de passe de {name} : celui défini dans son interface web ou l'app Shelly, sous Réglages, Authentification.",
+  "Enter the user name and password of {name}'s login, set in its web interface under Internet & Security, Restricted login.": "Saisissez le nom d'utilisateur et le mot de passe de l'accès restreint de {name}, définis dans son interface web sous Internet et sécurité, Accès restreint.",
+  "The password is not right": "Le mot de passe n'est pas le bon",
+  "The user name or password is not right": "Le nom d'utilisateur ou le mot de passe n'est pas le bon",
+  "The device has no address: it is not on the network now": "L'appareil n'a pas d'adresse : il n'est pas sur le réseau pour l'instant",
   "PIN": "PIN",
   "The TV did not give its MAC address. Enter it, from the TV's network settings.": "Le téléviseur n’a pas donné son adresse MAC. Saisissez-la, depuis ses réglages réseau.",
   "MAC address": "Adresse MAC",
   "Sign in with your MyDolphin account: Maytronics sends you a code.": "Connectez-vous avec votre compte MyDolphin : Maytronics vous envoie un code.",
+  "Sign in with your Tapo account, and turn on Third-Party Compatibility in the Tapo app.": "Connectez-vous avec votre compte Tapo, et activez la compatibilité avec les services tiers dans l’app Tapo.",
+  "A Tapo device refused this email and password.": "Un appareil Tapo a refusé cet e-mail et ce mot de passe.",
   "Email": "E-mail",
   "Code": "Code",
   "Enter the code sent to your phone.": "Saisissez le code envoyé sur votre téléphone.",
@@ -18111,11 +18205,20 @@ HomeswiftI18n.add("fr", {
   "Client Secret": "Client Secret",
   "Sign in with Daikin on the page that opens. If it does not come back here by itself, paste the address the browser ends on.": "Connectez-vous à Daikin dans la page qui s’ouvre. Si elle ne revient pas ici d’elle-même, collez l’adresse sur laquelle le navigateur s’arrête.",
   "Address the browser ended on": "Adresse où le navigateur s’est arrêté",
+  "Enter your Device Access project, the OAuth client of its Google Cloud project, and its Pub/Sub subscription. The README says how to make them.": "Saisissez votre projet Device Access, le client OAuth de son projet Google Cloud et son abonnement Pub/Sub. Le README explique comment les créer.",
+  "Device Access project ID": "ID du projet Device Access",
+  "OAuth client ID": "ID du client OAuth",
+  "OAuth client secret": "Secret du client OAuth",
+  "Pub/Sub subscription (projects/…/subscriptions/…)": "Abonnement Pub/Sub (projects/…/subscriptions/…)",
+  "Google Cloud project ID": "ID du projet Google Cloud",
+  "On Google's page that opens, pick the homes and devices to share, and allow access. Google then opens www.google.com: paste the address it ends on.": "Dans la page de Google qui s’ouvre, choisissez les maisons et appareils à partager, puis autorisez l’accès. Google ouvre ensuite www.google.com : collez l’adresse sur laquelle il s’arrête.",
   "Enter the keys of your EcoFlow developer account, from developer.ecoflow.com.": "Saisissez les clés de votre compte développeur EcoFlow, depuis developer.ecoflow.com.",
   "Access key": "Clé d’accès",
   "Secret key": "Clé secrète",
   "Choose how Homeswift signs in to Daikin.": "Choisissez comment Homeswift se connecte à Daikin.",
   "Choose how Homeswift signs in to LG ThinQ.": "Choisissez comment Homeswift se connecte à LG ThinQ.",
+  "Enter the email of your tado° account.": "Saisissez l’e-mail de votre compte tado°.",
+  "Open the tado° page, sign in as {username} and confirm the code {code}. If the browser is signed in to another tado° account, use a private window.": "Ouvrez la page de tado°, connectez-vous en tant que {username} et confirmez le code {code}. Si le navigateur est connecté à un autre compte tado°, utilisez une fenêtre privée.",
   "Sign in with": "Se connecter avec",
   "Daikin Developer Portal": "Daikin Developer Portal",
   "An app you make on Daikin's portal, then Daikin's sign-in page: 200 requests a day.": "Une app que vous créez sur le portail de Daikin, puis la page de connexion de Daikin : 200 requêtes par jour.",
@@ -18207,6 +18310,18 @@ HomeswiftI18n.add("fr", {
   "Move down": "Descendre",
   "Move {name} up": "Monter {name}",
   "Move {name} down": "Descendre {name}",
+  "Needs pairing": "Jumelage requis",
+  "Needs sign-in": "Connexion requise",
+  "Needs keys": "Clés requises",
+  "Refused": "Refusé",
+  "The account refused what {plugin} had: set it up again to reach its devices.": "Le compte a refusé ce que {plugin} avait : configurez-le à nouveau pour joindre ses appareils.",
+  "Its account refused its sign-in: set it up again.": "Son compte a refusé sa connexion : configurez-le à nouveau.",
+  "Its devices show once its account is set up.": "Ses appareils apparaissent une fois son compte configuré.",
+  "None of its accessories responds: the log may say why.": "Aucun de ses accessoires ne répond : le journal peut indiquer pourquoi.",
+  "Refused: what it had no longer works. Set it up again.": "Refusé : ce qu'il avait ne fonctionne plus. Configurez-le à nouveau.",
+  "Optional and not set up. {adds}": "Facultatif, pas encore configuré. {adds}",
+  "Its devices work without it.": "Ses appareils fonctionnent sans lui.",
+  "Its sign-in is kept in the vault, never in these settings.": "Sa connexion est gardée dans le coffre, jamais dans ces réglages.",
 });
 
 """#),
@@ -18270,18 +18385,38 @@ HomeswiftI18n.add("pt", {
   "Answers questions, explains errors and writes a daily digest": "Responde a perguntas, explica os erros e escreve um resumo diário",
   "Air conditioners and Altherma heat pumps through the Onecta cloud": "Ares condicionados e bombas de calor Altherma através da nuvem Onecta",
   "Lights, outlets, sensors, blinds, purifiers and scenes, locally": "Luzes, tomadas, sensores, estores, purificadores e cenas, localmente",
+  "Zigbee lights, sensors, blinds and remotes from Zigbee2MQTT, over MQTT": "Luzes, sensores, estores e comandos Zigbee do Zigbee2MQTT, por MQTT",
   "Pool robots: start and stop cleaning, water temperature and filter": "Robôs de piscina: iniciar e parar a limpeza, temperatura da água e filtro",
+  "Robot vacuums: clean, dock, battery, mop washing, scenes and brushes": "Robôs aspiradores: limpeza, regresso à base, bateria, lavagem da esfregona, cenas e escovas",
   "Purifiers and fans: speed, oscillation, heat, humidity and air quality": "Purificadores e ventoinhas: velocidade, oscilação, aquecimento, humidade e qualidade do ar",
   "Sonoff and other eWeLink switches, outlets, lights, curtains and sensors": "Interruptores, tomadas, luzes, cortinas e sensores Sonoff e outros eWeLink",
   "Power stations and home batteries: charge, and their power live": "Estações de energia e baterias domésticas: carga, e a sua potência em direto",
+  "Ring alarms, cameras, doorbells, chimes and Smart Lighting": "Alarmes, câmaras, campainhas, carrilhões e Smart Lighting da Ring",
+  "Sonos speakers: play, volume and groups, favourites as TV inputs, LEDs and alarms": "Colunas Sonos: reprodução, volume e grupos, favoritos como entradas de TV, LED e alarmes",
+  "Tuya and Smart Life devices through the Tuya cloud": "Dispositivos Tuya e Smart Life através da nuvem Tuya",
+  "Bots, curtains, meters, locks, lights and IR remotes through the SwitchBot cloud": "Bots, cortinas, termómetros, fechaduras, luzes e comandos IV através da nuvem da SwitchBot",
+  "Thermostats, radiator valves, hot water and air conditioners of a tado° account": "Termóstatos, válvulas de radiador, água quente e ares condicionados de uma conta tado°",
+  "Nest thermostats, cameras and doorbells through Google's Device Access": "Termóstatos, câmaras e campainhas Nest, através do Device Access da Google",
+  "Switches, sensors and more that exist only in HomeKit, for automations": "Interruptores, sensores e mais que só existem no HomeKit, para automações",
+  "Devices that speak MQTT, described topic by topic": "Dispositivos que falam MQTT, descritos tópico a tópico",
+  "Tapo plugs and bulbs on the local network": "Tomadas e lâmpadas Tapo na rede local",
   "Key Light and Ring Light: power, brightness and colour temperature": "Key Light e Ring Light: ligar, brilho e temperatura de cor",
+  "Switches, lights, sensors, covers, fans and climates of ESPHome devices": "Interruptores, luzes, sensores, estores, ventoinhas e climatizadores de dispositivos ESPHome",
+  "Shelly Plus, Pro, Gen3 and Gen4 relays, covers, buttons, lights and meters": "Shelly Plus, Pro, Gen3 e Gen4: relés, estores, botões, luzes e contadores",
+  "Shelly Gen 1 relays, plugs, dimmers, bulbs, buttons and sensors": "Shelly Gen 1: relés, tomadas, reguladores, lâmpadas, botões e sensores",
+  "Kasa plugs, switches, power strips and bulbs on the local network": "Tomadas, interruptores, réguas e lâmpadas Kasa na rede local",
   "Lights with scenes and effects, plugs and sensors": "Luzes com cenas e efeitos, tomadas e sensores",
   "Air conditioners, washers, fridges and other appliances through LG's cloud": "Ares condicionados, máquinas de lavar, frigoríficos e outros eletrodomésticos através da nuvem da LG",
   "Power, inputs, volume, the remote and Ambilight of Philips Android TVs": "Ligar, entradas, volume, comando e Ambilight dos televisores Philips Android",
   "Lights, scenes, effects and sensors from a Hue Bridge, locally": "Luzes, cenas, efeitos e sensores de uma ponte Hue, localmente",
   "Door locks, hubs and readers, followed in real time": "Fechaduras, hubs e leitores de porta, acompanhados em tempo real",
+  "IP cameras over RTSP, HTTP or MJPEG, with HomeKit Secure Video, motion and doorbell": "Câmaras IP por RTSP, HTTP ou MJPEG, com HomeKit Secure Video, movimento e campainha",
   "Cameras and doorbells with HomeKit Secure Video, sensors and lights": "Câmaras e campainhas com HomeKit Secure Video, sensores e luzes",
   "Apple Home's accessories in Homeswift, through a Mac": "Os acessórios da app Casa no Homeswift, através de um Mac",
+  "Virtual sensors, switches and locks driven by webhooks": "Sensores, interruptores e fechaduras virtuais controlados por webhooks",
+  "A user name cannot contain a colon (:)": "Um nome de utilizador não pode conter dois pontos (:)",
+  "Choose the user name and the password every webhook must give (HTTP Basic authentication).": "Escolha o nome de utilizador e a palavra-passe que cada webhook tem de dar (autenticação HTTP Basic).",
+  "Webhook accessories are the block's entries: they need no setup of their own": "Os acessórios de webhooks são as entradas do bloco: não precisam de configuração própria",
   "Not started": "Não iniciado",
   "Matter needs IPv6, and this machine has none. Turn IPv6 on (on a Synology: Control Panel, Network, Network Interface), then restart homeswift.": "O Matter precisa de IPv6 e esta máquina não o tem. Ative o IPv6 (num Synology: Painel de controlo, Rede, Interface de rede) e reinicie o homeswift.",
   "Matter could not start this device: {error}": "O Matter não conseguiu iniciar este dispositivo: {error}",
@@ -20853,10 +20988,21 @@ HomeswiftI18n.add("pt", {
   "Press the link button on the Hue Bridge.": "Prima o botão de ligação da ponte Hue.",
   "No Hue Bridge answered on the network. Enter its address, from the Hue app's settings.": "Nenhuma ponte Hue respondeu na rede. Introduza o endereço, nas definições da app Hue.",
   "Enter the PIN the TV shows.": "Introduza o PIN que o televisor mostra.",
+  "Enter the device's encryption key: the key under api: encryption: in its ESPHome configuration.": "Introduza a chave de encriptação do dispositivo: a chave em api: encryption: na sua configuração ESPHome.",
+  "The device asks for its API password: the password under api: in its ESPHome configuration.": "O dispositivo pede a sua palavra-passe da API: a palavra-passe em api: na sua configuração ESPHome.",
+  "Encryption key": "Chave de encriptação",
+  "API password": "Palavra-passe da API",
+  "Enter the password of {name}: the one set in its web interface or the Shelly app, under Settings, Authentication.": "Introduza a palavra-passe de {name}: a definida na sua interface web ou na app Shelly, em Definições, Autenticação.",
+  "Enter the user name and password of {name}'s login, set in its web interface under Internet & Security, Restricted login.": "Introduza o nome de utilizador e a palavra-passe do acesso restrito de {name}, definidos na sua interface web em Internet e segurança, Acesso restrito.",
+  "The password is not right": "A palavra-passe não está certa",
+  "The user name or password is not right": "O nome de utilizador ou a palavra-passe não estão certos",
+  "The device has no address: it is not on the network now": "O dispositivo não tem endereço: não está na rede agora",
   "PIN": "PIN",
   "The TV did not give its MAC address. Enter it, from the TV's network settings.": "O televisor não deu o seu endereço MAC. Introduza-o, a partir das definições de rede.",
   "MAC address": "Endereço MAC",
   "Sign in with your MyDolphin account: Maytronics sends you a code.": "Inicie sessão com a sua conta MyDolphin: a Maytronics envia-lhe um código.",
+  "Sign in with your Tapo account, and turn on Third-Party Compatibility in the Tapo app.": "Inicie sessão com a sua conta Tapo e ative a compatibilidade com serviços de terceiros na app Tapo.",
+  "A Tapo device refused this email and password.": "Um dispositivo Tapo recusou este e-mail e esta palavra-passe.",
   "Email": "E-mail",
   "Code": "Código",
   "Enter the code sent to your phone.": "Introduza o código enviado para o seu telefone.",
@@ -20871,11 +21017,20 @@ HomeswiftI18n.add("pt", {
   "Client Secret": "Client Secret",
   "Sign in with Daikin on the page that opens. If it does not come back here by itself, paste the address the browser ends on.": "Inicie sessão na Daikin na página que se abre. Se não voltar aqui sozinha, cole o endereço em que o navegador termina.",
   "Address the browser ended on": "Endereço em que o navegador terminou",
+  "Enter your Device Access project, the OAuth client of its Google Cloud project, and its Pub/Sub subscription. The README says how to make them.": "Introduza o seu projeto Device Access, o cliente OAuth do seu projeto Google Cloud e a sua subscrição Pub/Sub. O README explica como criá-los.",
+  "Device Access project ID": "ID do projeto Device Access",
+  "OAuth client ID": "ID do cliente OAuth",
+  "OAuth client secret": "Segredo do cliente OAuth",
+  "Pub/Sub subscription (projects/…/subscriptions/…)": "Subscrição Pub/Sub (projects/…/subscriptions/…)",
+  "Google Cloud project ID": "ID do projeto Google Cloud",
+  "On Google's page that opens, pick the homes and devices to share, and allow access. Google then opens www.google.com: paste the address it ends on.": "Na página da Google que se abre, escolha as casas e os dispositivos a partilhar e permita o acesso. A Google abre depois www.google.com: cole o endereço em que termina.",
   "Enter the keys of your EcoFlow developer account, from developer.ecoflow.com.": "Introduza as chaves da sua conta de programador EcoFlow, de developer.ecoflow.com.",
   "Access key": "Chave de acesso",
   "Secret key": "Chave secreta",
   "Choose how Homeswift signs in to Daikin.": "Escolha como o Homeswift inicia sessão na Daikin.",
   "Choose how Homeswift signs in to LG ThinQ.": "Escolha como o Homeswift inicia sessão no LG ThinQ.",
+  "Enter the email of your tado° account.": "Introduza o e-mail da sua conta tado°.",
+  "Open the tado° page, sign in as {username} and confirm the code {code}. If the browser is signed in to another tado° account, use a private window.": "Abra a página da tado°, inicie sessão como {username} e confirme o código {code}. Se o navegador tiver outra conta tado° aberta, use uma janela privada.",
   "Sign in with": "Iniciar sessão com",
   "Daikin Developer Portal": "Daikin Developer Portal",
   "An app you make on Daikin's portal, then Daikin's sign-in page: 200 requests a day.": "Uma app que cria no portal da Daikin e depois a página de início de sessão da Daikin: 200 pedidos por dia.",
@@ -20967,6 +21122,18 @@ HomeswiftI18n.add("pt", {
   "Move down": "Descer",
   "Move {name} up": "Subir {name}",
   "Move {name} down": "Descer {name}",
+  "Needs pairing": "Requer emparelhamento",
+  "Needs sign-in": "Requer início de sessão",
+  "Needs keys": "Requer chaves",
+  "Refused": "Recusado",
+  "The account refused what {plugin} had: set it up again to reach its devices.": "A conta recusou o que {plugin} tinha: configure-a de novo para chegar aos dispositivos.",
+  "Its account refused its sign-in: set it up again.": "A conta recusou o início de sessão: configure-a de novo.",
+  "Its devices show once its account is set up.": "Os dispositivos aparecem quando a conta estiver configurada.",
+  "None of its accessories responds: the log may say why.": "Nenhum dos acessórios responde: o registo pode indicar porquê.",
+  "Refused: what it had no longer works. Set it up again.": "Recusado: o que tinha já não funciona. Configure-a de novo.",
+  "Optional and not set up. {adds}": "Opcional e não configurada. {adds}",
+  "Its devices work without it.": "Os dispositivos funcionam sem ela.",
+  "Its sign-in is kept in the vault, never in these settings.": "O início de sessão fica no cofre, nunca nestas definições.",
 });
 
 """#),
@@ -23438,19 +23605,51 @@ HomeswiftI18n.add("pt", {
     }, { report: (e) => { message.className = "error"; message.textContent = e.message; } }));
     revert.addEventListener("click", () => { if (form) build(saved); saved = asForm(); message.className = ""; update(); });
 
-    // The account, for a plugin that signs in: where it stands and Set up again, which opens Setup.
+    // The account, for a plugin that signs in: where it stands and Set up (again once it has been), which opens Setup.
+    // What the Plugins page knew draws it first; the discovery's answer then says where it stands now.
+    let accountState = null;
+    const accountLine = el("span", { class: "help account-state", text: t("Checking…") });
+    const accountButton = el("button", { type: "button", actionIcon: "pair", onclick: (event) => HomeswiftSetup.setUp({ block, plugin, firstTime: accountState === "notSetUp", trigger: event.currentTarget, after: () => devices.load() }) });
     const accountRow = accountMethod ? el("div", { class: "settings-row" },
       tile(accountMethod === "buttonPress" || accountMethod === "deviceCode" ? "pair" : accountMethod === "apiKey" ? "key" : "user", "orange"),
-      el("div", { class: "who" }, el("strong", { text: t("Account") }),
-        el("span", { class: "help account-state", text: t("Checking…") })),
-      el("button", { type: "button", actionIcon: "pair", text: t("Set up again"), onclick: (event) => HomeswiftSetup.setUp({ block, plugin, trigger: event.currentTarget, after: () => devices.load() }) })) : null;
+      el("div", { class: "who" }, el("strong", { text: t("Account") }), accountLine),
+      accountButton) : null;
+    const accountSection = accountRow ? section(t("Account"), " ", accountRow) : null;
+    const accountNote = accountSection?.querySelector(".settings-section-head .help");
+    /// Where the account stands (`state`, nil before anything says) and whether it Needs Authorization (the server's
+    /// `needsAuthorization`): in its row, its section's note and the header's state. The Plugins page's answer draws it
+    /// first, the discovery's once it comes.
+    const showAccount = (state, needs) => {
+      if (!accountRow) return;
+      accountState = state;
+      // Set up again only once there is something to set up again: a refused one too.
+      accountButton.textContent = !state || state === "notSetUp" ? t("Set up") : t("Set up again");
+      accountButton.classList.toggle("primary", needs);
+      accountNote.textContent = state === "notSetUp" ? t("Its sign-in is kept in the vault, never in these settings.")
+        : t("Its sign-in is kept in the vault, never in these settings: set it up again to change it.");
+      if (state) {
+        accountLine.textContent = state === "setUp" ? t("Set up")
+          : state === "refused" ? t("Refused: what it had no longer works. Set it up again.")
+          : plugin?.accountRequired !== false ? t("Not set up yet: its devices show once it is.")
+          : t("Optional and not set up. {adds}", { adds: plugin.accountAdds ? t(plugin.accountAdds) : t("Its devices work without it.") });
+        accountLine.dataset.tone = needs ? "away" : "";
+      }
+      // The header says it too: a Setup just done changes it.
+      if (instance) {
+        const [text, tone] = kit.blockState(block, plugin, { ...instance, accountState: state, needsAuthorization: needs });
+        statePill.className = `pill status ${tone}`;
+        statePill.textContent = text;
+      }
+    };
 
     // The devices of the instance, as Setup's discovery finds them.
-    const devices = devicesSection({ block, plugin, accountRow });
+    const devices = devicesSection({ block, plugin, accountRow, showAccount });
     const describe = form ? kit.describeSetup({ platform, pluginName: plugin ? plugin.name : platform, current: () => { try { return getValue(); } catch { return current.settings; } },
       use: (value) => { build({ ...value }); formBox.dispatchEvent(new Event("input", { bubbles: true })); } }) : null;
 
     const [state, kind] = kit.blockState(block, plugin, instance);
+    const statePill = el("span", { class: `pill status ${kind}`, text: state });
+    showAccount(instance?.accountState ?? null, Boolean(instance?.needsAuthorization));
     kit.setLeaveGuard(Object.assign(async () => !dirty() || await HomeswiftCommon.confirmDialog(t("Leave without saving your changes?")), { quiet: () => !dirty() }));
     app().show(main,
       app().breadcrumb([t("Plugins"), "/plugins"], ...(hasPage ? [[kit.blockTitle(block), `/plugins/${block.slug}`]] : []), [hasPage ? t("Settings") : kit.blockTitle(block)]),
@@ -23461,10 +23660,10 @@ HomeswiftI18n.add("pt", {
           el("p", { class: "muted", text: [...new Set([plugin ? plugin.name : platform, platform])].filter((part) => part !== block.name).concat(
             instance ? [tn("{n} accessory on {bridge}", "{n} accessories on {bridge}", instance.accessories, { bridge: instance.bridge })] : []).join(" · ") })),
         el("div", { class: "tools" },
-          el("span", { class: `pill status ${kind}`, text: state }),
+          statePill,
           hasPage ? el("a", { class: "button", href: `/plugins/${block.slug}`, actionIcon: "open", text: t("Open its page") }) : null)),
       el("div", { class: "card plugin-settings" },
-        accountRow ? section(t("Account"), t("Its sign-in is kept in the vault, never in these settings: set it up again to change it."), accountRow) : null,
+        accountSection,
         el("section", { class: "settings-section" },
           el("div", { class: "settings-section-head" }, el("h3", { text: t("Settings") }), el("p", { class: "help", text: t("For {name} as a whole. A save reloads it once, its accessories kept.", { name: block.name }) })),
           // Describe your setup, a line of the section rather than a card of its own.
@@ -23498,7 +23697,7 @@ HomeswiftI18n.add("pt", {
   /// A plugin instance's Discovered Devices: each with where it stands and what can be done with it: a set-up one opens
   /// its settings, an Excluded one is included, one that Needs Authorization is set up again. `accountRow`'s state line
   /// says where the account stands once the plugin has answered.
-  function devicesSection({ block, plugin, accountRow }) {
+  function devicesSection({ block, plugin, accountRow, showAccount }) {
     const list = el("div", { class: "settings-devices", "aria-live": "polite" });
     const count = el("span", { class: "muted" });
     const again = el("button", { type: "button", class: "link", actionIcon: "search", text: t("Find again"), onclick: () => load() });
@@ -23515,11 +23714,10 @@ HomeswiftI18n.add("pt", {
       try {
         const found = await api("/api/setup/discover", { method: "POST", body: { platform: block.platform, name: block.name } });
         if (run !== loading) return;
-        const state = accountRow?.querySelector(".account-state");
-        if (state) state.textContent = found.accountSetUp ? t("Set up") : t("Not set up yet: its devices show once it is.");
+        showAccount(found.accountState, found.needsAuthorization);
         count.textContent = found.devices.length ? String(found.devices.length) : "";
         list.replaceChildren(...(found.devices.length ? found.devices.map((device) => deviceRow(block, plugin, device, load))
-          : [el("p", { class: "muted", text: accountRow && !found.accountSetUp ? t("Its devices show here once it is set up.") : t("This plugin finds no devices by itself: its settings name them.") })]));
+          : [el("p", { class: "muted", text: accountRow && found.needsAuthorization ? t("Its devices show here once it is set up.") : t("This plugin finds no devices by itself: its settings name them.") })]));
         return found;
       } catch (e) {
         if (run === loading) list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));
@@ -23545,7 +23743,7 @@ HomeswiftI18n.add("pt", {
         await reload();
       }) });
     } else if (device.status === "needsAuthorization") {
-      action = el("button", { type: "button", class: "primary", actionIcon: "pair", text: t("Set up again"), onclick: (event) => HomeswiftSetup.setUp({ block, plugin, device, trigger: event.currentTarget, after: reload }) });
+      action = el("button", { type: "button", class: "primary", actionIcon: "pair", text: t("Set up"), onclick: (event) => HomeswiftSetup.setUp({ block, plugin, device, trigger: event.currentTarget, after: reload }) });
     } else if (opens) {
       // An icon and a label; at phone width the gear alone, round, so the name keeps the row.
       action = el("button", { type: "button", class: "settings-open", "aria-label": t("Settings of {name}", { name: device.name }), title: t("Settings of {name}", { name: device.name }),
@@ -23593,11 +23791,11 @@ HomeswiftI18n.add("pt", {
   };
   /// What the account's button says, by its Authorization Method.
   const accountActions = {
-    buttonPress: [() => t("Pair"), () => t("Pair again"), "pair"],
-    deviceCode: [() => t("Pair"), () => t("Pair again"), "pair"],
-    accountLogin: [() => t("Sign in"), () => t("Sign in again"), "user"],
-    browserRedirect: [() => t("Sign in"), () => t("Sign in again"), "browser"],
-    apiKey: [() => t("Enter keys"), () => t("Change keys"), "key"],
+    buttonPress: [() => t("Pair"), () => t("Pair again"), "pair", () => t("Needs pairing")],
+    deviceCode: [() => t("Pair"), () => t("Pair again"), "pair", () => t("Needs pairing")],
+    accountLogin: [() => t("Sign in"), () => t("Sign in again"), "user", () => t("Needs sign-in")],
+    browserRedirect: [() => t("Sign in"), () => t("Sign in again"), "browser", () => t("Needs sign-in")],
+    apiKey: [() => t("Enter keys"), () => t("Change keys"), "key", () => t("Needs keys")],
   };
   /// A device's status: its words and tone. Set up is the usual state, a quiet dot; the others say so in words.
   const statuses = {
@@ -23731,11 +23929,13 @@ HomeswiftI18n.add("pt", {
     // Under the name, where its devices stand.
     const summary = el("span", { class: "muted", text: t("Looking for devices…") });
     const action = accountActions[plugin.accountAuthorization];
-    let accountSetUp = false;
+    // Where the account stands (`accountState`), and whether someone has to set it up (again) before its devices
+    // work: an optional account left alone needs no one.
+    let accountState = "notSetUp", needsAccount = false;
     // Looking again, and the account's sign-in once it is set up, are in the menu: the row stays one line.
     const menu = menuButton(t("Actions for {name}", { name: block.name }), () => [
       { label: t("Find again"), icon: "search", onSelect: () => { setOpen(true); load(); } },
-      action ? { label: action[accountSetUp ? 1 : 0](), icon: action[2], onSelect: () => open({ block, plugin, firstTime: !accountSetUp, after: load }) } : null,
+      action ? { label: action[accountState === "notSetUp" ? 0 : 1](), icon: action[2], onSelect: () => open({ block, plugin, firstTime: accountState === "notSetUp", after: load }) } : null,
     ].filter(Boolean));
     const bodyID = `setup-${block.slug}-devices`;
     // The row opens and closes it; its menu sits beside the chevron.
@@ -23756,9 +23956,10 @@ HomeswiftI18n.add("pt", {
     const accountRow = () => el("div", { class: "setup-device setup-account" },
       tile(action[2], "orange"),
       el("div", { class: "who" }, el("strong", { text: methods[plugin.accountAuthorization][0]() }),
-        el("div", { class: "muted", text: t("{plugin} needs this before it can reach its devices.", { plugin: plugin.name }) })),
-      el("span", { class: "pill status away", text: statuses.needsAuthorization[0]() }),
-      el("button", { class: "primary", actionIcon: action[2], text: action[0](), onclick: (event) => open({ block, plugin, firstTime: true, trigger: event.currentTarget, after: load }) }));
+        el("div", { class: "muted", text: accountState === "refused" ? t("The account refused what {plugin} had: set it up again to reach its devices.", { plugin: plugin.name })
+          : t("{plugin} needs this before it can reach its devices.", { plugin: plugin.name }) })),
+      el("span", { class: "pill status away", text: accountState === "refused" ? t("Refused") : statuses.needsAuthorization[0]() }),
+      el("button", { class: "primary", actionIcon: action[2], text: action[accountState === "notSetUp" ? 0 : 1](), onclick: (event) => open({ block, plugin, firstTime: accountState === "notSetUp", trigger: event.currentTarget, after: load }) }));
 
     // A search in progress, whatever started it (the page, Find again, a Setup just done): the button turns and the
     // rows it may replace dim, as a device on the network can take seconds to answer.
@@ -23775,28 +23976,29 @@ HomeswiftI18n.add("pt", {
       searching(true);
       try {
         const found = await post("discover", { platform: block.platform, name: block.name });
-        accountSetUp = found.accountSetUp;
+        accountState = found.accountState;
+        needsAccount = Boolean(action) && found.needsAuthorization;
         const needs = (device) => device.status === "needsAuthorization";
         const waiting = found.devices.filter(needs), settled = found.devices.filter((device) => !needs(device));
         // What the plugin found before a device's Setup: what is new after it came with that device (a console's cameras).
         const known = new Set(found.devices.map((device) => device.deviceID));
         const rows = waiting.map((device) => deviceRow(block, plugin, device, load, known));
-        if (action && !accountSetUp) rows.unshift(accountRow());
+        if (needsAccount) rows.unshift(accountRow());
         rows.push(...settled.map((device) => deviceRow(block, plugin, device, load, known)));
         const excluded = settled.filter((device) => device.status === "excluded").length;
-        if (!found.devices.length) rows.push(el("p", { class: "muted setup-none", text: action && !accountSetUp
+        if (!found.devices.length) rows.push(el("p", { class: "muted setup-none", text: needsAccount
           ? t("Its devices show here once it is set up.") : t("This plugin finds no devices by itself: its settings name them.") }));
         list.replaceChildren(...rows);
-        const attention = waiting.length + (action && !accountSetUp ? 1 : 0);
+        const attention = waiting.length + (needsAccount ? 1 : 0);
         summary.textContent = attention ? tn("Needs you once", "Needs you {n} times", attention)
           : settled.length ? [tn("{n} set up", "{n} set up [plural]", settled.length - excluded), excluded ? tn("{n} excluded", "{n} excluded [plural]", excluded) : null].filter(Boolean).join(" · ")
-          : action && !accountSetUp ? t("Not set up yet") : t("No devices found");
+          : needsAccount ? t("Not set up yet") : t("No devices found");
         summary.dataset.tone = attention ? "away" : "";
         node.classList.toggle("needs-you", attention > 0);
         // What needs someone is shown, unless they closed it themselves.
         if (attention && !touched) setOpen(true);
         // Asked for by the plugin's page: its account's sheet, once.
-        if (start && action) { start = false; open({ block, plugin, firstTime: !accountSetUp, after: load }); }
+        if (start && action) { start = false; open({ block, plugin, firstTime: accountState === "notSetUp", after: load }); }
       } catch (e) {
         list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));
         // Not "no devices": the search itself failed.
@@ -24158,10 +24360,15 @@ HomeswiftI18n.add("pt", {
   }
 
   /// The Setup sheet for a plugin's account (no `device`) or one of its devices, from another page (a plugin's
-  /// Settings): `after()` once it is done.
-  const setUp = ({ block, plugin, device = null, trigger = null, after = () => {} }) => open({ block, plugin, device, trigger, after });
+  /// Settings, its card on the Plugins page): `after()` once it is done. `firstTime`, for an account never set up, then
+  /// lists what the plugin finds, as the Add accessories page does.
+  const setUp = ({ block, plugin, device = null, firstTime = false, trigger = null, after = () => {} }) => open({ block, plugin, device, firstTime, trigger, after });
 
-  window.HomeswiftSetup = { view, resume, setUp };
+  /// The state a plugin instance shows instead of Running when its account Needs Authorization, by its Authorization
+  /// Method ("Needs sign-in"); nil for a plugin without an account.
+  const accountState = (method) => accountActions[method]?.[3]() ?? null;
+
+  window.HomeswiftSetup = { view, resume, setUp, accountState };
 })();
 
 """#),
@@ -27954,7 +28161,9 @@ select option:disabled { color: var(--muted); }
 .setup-instance-toggle .who { display: grid; gap: 2px; min-width: 0; }
 .setup-instance-toggle .who strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .setup-instance-toggle .who .muted { font-size: var(--text-sm); }
-.setup-instance-toggle .who .muted[data-tone="away"] { color: var(--warn); font-weight: var(--weight-medium); }
+.setup-instance-toggle .who .muted[data-tone="away"], .settings-row .who .help.account-state[data-tone="away"] { color: var(--warn); font-weight: var(--weight-medium); }
+/* Where the account stands is a sentence to read, not a label: it wraps rather than losing its end. */
+.settings-row .who .help.account-state { white-space: normal; overflow: visible; text-overflow: clip; text-wrap-style: pretty; }
 @media (hover: hover) and (pointer: fine) { .setup-instance-head:has(.setup-instance-toggle:hover) { background: var(--material-thin); } }
 .setup-chevron { flex: none; width: 8px; height: 8px; margin: 0 var(--space-4); border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
   transform: rotate(-45deg); transition: transform 200ms var(--ease-out); cursor: pointer; }
