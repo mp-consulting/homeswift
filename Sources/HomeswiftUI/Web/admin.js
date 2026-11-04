@@ -1301,12 +1301,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
 
   /// What the graph shows: the search's words (each in what the Accessories page searches, the accessory's type, maker,
-  /// platform or bridge) and the chosen bridges, device types and unavailable ones. Null when nothing narrows it.
-  function overviewFilter({ text = "", bridges = new Set(), categories = new Set(), unavailable = false }) {
+  /// platform or bridge) and the chosen controller mirrored from, bridges, device types and unavailable ones. Null when
+  /// nothing narrows it.
+  function overviewFilter({ text = "", from = null, bridges = new Set(), categories = new Set(), unavailable = false }) {
     const words = text.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    if (!words.length && !bridges.size && !categories.size && !unavailable) return null;
+    if (!words.length && !from && !bridges.size && !categories.size && !unavailable) return null;
     return {
       keeps(leaf) {
+        if (from && leaf.mirroredFrom !== from) return false;
         if (bridges.size && !bridges.has(leaf.bridge)) return false;
         if (categories.size && !categories.has(leaf.category)) return false;
         if (unavailable && !leaf.unavailable) return false;
@@ -1658,7 +1660,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     // Search and filters, as on the Accessories page: the graph is drawn again from what they keep, faded across.
     const { status, plugins, accessories: all, matter } = model.source;
-    const chosen = { bridges: new Set(), categories: new Set(), unavailable: false };
+    const chosen = { from: null, bridges: new Set(), categories: new Set(), unavailable: false };
     const search = el("input", { type: "search", class: "search", placeholder: t("Search accessories"), "aria-label": t("Search accessories") });
     const filters = el("button", { type: "button", "aria-haspopup": "menu" });
     const count = el("span", { class: "overview-count muted", role: "status" });
@@ -1666,12 +1668,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("p", { class: "muted", text: t("No accessories match the current search.") }));
     frame.append(empty);
     const table = el("div");
-    const active = () => chosen.bridges.size + chosen.categories.size + Number(chosen.unavailable);
+    const active = () => Number(Boolean(chosen.from)) + chosen.bridges.size + chosen.categories.size + Number(chosen.unavailable);
     const filterOf = (except = {}) => overviewFilter({ text: search.value, ...chosen, ...except });
     // How many accessories a menu choice would show, with the search and the other choices as they are.
     const matching = (except) => { const filter = filterOf(except); return filter ? all.filter(filter.keeps).length : all.length; };
     const clear = HomeswiftCommon.clearFilters([[search, ""]], { active: () => active() > 0,
-      reset: () => { chosen.bridges.clear(); chosen.categories.clear(); chosen.unavailable = false; } });
+      reset: () => { chosen.from = null; chosen.bridges.clear(); chosen.categories.clear(); chosen.unavailable = false; } });
     // Every graph is built from the filter, the first too (a filtered build moves the accessories the builds share).
     const redraw = () => {
       const filter = filterOf();
@@ -1704,7 +1706,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       checkbox: true, toggle: true, onSelect: () => { if (!chosen[set].delete(value)) chosen[set].add(value); redraw(); } });
     const bridgeNames = (status.bridges ?? []).map((bridge) => bridge.name);
     const categories = [...new Set(all.map((one) => one.category))].sort((a, b) => categoryName(a).localeCompare(categoryName(b), locale));
+    // The controllers some accessories mirror (Apple Home, through Wingman), as on the wall.
+    const sources = [...new Set(all.map((one) => one.mirroredFrom).filter(Boolean))];
     filters.addEventListener("click", () => HomeswiftCommon.menu(filters, [
+      ...sources.map((source) => ({ label: t("Only from {source}", { source: t(source) }), count: matching({ from: source }), checked: chosen.from === source,
+        checkbox: true, toggle: true, icon: source === "Apple Home" ? el("img", { src: "/apple-home.png", width: 20, height: 20, alt: "" }) : null,
+        onSelect: () => { chosen.from = chosen.from === source ? null : source; redraw(); } })),
       { label: t("Unavailable"), icon: "warning", tone: "error", count: matching({ unavailable: true }), checked: chosen.unavailable, checkbox: true, toggle: true,
         onSelect: () => { chosen.unavailable = !chosen.unavailable; redraw(); } },
       ...(bridgeNames.length > 1 ? [{ separator: true }, ...bridgeNames.map((name) => choice("bridges", name, name, "bridge"))] : []),
@@ -1848,5 +1855,5 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("tbody", {}, rows)));
   }
 
-  window.HomeswiftAdmin = { view, graph: graphPage, history: showHistory, confirmAction };
+  window.HomeswiftAdmin = { view, graph: graphPage, history: showHistory, confirmAction, categoryName, deviceIcon };
 })();

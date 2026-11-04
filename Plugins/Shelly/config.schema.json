@@ -1,0 +1,275 @@
+{
+  "pluginAlias": "ShellyNG",
+  "pluginType": "platform",
+  "singular": true,
+  "headerDisplay": "Shelly Plus, Pro, Gen3 and Gen4 devices, found on the network over mDNS. Gen 1 devices are the Shelly platform's.",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Name",
+        "description": "The platform's name in the logs.",
+        "type": "string",
+        "required": true,
+        "default": "Shelly NG"
+      },
+      "mdns": {
+        "title": "mDNS",
+        "description": "How devices are found on the network.",
+        "type": "object",
+        "properties": {
+          "enable": {
+            "title": "Find devices over mDNS",
+            "description": "Off, only the devices with an address in their settings are reached.",
+            "type": "boolean",
+            "default": true
+          },
+          "interface": {
+            "title": "Network interface",
+            "description": "The interface name (eth0) or a local address to look for devices on; empty for every interface.",
+            "type": "string"
+          }
+        }
+      },
+      "websocket": {
+        "title": "WebSocket",
+        "description": "How the bridge stays connected to each device.",
+        "type": "object",
+        "properties": {
+          "requestTimeout": {
+            "title": "Request timeout",
+            "description": "Seconds to wait for a device's answer.",
+            "type": "integer",
+            "minimum": 1,
+            "default": 10
+          },
+          "pingInterval": {
+            "title": "Ping interval",
+            "description": "Seconds between pings that check the connection; 0 turns them off.",
+            "type": "integer",
+            "minimum": 0,
+            "default": 60
+          },
+          "reconnectInterval": {
+            "title": "Reconnect interval",
+            "description": "Seconds to wait before each new attempt after a connection drops, separated by commas; the last one repeats, and 0 stops.",
+            "type": "string",
+            "default": "5,10,30,60,300,600"
+          }
+        }
+      }
+    }
+  },
+  "accessorySchema": {
+    "properties": {
+      "hostname": {
+        "title": "Address",
+        "description": "The device's IP address or host name, for a device mDNS does not find.",
+        "type": "string"
+      },
+      "switch:0": {
+        "title": "Switch 1",
+        "description": "The first relay.",
+        "type": "object",
+        "x-kinds": ["relay"],
+        "properties": {
+          "exclude": { "title": "Leave out", "description": "Keeps this relay out of HomeKit.", "type": "boolean" },
+          "type": {
+            "title": "Show as",
+            "description": "The kind of accessory the relay is in HomeKit.",
+            "type": "string",
+            "oneOf": [{ "title": "Switch", "enum": ["switch"] }, { "title": "Outlet", "enum": ["outlet"] }]
+          }
+        }
+      },
+      "switch:1": {
+        "title": "Switch 2",
+        "description": "The second relay.",
+        "type": "object",
+        "x-kinds": ["relay"],
+        "properties": {
+          "exclude": { "title": "Leave out", "description": "Keeps this relay out of HomeKit.", "type": "boolean" },
+          "type": {
+            "title": "Show as",
+            "description": "The kind of accessory the relay is in HomeKit.",
+            "type": "string",
+            "oneOf": [{ "title": "Switch", "enum": ["switch"] }, { "title": "Outlet", "enum": ["outlet"] }]
+          }
+        }
+      },
+      "switch:2": {
+        "title": "Switch 3",
+        "description": "The third relay.",
+        "type": "object",
+        "x-kinds": ["relay"],
+        "properties": {
+          "exclude": { "title": "Leave out", "description": "Keeps this relay out of HomeKit.", "type": "boolean" },
+          "type": {
+            "title": "Show as",
+            "description": "The kind of accessory the relay is in HomeKit.",
+            "type": "string",
+            "oneOf": [{ "title": "Switch", "enum": ["switch"] }, { "title": "Outlet", "enum": ["outlet"] }]
+          }
+        }
+      },
+      "switch:3": {
+        "title": "Switch 4",
+        "description": "The fourth relay.",
+        "type": "object",
+        "x-kinds": ["relay"],
+        "properties": {
+          "exclude": { "title": "Leave out", "description": "Keeps this relay out of HomeKit.", "type": "boolean" },
+          "type": {
+            "title": "Show as",
+            "description": "The kind of accessory the relay is in HomeKit.",
+            "type": "string",
+            "oneOf": [{ "title": "Switch", "enum": ["switch"] }, { "title": "Outlet", "enum": ["outlet"] }]
+          }
+        }
+      },
+      "cover:0": {
+        "title": "Cover",
+        "description": "A 2PM in cover mode.",
+        "type": "object",
+        "x-kinds": ["relay"],
+        "properties": {
+          "exclude": { "title": "Leave out", "description": "Keeps the cover out of HomeKit.", "type": "boolean" },
+          "type": {
+            "title": "Show as",
+            "description": "The kind of accessory the cover is in HomeKit.",
+            "type": "string",
+            "oneOf": [{ "title": "Window", "enum": ["window"] }, { "title": "Door", "enum": ["door"] }, { "title": "Window covering", "enum": ["windowCovering"] }]
+          }
+        }
+      }
+    }
+  },
+  "i18n": {
+    "fr": {
+      "Shelly Plus, Pro, Gen3 and Gen4 devices, found on the network over mDNS. Gen 1 devices are the Shelly platform's.": "Les appareils Shelly Plus, Pro, Gen3 et Gen4, trouvés sur le réseau par mDNS. Les appareils Gen 1 relèvent de la plateforme Shelly.",
+      "Name": "Nom",
+      "The platform's name in the logs.": "Le nom de la plateforme dans le journal.",
+      "mDNS": "mDNS",
+      "How devices are found on the network.": "Comment les appareils sont trouvés sur le réseau.",
+      "Find devices over mDNS": "Trouver les appareils par mDNS",
+      "Off, only the devices with an address in their settings are reached.": "Désactivé, seuls les appareils dont les réglages donnent une adresse sont joints.",
+      "Network interface": "Interface réseau",
+      "The interface name (eth0) or a local address to look for devices on; empty for every interface.": "Le nom de l'interface (eth0) ou une adresse locale où chercher les appareils ; vide pour toutes les interfaces.",
+      "WebSocket": "WebSocket",
+      "How the bridge stays connected to each device.": "Comment le pont reste connecté à chaque appareil.",
+      "Request timeout": "Délai d'une requête",
+      "Seconds to wait for a device's answer.": "Secondes d'attente de la réponse d'un appareil.",
+      "Ping interval": "Intervalle des pings",
+      "Seconds between pings that check the connection; 0 turns them off.": "Secondes entre les pings qui vérifient la connexion ; 0 les désactive.",
+      "Reconnect interval": "Intervalle de reconnexion",
+      "Seconds to wait before each new attempt after a connection drops, separated by commas; the last one repeats, and 0 stops.": "Secondes d'attente avant chaque nouvelle tentative après une coupure, séparées par des virgules ; la dernière se répète, et 0 arrête.",
+      "Address": "Adresse",
+      "The device's IP address or host name, for a device mDNS does not find.": "L'adresse IP ou le nom d'hôte de l'appareil, pour un appareil que mDNS ne trouve pas.",
+      "Switch 1": "Interrupteur 1",
+      "Switch 2": "Interrupteur 2",
+      "Switch 3": "Interrupteur 3",
+      "Switch 4": "Interrupteur 4",
+      "The first relay.": "Le premier relais.",
+      "The second relay.": "Le deuxième relais.",
+      "The third relay.": "Le troisième relais.",
+      "The fourth relay.": "Le quatrième relais.",
+      "Leave out": "Laisser de côté",
+      "Keeps this relay out of HomeKit.": "Garde ce relais hors de HomeKit.",
+      "Show as": "Afficher comme",
+      "The kind of accessory the relay is in HomeKit.": "Le genre d'accessoire qu'est le relais dans HomeKit.",
+      "Switch": "Interrupteur",
+      "Outlet": "Prise",
+      "Cover": "Volet",
+      "A 2PM in cover mode.": "Un 2PM en mode volet.",
+      "Keeps the cover out of HomeKit.": "Garde le volet hors de HomeKit.",
+      "The kind of accessory the cover is in HomeKit.": "Le genre d'accessoire qu'est le volet dans HomeKit.",
+      "Window": "Fenêtre",
+      "Door": "Porte",
+      "Window covering": "Store"
+    },
+    "es": {
+      "Shelly Plus, Pro, Gen3 and Gen4 devices, found on the network over mDNS. Gen 1 devices are the Shelly platform's.": "Los dispositivos Shelly Plus, Pro, Gen3 y Gen4, encontrados en la red por mDNS. Los dispositivos Gen 1 son de la plataforma Shelly.",
+      "Name": "Nombre",
+      "The platform's name in the logs.": "El nombre de la plataforma en el registro.",
+      "mDNS": "mDNS",
+      "How devices are found on the network.": "Cómo se encuentran los dispositivos en la red.",
+      "Find devices over mDNS": "Buscar dispositivos por mDNS",
+      "Off, only the devices with an address in their settings are reached.": "Desactivado, solo se contacta con los dispositivos que tienen una dirección en sus ajustes.",
+      "Network interface": "Interfaz de red",
+      "The interface name (eth0) or a local address to look for devices on; empty for every interface.": "El nombre de la interfaz (eth0) o una dirección local donde buscar dispositivos; vacío para todas las interfaces.",
+      "WebSocket": "WebSocket",
+      "How the bridge stays connected to each device.": "Cómo el puente sigue conectado a cada dispositivo.",
+      "Request timeout": "Tiempo de espera de una solicitud",
+      "Seconds to wait for a device's answer.": "Segundos de espera de la respuesta de un dispositivo.",
+      "Ping interval": "Intervalo de ping",
+      "Seconds between pings that check the connection; 0 turns them off.": "Segundos entre los pings que comprueban la conexión; 0 los desactiva.",
+      "Reconnect interval": "Intervalo de reconexión",
+      "Seconds to wait before each new attempt after a connection drops, separated by commas; the last one repeats, and 0 stops.": "Segundos de espera antes de cada nuevo intento tras un corte, separados por comas; el último se repite y 0 detiene.",
+      "Address": "Dirección",
+      "The device's IP address or host name, for a device mDNS does not find.": "La dirección IP o el nombre de host del dispositivo, para un dispositivo que mDNS no encuentra.",
+      "Switch 1": "Interruptor 1",
+      "Switch 2": "Interruptor 2",
+      "Switch 3": "Interruptor 3",
+      "Switch 4": "Interruptor 4",
+      "The first relay.": "El primer relé.",
+      "The second relay.": "El segundo relé.",
+      "The third relay.": "El tercer relé.",
+      "The fourth relay.": "El cuarto relé.",
+      "Leave out": "Dejar fuera",
+      "Keeps this relay out of HomeKit.": "Deja este relé fuera de HomeKit.",
+      "Show as": "Mostrar como",
+      "The kind of accessory the relay is in HomeKit.": "El tipo de accesorio que es el relé en HomeKit.",
+      "Switch": "Interruptor",
+      "Outlet": "Enchufe",
+      "Cover": "Persiana",
+      "A 2PM in cover mode.": "Un 2PM en modo persiana.",
+      "Keeps the cover out of HomeKit.": "Deja la persiana fuera de HomeKit.",
+      "The kind of accessory the cover is in HomeKit.": "El tipo de accesorio que es la persiana en HomeKit.",
+      "Window": "Ventana",
+      "Door": "Puerta",
+      "Window covering": "Estor"
+    },
+    "pt": {
+      "Shelly Plus, Pro, Gen3 and Gen4 devices, found on the network over mDNS. Gen 1 devices are the Shelly platform's.": "Os dispositivos Shelly Plus, Pro, Gen3 e Gen4, encontrados na rede por mDNS. Os dispositivos Gen 1 são da plataforma Shelly.",
+      "Name": "Nome",
+      "The platform's name in the logs.": "O nome da plataforma no registo.",
+      "mDNS": "mDNS",
+      "How devices are found on the network.": "Como os dispositivos são encontrados na rede.",
+      "Find devices over mDNS": "Procurar dispositivos por mDNS",
+      "Off, only the devices with an address in their settings are reached.": "Desligado, só são contactados os dispositivos com um endereço nas suas definições.",
+      "Network interface": "Interface de rede",
+      "The interface name (eth0) or a local address to look for devices on; empty for every interface.": "O nome da interface (eth0) ou um endereço local onde procurar dispositivos; vazio para todas as interfaces.",
+      "WebSocket": "WebSocket",
+      "How the bridge stays connected to each device.": "Como a ponte se mantém ligada a cada dispositivo.",
+      "Request timeout": "Tempo limite de um pedido",
+      "Seconds to wait for a device's answer.": "Segundos de espera pela resposta de um dispositivo.",
+      "Ping interval": "Intervalo de ping",
+      "Seconds between pings that check the connection; 0 turns them off.": "Segundos entre os pings que verificam a ligação; 0 desliga-os.",
+      "Reconnect interval": "Intervalo de religação",
+      "Seconds to wait before each new attempt after a connection drops, separated by commas; the last one repeats, and 0 stops.": "Segundos de espera antes de cada nova tentativa após uma quebra, separados por vírgulas; o último repete-se e 0 para.",
+      "Address": "Endereço",
+      "The device's IP address or host name, for a device mDNS does not find.": "O endereço IP ou o nome de anfitrião do dispositivo, para um dispositivo que o mDNS não encontra.",
+      "Switch 1": "Interruptor 1",
+      "Switch 2": "Interruptor 2",
+      "Switch 3": "Interruptor 3",
+      "Switch 4": "Interruptor 4",
+      "The first relay.": "O primeiro relé.",
+      "The second relay.": "O segundo relé.",
+      "The third relay.": "O terceiro relé.",
+      "The fourth relay.": "O quarto relé.",
+      "Leave out": "Deixar de fora",
+      "Keeps this relay out of HomeKit.": "Mantém este relé fora do HomeKit.",
+      "Show as": "Mostrar como",
+      "The kind of accessory the relay is in HomeKit.": "O tipo de acessório que o relé é no HomeKit.",
+      "Switch": "Interruptor",
+      "Outlet": "Tomada",
+      "Cover": "Estore",
+      "A 2PM in cover mode.": "Um 2PM em modo estore.",
+      "Keeps the cover out of HomeKit.": "Mantém o estore fora do HomeKit.",
+      "The kind of accessory the cover is in HomeKit.": "O tipo de acessório que o estore é no HomeKit.",
+      "Window": "Janela",
+      "Door": "Porta",
+      "Window covering": "Estore de rolo"
+    }
+  }
+}
