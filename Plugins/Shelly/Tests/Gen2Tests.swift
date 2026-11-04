@@ -83,7 +83,7 @@ struct ShellyNGTests {
         environment.add(device)
         let host = try await environment.start(settings: ["devices": [["id": "shellyplus1pm-aabbccddeeff", "hostname": "10.0.0.9"]]])
         defer { Task { await host.stop() } }
-        #expect(await eventually { host.accessory(switchID) != nil })
+        await expectEventually { host.accessory(switchID) != nil }
         let accessory = try #require(host.accessory(switchID))
         #expect(accessory.information.characteristic(.name).value == "Kitchen")
         #expect(accessory.information.characteristic(.manufacturer).value == "Allterco")
@@ -99,10 +99,11 @@ struct ShellyNGTests {
         #expect(abs((meter.characteristic(PowerMeter.totalConsumption).value.doubleValue ?? 0) - 0.110046) <= 0.051)
 
         device.notify("NotifyStatus", #"{"ts":1707327000.12,"switch:0":{"id":0,"output":true,"source":"button","apower":41.7,"aenergy":{"total":110.051}}}"#)
-        #expect(await eventually { switchService.characteristic(.on).value == .bool(true) })
-        #expect(await eventually { meter.characteristic(PowerMeter.consumption).value.doubleValue == 41.7 })
+        await expectEventually { switchService.characteristic(.on).value == .bool(true) }
+        await expectEventually { meter.characteristic(PowerMeter.consumption).value.doubleValue == 41.7 }
         #expect(meter.characteristic(PowerMeter.voltage).value.doubleValue == 232.8)
-        let status = try #require(await environment.ng?.devices["shellyplus1pm-aabbccddeeff"]?.status["switch:0"])
+        let found = await environment.ng?.devices["shellyplus1pm-aabbccddeeff"]?.status["switch:0"]
+        let status = try #require(found)
         #expect(status["aenergy"]?["minute_ts"] == .number(1_707_326_934))
 
         // Equal to the device's value: no request.
@@ -118,7 +119,7 @@ struct ShellyNGTests {
         environment.add(plus1PM())
         let host = try await environment.start(settings: ["devices": [["id": "shellyplus1pm-aabbccddeeff", "hostname": "10.0.0.9", "switch:0": ["type": "Outlet"]]]])
         defer { Task { await host.stop() } }
-        #expect(await eventually { host.accessory(switchID) != nil })
+        await expectEventually { host.accessory(switchID) != nil }
         let outlet = try #require(host.accessory(switchID)?.services.first { $0.type == .outlet })
         #expect(outlet.subtype == "outlet-0")
         #expect(outlet.characteristic(.name).value == "Outlet 1")
@@ -131,7 +132,7 @@ struct ShellyNGTests {
         environment.add(device)
         let host = try await environment.start(settings: ["devices": [["id": "shellyplus1pm-aabbccddeeff", "hostname": "10.0.0.9", "password": "secret"]]])
         defer { Task { await host.stop() } }
-        #expect(await eventually { host.accessory(switchID) != nil })
+        await expectEventually { host.accessory(switchID) != nil }
         let statuses = device.calls("Shelly.GetStatus")
         #expect(statuses.count == 2)
         #expect(statuses[0]["auth"] == nil)
@@ -144,7 +145,7 @@ struct ShellyNGTests {
         environment.add(plus1PM(password: "secret"))
         let host = try await environment.start(settings: ["devices": [["id": "shellyplus1pm-aabbccddeeff", "hostname": "10.0.0.9", "password": "wrong"]]])
         defer { Task { await host.stop() } }
-        #expect(await eventually { await environment.ng?.failures["shellyplus1pm-aabbccddeeff"] == "Invalid password" })
+        await expectEventually { await environment.ng?.failures["shellyplus1pm-aabbccddeeff"] == "Invalid password" }
         #expect(host.accessory(switchID) == nil)
     }
 
@@ -155,12 +156,12 @@ struct ShellyNGTests {
         let host = try await environment.start()
         defer { Task { await host.stop() } }
         environment.announce("shellyplus1pm-aabbccddeeff", host: "10.0.0.9")
-        #expect(await eventually { host.accessory(switchID) != nil })
+        await expectEventually { host.accessory(switchID) != nil }
         environment.announce("shellyplus1pm-aabbccddeeff", host: "10.0.0.10")
-        #expect(await eventually { await environment.ng?.devices["shellyplus1pm-aabbccddeeff"]?.host == "10.0.0.10" })
-        #expect(await eventually { device.socket?.url?.host == "10.0.0.10" })
+        await expectEventually { await environment.ng?.devices["shellyplus1pm-aabbccddeeff"]?.host == "10.0.0.10" }
+        await expectEventually { device.socket?.url?.host == "10.0.0.10" }
         // Values missed while away are read again.
-        #expect(await eventually { device.calls("Shelly.GetStatus").count == 2 })
+        await expectEventually { device.calls("Shelly.GetStatus").count == 2 }
     }
 
     @Test func aDroppedConnectionReconnectsAndAnIntentionalCloseDoesNot() async throws {
@@ -168,10 +169,10 @@ struct ShellyNGTests {
         environment.add(device)
         let host = try await environment.start(settings: ["devices": [["id": "shellyplus1pm-aabbccddeeff", "hostname": "10.0.0.9"]]])
         defer { Task { await host.stop() } }
-        #expect(await eventually { host.accessory(switchID) != nil })
+        await expectEventually { host.accessory(switchID) != nil }
         device.socket?.drop()
-        #expect(await eventually { device.connections == 2 })
-        #expect(await eventually { device.calls("Shelly.GetStatus").count == 2 })
+        await expectEventually { device.connections == 2 }
+        await expectEventually { device.calls("Shelly.GetStatus").count == 2 }
         device.socket?.finish(code: 1000)
         try await Task.sleep(for: .milliseconds(100))
         #expect(device.connections == 2)
@@ -196,7 +197,7 @@ struct ShellyNGTests {
         let host = try await environment.start(settings: ["devices": [["id": "shellyplus2pm-aabbccddeeff", "hostname": "10.0.0.9"]]])
         defer { Task { await host.stop() } }
         let id = "ShellyNG:shellyplus2pm-aabbccddeeff-cover"
-        #expect(await eventually { host.accessory(id) != nil })
+        await expectEventually { host.accessory(id) != nil }
         let accessory = try #require(host.accessory(id))
         #expect(accessory.information.characteristic(.name).value == "Shelly Plus 2 PM Cover")
         let window = try #require(accessory.services.first { $0.type == .window })
@@ -205,9 +206,9 @@ struct ShellyNGTests {
         #expect(window.characteristic(.positionState).value == .int(0))
         #expect(window.characteristic(.targetPosition).value == .int(51))
         try await window.characteristic(.targetPosition).write(.int(80))
-        #expect(await eventually { device.calls("Cover.GoToPosition").last?["params"] == ["id": 0, "pos": 80] })
+        await expectEventually { device.calls("Cover.GoToPosition").last?["params"] == ["id": 0, "pos": 80] }
         device.notify("NotifyStatus", #"{"cover:0":{"state":"stopped","current_pos":80}}"#)
-        #expect(await eventually { window.characteristic(.positionState).value == .int(2) })
+        await expectEventually { window.characteristic(.positionState).value == .int(2) }
     }
 
     /// 11.3: the I4's buttons and its input configured as a switch.
@@ -220,7 +221,7 @@ struct ShellyNGTests {
         let host = try await environment.start(settings: ["devices": [["id": "shellyplusi4-aabbccddeeff", "hostname": "10.0.0.9"]]])
         defer { Task { await host.stop() } }
         let buttonsID = "ShellyNG:shellyplusi4-aabbccddeeff-buttons"
-        #expect(await eventually { host.accessory(buttonsID) != nil })
+        await expectEventually { host.accessory(buttonsID) != nil }
         let readOnly = try #require(host.accessory("ShellyNG:shellyplusi4-aabbccddeeff-switch1")?.services.first { $0.type == .switch })
         #expect(readOnly.subtype == "readonly-switch-1")
         #expect(readOnly.characteristic(.on).value == .bool(true))
@@ -230,7 +231,7 @@ struct ShellyNGTests {
         let presses = PressLog()
         _ = button.characteristic(.programmableSwitchEvent).observe { presses.add($0.newValue) }
         device.notify("NotifyEvent", #"{"ts":1707327010.50,"events":[{"component":"input:2","id":2,"event":"double_push","ts":1707327010.50}]}"#)
-        #expect(await eventually { presses.values == [.int(1)] })
+        await expectEventually { presses.values == [.int(1)] }
     }
 
     @Test func anRGBWLightSetsItsColour() async throws {
@@ -241,14 +242,14 @@ struct ShellyNGTests {
         let host = try await environment.start(settings: ["devices": [["id": "shellyplusrgbwpm-aabbccddeeff", "hostname": "10.0.0.9"]]])
         defer { Task { await host.stop() } }
         let id = "ShellyNG:shellyplusrgbwpm-aabbccddeeff-rgbw"
-        #expect(await eventually { host.accessory(id) != nil })
+        await expectEventually { host.accessory(id) != nil }
         let light = try #require(host.accessory(id)?.services.first { $0.type == .lightbulb })
         #expect(light.characteristic(.hue).value.doubleValue == 0)
         #expect(light.characteristic(.saturation).value.doubleValue == 100)
         async let hue: Void = light.characteristic(.hue).write(.double(120))
         async let brightness: Void = light.characteristic(.brightness).write(.int(80))
         _ = try await (hue, brightness)
-        #expect(await eventually { device.calls("RGBW.Set").count == 1 })
+        await expectEventually { device.calls("RGBW.Set").count == 1 }
         try await Task.sleep(for: .milliseconds(50))
         #expect(device.calls("RGBW.Set").count == 1)
         #expect(device.calls("RGBW.Set").first?["params"] == ["id": 0, "on": true, "brightness": 80, "rgb": [0, 255, 0], "white": 0])
@@ -262,13 +263,13 @@ struct ShellyNGTests {
         let host = try await environment.start(settings: ["devices": [["id": "shellyprorgbwwpm-aabbccddeeff", "hostname": "10.0.0.9"]]])
         defer { Task { await host.stop() } }
         let id = "ShellyNG:shellyprorgbwwpm-aabbccddeeff-cct"
-        #expect(await eventually { host.accessory(id) != nil })
+        await expectEventually { host.accessory(id) != nil }
         let light = try #require(host.accessory(id)?.services.first { $0.type == .lightbulb })
         #expect(light.characteristic(.colorTemperature).value.intValue == 250)
         let controller = try #require(light.adaptiveLighting)
         try controller.activateForTesting()
         device.notify("NotifyStatus", #"{"cct:0":{"ct":6500}}"#)
-        #expect(await eventually { !controller.isAdaptiveLightingActive })
+        await expectEventually { !controller.isAdaptiveLightingActive }
     }
 
     @Test func aWholeHomeMeterCountsAsTheGrid() async throws {
@@ -279,7 +280,7 @@ struct ShellyNGTests {
         let host = try await environment.start(settings: ["devices": [["id": "shellypro3em-aabbccddeeff", "hostname": "10.0.0.9"]]])
         defer { Task { await host.stop() } }
         let id = "ShellyNG:shellypro3em-aabbccddeeff-em-0"
-        #expect(await eventually { host.accessory(id) != nil })
+        await expectEventually { host.accessory(id) != nil }
         let meter = try #require(host.accessory(id)?.services.first { $0.type == PowerMeter.service })
         #expect(meter.characteristic(PowerMeter.consumption).value.doubleValue == 735.5)
         #expect(abs((meter.characteristic(PowerMeter.totalConsumption).value.doubleValue ?? 0) - 123.456) <= 0.051)

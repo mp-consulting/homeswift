@@ -27,6 +27,13 @@ func eventually(timeout: Duration = .seconds(5), _ condition: @Sendable () async
     return await condition()
 }
 
+/// Expects `condition` to hold within `timeout`. (Swift Testing on Linux takes no `await` inside `#expect`.)
+func expectEventually(_ comment: @autoclosure () -> String = "", timeout: Duration = .seconds(5), sourceLocation: SourceLocation = #_sourceLocation,
+                      _ condition: @Sendable () async -> Bool) async {
+    let held = await eventually(timeout: timeout, condition)
+    #expect(held, "\(comment())", sourceLocation: sourceLocation)
+}
+
 func json(_ text: String) -> JSONValue { try! JSONValue(string: text) }
 
 /// A Gen 2+ device behind a fake WebSocket: answers `Shelly.GetDeviceInfo`, `GetStatus` and `GetConfig` from fixtures,

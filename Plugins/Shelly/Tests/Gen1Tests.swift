@@ -86,11 +86,11 @@ struct ShellyGen1Tests {
     @Test func a1PMIsHeardAndDriven() async throws {
         let host = try await start()
         defer { Task { await host.stop() } }
-        #expect(await eventually { await environment.gen1?.listening == true })
+        await expectEventually { await environment.gen1?.listening == true }
         #expect(environment.coiot.sent.first.map(Array.init) == CoIoTStatus.request())
         environment.coiot.receive(CoAPTestBytes.packet)
         let id = "Shelly:Shelly 1PM A4CF12F45678"
-        #expect(await eventually { host.accessory(id) != nil })
+        await expectEventually { host.accessory(id) != nil }
         let accessory = try #require(host.accessory(id))
         #expect(accessory.information.characteristic(.manufacturer).value == "Shelly")
         #expect(accessory.information.characteristic(.model).value == "SHSW-PM")
@@ -102,7 +102,7 @@ struct ShellyGen1Tests {
         try await switchService.characteristic(.on).write(.bool(false))
         #expect(environment.http.paths.contains("/relay/0?turn=off"))
         // Its settings are read once it is online.
-        #expect(await eventually { environment.http.paths.contains("/settings") })
+        await expectEventually { environment.http.paths.contains("/settings") }
     }
 
     /// Basic credentials go only to an address that answered 401, then with every request there.
@@ -110,14 +110,14 @@ struct ShellyGen1Tests {
         environment.http.answer("/settings", status: 401, "")
         let host = try await start(["username": "admin", "password": "secret"])
         defer { Task { await host.stop() } }
-        #expect(await eventually { await environment.gen1?.listening == true })
+        await expectEventually { await environment.gen1?.listening == true }
         environment.coiot.receive(CoAPTestBytes.packet)
-        #expect(await eventually { environment.http.requests.count >= 2 })
+        await expectEventually { environment.http.requests.count >= 2 }
         let basic = "Basic \(Data("admin:secret".utf8).base64EncodedString())"
         #expect(environment.http.requests[0].header("Authorization") == nil)
         #expect(environment.http.requests[1].header("Authorization") == basic)
         let id = "Shelly:Shelly 1PM A4CF12F45678"
-        #expect(await eventually { host.accessory(id) != nil })
+        await expectEventually { host.accessory(id) != nil }
         try await host.accessory(id)?.services.first { $0.type == .switch }?.characteristic(.on).write(.bool(false))
         #expect(environment.http.requests.last?.header("Authorization") == basic)
     }
@@ -126,47 +126,47 @@ struct ShellyGen1Tests {
     @Test func aShelly25InRollerModeIsOneCovering() async throws {
         let host = try await start()
         defer { Task { await host.stop() } }
-        #expect(await eventually { await environment.gen1?.listening == true })
+        await expectEventually { await environment.gen1?.listening == true }
         environment.coiot.receive(coiot("SHSW-25", "B92F3A", revision: 1, [(112, 1), (122, 0), (113, 40), (111, 55)]))
         let id = "Shelly:Shelly 2.5 B92F3A"
-        #expect(await eventually { host.accessory(id) != nil })
+        await expectEventually { host.accessory(id) != nil }
         let covering = try #require(host.accessory(id)?.services.first { $0.type == .windowCovering })
         #expect(covering.characteristic(.currentPosition).value == .int(40))
         #expect(covering.characteristic(.positionState).value == .int(1))
         try await covering.characteristic(.targetPosition).write(.int(30))
-        #expect(await eventually { environment.http.paths.contains("/roller/0?go=to_pos&roller_pos=30") })
+        await expectEventually { environment.http.paths.contains("/roller/0?go=to_pos&roller_pos=30") }
         // Back to relays: two switches instead.
         environment.coiot.receive(coiot("SHSW-25", "B92F3A", revision: 1, [(112, 0), (122, 1), (111, 0)]))
-        #expect(await eventually { host.accessory("Shelly:Shelly 2.5 B92F3A #1") != nil })
-        #expect(await eventually { host.accessory(id) == nil })
+        await expectEventually { host.accessory("Shelly:Shelly 2.5 B92F3A #1") != nil }
+        await expectEventually { host.accessory(id) == nil }
         #expect(host.accessory("Shelly:Shelly 2.5 B92F3A #1")?.services.first { $0.type == .switch }?.characteristic(.on).value == .bool(true))
     }
 
     @Test func anRGBW2InWhiteModeHasFourLights() async throws {
         let host = try await start()
         defer { Task { await host.stop() } }
-        #expect(await eventually { await environment.gen1?.listening == true })
+        await expectEventually { await environment.gen1?.listening == true }
         environment.coiot.receive(coiot("SHRGBW2", "B5E2C1", revision: 1, [(151, 1), (111, 40), (161, 0), (171, 0), (181, 1), (141, 100)]))
-        #expect(await eventually { host.accessory("Shelly:Shelly RGBW2 B5E2C1 #3") != nil })
+        await expectEventually { host.accessory("Shelly:Shelly RGBW2 B5E2C1 #3") != nil }
         let light = try #require(host.accessory("Shelly:Shelly RGBW2 B5E2C1 #0")?.services.first { $0.type == .lightbulb })
         #expect(light.characteristic(.on).value == .bool(true))
         #expect(light.characteristic(.brightness).value == .int(40))
         try await light.characteristic(.brightness).write(.int(70))
-        #expect(await eventually { environment.http.paths.contains("/white/0?turn=on&brightness=70") }, "\(environment.http.paths)")
+        await expectEventually("\(environment.http.paths)") { environment.http.paths.contains("/white/0?turn=on&brightness=70") }
     }
 
     @Test func aColourBulbSendsOneRequestForAColour() async throws {
         let host = try await start(["devices": [["id": "c0ffee", "colorMode": "rgb"]]])
         defer { Task { await host.stop() } }
-        #expect(await eventually { await environment.gen1?.listening == true })
+        await expectEventually { await environment.gen1?.listening == true }
         environment.coiot.receive(coiot("SHBLB-1", "C0FFEE", [(1101, 1), (5105, 255), (5106, 0), (5107, 0), (5102, 50)]))
         let id = "Shelly:Shelly Bulb C0FFEE"
-        #expect(await eventually { host.accessory(id) != nil })
+        await expectEventually { host.accessory(id) != nil }
         let light = try #require(host.accessory(id)?.services.first { $0.type == .lightbulb })
-        #expect(await eventually { light.characteristic(.saturation).value.doubleValue == 100 })
+        await expectEventually { light.characteristic(.saturation).value.doubleValue == 100 }
         try await light.characteristic(.hue).write(.double(240))
         try await light.characteristic(.saturation).write(.double(100))
-        #expect(await eventually { environment.http.paths.contains { $0.hasPrefix("/light/0?") } })
+        await expectEventually { environment.http.paths.contains { $0.hasPrefix("/light/0?") } }
         try await Task.sleep(for: .milliseconds(30))
         let requests = environment.http.paths.filter { $0.hasPrefix("/light/0?") }
         #expect(requests == ["/light/0?mode=color&turn=on&gain=50&red=0&green=0&blue=255"], "\(environment.http.paths)")
@@ -175,33 +175,33 @@ struct ShellyGen1Tests {
     @Test func aButtonPressFiresOnceAndNotAtStartUp() async throws {
         let host = try await start()
         defer { Task { await host.stop() } }
-        #expect(await eventually { await environment.gen1?.listening == true })
+        await expectEventually { await environment.gen1?.listening == true }
         environment.coiot.receive(coiot("SHIX3-1", "A1B2C3", [(2102, 0), (2103, 4)]))
         let id = "Shelly:Shelly i3 A1B2C3"
-        #expect(await eventually { host.accessory(id) != nil })
+        await expectEventually { host.accessory(id) != nil }
         let button = try #require(host.accessory(id)?.services.first { $0.subtype == "1" })
         let presses = PressLog()
         _ = button.characteristic(.programmableSwitchEvent).observe { presses.add($0.newValue) }
         let datagram = CoAPMessage(type: .nonConfirmable, code: 30, messageID: 2, options: [.init(number: 3332, value: Array("SHIX3-1#A1B2C3#2".utf8))],
                                    payload: Array(#"{"G":[[0,2102,"SS"],[0,2103,5]]}"#.utf8)).encoded()
         environment.coiot.receive(datagram)
-        #expect(await eventually { presses.values == [.int(1)] })
+        await expectEventually { presses.values == [.int(1)] }
     }
 
     @Test func sensorsShowTheirValues() async throws {
         let host = try await start()
         defer { Task { await host.stop() } }
-        #expect(await eventually { await environment.gen1?.listening == true })
+        await expectEventually { await environment.gen1?.listening == true }
         environment.coiot.receive(coiot("SHHT-1", "D1E2F3", [(3101, 21.5), (3103, 48), (3111, -1)]))
         let id = "Shelly:Shelly H&T D1E2F3"
-        #expect(await eventually { host.accessory(id) != nil })
+        await expectEventually { host.accessory(id) != nil }
         let accessory = try #require(host.accessory(id))
         #expect(accessory.services.first { $0.type == .temperatureSensor }?.characteristic(.currentTemperature).value.doubleValue == 21.5)
         #expect(accessory.services.first { $0.type == .humiditySensor }?.characteristic(.currentRelativeHumidity).value.doubleValue == 48)
         #expect(accessory.services.first { $0.type == .battery }?.characteristic(.batteryLevel).value == .int(100))
         environment.coiot.receive(coiot("SHDW-2", "D0D0D0", [(3108, 1), (3106, -1), (3109, 30), (6110, 0), (3101, 999), (3111, 5)]))
         let window = "Shelly:Shelly Door/Window 2 D0D0D0"
-        #expect(await eventually { host.accessory(window) != nil })
+        await expectEventually { host.accessory(window) != nil }
         let services = try #require(host.accessory(window)?.services)
         #expect(services.first { $0.type == .contactSensor }?.characteristic(.contactSensorState).value == .int(1))
         #expect(services.first { $0.type == .lightSensor }?.characteristic(.statusFault).value == .int(1))
@@ -213,22 +213,23 @@ struct ShellyGen1Tests {
     @Test func excludedAndUnknownDevicesAreLeftOut() async throws {
         let host = try await start(["devices": [["id": "a4cf12f45678 ", "exclude": true]]])
         defer { Task { await host.stop() } }
-        #expect(await eventually { await environment.gen1?.listening == true })
+        await expectEventually { await environment.gen1?.listening == true }
         environment.coiot.receive(CoAPTestBytes.packet)
         environment.coiot.receive(coiot("SHTRV-01", "ABCDEF", [(1, 1)]))
         try await Task.sleep(for: .milliseconds(100))
         #expect(host.accessory("Shelly:Shelly 1PM A4CF12F45678") == nil)
-        #expect(await environment.gen1?.devices.isEmpty == true)
+        let empty = await environment.gen1?.devices.isEmpty
+        #expect(empty == true)
     }
 
     @Test func aDeviceOfflineTooLongIsForgotten() async throws {
         let host = try await start(["staleTimeout": 1000])
         defer { Task { await host.stop() } }
-        #expect(await eventually { await environment.gen1?.listening == true })
+        await expectEventually { await environment.gen1?.listening == true }
         environment.coiot.receive(coiot("SHSW-1", "ABC123", validity: 1, [(1101, 1)]))
-        #expect(await eventually { host.accessory("Shelly:Shelly 1 ABC123") != nil })
+        await expectEventually { host.accessory("Shelly:Shelly 1 ABC123") != nil }
         // 4 s of validity and 1 s of stale timeout, at a hundredth of the time.
-        #expect(await eventually { host.accessory("Shelly:Shelly 1 ABC123") == nil })
+        await expectEventually { host.accessory("Shelly:Shelly 1 ABC123") == nil }
     }
 
     @Test func canonicalSettingsMoveDevicesAndCredentials() throws {
