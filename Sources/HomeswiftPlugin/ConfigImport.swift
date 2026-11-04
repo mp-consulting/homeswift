@@ -96,7 +96,8 @@ public enum HomebridgeImport {
     static func supportedPlatforms(_ registry: PluginRegistry) -> [String: Supported] {
         var supported: [String: Supported] = [:]
         for entry in registry.entries {
-            supported[entry.platform] = Supported(schema: entry.configurationSchemaJSON.flatMap { try? JSONValue(string: $0) }.flatMap(schemaRoot))
+            supported[entry.platform] = Supported(
+                schema: entry.configurationSchemaJSON.flatMap { try? JSONValue(string: $0) }.flatMap(schemaRoot), runsAccessoryBlocks: entry.runsAccessoryBlocks)
         }
         supported[AIConfiguration.platform] = Supported(schema: (try? JSONValue(string: AIConfiguration.schemaJSON)).flatMap(schemaRoot))
         return supported
@@ -111,6 +112,7 @@ public enum HomebridgeImport {
 
     struct Supported {
         var schema: JSONValue?
+        var runsAccessoryBlocks = false
     }
 
     /// The name a Homebridge package and a platform name share: `homebridge-unifi-protect` and `UniFi Protect`.
@@ -166,9 +168,6 @@ public enum HomebridgeImport {
                     report.problems.append(Message("bridgeNotObject"))
                 }
             }
-            if let accessories = top["accessories"]?.arrayValue, !accessories.isEmpty {
-                report.warnings.append(Message("accessoriesSkipped", ["count": String(accessories.count)]))
-            }
             var disabled: [String] = []
             if let list = top["disabledPlugins"] {
                 if let names = list.arrayValue {
@@ -185,6 +184,9 @@ public enum HomebridgeImport {
                 } else {
                     report.problems.append(Message("platformsNotList"))
                 }
+            }
+            if let accessories = top["accessories"]?.arrayValue, !accessories.isEmpty {
+                try convertAccessories(accessories, disabled: disabled)
             }
             for name in disabled where !seenPlatforms.contains(HomebridgeImport.normalized(name)) {
                 report.warnings.append(Message("disabledMatchesNothing", ["name": name]))
@@ -340,6 +342,35 @@ public enum HomebridgeImport {
                 }
             }
             kept.append(.object(block))
+        }
+
+        /// Homebridge's accessory blocks: those of a plugin that runs them go, as the runtime reads them
+        /// (`HomeswiftConfiguration.adoptAccessoryBlocks`), into one platform block per platform and child bridge, in its
+        /// `accessories` list; the others are skipped, counted in one warning.
+        mutating func convertAccessories(_ accessories: [JSONValue], disabled: [String]) throws {
+            var groups: [(platform: String, child: JSONValue?, blocks: [JSONValue])] = []
+            var skipped = 0
+            for block in accessories {
+                guard let accessory = block["accessory"]?.stringValue, let platform = HomeswiftConfiguration.accessoryPlatform(accessory),
+                      platforms[platform]?.runsAccessoryBlocks == true else {
+                    skipped += 1
+                    continue
+                }
+                let child = block["_bridge"]
+                if let index = groups.firstIndex(where: { $0.platform == platform && $0.child?["username"] == child?["username"] }) {
+                    groups[index].blocks.append(block)
+                } else {
+                    groups.append((platform, child, [block]))
+                }
+            }
+            if skipped > 0 { report.warnings.append(Message("accessoriesSkipped", ["count": String(skipped)])) }
+            for group in groups {
+                let username = group.child?["username"]?.stringValue
+                let name = group.child?["name"]?.stringValue ?? username.map { "\(group.platform) \($0)" } ?? group.platform
+                var block: [String: JSONValue] = ["platform": .string(group.platform), "name": .string(name), "accessories": .array(group.blocks)]
+                if let child = group.child { block["_bridge"] = child }
+                try convertPlatform(.object(block), index: -1, disabled: disabled)
+            }
         }
 
         mutating func convertChild(_ object: [String: JSONValue], group: String) throws -> JSONValue {

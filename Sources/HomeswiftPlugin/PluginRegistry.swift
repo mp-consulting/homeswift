@@ -32,6 +32,8 @@ public struct PluginRegistry: Sendable {
         public let accountAuthorization: AuthorizationMethod
         /// `HomeswiftPlugin.deviceID(ofAccessory:)`.
         public let deviceIDOfAccessory: (@Sendable (String) -> String?)?
+        /// Whether it runs Homebridge accessory blocks (`HomeswiftPlugin.runsAccessoryBlocks`).
+        public let runsAccessoryBlocks: Bool
         /// Whether the web UI can offer a page for it.
         public var hasPages: Bool { webFiles["index.html"] != nil }
         let make: @Sendable (_ configuration: Data, _ context: PluginContext) async throws -> any HomeswiftPlugin
@@ -48,7 +50,7 @@ public struct PluginRegistry: Sendable {
 
     public mutating func register<P: HomeswiftPlugin>(_ type: P.Type) {
         register(platform: P.platform, name: P.name, icon: P.icon, summary: P.summary, configurationSchemaJSON: P.configurationSchemaJSON, webFiles: P.webFiles, assistantActions: P.assistantActions, assistantBackground: P.assistantBackground, accountAuthorization: P.accountAuthorization,
-                 deviceIDOfAccessory: { P.deviceID(ofAccessory: $0) }) { json, context in
+                 deviceIDOfAccessory: { P.deviceID(ofAccessory: $0) }, runsAccessoryBlocks: P.runsAccessoryBlocks) { json, context in
             let configuration = try JSONDecoder().decode(P.Configuration.self, from: json)
             return try await P(configuration: configuration, context: context)
         }
@@ -64,11 +66,13 @@ public struct PluginRegistry: Sendable {
     public mutating func register(
         platform: String, name: String, icon: String? = nil, summary: String? = nil, configurationSchemaJSON: String? = nil, webFiles: [String: WebFile] = [:], assistantActions: [AssistantAction] = [],
         assistantBackground: String? = nil, accountAuthorization: AuthorizationMethod = .none, deviceIDOfAccessory: (@Sendable (String) -> String?)? = nil,
+        runsAccessoryBlocks: Bool = false,
         make: @escaping @Sendable (_ configuration: Data, _ context: PluginContext) async throws -> any HomeswiftPlugin
     ) {
         if byPlatform[platform] == nil { order.append(platform) }
         byPlatform[platform] = Entry(
-            platform: platform, name: name, icon: icon, summary: summary, configurationSchemaJSON: configurationSchemaJSON, webFiles: webFiles, assistantActions: assistantActions, assistantBackground: assistantBackground, accountAuthorization: accountAuthorization, deviceIDOfAccessory: deviceIDOfAccessory, make: make)
+            platform: platform, name: name, icon: icon, summary: summary, configurationSchemaJSON: configurationSchemaJSON, webFiles: webFiles, assistantActions: assistantActions, assistantBackground: assistantBackground, accountAuthorization: accountAuthorization, deviceIDOfAccessory: deviceIDOfAccessory,
+            runsAccessoryBlocks: runsAccessoryBlocks, make: make)
     }
 
     /// In registration order.

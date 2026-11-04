@@ -73,6 +73,12 @@ public protocol HomeswiftPlugin: Sendable {
     /// its `context.assistant` make, so keep it to a paragraph or two, and never ask for secrets in it. Defaults to nil.
     static var assistantBackground: String? { get }
 
+    /// Whether it runs Homebridge accessory blocks (an accessory plugin's): config.json's top-level `accessories`
+    /// entries whose `accessory` is its platform, or `<package>.<platform>`, reach it in its block's `accessories` list,
+    /// one instance for the blocks of each child bridge (`HomeswiftConfiguration.adoptAccessoryBlocks`). Defaults to
+    /// false: the runtime warns about accessory blocks naming it.
+    static var runsAccessoryBlocks: Bool { get }
+
     /// Creates the instance. Throw for settings the plugin cannot work with; the runtime logs the error
     /// and leaves this block out, the other plugins keep running.
     init(configuration: Configuration, context: PluginContext) async throws
@@ -196,6 +202,7 @@ extension HomeswiftPlugin {
     public static var webFiles: [String: WebFile] { [:] }
     public static var assistantActions: [AssistantAction] { [] }
     public static var assistantBackground: String? { nil }
+    public static var runsAccessoryBlocks: Bool { false }
     public func stop() async {}
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse { .error(404, "\(Self.name) has no web API") }
     public func liveFeed(accessoryID: String) async throws -> CameraLiveFeed? { nil }

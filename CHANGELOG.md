@@ -8,6 +8,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- MQTT Thing (`Plugins/MQTTThing`), an experimental clean-room plugin compatible with homebridge-mqttthing's accessory blocks: every accessory type it has, driven by MQTT topics, one connection per broker; accessory blocks (`accessories` in config.json) now run in the plugin that claims them (`runsAccessoryBlocks`), and the Homebridge import keeps them.
 - `get_settings` and `update_settings`, MCP tools (and through `homeswift mcp`, the command line's) that read and change
   the settings of an accessory, by its Accessory Id, or of a plugin instance: the current values with what each field
   is (its schema, whether it is a Core Accessory Setting, its plugin-wide default), a merge where `null` clears a key,

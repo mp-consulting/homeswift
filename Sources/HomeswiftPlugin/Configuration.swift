@@ -23,7 +23,8 @@ import Homeswift
 /// them); those four apply without reloading the plugin. `_hiddenFromHomeKit`, a list of accessory ids, is the older
 /// form of `notInHome`: read, and moved into `_accessories` by the next write of the block's settings.
 /// `bridge.roomSync` is Room Sync (GLOSSARY.md), which needs no restart. `accessories` blocks (Homebridge's accessory
-/// plugins) are not supported.
+/// plugins) run in the block of their platform, in its `accessories` list (`adoptAccessoryBlocks`), when its plugin runs
+/// them (`HomeswiftPlugin.runsAccessoryBlocks`).
 public struct HomeswiftConfiguration: Sendable {
     public struct Bridge: Codable, Sendable, Equatable {
         public var name: String
@@ -122,6 +123,9 @@ public struct HomeswiftConfiguration: Sendable {
         public var accessorySettings: [String: AccessorySettings] = [:]
         /// The whole block as JSON, what the plugin's `Configuration` is decoded from.
         public var json: Data
+        /// How many of config.json's top-level `accessories` blocks it runs, appended to its own `accessories` list
+        /// (`adoptAccessoryBlocks`); 0 for a block that only holds its own. Not in config.json's `platforms`.
+        public var accessoryBlocks = 0
 
         public init(platform: String, name: String? = nil, childBridge: ChildBridge? = nil, paused: Bool = false, json: Data? = nil) {
             self.platform = platform
@@ -149,7 +153,8 @@ public struct HomeswiftConfiguration: Sendable {
     public var platforms: [Platform]
     /// Platform names of blocks to skip (Homebridge lists package names here; Homeswift matches platforms).
     public var disabledPlugins: [String]
-    /// How many `accessories` blocks the file has. They are not supported; the runtime warns.
+    /// How many `accessories` blocks (Homebridge's accessory plugins) the file has. Each runs in the block of its
+    /// platform (`adoptAccessoryBlocks`), whose plugin must run accessory blocks (`HomeswiftPlugin.runsAccessoryBlocks`).
     public var accessoryBlockCount: Int
     /// `bridge.roomSync`, Room Sync (GLOSSARY.md); nil when the bridge block does not say. Not part of `bridge`: changing
     /// it needs no restart.
@@ -287,21 +292,74 @@ public struct HomeswiftConfiguration: Sendable {
                 configuration.roomSync = on
             }
         }
+        var blocks: [[String: Any]] = []
         if let platforms = root["platforms"] {
-            guard let blocks = platforms as? [Any] else { throw ConfigurationError.invalidValue(key: "platforms", expected: "an array") }
-            for (index, block) in blocks.enumerated() {
+            guard let list = platforms as? [Any] else { throw ConfigurationError.invalidValue(key: "platforms", expected: "an array") }
+            for (index, block) in list.enumerated() {
                 guard let block = block as? [String: Any] else {
                     throw ConfigurationError.invalidValue(key: "platforms[\(index)]", expected: "an object")
                 }
-                configuration.platforms.append(try platform(from: block, index: index))
+                blocks.append(block)
             }
+        }
+        var adopted: [Int: Int] = [:]
+        if let accessories = root["accessories"] {
+            guard let list = accessories as? [Any] else { throw ConfigurationError.invalidValue(key: "accessories", expected: "an array") }
+            configuration.accessoryBlockCount = list.count
+            adopted = try adoptAccessoryBlocks(list, into: &blocks)
+        }
+        for (index, block) in blocks.enumerated() {
+            var entry = try platform(from: block, index: index)
+            entry.accessoryBlocks = adopted[index] ?? 0
+            configuration.platforms.append(entry)
         }
         if let disabled = root["disabledPlugins"] {
             guard let names = disabled as? [String] else { throw ConfigurationError.invalidValue(key: "disabledPlugins", expected: "an array of names") }
             configuration.disabledPlugins = names
         }
-        configuration.accessoryBlockCount = (root["accessories"] as? [Any])?.count ?? 0
         return configuration
+    }
+
+    /// The platform that runs the accessory blocks whose `accessory` is `name`: the name itself, or the part after the
+    /// package in Homebridge's qualified form (`homebridge-mqttthing.mqttthing` is `mqttthing`). nil for an empty name.
+    public static func accessoryPlatform(_ name: String) -> String? {
+        let platform = name.split(separator: ".").last.map(String.init) ?? ""
+        return platform.isEmpty ? nil : platform
+    }
+
+    /// Homebridge's accessory blocks (config.json's top-level `accessories`), each appended to the `accessories` list
+    /// of the block of its platform (`accessoryPlatform`): the first one with the same child bridge (`_bridge.username`,
+    /// or none), else a new block named after the platform, or after its `_bridge`, so the blocks sharing a child bridge
+    /// run in one instance. Returns how many each block (by index) took in.
+    static func adoptAccessoryBlocks(_ list: [Any], into blocks: inout [[String: Any]]) throws -> [Int: Int] {
+        var adopted: [Int: Int] = [:]
+        for (index, item) in list.enumerated() {
+            guard let block = item as? [String: Any] else { throw ConfigurationError.invalidValue(key: "accessories[\(index)]", expected: "an object") }
+            guard let accessory = block["accessory"] as? String, let platform = accessoryPlatform(accessory) else {
+                throw ConfigurationError.invalidValue(key: "accessories[\(index)].accessory", expected: "an accessory name")
+            }
+            if let child = block["_bridge"], !(child is [String: Any]) {
+                throw ConfigurationError.invalidValue(key: "accessories[\(index)]._bridge", expected: "an object")
+            }
+            let child = block["_bridge"] as? [String: Any]
+            let username = child?["username"] as? String
+            let target = blocks.firstIndex { candidate in
+                candidate["platform"] as? String == platform && (candidate["_bridge"] as? [String: Any])?["username"] as? String == username
+            }
+            if let target {
+                var existing = blocks[target]["accessories"] as? [Any] ?? []
+                existing.append(block)
+                blocks[target]["accessories"] = existing
+                adopted[target, default: 0] += 1
+            } else {
+                let name = (child?["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? username.map { "\(platform) \($0)" } ?? platform
+                var created: [String: Any] = ["platform": platform, "name": name, "accessories": [block]]
+                if let child { created["_bridge"] = child }
+                blocks.append(created)
+                adopted[blocks.count - 1] = 1
+            }
+        }
+        return adopted
     }
 
     /// A config.json for the first launch: a bridge with a random username and pin, and no platforms.
