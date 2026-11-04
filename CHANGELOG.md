@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The Renault plugin (platform `Renault`, experimental, a clean-room implementation): Renault, Dacia and Alpine cars from
+  the MyRenault cloud, with the battery, charging and plug, climate, horn and lights, interior and exterior temperatures
+  and doors as each model has them (a per-model endpoint table, the Renault 5 E-Tech's included); signed in through
+  Setup with the e-mailed two-factor code, within Renault's hourly request quota.
+
 ## [0.20.1] - 2026-11-04
 
 ### Fixed

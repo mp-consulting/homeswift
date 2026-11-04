@@ -64,6 +64,7 @@ HomeswiftI18n.add("es", {
   "Sonoff and other eWeLink switches, outlets, lights, curtains and sensors": "Interruptores, enchufes, luces, cortinas y sensores Sonoff y otros eWeLink",
   "Power stations and home batteries: charge, and their power live": "Estaciones de energía y baterías domésticas: carga, y su potencia en directo",
   "Ring alarms, cameras, doorbells, chimes and Smart Lighting": "Alarmas, cámaras, timbres, carillones y Smart Lighting de Ring",
+  "Renault, Dacia and Alpine cars: battery, charging, climate, horn and lights": "Coches Renault, Dacia y Alpine: batería, carga, climatización, claxon y luces",
   "Sonos speakers: play, volume and groups, favourites as TV inputs, LEDs and alarms": "Altavoces Sonos: reproducción, volumen y grupos, favoritos como entradas de TV, LED y alarmas",
   "Tuya and Smart Life devices through the Tuya cloud": "Dispositivos Tuya y Smart Life a través de la nube de Tuya",
   "Bots, curtains, meters, locks, lights and IR remotes through the SwitchBot cloud": "Bots, cortinas, termómetros, cerraduras, luces y mandos IR a través de la nube de SwitchBot",

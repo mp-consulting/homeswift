@@ -16,6 +16,7 @@ import HomeswiftMQTTThing
 import HomeswiftPhilipsAmbilightTV
 import HomeswiftPhilipsHue
 import HomeswiftPlugin
+import HomeswiftRenault
 import HomeswiftRing
 import HomeswiftSonos
 import HomeswiftTuya
@@ -68,5 +69,6 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(TapoPlugin.self)
     registry.register(HTTPWebhooksPlugin.self)
     registry.register(RingPlugin.self)
+    registry.register(RenaultPlugin.self)
     return registry
 }
