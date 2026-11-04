@@ -95,6 +95,11 @@ struct VaultToolTests {
             #expect(tested["ok"] == false)
             #expect(await environment.catalog.assistantModels(block: block)["error"]?.stringValue?.hasPrefix("apiKey is not the saved block's") == true)
         }
+        // A sealed value under a key that is not secret-named is opened all the same: refused too.
+        let sealedModel: JSONValue = ["platform": "HomeswiftAiKit", "provider": "openai-compatible", "baseUrl": "http://127.0.0.1:9/v1", "model": .string("\(SecretBox.prefix)AAAA")]
+        #expect((try? environment.catalog.assistantBlock(sealedModel).get()) == nil)
+        let sealedElsewhere: JSONValue = ["platform": "HomeswiftAiKit", "provider": "openai-compatible", "baseUrl": "http://192.0.2.1/v1", "model": .string("\(SecretBox.prefix)AAAA")]
+        #expect((try? environment.catalog.assistantBlock(sealedElsewhere).get()) == nil)
         // The saved reference, as the form shows it, is the saved key.
         let opened = environment.catalog.assistantBlock(form("vault:assistant")).map(\.block["apiKey"])
         #expect((try? opened.get()) == "sk-vault-key", "\(opened)")

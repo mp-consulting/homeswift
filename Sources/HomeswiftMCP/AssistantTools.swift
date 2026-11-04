@@ -113,7 +113,19 @@ extension HomeswiftCatalog {
             if let saved, SecretWalk.value(at: path, in: saved) == value { return }
             foreign = SecretWalk.text(path)
         }
+        if foreign == nil, let saved, Self.sealedValues(block).subtracting(Self.sealedValues(saved)).isEmpty == false { foreign = "A sealed value" }
+        else if foreign == nil, saved == nil, !Self.sealedValues(block).isEmpty { foreign = "A sealed value" }
         return foreign
+    }
+
+    /// Every sealed string of `value`, under any key: the bridge opens them all, not only those under secret-named keys.
+    static func sealedValues(_ value: JSONValue) -> Set<String> {
+        switch value {
+        case .string(let text): SecretBox.isSealed(text) ? [text] : []
+        case .array(let items): items.reduce(into: []) { $0.formUnion(sealedValues($1)) }
+        case .object(let object): object.values.reduce(into: []) { $0.formUnion(sealedValues($1)) }
+        default: []
+        }
     }
 
     /// Whether a secret-named value of `block` is one the bridge fills in: the placeholder, a sealed value or a reference.
@@ -123,7 +135,7 @@ extension HomeswiftCatalog {
             guard let text = value.stringValue else { return }
             if text == Redaction.placeholder || SecretBox.isSealed(text) || Redaction.isSecretReference(text) { supplied = true }
         }
-        return supplied
+        return supplied || !sealedValues(block).isEmpty
     }
 
     // MARK: Daily digest
