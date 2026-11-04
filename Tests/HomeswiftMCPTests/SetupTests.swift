@@ -247,6 +247,13 @@ struct AccountStateTests {
         #expect(try await setup.catalog.discoverDevices(platform: "Pairable", name: nil)["accountState"] == "refused")
         try context.saveCredentials(["token": "new-token"])
         #expect(await instance("Pairable")?["accountState"] == "setUp")
+
+        // Refused and then removed, it is not set up rather than refused.
+        context.accountRefused()
+        context.removeCredentials()
+        #expect(context.accountRefusal == nil)
+        let removed = await instance("Pairable")?["accountState"]
+        #expect(removed == "notSetUp")
     }
 
     /// An optional account left alone needs no one: the plugin runs as it should, and says what the account adds.

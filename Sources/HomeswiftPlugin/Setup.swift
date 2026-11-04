@@ -54,6 +54,12 @@ public enum AccountState: String, Sendable, Codable {
     /// (`PluginContext.accountRefused`): a password changed, a token revoked.
     case refused
 
+    /// An account asked by `method`: refused when the plugin said so (`PluginContext.accountRefused`), else set up when it
+    /// is `authorized`.
+    public init(method: AuthorizationMethod, refused: Bool, authorized: Bool) {
+        self = method == .none ? .none : refused ? .refused : authorized ? .setUp : .notSetUp
+    }
+
     /// Whether someone has to set it up (again) before the plugin's devices work: not set up and required, or refused.
     public func needsAuthorization(_ requirement: AccountRequirement) -> Bool {
         self == .refused || self == .notSetUp && requirement.isRequired
@@ -133,8 +139,8 @@ extension DiscoveredDevice {
 public struct Discovery: Sendable {
     public var devices: [DiscoveredDevice]
     public var accountAuthorized: Bool
-    /// The account's credentials were refused the last time the plugin used them (`PluginContext.accountRefused`).
-    public var accountRefused = false
+    /// Where the account stands: `accountAuthorized`, and refused when the plugin said so (`PluginContext.accountRefused`).
+    public var accountState: AccountState
 }
 
 /// One answer a step of Setup asks for.

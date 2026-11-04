@@ -71,14 +71,13 @@ extension HomeswiftCatalog {
         let entry = host.registry.entry(for: platform)
         let method = entry?.accountAuthorization ?? AuthorizationMethod.none
         let requirement = entry?.accountRequirement ?? .required
-        let account: AccountState = method == .none ? .none : found.accountRefused ? .refused : found.accountAuthorized ? .setUp : .notSetUp
         return [
             "platform": .string(platform), "name": .string(name),
             "accountAuthorization": .string(method.rawValue),
             // An instance without an account has nothing to set up for it.
             "accountSetUp": .bool(method == .none || found.accountAuthorized),
-            "accountState": .string(account.rawValue), "accountRequired": .bool(requirement.isRequired),
-            "accountAdds": requirement.adds.map(JSONValue.string) ?? .null, "needsAuthorization": .bool(account.needsAuthorization(requirement)),
+            "accountState": .string(found.accountState.rawValue), "accountRequired": .bool(requirement.isRequired),
+            "accountAdds": requirement.adds.map(JSONValue.string) ?? .null, "needsAuthorization": .bool(found.accountState.needsAuthorization(requirement)),
             "devices": .array(found.devices.map { device in
                 let accessoryID = "\(platform):\(device.deviceID)"
                 var json: [String: JSONValue] = [

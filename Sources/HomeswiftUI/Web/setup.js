@@ -26,19 +26,11 @@
   };
   /// What the account's button says, by its Authorization Method.
   const accountActions = {
-    buttonPress: [() => t("Pair"), () => t("Pair again"), "pair"],
-    deviceCode: [() => t("Pair"), () => t("Pair again"), "pair"],
-    accountLogin: [() => t("Sign in"), () => t("Sign in again"), "user"],
-    browserRedirect: [() => t("Sign in"), () => t("Sign in again"), "browser"],
-    apiKey: [() => t("Enter keys"), () => t("Change keys"), "key"],
-  };
-  /// What a plugin whose account Needs Authorization shows instead of Running, by the account's Authorization Method.
-  const accountNeeds = {
-    buttonPress: () => t("Needs pairing"),
-    deviceCode: () => t("Needs pairing"),
-    accountLogin: () => t("Needs sign-in"),
-    browserRedirect: () => t("Needs sign-in"),
-    apiKey: () => t("Needs keys"),
+    buttonPress: [() => t("Pair"), () => t("Pair again"), "pair", () => t("Needs pairing")],
+    deviceCode: [() => t("Pair"), () => t("Pair again"), "pair", () => t("Needs pairing")],
+    accountLogin: [() => t("Sign in"), () => t("Sign in again"), "user", () => t("Needs sign-in")],
+    browserRedirect: [() => t("Sign in"), () => t("Sign in again"), "browser", () => t("Needs sign-in")],
+    apiKey: [() => t("Enter keys"), () => t("Change keys"), "key", () => t("Needs keys")],
   };
   /// A device's status: its words and tone. Set up is the usual state, a quiet dot; the others say so in words.
   const statuses = {
@@ -172,13 +164,13 @@
     // Under the name, where its devices stand.
     const summary = el("span", { class: "muted", text: t("Looking for devices…") });
     const action = accountActions[plugin.accountAuthorization];
-    // Set up once (its credentials are there, refused or not), and whether someone has to set it up (again) before
-    // its devices work: an optional account left alone needs no one.
-    let accountSetUp = false, accountRefused = false, needsAccount = false;
+    // Where the account stands (`accountState`), and whether someone has to set it up (again) before its devices
+    // work: an optional account left alone needs no one.
+    let accountState = "notSetUp", needsAccount = false;
     // Looking again, and the account's sign-in once it is set up, are in the menu: the row stays one line.
     const menu = menuButton(t("Actions for {name}", { name: block.name }), () => [
       { label: t("Find again"), icon: "search", onSelect: () => { setOpen(true); load(); } },
-      action ? { label: action[accountSetUp ? 1 : 0](), icon: action[2], onSelect: () => open({ block, plugin, firstTime: !accountSetUp, after: load }) } : null,
+      action ? { label: action[accountState === "notSetUp" ? 0 : 1](), icon: action[2], onSelect: () => open({ block, plugin, firstTime: accountState === "notSetUp", after: load }) } : null,
     ].filter(Boolean));
     const bodyID = `setup-${block.slug}-devices`;
     // The row opens and closes it; its menu sits beside the chevron.
@@ -199,10 +191,10 @@
     const accountRow = () => el("div", { class: "setup-device setup-account" },
       tile(action[2], "orange"),
       el("div", { class: "who" }, el("strong", { text: methods[plugin.accountAuthorization][0]() }),
-        el("div", { class: "muted", text: accountRefused ? t("The account refused what {plugin} had: set it up again to reach its devices.", { plugin: plugin.name })
+        el("div", { class: "muted", text: accountState === "refused" ? t("The account refused what {plugin} had: set it up again to reach its devices.", { plugin: plugin.name })
           : t("{plugin} needs this before it can reach its devices.", { plugin: plugin.name }) })),
-      el("span", { class: "pill status away", text: accountRefused ? t("Refused") : statuses.needsAuthorization[0]() }),
-      el("button", { class: "primary", actionIcon: action[2], text: action[accountSetUp ? 1 : 0](), onclick: (event) => open({ block, plugin, firstTime: !accountSetUp, trigger: event.currentTarget, after: load }) }));
+      el("span", { class: "pill status away", text: accountState === "refused" ? t("Refused") : statuses.needsAuthorization[0]() }),
+      el("button", { class: "primary", actionIcon: action[2], text: action[accountState === "notSetUp" ? 0 : 1](), onclick: (event) => open({ block, plugin, firstTime: accountState === "notSetUp", trigger: event.currentTarget, after: load }) }));
 
     // A search in progress, whatever started it (the page, Find again, a Setup just done): the button turns and the
     // rows it may replace dim, as a device on the network can take seconds to answer.
@@ -219,9 +211,8 @@
       searching(true);
       try {
         const found = await post("discover", { platform: block.platform, name: block.name });
-        accountSetUp = found.accountSetUp;
-        accountRefused = found.accountState === "refused";
-        needsAccount = Boolean(action) && (found.needsAuthorization ?? !accountSetUp);
+        accountState = found.accountState;
+        needsAccount = Boolean(action) && found.needsAuthorization;
         const needs = (device) => device.status === "needsAuthorization";
         const waiting = found.devices.filter(needs), settled = found.devices.filter((device) => !needs(device));
         // What the plugin found before a device's Setup: what is new after it came with that device (a console's cameras).
@@ -242,7 +233,7 @@
         // What needs someone is shown, unless they closed it themselves.
         if (attention && !touched) setOpen(true);
         // Asked for by the plugin's page: its account's sheet, once.
-        if (start && action) { start = false; open({ block, plugin, firstTime: !accountSetUp, after: load }); }
+        if (start && action) { start = false; open({ block, plugin, firstTime: accountState === "notSetUp", after: load }); }
       } catch (e) {
         list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));
         // Not "no devices": the search itself failed.
@@ -610,7 +601,7 @@
 
   /// The state a plugin instance shows instead of Running when its account Needs Authorization, by its Authorization
   /// Method ("Needs sign-in"); nil for a plugin without an account.
-  const accountState = (method) => accountNeeds[method]?.() ?? null;
+  const accountState = (method) => accountActions[method]?.[3]() ?? null;
 
   window.HomeswiftSetup = { view, resume, setUp, accountState };
 })();

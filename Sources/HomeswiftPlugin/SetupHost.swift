@@ -74,7 +74,9 @@ extension PluginHost {
                 device.isSetUp = !device.isExcluded && !device.excludedBySettings && (device.isSetUp || published || authorized.contains(device.deviceID) && configured.contains(device.deviceID))
                 return device
             }
-            return Discovery(devices: marked, accountAuthorized: await pluginAnswer ?? authorized.contains(nil), accountRefused: context.accountRefusal != nil)
+            let accountAuthorized = await pluginAnswer ?? authorized.contains(nil)
+            let account = AccountState(method: registry.entry(for: platform)?.accountAuthorization ?? .none, refused: context.accountRefusal != nil, authorized: accountAuthorized)
+            return Discovery(devices: marked, accountAuthorized: accountAuthorized, accountState: account)
         }
     }
 
@@ -90,9 +92,10 @@ extension PluginHost {
                 group.addTask {
                     let id = "\(context.platform)/\(context.name)"
                     guard method != .none else { return (id, .none) }
+                    // Refused wins over what the plugin or the vault says, as in `discover`.
                     if context.accountRefusal != nil { return (id, .refused) }
                     let authorized = await plugin?.accountAuthorized() ?? context.haveCredentials([nil]).contains(nil)
-                    return (id, authorized ? .setUp : .notSetUp)
+                    return (id, AccountState(method: method, refused: false, authorized: authorized))
                 }
             }
             var states: [String: AccountState] = [:]

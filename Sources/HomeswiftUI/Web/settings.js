@@ -469,9 +469,10 @@
     /// Where the account stands, in its row and the header's state: `found` is the discovery's answer.
     const showAccount = (found) => {
       if (!accountRow) return;
-      accountState = found?.accountState ?? (found ? (found.accountSetUp ? "setUp" : "notSetUp") : accountState);
+      if (found) accountState = found.accountState;
       const required = plugin?.accountRequired !== false;
-      const needs = accountState === "refused" || accountState === "notSetUp" && required;
+      // The server's answer (`AccountState.needsAuthorization`): the discovery's, else the Plugins page's.
+      const needs = Boolean(found ? found.needsAuthorization : instance?.needsAuthorization);
       // Set up again only once there is something to set up again: a refused one too.
       accountButton.textContent = !accountState || accountState === "notSetUp" ? t("Set up") : t("Set up again");
       accountButton.classList.toggle("primary", needs);
@@ -568,7 +569,7 @@
         showAccount(found);
         count.textContent = found.devices.length ? String(found.devices.length) : "";
         list.replaceChildren(...(found.devices.length ? found.devices.map((device) => deviceRow(block, plugin, device, load))
-          : [el("p", { class: "muted", text: accountRow && (found.needsAuthorization ?? !found.accountSetUp) ? t("Its devices show here once it is set up.") : t("This plugin finds no devices by itself: its settings name them.") })]));
+          : [el("p", { class: "muted", text: accountRow && found.needsAuthorization ? t("Its devices show here once it is set up.") : t("This plugin finds no devices by itself: its settings name them.") })]));
         return found;
       } catch (e) {
         if (run === loading) list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));

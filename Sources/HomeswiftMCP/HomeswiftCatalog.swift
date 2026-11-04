@@ -583,12 +583,13 @@ public struct HomeswiftCatalog: Sendable {
             "platforms": .array(running.map { instance in
                 let account = accounts["\(instance.platform)/\(instance.name)"] ?? AccountState.none
                 let requirement = host.registry.entry(for: instance.platform)?.accountRequirement ?? .required
-                let accessories = host.context(platform: instance.platform, name: instance.name)?.accessories ?? []
+                // Paused, its accessories show No Response by design: only a running one is looked at.
+                let accessories = instance.paused ? [] : host.context(platform: instance.platform, name: instance.name)?.accessories ?? []
                 return [
                     "platform": .string(instance.platform), "name": .string(instance.name), "plugin": .string(instance.pluginName), "bridge": .string(instance.bridge.name),
                     "accessories": .number(Double(instance.accessoryIDs.count)), "paused": .bool(instance.paused),
                     "accountState": .string(account.rawValue), "needsAuthorization": .bool(account.needsAuthorization(requirement)),
-                    "noneResponding": .bool(!instance.paused && !accessories.isEmpty && accessories.allSatisfy(\.showsNoResponse)),
+                    "noneResponding": .bool(!accessories.isEmpty && accessories.allSatisfy(\.showsNoResponse)),
                 ]
             }),
             "unknownPlatforms": .array(configured.subtracting(running.map(\.platform)).subtracting(Self.systemPlatforms).sorted().map(JSONValue.string)),

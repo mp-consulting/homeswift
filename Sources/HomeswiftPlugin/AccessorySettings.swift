@@ -207,6 +207,8 @@ extension PluginContext {
     /// Drops them: the device or the account Needs Authorization again.
     public func removeCredentials(for deviceID: String? = nil) {
         credentialsFile(for: deviceID).remove()
+        // Gone, they are not set up rather than refused.
+        if deviceID == nil { accountAccepted() }
     }
 
     /// Says the account refused its credentials (a password changed, a token revoked or expired for good): the plugin's

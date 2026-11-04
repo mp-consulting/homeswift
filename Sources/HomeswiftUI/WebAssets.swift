@@ -23470,9 +23470,10 @@ HomeswiftI18n.add("pt", {
     /// Where the account stands, in its row and the header's state: `found` is the discovery's answer.
     const showAccount = (found) => {
       if (!accountRow) return;
-      accountState = found?.accountState ?? (found ? (found.accountSetUp ? "setUp" : "notSetUp") : accountState);
+      if (found) accountState = found.accountState;
       const required = plugin?.accountRequired !== false;
-      const needs = accountState === "refused" || accountState === "notSetUp" && required;
+      // The server's answer (`AccountState.needsAuthorization`): the discovery's, else the Plugins page's.
+      const needs = Boolean(found ? found.needsAuthorization : instance?.needsAuthorization);
       // Set up again only once there is something to set up again: a refused one too.
       accountButton.textContent = !accountState || accountState === "notSetUp" ? t("Set up") : t("Set up again");
       accountButton.classList.toggle("primary", needs);
@@ -23569,7 +23570,7 @@ HomeswiftI18n.add("pt", {
         showAccount(found);
         count.textContent = found.devices.length ? String(found.devices.length) : "";
         list.replaceChildren(...(found.devices.length ? found.devices.map((device) => deviceRow(block, plugin, device, load))
-          : [el("p", { class: "muted", text: accountRow && (found.needsAuthorization ?? !found.accountSetUp) ? t("Its devices show here once it is set up.") : t("This plugin finds no devices by itself: its settings name them.") })]));
+          : [el("p", { class: "muted", text: accountRow && found.needsAuthorization ? t("Its devices show here once it is set up.") : t("This plugin finds no devices by itself: its settings name them.") })]));
         return found;
       } catch (e) {
         if (run === loading) list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));
@@ -23643,19 +23644,11 @@ HomeswiftI18n.add("pt", {
   };
   /// What the account's button says, by its Authorization Method.
   const accountActions = {
-    buttonPress: [() => t("Pair"), () => t("Pair again"), "pair"],
-    deviceCode: [() => t("Pair"), () => t("Pair again"), "pair"],
-    accountLogin: [() => t("Sign in"), () => t("Sign in again"), "user"],
-    browserRedirect: [() => t("Sign in"), () => t("Sign in again"), "browser"],
-    apiKey: [() => t("Enter keys"), () => t("Change keys"), "key"],
-  };
-  /// What a plugin whose account Needs Authorization shows instead of Running, by the account's Authorization Method.
-  const accountNeeds = {
-    buttonPress: () => t("Needs pairing"),
-    deviceCode: () => t("Needs pairing"),
-    accountLogin: () => t("Needs sign-in"),
-    browserRedirect: () => t("Needs sign-in"),
-    apiKey: () => t("Needs keys"),
+    buttonPress: [() => t("Pair"), () => t("Pair again"), "pair", () => t("Needs pairing")],
+    deviceCode: [() => t("Pair"), () => t("Pair again"), "pair", () => t("Needs pairing")],
+    accountLogin: [() => t("Sign in"), () => t("Sign in again"), "user", () => t("Needs sign-in")],
+    browserRedirect: [() => t("Sign in"), () => t("Sign in again"), "browser", () => t("Needs sign-in")],
+    apiKey: [() => t("Enter keys"), () => t("Change keys"), "key", () => t("Needs keys")],
   };
   /// A device's status: its words and tone. Set up is the usual state, a quiet dot; the others say so in words.
   const statuses = {
@@ -23789,13 +23782,13 @@ HomeswiftI18n.add("pt", {
     // Under the name, where its devices stand.
     const summary = el("span", { class: "muted", text: t("Looking for devices…") });
     const action = accountActions[plugin.accountAuthorization];
-    // Set up once (its credentials are there, refused or not), and whether someone has to set it up (again) before
-    // its devices work: an optional account left alone needs no one.
-    let accountSetUp = false, accountRefused = false, needsAccount = false;
+    // Where the account stands (`accountState`), and whether someone has to set it up (again) before its devices
+    // work: an optional account left alone needs no one.
+    let accountState = "notSetUp", needsAccount = false;
     // Looking again, and the account's sign-in once it is set up, are in the menu: the row stays one line.
     const menu = menuButton(t("Actions for {name}", { name: block.name }), () => [
       { label: t("Find again"), icon: "search", onSelect: () => { setOpen(true); load(); } },
-      action ? { label: action[accountSetUp ? 1 : 0](), icon: action[2], onSelect: () => open({ block, plugin, firstTime: !accountSetUp, after: load }) } : null,
+      action ? { label: action[accountState === "notSetUp" ? 0 : 1](), icon: action[2], onSelect: () => open({ block, plugin, firstTime: accountState === "notSetUp", after: load }) } : null,
     ].filter(Boolean));
     const bodyID = `setup-${block.slug}-devices`;
     // The row opens and closes it; its menu sits beside the chevron.
@@ -23816,10 +23809,10 @@ HomeswiftI18n.add("pt", {
     const accountRow = () => el("div", { class: "setup-device setup-account" },
       tile(action[2], "orange"),
       el("div", { class: "who" }, el("strong", { text: methods[plugin.accountAuthorization][0]() }),
-        el("div", { class: "muted", text: accountRefused ? t("The account refused what {plugin} had: set it up again to reach its devices.", { plugin: plugin.name })
+        el("div", { class: "muted", text: accountState === "refused" ? t("The account refused what {plugin} had: set it up again to reach its devices.", { plugin: plugin.name })
           : t("{plugin} needs this before it can reach its devices.", { plugin: plugin.name }) })),
-      el("span", { class: "pill status away", text: accountRefused ? t("Refused") : statuses.needsAuthorization[0]() }),
-      el("button", { class: "primary", actionIcon: action[2], text: action[accountSetUp ? 1 : 0](), onclick: (event) => open({ block, plugin, firstTime: !accountSetUp, trigger: event.currentTarget, after: load }) }));
+      el("span", { class: "pill status away", text: accountState === "refused" ? t("Refused") : statuses.needsAuthorization[0]() }),
+      el("button", { class: "primary", actionIcon: action[2], text: action[accountState === "notSetUp" ? 0 : 1](), onclick: (event) => open({ block, plugin, firstTime: accountState === "notSetUp", trigger: event.currentTarget, after: load }) }));
 
     // A search in progress, whatever started it (the page, Find again, a Setup just done): the button turns and the
     // rows it may replace dim, as a device on the network can take seconds to answer.
@@ -23836,9 +23829,8 @@ HomeswiftI18n.add("pt", {
       searching(true);
       try {
         const found = await post("discover", { platform: block.platform, name: block.name });
-        accountSetUp = found.accountSetUp;
-        accountRefused = found.accountState === "refused";
-        needsAccount = Boolean(action) && (found.needsAuthorization ?? !accountSetUp);
+        accountState = found.accountState;
+        needsAccount = Boolean(action) && found.needsAuthorization;
         const needs = (device) => device.status === "needsAuthorization";
         const waiting = found.devices.filter(needs), settled = found.devices.filter((device) => !needs(device));
         // What the plugin found before a device's Setup: what is new after it came with that device (a console's cameras).
@@ -23859,7 +23851,7 @@ HomeswiftI18n.add("pt", {
         // What needs someone is shown, unless they closed it themselves.
         if (attention && !touched) setOpen(true);
         // Asked for by the plugin's page: its account's sheet, once.
-        if (start && action) { start = false; open({ block, plugin, firstTime: !accountSetUp, after: load }); }
+        if (start && action) { start = false; open({ block, plugin, firstTime: accountState === "notSetUp", after: load }); }
       } catch (e) {
         list.replaceChildren(el("p", { class: "error", role: "alert", text: e.message }));
         // Not "no devices": the search itself failed.
@@ -24227,7 +24219,7 @@ HomeswiftI18n.add("pt", {
 
   /// The state a plugin instance shows instead of Running when its account Needs Authorization, by its Authorization
   /// Method ("Needs sign-in"); nil for a plugin without an account.
-  const accountState = (method) => accountNeeds[method]?.() ?? null;
+  const accountState = (method) => accountActions[method]?.[3]() ?? null;
 
   window.HomeswiftSetup = { view, resume, setUp, accountState };
 })();
@@ -28022,10 +28014,9 @@ select option:disabled { color: var(--muted); }
 .setup-instance-toggle .who { display: grid; gap: 2px; min-width: 0; }
 .setup-instance-toggle .who strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .setup-instance-toggle .who .muted { font-size: var(--text-sm); }
-.setup-instance-toggle .who .muted[data-tone="away"] { color: var(--warn); font-weight: var(--weight-medium); }
+.setup-instance-toggle .who .muted[data-tone="away"], .settings-row .who .help.account-state[data-tone="away"] { color: var(--warn); font-weight: var(--weight-medium); }
 /* Where the account stands is a sentence to read, not a label: it wraps rather than losing its end. */
 .settings-row .who .help.account-state { white-space: normal; overflow: visible; text-overflow: clip; text-wrap-style: pretty; }
-.settings-row .who .help.account-state[data-tone="away"] { color: var(--warn); font-weight: var(--weight-medium); }
 @media (hover: hover) and (pointer: fine) { .setup-instance-head:has(.setup-instance-toggle:hover) { background: var(--material-thin); } }
 .setup-chevron { flex: none; width: 8px; height: 8px; margin: 0 var(--space-4); border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
   transform: rotate(-45deg); transition: transform 200ms var(--ease-out); cursor: pointer; }
