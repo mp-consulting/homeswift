@@ -70,10 +70,12 @@ enum RingError: Error, CustomStringConvertible, Equatable {
 
 /// A response with the two headers snapshots need: `date` (as milliseconds) and `x-time-millis`.
 struct RingResponse: Sendable {
-    var status: Int
     var body: Data
-    var responseTimestamp: Double?
+    var date: String?
     var timeMillis: Double?
+
+    /// The `date` header as milliseconds, parsed only for the snapshots that need it.
+    var responseTimestamp: Double? { date.flatMap(RingClient.httpDate) }
 
     var json: JSONValue { (try? JSONValue(data: body)) ?? .null }
 }
@@ -244,7 +246,7 @@ actor RingClient {
             }
             if response.isSuccess {
                 return RingResponse(
-                    status: response.status, body: response.body, responseTimestamp: response.header("date").flatMap(Self.httpDate),
+                    body: response.body, date: response.header("date"),
                     timeMillis: response.header("x-time-millis").flatMap(Double.init))
             }
             let json = (try? JSONValue(data: response.body)) ?? .null

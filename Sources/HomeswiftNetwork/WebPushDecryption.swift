@@ -106,16 +106,16 @@ public enum WebPushDecryption {
         return (key, nonce)
     }
 
-    /// RFC 5869 with SHA-256, for a length of at most 32 bytes (one block).
+    /// RFC 5869 with SHA-256.
     static func hkdf(salt: [UInt8], ikm: [UInt8], info: [UInt8], length: Int) -> [UInt8] {
-        let prk = HMAC<SHA256>.authenticationCode(for: ikm, using: SymmetricKey(data: salt))
-        let block = HMAC<SHA256>.authenticationCode(for: info + [1], using: SymmetricKey(data: Data(prk)))
-        return Array(Array(block).prefix(length))
+        HKDF<SHA256>.deriveKey(inputKeyMaterial: SymmetricKey(data: ikm), salt: salt, info: info, outputByteCount: length)
+            .withUnsafeBytes { Array($0) }
     }
 }
 
 extension WebPushDecryption {
-    /// Base64url without padding (`+`→`-`, `/`→`_`, no `=`), as web push writes keys.
+    /// Base64url without padding (`+`→`-`, `/`→`_`, no `=`), as web push writes keys: `Secrets.base64URL`, which this
+    /// target cannot reach.
     public static func base64URLEncode(_ bytes: some Sequence<UInt8>) -> String {
         Data(bytes).base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")

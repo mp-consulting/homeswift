@@ -67,18 +67,15 @@ public struct FCMCredentials: Codable, Sendable, Equatable {
 public struct FCMMessage: Sendable, Equatable {
     public var persistentID: String
     public var payload: Data
+    /// The message's `data`: the sender's string values by key, read once.
+    public var data: [String: String]
 
-    public init(persistentID: String, payload: Data) {
+    /// nil when the payload is not a JSON object.
+    public init?(persistentID: String, payload: Data) {
+        guard let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any] else { return nil }
         self.persistentID = persistentID
         self.payload = payload
-    }
-
-    /// The message's `data`: the sender's string values by key.
-    public var data: [String: String] {
-        guard let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any], let data = object["data"] as? [String: Any] else {
-            return [:]
-        }
-        return data.compactMapValues { $0 as? String }
+        data = (object["data"] as? [String: Any] ?? [:]).compactMapValues { $0 as? String }
     }
 }
 
@@ -207,7 +204,6 @@ public actor FCMReceiver {
 
     /// The token to give the vendor's cloud, once registered.
     public var token: String? { credentials?.fcm.token }
-    public var currentCredentials: FCMCredentials? { credentials }
 
     /// Registers when needed, then connects and stays connected until `stop()`.
     public func start() {
@@ -281,9 +277,7 @@ public actor FCMReceiver {
     /// A full registration: new keys, a new Android id, new tokens.
     func register() async throws -> FCMCredentials {
         let privateKey = P256.KeyAgreement.PrivateKey()
-        var secret = [UInt8](repeating: 0, count: 16)
-        var generator = SystemRandomNumberGenerator()
-        for index in secret.indices { secret[index] = generator.next() }
+        let secret = Self.randomBytes(16)
         let checkin = try await checkin(androidID: nil, securityToken: nil)
         let appID = "wp:\(configuration.bundleID)#\(UUID().uuidString.lowercased())"
         let gcmToken = try await gcmRegister(androidID: checkin.androidID, securityToken: checkin.securityToken, appID: appID)
@@ -396,10 +390,15 @@ public actor FCMReceiver {
         return 0
     }
 
+    /// Bytes from the system's CSPRNG.
+    static func randomBytes(_ count: Int) -> [UInt8] {
+        var generator = SystemRandomNumberGenerator()
+        return (0..<count).map { _ in UInt8.random(in: .min ... .max, using: &generator) }
+    }
+
     /// A Firebase installation id: 17 random bytes, the first's high nibble `0111`, base64url, 22 characters.
     static func generateFID() -> String {
-        var generator = SystemRandomNumberGenerator()
-        var bytes = (0..<17).map { _ in UInt8.random(in: .min ... .max, using: &generator) }
+        var bytes = randomBytes(17)
         bytes[0] = 0x70 | (bytes[0] & 0x0F)
         return String(WebPushDecryption.base64URLEncode(bytes).prefix(22))
     }
@@ -503,12 +502,12 @@ public actor FCMReceiver {
             }
             do {
                 let plaintext = try WebPushDecryption.decrypt(raw, appData: message.appData, keys: keys)
-                guard (try? JSONSerialization.jsonObject(with: Data(plaintext))) != nil else {
+                guard let decoded = FCMMessage(persistentID: id, payload: Data(plaintext)) else {
                     logger.debug("Dropped a push that is not JSON")
                     return true
                 }
                 remember(id)
-                continuation.yield(.message(FCMMessage(persistentID: id, payload: Data(plaintext))))
+                continuation.yield(.message(decoded))
             } catch {
                 logger.debug("Dropped a push that does not decrypt: \(error)")
             }
@@ -518,12 +517,14 @@ public actor FCMReceiver {
 
     private func remember(_ id: String) {
         guard !id.isEmpty else { return }
+        // Trimmed by half once twice the limit, not by one on every message.
         unacknowledged.append(id)
-        if unacknowledged.count > Self.deduplicationLimit { unacknowledged.removeFirst(unacknowledged.count - Self.deduplicationLimit) }
+        if unacknowledged.count > 2 * Self.deduplicationLimit { unacknowledged.removeFirst(Self.deduplicationLimit) }
         recent.append(id)
         recentSet.insert(id)
-        if recent.count > Self.deduplicationLimit {
-            recentSet.remove(recent.removeFirst())
+        if recent.count > 2 * Self.deduplicationLimit {
+            for old in recent.prefix(Self.deduplicationLimit) { recentSet.remove(old) }
+            recent.removeFirst(Self.deduplicationLimit)
         }
     }
 }

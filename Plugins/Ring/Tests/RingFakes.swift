@@ -152,7 +152,7 @@ final class FakePush: RingPushSource {
     /// A push whose `data` holds these values.
     func push(_ data: [String: String]) throws {
         let payload = try JSONSerialization.data(withJSONObject: ["data": data])
-        send(.message(FCMMessage(persistentID: UUID().uuidString, payload: payload)))
+        send(.message(FCMMessage(persistentID: UUID().uuidString, payload: payload)!))
     }
 }
 

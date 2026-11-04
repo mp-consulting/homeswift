@@ -90,16 +90,10 @@ extension RingPlugin {
             if left.isEmpty { fields.removeValue(forKey: "hideDeviceIds") } else { fields["hideDeviceIds"] = .array(left) }
             if !entries.isEmpty { fields["_accessories"] = .object(entries) }
         }
-        if fields["refreshToken"] != nil, let token = configuration.refreshToken?.trimmingCharacters(in: .whitespacesAndNewlines), !token.isEmpty {
+        if fields["refreshToken"] != nil {
             // Moved once the block is written; the block answered as if the vault had it.
-            let fingerprint = RingIdentity.sha256(token)
-            if context.credentials(as: RingAccount.self)?.importedFrom != fingerprint {
-                let wrapper = RingTokenWrapper(parsing: token)
+            if let account = importedAccount() {
                 let context = context
-                let stored = context.credentials(as: RingAccount.self)
-                let account = RingAccount(
-                    refreshToken: wrapper.refreshToken, hardwareId: wrapper.hardwareID ?? stored?.hardwareId ?? hardwareID(),
-                    wrapper: wrapper.others.isEmpty ? nil : wrapper.others, importedFrom: fingerprint)
                 await context.whenSettingsWritten { try context.saveCredentials(account) }
             }
             fields.removeValue(forKey: "refreshToken")

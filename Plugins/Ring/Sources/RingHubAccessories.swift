@@ -441,8 +441,9 @@ enum RingHubAccessories {
             $0.data["parentZid"]?.stringValue == zid && $0.data["deviceType"]?.stringValue == "sensor.temperature"
         }?.zid
 
-        let show: @Sendable (JSONValue) -> Void = { _ in
-            let data = hub.inventory.data(zid) ?? data
+        // Called with the thermostat's data, or its sensor's (then the thermostat's is looked up).
+        let show: @Sendable (JSONValue) -> Void = { update in
+            let data = update["zid"]?.stringValue == zid ? update : hub.inventory.data(zid) ?? data
             let mode = data["mode"]?.stringValue
             service.characteristic(.targetHeatingCoolingState).show(.int(["heat": 1, "aux": 1, "cool": 2][mode ?? ""] ?? 0))
             if let setPoint = data["setPoint"]?.looseDouble { service.characteristic(.targetTemperature).show(.double(min(max(setPoint, low), high))) }

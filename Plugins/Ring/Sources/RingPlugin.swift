@@ -157,7 +157,7 @@ public actor RingPlugin: HomeswiftPlugin {
                 try? await Task.sleep(for: attempt.delay(attempt: failures - 1))
             }
         }
-        startPolling(client: client)
+        startPolling()
     }
 
     /// Saves a rotated token, unless the vault holds another account's by now (Setup signed in again meanwhile).
@@ -169,19 +169,23 @@ public actor RingPlugin: HomeswiftPlugin {
     /// The account: the vault's, or the block's `refreshToken` when it is new (a Homebridge block pasted in), which is
     /// moved into the vault at once since Ring rotates it on first use.
     func loadAccount() -> RingAccount? {
-        let stored = context.credentials(as: RingAccount.self)
-        if let token = configuration.refreshToken?.trimmingCharacters(in: .whitespacesAndNewlines), !token.isEmpty {
-            let fingerprint = RingIdentity.sha256(token)
-            if stored?.importedFrom != fingerprint {
-                let wrapper = RingTokenWrapper(parsing: token)
-                let account = RingAccount(
-                    refreshToken: wrapper.refreshToken, hardwareId: wrapper.hardwareID ?? stored?.hardwareId ?? hardwareID(),
-                    wrapper: wrapper.others.isEmpty ? nil : wrapper.others, importedFrom: fingerprint)
-                do { try context.saveCredentials(account) } catch { logger.error("Could not store the Ring account in the vault: \(error)") }
-                return account
-            }
+        if let account = importedAccount() {
+            do { try context.saveCredentials(account) } catch { logger.error("Could not store the Ring account in the vault: \(error)") }
+            return account
         }
-        return stored.flatMap { $0.refreshToken.isEmpty ? nil : $0 }
+        return context.credentials(as: RingAccount.self).flatMap { $0.refreshToken.isEmpty ? nil : $0 }
+    }
+
+    /// The account of the block's `refreshToken` when the vault does not hold it yet (a Homebridge block pasted in).
+    nonisolated func importedAccount() -> RingAccount? {
+        guard let token = configuration.refreshToken?.trimmingCharacters(in: .whitespacesAndNewlines), !token.isEmpty else { return nil }
+        let fingerprint = RingIdentity.sha256(token)
+        let stored = context.credentials(as: RingAccount.self)
+        guard stored?.importedFrom != fingerprint else { return nil }
+        let wrapper = RingTokenWrapper(parsing: token)
+        return RingAccount(
+            refreshToken: wrapper.refreshToken, hardwareId: wrapper.hardwareID ?? stored?.hardwareId ?? hardwareID(),
+            wrapper: wrapper.others.isEmpty ? nil : wrapper.others, importedFrom: fingerprint)
     }
 
     /// The hardware id for a new token: UUID v5 of `.ring.json`'s system id (made once, kept).
@@ -313,7 +317,7 @@ public actor RingPlugin: HomeswiftPlugin {
             }
         }
         _ = await context.removeAccessories(keeping: kept, message: "Removing stale cached accessory")
-        await subscribeAll(intercomsToo: true, devices: cameraData.map(\.0) + intercomData)
+        await subscribeAll(intercoms: intercomData)
     }
 
     /// Hidden by the options (`hideLightGroups`, `hideDeviceIds`, `onlyDeviceTypes`) or Excluded in its settings.
@@ -325,7 +329,7 @@ public actor RingPlugin: HomeswiftPlugin {
     }
 
     /// Ring sends dings and motion only for cameras subscribed to them; intercoms at start, when not yet subscribed.
-    private func subscribeAll(intercomsToo: Bool, devices: [JSONValue]? = nil) async {
+    private func subscribeAll(intercoms devices: [JSONValue] = []) async {
         guard let client else { return }
         for id in cameras.keys where built["\(id)camera"] != nil {
             do {
@@ -335,8 +339,7 @@ public actor RingPlugin: HomeswiftPlugin {
                 logger.warning("Could not subscribe \(cameras[id]?.name ?? id) to its events: \(error)")
             }
         }
-        guard intercomsToo else { return }
-        for data in devices ?? [] {
+        for data in devices {
             guard let id = data["id"]?.idString, intercoms[id] != nil, built[id] != nil, data["subscribed"]?.boolValue != true else { continue }
             try? await client.subscribe(id, motions: false)
         }
@@ -348,12 +351,12 @@ public actor RingPlugin: HomeswiftPlugin {
         let throttle = dependencies.timing.resubscribeThrottle
         if let last = lastResubscribe, .now - last < throttle { return }
         lastResubscribe = .now
-        await subscribeAll(intercomsToo: false)
+        await subscribeAll()
     }
 
     // MARK: Polling (3.5)
 
-    private func startPolling(client: RingClient) {
+    private func startPolling() {
         let interval = configuration.cameraPolling
         if interval > 0, !restIDs.isEmpty {
             tasks.add { [weak self] in

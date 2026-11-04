@@ -1,5 +1,6 @@
 import Crypto
 import Foundation
+import Homeswift
 import HomeswiftPlugin
 
 /// Ring's identifiers: the Homebridge UUIDs `hideDeviceIds` lists, the hardware id Ring knows this client by, and the
@@ -8,7 +9,7 @@ enum RingIdentity {
     /// HAP-NodeJS's name-based UUID of an identity seed (`1001camera`, a zid…): SHA-1 of the seed, version nibble 4,
     /// variant bits 10. `hideDeviceIds` holds these.
     static func homebridgeUUID(_ seed: String) -> String {
-        let digest = Array(Insecure.SHA1.hash(data: Data(seed.utf8)).map { String(format: "%02x", $0) }.joined())
+        let digest = Array(Secrets.hex(Insecure.SHA1.hash(data: Data(seed.utf8))))
         func digits(_ range: Range<Int>) -> String { String(digest[range]) }
         let variant = String((Int(String(digest[15]), radix: 16)! & 0x3) | 0x8, radix: 16)
         return "\(digits(0..<8))-\(digits(8..<12))-4\(digits(12..<15))-\(variant)\(digits(16..<19))-\(digits(19..<31))"
@@ -23,8 +24,7 @@ enum RingIdentity {
         var bytes = Array(Insecure.SHA1.hash(data: Data(namespaceBytes + Array(name.utf8))).prefix(16))
         bytes[6] = (bytes[6] & 0x0F) | 0x50
         bytes[8] = (bytes[8] & 0x3F) | 0x80
-        let hex = bytes.map { String(format: "%02x", $0) }.joined()
-        let digits = Array(hex)
+        let digits = Array(Secrets.hex(bytes))
         return [0..<8, 8..<12, 12..<16, 16..<20, 20..<32].map { String(digits[$0]) }.joined(separator: "-")
     }
 
@@ -32,13 +32,11 @@ enum RingIdentity {
 
     /// A new system id, as `.ring.json` keeps it: SHA-256 of 32 random bytes, in hex.
     static func newSystemID() -> String {
-        var generator = SystemRandomNumberGenerator()
-        let bytes = (0..<32).map { _ in UInt8.random(in: .min ... .max, using: &generator) }
-        return SHA256.hash(data: Data(bytes)).map { String(format: "%02x", $0) }.joined()
+        Secrets.hex(SHA256.hash(data: Secrets.randomBytes(32)))
     }
 
     static func sha256(_ text: String) -> String {
-        SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
+        Secrets.hex(SHA256.hash(data: Data(text.utf8)))
     }
 }
 
@@ -93,6 +91,4 @@ struct RingAccount: Codable, Equatable, Sendable {
     var importedFrom: String?
     /// Ring refused this refresh token: the account needs signing in again (Setup), though it is kept.
     var refused: Bool?
-
-    var tokenWrapper: RingTokenWrapper { RingTokenWrapper(refreshToken: refreshToken, hardwareID: hardwareId, others: wrapper ?? [:]) }
 }
