@@ -72,9 +72,12 @@ public struct VaultMigration: Sendable {
     public static func plan(
         stored: JSONValue, opened: JSONValue, existing: [String: VaultEntry], choices: Choices = Choices(), onlyPlain: Bool = false
     ) throws -> VaultMigration {
-        guard var root = stored.objectValue, var platforms = root["platforms"]?.arrayValue else {
+        guard var root = stored.objectValue, root["platforms"]?.arrayValue != nil || root["accessories"]?.arrayValue != nil else {
             return VaultMigration(items: [], newEntries: [:], config: stored)
         }
+        // The platform blocks, then Homebridge's accessory blocks, which run in theirs (`adoptAccessoryBlocks`).
+        var sections = ["platforms": root["platforms"]?.arrayValue ?? [], "accessories": root["accessories"]?.arrayValue ?? []]
+        let platforms = sections["platforms"] ?? []
         var items: [Item] = []
         var newEntries: [String: VaultEntry] = [:]
         // The entry that already holds a value: a value two items share, or one the vault has.
@@ -82,23 +85,34 @@ public struct VaultMigration: Sendable {
         for (name, entry) in existing.sorted(by: { $0.key < $1.key }) {
             if let value = entry.value(field: nil), byValue[value] == nil { byValue[value] = name }
         }
-        let openedPlatforms = opened["platforms"]?.arrayValue ?? []
-        let counts = Dictionary(platforms.map { ($0["platform"]?.stringValue ?? "", 1) }, uniquingKeysWith: +)
+        let openedSections = ["platforms": opened["platforms"]?.arrayValue ?? [], "accessories": opened["accessories"]?.arrayValue ?? []]
+        let adoption = AccessoryAdoption(stored)
+        // Instances by platform, those made for accessory blocks too.
+        let counts = Dictionary(adoption.blocks.map { ($0["platform"]?.stringValue ?? "", 1) }, uniquingKeysWith: +)
 
         // Every secret first, so the names of merged entries can be made from all of their users.
-        struct Found { var index: Int; var path: [SecretWalk.Part]; var value: String; var key: String; var suggested: String; var item: Item }
+        struct Found { var section: String; var index: Int; var path: [SecretWalk.Part]; var value: String; var key: String; var suggested: String; var item: Item }
         var found: [Found] = []
-        for (index, block) in platforms.enumerated() {
-            let platform = block["platform"]?.stringValue ?? ""
-            guard !skippedPlatforms.contains(platform), index < openedPlatforms.count else { continue }
-            let name = block["name"]?.stringValue ?? platform
+        let blocks = platforms.indices.map { ("platforms", $0) } + (sections["accessories"] ?? []).indices.map { ("accessories", $0) }
+        for (section, index) in blocks {
+            let block = sections[section]?[index] ?? .null
+            let openedBlocks = openedSections[section] ?? []
+            let isAccessory = section == "accessories"
+            let owner = isAccessory ? adoption.owner(ofAccessory: index) : nil
+            if isAccessory, owner == nil { continue }
+            let platform = owner?.platform ?? block["platform"]?.stringValue ?? ""
+            guard !skippedPlatforms.contains(platform), index < openedBlocks.count else { continue }
+            let name = owner?.name ?? block["name"]?.stringValue ?? platform
             // The platform, and the instance's name when there are several: once, when the name begins with the platform's
-            // (`Govee Garden` is `govee-garden`, not `govee-govee-garden`).
+            // (`Govee Garden` is `govee-garden`, not `govee-govee-garden`). An accessory block adds its own name.
             let (platformSlug, nameSlug) = (Slug.make(platform), Slug.make(name))
-            let prefix = counts[platform, default: 0] < 2 ? [platformSlug] : nameSlug.hasPrefix(platformSlug) ? [nameSlug] : [platformSlug, nameSlug]
+            var prefix = counts[platform, default: 0] < 2 ? [platformSlug] : nameSlug.hasPrefix(platformSlug) ? [nameSlug] : [platformSlug, nameSlug]
+            if isAccessory { prefix.append(Slug.make(block["name"]?.stringValue ?? "\(index + 1)")) }
+            // An accessory block's id says where it is: the block it joins may have an `accessories` list of its own.
+            let where_ = isAccessory ? "@accessories[\(index)]:" : ":"
             SecretWalk.forEach(block, skipping: skippedKeys) { path, key, secret in
                 let value: String
-                switch (secret, SecretWalk.value(at: path, in: openedPlatforms[index])) {
+                switch (secret, SecretWalk.value(at: path, in: openedBlocks[index])) {
                 case (.string(let text), .string(let plain)?):
                     guard !text.isEmpty, !Redaction.isConcealed(text), !(onlyPlain && SecretBox.isSealed(text)) else { return }
                     value = plain
@@ -107,9 +121,9 @@ public struct VaultMigration: Sendable {
                 default:
                     return
                 }
-                let id = "\(platform)/\(name):\(SecretWalk.text(path))"
+                let id = "\(platform)/\(name)\(where_)\(SecretWalk.text(path))"
                 let suggested = (prefix + labels(of: path, in: block).map(Slug.make)).filter { !$0.isEmpty }.joined(separator: "-")
-                found.append(Found(index: index, path: path, value: value, key: key, suggested: suggested,
+                found.append(Found(section: section, index: index, path: path, value: value, key: key, suggested: suggested,
                                    item: Item(id: id, platform: platform, name: name, path: SecretWalk.text(path), entry: "", shared: false, excluded: choices.excluded.contains(id))))
             }
         }
@@ -145,9 +159,12 @@ public struct VaultMigration: Sendable {
                 current.item.entry = name
                 if mergeable { byValue[current.value] = name }
             }
-            platforms[current.index] = SecretWalk.replacing(platforms[current.index], at: current.path, with: .string("vault:\(current.item.entry)"))
+            if var list = sections[current.section] {
+                list[current.index] = SecretWalk.replacing(list[current.index], at: current.path, with: .string("vault:\(current.item.entry)"))
+                sections[current.section] = list
+            }
         }
-        root["platforms"] = .array(platforms)
+        for (section, list) in sections where root[section] != nil { root[section] = .array(list) }
         return VaultMigration(items: items, newEntries: newEntries, config: .object(root))
     }
 
@@ -175,12 +192,18 @@ public struct VaultMigration: Sendable {
     /// Every `vault:` reference under a secret-named key of the platform blocks, in the file's order.
     public static func uses(in config: JSONValue) -> [Use] {
         var uses: [Use] = []
-        for block in config["platforms"]?.arrayValue ?? [] {
-            let platform = block["platform"]?.stringValue ?? ""
-            let name = block["name"]?.stringValue ?? platform
+        // The platform blocks, then the accessory blocks, as the owner of the block each runs in.
+        let platforms = (config["platforms"]?.arrayValue ?? []).map { block in
+            (block, block["platform"]?.stringValue ?? "", block["name"]?.stringValue ?? block["platform"]?.stringValue ?? "", ":")
+        }
+        let adoption = AccessoryAdoption(config)
+        let accessories = (config["accessories"]?.arrayValue ?? []).enumerated().compactMap { index, block in
+            adoption.owner(ofAccessory: index).map { (block, $0.platform, $0.name, "@accessories[\(index)]:") }
+        }
+        for (block, platform, name, where_) in platforms + accessories {
             SecretWalk.forEach(block) { path, _, value in
                 guard let text = value.stringValue, case .vault(let entry, let field) = SecretReference(text) else { return }
-                uses.append(Use(entry: entry, field: field, id: "\(platform)/\(name):\(SecretWalk.text(path))", block: "\(platform)/\(name)"))
+                uses.append(Use(entry: entry, field: field, id: "\(platform)/\(name)\(where_)\(SecretWalk.text(path))", block: "\(platform)/\(name)"))
             }
         }
         return uses

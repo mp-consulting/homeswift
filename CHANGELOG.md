@@ -11,6 +11,32 @@ All notable changes to this project are documented here. The format follows
 - **tado°** plugin (`TadoPlatform`, new, experimental): tado° thermostats, radiator valves, hot water and air conditioners
   through tado's cloud, signed in through Setup with tado's device code, polled in one request for all zones and as
   often as the account's 100 requests a day allow. A clean-room implementation compatible with homebridge-tado's block.
+- The Roborock plugin (experimental, `RoborockVacuumPlatform`, a clean-room implementation compatible with homebridge-roborock-vacuum's configuration): robot vacuums on the LAN (protocols 1.0 and L01) with the cloud's MQTT as a fallback, sign-in through Setup with a password or an emailed code; and `TCPSocket` in `HomeswiftNetwork`.
+- Google Nest (`homebridge-google-nest-sdm`), experimental: Nest thermostats, cameras, doorbells and displays through
+  Google's Device Access, with Pub/Sub events, RTSP live view and HomeKit Secure Video (a clean-room implementation).
+- The Dummy Accessories plugin (`HomebridgeDummy`, compatible with homebridge-dummy's configuration): switches, lights, locks, doors, sensors, thermostats and more that exist only in HomeKit, with schedules, sun times, auto-resets, limiters, conditions and webhooks. Plugins can follow the bridge's log (`PluginContext.logs`).
+- MQTT Thing (`Plugins/MQTTThing`), an experimental clean-room plugin compatible with homebridge-mqttthing's accessory blocks: every accessory type it has, driven by MQTT topics, one connection per broker; accessory blocks (`accessories` in config.json) now run in the plugin that claims them (`runsAccessoryBlocks`), and the Homebridge import keeps them.
+- ESPHome, an experimental plugin (`esphome`, a clean-room implementation compatible with homebridge-esphome-ts's
+  block) for ESPHome devices over their native API, plaintext or Noise-encrypted with the device's key, with
+  `Noise` (Noise_NNpsk0_25519_ChaChaPoly_SHA256), `Protobuf` and `TCPStream` in `HomeswiftNetwork`.
+- The Shelly plugin (experimental): Gen 2, 3 and 4 devices over their WebSocket RPC (`ShellyNG` block) and Gen 1 devices over CoIoT and HTTP (`Shelly` block), the two homebridge-shelly blocks unchanged, with lights, colour lights and energy meters beyond the originals; a CoAP codec in HomeswiftNetwork.
+- TP-Link Kasa (`TplinkSmarthome`), experimental: Kasa plugs, switches, dimmers, power strips and bulbs on the local
+  network, with Eve energy readings and Adaptive Lighting; a clean-room implementation that loads
+  homebridge-tplink-smarthome's block.
+- The Zigbee2MQTT plugin (`zigbee2mqtt`, experimental): a Zigbee2MQTT installation's devices and groups over its MQTT broker, with homebridge-z2m's configuration; a clean-room implementation.
+- TP-Link Tapo plugin (`TapoP100`, experimental): P100, P105 and P110 plugs and L510E, L520E and L530E bulbs on the local
+  network, with KLAP and the older securePassthrough, the P110's and L530's power on Eve's characteristics, and
+  Adaptive Lighting on the white and colour bulbs; a homebridge-tapo block works unchanged and keeps its accessories.
+  A `WhiteLight` (L520E), an Outlet in Homebridge, is a Lightbulb: its automations need doing again.
+- HTTP Webhooks (`HttpWebHooks`), experimental: homebridge-http-webhooks' virtual accessories, set by webhooks on the LAN
+  (Basic authentication, HTTPS) and calling URLs on HomeKit writes, written in a clean room from a functional spec.
+- A plugin whose account Needs Authorization (never set up, or refused since) is no longer shown as running: its card
+  and its settings say **Needs sign-in**, **Needs pairing** or **Needs keys** in orange, and its card leads with
+  **Set up**; one whose every accessory shows No Response says **Not responding**. Plugins say an account was refused
+  with `context.accountRefused(_:)`, and one their devices work without with
+  `accountRequirement = .optional(adds:)`, whose settings say what it adds rather than "its devices show once it is".
+  `list_plugins` and `discover_devices` give `accountState`, `needsAuthorization`, `accountRequired` and
+  `noneResponding`.
 - The Assistant's Model is a menu of the models the chosen provider offers, read from its models list when the menu
   opens (Anthropic, OpenAI, Gemini, or the OpenAI-compatible server at the Base URL), with Default and Other… to type
   an id; `POST /api/assistant/models`. A saved key goes only to the saved provider, as for Test connection.
@@ -70,6 +96,16 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Security: a configuration key named `encryptionKey` (or `encryption_key`) is a secret-named key, for every plugin:
+  the runtime seals it, resolves its references and masks it in logs, MCP replies and the Assistant's prompts.
+- A plugin's Account and its devices that Need Authorization say **Set up** while nothing is set up, **Set up again**
+  only once it has been.
+- On a Synology NAS the vault's key, the vault, config.json, the pairings and the web UI's accounts and tokens are the
+  bridge's alone again: the shared folder gave them its ACL (`-rwxrwxrwx+`), which DSM checks instead of their 0600, so
+  other accounts with access to the share could read them. The package removes that ACL from them at each start, every
+  file the bridge writes is set to 0600 with a chmod (which also bounds a directory's default POSIX ACL), and at start
+  the bridge sets its secrets that others can reach back to 0600 and warns in its log about any still open, from a wide
+  mode or an ACL, on any system (docs/synology.md, "Security").
 - The Home app shows a real serial number for Philips Hue lights and sensors, their device's Zigbee MAC (with the
   light's place after it on a device with several lights, such as a Dymera), rather than the bridge's resource id; a
   device without one keeps the id, as scene switches do. Wingman's mirrors show the serial number Apple Home has for

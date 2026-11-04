@@ -214,8 +214,14 @@ struct SecretBoxTests {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let plugins = try FileManager.default.contentsOfDirectory(at: root.appendingPathComponent("Plugins"), includingPropertiesForKeys: nil)
         var checked = 0
-        for plugin in plugins {
-            guard let data = try? Data(contentsOf: plugin.appendingPathComponent("config.schema.json")) else { continue }
+        // A directory with two platforms has a second schema, `config.<platform>.schema.json`.
+        let schemas = plugins.flatMap { plugin in
+            ((try? FileManager.default.contentsOfDirectory(atPath: plugin.path)) ?? [])
+                .filter { $0.hasPrefix("config.") && $0.hasSuffix(".schema.json") }.map { plugin.appendingPathComponent($0) }
+        }
+        for schema in schemas {
+            let plugin = schema.deletingLastPathComponent()
+            guard let data = try? Data(contentsOf: schema) else { continue }
             let file = try JSONValue(data: data)
             for section in ["schema", "accessorySchema"] {
                 guard let node = file[section] else { continue }
