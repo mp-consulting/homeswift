@@ -223,6 +223,9 @@ try {
   await evaluate(`(() => {
     releaseGroups.edit(['spots', 'pendant']);
   })()`);
+  // The dialog fades in: wait for the end of its animations, or the shot is taken half transparent.
+  await evaluate("Promise.all(document.getAnimations().map(a => a.finished.catch(() => {})))");
+  await sleep(100);
   await shot("group-picker", "dialog");
   await open("wall");
   await evaluate(`(() => {

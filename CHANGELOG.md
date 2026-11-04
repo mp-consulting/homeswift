@@ -121,6 +121,9 @@ All notable changes to this project are documented here. The format follows
   line of `ffmpeg -codecs`, and now only on the lines that name decoders or encoders.
 - Security: a configuration key named `encryptionKey` (or `encryption_key`) is a secret-named key, for every plugin:
   the runtime seals it, resolves its references and masks it in logs, MCP replies and the Assistant's prompts.
+- Security: the web UI and homeswift.dev escape the language catalog's script address as an attribute before writing it,
+  and the site's language picker goes only to its own four pages (code scanning's DOM XSS alerts; the address was
+  already percent-encoded, so nothing could break out).
 - A plugin's Account and its devices that Need Authorization say **Set up** while nothing is set up, **Set up again**
   only once it has been.
 - On a Synology NAS the vault's key, the vault, config.json, the pairings and the web UI's accounts and tokens are the

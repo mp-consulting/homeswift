@@ -115,7 +115,11 @@ public actor MyDevicesPlugin: HomeswiftPlugin {
   as `.amazonRootCA1`, client identities, ALPN), `AWSSignatureV4`, `URLEncoding` (the JavaScript encodings, byte for
   byte, for signed requests), `Backoff` (retry delays with jitter), `TCPStream` (a plain TCP byte stream), `Protobuf`
   (`ProtobufWriter` and `ProtobufMessage`: the wire format by field number, without a schema) and `Noise` (the
-  `Noise_NNpsk0_25519_ChaChaPoly_SHA256` handshake and cipher states, ESPHome's encryption). A plugin depends on it rather than adding a
+  `Noise_NNpsk0_25519_ChaChaPoly_SHA256` handshake and cipher states, ESPHome's encryption), `TCPSocket` (a TCP
+  connection whose bytes arrive as a stream, for a binary protocol of the device's own), `SSDP` (an M-SEARCH and a
+  listener for UPnP devices), `CoAPMessage` (the CoAP codec, for CoIoT status multicasts), `FCMReceiver` (an FCM
+  web-push registration and receiver, for clouds that push to their phone app), `ARPTable` and `MACAddress` (the MAC
+  behind a LAN address, in one spelling for accessory ids). A plugin depends on it rather than adding a
   package; its tests take `FakeMQTTConnection` and `FakeWebSocket` from the `HomeswiftNetworkTestSupport` target.
 - **Helpers.** `Service(optional:)` with a type the service has already (`.targetTemperature.with(minValue: 30)`)
   changes its props; `accessory.takeValues(from: cached)` keeps the last values of a rebuilt accessory;
@@ -125,8 +129,9 @@ public actor MyDevicesPlugin: HomeswiftPlugin {
   `PersistedDictionary` and `context.jsonFile(_:as:)` keep values in owner-only JSON files, `context.secretFile(_:as:)`
   keeps a token or a key the same way but sealed in the bridge's vault (docs/vault-design.md), in the instance's
   namespace, moving the plain file of that name there the first time it reads it, `context.pictures(_:)` keeps
-pictures a page uploads (`data:` URLs of JPEG, PNG or WebP, checked by their bytes; the Hue and DIRIGERA scene tiles), and `EveHistory` is
-  fakegato-history for the Eve app.
+pictures a page uploads (`data:` URLs of JPEG, PNG or WebP, checked by their bytes; the Hue and DIRIGERA scene tiles), `EveHistory` is
+  fakegato-history for the Eve app, and `context.logs` is the bridge's log from now on (`LogBuffer.observe`), for a
+  plugin that acts on log lines (Dummy's log triggers); nil in a library or a test that gives the host none.
 - **History and energy.** `context.recordValue(_:series:)` records a reading for the Status page's history (a minute
   keeps its count, sum, lowest and highest, for 8 days; `/api/metrics/values?series=plugin:<platform>:<series>`
   answers it over a range, for a plugin's page; several series separated by commas answer at once, by name, under
@@ -603,6 +608,9 @@ Keep the platform name and the option names, and copy `config.schema.json` and t
 | `aws-iot-device-sdk` | `MQTTClient` over `.tls(…, options: TLSOptions(trust: .amazonRootCA1, clientIdentity: …))`, or a WebSocket URL from `AWSSignatureV4.presignIoTURL` |
 | `fakegato-history` | `EveHistory(kind, accessoryName:storageURL:)` in `HomeswiftPlugin`, its `service` on the accessory |
 | `dgram` | `HomeswiftNetwork.UDPSocket` |
+| `net` (`net.Socket`) | `HomeswiftNetwork.TCPSocket.connect(host:port:timeout:)` |
+| `node-ssdp` | `HomeswiftNetwork.SSDP` |
+| `push-receiver` / `@eneris/push-receiver` | `HomeswiftNetwork.FCMReceiver` |
 | `homebridge-ui/server.js`, `config.schema.json` | Keep the schema file; the settings page comes with the Homeswift UI |
 | `api.registerAccessory(name, Accessory)` | `static let runsAccessoryBlocks = true` with `platform = name`: see "Accessory plugins" below |
 
