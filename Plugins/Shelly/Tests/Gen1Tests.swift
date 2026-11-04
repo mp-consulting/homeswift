@@ -99,13 +99,21 @@ struct ShellyGen1Tests {
         #expect(await eventually { environment.http.paths.contains("/settings") })
     }
 
-    @Test func credentialsGoWithEveryRequest() async throws {
+    /// Basic credentials go only to an address that answered 401, then with every request there.
+    @Test func credentialsGoOnlyWhereTheyAreAskedFor() async throws {
+        environment.http.answer("/settings", status: 401, "")
         let host = try await start(["username": "admin", "password": "secret"])
         defer { Task { await host.stop() } }
         #expect(await eventually { await environment.gen1?.listening == true })
         environment.coiot.receive(CoAPTestBytes.packet)
-        #expect(await eventually { !environment.http.requests.isEmpty })
-        #expect(environment.http.requests.first?.header("Authorization") == "Basic \(Data("admin:secret".utf8).base64EncodedString())")
+        #expect(await eventually { environment.http.requests.count >= 2 })
+        let basic = "Basic \(Data("admin:secret".utf8).base64EncodedString())"
+        #expect(environment.http.requests[0].header("Authorization") == nil)
+        #expect(environment.http.requests[1].header("Authorization") == basic)
+        let id = "Shelly:Shelly 1PM A4CF12F45678"
+        #expect(await eventually { host.accessory(id) != nil })
+        try await host.accessory(id)?.services.first { $0.type == .switch }?.characteristic(.on).write(.bool(false))
+        #expect(environment.http.requests.last?.header("Authorization") == basic)
     }
 
     /// 11.6's v1 example: a Shelly 2.5 in roller mode is one window covering, opening; a write moves it a second later.

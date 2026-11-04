@@ -34,6 +34,8 @@ actor Gen1Device {
     private(set) var settingsName: String?
     private(set) var swapped = false
     private var settingsLoaded = false
+    /// The address that last answered 401: Basic credentials go there from then on.
+    private var challengedHost: String?
     /// Whether a status was heard since the device object was made.
     private(set) var heard = false
 
@@ -153,6 +155,17 @@ actor Gen1Device {
     /// `GET http://<host>/<path>?<query>` with the device's credentials; the reply as JSON.
     @discardableResult
     func request(_ path: String, _ query: [(String, String)] = []) async throws -> JSONValue {
+        do {
+            return try await send(path, query, authenticated: credentials != nil && challengedHost == host)
+        } catch Gen1Error.wrongCredentials where credentials != nil && challengedHost != host {
+            // Credentials go only to an address that asked for them: one a spoofed CoIoT status pointed at gets none
+            // unless it challenges, and none of them before.
+            challengedHost = host
+            return try await send(path, query, authenticated: true)
+        }
+    }
+
+    private func send(_ path: String, _ query: [(String, String)], authenticated: Bool) async throws -> JSONValue {
         var components = URLComponents()
         components.scheme = "http"
         components.host = host
@@ -161,7 +174,7 @@ actor Gen1Device {
         guard let url = components.url else { throw Gen1Error.transport("invalid address \(host)") }
         var request = HTTPRequest(url: url, timeout: timeout)
         request.setHeader("User-Agent", "homeswift")
-        if let credentials {
+        if authenticated, let credentials {
             request.setHeader("Authorization", "Basic \(Data("\(credentials.username):\(credentials.password)".utf8).base64EncodedString())")
         }
         let response: HomeswiftNetwork.HTTPResponse

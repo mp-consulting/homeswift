@@ -73,6 +73,7 @@ extension ShellyPlugin {
         "type": "array",
         "x-kinds": ["relay", "light", "colorLight"],
         "items": {
+          "title": "Channel",
           "type": "object",
           "x-rowTitle": ["name", "type"],
           "properties": {
@@ -112,6 +113,7 @@ extension ShellyPlugin {
       "Red, green, blue and white": "Rouge, vert, bleu et blanc",
       "Red, green and blue": "Rouge, vert et bleu",
       "Channels": "Canaux",
+      "Channel": "Canal",
       "Options of each relay or channel in turn, over the device's own.": "Les options de chaque relais ou canal à son tour, par-dessus celles de l'appareil.",
       "Channel name": "Nom du canal",
       "The name of this relay's or channel's accessory.": "Le nom de l'accessoire de ce relais ou canal.",
@@ -147,6 +149,7 @@ extension ShellyPlugin {
       "Red, green, blue and white": "Rojo, verde, azul y blanco",
       "Red, green and blue": "Rojo, verde y azul",
       "Channels": "Canales",
+      "Channel": "Canal",
       "Options of each relay or channel in turn, over the device's own.": "Las opciones de cada relé o canal por orden, sobre las del dispositivo.",
       "Channel name": "Nombre del canal",
       "The name of this relay's or channel's accessory.": "El nombre del accesorio de este relé o canal.",
@@ -182,6 +185,7 @@ extension ShellyPlugin {
       "Red, green, blue and white": "Vermelho, verde, azul e branco",
       "Red, green and blue": "Vermelho, verde e azul",
       "Channels": "Canais",
+      "Channel": "Canal",
       "Options of each relay or channel in turn, over the device's own.": "As opções de cada relé ou canal por ordem, sobre as do dispositivo.",
       "Channel name": "Nome do canal",
       "The name of this relay's or channel's accessory.": "O nome do acessório deste relé ou canal.",
