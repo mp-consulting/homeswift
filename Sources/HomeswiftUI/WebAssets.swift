@@ -25060,7 +25060,7 @@ input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
 .widget.size-xlarge .chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 2px; margin: -2px; }
 .widget.size-xlarge .chips > * { flex: none; }
 /* The row's -2px margin would undo the last part's room for the corner's ⋯; the row keeps that room itself. */
-.widget.size-xlarge .w-body > .chips:last-child { margin-right: 24px; }
+.widget.size-xlarge .w-body > .chips:last-child { margin-right: var(--space-24); }
 .head-only { justify-content: center; }
 .powered-off .w-body, .powered-off .w-main { opacity: 0.55; transition: opacity var(--normal) var(--ease-out); }
 /* The menu at the bottom right of the box, over its content's corner. */
