@@ -404,6 +404,21 @@ struct PluginTests {
         await host.stop()
     }
 
+    @Test func theLiveViewRemuxesTheSource() async throws {
+        let host = try await environment.start(try block([["name": "Front Door", "videoConfig": ["source": "-i rtsp://cam/s1"]]]))
+        #expect(await eventually { environment.accessory(host, named: "Front Door") != nil })
+        let plugin = try #require(environment.plugin)
+        let feed = try #require(try await plugin.liveFeed(accessoryID: CameraFFmpegPlugin.accessoryID(name: "Front Door")))
+        func box(_ type: String, _ payload: String = "") -> Data { Data([0, 0, 0, UInt8(8 + payload.utf8.count)]) + Data((type + payload).utf8) }
+        #expect(feed.initSegment == box("ftyp") + box("moov"))
+        var fragments: [Data] = []
+        for try await fragment in feed.fragments { fragments.append(fragment) }
+        #expect(fragments == [box("moof") + box("mdat", "1234")])
+        feed.cancel()
+        #expect(try await plugin.liveFeed(accessoryID: "Camera-ffmpeg:Nobody") == nil)
+        await host.stop()
+    }
+
     @Test func anUnknownSessionFails() async throws {
         let host = try await environment.start(try block([["name": "Front Door", "videoConfig": ["source": "-i rtsp://cam/s1"]]]))
         #expect(await eventually { environment.accessory(host, named: "Front Door") != nil })

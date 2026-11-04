@@ -31,7 +31,7 @@ The web UI's **Settings** page of the plugin edits every option, each explained 
 
 | Option | Default | What it does |
 |---|---|---|
-| `videoProcessor` | `ffmpeg` | The FFmpeg executable, a path or a name in `PATH`. Audio needs an FFmpeg with `libfdk_aac` |
+| `videoProcessor` | `ffmpeg` | The FFmpeg executable, a path or a name in `PATH`. HomeKit's AAC-ELD audio uses `libfdk_aac`, or macOS's AudioToolbox (`aac_at`) when FFmpeg has no `libfdk_aac` (Homebrew's has none) |
 | `mqtt` | none | The MQTT broker's host; MQTT is off without it |
 | `portmqtt` | `1883` | The broker's port |
 | `tlsmqtt` | `false` | TLS (`mqtts`), the broker's certificate checked against the system's roots |
@@ -101,6 +101,10 @@ and a password, both optional). The Add accessories page lists the cameras of th
 - A malformed HTTP request (an invalid percent escape) gets `500 Malformed URL.` rather than crashing the bridge.
 - Empty tokens of an option string (a leading space in `source`) are dropped instead of being passed to FFmpeg.
 - The snapshot FFmpeg is stopped after a minute; HomeKit has given up by then.
+- Recordings are scaled down to the size HomeKit selected (the original sent the source's size), and an IPv6
+  controller's address is written in brackets in FFmpeg's `srtp://` URLs.
+- Without `libfdk_aac`, AAC-ELD goes through macOS's AudioToolbox (`aac_at`) both ways; the original had no audio then.
+- The web UI's camera cards get live video: FFmpeg copies the source into fragmented MP4 while a card is on screen.
 - The MQTT client reconnects with a back-off up to a minute, rather than every second.
 - The accessory's category is Camera (Video Doorbell with `doorbell`), for the pairing sheet's icon; the original set none.
 - Homebridge's bundled FFmpeg (`ffmpeg-for-homebridge`) is not looked for: without `videoProcessor`, `ffmpeg` comes from
@@ -108,20 +112,29 @@ and a password, both optional). The Add accessories page lists the cameras of th
 
 ## Gaps
 
-- Not tested on a real camera or with a home hub (HomeKit Secure Video).
+- Not yet run against a real camera: the UniFi Protect feeds tried for this port were out of FFmpeg's reach on the test
+  Mac, where macOS's Local Network privacy refused Homebrew's FFmpeg ("No route to host") while curl reached the NVR.
+  The plugin's FFmpeg paths were run with real FFmpeg on camera-like H.264 sources instead (below).
 - Credentials inside `source`, `stillImageSource` and `returnAudioTarget` are stored as written: those keys are not
-  secret-named, so the bridge neither seals them nor resolves `vault:` references in them.
-- No live video on the web UI's camera cards (`liveFeed`); the cards show snapshots.
-- Two-way audio depends on FFmpeg reading SRTP from an SDP and on `libfdk_aac`; it is experimental upstream too.
-- Recordings are not scaled to the size HomeKit selected (only its frame rate is used), as in the original.
+  secret-named, so the bridge neither seals them nor resolves `vault:` references in them. A token in a URL's path
+  (UniFi Protect's RTSPS) is not masked in the log either: the plugin cannot tell it from a path.
+- Two-way audio is experimental, as upstream: it needs a camera that takes audio at an FFmpeg output (`returnAudioTarget`).
+- The web UI's live view copies the source's video: an MJPEG camera keeps its snapshots there.
 
 ## How it was tested
 
 `swift test --filter CameraFFmpegTests`: the configuration (the spec's example blocks, truthiness), the identity
 vectors, every FFmpeg command line against the spec's vectors, the MP4 box framing, the motion and doorbell triggers
 and their timers, the MQTT routes on a fake broker, the HTTP API's vectors and its server on the loopback, and, with a
-shell script standing in for FFmpeg, snapshots and their cache, stream start, stop and inactivity, and a recording cut
+shell script standing in for FFmpeg, snapshots and their cache, stream start, stop and inactivity, the live view, and a recording cut
 into fragments. Then a throwaway bridge with `check-on-bridge.sh`.
+
+With real FFmpeg (9.0.2, Homebrew, no `libfdk_aac`), `RealFeedTests` runs the plugin's delegates on each feed of a file
+given by `CAMERA_FFMPEG_FEEDS` (skipped otherwise; it prints no URL): on looped H.264 1080p with AAC and 7680×2160
+sources, the snapshot came back as a 1280×720 JPEG (1280×360 from the 7680×2160 one, its aspect kept) in under 0.4 s;
+a 1280×720 stream started on FFmpeg's first line in 0.04 s and sent SRTP for 20 s at about 870 kbit/s of video (802
+asked) and 32 kbit/s of AAC-ELD through AudioToolbox; and a HomeKit Secure Video recording from the prebuffer gave its
+initialization segment and 4 fragments of about 260 KB in under 2 s, the 7680×2160 source scaled to 1920×1080.
 
 ## Clean-room implementation
 

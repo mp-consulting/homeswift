@@ -116,8 +116,12 @@ enum FFmpegArguments {
     /// The main stream's command line, and whether HomeKit asked for an audio codec it cannot have (then without audio). The
     /// user's options are split on whitespace; what comes from HomeKit (the SRTP keys, the controller's address) is
     /// appended whole, so it can never become options of its own.
+    /// libfdk_aac's AAC-ELD, the original's encoder.
+    static let libfdkAACELD = ["-codec:a", "libfdk_aac", "-profile:a", "aac_eld"]
+
     static func stream(
-        _ video: CameraFFmpegPlugin.VideoConfig, values: StreamValues, request: StartStreamRequest, target: Target
+        _ video: CameraFFmpegPlugin.VideoConfig, values: StreamValues, request: StartStreamRequest, target: Target,
+        aacELDEncoder: [String]? = libfdkAACELD
     ) -> (arguments: [String], unsupportedAudio: Bool) {
         var arguments: [String] = []
         var command = video.source ?? ""
@@ -133,9 +137,10 @@ enum FFmpegArguments {
         var unsupportedAudio = false
         if video.audio {
             let audio = request.audio
-            if audio.codec == .opus || audio.codec == .aacELD {
+            let encoder = audio.codec == .opus ? ["-codec:a", "libopus", "-application", "lowdelay"] : audio.codec == .aacELD ? aacELDEncoder : nil
+            if let encoder {
                 arguments += split(video.mapaudio.map { "-map " + $0 } ?? "-vn -sn -dn")
-                arguments += audio.codec == .opus ? ["-codec:a", "libopus", "-application", "lowdelay"] : ["-codec:a", "libfdk_aac", "-profile:a", "aac_eld"]
+                arguments += encoder
                 arguments += ["-flags", "+global_header", "-f", "null", "-ar", "\(audio.sampleRate)k", "-b:a", "\(audio.maxBitRate)k", "-ac", "\(audio.channel)",
                               "-payload_type", "\(audio.pt)"]
                 arguments += srtpOutput(ssrc: target.audioSSRC, srtp: target.audioSRTP, host: target.urlHost, port: target.audioPort, packetSize: 188)
@@ -155,9 +160,10 @@ enum FFmpegArguments {
 
     // MARK: Two-way audio (7.7)
 
-    static func returnAudio(_ video: CameraFFmpegPlugin.VideoConfig) -> [String] {
-        split("-hide_banner -protocol_whitelist pipe,udp,rtp,file,crypto -f sdp -c:a libfdk_aac -i pipe: " + (video.returnAudioTarget ?? "")
-            + " -loglevel level" + (video.debugReturn ? "+verbose" : ""))
+    /// `decoder`: libfdk_aac's, the original's, or none for FFmpeg's own AAC-ELD decoder.
+    static func returnAudio(_ video: CameraFFmpegPlugin.VideoConfig, decoder: [String] = ["-c:a", "libfdk_aac"]) -> [String] {
+        ["-hide_banner", "-protocol_whitelist", "pipe,udp,rtp,file,crypto", "-f", "sdp"] + decoder + ["-i", "pipe:"]
+            + split((video.returnAudioTarget ?? "") + " -loglevel level" + (video.debugReturn ? "+verbose" : ""))
     }
 
     /// The SDP FFmpeg reads the return audio with: HomeKit sends it to `port`, the audio return port.
@@ -223,9 +229,21 @@ enum FFmpegArguments {
             "-sn", "-dn", "-vcodec", "libx264", "-pix_fmt", "yuv420p", "-profile:v", profile, "-level:v", level,
             "-preset", "veryfast", "-tune", "zerolatency", "-b:v", "\(bitrate)k", "-maxrate", "\(bitrate * 12 / 10)k", "-bufsize", "\(bitrate * 2)k",
             "-g", "30", "-keyint_min", "15", "-sc_threshold", "0", "-force_key_frames", "expr:gte(t,n_forced*1)", "-r", "\(configuration.videoCodec.resolution.fps)",
+            // Scaled down to the size HomeKit selected, as live streams are (the original sends the source's).
+            "-filter:v", scale(width: configuration.videoCodec.resolution.width, height: configuration.videoCodec.resolution.height),
             "-movflags", "frag_keyframe+empty_moov+default_base_moof+omit_tfhd_offset", "pipe:1",
         ]
         return arguments
+    }
+
+    /// The scaling filters of 7.1 for a size: no larger than it, the aspect ratio kept, even dimensions.
+    static func scale(width: Int, height: Int) -> String {
+        "scale='min(\(width),iw)':'min(\(height),ih)':force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2"
+    }
+
+    /// The web UI's live view without a prebuffer: the source's video copied into fragmented MP4, no audio.
+    static func liveFeed(_ video: CameraFFmpegPlugin.VideoConfig) -> [String] {
+        split(video.source ?? "") + ["-an", "-sn", "-dn", "-codec:v", "copy", "-f", "mp4", "-movflags", "frag_keyframe+empty_moov+default_base_moof", "pipe:1"]
     }
 
     // MARK: Stream supervision (7.5)

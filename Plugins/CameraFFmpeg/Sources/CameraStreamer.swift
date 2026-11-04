@@ -45,6 +45,8 @@ actor CameraStreamer: CameraStreamingDelegate {
     private var nextToken = 0
     private var snapshot: (generation: Int, task: Task<Data, any Error>, finishedAt: ContinuousClock.Instant?)?
     private var snapshotGeneration = 0
+    /// The live views' FFmpeg processes, which the plugin's stop ends.
+    var liveViews: [ObjectIdentifier: FfmpegProcess] = [:]
 
     init(video: CameraFFmpegPlugin.VideoConfig, log: CameraLog, tools: FFmpegTools, ports: RtpPortAllocator, timeScale: Double = 1) {
         self.video = video
@@ -175,8 +177,12 @@ actor CameraStreamer: CameraStreamingDelegate {
         func native(_ value: Int) -> String { value > 0 ? String(value) : "native" }
         log.info("Starting video stream: \(native(values.filters.width)) x \(native(values.filters.height)), \(native(values.fps)) fps, "
             + "\(values.bitrate > 0 ? String(values.bitrate) : "???") kbps\(video.audio ? " (\(request.audio.codec.rawValue))" : "")")
-        let (arguments, unsupportedAudio) = FFmpegArguments.stream(video, values: values, request: request, target: entry.target)
-        if unsupportedAudio { log.error("Unsupported audio codec requested: \(request.audio.codec.rawValue)") }
+        let encoder = video.audio && request.audio.codec == .aacELD ? await tools.capabilities.aacELDEncoder() : FFmpegArguments.libfdkAACELD
+        let (arguments, unsupportedAudio) = FFmpegArguments.stream(video, values: values, request: request, target: entry.target, aacELDEncoder: encoder)
+        if unsupportedAudio {
+            log.error(encoder == nil ? "FFmpeg has no AAC-ELD encoder (libfdk_aac, or aac_at on macOS): the stream has no audio."
+                : "Unsupported audio codec requested: \(request.audio.codec.rawValue)")
+        }
 
         nextToken += 1
         let token = nextToken
@@ -196,7 +202,8 @@ actor CameraStreamer: CameraStreamingDelegate {
         }
 
         if video.returnAudioTarget != nil {
-            let returnAudio = FfmpegProcess(tools.returnOptions, commandLineArgs: FFmpegArguments.returnAudio(video))
+            let decoder = await tools.capabilities.aacELDDecoder()
+            let returnAudio = FfmpegProcess(tools.returnOptions, commandLineArgs: FFmpegArguments.returnAudio(video, decoder: decoder))
             returnAudio.start()
             returnAudio.endStdin(Data(FFmpegArguments.returnAudioSDP(
                 address: entry.target.address, isIPv6: entry.target.isIPv6, port: entry.audioReturnPort, srtp: entry.target.audioSRTP).utf8))
@@ -315,5 +322,7 @@ actor CameraStreamer: CameraStreamingDelegate {
         for (_, entry) in prepared { release(entry) }
         prepared = [:]
         snapshot?.task.cancel()
+        for process in liveViews.values { process.stop() }
+        liveViews = [:]
     }
 }

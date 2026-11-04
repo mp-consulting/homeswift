@@ -19,6 +19,8 @@ public actor CameraFFmpegPlugin: HomeswiftPlugin {
         /// Multiplies the plugin's timers (motion, doorbell, inactivity, the snapshot cache): tests shorten them.
         var timeScale: Double = 1
         var ports = RtpPortAllocator()
+        /// What the FFmpeg has: probed by default.
+        var capabilities: @Sendable (_ executable: String, _ logger: Logger) -> FFmpegCapabilities = { FFmpegCapabilities(executable: $0, logger: $1) }
     }
 
     /// One camera on its own accessory.
@@ -51,6 +53,7 @@ public actor CameraFFmpegPlugin: HomeswiftPlugin {
     let dependencies: Dependencies
     private let tasks = TaskBag()
     private(set) var cameras: [String: CameraRuntime] = [:]
+    private var capabilities: FFmpegCapabilities?
     private var mqtt: MQTTAutomation?
     private var http: HTTPAutomationServer?
     private var logger: Logger { context.logger }
@@ -191,7 +194,10 @@ public actor CameraFFmpegPlugin: HomeswiftPlugin {
         let camera = entry.camera
         let video = entry.video
         let log = CameraLog(logger: logger, name: name, promotesDebug: video.debug)
-        let tools = FFmpegTools(executable: configuration.videoProcessor ?? "ffmpeg", name: name, logger: logger, debug: video.debug,
+        let executable = configuration.videoProcessor ?? "ffmpeg"
+        let capabilities = self.capabilities ?? dependencies.capabilities(executable, logger)
+        self.capabilities = capabilities
+        let tools = FFmpegTools(executable: executable, capabilities: capabilities, name: name, logger: logger, debug: video.debug,
                                 debugReturn: video.debugReturn)
         log.debug("Recording \(video.recording ? "on" : "off"), prebuffer \(video.prebuffer ? "on" : "off").")
 

@@ -35,7 +35,7 @@ final class TestEnvironment: Sendable {
         registry.register(platform: CameraFFmpegPlugin.platform, name: CameraFFmpegPlugin.name) { json, context in
             let configuration = try JSONDecoder().decode(CameraFFmpegPlugin.Configuration.self, from: json)
             let plugin = CameraFFmpegPlugin(configuration: configuration, context: context,
-                                            dependencies: .init(connectMQTT: { _ in mqtt }, timeScale: timeScale))
+                                            dependencies: .init(connectMQTT: { _ in mqtt }, timeScale: timeScale, capabilities: { _, _ in FFmpegCapabilities(known: nil) }))
             self.plugins.withLockedValue { $0.append(plugin) }
             return plugin
         }
@@ -63,7 +63,7 @@ final class TestEnvironment: Sendable {
             #!/bin/sh
             echo "$@" >> '\(runs.path)'
             case "$*" in
-              *"omit_tfhd_offset"*) printf '\\000\\000\\000\\010ftyp\\000\\000\\000\\010moov\\000\\000\\000\\010free\\000\\000\\000\\010moof\\000\\000\\000\\014mdat1234' ;;
+              *"omit_tfhd_offset"*|*"-codec:v copy -f mp4"*) printf '\\000\\000\\000\\010ftyp\\000\\000\\000\\010moov\\000\\000\\000\\010free\\000\\000\\000\\010moof\\000\\000\\000\\014mdat1234' ;;
               *"-i pipe: "*) cat ;;
               *"-frames:v 1"*) printf 'IMAGE' ;;
               *) echo "started" >&2; exec sleep 30 ;;

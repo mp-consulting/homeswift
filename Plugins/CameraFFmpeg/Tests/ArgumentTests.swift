@@ -1,4 +1,5 @@
 import Foundation
+import HomeswiftFFmpeg
 import Testing
 
 @testable import Homeswift
@@ -104,6 +105,25 @@ struct ArgumentTests {
         #expect(v6.contains("srtp://[fe80::1]:51000?rtcpport=51000&pkt_size=1316"))
     }
 
+    @Test func aacELDWithoutLibfdk() async throws {
+        func codecs(_ encoders: Set<String>) -> FfmpegCodecs {
+            FfmpegCodecs(log: testLogger, ffmpegVersion: "8.0", encoders: ["aac": encoders])
+        }
+        #expect(await FFmpegCapabilities(known: nil).aacELDEncoder() == FFmpegArguments.libfdkAACELD)
+        #expect(await FFmpegCapabilities(known: codecs(["libfdk_aac", "aac_at"])).aacELDEncoder() == FFmpegArguments.libfdkAACELD)
+        #expect(await FFmpegCapabilities(known: codecs(["aac", "aac_at"])).aacELDEncoder() == ["-codec:a", "aac_at", "-profile:a", "38", "-aac_at_mode", "cbr"])
+        #expect(await FFmpegCapabilities(known: codecs(["aac"])).aacELDEncoder() == nil)
+        #expect(await FFmpegCapabilities(known: codecs(["aac"])).aacELDDecoder() == [])
+
+        let video = try videoConfig(["source": source, "audio": true])
+        let request = startRequest()
+        let values = FFmpegArguments.streamValues(video, request: request.video)
+        let (none, unsupported) = FFmpegArguments.stream(video, values: values, request: request, target: streamTarget, aacELDEncoder: nil)
+        #expect(unsupported && !none.contains("-codec:a"))
+        let native = FFmpegArguments.returnAudio(try videoConfig(["source": source, "returnAudioTarget": "-f adts udp://camera:5000"]), decoder: [])
+        #expect(native.prefix(7) == ["-hide_banner", "-protocol_whitelist", "pipe,udp,rtp,file,crypto", "-f", "sdp", "-i", "pipe:"])
+    }
+
     @Test func anUnsupportedAudioCodecSendsNoAudio() throws {
         let video = try videoConfig(["source": source, "audio": true])
         let request = startRequest(audio: .pcmu)
@@ -131,7 +151,9 @@ struct ArgumentTests {
             -hide_banner -i rtsp://u:p@10.0.0.5:554/s1 -f mp4
             -acodec aac -profile:a aac_low -ar 32000 -b:a 64k -ac 1 -sn -dn -vcodec libx264 -pix_fmt yuv420p -profile:v high -level:v 4.0
             -preset veryfast -tune zerolatency -b:v 2000k -maxrate 2400k -bufsize 4000k -g 30 -keyint_min 15 -sc_threshold 0
-            -force_key_frames expr:gte(t,n_forced*1) -r 30 -movflags frag_keyframe+empty_moov+default_base_moof+omit_tfhd_offset pipe:1
+            -force_key_frames expr:gte(t,n_forced*1) -r 30
+            -filter:v scale='min(1920,iw)':'min(1080,ih)':force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2
+            -movflags frag_keyframe+empty_moov+default_base_moof+omit_tfhd_offset pipe:1
             """
         #expect(try FFmpegArguments.recording(video, configuration: recordingConfiguration(), prebuffered: false) == FFmpegArguments.split(expected))
 

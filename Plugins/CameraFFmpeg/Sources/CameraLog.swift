@@ -33,9 +33,11 @@ struct FFmpegTools: Sendable {
     /// For the two-way audio process, which `debugReturn` makes verbose.
     let returnOptions: FfmpegOptions
     let executable: String
+    let capabilities: FFmpegCapabilities
 
-    init(executable: String, name: String, logger: Logger, debug: Bool, debugReturn: Bool) {
+    init(executable: String, capabilities: FFmpegCapabilities, name: String, logger: Logger, debug: Bool, debugReturn: Bool) {
         self.executable = executable
+        self.capabilities = capabilities
         func options(verbose: Bool) -> FfmpegOptions {
             var processLogger = logger
             processLogger[metadataKey: "camera"] = "\(name)"
