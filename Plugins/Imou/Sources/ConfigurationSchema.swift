@@ -336,7 +336,8 @@ extension ImouPlugin {
       "User Name": "Nom d'utilisateur",
       "Video Encoder": "Encodeur vidéo",
       "Wake-up Wait (in seconds)": "Attente du réveil (en secondes)",
-      "Where your IMOU developer app was made: it must match the portal's region.": "Où votre application de développeur IMOU a été créée : elle doit correspondre à la région du portail."
+      "Where your IMOU developer app was made: it must match the portal's region.": "Où votre application de développeur IMOU a été créée : elle doit correspondre à la région du portail.",
+      "libx264 -preset ultrafast -tune zerolatency": "libx264 -preset ultrafast -tune zerolatency"
     },
     "es": {
       "A light for the camera's spotlight, through the cloud.": "Una luz para el foco de la cámara, a través de la nube.",
@@ -395,7 +396,8 @@ extension ImouPlugin {
       "User Name": "Nombre de usuario",
       "Video Encoder": "Codificador de vídeo",
       "Wake-up Wait (in seconds)": "Espera del despertar (en segundos)",
-      "Where your IMOU developer app was made: it must match the portal's region.": "Dónde se creó su aplicación de desarrollador IMOU: debe coincidir con la región del portal."
+      "Where your IMOU developer app was made: it must match the portal's region.": "Dónde se creó su aplicación de desarrollador IMOU: debe coincidir con la región del portal.",
+      "libx264 -preset ultrafast -tune zerolatency": "libx264 -preset ultrafast -tune zerolatency"
     },
     "pt": {
       "A light for the camera's spotlight, through the cloud.": "Uma luz para o projetor da câmara, através da nuvem.",
@@ -454,7 +456,8 @@ extension ImouPlugin {
       "User Name": "Nome de utilizador",
       "Video Encoder": "Codificador de vídeo",
       "Wake-up Wait (in seconds)": "Espera do despertar (em segundos)",
-      "Where your IMOU developer app was made: it must match the portal's region.": "Onde a sua aplicação de programador IMOU foi criada: tem de corresponder à região do portal."
+      "Where your IMOU developer app was made: it must match the portal's region.": "Onde a sua aplicação de programador IMOU foi criada: tem de corresponder à região do portal.",
+      "libx264 -preset ultrafast -tune zerolatency": "libx264 -preset ultrafast -tune zerolatency"
     }
   }
 }
