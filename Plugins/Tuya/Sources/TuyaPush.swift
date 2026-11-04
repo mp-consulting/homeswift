@@ -71,7 +71,8 @@ struct TuyaMessageOrder: Sendable {
         kept.removeAll { now - $0.t > Self.window }
         if time < newest {
             let corrected = items.map { item -> TuyaPushMessage.StatusItem in
-                for message in kept.reversed() where message.deviceID == deviceID {
+                // Only the same device's messages newer than this one.
+                for message in kept.reversed() where message.deviceID == deviceID && message.t > time {
                     if let newer = message.items.last(where: { $0.code == item.code }) {
                         return newer.value != item.value ? newer : item
                     }

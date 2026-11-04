@@ -11,10 +11,12 @@ typealias TuyaSetter = @Sendable (HAPValue) async throws -> Void
 
 /// A characteristic, once its service is built: event handlers made before the accessory exist reach it through this.
 final class TuyaCharacteristicRef: Sendable {
-    private let box = NIOLockedValueBox<Characteristic?>(nil)
+    /// Weak: the characteristic's own handlers hold this, and its service holds the characteristic.
+    private struct Weak { weak var value: Characteristic? }
+    private let box = NIOLockedValueBox(Weak())
     var characteristic: Characteristic? {
-        get { box.withLockedValue { $0 } }
-        set { box.withLockedValue { $0 = newValue } }
+        get { box.withLockedValue { $0.value } }
+        set { box.withLockedValue { $0.value = newValue } }
     }
 }
 
@@ -115,11 +117,15 @@ final class TuyaDeviceLink: Sendable {
         self.logger = logger
         self.timeScale = timeScale
         let deviceID = device.id
-        queue = TuyaCommandQueue(delay: .milliseconds(100) * timeScale) { [logger] commands in
+        queue = TuyaCommandQueue(delay: .milliseconds(100) * timeScale) { [logger, refreshBox] commands in
             do {
                 try await api.sendCommands(deviceID, commands)
             } catch {
                 logger.warning("Could not send \(commands.map(\.code).joined(separator: ", ")) to \(deviceID): \(error)")
+                // The values stored for the write are not the device's: read them back from the cloud.
+                guard let record = try? await api.device(deviceID) else { return }
+                device.apply((record["status"]?.arrayValue ?? []).compactMap { entry in entry["code"]?.stringValue.map { ($0, entry["value"] ?? .null) } })
+                refreshBox.withLockedValue { $0 }?()
             }
         }
     }
@@ -550,7 +556,7 @@ final class TuyaAccessoryBuilder {
             let state = find("battery_state")
             draft.add(.statusLowBattery, get: { [device = device] in
                 if let state { return device.string(state).map { .int($0 == "low" ? 1 : 0) } }
-                return device.number(level).map { .int($0 <= 20 ? 1 : 0) }
+                return device.number(level).map { .int($0 / level.multiple <= 20 ? 1 : 0) }
             })
             if let charging = find("charge_state") {
                 draft.add(.chargingState, get: { [device = device] in device.bool(charging).map { .int($0 ? 1 : 0) } })

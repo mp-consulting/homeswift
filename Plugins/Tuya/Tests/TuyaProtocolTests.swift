@@ -95,6 +95,10 @@ import Testing
         let late = order.order(deviceID: "d", items: [.init(code: "switch_led", value: .bool(false)), .init(code: "other", value: 1)], t: 1_700_000_004, now: now)
         #expect(late.late)
         #expect(late.items.map(\.value) == [.bool(true), 1])
+        // A kept message older than the late one does not correct it.
+        _ = order.order(deviceID: "d", items: [.init(code: "y", value: 5)], t: 1_700_000_006, now: now)
+        let between = order.order(deviceID: "d", items: [.init(code: "x", value: 2)], t: 1_700_000_005_500, now: now)
+        #expect(between.late && between.items.map(\.value) == [2])
         // Thirty seconds on, the kept message is gone.
         let later = order.order(deviceID: "d", items: [.init(code: "switch_led", value: .bool(false))], t: 1_700_000_004, now: now + 40_000)
         #expect(later.items.map(\.value) == [.bool(false)])

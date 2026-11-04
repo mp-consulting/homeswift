@@ -95,12 +95,17 @@ public actor TuyaPlugin: HomeswiftPlugin {
             let api = makeAPI(settings)
             do {
                 let owners = try await signIn(api, settings)
+                try Task.checkCancellation()
+                await api.setSignIn { [weak self] api in _ = try await self?.signIn(api, settings) }
                 self.api = api
+                // A retry replaces the push of the attempt before.
+                await push?.stop()
                 let push = TuyaPush(
                     api: api, version: settings.projectType == .custom ? "2.0" : "1.0", logger: logger, debug: settings.debug,
                     timeScale: dependencies.timeScale, backoff: dependencies.pushBackoff, now: dependencies.now, makeConnection: dependencies.makeMQTT
                 ) { [weak self] message in await self?.handle(message) }
                 self.push = push
+                try Task.checkCancellation()
                 await push.start()
                 let devices = try await loadDevices(api, settings, owners: owners)
                 await addAccessories(devices)
@@ -109,6 +114,7 @@ public actor TuyaPlugin: HomeswiftPlugin {
                 logger.error("Could not sign in to Tuya: \(error)")
                 return
             } catch is CancellationError {
+                await push?.stop()
                 return
             } catch {
                 logger.error("Could not reach Tuya, trying again: \(error)")

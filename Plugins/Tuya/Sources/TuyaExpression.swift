@@ -105,17 +105,21 @@ struct TuyaExpression: Sendable {
 
     let source: String
     private let statements: [Node]
+    /// Whether it reads `device`, which is only built then.
+    private let usesDevice: Bool
 
     init(_ source: String) throws {
         guard source.count <= Self.maximumLength else { throw Failure("longer than \(Self.maximumLength) characters") }
         self.source = source
-        var parser = Parser(tokens: try Lexer.tokens(source))
+        let tokens = try Lexer.tokens(source)
+        usesDevice = tokens.contains(.identifier("device"))
+        var parser = Parser(tokens: tokens)
         statements = try parser.program()
     }
 
     /// The expression's value for `value` and a device (`device.id`, `online`, `status` as `{code, value}`…).
-    func evaluate(value: Value, device: Value) throws -> Value {
-        var evaluator = Evaluator(scope: ["value": value, "device": device, "Math": .object(Evaluator.math)])
+    func evaluate(value: Value, device: @autoclosure () -> Value) throws -> Value {
+        var evaluator = Evaluator(scope: ["value": value, "device": usesDevice ? device() : .undefined, "Math": .object(Evaluator.math)])
         var result = Value.undefined
         for statement in statements { result = try evaluator.evaluate(statement, depth: 0) }
         return result

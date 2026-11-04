@@ -616,6 +616,7 @@ extension TuyaAccessoryBuilder {
                     try await link.api.operateLock(device.id, open: value.intValue == 0)
                 } catch {
                     logger.warning("Could not operate \(device.name): \(error)")
+                    throw HAPStatusError(.serviceCommunicationFailure)
                 }
             }
         } else {
@@ -720,7 +721,7 @@ extension TuyaAccessoryBuilder {
             for (index, code) in device.specificationCodes.filter({ $0.contains("HoutCh") }).enumerated() {
                 guard let item = device.schema[code] else { continue }
                 service(.humiditySensor, name: "Humidity Sensor \(index + 1)", subtype: "humidity_sensor_\(index + 1)")
-                    .add(.currentRelativeHumidity, get: { .double(device.number(item).map { Self.clamp($0, 0, 100) } ?? 0) })
+                    .add(.currentRelativeHumidity, get: { .double(device.number(item).map { Self.clamp($0 / item.multiple, 0, 100) } ?? 0) })
             }
         default:
             // pm25, pm2.5, pm25cgq, hjjcy

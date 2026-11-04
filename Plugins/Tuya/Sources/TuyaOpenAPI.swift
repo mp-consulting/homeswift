@@ -141,16 +141,30 @@ actor TuyaOpenAPI {
         return token
     }
 
+    /// The token renewed with its refresh token; when that fails (or there is none), a new sign-in.
     private func refresh(_ current: TuyaToken) async {
-        guard !current.refreshToken.isEmpty else { return }
+        if !current.refreshToken.isEmpty {
+            do {
+                let result = try await request("GET", "/v1.0/token/\(current.refreshToken)")
+                var token = try store(result)
+                if token.uid.isEmpty { token.uid = current.uid; self.token = token }
+                return
+            } catch {
+                logger.error("Could not refresh the Tuya token, signing in again: \(error)")
+            }
+        }
+        guard let signIn else { return }
         do {
-            let result = try await request("GET", "/v1.0/token/\(current.refreshToken)")
-            var token = try store(result)
-            if token.uid.isEmpty { token.uid = current.uid; self.token = token }
+            try await signIn(self)
         } catch {
-            logger.error("Could not refresh the Tuya token: \(error)")
+            logger.error("Could not sign in to Tuya again: \(error)")
         }
     }
+
+    /// Signs in again when the token cannot be refreshed (set by the plugin once the first sign-in worked).
+    private var signIn: (@Sendable (TuyaOpenAPI) async throws -> Void)?
+
+    func setSignIn(_ signIn: @escaping @Sendable (TuyaOpenAPI) async throws -> Void) { self.signIn = signIn }
 
     // MARK: Signing in
 

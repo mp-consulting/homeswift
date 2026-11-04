@@ -77,7 +77,18 @@ Deliberate fixes of the behaviour the specification describes: a current DP in a
 divides by zero; a pet feeder's switch sends one feed; a second curtain reads its own `percent_state_2` when it has
 one; a lock's `closed_opened` enum (`closed`/`open`) reads as its words; thermostat and speed writes are rounded to
 what the DP takes; a failed MQTT configuration is asked for again; a debounced write sent while another is in flight
-is not lost; device records are asked for twenty at a time; Adaptive Lighting is on by default.
+is not lost, and one the cloud refuses is followed by a read of the device's state; device records are asked for twenty
+at a time; a token that cannot be refreshed leads to a new sign-in; a battery's low state and a weather station's
+humidity follow the DP's scale; a lock that fails to move reports it to HomeKit.
+
+Choices of Homeswift's own:
+
+- **Adaptive Lighting is on by default** for every light with brightness and colour temperature (the original only
+  with `adaptiveLighting: true`); `"adaptiveLighting": false` turns it off.
+- **The Access Secret goes in the vault** through Setup; a block's `accessKey` moves there with the next settings
+  write (it is not a secret-named key, so the runtime does not seal it in place).
+- **`projectType` may be a number** (`1` or `2`) as well as the strings.
+- **A lock without `lock_motor_state`** shows its state read-only: writing its target is refused.
 
 ## Gaps
 
