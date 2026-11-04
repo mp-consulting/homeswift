@@ -101,7 +101,7 @@ struct RPCDigest: Sendable, Equatable {
     static func isStale(_ message: String) -> Bool { (try? JSONValue(string: message))?["stale"]?.boolValue == true }
 
     static func sha256(_ text: String) -> String {
-        SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
+        Secrets.hex(SHA256.hash(data: Data(text.utf8)))
     }
 
     /// The `response` for this nonce count and client nonce.
@@ -163,7 +163,6 @@ actor ShellyRPC {
 
     static func bracketed(_ host: String) -> String { host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host }
 
-    var isConnected: Bool { socket != nil }
 
     /// Opens the socket in the background; requests wait for it.
     func start() {
@@ -213,7 +212,7 @@ actor ShellyRPC {
                 let code = error["code"]?.intValue ?? 0
                 let message = error["message"]?.stringValue ?? ""
                 guard code == 401 else { throw RPCError.device(code: code, message: message) }
-                guard let password, !password.isEmpty else { throw RPCError.unauthorized }
+                guard password != nil else { throw RPCError.unauthorized }
                 if auth != nil, !RPCDigest.isStale(message) {
                     digest = nil
                     throw RPCError.invalidPassword
@@ -353,7 +352,7 @@ actor ShellyRPC {
         pinger?.cancel()
         failPending(RPCError.connectionClosed)
         let code = closing.closeCode
-        let reason = closing.closeReason?.nonEmpty ?? (error.isEmpty ? code.map { "\($0)" } ?? "connection lost" : error)
+        let reason = closing.closeReason?.trimmedNonEmpty ?? (error.isEmpty ? code.map { "\($0)" } ?? "connection lost" : error)
         guard !stopped else { return }
         if code == 1000, !killed {
             continuation.yield(.disconnected(reason: reason, wasConnected: true))

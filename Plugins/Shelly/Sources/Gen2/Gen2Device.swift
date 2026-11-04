@@ -23,9 +23,9 @@ struct Gen2DeviceOptions: Sendable, Equatable {
 
     /// From an entry's keys: `name`, `exclude`, `hostname`, `password`, `protocol` and every `<component>:<id>` object.
     init(_ fields: [String: JSONValue]) {
-        name = fields["name"]?.stringValue?.nonEmpty
+        name = fields["name"]?.stringValue?.trimmedNonEmpty
         exclude = fields["exclude"]?.boolValue ?? false
-        hostname = fields["hostname"]?.stringValue?.nonEmpty
+        hostname = fields["hostname"]?.stringValue?.trimmedNonEmpty
         password = fields["password"]?.stringValue
         protocolName = fields["protocol"]?.stringValue ?? "websocket"
         for (key, value) in fields where ComponentKey(key) != nil {
@@ -49,7 +49,6 @@ actor Gen2Device {
     let options: Gen2DeviceOptions
     private let context: PluginContext
     private let logger: Logger
-    private let writeDelay: Duration
 
     private(set) var status: [String: [String: JSONValue]] = [:]
     private(set) var config: [String: JSONValue] = [:]
@@ -70,7 +69,6 @@ actor Gen2Device {
         self.options = options
         self.context = context
         self.logger = logger
-        self.writeDelay = writeDelay
         writes = LatestCallGuard(delay: writeDelay)
         modelName = Gen2Models.name(model: info["model"]?.stringValue ?? "", app: info["app"]?.stringValue)
         for (key, value) in status.objectValue ?? [:] {
@@ -83,7 +81,7 @@ actor Gen2Device {
 
     /// The name accessories start with: the configured one, the device's own, else the model's.
     var baseName: String {
-        options.name ?? config["sys"]?["device"]?["name"]?.stringValue?.nonEmpty ?? info["name"]?.stringValue?.nonEmpty ?? modelName
+        options.name ?? config["sys"]?["device"]?["name"]?.stringValue?.trimmedNonEmpty ?? info["name"]?.stringValue?.trimmedNonEmpty ?? modelName
     }
 
     var layout: Gen2Layout {
@@ -192,7 +190,7 @@ actor Gen2Device {
         buttons.removeAll()
         adaptiveLighting.removeAll()
         var made: [Accessory] = []
-        let firmware = info["ver"]?.stringValue?.nonEmpty ?? "1.0.0"
+        let firmware = info["ver"]?.stringValue?.trimmedNonEmpty ?? "1.0.0"
         let serial = info["mac"]?.stringValue?.uppercased() ?? deviceID
         for item in layout.items {
             let name = item.suffix.map { "\(baseName) \($0)" } ?? baseName

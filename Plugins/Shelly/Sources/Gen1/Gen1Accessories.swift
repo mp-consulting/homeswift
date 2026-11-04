@@ -12,9 +12,9 @@ struct Gen1AccessoryOptions: Sendable, Equatable {
     var colorMode: String?
 
     init(_ fields: [String: JSONValue]) {
-        type = fields["type"]?.stringValue?.nonEmpty
-        name = fields["name"]?.stringValue?.nonEmpty
-        colorMode = fields["colorMode"]?.stringValue?.nonEmpty
+        type = fields["type"]?.stringValue?.trimmedNonEmpty
+        name = fields["name"]?.stringValue?.trimmedNonEmpty
+        colorMode = fields["colorMode"]?.stringValue?.trimmedNonEmpty
     }
 
     init(type: String? = nil, name: String? = nil, colorMode: String? = nil) {
@@ -92,7 +92,7 @@ struct Gen1Builder: Sendable {
         var services: [Service] = []
         var category = AccessoryCategory.other
         var adaptiveLighting: AdaptiveLightingController?
-        var identifyToggle: String?
+        var flashesOnIdentify = false
         switch model.family {
         case .relaysOrRoller where mode == "roller":
             (services, category) = await roller(type: type)
@@ -100,17 +100,17 @@ struct Gen1Builder: Sendable {
             // The Uni's factory names power meters it does not have: it gets none.
             let meter = meters > 0 && model.id != "SHUNI-1" ? "power\(min(index, meters - 1))" : nil
             (services, category) = await relay(index: index, type: type, meter: meter)
-            if ["switch", "outlet", "valve"].contains(Self.relayType(type)) { identifyToggle = "relay\(index)" }
+            if ["switch", "outlet", "valve"].contains(Self.relayType(type)) { flashesOnIdentify = true }
         case .whiteLight, .colorTemperatureLight:
             let light = await whiteLight(index: nil, colorTemperature: model.family == .colorTemperatureLight)
             services = [light]
             category = .lightbulb
             if model.family == .colorTemperatureLight { adaptiveLighting = context.adaptiveLighting(for: light, accessoryID: id) }
-            identifyToggle = "switch"
+            flashesOnIdentify = true
         case .colorOrWhiteLights where mode == "white":
             services = [await whiteLight(index: index, colorTemperature: false)]
             category = .lightbulb
-            identifyToggle = "switch\(index)"
+            flashesOnIdentify = true
         case .colorLight, .colorOrWhiteLights:
             let colorMode = options.colorMode ?? "rgbw"
             guard colorMode == "rgb" || colorMode == "rgbw" else {
@@ -119,7 +119,7 @@ struct Gen1Builder: Sendable {
             }
             services = [await colorLight(rgbw: colorMode == "rgbw")]
             category = .lightbulb
-            identifyToggle = "switch"
+            flashesOnIdentify = true
         case .buttons(let buttons):
             services = await buttonServices(buttons, armed: armed)
             category = .programmableSwitch
@@ -134,13 +134,13 @@ struct Gen1Builder: Sendable {
             }
         }
         let firmware = await device.firmware ?? "1.0.0"
-        let device = device, logger = logger, toggle = identifyToggle, primary = services.first
+        let device = device, logger = logger, flashes = flashesOnIdentify, primary = services.first
         let accessory = Accessory(
             id: id, name: name, manufacturer: "Shelly", model: model.id, serialNumber: deviceID, firmwareRevision: firmware, category: category,
             services: services, onIdentify: {
                 let host = await device.host
                 logger.info("\(name) at \(host) identified")
-                guard toggle != nil, let primary else { return }
+                guard flashes, let primary else { return }
                 // Flashes: the on state inverted for a second, then put back.
                 let characteristic = primary.characteristic(primary.type == .valve ? .active : .on)
                 let original = characteristic.value

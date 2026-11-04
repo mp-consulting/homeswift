@@ -89,7 +89,7 @@ extension ShellyNGPlugin {
                 left.append(item)
                 continue
             }
-            if let name = device["name"]?.stringValue?.nonEmpty { entries.setIfAbsent("name", .string(name), on: id) }
+            if let name = device["name"]?.stringValue?.trimmedNonEmpty { entries.setIfAbsent("name", .string(name), on: id) }
             if device["exclude"]?.boolValue == true { entries.exclude(id) }
             for (key, value) in device where isDeviceKey(key) && !value.isNull { entries.setIfAbsent(key, value, on: id) }
             if device["password"] != nil, let password = passwords[id] { vaulted[id] = password }
@@ -133,7 +133,7 @@ extension ShellyNGPlugin {
             let hasPassword = options.password != nil || !context.haveCredentials([id]).isEmpty
             let model = shelly?["model"]?.stringValue.map { Gen2Models.name(model: $0, app: shelly?["app"]?.stringValue) }
             found[id] = DiscoveredDevice(
-                deviceID: id, name: options.name ?? shelly?["name"]?.stringValue?.nonEmpty ?? model ?? id, model: model, address: host,
+                deviceID: id, name: options.name ?? shelly?["name"]?.stringValue?.trimmedNonEmpty ?? model ?? id, model: model, address: host,
                 authorization: needsPassword ? .accountLogin : .none, isSetUp: !needsPassword || hasPassword, excludedBySettings: options.exclude)
             found[id]?.isReachable = shelly != nil
         }

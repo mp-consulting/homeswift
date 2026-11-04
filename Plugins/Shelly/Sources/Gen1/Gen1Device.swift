@@ -27,6 +27,8 @@ actor Gen1Device {
     private(set) var host: String
     private(set) var mode: String?
     private(set) var values: [String: JSONValue]
+    /// The properties of the current mode, by CoIoT id: made again only when the mode changes.
+    private var properties: [Int: Gen1Property]
     private(set) var isOnline = false
     /// From `GET /settings`, once loaded.
     private(set) var firmware: String?
@@ -38,8 +40,6 @@ actor Gen1Device {
     private var challengedHost: String?
     /// Another address a status came from, for a device with credentials, until `verifyMove()` checks it.
     private(set) var candidateHost: String?
-    /// Whether a status was heard since the device object was made.
-    private(set) var heard = false
 
     private let http: any HTTPSending
     private let credentials: (username: String, password: String)?
@@ -57,6 +57,7 @@ actor Gen1Device {
         self.host = host
         self.mode = model.hasModes ? (mode ?? model.defaultMode) : nil
         values = model.initialValues(mode: self.mode)
+        properties = model.properties(mode: self.mode)
         self.http = http
         self.credentials = credentials
         self.timeout = timeout
@@ -86,7 +87,6 @@ actor Gen1Device {
         } else if address != host {
             candidateHost = address
         }
-        heard = true
         var newMode = mode
         if model.hasModes, status.revision == "1" {
             switch model.family {
@@ -101,9 +101,9 @@ actor Gen1Device {
         if modeChanged {
             logger.debug("Device \(label) changed mode to \(newMode ?? "none")")
             mode = newMode
+            properties = model.properties(mode: newMode)
             values.merge(model.initialValues(mode: newMode)) { old, _ in old }
         }
-        let properties = model.properties(mode: mode)
         var changed: Set<String> = []
         for tuple in status.values {
             guard let property = properties[tuple.id] else { continue }
@@ -146,7 +146,7 @@ actor Gen1Device {
         settingsLoaded = true
         if let fw = settings["fw"]?.stringValue { firmware = Self.version(fw) }
         hardwareRevision = settings["hwinfo"]?["hw_revision"]?.stringValue
-        settingsName = settings["name"]?.stringValue?.nonEmpty
+        settingsName = settings["name"]?.stringValue?.trimmedNonEmpty
         swapped = settings["rollers"]?[0]?["swap"]?.boolValue ?? false
         return true
     }

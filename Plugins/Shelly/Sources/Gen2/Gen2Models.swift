@@ -25,7 +25,7 @@ enum Gen2Models {
 
     /// The model's name: the table's, else "Shelly " and the device's `app` (`PlusPlugS`), else its model id.
     static func name(model: String, app: String?) -> String {
-        names[model.uppercased()] ?? app?.nonEmpty.map { "Shelly \($0)" } ?? "Shelly \(model)"
+        names[model.uppercased()] ?? app?.trimmedNonEmpty.map { "Shelly \($0)" } ?? "Shelly \(model)"
     }
 }
 

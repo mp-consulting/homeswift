@@ -33,7 +33,7 @@ enum TiltSensor {
 }
 
 extension Characteristic {
-    /// Sets the value when it differs, so an unchanged report sends no event.
+    /// Sets the value when it differs: an unchanged report reaches no observer (the history, scenes), as no controller.
     func update(_ value: HAPValue) {
         if self.value != value { self.value = value }
     }
@@ -125,7 +125,7 @@ extension JSONValue {
 }
 
 extension String {
-    var nonEmpty: String? {
+    var trimmedNonEmpty: String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }

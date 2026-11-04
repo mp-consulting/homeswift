@@ -19,7 +19,7 @@ extension ShellyPlugin {
         return nil
     }
 
-    static func normalized(_ id: String?) -> String? { id?.trimmingCharacters(in: .whitespaces).uppercased().nonEmpty }
+    static func normalized(_ id: String?) -> String? { id?.trimmingCharacters(in: .whitespaces).uppercased().trimmedNonEmpty }
 
     /// The keys of a device's options, in `devices` and in `_accessories`.
     static let deviceKeys = ["type", "colorMode", "accessories"]
@@ -47,7 +47,7 @@ extension ShellyPlugin {
     /// The device's own pair when both are set, else what Setup kept for it, else the block's, else the account's.
     func credentials(for id: String) -> (username: String, password: String)? {
         func pair(_ username: String?, _ password: String?) -> (String, String)? {
-            guard let username = username?.nonEmpty, let password, !password.isEmpty else { return nil }
+            guard let username = username?.trimmedNonEmpty, let password, !password.isEmpty else { return nil }
             return (username, password)
         }
         let entry = legacyEntry(id)
@@ -82,10 +82,10 @@ extension ShellyPlugin {
         var plain: [String: DeviceCredentials] = [:]
         for item in configuration.devices ?? [] {
             guard let id = Self.normalized(item["id"]?.stringValue), let password = item["password"]?.stringValue, !password.isEmpty else { continue }
-            plain[id] = DeviceCredentials(username: item["username"]?.stringValue?.nonEmpty ?? "admin", password: password)
+            plain[id] = DeviceCredentials(username: item["username"]?.stringValue?.trimmedNonEmpty ?? "admin", password: password)
         }
         var account: DeviceCredentials?
-        if let username = configuration.username?.nonEmpty, let password = configuration.password, !password.isEmpty {
+        if let username = configuration.username?.trimmedNonEmpty, let password = configuration.password, !password.isEmpty {
             account = DeviceCredentials(username: username, password: password)
         }
         let (canonical, moved, accountMoved) = Self.canonical(block, plain: plain, account: account)
@@ -120,7 +120,7 @@ extension ShellyPlugin {
                 left.append(item)
                 continue
             }
-            if let name = device["name"]?.stringValue?.nonEmpty { entries.setIfAbsent("name", .string(name), on: id) }
+            if let name = device["name"]?.stringValue?.trimmedNonEmpty { entries.setIfAbsent("name", .string(name), on: id) }
             if device["exclude"]?.boolValue == true { entries.exclude(id) }
             for key in deviceKeys { if let value = device[key], !value.isNull { entries.setIfAbsent(key, value, on: id) } }
             if hasPassword, let credentials = plain[id] { moved[id] = credentials }
@@ -161,7 +161,7 @@ extension ShellyPlugin {
         for (id, item) in found {
             let shelly = answers[id] ?? nil
             let needsLogin = shelly?["auth"]?.boolValue == true
-            let name = context.accessorySettings(for: id).name ?? legacyEntry(id)?["name"]?.stringValue?.nonEmpty ?? Gen1Builder.seed(item.model, deviceID: id, index: 0, count: 1)
+            let name = context.accessorySettings(for: id).name ?? legacyEntry(id)?["name"]?.stringValue?.trimmedNonEmpty ?? Gen1Builder.seed(item.model, deviceID: id, index: 0, count: 1)
             var device = DiscoveredDevice(
                 deviceID: id, name: name, model: item.model.name, address: item.host, authorization: needsLogin ? .accountLogin : .none,
                 isSetUp: !needsLogin || credentials(for: id) != nil, excludedBySettings: legacyEntry(id)?["exclude"]?.boolValue == true,

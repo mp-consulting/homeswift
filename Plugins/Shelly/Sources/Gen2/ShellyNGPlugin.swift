@@ -102,8 +102,7 @@ public actor ShellyNGPlugin: HomeswiftPlugin {
     public func start() async throws {
         await removeExcludedAccessories()
         // Devices with an address in config.json, then where the cache last saw them, then mDNS.
-        var known: [String: String] = [:]
-        for (id, host) in cachedDevices().mapValues(\.hostname) { known[id] = host }
+        var known = cachedDevices().mapValues(\.hostname)
         for (id, options) in allOptions() where !options.exclude { if let host = options.hostname { known[id] = host } }
         for (id, host) in known.sorted(by: { $0.key < $1.key }) {
             tasks.add { [weak self] in await self?.keepTrying(Sighting(deviceID: id, host: host)) }
@@ -125,7 +124,7 @@ public actor ShellyNGPlugin: HomeswiftPlugin {
             logger.debug("mDNS device discovery disabled")
             return
         }
-        let interface = mdns?["interface"]?.stringValue?.nonEmpty
+        let interface = mdns?["interface"]?.stringValue?.trimmedNonEmpty
         if let interface, !Self.isLocalInterface(interface) {
             logger.error("Failed to start mDNS device discovery: Invalid network interface \"\(interface)\"")
             return

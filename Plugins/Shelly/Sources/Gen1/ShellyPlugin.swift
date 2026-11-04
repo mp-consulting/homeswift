@@ -120,7 +120,7 @@ public actor ShellyPlugin: HomeswiftPlugin {
 
     /// `networkInterface` as an IPv4 address: an interface's first, or one of the host's; nil for the default.
     private func resolveInterface() -> String? {
-        guard let value = configuration.networkInterface?.nonEmpty else { return nil }
+        guard let value = configuration.networkInterface?.trimmedNonEmpty else { return nil }
         let local = NetworkInterfaces.ipv4()
         if let address = IPv4Network.parse(value), local.contains(where: { $0.address == address }) { return value }
         if let address = NetworkInterfaces.ipv4Address(ofInterface: value) { return address }
@@ -261,7 +261,7 @@ public actor ShellyPlugin: HomeswiftPlugin {
             device: device, platform: Self.platform, context: context, logger: device.logger, lightDelay: .milliseconds(Int(100 * scale)),
             rollerDelay: .milliseconds(Int(1000 * scale)), rollerSettle: .milliseconds(Int(500 * scale)))
         let settingsName = await device.settingsName
-        let deviceName = deviceOptions(device.deviceID)["name"]?.stringValue?.nonEmpty ?? settingsName
+        let deviceName = deviceOptions(device.deviceID)["name"]?.stringValue?.trimmedNonEmpty ?? settingsName
         var made: [Gen1Builder.Built] = []
         for index in 0..<count {
             do {
