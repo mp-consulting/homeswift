@@ -33,13 +33,14 @@ public final class UDPSocket: Sendable {
         self.datagramsWithPorts = datagramsWithPorts
     }
 
-    /// Binds a socket. `reuseAddress` lets another process (or bridge) bind the same port, `broadcast` allows sends
-    /// to broadcast addresses, `multicastGroup` joins that IPv4 group (on the interface whose IPv4 address is
-    /// `multicastInterface`, when given; the system's choice otherwise). `bufferSize` datagrams wait at most for a
-    /// reader; older ones are dropped beyond. `senderPorts` hands them over in `datagramsWithPorts` instead of `datagrams`.
+    /// Binds a socket. `reuseAddress` lets another process (or bridge) bind the same port (with `reusePort` too on macOS and
+    /// BSD, where a shared wildcard UDP port needs `SO_REUSEPORT`), `broadcast` allows sends to broadcast addresses,
+    /// `multicastGroup` joins that IPv4 group (on the interface whose IPv4 address is `multicastInterface`, when given; the
+    /// system's choice otherwise). `bufferSize` datagrams wait at most for a reader; older ones are dropped beyond.
+    /// `senderPorts` hands them over in `datagramsWithPorts` instead of `datagrams`.
     public static func bind(
-        host: String = "0.0.0.0", port: Int = 0, reuseAddress: Bool = false, broadcast: Bool = false, multicastGroup: String? = nil,
-        multicastInterface: String? = nil, bufferSize: Int = 256, senderPorts: Bool = false,
+        host: String = "0.0.0.0", port: Int = 0, reuseAddress: Bool = false, reusePort: Bool = false, broadcast: Bool = false,
+        multicastGroup: String? = nil, multicastInterface: String? = nil, bufferSize: Int = 256, senderPorts: Bool = false,
         group: any EventLoopGroup = MultiThreadedEventLoopGroup.singleton
     ) async throws -> UDPSocket {
         let (stream, plain) = AsyncStream<(data: Data, address: String)>.makeStream(bufferingPolicy: .bufferingNewest(bufferSize))
@@ -49,6 +50,7 @@ public final class UDPSocket: Sendable {
         let inbound = Inbound(plain: plain, ported: ported, senderPorts: senderPorts)
         var bootstrap = DatagramBootstrap(group: group)
         if reuseAddress { bootstrap = bootstrap.channelOption(.socketOption(.so_reuseaddr), value: 1) }
+        if reusePort { bootstrap = bootstrap.channelOption(.socketOption(.so_reuseport), value: 1) }
         if broadcast { bootstrap = bootstrap.channelOption(.socketOption(.so_broadcast), value: 1) }
         let channel: any Channel
         do {

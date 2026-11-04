@@ -63,6 +63,7 @@ HomeswiftI18n.add("fr", {
   "Purifiers and fans: speed, oscillation, heat, humidity and air quality": "Purificateurs et ventilateurs : vitesse, oscillation, chauffage, humidité et qualité de l'air",
   "Sonoff and other eWeLink switches, outlets, lights, curtains and sensors": "Interrupteurs, prises, lumières, rideaux et capteurs Sonoff et autres eWeLink",
   "Power stations and home batteries: charge, and their power live": "Stations électriques et batteries domestiques : charge, et leur puissance en direct",
+  "Sonos speakers: play, volume and groups, favourites as TV inputs, LEDs and alarms": "Enceintes Sonos : lecture, volume et groupes, favoris en entrées TV, voyants et alarmes",
   "Tuya and Smart Life devices through the Tuya cloud": "Appareils Tuya et Smart Life via le cloud Tuya",
   "Bots, curtains, meters, locks, lights and IR remotes through the SwitchBot cloud": "Bots, rideaux, thermomètres, serrures, lampes et télécommandes IR via le cloud SwitchBot",
   "Thermostats, radiator valves, hot water and air conditioners of a tado° account": "Thermostats, têtes de radiateur, eau chaude et climatiseurs d’un compte tado°",

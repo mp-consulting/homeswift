@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- The Sonos plugin (platform `ZP`, homebridge-zp's block): zones found by SSDP and mDNS and followed through UPnP events, their
+  group's playback, volume and sleep timer, a Speakers service, LEDs, alarms and a TV per zone with the favourites as inputs;
+  `HomeswiftNetwork.SSDP`, an SSDP search and listener for plugins. Experimental: written from a clean-room spec.
 - Tuya: an experimental plugin for Tuya and Smart Life devices through the Tuya Cloud OpenAPI, compatible with
   homebridge-tuya-platform's `TuyaPlatform` block: lights with Adaptive Lighting, switches and plugs with energy,
   climate, covers, locks, sensors, cameras' events, IR remotes and scenes, kept current by Tuya's MQTT push.

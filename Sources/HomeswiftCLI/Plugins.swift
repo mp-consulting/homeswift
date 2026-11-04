@@ -15,6 +15,7 @@ import HomeswiftMQTTThing
 import HomeswiftPhilipsAmbilightTV
 import HomeswiftPhilipsHue
 import HomeswiftPlugin
+import HomeswiftSonos
 import HomeswiftTuya
 import HomeswiftSwitchBot
 import HomeswiftTado
@@ -48,6 +49,7 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(PhilipsHuePlugin.self)
     registry.register(DirigeraPlugin.self)
     registry.register(EcoFlowPlugin.self)
+    registry.register(SonosPlugin.self)
     registry.register(TuyaPlugin.self)
     registry.register(SwitchBotPlugin.self)
     registry.register(TadoPlugin.self)
