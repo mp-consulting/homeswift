@@ -105,15 +105,15 @@ struct DummyScheduleTests {
         let start = parisDate(2026, 11, 4, 10)
         let harness = await Harness([entry], now: start)
         _ = await harness.engine.write(id, .on(true))
-        #expect(await harness.stored(id, "On") == .bool(true))
-        #expect(await harness.stored(id, "AutoReset")?.doubleValue == start.timeIntervalSince1970 * 1000 + 5000)
+        await check(await harness.stored(id, "On") == .bool(true))
+        await check(await harness.stored(id, "AutoReset")?.doubleValue == start.timeIntervalSince1970 * 1000 + 5000)
         await harness.advance(3)
         _ = await harness.engine.write(id, .on(true))
         await harness.advance(4.9)
         #expect(harness.value(id, .on) == .bool(true))
         await harness.advance(0.2)
         #expect(harness.value(id, .on) == .bool(false))
-        #expect(await harness.stored(id, "AutoReset") == nil)
+        await check(await harness.stored(id, "AutoReset") == nil)
 
         // On again, then a restart before it resets: the timer resumes for what was left.
         _ = await harness.engine.write(id, .on(true))
@@ -179,7 +179,8 @@ struct DummyFeatureTests {
         ]], now: parisDate(2026, 11, 4, 23, 30))
         _ = await harness.engine.write("h", .on(true))
         let limiterID = DummyIdentity.limiterIdentifier(accessory: "h", limiter: LimiterConfig(limit: 1, units: .hours, period: .day, resetOnRestart: false))
-        let record = try #require(LimiterRecord(await harness.stored(limiterID, "Limiter")))
+        let stored = await harness.stored(limiterID, "Limiter")
+        let record = try #require(LimiterRecord(stored))
         #expect(record.timeRemaining == 90 * 60_000)
         #expect(record.resetTimestamp == parisDate(2026, 11, 5).timeIntervalSince1970 * 1000)
         await harness.advance(89 * 60)
@@ -188,13 +189,14 @@ struct DummyFeatureTests {
         #expect(harness.value("h", .on) == .bool(false))
         // The period ended at midnight: the next trigger has a fresh hour.
         _ = await harness.engine.write("h", .on(true))
-        let fresh = try #require(LimiterRecord(await harness.stored(limiterID, "Limiter")))
+        let freshStored = await harness.stored(limiterID, "Limiter")
+        let fresh = try #require(LimiterRecord(freshStored))
         #expect(fresh.timeRemaining == 3_600_000)
         #expect(fresh.resetTimestamp == parisDate(2026, 11, 6).timeIntervalSince1970 * 1000)
         // Off after 10 minutes: 50 minutes are left.
         await harness.advance(600)
         _ = await harness.engine.write("h", .on(false))
-        #expect(LimiterRecord(await harness.stored(limiterID, "Limiter"))?.timeRemaining == 50 * 60_000)
+        await check(LimiterRecord(await harness.stored(limiterID, "Limiter"))?.timeRemaining == 50 * 60_000)
     }
 
     @Test func aLimiterLongerThanItsPeriodIsRefused() {
@@ -235,7 +237,7 @@ struct DummyFeatureTests {
             ]]],
         ], now: parisDate(2026, 11, 4, 10))
         #expect(harness.value("alarm", .on) == .bool(false))
-        #expect(await harness.engine.write("door", .targetPosition(40)) == .int(100))
+        await check(await harness.engine.write("door", .targetPosition(40)) == .int(100))
         #expect(harness.value("door", .targetPosition) == .int(100))
         #expect(harness.value("alarm", .on) == .bool(true))
         _ = await harness.engine.write("door", .targetPosition(0))
@@ -257,7 +259,7 @@ struct DummyFeatureTests {
         let harness = await Harness([
             ["id": "l", "name": "Log", "type": "Switch", "conditions": ["operator": "or", "operands": [["type": "LOG", "pattern": "doorbell (rang|pressed)"]]]],
         ], now: parisDate(2026, 11, 4, 10))
-        #expect(await harness.engine.registerLogPatterns())
+        await check(await harness.engine.registerLogPatterns())
         await harness.engine.logLine("the front doorbell rang twice")
         #expect(harness.value("l", .on) == .bool(true))
     }
@@ -327,7 +329,7 @@ struct DummyFeatureTests {
         #expect(harness.value("v", .valveType) == .int(1))
         _ = await harness.engine.write("v", .active(1))
         await harness.advance(20)
-        #expect(await harness.engine.remainingDuration("v") == 100)
+        await check(await harness.engine.remainingDuration("v") == 100)
         _ = await harness.engine.write("v", .setDuration(30))
         _ = await harness.engine.write("v", .active(1))
         await harness.advance(30.1)
@@ -343,7 +345,7 @@ struct DummyFeatureTests {
         _ = await harness.engine.write("n", .on(true))
         _ = await harness.engine.write("n", .on(true))
         _ = await harness.engine.write("n", .on(false))
-        #expect(await eventually { harness.notifier.sent.withLockedValue { $0.count } == 2 })
+        await check(await eventually { harness.notifier.sent.withLockedValue { $0.count } == 2 })
         let sent = harness.notifier.sent.withLockedValue { $0 }
         #expect(sent.map(\.text).sorted() == ["It is off", "It is on"])
     }
@@ -379,7 +381,7 @@ struct DummyFeatureTests {
         #expect(harness.services["t"]?.primary[.currentHeatingCoolingState]?.type.validValues == [0, 1])
         let set = await harness.webhook(["id": "t", "set": "TargetTemperature", "value": "77"])
         #expect(set == .json(200, ["success": "Thermo set to 77°F"]))
-        #expect(abs((await harness.stored("t", "TargetTemperature")?.doubleValue ?? 0) - 25) < 1e-9)
+        await check(abs((await harness.stored("t", "TargetTemperature")?.doubleValue ?? 0) - 25) < 1e-9)
         #expect(abs((harness.value("t", .currentTemperature)?.doubleValue ?? 0) - 25) < 1e-9)
         let range = await harness.webhook(["id": "t", "set": "TargetTemperature", "value": "95"])
         #expect(range == .error("The TargetTemperature characteristic expects a number value between 50 and 90"))
@@ -411,18 +413,18 @@ struct DummyWebhookTests {
     /// TV2.
     @Test func theLampsWebhooks() async {
         let harness = await Harness([lamp], now: parisDate(2026, 11, 4, 10))
-        #expect(await harness.webhook(["id": id, "set": "On", "value": "true"]) == .json(200, ["success": "Desk Lamp is on, brightness is 100%"]))
-        #expect(await harness.webhook(["id": id, "set": "On", "value": "1"]) == .error("Valid values for the On characteristic command are: true, false"))
-        #expect(await harness.webhook(["id": id, "get": "Brightness"]) == .json(200, ["value": 100]))
-        #expect(await harness.webhook(["id": id, "set": "Brightness", "value": "150"])
+        await check(await harness.webhook(["id": id, "set": "On", "value": "true"]) == .json(200, ["success": "Desk Lamp is on, brightness is 100%"]))
+        await check(await harness.webhook(["id": id, "set": "On", "value": "1"]) == .error("Valid values for the On characteristic command are: true, false"))
+        await check(await harness.webhook(["id": id, "get": "Brightness"]) == .json(200, ["value": 100]))
+        await check(await harness.webhook(["id": id, "set": "Brightness", "value": "150"])
             == .error("The Brightness characteristic expects a number value between 0 and 100"))
-        #expect(await harness.webhook(["id": id, "sync": "On", "value": false]) == .json(200, ["success": "Desk Lamp is off"]))
+        await check(await harness.webhook(["id": id, "sync": "On", "value": false]) == .json(200, ["success": "Desk Lamp is off"]))
         #expect(harness.value("3f2c9a1e-8b7d-4c55-9e21-0a1b2c3d4e5f", .on) == .bool(false))
         let unknown = await harness.webhook(["id": "nope", "set": "On", "value": "true"])
         #expect(unknown.status == 400 && unknown.body.contains("`nope`"))
-        #expect(await harness.webhook(["set": "On"]) == .error("Request is missing id"))
-        #expect(await harness.webhook(["id": id, "set": "On"]) == .error("`set` requests require a `value`"))
-        #expect(await harness.webhook(["id": id]).body.contains("missing a get or set command"))
+        await check(await harness.webhook(["set": "On"]) == .error("Request is missing id"))
+        await check(await harness.webhook(["id": id, "set": "On"]) == .error("`set` requests require a `value`"))
+        await check(await harness.webhook(["id": id]).body.contains("missing a get or set command"))
         let page = await harness.webhook([:])
         #expect(page.contentType.hasPrefix("text/html"))
         #expect(page.body.components(separatedBy: "<tr><td>").count - 1 == 2)
@@ -430,9 +432,9 @@ struct DummyWebhookTests {
 
     @Test func aButtonIsPressedByWebhook() async {
         let harness = await Harness([["id": "b", "name": "Bell", "type": "StatelessProgrammableSwitch", "enableWebhook": true]], now: parisDate(2026, 11, 4, 10))
-        #expect(await harness.webhook(["id": "b", "set": "ProgrammableSwitchEvent", "value": "1"]) == .json(200, ["success": "Bell was double pressed"]))
+        await check(await harness.webhook(["id": "b", "set": "ProgrammableSwitchEvent", "value": "1"]) == .json(200, ["success": "Bell was double pressed"]))
         #expect(harness.value("b", .programmableSwitchEvent) == .int(1))
-        #expect(await harness.webhook(["id": "b", "get": "ProgrammableSwitchEvent"]) == .json(200, [:]))
+        await check(await harness.webhook(["id": "b", "get": "ProgrammableSwitchEvent"]) == .json(200, [:]))
     }
 
     @Test func requestsAreParsedAndTheTokenChecked() throws {

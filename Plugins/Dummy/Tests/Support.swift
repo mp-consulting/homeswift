@@ -110,3 +110,9 @@ func eventually(timeout: Duration = .seconds(5), _ condition: @Sendable () async
     }
     return await condition()
 }
+
+/// `#expect` of something awaited: Linux's toolchain does not take `await` inside the macro.
+func check(_ condition: @autoclosure () async throws -> Bool, _ comment: Comment? = nil, sourceLocation: SourceLocation = #_sourceLocation) async rethrows {
+    let holds = try await condition()
+    #expect(holds, comment, sourceLocation: sourceLocation)
+}

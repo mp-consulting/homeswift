@@ -56,7 +56,7 @@ struct DummyTests {
         ]])
         defer { Task { await host.stop() } }
         let id = "HomebridgeDummy:Switch:MySwitch"
-        #expect(await eventually { host.mainBridge.server.accessories.contains { $0.id == id } })
+        await check(await eventually { host.mainBridge.server.accessories.contains { $0.id == id } })
         let accessory = try #require(host.mainBridge.server.accessories.first { $0.id == id })
         #expect(accessory.information[.serialNumber]?.value == .string("HomebridgeDummy:Switch:MySwitch"))
         #expect(accessory.information[.model]?.value == .string("Switch"))
@@ -71,7 +71,8 @@ struct DummyTests {
         let on = try #require(switchService[.on])
         try await on.write(.bool(true))
         #expect(on.value == .bool(true))
-        let devices = try await #require(environment.plugin).discover()
+        let plugin = try #require(environment.plugin)
+        let devices = try await plugin.discover()
         #expect(Set(devices.map(\.deviceID)) == ["Switch:MySwitch", "lamp"])
         await host.stop()
     }
@@ -84,7 +85,7 @@ struct DummyTests {
         ], "webhookConfig": ["disableSSL": true, "bindAddress": "127.0.0.1"]])
         defer { Task { await host.stop() } }
         let id = "HomebridgeDummy:Group:LivingRoom)}"
-        #expect(await eventually { host.mainBridge.server.accessories.contains { $0.id == id } })
+        await check(await eventually { host.mainBridge.server.accessories.contains { $0.id == id } })
         let accessory = try #require(host.mainBridge.server.accessories.first { $0.id == id })
         #expect(accessory.information[.model]?.value == .string("GroupAccessory"))
         #expect(accessory.information[.serialNumber]?.value == .string("c2d8b53c-f535-47da-973d-eee490dcbff7"))
@@ -94,7 +95,7 @@ struct DummyTests {
         #expect(lamp[.configuredName]?.value == .string("Lamp"))
         #expect(accessory.services.first { $0.subtype == "b2" }?.type == .switch)
         let plugin = try #require(environment.plugin)
-        #expect(await plugin.webhookServer?.port != nil)
+        await check(await plugin.webhookServer?.port != nil)
         await host.stop()
     }
 
@@ -103,9 +104,11 @@ struct DummyTests {
             ["id": "bell", "name": "Bell", "type": "Switch", "conditions": ["operator": "or", "operands": [["type": "LOG", "pattern": "Doorbell rang"]]]],
         ]])
         defer { Task { await host.stop() } }
-        let accessory = try #require(await eventually { host.mainBridge.server.accessories.contains { $0.id == "HomebridgeDummy:bell" } } ? host.mainBridge.server.accessories.first { $0.id == "HomebridgeDummy:bell" } : nil)
+        let added = await eventually { host.mainBridge.server.accessories.contains { $0.id == "HomebridgeDummy:bell" } }
+        #expect(added)
+        let accessory = try #require(host.mainBridge.server.accessories.first { $0.id == "HomebridgeDummy:bell" })
         environment.logs.append(LogBuffer.Line(level: .info, label: "Other plugin", text: "Doorbell rang at the front"))
-        #expect(await eventually { accessory.service(.switch)?[.on]?.value == .bool(true) })
+        await check(await eventually { accessory.service(.switch)?[.on]?.value == .bool(true) })
         await host.stop()
     }
 

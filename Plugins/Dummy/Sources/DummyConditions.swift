@@ -73,7 +73,10 @@ extension DummyEngine {
         for (identifier, regex, literal) in logPatterns {
             let matched = regex.map { $0.firstMatch(in: text, range: range) != nil } ?? text.contains(literal)
             guard matched, let device = devices[identifier], let conditions = device.config.conditions else { continue }
-            if conditions.operands.count == 1 || conditions.operator == .or || evaluate(device, forLog: true) {
+            // Not in an autoclosure of `||`: Linux's compiler takes the device for sent out of the actor.
+            var satisfied = conditions.operands.count == 1 || conditions.operator == .or
+            if !satisfied { satisfied = evaluate(device, forLog: true) }
+            if satisfied {
                 info(device, "\(device.name) conditions have been satisfied. Triggering…")
                 trigger(device, source: .condition)
             }
