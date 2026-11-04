@@ -8,6 +8,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- The Roborock plugin (experimental, `RoborockVacuumPlatform`, a clean-room implementation compatible with homebridge-roborock-vacuum's configuration): robot vacuums on the LAN (protocols 1.0 and L01) with the cloud's MQTT as a fallback, sign-in through Setup with a password or an emailed code; and `TCPSocket` in `HomeswiftNetwork`.
 - Google Nest (`homebridge-google-nest-sdm`), experimental: Nest thermostats, cameras, doorbells and displays through
   Google's Device Access, with Pub/Sub events, RTSP live view and HomeKit Secure Video (a clean-room implementation).
 - The Dummy Accessories plugin (`HomebridgeDummy`, compatible with homebridge-dummy's configuration): switches, lights, locks, doors, sensors, thermostats and more that exist only in HomeKit, with schedules, sun times, auto-resets, limiters, conditions and webhooks. Plugins can follow the bridge's log (`PluginContext.logs`).

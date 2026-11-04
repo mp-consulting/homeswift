@@ -15,6 +15,7 @@ import HomeswiftMQTTThing
 import HomeswiftPhilipsAmbilightTV
 import HomeswiftPhilipsHue
 import HomeswiftPlugin
+import HomeswiftRoborock
 import HomeswiftShelly
 import HomeswiftTPLinkSmarthome
 import HomeswiftTapo
@@ -44,6 +45,7 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(PhilipsHuePlugin.self)
     registry.register(DirigeraPlugin.self)
     registry.register(EcoFlowPlugin.self)
+    registry.register(RoborockPlugin.self)
     registry.register(GoogleNestSDMPlugin.self)
     registry.register(DummyPlugin.self)
     registry.register(MQTTThingPlugin.self)

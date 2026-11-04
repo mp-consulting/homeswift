@@ -59,6 +59,7 @@ HomeswiftI18n.add("pt", {
   "Lights, outlets, sensors, blinds, purifiers and scenes, locally": "Luzes, tomadas, sensores, estores, purificadores e cenas, localmente",
   "Zigbee lights, sensors, blinds and remotes from Zigbee2MQTT, over MQTT": "Luzes, sensores, estores e comandos Zigbee do Zigbee2MQTT, por MQTT",
   "Pool robots: start and stop cleaning, water temperature and filter": "Robôs de piscina: iniciar e parar a limpeza, temperatura da água e filtro",
+  "Robot vacuums: clean, dock, battery, mop washing, scenes and brushes": "Robôs aspiradores: limpeza, regresso à base, bateria, lavagem da esfregona, cenas e escovas",
   "Purifiers and fans: speed, oscillation, heat, humidity and air quality": "Purificadores e ventoinhas: velocidade, oscilação, aquecimento, humidade e qualidade do ar",
   "Sonoff and other eWeLink switches, outlets, lights, curtains and sensors": "Interruptores, tomadas, luzes, cortinas e sensores Sonoff e outros eWeLink",
   "Power stations and home batteries: charge, and their power live": "Estações de energia e baterias domésticas: carga, e a sua potência em direto",
