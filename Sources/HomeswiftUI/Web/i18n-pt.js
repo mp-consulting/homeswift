@@ -1327,6 +1327,8 @@ HomeswiftI18n.add("pt", {
   "New room…": "Nova divisão…",
   "The new room's name.": "O nome da nova divisão.",
   "Search rooms": "Procurar divisões",
+  "Other…": "Outro…",
+  "The list could not be read": "Não foi possível ler a lista",
   "Find a setting": "Procurar uma definição",
   "No setting matches.": "Nenhuma definição corresponde.",
   "Motion": "Movimento",
