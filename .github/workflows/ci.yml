@@ -14,6 +14,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Whether the Swift jobs run: a pull request that changes only docs, the website or Markdown skips them. A skipped job
+  # passes a required check; pushes to main always run them.
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      swift: ${{ steps.files.outputs.swift }}
+    steps:
+      - id: files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.number }}
+        run: |
+          if [ "${{ github.event_name }}" != pull_request ]; then echo swift=true >> "$GITHUB_OUTPUT"; exit 0; fi
+          files=$(gh api --paginate "repos/${{ github.repository }}/pulls/$PR/files" --jq '.[].filename') || { echo swift=true >> "$GITHUB_OUTPUT"; exit 0; }
+          other=$(printf '%s\n' "$files" | grep -vE '^(site/|docs/|Benchmarks/|\.github/ISSUE_TEMPLATE/|[^/]+\.md$|Plugins/[^/]+/README\.md$)' || true)
+          if [ -n "$other" ]; then echo swift=true >> "$GITHUB_OUTPUT"; else echo swift=false >> "$GITHUB_OUTPUT"; echo "Only docs and the website changed: the Swift jobs are skipped"; fi
+
   website:
     runs-on: ubuntu-latest
     steps:
@@ -28,6 +47,8 @@ jobs:
           node Scripts/test-accessory-groups.mjs
 
   macos:
+    needs: changes
+    if: needs.changes.outputs.swift == 'true'
     runs-on: macos-26
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -51,7 +72,7 @@ jobs:
       - name: Key the build cache
         # Builds reuse the last one's .build: the dependencies (two BoringSSLs, swift-nio) and what did not change.
         # Keyed by the toolchain and Package.resolved; main saves one per commit, a pull request one for its first
-        # successful run (a failed one may lack the release build).
+        # successful run (a failed one may lack what the next one needs).
         id: build-key
         run: echo "key=build-${{ runner.os }}-$(swift --version 2>&1 | cksum | cut -d' ' -f1)-${{ hashFiles('Package.resolved') }}" >> "$GITHUB_OUTPUT"
 
@@ -72,7 +93,8 @@ jobs:
           CACHE_KEY: ${{ steps.restore-build.outputs.cache-matched-key }}
 
       - name: Test
-        # A watchdog prints the test process's stacks and fails when the tests stall, rather than waiting for the job.
+        # Every test bundle at once (Scripts/test.sh); a watchdog prints the test processes' stacks and fails when the
+        # tests stall, rather than waiting for the job.
         timeout-minutes: 25
         run: Scripts/ci-test.sh
 
@@ -81,6 +103,8 @@ jobs:
         run: swiftc -parse-as-library -o "$RUNNER_TEMP/test-restart" Sources/HomeswiftCLI/Restart.swift Scripts/test-restart.swift && "$RUNNER_TEMP/test-restart"
 
       - name: Build
+        # On main only: a pull request's release build is Linux's, and macOS's queue is what holds a merge up.
+        if: github.event_name == 'push'
         run: swift build -c release
 
       - name: Save the build
@@ -91,6 +115,8 @@ jobs:
           key: ${{ steps.restore-build.outputs.cache-primary-key }}
 
   linux:
+    needs: changes
+    if: needs.changes.outputs.swift == 'true'
     runs-on: ubuntu-latest
     container: swift:6.2
     steps:
@@ -112,7 +138,7 @@ jobs:
       - name: Key the build cache
         # Builds reuse the last one's .build: the dependencies (two BoringSSLs, swift-nio) and what did not change.
         # Keyed by the toolchain and Package.resolved; main saves one per commit, a pull request one for its first
-        # successful run (a failed one may lack the release build).
+        # successful run (a failed one may lack what the next one needs).
         id: build-key
         run: echo "key=build-${{ runner.os }}-$(swift --version 2>&1 | cksum | cut -d' ' -f1)-${{ hashFiles('Package.resolved') }}" >> "$GITHUB_OUTPUT"
 

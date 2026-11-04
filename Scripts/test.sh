@@ -26,8 +26,14 @@ fi
 bin="$(swift build --show-bin-path ${build[@]+"${build[@]}"})"
 developer="$(xcode-select -p)/Platforms/MacOSX.platform/Developer"
 helper="$(dirname "$(xcrun --find swift)")/../libexec/swift/pm/swiftpm-testing-helper"
-logs="$(mktemp -d -t homeswift-tests.XXXXXX)"
-trap 'rm -rf "$logs"' EXIT
+# $TEST_LOG_DIR keeps the bundles' logs where Scripts/ci-test.sh's watchdog sees them grow; otherwise a temporary folder.
+if [ -n "${TEST_LOG_DIR:-}" ]; then
+    logs="$TEST_LOG_DIR"
+    mkdir -p "$logs"
+else
+    logs="$(mktemp -d -t homeswift-tests.XXXXXX)"
+    trap 'rm -rf "$logs"' EXIT
+fi
 
 shopt -s nullglob
 bundles=("$bin"/*.xctest)
