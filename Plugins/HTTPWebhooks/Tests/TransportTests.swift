@@ -75,6 +75,24 @@ struct TransportTests {
         let caller = OutgoingCaller(client: { _ in http }, logger: testLogger)
         try await caller.send(OutgoingCall(url: "http://a/start", method: "GET", rejectUnauthorized: true), timeout: .seconds(5), name: "Test")
         #expect(await http.urls == ["http://a/start", "http://a/next"])
+        // Credentials and the entry's headers stay on the host they were given for, and off a downgrade to HTTP.
+        let headers = #"{"X-Api-Key":"k","Accept":"text/plain"}"#
+        await http.redirect("http://u:p@a/same", to: "http://a/kept")
+        await http.redirect("http://a/same", to: "http://a/kept")
+        await http.redirect("http://a/away", to: "http://b/elsewhere")
+        await http.redirect("https://a/secure", to: "http://a/plain")
+        for url in ["http://u:p@a/same", "http://u:p@a/away", "https://u:p@a/secure"] {
+            try await caller.send(OutgoingCall(url: url, method: "GET", headers: headers, rejectUnauthorized: true), timeout: .seconds(5), name: "Test")
+        }
+        let requests = await http.requests
+        func last(_ url: String) -> HTTPRequest? { requests.last { $0.url.absoluteString == url } }
+        #expect(last("http://a/kept")?.header("X-Api-Key") == "k")
+        #expect(last("http://a/kept")?.header("Authorization") != nil)
+        for url in ["http://b/elsewhere", "http://a/plain"] {
+            #expect(last(url)?.header("X-Api-Key") == nil, "\(url)")
+            #expect(last(url)?.header("Accept") == nil, "\(url)")
+            #expect(last(url)?.header("Authorization") == nil, "\(url)")
+        }
         await http.answer("http://a/fails", status: 404)
         await #expect(throws: HAPStatusError.self) {
             try await caller.send(OutgoingCall(url: "http://a/fails", method: "GET", rejectUnauthorized: true), timeout: .seconds(5), name: "Test")

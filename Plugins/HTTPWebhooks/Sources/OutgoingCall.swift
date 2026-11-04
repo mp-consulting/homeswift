@@ -91,6 +91,12 @@ struct OutgoingCall: Sendable, Equatable {
         return request
     }
 
+    /// The names of the headers `headers` gives, lowercased.
+    var headerNames: Set<String> {
+        guard let headers, let object = (try? JSONValue(string: headers))?.objectValue else { return [] }
+        return Set(object.keys.map { $0.lowercased() })
+    }
+
     /// A header or form value as JavaScript turns it into text.
     static func text(_ value: JSONValue) -> String {
         switch value {
@@ -146,8 +152,13 @@ struct OutgoingCaller: Sendable {
                     redirects += 1
                     let remaining = deadline - ContinuousClock.now
                     guard remaining > .zero else { throw HTTPClientError.timeout }
-                    // Basic credentials stay with the host they were given for.
-                    if next.host != request.url.host { request.headers.removeAll { $0.name.lowercased() == "authorization" } }
+                    // Credentials and the entry's own headers (API keys) stay with the host they were given for, and off
+                    // a plain-HTTP hop.
+                    let downgraded = request.url.scheme?.lowercased() == "https" && next.scheme?.lowercased() == "http"
+                    if next.host?.lowercased() != request.url.host?.lowercased() || downgraded {
+                        let dropped = call.headerNames.union(["authorization"])
+                        request.headers.removeAll { dropped.contains($0.name.lowercased()) }
+                    }
                     request.url = next
                     request.timeout = remaining
                     continue
