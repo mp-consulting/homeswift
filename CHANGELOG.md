@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The Philips Hue Sync Box plugin (platform `PhilipsHueSyncBoxPlatform`, a clean-room implementation compatible with
+  homebridge-philips-hue-sync-box's configuration): a Lightbulb or Switch that starts and stops syncing, a power switch,
+  and televisions for the HDMI inputs, the modes, the intensities and the entertainment areas. The box is found by
+  Bonjour and set up with its button on Add accessories; its certificate is checked against Philips's root and the box's
+  name. `HTTPClient.TLS.authority(pem:serverName:)` trusts a maker's own certificate authority.
+
 ## [0.20.1] - 2026-11-04
 
 ### Fixed
@@ -14,6 +22,9 @@ All notable changes to this project are documented here. The format follows
   read past the end of a directory entry while listing `/proc/self/fd` (fixed after Swift 6.2), and the read sources on
   FFmpeg's pipes crashed libdispatch's event loop once processes started at once; tools now start through
   `HomeswiftNetwork.ChildProcess` (`posix_spawn`), and FFmpeg's output is read on a thread of its own.
+
+### Added
+
 
 ## [0.20.0] - 2026-11-04
 

@@ -64,6 +64,7 @@ HomeswiftI18n.add("pt", {
   "Sonoff and other eWeLink switches, outlets, lights, curtains and sensors": "Interruptores, tomadas, luzes, cortinas e sensores Sonoff e outros eWeLink",
   "Power stations and home batteries: charge, and their power live": "Estações de energia e baterias domésticas: carga, e a sua potência em direto",
   "Ring alarms, cameras, doorbells, chimes and Smart Lighting": "Alarmes, câmaras, campainhas, carrilhões e Smart Lighting da Ring",
+  "An HDMI Sync Box's syncing, modes, inputs and entertainment areas": "A sincronização, os modos, as entradas e as áreas de entretenimento de uma Sync Box HDMI",
   "Sonos speakers: play, volume and groups, favourites as TV inputs, LEDs and alarms": "Colunas Sonos: reprodução, volume e grupos, favoritos como entradas de TV, LED e alarmes",
   "Tuya and Smart Life devices through the Tuya cloud": "Dispositivos Tuya e Smart Life através da nuvem Tuya",
   "Bots, curtains, meters, locks, lights and IR remotes through the SwitchBot cloud": "Bots, cortinas, termómetros, fechaduras, luzes e comandos IV através da nuvem da SwitchBot",

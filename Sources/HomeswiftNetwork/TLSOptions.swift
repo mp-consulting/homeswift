@@ -63,6 +63,9 @@ public struct TLSOptions: Sendable, Equatable {
     /// The TLS 1.2 cipher suites offered, as an OpenSSL cipher list (`"DEFAULT"`); nil for NIOSSL's own. See
     /// `HTTPClient.cipherSuites`.
     public var cipherSuites: String?
+    /// For `.system` and `.roots`: whether the certificate must name the host connected to (or `serverName`). False
+    /// accepts any certificate the roots vouch for, for a device reached by an address its certificate does not name.
+    public var checksHostName = true
 
     /// The context built from these options, reused while they stay the same (one per client, not per connection).
     private let contextCache = ContextCache()
@@ -87,6 +90,9 @@ public struct TLSOptions: Sendable, Equatable {
         case .system: self.init(trust: .system)
         case .any: self.init(trust: .any)
         case .pinned(let fingerprint): self.init(trust: .pinned(fingerprint))
+        case .authority(let pem, let serverName):
+            self.init(trust: .roots(pem: pem), serverName: serverName)
+            checksHostName = serverName != nil
         }
     }
 
@@ -98,9 +104,12 @@ public struct TLSOptions: Sendable, Equatable {
         var clientIdentity: ClientIdentity?
         var alpn: [String]
         var cipherSuites: String?
+        var checksHostName: Bool
     }
 
-    private var contextKey: ContextKey { ContextKey(trust: trust, clientIdentity: clientIdentity, alpn: alpn, cipherSuites: cipherSuites) }
+    private var contextKey: ContextKey {
+        ContextKey(trust: trust, clientIdentity: clientIdentity, alpn: alpn, cipherSuites: cipherSuites, checksHostName: checksHostName)
+    }
 
     private final class ContextCache: Sendable {
         let entry = NIOLockedValueBox<(key: ContextKey, context: NIOSSLContext)?>(nil)
@@ -127,7 +136,9 @@ public struct TLSOptions: Sendable, Equatable {
             configuration.certificateVerification = .noHostnameVerification
         case .roots(let pem):
             configuration.trustRoots = .certificates(try NIOSSLCertificate.fromPEMBytes(Array(pem.utf8)))
+            if !checksHostName { configuration.certificateVerification = .noHostnameVerification }
         }
+        if case .system = trust, !checksHostName { configuration.certificateVerification = .noHostnameVerification }
         switch clientIdentity {
         case nil:
             break
@@ -147,14 +158,21 @@ public struct TLSOptions: Sendable, Equatable {
         return try NIOSSLContext(configuration: configuration)
     }
 
+    /// The name sent as SNI for `name`, or nil for an address. SNI carries host names only, and a device is often
+    /// reached by its address. An all-digit name such as a serial number ("123456789012") is a host name, not an IPv4
+    /// address: only four dotted numbers of one to three digits are one, and a name with a colon is an IPv6 address.
+    static func sniHostname(_ name: String) -> String? {
+        let parts = name.split(separator: ".", omittingEmptySubsequences: false)
+        let isIPv4 = parts.count == 4 && parts.allSatisfy { (1...3).contains($0.count) && $0.allSatisfy { $0.isASCII && $0.isNumber } }
+        return name.contains(":") || isIPv4 ? nil : name
+    }
+
     /// A client handler for `host`. `observed` receives the server certificate's fingerprint for `.any` and
     /// `.pinned`; a pinned mismatch is stored in `mismatch` and fails the handshake.
     func makeHandler(
         context: NIOSSLContext, host: String, observed: NIOLockedValueBox<String?>, mismatch: NIOLockedValueBox<(any Error)?>
     ) throws -> NIOSSLClientHandler {
-        let name = serverName ?? host
-        // SNI carries host names only; a device is often reached by its address.
-        let serverHostname = name.contains(":") || name.allSatisfy({ $0.isNumber || $0 == "." }) ? nil : name
+        let serverHostname = Self.sniHostname(serverName ?? host)
         switch trust {
         case .system, .roots:
             return try NIOSSLClientHandler(context: context, serverHostname: serverHostname)
