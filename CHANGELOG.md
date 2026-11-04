@@ -71,6 +71,8 @@ All notable changes to this project are documented here. The format follows
   light's place after it on a device with several lights, such as a Dymera), rather than the bridge's resource id; a
   device without one keeps the id, as scene switches do. Wingman's mirrors show the serial number Apple Home has for
   the device, rather than its HomeKit id, when there is one.
+- A large widget's row of chips (a fan's Swing, Night Mode, Jet Focus) stops short of the ⋯ menu in its corner rather
+  than running under it.
 
 ## [0.19.0] - 2026-11-02
 
