@@ -20,8 +20,7 @@ enum Discovery {
     /// A search answer (`200 OK` with `ST` the zone player type) or an `ssdp:alive` (`NT` the type): the id from `USN`,
     /// the address the datagram came from.
     static func hit(_ message: SSDPMessage, from address: String) -> DiscoveryHit? {
-        let accepted = (message.isSearchResponse && message["st"] == deviceType) || (message.isAlive && message["nt"] == deviceType)
-        guard accepted, let usn = message["usn"] else { return nil }
+        guard message.isSearchResponse || message.isAlive, message.type == deviceType, let usn = message["usn"] else { return nil }
         let fields = usn.split(separator: ":", omittingEmptySubsequences: false)
         guard fields.count > 1, !fields[1].isEmpty, !address.isEmpty else { return nil }
         return DiscoveryHit(id: String(fields[1]), address: address, household: message["x-rincon-household"], bootSeq: message["x-rincon-bootseq"].flatMap { Int($0) })
@@ -41,13 +40,8 @@ enum Discovery {
                 await withTaskGroup(of: Void.self) { group in
                     group.addTask {
                         do {
-                            let (announcements, close) = try await SSDP.listen()
-                            await withTaskCancellationHandler {
-                                for await received in announcements {
-                                    if let hit = hit(received.message, from: received.address) { continuation.yield(hit) }
-                                }
-                            } onCancel: {
-                                Task { await close() }
+                            for await received in try await SSDP.listen() {
+                                if let hit = hit(received.message, from: received.address) { continuation.yield(hit) }
                             }
                         } catch {
                             logger.warning("SSDP: cannot listen on port \(SSDP.port): \(error); players are found by search\(mdns ? " and mDNS" : "") only")

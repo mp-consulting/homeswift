@@ -50,8 +50,6 @@ struct DIDLItem: Sendable, Equatable {
     var desc: String?
     var albumArtURIs: [String] = []
 
-    init() {}
-
     init(_ element: XElement) {
         id = element.attribute("id") ?? ""
         parentID = element.attribute("parentID") ?? ""
@@ -111,8 +109,6 @@ struct TransportUpdate: Sendable, Equatable {
     var unknownScheme: String?
 
     static let trackLimit = 64
-
-    init() {}
 
     init(_ variables: [String: String]) {
         if let state = variables["TransportState"] { on = state == "PLAYING" || state == "TRANSITIONING" }

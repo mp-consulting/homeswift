@@ -38,7 +38,6 @@ enum SonosError: Error, CustomStringConvertible, Equatable {
     case soapFault(action: String, code: String?)
     case badResponse(String)
     case addressMismatch(expected: String, found: String)
-    case noCoordinator
 
     var description: String {
         switch self {
@@ -46,7 +45,6 @@ enum SonosError: Error, CustomStringConvertible, Equatable {
         case .soapFault(let action, let code): "\(action): SOAP fault\(code.map { " \($0)" } ?? "")"
         case .badResponse(let what): "unexpected response: \(what)"
         case .addressMismatch(let expected, let found): "address mismatch: expected \(expected), found \(found)"
-        case .noCoordinator: "no group coordinator"
         }
     }
 }
@@ -111,20 +109,20 @@ final class PlayerClient: Sendable {
         URL(string: "http://\(address):1400\(path)")!
     }
 
-    private func send(_ method: String, _ path: String, headers: [(String, String)], body: Data? = nil) async throws -> HTTPResponse {
-        let request = HTTPRequest(method: method, url: url(path), headers: headers.map { (name: $0.0, value: $0.1) }, body: body, timeout: timeout)
+    private func send(_ method: String, _ path: String, headers: [(String, String)], body: Data? = nil, timeout: Duration? = nil) async throws -> HTTPResponse {
+        let request = HTTPRequest(method: method, url: url(path), headers: headers.map { (name: $0.0, value: $0.1) }, body: body, timeout: timeout ?? self.timeout)
         let response = try await http.send(request)
         seen()
         return response
     }
 
-    /// Calls a SOAP action and answers its response's fields.
+    /// Calls a SOAP action and answers its response's fields; `timeout` overrides the client's.
     @discardableResult
-    func call(_ service: UPnPService, _ action: String, _ arguments: [(String, String)] = []) async throws -> [String: String] {
+    func call(_ service: UPnPService, _ action: String, _ arguments: [(String, String)] = [], timeout: Duration? = nil) async throws -> [String: String] {
         let body = SOAP.envelope(service: service, action: action, arguments: arguments)
         let response = try await send("POST", service.controlPath, headers: [
             ("SOAPaction", "\"\(service.urn)#\(action)\""), ("content-type", "text/xml; charset=utf-8"),
-        ], body: Data(body.utf8))
+        ], body: Data(body.utf8), timeout: timeout)
         guard response.isSuccess || response.status == 500 else { throw SonosError.http(response.status, action) }
         return try SOAP.response(response.body, action: action)
     }
@@ -156,8 +154,8 @@ final class PlayerClient: Sendable {
         return Subscription(sid: response.header("SID") ?? sid, timeout: Self.seconds(response.header("TIMEOUT")))
     }
 
-    func unsubscribe(_ eventPath: String, sid: String) async throws {
-        let response = try await send("UNSUBSCRIBE", eventPath, headers: [("SID", sid)])
+    func unsubscribe(_ eventPath: String, sid: String, timeout: Duration? = nil) async throws {
+        let response = try await send("UNSUBSCRIBE", eventPath, headers: [("SID", sid)], timeout: timeout)
         guard response.isSuccess else { throw SonosError.http(response.status, "UNSUBSCRIBE \(eventPath)") }
     }
 

@@ -5,24 +5,6 @@ struct PluginReference: Sendable {
     weak var plugin: SonosPlugin?
 }
 
-struct TimedOut: Error, CustomStringConvertible {
-    var description: String { "timed out" }
-}
-
-/// Runs `operation`, failing with `TimedOut` after `limit`.
-func withTimeout<T: Sendable>(_ limit: Duration, _ operation: @escaping @Sendable () async throws -> T) async throws -> T {
-    try await withThrowingTaskGroup(of: T.self) { group in
-        group.addTask { try await operation() }
-        group.addTask {
-            try await Task.sleep(for: limit)
-            throw TimedOut()
-        }
-        defer { group.cancelAll() }
-        guard let first = try await group.next() else { throw TimedOut() }
-        return first
-    }
-}
-
 enum SleepTimer {
     /// `00:29:41` → 1781; `""` or anything else → 0.
     static func seconds(_ text: String?) -> Int {
@@ -44,17 +26,14 @@ enum LastSeen {
     /// As JavaScript's `Date.toString()` begins: `Wed Nov 04 2026 10:15:30`, in local time.
     static func text(_ date: Date?) -> String {
         guard let date else { return never }
+        return formatter.string(from: date)
+    }
+
+    /// Made once: a formatter is costly to build, and every message from a player updates Last Seen.
+    private static let formatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "EEE MMM dd yyyy HH:mm:ss"
-        return formatter.string(from: date)
-    }
-}
-
-extension String {
-    /// HTML-escaped, for the `/notify` page.
-    var htmlEscaped: String {
-        replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;")
-            .replacingOccurrences(of: "\"", with: "&quot;").replacingOccurrences(of: "'", with: "&#39;")
-    }
+        return formatter
+    }()
 }

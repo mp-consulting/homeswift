@@ -99,7 +99,7 @@ final class ZoneAccessory: @unchecked Sendable {
     var targetCoordinator: String? { state.withLockedValue { $0.targetCoordinator } }
     var targetGroupShortName: String? { state.withLockedValue { $0.targetGroupShortName } }
     var sonosName: String { services?.sonos[.configuredName]?.value.stringValue ?? "\(player.zoneName) Sonos" }
-    private var reset: Duration { .milliseconds(Double(settings.resetTimeout) * timeScale) }
+    private var reset: Duration { settings.reset(timeScale: timeScale) }
 
     /// The shape the topology and alarms ask for now.
     func wantedShape(alarms: [Alarm]) -> ZoneShape {
@@ -119,13 +119,8 @@ final class ZoneAccessory: @unchecked Sendable {
         let zoneName = player.zoneName
         let settings = settings
 
-        func named(_ service: Service, _ name: String) -> Service {
-            let configured = Characteristic(SonosCharacteristic.configuredName, value: .string(name))
-            _ = service.characteristic(adding: configured.type)
-            service.characteristic(SonosCharacteristic.configuredName).value = .string(name)
-            service.characteristic(SonosCharacteristic.configuredName).onWrite { value in
-                guard let name = value.stringValue, !name.isEmpty else { throw HAPStatusError(.invalidValueInRequest) }
-            }
+        func named(_ service: Service) -> Service {
+            ZoneAccessory.addConfiguredName(to: service)
             return service
         }
 
@@ -147,7 +142,7 @@ final class ZoneAccessory: @unchecked Sendable {
             Characteristic(SonosCharacteristic.logLevel, value: .int(2)), Characteristic(SonosCharacteristic.lastSeen, value: .string(LastSeen.never)),
             Characteristic(.statusFault, value: .int(HAPConstants.StatusFault.generalFault)),
         ]
-        let sonos = named(Service(settings.serviceType, name: "\(zoneName) Sonos", subtype: "group", extra: sonosExtra, isPrimary: true), "\(zoneName) Sonos")
+        let sonos = named(Service(settings.serviceType, name: "\(zoneName) Sonos", subtype: "group", extra: sonosExtra, isPrimary: true))
 
         var speakers: Service?
         if settings.speakers {
@@ -164,13 +159,13 @@ final class ZoneAccessory: @unchecked Sendable {
                 ]
             }
             if shape.sub { extra += [Characteristic(SonosCharacteristic.subEnabled), Characteristic(SonosCharacteristic.subLevel)] }
-            speakers = named(Service(settings.serviceType, name: "\(zoneName) Speakers", subtype: "zone", extra: extra), "\(zoneName) Speakers")
+            speakers = named(Service(settings.serviceType, name: "\(zoneName) Speakers", subtype: "zone", extra: extra))
         }
 
         var led: Service?
         if settings.leds {
             let channel = player.channel ?? ""
-            led = named(LEDService.make(name: "\(zoneName) Sonos LED", channel: channel), "\(zoneName) Sonos LED")
+            led = named(LEDService.make(name: "\(zoneName) Sonos LED", channel: channel))
         }
 
         var alarmServices: [String: Service] = [:]
@@ -178,12 +173,12 @@ final class ZoneAccessory: @unchecked Sendable {
             let name = "\(zoneName) Sonos Alarm \(alarmID)"
             alarmServices[alarmID] = named(Service(.switch, name: name, subtype: "alarm\(alarmID)", extra: [
                 Characteristic(SonosCharacteristic.currentTrack, value: .string("")), Characteristic(SonosCharacteristic.time, value: .string("")),
-            ]), name)
+            ]))
         }
 
         var battery: Service?
         if shape.battery {
-            battery = Service(.battery, name: "\(player.accessoryName) Battery", optional: [.batteryLevel, .chargingState])
+            battery = Self.makeBattery(for: player)
         }
 
         var all: [Service] = [sonos]
@@ -253,10 +248,7 @@ final class ZoneAccessory: @unchecked Sendable {
         }
         sonos.characteristic(.remainingDuration).onRead { [weak self] in
             guard let self, !state.withLockedValue({ $0.lost }), let client = await coordinatorClient() else { return .int(0) }
-            let remaining = try? await withTimeout(.seconds(2)) {
-                SleepTimer.seconds(try await client.call(.avTransport, "GetRemainingSleepTimerDuration", [("InstanceID", "0")])["RemainingSleepTimerDuration"])
-            }
-            return .int(min(remaining ?? 0, 86399))
+            return .int(await Self.remainingSleepTimer(client))
         }
         let volumeType = settings.volumeType
         sonos.characteristic(volumeType).onWrite { [weak self] value in
@@ -379,11 +371,9 @@ final class ZoneAccessory: @unchecked Sendable {
                     speakers.characteristic(.on).revert(to: .bool(false), after: reset)
                     return
                 }
-                try await withTimeout(.seconds(5)) {
-                    try await client.call(.avTransport, "SetAVTransportURI", [("InstanceID", "0"), ("CurrentURI", "x-rincon:\(target)"), ("CurrentURIMetaData", "")])
-                }
+                try await client.call(.avTransport, "SetAVTransportURI", [("InstanceID", "0"), ("CurrentURI", "x-rincon:\(target)"), ("CurrentURIMetaData", "")], timeout: .seconds(5))
             } else {
-                try await withTimeout(.seconds(5)) { try await client.call(.avTransport, "BecomeCoordinatorOfStandaloneGroup", [("InstanceID", "0")]) }
+                try await client.call(.avTransport, "BecomeCoordinatorOfStandaloneGroup", [("InstanceID", "0")], timeout: .seconds(5))
             }
         }
         speakers.characteristic(settings.volumeType).onWrite { [weak self] value in
@@ -533,10 +523,26 @@ final class ZoneAccessory: @unchecked Sendable {
     /// The coordinator asks for the remaining sleep timer after `SleepTimerGeneration` changed.
     func refreshRemainingDuration() async {
         guard let sonos = services?.sonos, let client = await host.plugin?.client(id) else { return }
-        let remaining = try? await withTimeout(.seconds(2)) {
-            SleepTimer.seconds(try await client.call(.avTransport, "GetRemainingSleepTimerDuration", [("InstanceID", "0")])["RemainingSleepTimerDuration"])
+        sonos.characteristic(.remainingDuration).value = .int(await Self.remainingSleepTimer(client))
+    }
+
+    /// The coordinator's remaining sleep timer in seconds, 0 for none or no answer within 2 seconds.
+    static func remainingSleepTimer(_ client: PlayerClient) async -> Int {
+        let answer = try? await client.call(.avTransport, "GetRemainingSleepTimerDuration", [("InstanceID", "0")], timeout: .seconds(2))
+        return min(SleepTimer.seconds(answer?["RemainingSleepTimerDuration"]), 86399)
+    }
+
+    /// Configured Name as the Homebridge plugin gives every service (the service's name, never empty).
+    static func addConfiguredName(to service: Service) {
+        let configured = service.characteristic(adding: SonosCharacteristic.configuredName)
+        configured.value = service[.name]?.value ?? .string("")
+        configured.onWrite { value in
+            guard value.stringValue?.isEmpty == false else { throw HAPStatusError(.invalidValueInRequest) }
         }
-        sonos.characteristic(.remainingDuration).value = .int(min(remaining ?? 0, 86399))
+    }
+
+    static func makeBattery(for player: TopologyPlayer) -> Service {
+        Service(.battery, name: "\(player.accessoryName) Battery", optional: [.batteryLevel, .chargingState])
     }
 
     /// A GroupRenderingControl event (or the coordinator's, copied).
@@ -566,10 +572,8 @@ final class ZoneAccessory: @unchecked Sendable {
             if isBool, let value = bool(key) { characteristic.value = .bool(value) }
             if !isBool, let value = int(key), let fitting = type.coerce(.int(value)) { characteristic.value = fitting }
         }
-        if let balance = speakers[SonosCharacteristic.balance], let left = int("Volume:LF"), let right = int("Volume:RF") {
-            balance.value = .int(min(max(right - left, -100), 100))
-        } else if let balance = speakers[SonosCharacteristic.balance], int("Volume:LF") != nil || int("Volume:RF") != nil {
-            // One side only: the other is the stored balance's.
+        if let balance = speakers[SonosCharacteristic.balance], int("Volume:LF") != nil || int("Volume:RF") != nil {
+            // A side the event leaves out is the stored balance's.
             let current = balance.value.intValue ?? 0
             let left = int("Volume:LF") ?? (current < 0 ? 100 : 100 - current)
             let right = int("Volume:RF") ?? (current < 0 ? 100 + current : 100)
@@ -626,20 +630,15 @@ final class ZoneAccessory: @unchecked Sendable {
 
     /// Lost (vanished, or unseen for ten minutes): off, a general fault, No Response.
     func setLost(_ lost: Bool) {
-        let changed = state.withLockedValue { state -> Bool in
-            defer { state.lost = lost }
-            return state.lost != lost
-        }
+        state.withLockedValue { $0.lost = lost }
         guard let services else { return }
         if lost {
             services.sonos.characteristic(.on).value = .bool(false)
             services.speakers?.characteristic(.on).value = .bool(false)
         }
         services.sonos[.statusFault]?.value = .int(lost ? HAPConstants.StatusFault.generalFault : HAPConstants.StatusFault.noFault)
-        if changed || services.accessory.isUnavailable != lost { services.accessory.isUnavailable = lost }
+        if services.accessory.isUnavailable != lost { services.accessory.isUnavailable = lost }
     }
-
-    var isLost: Bool { state.withLockedValue { $0.lost } }
 
     func seen(_ date: Date?) {
         services?.sonos[SonosCharacteristic.lastSeen]?.value = .string(LastSeen.text(date))

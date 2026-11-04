@@ -82,10 +82,11 @@ public enum SSDP {
     }
 
     /// Listens on port 1900 (shared with other listeners, `SO_REUSEADDR`) in the SSDP multicast group and yields the
-    /// `NOTIFY` announcements, until the consuming task is cancelled. It throws when the port cannot be bound.
-    public static func listen(bufferSize: Int = 256) async throws -> (announcements: AsyncStream<Received>, close: @Sendable () async -> Void) {
+    /// `NOTIFY` announcements until the consuming task is cancelled, which closes the socket. It throws when the port
+    /// cannot be bound.
+    public static func listen(bufferSize: Int = 256) async throws -> AsyncStream<Received> {
         let socket = try await UDPSocket.bind(port: port, reuseAddress: true, multicastGroup: multicastAddress, bufferSize: bufferSize)
-        let stream = AsyncStream<Received> { continuation in
+        return AsyncStream<Received> { continuation in
             let task = Task {
                 for await datagram in socket.datagrams {
                     guard let message = SSDPMessage.parse(datagram.data), message.isNotify else { continue }
@@ -93,8 +94,10 @@ public enum SSDP {
                 }
                 continuation.finish()
             }
-            continuation.onTermination = { _ in task.cancel() }
+            continuation.onTermination = { _ in
+                task.cancel()
+                Task { await socket.close() }
+            }
         }
-        return (stream, { await socket.close() })
     }
 }

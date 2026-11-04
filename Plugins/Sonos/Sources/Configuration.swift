@@ -95,7 +95,7 @@ extension SonosPlugin {
         }
 
         static func int(_ value: JSONValue) -> Int? {
-            if let number = value.doubleValue, value.stringValue == nil { return Int(saturating: number) }
+            if let int = value.saturatingIntValue { return int }
             guard var text = value.stringValue?.trimmingCharacters(in: .whitespaces).lowercased(), !text.isEmpty else { return nil }
             var sign = 1
             if text.hasPrefix("-") { sign = -1; text.removeFirst() } else if text.hasPrefix("+") { text.removeFirst() }
@@ -169,6 +169,7 @@ extension SonosPlugin {
             }
         }
 
-        var reset: Duration { .milliseconds(resetTimeout) }
+        /// `resetTimeout`, times the tests' scale.
+        func reset(timeScale: Double) -> Duration { .milliseconds(Double(resetTimeout) * timeScale) }
     }
 }

@@ -42,6 +42,13 @@ public actor SonosPlugin: HomeswiftPlugin {
         var probing = false
         var probed = false
         var lost = false
+
+        /// Keeps the highest boot sequence seen; answers the previous one when `new` is higher (a reboot).
+        mutating func advanceBootSeq(_ new: Int?) -> Int? {
+            guard let new else { return nil }
+            defer { bootSeq = max(new, bootSeq ?? new) }
+            return bootSeq.flatMap { new > $0 ? $0 : nil }
+        }
     }
 
     struct Household {
@@ -89,6 +96,10 @@ public actor SonosPlugin: HomeswiftPlugin {
     private var subscriptions: [SubscriptionKey: Subscription] = [:]
     private var permanent: Set<SubscriptionKey> = []
     private var received: Set<SubscriptionKey> = []
+    /// Who waits for a subscription's first event.
+    private var eventWaiters: [SubscriptionKey: [CheckedContinuation<Void, Never>]] = [:]
+    /// The addresses players are being checked at before their clients move there.
+    private var pendingMoves: [String: String] = [:]
     private var listener: (any EventListening)?
     private var listenerStart: Task<(any EventListening)?, Never>?
     private var outstandingProbes = 0
@@ -163,7 +174,7 @@ public actor SonosPlugin: HomeswiftPlugin {
         await withTaskGroup(of: Void.self) { group in
             for (key, subscription) in current {
                 guard let client = clients[key.player] else { continue }
-                group.addTask { _ = try? await withTimeout(.seconds(2)) { try await client.unsubscribe(key.service.eventPath, sid: subscription.sid) } }
+                group.addTask { try? await client.unsubscribe(key.service.eventPath, sid: subscription.sid, timeout: .seconds(2)) }
             }
         }
         await listener?.close()
@@ -192,27 +203,28 @@ public actor SonosPlugin: HomeswiftPlugin {
             verifyMove(hit.id, to: hit.address)
             return
         }
-        if let household = hit.household, household != player.household { player.household = household }
-        let rebooted = hit.bootSeq.map { new in player.bootSeq.map { new > $0 } ?? false } ?? false
-        let previousBoot = player.bootSeq
-        if let bootSeq = hit.bootSeq { player.bootSeq = max(bootSeq, player.bootSeq ?? bootSeq) }
+        if let household = hit.household { player.household = household }
+        let previousBoot = player.advanceBootSeq(hit.bootSeq)
         players[hit.id] = player
         seen(hit.id)
-        if rebooted, let previousBoot, let bootSeq = hit.bootSeq { reboot(hit.id, from: previousBoot, to: bootSeq) }
+        if let previousBoot, let bootSeq = hit.bootSeq { reboot(hit.id, from: previousBoot, to: bootSeq) }
         if !player.probed, !player.probing { probe(hit.id) }
     }
 
     /// Moves the player's client to `address` when the device description there names the same player.
     private func verifyMove(_ id: String, to address: String) {
+        guard pendingMoves[id] == nil else { return }
+        pendingMoves[id] = address
         let probe = PlayerClient(id: id, address: address, http: dependencies.http, timeout: .seconds(settings.timeout))
         tasks.add { [weak self] in
-            guard let description = try? await probe.deviceDescription(), description.id == id else { return }
-            await self?.moved(id, to: address)
+            let description = try? await probe.deviceDescription()
+            await self?.moved(id, to: address, confirmed: description?.id == id)
         }
     }
 
-    private func moved(_ id: String, to address: String) {
-        guard let client = players[id]?.client, client.move(to: address) else { return }
+    private func moved(_ id: String, to address: String, confirmed: Bool) {
+        pendingMoves[id] = nil
+        guard confirmed, let client = players[id]?.client, client.move(to: address) else { return }
         logger.warning("\(name(of: id)): now at \(address)")
         saveKnown()
         seen(id)
@@ -243,7 +255,7 @@ public actor SonosPlugin: HomeswiftPlugin {
                 logger.warning("\(description.roomName): no ZoneGroupTopology event received in \(settings.timeout)s")
                 return
             }
-            var household = topologyHousehold[id] ?? players[id]?.household
+            var household = household(of: id)
             if household == nil {
                 household = try await client.call(.deviceProperties, "GetHouseholdID")["CurrentHouseholdID"]
             }
@@ -525,12 +537,19 @@ public actor SonosPlugin: HomeswiftPlugin {
 
     /// Waits up to `timeout` seconds for the subscription's first event.
     private func waitForEvent(_ key: SubscriptionKey) async -> Bool {
-        let deadline = ContinuousClock.now + scaled(Double(settings.timeout))
-        while !received.contains(key) {
-            guard ContinuousClock.now < deadline, !Task.isCancelled else { return false }
-            try? await Task.sleep(for: .milliseconds(20))
+        if received.contains(key) { return true }
+        let limit = scaled(Double(settings.timeout))
+        let timer = Task { [weak self] in
+            try? await Task.sleep(for: limit)
+            await self?.wake(key)
         }
-        return true
+        await withCheckedContinuation { eventWaiters[key, default: []].append($0) }
+        timer.cancel()
+        return received.contains(key)
+    }
+
+    private func wake(_ key: SubscriptionKey) {
+        for waiter in eventWaiters.removeValue(forKey: key) ?? [] { waiter.resume() }
     }
 
     /// A player rebooted: its description read again, its subscriptions made afresh.
@@ -563,7 +582,9 @@ public actor SonosPlugin: HomeswiftPlugin {
         guard let service = UPnPService(eventPath: "/" + segments[3...].joined(separator: "/")) else { return (200, nil, "") }
         player.client.seen()
         seen(id)
-        received.insert(SubscriptionKey(player: id, service: service))
+        let key = SubscriptionKey(player: id, service: service)
+        received.insert(key)
+        wake(key)
         do {
             try await dispatch(service, from: id, body: request.body)
         } catch {
@@ -609,9 +630,10 @@ public actor SonosPlugin: HomeswiftPlugin {
             tasks.add { [weak self] in await self?.refreshAlarms(household) }
         case .contentDirectory:
             guard let household = household(of: id) else { return }
-            let updateID = try Events.properties(body)["FavoritesUpdateID"]
-            guard updateID == nil || updateID != households[household]?.favouritesUpdateID || households[household]?.favouritesUpdateID == nil else { return }
-            households[household]?.favouritesUpdateID = updateID ?? households[household]?.favouritesUpdateID ?? ""
+            if let updateID = try Events.properties(body)["FavoritesUpdateID"] {
+                guard updateID != households[household]?.favouritesUpdateID else { return }
+                households[household]?.favouritesUpdateID = updateID
+            }
             tasks.add { [weak self] in await self?.refreshFavourites(household, from: id) }
         case .deviceProperties:
             break
@@ -645,10 +667,7 @@ public actor SonosPlugin: HomeswiftPlugin {
                 logger.warning("\(entry.zonePlayerName): address changed to \(address)")
                 saveKnown()
             }
-            if let bootSeq = entry.bootSeq {
-                if let known = player.bootSeq, bootSeq > known, old != nil { reboot(id, from: known, to: bootSeq) }
-                player.bootSeq = max(bootSeq, player.bootSeq ?? bootSeq)
-            }
+            if let known = player.advanceBootSeq(entry.bootSeq), old != nil, let bootSeq = entry.bootSeq { reboot(id, from: known, to: bootSeq) }
             players[id] = player
         }
         for id in topology.vanished { setLost(id, true) }
@@ -755,16 +774,27 @@ public actor SonosPlugin: HomeswiftPlugin {
     func checkPlayers() async {
         if households.isEmpty, outstandingProbes == 0 { logger.warning("no zone players found") }
         let now = Date()
+        var quiet: [(id: String, client: PlayerClient, age: TimeInterval)] = []
         for (id, player) in players.sorted(by: { $0.key < $1.key }) where player.probed {
             let age = player.client.lastSeen.map { now.timeIntervalSince($0) } ?? .infinity
             let line = "\(name(of: id)): last seen \(LastSeen.text(player.client.lastSeen)), boot sequence \(player.bootSeq.map(String.init) ?? "n/a")"
             if age >= 600 * dependencies.timeScale { logger.info("\(line)") } else { logger.debug("\(line)") }
-            guard age >= 300 * dependencies.timeScale else { continue }
-            let client = player.client
-            if (try? await withTimeout(.seconds(settings.timeout)) { try await client.call(.deviceProperties, "GetLEDState") }) != nil {
-                seen(id)
-            } else if age >= 600 * dependencies.timeScale, players[id]?.lost == false {
-                setLost(id, true)
+            if age >= 300 * dependencies.timeScale { quiet.append((id, player.client, age)) }
+        }
+        // Asked together: an unreachable player does not hold up the others.
+        let answered = await withTaskGroup(of: (String, Bool).self) { group in
+            for player in quiet {
+                group.addTask { (player.id, (try? await player.client.call(.deviceProperties, "GetLEDState")) != nil) }
+            }
+            var answered: [String: Bool] = [:]
+            for await (id, ok) in group { answered[id] = ok }
+            return answered
+        }
+        for player in quiet {
+            if answered[player.id] == true {
+                seen(player.id)
+            } else if player.age >= 600 * dependencies.timeScale, players[player.id]?.lost == false {
+                setLost(player.id, true)
             }
         }
     }
@@ -774,8 +804,13 @@ public actor SonosPlugin: HomeswiftPlugin {
         var targets: [(Service, PlayerClient, Bool)] = []
         for zone in zones.values { if let led = zone.services?.led, let client = players[zone.id]?.client { targets.append((led, client, zone.blinking.withLockedValue { $0 })) } }
         for slave in slaves.values { if let led = slave.led, let client = players[slave.id]?.client { targets.append((led, client, slave.blinking.withLockedValue { $0 })) } }
-        for (led, client, blinking) in targets {
-            do { try await LEDService.poll(led, client: client, skipLED: blinking) } catch { logger.debug("\(client.id): LED: \(error)") }
+        let logger = logger
+        await withTaskGroup(of: Void.self) { group in
+            for (led, client, blinking) in targets {
+                group.addTask {
+                    do { try await LEDService.poll(led, client: client, skipLED: blinking) } catch { logger.debug("\(client.id): LED: \(error)") }
+                }
+            }
         }
     }
 
@@ -804,8 +839,8 @@ public actor SonosPlugin: HomeswiftPlugin {
         var rows = ""
         for (id, player) in players.sorted(by: { $0.key < $1.key }) {
             let subscribed = subscriptions.keys.filter { $0.player == id }.map { $0.service.eventPath.replacingOccurrences(of: "/Event", with: "") }.sorted()
-            rows += "<tr><td>\(name(of: id).htmlEscaped)</td><td>\(id.htmlEscaped)</td><td>\(player.client.address.htmlEscaped)</td>"
-                + "<td>\(dependencies.localAddress(player.client.address).htmlEscaped)</td><td>\(subscribed.joined(separator: ", ").htmlEscaped)</td></tr>"
+            rows += "<tr><td>\(XML.escape(name(of: id)))</td><td>\(XML.escape(id))</td><td>\(XML.escape(player.client.address))</td>"
+                + "<td>\(XML.escape(dependencies.localAddress(player.client.address)))</td><td>\(XML.escape(subscribed.joined(separator: ", ")))</td></tr>"
         }
         return "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Sonos</title></head><body><table>"
             + "<tr><th>Name</th><th>ID</th><th>IP</th><th>Local IP</th><th>Subscriptions</th></tr>\(rows)</table></body></html>"

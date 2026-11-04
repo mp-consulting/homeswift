@@ -22,7 +22,6 @@ final class TVAccessory: @unchecked Sendable {
     let speaker: Service
     let inputs: [Service]
     private weak var zone: ZoneAccessory?
-    private let zoneID: String
     private let maxFavourites: Int
     private let reset: Duration
     private let logger: Logger
@@ -33,9 +32,8 @@ final class TVAccessory: @unchecked Sendable {
 
     init(zone: ZoneAccessory, settings: SonosPlugin.Settings, host: PluginReference, logger: Logger, timeScale: Double) {
         self.zone = zone
-        zoneID = zone.id
         maxFavourites = settings.maxFavourites
-        reset = .milliseconds(Double(settings.resetTimeout) * timeScale)
+        reset = settings.reset(timeScale: timeScale)
         self.logger = logger
         self.host = host
         let zoneName = zone.player.zoneName

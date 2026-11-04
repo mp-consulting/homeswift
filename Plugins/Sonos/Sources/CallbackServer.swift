@@ -112,7 +112,10 @@ final class CallbackServer: EventListening {
             context.write(wrapOutboundOut(.head(HTTPResponseHead(version: .http1_1, status: HTTPResponseStatus(statusCode: status), headers: headers))), promise: nil)
             context.write(wrapOutboundOut(.body(.byteBuffer(buffer))), promise: nil)
             let done = context.writeAndFlush(wrapOutboundOut(.end(nil)))
-            if !keepAlive { done.whenComplete { _ in context.close(promise: nil) } }
+            if !keepAlive {
+                let channel = context.channel
+                done.whenComplete { _ in channel.close(promise: nil) }
+            }
         }
 
         func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
