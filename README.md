@@ -172,14 +172,17 @@ over Bluetooth; macOS asks once for Bluetooth access for the app that runs it (t
 | [Elgato Key Lights](Plugins/ElgatoKeyLights) | `ElgatoKeyLights` | Key Light, Key Light Air, Key Light Mini, Ring Light |
 | [Govee](Plugins/Govee) | `Govee` | Govee lights, plugs, heaters, purifiers, humidifiers and sensors (cloud, AWS IoT, LAN, Bluetooth) |
 | [EcoFlow](Plugins/EcoFlow) | `EcoFlow` | Experimental battery and power monitoring through the developer API or EcoFlow app sign-in, with energy history |
+| [HTTP Webhooks](Plugins/HTTPWebhooks) | `HttpWebHooks` | Experimental virtual sensors, switches, lights, locks, blinds, fans and more, set by webhooks and calling URLs on HomeKit writes (homebridge-http-webhooks' block) |
 | [IKEA DIRIGERA](Plugins/Dirigera) | `Dirigera` | IKEA lights, outlets, door and window sensors and scenes, through a DIRIGERA hub on the network (paired on Add accessories) |
 | [TP-Link Kasa](Plugins/TPLinkSmarthome) | `TplinkSmarthome` | Experimental: Kasa plugs, switches, dimmers, power strips and bulbs on the local network, with energy in Eve |
+| [TP-Link Tapo](Plugins/Tapo) | `TapoP100` | Experimental: Tapo P100, P105 and P110 plugs (with energy) and L510E, L520E and L530E bulbs, on the local network (KLAP, or securePassthrough on older firmware) |
 | [LG ThinQ](Plugins/LGThinQ) | `LGThinQ` | LG ThinQ appliances: air conditioners, purifiers, washers, dryers, fridges, ovens, dishwashers |
 | [Philips Ambilight TV](Plugins/PhilipsAmbilightTV) | `PhilipsAmbilightTV` | Philips Android TVs with Ambilight (JointSpace API, paired on Add accessories) |
 | [Philips Hue](Plugins/PhilipsHue) | `PhilipsHue` | Hue lights, scenes, effects and gradients, through a Hue Bridge's local API v2 (paired on Add accessories) |
 | [UniFi Access](Plugins/UniFiAccess) | `UniFi Access` | UniFi Access hubs and readers: door locks, doorbells, sensors, followed through the controller's events |
 | [UniFi Protect](Plugins/UniFiProtect) | `UniFi Protect` | UniFi Protect cameras and doorbells (live video, HomeKit Secure Video), sensors, lights, chimes |
 | [Wingman](Plugins/Wingman) | `Wingman` | The Home app's accessories (Matter ones too) through [Homeswift Wingman](https://github.com/mp-consulting/homeswift-wingman) on a Mac: in the web UI, scenes and MCP, never published to HomeKit again |
+| [Zigbee2MQTT](Plugins/Zigbee2MQTT) | `zigbee2mqtt` | Experimental: the devices and groups of a Zigbee2MQTT installation (lights, switches, blinds, locks, thermostats, sensors, remotes), over its MQTT broker |
 
 ### In a container, on a NAS
 

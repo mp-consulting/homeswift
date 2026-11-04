@@ -1947,7 +1947,16 @@
     // The controllers some accessories mirror (Apple Home, through Wingman): each gets a filter.
     const sources = [...new Set(all.map((accessory) => accessory.mirroredFrom).filter(Boolean))];
     const from = sources.includes(params.get("from")) ? params.get("from") : null;
-    const accessories = all.filter((accessory) => (showHidden || !accessory.hidden) && (!from || accessory.mirroredFrom === from) && (!noResponse || accessory.unavailable || accessory.paused));
+    // The bridges and device types chosen (?bridge=…&type=…, each as often as chosen), as on the graph.
+    const bridgeNames = [...new Set(all.map((accessory) => accessory.bridge).filter(Boolean))];
+    const categories = [...new Set(all.map((accessory) => accessory.category).filter(Boolean))]
+      .sort((a, b) => HomeswiftAdmin.categoryName(a).localeCompare(HomeswiftAdmin.categoryName(b), HomeswiftI18n.locale));
+    const chosen = { bridge: new Set(params.getAll("bridge").filter((name) => bridgeNames.includes(name))),
+      type: new Set(params.getAll("type").filter((category) => categories.includes(category))) };
+    const keepsChosen = (accessory, except = null) => (except === "bridge" || !chosen.bridge.size || chosen.bridge.has(accessory.bridge))
+      && (except === "type" || !chosen.type.size || chosen.type.has(accessory.category));
+    const keepsShown = (accessory) => (showHidden || !accessory.hidden) && (!from || accessory.mirroredFrom === from) && (!noResponse || accessory.unavailable || accessory.paused);
+    const accessories = all.filter((accessory) => keepsShown(accessory) && keepsChosen(accessory));
     const hiddenCount = all.filter((accessory) => accessory.hidden).length;
     const rooms = home.rooms.map((room) => room.name);
     const servers = new Set(accessories.map((accessory) => accessory.bridge)).size;
@@ -2563,7 +2572,18 @@
       navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
     };
     const searchCount = (predicate) => all.filter((accessory) => predicate(accessory) && HomeswiftWidgets.searchText(accessory).includes(search.value.trim().toLowerCase())).length;
-    const activeFilters = Number(Boolean(from)) + Number(showHidden) + Number(noResponse);
+    const activeFilters = Number(Boolean(from)) + Number(showHidden) + Number(noResponse) + chosen.bridge.size + chosen.type.size;
+    // A bridge or device type: a toggle in the address, counting what it would add with the other filters as they are.
+    const choice = (key, value, label, icon) => ({ label, icon, checked: chosen[key].has(value), checkbox: true, toggle: true,
+      count: searchCount((accessory) => keepsShown(accessory) && keepsChosen(accessory, key) && (key === "bridge" ? accessory.bridge : accessory.category) === value),
+      onSelect: () => {
+        const next = new URLSearchParams(location.search);
+        const values = new Set(chosen[key]);
+        if (!values.delete(value)) values.add(value);
+        next.delete(key);
+        for (const one of values) next.append(key, one);
+        navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
+      } });
     const filters = el("button", { type: "button", class: activeFilters ? "on" : "", "aria-haspopup": "menu" },
       HomeswiftCommon.icon("sliders"), el("span", { text: t("Filters") }), activeFilters ? el("span", { class: "toolbar-count", text: activeFilters }) : null);
     filters.addEventListener("click", () => HomeswiftCommon.menu(filters, [
@@ -2572,12 +2592,14 @@
         onSelect: () => changeFilter("from", source, from !== source) })),
       { label: t("No Response"), icon: "warning", tone: "error", count: searchCount((accessory) => accessory.unavailable || accessory.paused), checked: noResponse, checkbox: true, toggle: true, onSelect: () => changeFilter("unavailable", "1", !noResponse) },
       ...(hiddenCount ? [{ label: t("Show hidden"), count: searchCount((accessory) => accessory.hidden), icon: "eye", tone: "warn", checked: showHidden, checkbox: true, toggle: true, onSelect: () => changeFilter("hidden", "1", !showHidden) }] : []),
+      ...(bridgeNames.length > 1 ? [{ separator: true }, ...bridgeNames.map((name) => choice("bridge", name, name, "bridge"))] : []),
+      ...(categories.length > 1 ? [{ separator: true }, ...categories.map((category) => choice("type", category, HomeswiftAdmin.categoryName(category), HomeswiftAdmin.deviceIcon(category)))] : []),
       { separator: true },
       { label: t("Clear filters"), clearFilters: true, icon: "restore", disabled: !search.value && activeFilters === 0, onSelect: () => {
         search.value = "";
         if (activeFilters) {
           const next = new URLSearchParams(location.search);
-          for (const key of ["from", "hidden", "unavailable"]) next.delete(key);
+          for (const key of ["from", "hidden", "unavailable", "bridge", "type"]) next.delete(key);
           navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
         } else filter();
       } },
@@ -2750,9 +2772,18 @@
           el("span", { title: t("On the bridge {name}", { name: instance.bridge }) }, HomeswiftCommon.icon(block.childBridge ? "child" : "bridge"), instance.bridge)) : null,
         el("div", { class: "card-foot" },
           el("span", { class: "muted", text: instance?.paused ? t("No calls to its devices; they show No Response in the Home app.")
+            : instance?.needsAuthorization ? (instance.accountState === "refused" ? t("Its account refused its sign-in: set it up again.") : t("Its devices show once its account is set up."))
+            : instance?.noneResponding ? t("None of its accessories responds: the log may say why.")
             : instance ? "" : block.system ? t("A block of the runtime itself.") : plugin ? t("It did not start: the log says why.") : t("No plugin compiled into this homeswift provides this platform.") }),
-          el("div", { class: "plugin-card-actions" }, el("a", { class: "button", href: opens, actionIcon: plugin?.hasPages && instance && !instance.paused ? "open" : "gear", text: plugin?.hasPages && instance && !instance.paused ? t("Open its page") : t("Settings") }), menuButton(t("Actions for {name}", { name: blockTitle(block) }), () => blockActions(block, plugin, instance)))));
+          el("div", { class: "plugin-card-actions" }, instance?.needsAuthorization ? setUpButton(block, plugin, instance)
+            : el("a", { class: "button", href: opens, actionIcon: plugin?.hasPages && instance && !instance.paused ? "open" : "gear", text: plugin?.hasPages && instance && !instance.paused ? t("Open its page") : t("Settings") }),
+          menuButton(t("Actions for {name}", { name: blockTitle(block) }), () => blockActions(block, plugin, instance)))));
     };
+
+    /// What a card whose account Needs Authorization offers first: its Setup, in a sheet over the list.
+    const setUpButton = (block, plugin, instance) => el("button", { type: "button", class: "primary", actionIcon: "pair",
+      text: instance.accountState === "notSetUp" ? t("Set up") : t("Set up again"),
+      onclick: (event) => HomeswiftSetup.setUp({ block, plugin, firstTime: instance.accountState === "notSetUp", trigger: event.currentTarget, after: () => route() }) });
 
     /// What the menu of a plugin's card offers: its page, its Settings, config.json, pause or resume, and removal.
     function blockActions(block, plugin, instance) {
@@ -2833,7 +2864,11 @@
   /// Homeswift Matter); any other, its own name.
   const builtInTitles = { HomeswiftUI: "Homeswift UI", HomeswiftMatter: "Homeswift Matter" };
   const blockTitle = (block) => (block.name === block.platform && builtInTitles[block.platform]) || block.name;
+  /// Running is green only when its devices can work: an account that Needs Authorization says what it needs ("Needs
+  /// sign-in"), and a plugin none of whose accessories responds says so.
   const blockState = (block, plugin, instance) => block.system ? [t("Built in"), "standby"] : instance?.paused ? [t("Paused"), "paused"]
+    : instance?.needsAuthorization ? [HomeswiftSetup.accountState(plugin?.accountAuthorization) ?? t("Needs setup"), "away"]
+    : instance?.noneResponding ? [t("Not responding"), "away"]
     : instance ? [t("Running"), "on"] : plugin ? [t("Not running"), "away"] : [t("No plugin"), "away"];
 
   /// Takes a block out of config.json, after asking: its accessories leave the Home app.
@@ -3575,8 +3610,6 @@
           }
           reset.hidden = unset;
         }
-        container.addEventListener("change", () => { followDefault(); paint(); });
-        queueMicrotask(() => { followDefault(); paint(); });
         paint();
         return { element, get: () => chosen };
       }

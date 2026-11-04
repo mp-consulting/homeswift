@@ -28,6 +28,9 @@ let package = Package(
         .library(name: "HomeswiftPhilipsHue", targets: ["HomeswiftPhilipsHue"]),
         .library(name: "HomeswiftDirigera", targets: ["HomeswiftDirigera"]),
         .library(name: "HomeswiftEcoFlow", targets: ["HomeswiftEcoFlow"]),
+        .library(name: "HomeswiftZigbee2MQTT", targets: ["HomeswiftZigbee2MQTT"]),
+        .library(name: "HomeswiftTapo", targets: ["HomeswiftTapo"]),
+        .library(name: "HomeswiftHTTPWebhooks", targets: ["HomeswiftHTTPWebhooks"]),
         .library(name: "HomeswiftTPLinkSmarthome", targets: ["HomeswiftTPLinkSmarthome"]),
         .executable(name: "homeswift", targets: ["HomeswiftCLI"]),
         .executable(name: "homeswift-demo", targets: ["homeswift-demo"]),
@@ -284,6 +287,37 @@ let package = Package(
             path: "Plugins/EcoFlow/Sources"
         ),
         .target(
+            name: "HomeswiftZigbee2MQTT",
+            dependencies: ["Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", .product(name: "NIOConcurrencyHelpers", package: "swift-nio"), .product(name: "Logging", package: "swift-log")],
+            path: "Plugins/Zigbee2MQTT/Sources"
+        ),
+        .target(
+            name: "HomeswiftTapo",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftAI",
+                .product(name: "Crypto", package: "swift-crypto"),
+                // AES-CBC and RSA with PKCS#1 v1.5, which the devices' protocols use.
+                .product(name: "_CryptoExtras", package: "swift-crypto"),
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/Tapo/Sources"
+        ),
+        .target(
+            name: "HomeswiftHTTPWebhooks",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork",
+                .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOPosix", package: "swift-nio"),
+                .product(name: "NIOHTTP1", package: "swift-nio"),
+                .product(name: "NIOSSL", package: "swift-nio-ssl"),
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/HTTPWebhooks/Sources"
+        ),
+        .target(
             name: "HomeswiftTPLinkSmarthome",
             dependencies: [
                 "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork",
@@ -299,7 +333,7 @@ let package = Package(
         .executableTarget(
             name: "HomeswiftCLI",
             dependencies: [
-                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftMCP", "HomeswiftUI", "HomeswiftMatter", "HomeswiftElgatoKeyLights", "HomeswiftPhilipsAmbilightTV", "HomeswiftDolphinPoolCleaner", "HomeswiftDysonPureCool", "HomeswiftUniFiAccess", "HomeswiftDaikinCloud", "HomeswiftEWeLink", "HomeswiftLGThinQ", "HomeswiftGovee", "HomeswiftUniFiProtect", "HomeswiftWingman", "HomeswiftPhilipsHue", "HomeswiftDirigera", "HomeswiftEcoFlow", "HomeswiftTPLinkSmarthome",
+                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftMCP", "HomeswiftUI", "HomeswiftMatter", "HomeswiftElgatoKeyLights", "HomeswiftPhilipsAmbilightTV", "HomeswiftDolphinPoolCleaner", "HomeswiftDysonPureCool", "HomeswiftUniFiAccess", "HomeswiftDaikinCloud", "HomeswiftEWeLink", "HomeswiftLGThinQ", "HomeswiftGovee", "HomeswiftUniFiProtect", "HomeswiftWingman", "HomeswiftPhilipsHue", "HomeswiftDirigera", "HomeswiftEcoFlow", "HomeswiftZigbee2MQTT", "HomeswiftTapo", "HomeswiftHTTPWebhooks", "HomeswiftTPLinkSmarthome",
                 .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
             ],
@@ -527,6 +561,37 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
             ],
             path: "Plugins/EcoFlow/Tests"
+        ),
+        .testTarget(
+            name: "Zigbee2MQTTTests",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftNetworkTestSupport", "HomeswiftZigbee2MQTT",
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/Zigbee2MQTT/Tests"
+        ),
+        .testTarget(
+            name: "TapoTests",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftAI", "HomeswiftTapo",
+                .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "_CryptoExtras", package: "swift-crypto"),
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/Tapo/Tests"
+        ),
+        .testTarget(
+            name: "HTTPWebhooksTests",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftHTTPWebhooks",
+                .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "NIOPosix", package: "swift-nio"),
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/HTTPWebhooks/Tests"
         ),
         .testTarget(
             name: "TPLinkSmarthomeTests",
