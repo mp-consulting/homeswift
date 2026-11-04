@@ -117,6 +117,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- UniFi Protect and IP Cameras start with 0.45 s less CPU: probing FFmpeg's codecs ran a Swift `Regex` on every
+  line of `ffmpeg -codecs`, and now only on the lines that name decoders or encoders.
 - Security: a configuration key named `encryptionKey` (or `encryption_key`) is a secret-named key, for every plugin:
   the runtime seals it, resolves its references and masks it in logs, MCP replies and the Assistant's prompts.
 - A plugin's Account and its devices that Need Authorization say **Set up** while nothing is set up, **Set up again**
