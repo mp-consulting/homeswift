@@ -28,6 +28,7 @@ let package = Package(
         .library(name: "HomeswiftPhilipsHue", targets: ["HomeswiftPhilipsHue"]),
         .library(name: "HomeswiftDirigera", targets: ["HomeswiftDirigera"]),
         .library(name: "HomeswiftEcoFlow", targets: ["HomeswiftEcoFlow"]),
+        .library(name: "HomeswiftTapo", targets: ["HomeswiftTapo"]),
         .executable(name: "homeswift", targets: ["HomeswiftCLI"]),
         .executable(name: "homeswift-demo", targets: ["homeswift-demo"]),
     ],
@@ -282,12 +283,23 @@ let package = Package(
             ],
             path: "Plugins/EcoFlow/Sources"
         ),
+        .target(
+            name: "HomeswiftTapo",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftAI",
+                .product(name: "Crypto", package: "swift-crypto"),
+                // AES-CBC and RSA with PKCS#1 v1.5, which the devices' protocols use.
+                .product(name: "_CryptoExtras", package: "swift-crypto"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/Tapo/Sources"
+        ),
         // The `homeswift` bridge: reads config.json and runs the plugins compiled in (Plugins.swift lists them).
         // The target is not named "homeswift": that is "Homeswift" on a case-insensitive file system.
         .executableTarget(
             name: "HomeswiftCLI",
             dependencies: [
-                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftMCP", "HomeswiftUI", "HomeswiftMatter", "HomeswiftElgatoKeyLights", "HomeswiftPhilipsAmbilightTV", "HomeswiftDolphinPoolCleaner", "HomeswiftDysonPureCool", "HomeswiftUniFiAccess", "HomeswiftDaikinCloud", "HomeswiftEWeLink", "HomeswiftLGThinQ", "HomeswiftGovee", "HomeswiftUniFiProtect", "HomeswiftWingman", "HomeswiftPhilipsHue", "HomeswiftDirigera", "HomeswiftEcoFlow",
+                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftMCP", "HomeswiftUI", "HomeswiftMatter", "HomeswiftElgatoKeyLights", "HomeswiftPhilipsAmbilightTV", "HomeswiftDolphinPoolCleaner", "HomeswiftDysonPureCool", "HomeswiftUniFiAccess", "HomeswiftDaikinCloud", "HomeswiftEWeLink", "HomeswiftLGThinQ", "HomeswiftGovee", "HomeswiftUniFiProtect", "HomeswiftWingman", "HomeswiftPhilipsHue", "HomeswiftDirigera", "HomeswiftEcoFlow", "HomeswiftTapo",
                 .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
             ],
@@ -515,6 +527,17 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
             ],
             path: "Plugins/EcoFlow/Tests"
+        ),
+        .testTarget(
+            name: "TapoTests",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftAI", "HomeswiftTapo",
+                .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "_CryptoExtras", package: "swift-crypto"),
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/Tapo/Tests"
         ),
     ]
 )
