@@ -73,6 +73,12 @@ public protocol HomeswiftPlugin: Sendable {
     /// its `context.assistant` make, so keep it to a paragraph or two, and never ask for secrets in it. Defaults to nil.
     static var assistantBackground: String? { get }
 
+    /// Whether it runs Homebridge accessory blocks (an accessory plugin's): config.json's top-level `accessories`
+    /// entries whose `accessory` is its platform, or `<package>.<platform>`, reach it in its block's `accessories` list,
+    /// one instance for the blocks of each child bridge (`HomeswiftConfiguration.adoptAccessoryBlocks`). Defaults to
+    /// false: the runtime warns about accessory blocks naming it.
+    static var runsAccessoryBlocks: Bool { get }
+
     /// Creates the instance. Throw for settings the plugin cannot work with; the runtime logs the error
     /// and leaves this block out, the other plugins keep running.
     init(configuration: Configuration, context: PluginContext) async throws
@@ -141,6 +147,11 @@ public protocol HomeswiftPlugin: Sendable {
     /// developer portal's keys. Defaults to `.none`: no account, or one whose settings the form takes as they are.
     static var accountAuthorization: AuthorizationMethod { get }
 
+    /// Whether the plugin's devices depend on that account: `.required` (the default), none before it is set up, or
+    /// `.optional(adds:)`, which says what it adds (a webhook server's password), so a plugin without it is running as it
+    /// should and its settings say what setting it up brings.
+    static var accountRequirement: AccountRequirement { get }
+
     /// The devices the plugin can find now, set up or not (GLOSSARY.md, "Discovered Device"): on the network, in the
     /// account, at the addresses its settings name. It may run on an instance that was not started, created only to set
     /// up; it should answer within a few seconds. Defaults to none.
@@ -196,10 +207,12 @@ extension HomeswiftPlugin {
     public static var webFiles: [String: WebFile] { [:] }
     public static var assistantActions: [AssistantAction] { [] }
     public static var assistantBackground: String? { nil }
+    public static var runsAccessoryBlocks: Bool { false }
     public func stop() async {}
     public func handleWebRequest(_ request: PluginWebRequest) async throws -> PluginWebResponse { .error(404, "\(Self.name) has no web API") }
     public func liveFeed(accessoryID: String) async throws -> CameraLiveFeed? { nil }
     public static var accountAuthorization: AuthorizationMethod { .none }
+    public static var accountRequirement: AccountRequirement { .required }
     public func discover() async throws -> [DiscoveredDevice] { [] }
     public func authorize(_ request: SetupRequest) async throws -> SetupStep { .done(SetupOutcome()) }
     public func accountAuthorized() async -> Bool? { nil }
@@ -435,6 +448,8 @@ public final class PluginContext: @unchecked Sendable {
     let ownDeviceIDBox = NIOLockedValueBox<(@Sendable (String) -> String?)?>(nil)
     /// The block's `_accessories` as the plugin was launched with it: Accessory Settings by Device Id.
     let accessorySettingsBox = NIOLockedValueBox<[String: AccessorySettings]>([:])
+    /// Why the account refused its credentials, since the plugin said so (`accountRefused(_:)`); nil when nothing did.
+    let accountRefusalBox = NIOLockedValueBox<String?>(nil)
     // Mutable state is behind the lock; the class is otherwise immutable.
     private let list = NIOLockedValueBox<Entries>(Entries())
     /// A save of the cache is due: changes in a burst (a plugin adding its devices at launch) write it once.
@@ -488,6 +503,14 @@ public final class PluginContext: @unchecked Sendable {
         assistantBox = assistant
         self.externals = externals
     }
+
+    /// The bridge's log, from now on (`LogBuffer.observe`), when the host has one (`PluginHost.Options.logs`): for a plugin
+    /// that acts on log lines. nil in a library or a test that gives none.
+    public internal(set) var logs: LogBuffer? {
+        get { logsBox.withLockedValue { $0 } }
+        set { logsBox.withLockedValue { $0 = newValue } }
+    }
+    private let logsBox = NIOLockedValueBox<LogBuffer?>(nil)
 
     /// Every accessory on the host's servers (the bridges and the external accessories), set by `PluginHost`.
     var publishedAccessories: @Sendable () -> [Accessory] {
