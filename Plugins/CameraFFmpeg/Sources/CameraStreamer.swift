@@ -3,6 +3,7 @@ import Homeswift
 import HomeswiftFFmpeg
 import HomeswiftNetwork
 import NIOConcurrencyHelpers
+import NIOCore
 
 /// Snapshots and live streams of one camera (sections 7.2 to 7.7): FFmpeg encrypts and sends the RTP itself, and a UDP
 /// socket on the video return port watches HomeKit's RTCP to stop a stream nobody watches any more.
@@ -119,6 +120,12 @@ actor CameraStreamer: CameraStreamingDelegate {
 
     func prepareStream(_ request: PrepareStreamRequest) async throws -> PrepareStreamResponse {
         releaseStalePrepared()
+        // The address goes into FFmpeg's command line and the SDP: an IP address only, nothing a controller could add
+        // options or lines with.
+        guard (try? SocketAddress(ipAddress: request.targetAddress, port: 0)) != nil else {
+            log.error("Refusing a stream to an address that is not an IP address.")
+            throw HAPStatusError(.invalidValueInRequest)
+        }
         let family = request.addressVersion
         let videoReturnPort = await ports.reserve(ipFamily: family)
         let audioReturnPort = await ports.reserve(ipFamily: family)

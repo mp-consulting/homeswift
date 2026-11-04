@@ -150,6 +150,8 @@ struct ArgumentTests {
         #expect(line.contains("rtsp://***@10.0.0.5:554/s1"))
         #expect(line.contains("srtp://192.168.1.20:51000"))
         #expect(Masking.text("a=crypto:1 AES_CM_128_HMAC_SHA1_80 inline:QUJDRA==") == "a=crypto:1 AES_CM_128_HMAC_SHA1_80 inline:***")
+        #expect(Masking.text("-i http://cam/snapshot.cgi?usr=admin&pwd=hunter2&res=1") == "-i http://cam/snapshot.cgi?usr=admin&pwd=***&res=1")
+        #expect(Masking.text("http://cam/video?Password=x&token=y") == "http://cam/video?Password=***&token=***")
     }
 
     @Test func boxes() throws {

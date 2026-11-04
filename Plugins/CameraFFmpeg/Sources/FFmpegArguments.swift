@@ -239,11 +239,16 @@ enum Masking {
         return masked.joined(separator: " ")
     }
 
-    /// The text with the user name and password of every URL replaced, and SDP keys (`inline:…`) hidden.
+    /// The text with the user name and password of every URL replaced, secret-looking query values and SDP keys (`inline:…`)
+    /// hidden.
     static func text(_ text: String) -> String {
         var result = text
         if result.contains("://") {
             result = result.replacing(#/([a-zA-Z][a-zA-Z0-9+.\-]*:\/\/)[^\/?#\s]*@/#) { $0.output.1 + "***@" }
+        }
+        // Credentials some cameras take in the query (`?usr=admin&pwd=…`).
+        if result.contains("=") {
+            result = result.replacing(#/(?i)([?&;](?:[^=&\s]*(?:pass|pwd|token|secret|key|auth|cred)[^=&\s]*)=)[^&\s]*/#) { $0.output.1 + "***" }
         }
         if result.contains("inline:") {
             result = result.replacing(#/inline:[A-Za-z0-9+\/=]+/#) { _ in "inline:***" }
