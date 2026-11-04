@@ -114,6 +114,8 @@ import Darwin
         #expect(redactCommandLine(["-srtp_out_suite", "AES_CM_128_HMAC_SHA1_80", "-srtp_out_params", "c2VjcmV0a2V5", "srtp://10.0.0.3:5000"])
             == "-srtp_out_suite AES_CM_128_HMAC_SHA1_80 -srtp_out_params *** srtp://10.0.0.3:5000")
         #expect(redactCommandLine(["-i", "rtsp://admin:p@ss@w0rd@10.0.0.4:554/live"]) == "-i rtsp://admin:***@10.0.0.4:554/live")
+        // A token in the query, as Google's Nest RTSP streams carry it.
+        #expect(redactCommandLine(["-i", "rtsps://stream.example/v1/CjZ?auth=STREAM-TOKEN&x=1"]) == "-i rtsps://stream.example/v1/CjZ?auth=***&x=1")
     }
 
     @Test func logsTheCommandLineWithoutPasswords() async {

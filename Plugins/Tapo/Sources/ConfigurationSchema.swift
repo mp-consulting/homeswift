@@ -1,0 +1,248 @@
+// THIS FILE IS GENERATED from ../config.schema.json by Scripts/embed-assets.swift - DO NOT EDIT.
+// swiftlint:disable all
+
+extension TapoPlugin {
+    /// The plugin's config.schema.json, as written, for settings forms and the config copilot.
+    public static let configurationSchemaJSON: String? = #"""
+{
+  "pluginAlias": "TapoP100",
+  "pluginType": "platform",
+  "singular": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string",
+        "required": true,
+        "default": "Tapo Smart Platform",
+        "description": "Plugin name as shown in the logs"
+      },
+      "waitTimeUpdate": {
+        "title": "Write Grouping (in milliseconds)",
+        "type": "number",
+        "required": false,
+        "placeholder": 100,
+        "minimum": 0,
+        "description": "How long a change from HomeKit waits for the ones made with it, so a colour or a slider sends one request."
+      },
+      "devices": {
+        "title": "Devices",
+        "type": "array",
+        "description": "Add a Tapo plug or bulb by its address on the local network. Once saved, its settings are with its accessory.",
+        "items": {
+          "title": "Device",
+          "type": "object",
+          "properties": {
+            "name": {
+              "title": "Name",
+              "type": "string",
+              "required": true,
+              "description": "The name in HomeKit. With the address, it is what the accessory is known by: changing either makes a new accessory."
+            },
+            "host": {
+              "title": "IP Address",
+              "type": "string",
+              "required": true,
+              "format": "hostname",
+              "description": "The device's IP address or host name on the local network."
+            },
+            "type": {
+              "title": "Type",
+              "type": "string",
+              "required": false,
+              "default": "Plug",
+              "oneOf": [
+                {
+                  "title": "Plug (P100, P105)",
+                  "enum": [
+                    "Plug"
+                  ]
+                },
+                {
+                  "title": "Plug with energy monitoring (P110)",
+                  "enum": [
+                    "PowerPlug"
+                  ]
+                },
+                {
+                  "title": "Dimmable bulb (L510E)",
+                  "enum": [
+                    "Light"
+                  ]
+                },
+                {
+                  "title": "White bulb (L520E)",
+                  "enum": [
+                    "WhiteLight"
+                  ]
+                },
+                {
+                  "title": "Colour bulb (L530E)",
+                  "enum": [
+                    "Colorlight"
+                  ]
+                }
+              ],
+              "description": "What the device is."
+            },
+            "updateInterval": {
+              "title": "Update Interval (in seconds)",
+              "type": "number",
+              "required": false,
+              "placeholder": 10,
+              "minimum": 1,
+              "description": "How often the device is asked for its state."
+            },
+            "timeout": {
+              "title": "Timeout (in seconds)",
+              "type": "number",
+              "required": false,
+              "placeholder": 2,
+              "minimum": 1,
+              "description": "How long a request to a device on older firmware waits for its answer."
+            }
+          }
+        }
+      }
+    }
+  },
+  "accessorySchema": {
+    "properties": {
+      "host": {
+        "title": "IP Address",
+        "type": "string",
+        "format": "hostname",
+        "description": "The device's IP address or host name on the local network. Changing it keeps the accessory."
+      },
+      "type": {
+        "title": "Type",
+        "type": "string",
+        "default": "Plug",
+        "oneOf": [
+          {
+            "title": "Plug (P100, P105)",
+            "enum": [
+              "Plug"
+            ]
+          },
+          {
+            "title": "Plug with energy monitoring (P110)",
+            "enum": [
+              "PowerPlug"
+            ]
+          },
+          {
+            "title": "Dimmable bulb (L510E)",
+            "enum": [
+              "Light"
+            ]
+          },
+          {
+            "title": "White bulb (L520E)",
+            "enum": [
+              "WhiteLight"
+            ]
+          },
+          {
+            "title": "Colour bulb (L530E)",
+            "enum": [
+              "Colorlight"
+            ]
+          }
+        ],
+        "description": "What the device is."
+      },
+      "updateInterval": {
+        "title": "Update Interval (in seconds)",
+        "type": "number",
+        "placeholder": 10,
+        "minimum": 1,
+        "description": "How often the device is asked for its state."
+      },
+      "timeout": {
+        "title": "Timeout (in seconds)",
+        "type": "number",
+        "placeholder": 2,
+        "minimum": 1,
+        "description": "How long a request to a device on older firmware waits for its answer."
+      }
+    }
+  },
+  "i18n": {
+    "fr": {
+      "Add a Tapo plug or bulb by its address on the local network. Once saved, its settings are with its accessory.": "Ajoutez une prise ou une ampoule Tapo par son adresse sur le réseau local. Une fois enregistrés, ses réglages sont avec son accessoire.",
+      "Colour bulb (L530E)": "Ampoule couleur (L530E)",
+      "Device": "Appareil",
+      "Devices": "Appareils",
+      "Dimmable bulb (L510E)": "Ampoule à intensité variable (L510E)",
+      "How long a change from HomeKit waits for the ones made with it, so a colour or a slider sends one request.": "Le temps qu'un changement venu de HomeKit attend ceux faits en même temps, pour qu'une couleur ou un curseur n'envoie qu'une requête.",
+      "How long a request to a device on older firmware waits for its answer.": "Le temps qu'une requête à un appareil au firmware ancien attend sa réponse.",
+      "How often the device is asked for its state.": "La fréquence à laquelle l'état de l'appareil est demandé.",
+      "IP Address": "Adresse IP",
+      "Name": "Nom",
+      "Plug (P100, P105)": "Prise (P100, P105)",
+      "Plug with energy monitoring (P110)": "Prise avec suivi de la consommation (P110)",
+      "Plugin name as shown in the logs": "Nom du plugin tel qu'affiché dans les journaux",
+      "The device's IP address or host name on the local network.": "L'adresse IP ou le nom d'hôte de l'appareil sur le réseau local.",
+      "The device's IP address or host name on the local network. Changing it keeps the accessory.": "L'adresse IP ou le nom d'hôte de l'appareil sur le réseau local. La changer garde l'accessoire.",
+      "The name in HomeKit. With the address, it is what the accessory is known by: changing either makes a new accessory.": "Le nom dans HomeKit. Avec l'adresse, c'est ce qui identifie l'accessoire : changer l'un ou l'autre crée un nouvel accessoire.",
+      "Timeout (in seconds)": "Délai d'attente (en secondes)",
+      "Type": "Type",
+      "Update Interval (in seconds)": "Intervalle de mise à jour (en secondes)",
+      "What the device is.": "Le type d'appareil.",
+      "White bulb (L520E)": "Ampoule blanche (L520E)",
+      "Write Grouping (in milliseconds)": "Regroupement des écritures (en millisecondes)"
+    },
+    "es": {
+      "Add a Tapo plug or bulb by its address on the local network. Once saved, its settings are with its accessory.": "Añade un enchufe o una bombilla Tapo por su dirección en la red local. Una vez guardado, sus ajustes están con su accesorio.",
+      "Colour bulb (L530E)": "Bombilla de color (L530E)",
+      "Device": "Dispositivo",
+      "Devices": "Dispositivos",
+      "Dimmable bulb (L510E)": "Bombilla regulable (L510E)",
+      "How long a change from HomeKit waits for the ones made with it, so a colour or a slider sends one request.": "Cuánto espera un cambio desde HomeKit a los que se hacen con él, para que un color o un control deslizante envíe una sola solicitud.",
+      "How long a request to a device on older firmware waits for its answer.": "Cuánto espera una solicitud a un dispositivo con firmware antiguo su respuesta.",
+      "How often the device is asked for its state.": "Con qué frecuencia se pide al dispositivo su estado.",
+      "IP Address": "Dirección IP",
+      "Name": "Nombre",
+      "Plug (P100, P105)": "Enchufe (P100, P105)",
+      "Plug with energy monitoring (P110)": "Enchufe con medición de consumo (P110)",
+      "Plugin name as shown in the logs": "Nombre del plugin tal como aparece en los registros",
+      "The device's IP address or host name on the local network.": "La dirección IP o el nombre de host del dispositivo en la red local.",
+      "The device's IP address or host name on the local network. Changing it keeps the accessory.": "La dirección IP o el nombre de host del dispositivo en la red local. Cambiarla conserva el accesorio.",
+      "The name in HomeKit. With the address, it is what the accessory is known by: changing either makes a new accessory.": "El nombre en HomeKit. Junto con la dirección, es lo que identifica al accesorio: cambiar cualquiera de los dos crea un accesorio nuevo.",
+      "Timeout (in seconds)": "Tiempo de espera (en segundos)",
+      "Type": "Tipo",
+      "Update Interval (in seconds)": "Intervalo de actualización (en segundos)",
+      "What the device is.": "Qué es el dispositivo.",
+      "White bulb (L520E)": "Bombilla blanca (L520E)",
+      "Write Grouping (in milliseconds)": "Agrupación de escrituras (en milisegundos)"
+    },
+    "pt": {
+      "Add a Tapo plug or bulb by its address on the local network. Once saved, its settings are with its accessory.": "Adicione uma tomada ou lâmpada Tapo pelo seu endereço na rede local. Depois de guardada, as suas definições ficam com o seu acessório.",
+      "Colour bulb (L530E)": "Lâmpada de cor (L530E)",
+      "Device": "Dispositivo",
+      "Devices": "Dispositivos",
+      "Dimmable bulb (L510E)": "Lâmpada regulável (L510E)",
+      "How long a change from HomeKit waits for the ones made with it, so a colour or a slider sends one request.": "Quanto tempo uma alteração vinda do HomeKit espera pelas feitas com ela, para que uma cor ou um controlo deslizante envie um só pedido.",
+      "How long a request to a device on older firmware waits for its answer.": "Quanto tempo um pedido a um dispositivo com firmware antigo espera pela resposta.",
+      "How often the device is asked for its state.": "Com que frequência se pede o estado ao dispositivo.",
+      "IP Address": "Endereço IP",
+      "Name": "Nome",
+      "Plug (P100, P105)": "Tomada (P100, P105)",
+      "Plug with energy monitoring (P110)": "Tomada com medição de consumo (P110)",
+      "Plugin name as shown in the logs": "Nome do plugin tal como aparece nos registos",
+      "The device's IP address or host name on the local network.": "O endereço IP ou o nome de anfitrião do dispositivo na rede local.",
+      "The device's IP address or host name on the local network. Changing it keeps the accessory.": "O endereço IP ou o nome de anfitrião do dispositivo na rede local. Mudá-lo mantém o acessório.",
+      "The name in HomeKit. With the address, it is what the accessory is known by: changing either makes a new accessory.": "O nome no HomeKit. Com o endereço, é o que identifica o acessório: mudar qualquer um dos dois cria um novo acessório.",
+      "Timeout (in seconds)": "Tempo limite (em segundos)",
+      "Type": "Tipo",
+      "Update Interval (in seconds)": "Intervalo de atualização (em segundos)",
+      "What the device is.": "O que é o dispositivo.",
+      "White bulb (L520E)": "Lâmpada branca (L520E)",
+      "Write Grouping (in milliseconds)": "Agrupamento de escritas (em milissegundos)"
+    }
+  }
+}
+"""#
+}

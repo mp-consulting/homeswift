@@ -27,6 +27,10 @@ import Testing
         #expect(found.json?["devices"] == [])
         #expect(found.json?["accountAuthorization"] == "none")
         #expect(found.json?["accountSetUp"] == true)
+        // No account: nothing to set up, and the Plugins page shows it running.
+        #expect(found.json?["accountState"] == "none" && found.json?["needsAuthorization"] == false)
+        let lamps = try await browser.get("/api/plugins").json?["platforms"]?.arrayValue?.first { $0["platform"] == "Lamps" }
+        #expect(lamps?["accountState"] == "none" && lamps?["needsAuthorization"] == false && lamps?["noneResponding"] == false)
         #expect(try await browser.post("/api/setup/discover", [:]).status == 400)
         let missing = try await browser.post("/api/setup/start", ["platform": "Lamps", "name": "Lamps", "deviceID": "nowhere"])
         #expect(missing.status == 400)

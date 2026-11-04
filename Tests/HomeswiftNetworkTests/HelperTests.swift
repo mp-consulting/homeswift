@@ -47,6 +47,22 @@ struct UDPSocketTests {
         #expect(await iterator.next() == nil)
     }
 
+    @Test func givesTheSendersPortWhenAsked() async throws {
+        let receiver = try await UDPSocket.bind(host: "127.0.0.1", senderPorts: true)
+        let sender = try await UDPSocket.bind(host: "127.0.0.1")
+        let port = try #require(receiver.localPort)
+        try await sender.send(Data("hello".utf8), to: "127.0.0.1", port: port)
+        var iterator = receiver.datagramsWithPorts.makeAsyncIterator()
+        let datagram = try #require(await iterator.next())
+        #expect(datagram == UDPSocket.Datagram(data: Data("hello".utf8), address: "127.0.0.1", port: try #require(sender.localPort)))
+        // The plain stream of such a socket is empty.
+        var plain = receiver.datagrams.makeAsyncIterator()
+        #expect(await plain.next() == nil)
+        await sender.close()
+        await receiver.close()
+        #expect(await iterator.next() == nil)
+    }
+
     @Test func listsTheLoopbackNetwork() {
         let loopback = localIPv4Networks().first(where: \.isLoopback)
         #expect(loopback?.contains(IPv4Network.parse("127.0.0.1")!) == true)
