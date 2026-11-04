@@ -14,17 +14,9 @@ extension RenaultPlugin {
     public func accountAuthorized() async -> Bool? { storedCredentials() != nil }
 
     public func discover() async throws -> [DiscoveredDevice] {
-        let known: [VehicleInfo]
-        if vehicles.isEmpty {
-            known = knownVehicles
-        } else {
-            var running: [VehicleInfo] = []
-            for vehicle in vehicles.values { running.append(vehicle.info) }
-            known = running
-        }
         let dropped = droppedStore.load() ?? [:]
         let wanted = wantedVINs
-        return known.sorted { $0.vin < $1.vin }.map { info in
+        return knownVehicles.sorted { $0.vin < $1.vin }.map { info in
             let parts = context.accessorySettings(for: info.vin).parts
             let available = RenaultVehicle.parts(for: info, dropped: Self.dropped(in: dropped, for: info, forgetAfter: dependencies.timing.forgetDropped))
             var device = DiscoveredDevice(
@@ -42,8 +34,15 @@ extension RenaultPlugin {
     public func authorize(_ request: SetupRequest) async throws -> SetupStep {
         try request.requireAccount("Renault vehicles come with the account: they need no setup of their own")
         var state = request.state.objectValue ?? [:]
-        let locale = request.choice("locale", among: RenaultLocale.known) ?? state["locale"]?.stringValue ?? locale
-        guard let servers = RenaultLocale.servers(for: locale) else { throw SetupError("Pick a country") }
+        var locale = request.choice("locale", among: RenaultLocale.known) ?? state["locale"]?.stringValue ?? self.locale
+        // A block's locale the table does not list comes from Renault's configuration, else the default is offered.
+        var servers = RenaultLocale.servers(for: locale)
+        if servers == nil { servers = try? await RenaultLocale.resolve(locale, http: dependencies.http, timeout: dependencies.timing.requestTimeout) }
+        if servers == nil {
+            locale = RenaultLocale.defaultLocale
+            servers = RenaultLocale.servers(for: locale)
+        }
+        guard let servers else { throw SetupError("Pick a country") }
         state["locale"] = .string(locale)
         let gigya = GigyaClient(http: dependencies.http, servers: servers, timeout: dependencies.timing.requestTimeout)
 
@@ -179,10 +178,7 @@ extension RenaultPlugin {
     // known cars; one that names cars the plugin does not know yet stays as it is.
 
     public func canonicalSettings(_ block: JSONValue) async -> JSONValue {
-        var known: [String] = []
-        for vehicle in vehicles.values { known.append(vehicle.info.vin) }
-        if known.isEmpty { known = knownVehicles.map(\.vin) }
-        return Self.canonical(block, knownVINs: known)
+        Self.canonical(block, knownVINs: knownVehicles.map(\.vin))
     }
 
     static func canonical(_ block: JSONValue, knownVINs: [String]) -> JSONValue {

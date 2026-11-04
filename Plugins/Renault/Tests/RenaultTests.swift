@@ -241,6 +241,21 @@ struct RenaultTests {
         await host.stop()
     }
 
+    /// Reads skipped during the cool-down are not failures: the car keeps answering in Home however long it lasts.
+    @Test func skippedReadsDuringTheCooldownKeepTheCarAvailable() async throws {
+        let environment = TestEnvironment()
+        let host = try await environment.start()
+        _ = try #require(await accessory(host))
+        environment.cloud.answer("/kca/car-adapter/v2/cars/\(Fixtures.vin)/battery-status", 200, Fixtures.quota)
+        let vehicle = try #require(await environment.plugin?.vehicles[Fixtures.vin])
+        #expect(await vehicle.read(.batteryStatus, .poll) == .skipped)
+        #expect(await vehicle.read(.hvacStatus, .poll) == .skipped)
+        #expect(await vehicle.read(.batteryStatus, .poll) == .skipped)
+        await vehicle.updateAvailability(limit: .zero)
+        #expect(await vehicle.accessory?.isUnavailable == false)
+        await host.stop()
+    }
+
     /// Several scaled hours of polling with actions and their confirmation reads: never more than the hour's budget in any
     /// rolling hour, never two requests at once.
     @Test func theHourlyBudgetHolds() async throws {

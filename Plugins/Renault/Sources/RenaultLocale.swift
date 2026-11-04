@@ -70,7 +70,8 @@ enum RenaultLocale {
             let gigyaRoot = json["servers"]?["gigyaProd"]?["target"]?.stringValue,
             let kamereonKey = json["servers"]?["wiredProd"]?["apikey"]?.stringValue,
             let kamereonRoot = json["servers"]?["wiredProd"]?["target"]?.stringValue,
-            gigyaRoot.hasPrefix("https://"), kamereonRoot.hasPrefix("https://")
+            gigyaRoot.hasPrefix("https://"), kamereonRoot.hasPrefix("https://"),
+            URL(string: gigyaRoot)?.host != nil, URL(string: kamereonRoot)?.host != nil
         else { throw RenaultError.unknownLocale(locale) }
         return RenaultServers(
             gigyaRoot: gigyaRoot, gigyaKey: gigyaKey, kamereonRoot: kamereonRoot, kamereonKey: kamereonKey,

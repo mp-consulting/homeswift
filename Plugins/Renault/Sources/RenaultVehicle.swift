@@ -91,8 +91,9 @@ actor RenaultVehicle {
     private var seenExterior = false
     /// The programs' activation flags before a charge start turned them off (4.6), in memory.
     private(set) var programsBeforeChargeStart: [Bool]?
-    private(set) var lastSuccess: ContinuousClock.Instant?
-    private let created = ContinuousClock.now
+    /// Since when reads fail with no read succeeding in between; a read skipped for the quota or a dropped endpoint is
+    /// not a failure, and a car with nothing to read never fails.
+    private var failingSince: ContinuousClock.Instant?
 
     private struct Pending { var value: Bool; var until: ContinuousClock.Instant }
     private var pendingClimate: Pending?
@@ -186,7 +187,7 @@ actor RenaultVehicle {
             }
             apply(endpoint, Kamereon.attributes(json, plain: plain))
             working.insert(endpoint)
-            lastSuccess = .now
+            failingSince = nil
             return .read
         } catch RenaultError.quota {
             return .skipped
@@ -200,6 +201,7 @@ actor RenaultVehicle {
         } catch is CancellationError {
             return .skipped
         } catch {
+            failingSince = failingSince ?? .now
             return .failed("\(error)")
         }
     }
@@ -368,8 +370,7 @@ actor RenaultVehicle {
 
     /// No Response when every endpoint has failed for longer than `limit` (6.5).
     func updateAvailability(limit: Duration) {
-        let since = lastSuccess ?? created
-        let unavailable = ContinuousClock.now - since > limit
+        let unavailable = failingSince.map { ContinuousClock.now - $0 > limit } ?? false
         if let accessory, accessory.isUnavailable != unavailable {
             accessory.isUnavailable = unavailable
             if unavailable { logger.warning("\(logName) has not answered for a while: shown as not responding") }

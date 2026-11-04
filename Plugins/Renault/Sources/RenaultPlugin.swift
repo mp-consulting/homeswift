@@ -80,8 +80,9 @@ public actor RenaultPlugin: HomeswiftPlugin {
     var locale: String { configuration.locale.flatMap { $0.isEmpty ? nil : $0 } ?? RenaultLocale.defaultLocale }
     var maxCalls: Int { configuration.maxCallsPerHour ?? Self.defaultMaxCalls }
 
-    /// HA's interval (6.1): the hour's budget spread over every poller of every vehicle, the calls made once an hour
-    /// (the vehicle list) kept aside. One R5 (5 pollers) at 60 calls an hour reads every 305 s.
+    /// HA's interval (6.1): the polls' budget (the hour's less the actions' reserve) spread over every poller of every
+    /// vehicle, the calls made once an hour (the vehicle list, the SoC levels) kept aside. One R5 (battery and HVAC, 2
+    /// hourly) at 60 calls an hour reads every 3600 × 2 / (54 − 2) ≈ 138 s.
     static func pollInterval(pollers: Int, hourly: Int, budget: Int, hour: Duration) -> Duration {
         let spare = max(budget - hourly, 1)
         return hour * max(pollers, 1) / spare
@@ -204,13 +205,15 @@ public actor RenaultPlugin: HomeswiftPlugin {
             if !ModelEndpoints.isKnown(info.modelCode) {
                 logger.warning("The model \(info.modelCode ?? "?") is not documented: using the default endpoints (hacf-fr/renault-api#1747)")
             }
-            let store = droppedStore
+            let store = droppedStore, lock = dropLock
             let vehicle = RenaultVehicle(
                 info: info, accountID: accountID, session: session,
                 options: .init(climateTemperature: configuration.climateTemperature ?? 21, parts: context.accessorySettings(for: info.vin).parts),
                 dropped: Self.dropped(in: store.load() ?? [:], for: info, forgetAfter: dependencies.timing.forgetDropped),
                 timing: dependencies.timing, logger: logger, tasks: tasks
             ) { vin, endpoint in
+                lock.lock()
+                defer { lock.unlock() }
                 var all = store.load() ?? [:]
                 var entry = all[vin].flatMap { $0.model == info.modelCode ? $0 : nil } ?? DroppedEndpoints(model: info.modelCode, endpoints: [:])
                 entry.endpoints[endpoint.rawValue] = Date()
@@ -334,6 +337,9 @@ public actor RenaultPlugin: HomeswiftPlugin {
         var model: String?
         var endpoints: [String: Date]
     }
+
+    /// Vehicles drop endpoints from their own actors: one read-modify-write of the file at a time.
+    nonisolated let dropLock = NSLock()
 
     nonisolated var droppedStore: JSONFile<[String: DroppedEndpoints]> {
         context.jsonFile("renault-endpoints.json", as: [String: DroppedEndpoints].self)
