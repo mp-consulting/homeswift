@@ -102,56 +102,71 @@ struct SyncBoxState: Sendable, Equatable {
 /// already at most 100 kB) that skips everything else. Empty when the body is not as expected; the parser then sorts.
 enum GroupOrder {
     static func keys(in body: Data) -> [String] {
-        var scanner = Scanner(bytes: [UInt8](body))
-        return (try? scanner.topLevel()) ?? []
+        body.withUnsafeBytes { raw in
+            var scanner = Scanner(bytes: raw.bindMemory(to: UInt8.self))
+            return (try? scanner.topLevel()) ?? []
+        }
     }
 
     private struct Malformed: Error {}
 
     private struct Scanner {
-        let bytes: [UInt8]
+        let bytes: UnsafeBufferPointer<UInt8>
         var index = 0
         var found: [String] = []
 
-        init(bytes: [UInt8]) { self.bytes = bytes }
+        init(bytes: UnsafeBufferPointer<UInt8>) { self.bytes = bytes }
 
         mutating func topLevel() throws -> [String] {
             try value(path: [], depth: 0)
             return found
         }
 
+        static func isSpace(_ byte: UInt8) -> Bool { byte == 0x20 || byte == 0x09 || byte == 0x0A || byte == 0x0D }
+
         mutating func skipSpace() {
-            while index < bytes.count, [0x20, 0x09, 0x0A, 0x0D].contains(bytes[index]) { index += 1 }
+            while index < bytes.count, Self.isSpace(bytes[index]) { index += 1 }
         }
 
-        mutating func value(path: [String], depth: Int) throws {
+        /// `path` is the keys from the top while they can still lead to `hue.groups`; nil off that path, where keys are
+        /// skipped rather than read.
+        mutating func value(path: [String]?, depth: Int) throws {
             guard depth < 32 else { throw Malformed() }
             skipSpace()
             guard index < bytes.count else { throw Malformed() }
             switch bytes[index] {
             case UInt8(ascii: "{"): try object(path: path, depth: depth)
-            case UInt8(ascii: "["): try array(path: path, depth: depth)
-            case UInt8(ascii: "\""): _ = try string()
+            case UInt8(ascii: "["): try array(depth: depth)
+            case UInt8(ascii: "\""): try skipString()
             default:
                 // A number, true, false or null: up to the next delimiter.
-                while index < bytes.count, ![UInt8(ascii: ","), UInt8(ascii: "}"), UInt8(ascii: "]"), 0x20, 0x09, 0x0A, 0x0D].contains(bytes[index]) { index += 1 }
+                while index < bytes.count {
+                    let byte = bytes[index]
+                    if byte == UInt8(ascii: ",") || byte == UInt8(ascii: "}") || byte == UInt8(ascii: "]") || Self.isSpace(byte) { break }
+                    index += 1
+                }
             }
         }
 
-        mutating func object(path: [String], depth: Int) throws {
+        mutating func object(path: [String]?, depth: Int) throws {
             index += 1
             let isGroups = path == ["hue", "groups"]
             skipSpace()
             if index < bytes.count, bytes[index] == UInt8(ascii: "}") { index += 1; return }
             while true {
                 skipSpace()
-                let key = try string()
-                if isGroups { found.append(key) }
+                // Only the keys down to hue.groups and its own are read; deeper ones are skipped.
+                var child: [String]?
+                if let path, path.count < 2 || isGroups {
+                    let key = try string()
+                    if isGroups { found.append(key) } else { child = path + [key] }
+                } else {
+                    try skipString()
+                }
                 skipSpace()
                 guard index < bytes.count, bytes[index] == UInt8(ascii: ":") else { throw Malformed() }
                 index += 1
-                // Only the path down to hue.groups matters; deeper keys are never recorded.
-                try value(path: path.count < 2 ? path + [key] : [], depth: depth + 1)
+                try value(path: child, depth: depth + 1)
                 skipSpace()
                 guard index < bytes.count else { throw Malformed() }
                 if bytes[index] == UInt8(ascii: ",") { index += 1; continue }
@@ -160,12 +175,12 @@ enum GroupOrder {
             }
         }
 
-        mutating func array(path: [String], depth: Int) throws {
+        mutating func array(depth: Int) throws {
             index += 1
             skipSpace()
             if index < bytes.count, bytes[index] == UInt8(ascii: "]") { index += 1; return }
             while true {
-                try value(path: [], depth: depth + 1)
+                try value(path: nil, depth: depth + 1)
                 skipSpace()
                 guard index < bytes.count else { throw Malformed() }
                 if bytes[index] == UInt8(ascii: ",") { index += 1; continue }
@@ -174,8 +189,9 @@ enum GroupOrder {
             }
         }
 
-        /// A string, decoded by JSONValue so its escapes read as they do in the parsed state.
-        mutating func string() throws -> String {
+        /// Past a string, its closing quote included; the range it took.
+        @discardableResult
+        mutating func skipString() throws -> Range<Int> {
             guard index < bytes.count, bytes[index] == UInt8(ascii: "\"") else { throw Malformed() }
             let start = index
             index += 1
@@ -184,7 +200,13 @@ enum GroupOrder {
             }
             guard index < bytes.count else { throw Malformed() }
             index += 1
-            guard let text = (try? JSONValue(data: Data(bytes[start..<index])))?.stringValue else { throw Malformed() }
+            return start..<index
+        }
+
+        /// A string, decoded by JSONValue so its escapes read as they do in the parsed state.
+        mutating func string() throws -> String {
+            let range = try skipString()
+            guard let text = (try? JSONValue(bytes: UnsafeRawBufferPointer(UnsafeBufferPointer(rebasing: bytes[range]))))?.stringValue else { throw Malformed() }
             return text
         }
     }

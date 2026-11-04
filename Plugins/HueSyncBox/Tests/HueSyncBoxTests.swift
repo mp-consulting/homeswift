@@ -216,6 +216,19 @@ struct HueSyncBoxStateTests {
         #expect(SyncBoxKind.entertainmentTV.activeIdentifier(in: state) == 1)
     }
 
+    /// The key-order scan reads only the top-level `hue.groups`, and ends on anything: truncated, nested, escaped.
+    @Test func theGroupScanIsBounded() {
+        let decoy = #"{"device": {"x": {"hue": {"groups": {"b": 1}}}}, "hue": {"groups": {"a": {}, "b\"\\": {}}}, "arr": [{"hue": {"groups": {"c": 1}}}]}"#
+        #expect(GroupOrder.keys(in: Data(decoy.utf8)) == ["a", "b\"\\"])
+        let bytes = Array(vectorState.utf8)
+        for end in stride(from: 0, to: bytes.count, by: 7) {
+            _ = GroupOrder.keys(in: Data(bytes[..<end]))
+        }
+        for broken in ["", "{", "{\"", "\"\\", "{\"hue\":{\"groups\":{\"a\"", "[,,,]", "{\"a\":}", String(repeating: "[", count: 10_000), String(repeating: "{\"a\":", count: 10_000)] {
+            _ = GroupOrder.keys(in: Data(broken.utf8))
+        }
+    }
+
     @Test func refusesWhatDoesNotValidate() {
         for broken in [
             vectorState.replacingOccurrences(of: #""hdmiSource": "input3""#, with: #""hdmiSource": "input5""#),
@@ -319,6 +332,7 @@ struct SyncBoxClientTests {
         #expect(SyncBoxClient.baseURL("fe80::1")?.absoluteString == "https://[fe80::1]/api/v1/")
         #expect(SyncBoxClient.baseURL("") == nil)
         #expect(SyncBoxClient.baseURL("a/b") == nil)
+        #expect(SyncBoxClient.baseURL("192.0.2.50#x") == nil && SyncBoxClient.baseURL("192.0.2.50?x") == nil && SyncBoxClient.baseURL("u@192.0.2.50") == nil)
     }
 
     /// Requests go one at a time: the second waits for the first.

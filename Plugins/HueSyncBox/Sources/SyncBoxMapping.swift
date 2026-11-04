@@ -37,13 +37,13 @@ enum SyncBoxKind: String, CaseIterable, Sendable {
         }
     }
 
-    /// The Television service's subtype and name, and its inputs' subtype prefix (section 5.4): HomeKit's scenes name them.
-    var television: (subtype: String, name: String, inputPrefix: String)? {
+    /// The Television service's subtype and its inputs' subtype prefix (section 5.4): HomeKit's scenes name them.
+    var television: (subtype: String, inputPrefix: String)? {
         switch self {
-        case .hdmiTV: ("TV", "TV", "HDMI ")
-        case .modeTV: ("ModeAccessory", "Mode", "MODE ")
-        case .intensityTV: ("IntensityTVAccessory", "Intensity", "INTENSITY ")
-        case .entertainmentTV: ("EntertainmentTVAccessory", "Entertainment Area", "AREA ")
+        case .hdmiTV: ("TV", "HDMI ")
+        case .modeTV: ("ModeAccessory", "MODE ")
+        case .intensityTV: ("IntensityTVAccessory", "INTENSITY ")
+        case .entertainmentTV: ("EntertainmentTVAccessory", "AREA ")
         default: nil
         }
     }

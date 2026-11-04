@@ -80,6 +80,8 @@ public actor HueSyncBoxPlugin: HomeswiftPlugin {
 
     static let defaultInterval = 5
     static let minimumInterval = 1
+    /// A larger `updateIntervalInSeconds` is read as this: an hour, a sleep that cannot overflow.
+    static let maximumInterval = 3_600
     /// Failed polls in a row before the accessories show No Response.
     static let failuresBeforeUnreachable = 3
 
@@ -116,7 +118,7 @@ public actor HueSyncBoxPlugin: HomeswiftPlugin {
     }
 
     var interval: Duration {
-        .seconds(max(configuration.updateIntervalInSeconds ?? Self.defaultInterval, Self.minimumInterval)) * dependencies.timeScale
+        .seconds(min(max(configuration.updateIntervalInSeconds ?? Self.defaultInterval, Self.minimumInterval), Self.maximumInterval)) * dependencies.timeScale
     }
 
     /// The back-off between failed reads: from the poll's interval up to five minutes.
@@ -195,6 +197,8 @@ public actor HueSyncBoxPlugin: HomeswiftPlugin {
                 do { try await Task.sleep(for: backoff.delay(attempt: attempt - 1)) } catch { return }
             }
         }
+        // Every accessory Excluded (or none turned on): nothing to show, nothing to ask the box.
+        guard !accessories.isEmpty else { return }
         while !Task.isCancelled {
             let delay = failures == 0 ? interval : backoff.delay(attempt: failures - 1)
             do { try await Task.sleep(for: delay) } catch { return }

@@ -52,7 +52,8 @@ actor SyncBoxClient {
     /// `https://<address>/api/v1/`; an IPv6 address goes in brackets. nil for an address no URL can hold.
     static func baseURL(_ address: String) -> URL? {
         let trimmed = address.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty, !trimmed.contains("/"), !trimmed.contains("@") else { return nil }
+        // A host and a port only: no path, query, fragment or user that would move the requests elsewhere.
+        guard !trimmed.isEmpty, !trimmed.contains(where: { "/@?#\\".contains($0) || $0.isWhitespace }) else { return nil }
         let host = trimmed.filter { $0 == ":" }.count > 1 && !trimmed.hasPrefix("[") ? "[\(trimmed)]" : trimmed
         guard let url = URL(string: "https://\(host)/api/v1/"), url.host?.isEmpty == false else { return nil }
         return url
