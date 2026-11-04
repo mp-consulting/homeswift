@@ -97,6 +97,9 @@ final class EntityBinding: Sendable {
         /// The mireds the bridge sent last, so its own echo does not turn Adaptive Lighting off.
         let sentMireds = NIOLockedValueBox<Int?>(nil)
         let sentColor = NIOLockedValueBox(false)
+        /// The hue and the saturation written since the last command: HomeKit writes both of one colour at once, and each
+        /// handler sees the other's old value, so the colour is made when the command goes.
+        let color = NIOLockedValueBox<(hue: Double?, saturation: Double?)>((nil, nil))
 
         init(delay: Duration) { latest = LatestCallGuard(delay: delay) }
     }
@@ -125,10 +128,20 @@ final class EntityBinding: Sendable {
                 pending = command
             }
             guard await writes.latest() else { return }
-            guard let command = writes.pending.withLockedValue({ pending -> ESPHomeRequest.Light? in
+            guard var command = writes.pending.withLockedValue({ pending -> ESPHomeRequest.Light? in
                 defer { pending = nil }
                 return pending
             }) else { return }
+            let color = writes.color.withLockedValue { color in
+                defer { color = (nil, nil) }
+                return color
+            }
+            if color.hue != nil || color.saturation != nil {
+                let rgb = Color.rgb(
+                    hue: color.hue ?? lightbulb.characteristic(.hue).value.doubleValue ?? 0,
+                    saturation: color.saturation ?? lightbulb.characteristic(.saturation).value.doubleValue ?? 0)
+                command.rgb = (Float(rgb.red), Float(rgb.green), Float(rgb.blue))
+            }
             try await link.send(command.frame)
         }
 
@@ -146,19 +159,15 @@ final class EntityBinding: Sendable {
             }
         }
         if rgb {
-            @Sendable func sendColor(hue: Double, saturation: Double) async throws {
-                let color = Color.rgb(hue: hue, saturation: saturation)
-                writes.sentColor.withLockedValue { $0 = true }
-                try await write {
-                    $0.rgb = (Float(color.red), Float(color.green), Float(color.blue))
-                    $0.colorMode = rgbMode
-                }
-            }
             lightbulb.characteristic(.hue).onWrite { value in
-                try await sendColor(hue: value.doubleValue ?? 0, saturation: lightbulb.characteristic(.saturation).value.doubleValue ?? 0)
+                writes.color.withLockedValue { $0.hue = value.doubleValue ?? 0 }
+                writes.sentColor.withLockedValue { $0 = true }
+                try await write { $0.colorMode = rgbMode }
             }
             lightbulb.characteristic(.saturation).onWrite { value in
-                try await sendColor(hue: lightbulb.characteristic(.hue).value.doubleValue ?? 0, saturation: value.doubleValue ?? 0)
+                writes.color.withLockedValue { $0.saturation = value.doubleValue ?? 0 }
+                writes.sentColor.withLockedValue { $0 = true }
+                try await write { $0.colorMode = rgbMode }
             }
         }
         var effectSwitches: [(name: String, service: Service)] = []

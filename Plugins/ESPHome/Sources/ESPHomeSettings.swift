@@ -23,12 +23,12 @@ extension ESPHomePlugin {
 
     /// The block with each `devices` entry whose address answered with a MAC moved into `_accessories` under it (`host`,
     /// `port` and `retryAfter`, an entry's own values winning). Its `password` and `encryptionKey` move into the vault
-    /// once the block is written (`whenSettingsWritten`), unless the vault has the device's already; the block is
-    /// answered without them.
+    /// once the block is written (`whenSettingsWritten`), replacing what the vault had for the device (a key rotated in the
+    /// entry wins); the block is answered without them.
     public func canonicalSettings(_ block: JSONValue) async -> JSONValue {
         let (canonical, moved) = Self.canonical(block, learned: learnedMACs)
         let context = context
-        for (mac, credentials) in moved where !credentials.isEmpty && context.credentials(for: mac, as: ESPHomeCredentials.self) == nil {
+        for (mac, credentials) in moved where !credentials.isEmpty && context.credentials(for: mac, as: ESPHomeCredentials.self) != credentials {
             await context.whenSettingsWritten { try context.saveCredentials(credentials, for: mac) }
         }
         return canonical

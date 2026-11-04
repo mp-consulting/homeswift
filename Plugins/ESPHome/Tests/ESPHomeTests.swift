@@ -517,6 +517,60 @@ struct ESPHomePluginTests {
         #expect(outcome.credentials == nil && outcome.deviceID == "AC:BC:32:89:0E:A9")
     }
 
+    @Test func hueAndSaturationOfOneChangeMakeOneColour() async throws {
+        let environment = ESPHomeTestEnvironment()
+        let device = FakeDevice(.init(entities: [lightEntity("Lamp", key: 3, modes: [35])], states: [frame(24) {
+            $0.fixed32(1, 3)
+            $0.bool(2, true)
+            $0.float(4, 1)
+            $0.enumeration(11, 35)
+        }]))
+        environment.transport.add(device, at: "lamp.local")
+        let host = try await environment.start(settings: ["devices": [["host": "lamp.local"]]])
+        defer { Task { await host.stop() } }
+        #expect(await eventually { host.accessory("esphome:Lamp")?.service(.lightbulb)?.characteristic(.saturation).value.doubleValue == 100 })
+        let lightbulb = try #require(host.accessory("esphome:Lamp")?.service(.lightbulb))
+        async let hue: Void = lightbulb.characteristic(.hue).writeHandler(for: .int(240))!(.int(240))
+        async let saturation: Void = lightbulb.characteristic(.saturation).writeHandler(for: .int(50))!(.int(50))
+        _ = try await (hue, saturation)
+        #expect(device.commands.count == 1)
+        let color = try #require(device.lastMessage)
+        #expect(color.float(7) == 0.5 && color.float(8) == 0.5 && color.float(9) == 1)
+    }
+
+    @Test func subDevicesAndRenamedEntities() async throws {
+        let environment = ESPHomeTestEnvironment()
+        func relay(_ name: String, subDevice: UInt32) -> ESPHomeFrame {
+            frame(17) {
+                $0.fixed32(2, 5)
+                $0.string(3, name)
+                $0.uint32(10, subDevice)
+            }
+        }
+        let device = FakeDevice(.init(entities: [relay("Relay A", subDevice: 1), relay("Relay B", subDevice: 2)]))
+        device.echoesSwitches = false
+        environment.transport.add(device, at: "hub.local")
+        let host = try await environment.start(settings: ["devices": [["host": "hub.local"]]])
+        #expect(await eventually { host.accessory("esphome:Relay B") != nil && host.accessory("esphome:Relay A") != nil })
+        device.push(frame(26) {
+            $0.fixed32(1, 5)
+            $0.bool(2, true)
+            $0.uint32(3, 2)
+        })
+        #expect(await eventually { host.accessory("esphome:Relay B")?.service(.switch)?.characteristic(.on).value == .bool(true) })
+        #expect(host.accessory("esphome:Relay A")?.service(.switch)?.characteristic(.on).value == .bool(false))
+        try await host.accessory("esphome:Relay A")?.service(.switch)?.characteristic(.on).writeHandler(for: .bool(true))?(.bool(true))
+        #expect(device.lastMessage?.uint32(3) == 1)
+        await host.stop()
+
+        // Renamed in the device's configuration: the old accessory goes.
+        device.config.entities = [relay("Pump", subDevice: 1), relay("Relay B", subDevice: 2)]
+        let again = try await environment.start(settings: ["devices": [["host": "hub.local"]]])
+        defer { Task { await again.stop() } }
+        #expect(await eventually { again.accessory("esphome:Pump") != nil && again.accessory("esphome:Relay A") == nil })
+        #expect(again.accessory("esphome:Relay B") != nil)
+    }
+
     @Test func schemaIsCurrentAndDeclaresNoSecret() throws {
         let file = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("config.schema.json")
         #expect(try JSONValue(string: String(contentsOf: file, encoding: .utf8)) == JSONValue(string: try #require(ESPHomePlugin.configurationSchemaJSON)))

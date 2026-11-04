@@ -135,7 +135,7 @@ enum ESPHomeSession {
     /// Runs until the connection ends; throws why (`ESPHomeError`, a connection error, or `CancellationError`).
     static func run(
         endpoint: ESPHomeEndpoint, transport: any ESPHomeTransport, timing: ESPHomeTiming, logger: Logger,
-        onReady: @Sendable (Ready) async -> Void, onState: @Sendable (ProtobufMessage) async -> Void
+        onReady: @Sendable (Ready) async -> Void, onState: @Sendable (EntityKind, ProtobufMessage) async -> Void
     ) async throws {
         let psk = try endpoint.encryptionKey.map(ESPHomeNoise.psk(fromBase64:))
         let stream = try await transport.connect(host: endpoint.host, port: endpoint.port, timeout: timing.connectTimeout)
@@ -241,7 +241,7 @@ enum ESPHomeSession {
                     unsupported.append(Sanitized.text(message.string(3)))
                 }
             case (.running, let type):
-                if EntityKind(stateType: type) != nil { await onState(message) }
+                if let kind = EntityKind(stateType: type) { await onState(kind, message) }
             default:
                 break
             }

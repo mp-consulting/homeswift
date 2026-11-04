@@ -63,6 +63,35 @@ enum EntityKind: String, Sendable, CaseIterable {
         }
     }
 
+    static func entityID(deviceID: UInt32, key: UInt32) -> UInt64 { UInt64(deviceID) << 32 | UInt64(key) }
+
+    /// A state's entity: its key and its sub-device.
+    func entityID(ofState state: ProtobufMessage) -> UInt64 {
+        let field = switch self {
+        case .binarySensor, .sensor: 4
+        case .switch, .lock, .button: 3
+        case .cover: 6
+        case .fan: 8
+        case .light: 14
+        case .climate: 16
+        }
+        return Self.entityID(deviceID: state.uint32(field), key: state.fixed32(1))
+    }
+
+    /// The `device_id` field of a command, by its type.
+    static func deviceIDField(ofCommand type: Int) -> Int? {
+        switch type {
+        case MessageType.switchCommand: 3
+        case MessageType.coverCommand: 9
+        case MessageType.fanCommand: 14
+        case MessageType.lightCommand: 28
+        case MessageType.climateCommand: 24
+        case MessageType.lockCommand: 5
+        case MessageType.buttonCommand: 2
+        default: nil
+        }
+    }
+
     /// nil for a button, which has no state.
     var stateType: Int? {
         switch self {
@@ -113,6 +142,23 @@ struct EntityInfo: Equatable, Sendable {
 
     var objectID: String { message.string(1) }
     var key: UInt32 { message.fixed32(2) }
+
+    /// The sub-device it belongs to (ESPHome's `devices:`); 0 for the main device.
+    var deviceID: UInt32 {
+        let field = switch kind {
+        case .binarySensor, .switch: 10
+        case .cover, .fan: 13
+        case .light: 16
+        case .sensor: 14
+        case .climate: 26
+        case .lock: 12
+        case .button: 9
+        }
+        return message.uint32(field)
+    }
+
+    /// The entity among the device's: its key is unique within its sub-device only.
+    var entityID: UInt64 { EntityKind.entityID(deviceID: deviceID, key: key) }
     var name: String { Sanitized.text(message.string(3)) }
 
     var icon: String {

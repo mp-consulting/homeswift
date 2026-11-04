@@ -34,13 +34,39 @@ public final class TCPStream: ByteStream {
                 }
             }
         do {
-            let channel = try await bootstrap.connect(host: host, port: port).get()
+            let channel = try await cancellable(bootstrap.connect(host: host, port: port))
             continuation.onTermination = { _ in channel.close(promise: nil) }
             return TCPStream(channel: channel, incoming: stream)
+        } catch is CancellationError {
+            continuation.finish()
+            throw CancellationError()
         } catch {
             continuation.finish()
             let (code, reason) = connectionFailure(error)
             throw HTTPClientError.cannotConnect(host: host, port: port, code: code, reason: reason)
+        }
+    }
+
+    /// The connection, or `CancellationError` as soon as the task is cancelled (a channel that connects later is closed),
+    /// rather than once the connect timeout passes.
+    private static func cancellable(_ future: EventLoopFuture<any Channel>) async throws -> any Channel {
+        let resumed = NIOLockedValueBox<CheckedContinuation<any Channel, any Error>?>(nil)
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                resumed.withLockedValue { $0 = continuation }
+                if Task.isCancelled, let pending = resumed.withLockedValue({ box in defer { box = nil }; return box }) {
+                    pending.resume(throwing: CancellationError())
+                }
+                future.whenComplete { result in
+                    guard let pending = resumed.withLockedValue({ box in defer { box = nil }; return box }) else {
+                        if case .success(let channel) = result { channel.close(promise: nil) }
+                        return
+                    }
+                    pending.resume(with: result)
+                }
+            }
+        } onCancel: {
+            resumed.withLockedValue { box in defer { box = nil }; return box }?.resume(throwing: CancellationError())
         }
     }
 

@@ -180,8 +180,10 @@ public actor ESPHomePlugin: HomeswiftPlugin {
                     || announcement.addresses.contains(device.endpoint.host)
             }
             var device: Configured
+            var origin: String?
             if let index {
                 device = remaining.remove(at: index)
+                origin = Self.hostKey(device.endpoint.host, device.endpoint.port)
             } else {
                 let credentials = announcement.mac.flatMap { context.credentials(for: $0, as: ESPHomeCredentials.self) }
                 device = Configured(
@@ -198,15 +200,15 @@ public actor ESPHomePlugin: HomeswiftPlugin {
                 if let address = announcement.preferredAddress { device.endpoint.host = address }
                 if announcement.port != ESPHomeEndpoint.defaultPort { device.endpoint.port = announcement.port }
             }
-            run(device.endpoint, retryAfter: device.retryAfter)
+            run(device.endpoint, origin: origin, retryAfter: device.retryAfter)
         }
         for device in remaining { run(device.endpoint, retryAfter: device.retryAfter) }
     }
 
-    private func run(_ endpoint: ESPHomeEndpoint, retryAfter: Duration) {
+    private func run(_ endpoint: ESPHomeEndpoint, origin: String? = nil, retryAfter: Duration) {
         let key = Self.hostKey(endpoint.host, endpoint.port)
         guard devices[key] == nil, !tasks.isStopped else { return }
-        let device = ESPHomeDevice(endpoint: endpoint, retryAfter: retryAfter, environment: environment)
+        let device = ESPHomeDevice(endpoint: endpoint, origin: origin, retryAfter: retryAfter, environment: environment)
         devices[key] = device
         tasks.add { await device.run() }
     }
@@ -215,12 +217,12 @@ public actor ESPHomePlugin: HomeswiftPlugin {
         DeviceEnvironment(
             context: context, directory: directory, transport: dependencies.transport, timing: dependencies.timing, blacklist: blacklist,
             verbose: configuration.debug ?? false,
-            learned: { [weak self] host, port, info in await self?.learned(host: host, port: port, info: info) })
+            learned: { [weak self] origin, info in await self?.learned(origin: origin, info: info) })
     }
 
-    private func learned(host: String, port: Int, info: DeviceInfo) {
+    private func learned(origin: String, info: DeviceInfo) {
         guard let mac = MACAddress.canonical(info.mac) else { return }
-        learnedMACs[Self.hostKey(host, port)] = mac
+        learnedMACs[origin] = mac
         learnedInfo[mac] = info
     }
 

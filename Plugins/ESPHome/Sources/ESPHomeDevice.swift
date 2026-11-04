@@ -21,11 +21,13 @@ final class EntityDirectory: Sendable {
         claims = NIOLockedValueBox(file?.load() ?? [:])
     }
 
-    static func owner(mac: String, key: UInt32) -> String { "\(mac)/\(String(key, radix: 16))" }
+    static func owner(mac: String, deviceID: UInt32, key: UInt32) -> String {
+        deviceID == 0 ? "\(mac)/\(String(key, radix: 16))" : "\(mac)/\(deviceID).\(String(key, radix: 16))"
+    }
 
     /// The suffix of the entity's accessory id, and whether its name was another entity's (to warn once).
-    func suffix(name: String, mac: String, key: UInt32) -> (suffix: String, shared: Bool) {
-        let owner = Self.owner(mac: mac, key: key)
+    func suffix(name: String, mac: String, deviceID: UInt32 = 0, key: UInt32) -> (suffix: String, shared: Bool) {
+        let owner = Self.owner(mac: mac, deviceID: deviceID, key: key)
         let qualified = "\(name)@\(mac)"
         let candidates = name.isEmpty ? [qualified, "\(qualified)#\(String(key, radix: 16))"] : [name, qualified, "\(qualified)#\(String(key, radix: 16))"]
         let (suffix, changed) = claims.withLockedValue { claims -> (String, Bool) in
@@ -40,6 +42,12 @@ final class EntityDirectory: Sendable {
         }
         if changed { dirty.withLockedValue { $0 = true } }
         return (suffix, suffix != name)
+    }
+
+    /// Lets an id go: its entity is gone.
+    func release(_ suffix: String) {
+        claims.withLockedValue { _ = $0.removeValue(forKey: suffix) }
+        dirty.withLockedValue { $0 = true }
     }
 
     /// Writes the claims made since the last save.
@@ -68,7 +76,7 @@ struct DeviceEnvironment: Sendable {
     let blacklist: Set<String>
     let verbose: Bool
     /// Tells the plugin which device a host turned out to be.
-    let learned: @Sendable (_ host: String, _ port: Int, _ info: DeviceInfo) async -> Void
+    let learned: @Sendable (_ origin: String, _ info: DeviceInfo) async -> Void
 }
 
 /// One ESPHome device: its connection, kept up with retries, and its entities' accessories.
@@ -82,14 +90,17 @@ actor ESPHomeDevice {
     }
 
     private(set) var endpoint: ESPHomeEndpoint
+    /// `host:port` as configured, before an announcement gave its address: what the plugin learns its MAC under.
+    let origin: String
     let retryMaximum: Duration
     private let environment: DeviceEnvironment
     private var logger: Logger { environment.context.logger }
     private var label: String { "\(endpoint.host):\(endpoint.port)" }
 
     private var link: ESPHomeLink?
-    private var bindings: [UInt32: EntityBinding] = [:]
-    private var accessories: [UInt32: Accessory] = [:]
+    /// By `EntityInfo.entityID`: a key is unique within its sub-device only.
+    private var bindings: [UInt64: EntityBinding] = [:]
+    private var accessories: [UInt64: Accessory] = [:]
     private(set) var info: DeviceInfo?
     private(set) var mac: String?
     private(set) var status = Status.connecting
@@ -98,8 +109,9 @@ actor ESPHomeDevice {
     private var connectedThisRun = false
     private var excluded = false
 
-    init(endpoint: ESPHomeEndpoint, retryAfter: Duration, environment: DeviceEnvironment) {
+    init(endpoint: ESPHomeEndpoint, origin: String? = nil, retryAfter: Duration, environment: DeviceEnvironment) {
         self.endpoint = endpoint
+        self.origin = origin ?? ESPHomePlugin.hostKey(endpoint.host, endpoint.port)
         self.environment = environment
         retryMaximum = min(max(retryAfter, environment.timing.retryInitial), environment.timing.retryMaximum)
         mac = endpoint.expectedMAC
@@ -117,7 +129,7 @@ actor ESPHomeDevice {
             do {
                 try await ESPHomeSession.run(
                     endpoint: endpoint, transport: environment.transport, timing: environment.timing, logger: logger,
-                    onReady: { ready in await self.ready(ready) }, onState: { state in await self.show(state) })
+                    onReady: { ready in await self.ready(ready) }, onState: { kind, state in await self.show(kind, state) })
             } catch is CancellationError {
                 break
             } catch {
@@ -203,24 +215,36 @@ actor ESPHomeDevice {
         everConnected = true
         outageLogged = false
         status = .connected
-        await environment.learned(endpoint.host, endpoint.port, ready.info)
+        await environment.learned(origin, ready.info)
 
         let verbose: Logger.Level = environment.verbose ? .info : .debug
         logger.log(level: verbose, "\(label) is \(ready.info.name) (\(deviceMAC)), ESPHome \(ready.info.esphomeVersion), \(ready.entities.count) entities")
         for name in ready.unsupported { logger.info("\(name) is not supported") }
-        var listed = Set<UInt32>()
+        var listed = Set<UInt64>()
+        let owner = deviceMAC.isEmpty ? endpoint.host : deviceMAC
+        let claimedBefore = Set(environment.directory.suffixes(of: owner))
         for entity in ready.entities {
-            listed.insert(entity.key)
             if environment.blacklist.contains(entity.name) {
                 logger.log(level: verbose, "Skipping \(entity.name): blacklisted")
                 continue
             }
-            if let binding = bindings[entity.key], binding.info == entity { continue }
-            bind(entity, mac: deviceMAC.isEmpty ? endpoint.host : deviceMAC, info: ready.info)
+            listed.insert(entity.entityID)
+            if let binding = bindings[entity.entityID], binding.info == entity { continue }
+            bind(entity, mac: owner, info: ready.info)
         }
-        for key in bindings.keys where !listed.contains(key) {
-            bindings.removeValue(forKey: key)
-            accessories.removeValue(forKey: key)
+        for id in bindings.keys where !listed.contains(id) {
+            bindings.removeValue(forKey: id)
+            accessories.removeValue(forKey: id)
+        }
+        // An entity renamed or gone, now or while the bridge was off: its old accessory leaves the bridge.
+        let current = Set(accessories.values.map(\.id))
+        for suffix in claimedBefore.union(environment.directory.suffixes(of: owner)) where !current.contains("\(ESPHomePlugin.platform):\(suffix)") {
+            let id = "\(ESPHomePlugin.platform):\(suffix)"
+            environment.directory.release(suffix)
+            if context.accessory(id: id) != nil {
+                logger.info("Removing \(id): the device no longer has it")
+                try? await context.remove(id: id)
+            }
         }
         environment.directory.save()
         for accessory in accessories.values { accessory.isUnavailable = false }
@@ -228,15 +252,23 @@ actor ESPHomeDevice {
 
     private func bind(_ entity: EntityInfo, mac: String, info: DeviceInfo) {
         let context = environment.context
-        let (suffix, shared) = environment.directory.suffix(name: entity.name, mac: mac, key: entity.key)
+        let (suffix, shared) = environment.directory.suffix(name: entity.name, mac: mac, deviceID: entity.deviceID, key: entity.key)
         if shared, environment.directory.shouldWarn(suffix) {
             let reason = entity.name.isEmpty ? "has no name" : "has the name of another entity"
             logger.warning("\(entity.name.isEmpty ? info.name : entity.name) on \(info.name) \(reason): its accessory is \(ESPHomePlugin.platform):\(suffix)")
         }
         let id = "\(ESPHomePlugin.platform):\(suffix)"
         let timing = environment.timing
+        let subDevice = entity.deviceID
         let link = EntityLink(send: { [weak self] frame in
             guard let self else { throw HAPStatusError(.serviceCommunicationFailure) }
+            var frame = frame
+            // A sub-device's entity is addressed by its key and its device_id.
+            if subDevice != 0, let field = EntityKind.deviceIDField(ofCommand: frame.type) {
+                var deviceID = ProtobufWriter()
+                deviceID.uint32(field, subDevice)
+                frame.body += deviceID.bytes
+            }
             try await self.send(frame)
         }, timing: timing)
         guard let binding = EntityBinding.make(entity, link: link, adaptiveLighting: { context.adaptiveLighting(for: $0, accessoryID: id) }) else {
@@ -256,9 +288,9 @@ actor ESPHomeDevice {
             logger.error("Could not add \(name): \(error)")
             return
         }
-        if bindings[entity.key] == nil { logger.info("\(name) discovered and set up") }
-        bindings[entity.key] = binding
-        accessories[entity.key] = accessory
+        if bindings[entity.entityID] == nil { logger.info("\(name) discovered and set up") }
+        bindings[entity.entityID] = binding
+        accessories[entity.entityID] = accessory
     }
 
     /// ESPHome's version (`2025.1.0`, `2025.2.0-dev`) as HomeKit's x.y.z.
@@ -267,8 +299,8 @@ actor ESPHomeDevice {
         return numbers.isEmpty ? "1.0.0" : numbers.joined(separator: ".")
     }
 
-    private func show(_ state: ProtobufMessage) {
-        bindings[state.fixed32(1)]?.apply(state)
+    private func show(_ kind: EntityKind, _ state: ProtobufMessage) {
+        bindings[kind.entityID(ofState: state)]?.apply(state)
     }
 
     /// Sends a command, or answers No Response when the device is not connected or the write fails.

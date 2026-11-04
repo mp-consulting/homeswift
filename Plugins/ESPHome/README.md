@@ -67,7 +67,8 @@ one it has not reached stays.
 ## Identity
 
 Each entity is an accessory whose id is its name, `esphome:<entity name>`, as the Homebridge plugin had it, so a
-migrated bridge keeps its accessories. Renaming an entity in ESPHome makes a new accessory. Two entities with the
+migrated bridge keeps its accessories. Renaming an entity in ESPHome makes a new accessory, and the old one leaves the bridge once the device lists its
+entities without it. Entities of sub-devices (`devices:`) are told apart by their `device_id`. Two entities with the
 same name (two devices with a "Temperature" each) no longer share one accessory: the second gets
 `esphome:<name>@<MAC>`, and an entity without a name `esphome:@<MAC>`, with a warning in the log. The ids taken are
 kept in `entities.json` in the plugin's folder, so they do not depend on which device answers first.

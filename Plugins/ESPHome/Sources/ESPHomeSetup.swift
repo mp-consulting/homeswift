@@ -45,8 +45,9 @@ extension ESPHomePlugin {
             guard let mac = await device.mac else { continue }
             let connected = await device.isConnected
             let info = await device.info
-            add(mac, name: info?.displayName ?? key, model: info?.model.nonEmpty, address: key, encrypted: await device.endpoint.encryptionKey != nil,
-                setUp: true, reachable: connected)
+            let endpoint = await device.endpoint
+            add(mac, name: info?.displayName ?? key, model: info?.model.nonEmpty, address: Self.address(endpoint.host, endpoint.port),
+                encrypted: endpoint.encryptionKey != nil, setUp: true, reachable: connected)
         }
         return found.values.sorted { ($0.name, $0.deviceID) < ($1.name, $1.deviceID) }
     }
@@ -119,7 +120,7 @@ extension ESPHomePlugin {
                 onReady: { ready in
                     result.withLockedValue { $0 = ready.info }
                     await ready.link.close()
-                }, onState: { _ in })
+                }, onState: { _, _ in })
         } catch {
             if let info = result.withLockedValue { $0 } { return info }
             throw error
