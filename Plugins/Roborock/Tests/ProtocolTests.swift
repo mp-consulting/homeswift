@@ -124,6 +124,10 @@ struct ProtocolTests {
         guard case .response(let id, let result) = answer else { Issue.record("not an answer"); return }
         #expect(id == 1234)
         #expect(RoborockMessages.firstObject(result)?["charge_status"] == 1)
+        // An error answer keeps its error, which fails the request.
+        let failure = RoborockMessages.incoming(Data(#"{"dps":{"102":"{\"id\":7,\"error\":{\"code\":-10007,\"message\":\"retry\"}}"}}"#.utf8))
+        #expect(failure == .response(id: 7, result: ["error": ["code": -10007, "message": "retry"]]))
+        #expect(RoborockRequestError.deviceError("retry").isTransient && !RoborockRequestError.refused("x").allowsCloudFallback)
     }
 
     @Test func requestIDsAreNeverReusedWhileInFlight() {

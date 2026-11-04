@@ -49,6 +49,7 @@ enum RoborockMessages {
             }
         }
         if let id = message["id"]?.intValue ?? message["id"]?.stringValue.flatMap(Int.init) {
+            if message["result"] == nil, let error = message["error"] { return .response(id: id, result: ["error": error]) }
             return .response(id: id, result: message["result"] ?? .null)
         }
         guard let object = message.objectValue else { return nil }

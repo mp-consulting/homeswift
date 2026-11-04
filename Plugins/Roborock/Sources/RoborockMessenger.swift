@@ -189,6 +189,12 @@ actor RoborockMessenger {
 
     func isConnectedLocally(_ duid: String) -> Bool { connections[duid] != nil }
 
+    /// Dials a device that is neither connected nor waiting for a reconnect (one the account gained since the start).
+    func connectIfIdle(_ duid: String) async {
+        guard connections[duid] == nil, reconnects[duid] == nil else { return }
+        await connectLocal(duid, ip: nil)
+    }
+
     /// Reachable: connected locally, or online in the home data.
     func isReachable(_ duid: String) -> Bool { isConnectedLocally(duid) || devices[duid]?.online == true }
 
@@ -347,7 +353,7 @@ actor RoborockMessenger {
         let key = "\(entry.duid)|\(entry.method)"
         let count = methodTimeouts[key, default: 0] + 1
         methodTimeouts[key] = count
-        if count >= 3, methodPausedUntil[key] == nil {
+        if count >= 3, !isPaused(entry.duid, entry.method) {
             methodPausedUntil[key] = ContinuousClock.now + timings.methodPause
             logger.info("Pausing \(entry.method) for 30 minutes: it timed out 3 times", metadata: ["device": "\(Self.short(entry.duid))"])
         }
@@ -393,8 +399,8 @@ actor RoborockMessenger {
         guard let host = ips[duid] else { return scheduleReconnect(duid) }
         if device.version == .v1, localVersions[duid] == nil {
             let l01 = await probeL01(host)
-            localVersions[duid] = l01 ? .l01 : .v1
-            if l01 { logger.info("The robot reports protocol 1.0 but answers L01 on the LAN", metadata: ["device": "\(Self.short(duid))"]) }
+            if let l01 { localVersions[duid] = l01 ? .l01 : .v1 }
+            if l01 == true { logger.info("The robot reports protocol 1.0 but answers L01 on the LAN", metadata: ["device": "\(Self.short(duid))"]) }
         }
         let link: any LocalLink
         do {
@@ -421,6 +427,7 @@ actor RoborockMessenger {
         if effectiveVersion(duid) == .l01 {
             await handshake(duid, connection)
             let interval = timings.keepalive
+            guard connections[duid] === connection else { return }
             connection.keepalive = Task { [weak self] in
                 while !Task.isCancelled {
                     try? await Task.sleep(for: interval)
@@ -432,8 +439,9 @@ actor RoborockMessenger {
     }
 
     /// Asks with an L01 HELLO on a throwaway connection whether the device answers L01.
-    private func probeL01(_ host: String) async -> Bool {
-        guard let link = try? await dialer.connect(host: host, port: Self.localPort, timeout: timings.probe) else { return false }
+    /// nil when the robot could not be reached: nothing learnt.
+    private func probeL01(_ host: String) async -> Bool? {
+        guard let link = try? await dialer.connect(host: host, port: Self.localPort, timeout: timings.probe) else { return nil }
         let hello = RoborockFrame(version: .l01, seq: 1, random: UInt32.random(in: 10000...32767), timestamp: now(), protocolNumber: RoborockFrameProtocol.helloRequest)
         let timeout = timings.probe
         let answered = await withTaskGroup(of: Bool.self) { group in
@@ -468,11 +476,11 @@ actor RoborockMessenger {
                 connection.hello = (nonce, continuation)
                 let link = connection.link
                 Task { [weak self] in
-                    do { try await link.send(hello.lengthPrefixed()) } catch { await self?.failHello(connection, error) }
+                    do { try await link.send(hello.lengthPrefixed()) } catch { await self?.failHello(connection, error, nonce: nonce) }
                 }
                 Task { [weak self] in
                     try? await Task.sleep(for: timeout)
-                    await self?.failHello(connection, RoborockRequestError.timedOut)
+                    await self?.failHello(connection, RoborockRequestError.timedOut, nonce: nonce)
                 }
             }
             connection.nonces = .init(connect: nonce, ack: ack)
@@ -482,8 +490,9 @@ actor RoborockMessenger {
         }
     }
 
-    private func failHello(_ connection: Connection, _ error: any Error) {
-        guard let hello = connection.hello else { return }
+    /// Fails the waiting handshake (the one of `nonce`, when given).
+    private func failHello(_ connection: Connection, _ error: any Error, nonce: UInt32? = nil) {
+        guard let hello = connection.hello, nonce == nil || hello.nonce == nonce else { return }
         connection.hello = nil
         hello.continuation.resume(throwing: error)
     }

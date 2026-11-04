@@ -97,6 +97,9 @@ public actor RoborockPlugin: HomeswiftPlugin {
     private var sceneRuns: [String: Task<Void, Never>] = [:]
     private var transientLogged: [String: (at: ContinuousClock.Instant, suppressed: Int)] = [:]
     private var warnedMatter = false
+    private var stopping = false
+    /// Devices whose "skipped", "not supported" or "no local key" line was logged: once each.
+    private var loggedDevices: Set<String> = []
     private lazy var udp = RoborockUDPDiscovery(logger: logger, duration: timings.udpListen)
 
     public init(configuration: Configuration, context: PluginContext) {
@@ -146,6 +149,7 @@ public actor RoborockPlugin: HomeswiftPlugin {
     }
 
     public func stop() async {
+        stopping = true
         tasks.cancelAll()
         pollers.values.forEach { $0.cancel() }
         pollers = [:]
@@ -210,7 +214,7 @@ public actor RoborockPlugin: HomeswiftPlugin {
     func messengerDevices(_ home: RoborockHome) -> [RoborockMessenger.Device] {
         home.devices.compactMap { device in
             guard !isSkipped(device.duid), RoborockHome.isSupported(model: home.model(of: device)) else { return nil }
-            if device.localKey == nil {
+            if device.localKey == nil, loggedDevices.insert(device.duid).inserted {
                 logger.warning("A robot has no local key: it cannot be controlled (it has \(device.fieldNames.joined(separator: ", ")))", metadata: ["device": "\(RoborockMessenger.short(device.duid))"])
             }
             return RoborockMessenger.Device(
@@ -409,6 +413,7 @@ public actor RoborockPlugin: HomeswiftPlugin {
             await refreshScenes()
             await messenger?.setDevices(messengerDevices(home))
             await reconcileAccessories()
+            for device in home.devices where isControlled(device, in: home) { await messenger?.connectIfIdle(device.duid) }
             await updatePollers()
         } catch RoborockCloudError.http(401, let date) {
             await unauthorized(date: date, email: email)
@@ -456,11 +461,11 @@ public actor RoborockPlugin: HomeswiftPlugin {
         var keep: Set<String> = []
         for device in home.devices {
             if isSkipped(device.duid) {
-                logger.info("Skipping a robot", metadata: ["device": "\(RoborockMessenger.short(device.duid))"])
+                if loggedDevices.insert(device.duid).inserted { logger.info("Skipping a robot", metadata: ["device": "\(RoborockMessenger.short(device.duid))"]) }
                 continue
             }
             guard RoborockHome.isSupported(model: home.model(of: device)) else {
-                logger.info("Not supported: \(home.model(of: device) ?? "no model")", metadata: ["device": "\(RoborockMessenger.short(device.duid))"])
+                if loggedDevices.insert(device.duid).inserted { logger.info("Not supported: \(home.model(of: device) ?? "no model")", metadata: ["device": "\(RoborockMessenger.short(device.duid))"]) }
                 continue
             }
             if configuration.matterDevices?.values.contains(device.duid) == true, !warnedMatter {
@@ -523,7 +528,7 @@ public actor RoborockPlugin: HomeswiftPlugin {
 
     /// Starts the pollers of reachable robots and stops the others.
     func updatePollers() async {
-        guard let home, let messenger else { return }
+        guard !stopping, let home, let messenger else { return }
         for device in home.devices {
             let controlled = isControlled(device, in: home) && !isIgnored(device)
             let reachable = await messenger.isReachable(device.duid)
@@ -688,7 +693,16 @@ public actor RoborockPlugin: HomeswiftPlugin {
             guard !Task.isCancelled, let duid = item.entityID, let method = item.method else { return }
             let before = await pollStatus(duid)
             let wasBusy = before.map { RoborockStates.isBusy(state: $0.state, inCleaning: $0.inCleaning) } ?? true
-            let answer = await send(duid, method, item.params, localOnly: true)
+            let answer: JSONValue?
+            do {
+                answer = try await request(duid, method, item.params, localOnly: true)
+            } catch RoborockRequestError.timedOut {
+                // The step may have reached the robot: asking the cloud could run it twice.
+                stopped(scene, at: index, reason: "step \(index + 1) got no answer")
+                return
+            } catch {
+                answer = nil
+            }
             var started = answer.map(RoborockMessages.isOK) ?? false
             if !started, answer != nil, let after = await pollStatus(duid) {
                 started = !wasBusy && RoborockStates.isBusy(state: after.state, inCleaning: after.inCleaning)
