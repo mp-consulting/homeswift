@@ -8,6 +8,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- The Ring plugin (platform `Ring`, a clean-room implementation compatible with homebridge-ring's configuration): the alarm, Smart Lighting and their sensors over each location's socket, cameras and doorbells with snapshots, motion and rings by push, chimes, intercoms and location modes; signed in through Setup with the 2FA code. `HomeswiftNetwork` gains `FCMReceiver`, an FCM web-push receiver.
 - The Assistant's Model is a menu of the models the chosen provider offers, read from its models list when the menu
   opens (Anthropic, OpenAI, Gemini, or the OpenAI-compatible server at the Base URL), with Default and Other… to type
   an id; `POST /api/assistant/models`. A saved key goes only to the saved provider, as for Test connection.
