@@ -180,6 +180,7 @@ if command == "mcp" || AssistantCommands.commands.contains(command) {
 let host: PluginHost
 do {
     var hostOptions = PluginHost.Options(logger: logger)
+    hostOptions.logs = logBuffer
     hostOptions.systemPlatforms.insert(UIConfiguration.platform)
     hostOptions.systemPlatforms.insert(MatterConfiguration.platform)
     host = try PluginHost(configuration: configuration, registry: registry, storageDirectory: storagePath, options: hostOptions)
