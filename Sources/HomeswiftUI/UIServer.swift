@@ -683,7 +683,7 @@ public final class UIServer: Sendable {
                      // What removing it can take from the vault too: the entries it wrote.
                      "vaultEntries": .number(Double(owned.filter { $0.value.owner == "\(block.platform)/\(block.name)" }.count))]
                 }
-                var plugins = catalog.pluginsJSON().objectValue ?? [:]
+                var plugins = await catalog.pluginsJSON().objectValue ?? [:]
                 plugins["blocks"] = .array(blocks)
                 // The key rule the server seals and redacts by; the settings page reads it from here.
                 plugins["secretRule"] = [

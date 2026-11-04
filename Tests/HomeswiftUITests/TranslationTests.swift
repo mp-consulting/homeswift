@@ -46,12 +46,13 @@ import Testing
         }
     }
 
-    /// Each plugin's `summary` (read from its source) and the Assistant's, the lines under the plugins to add, which the
-    /// page passes to `t()` at run time, have their translations in the UI's catalogs.
+    /// Each plugin's `summary` (read from its source) and the Assistant's, the lines under the plugins to add, and what an
+    /// optional account adds (`.optional(adds:)`, its settings' Account), which the page passes to `t()` at run time,
+    /// have their translations in the UI's catalogs.
     @Test func pluginSummariesAreTranslated() throws {
         let web = Self.root.appendingPathComponent("Sources/HomeswiftUI/Web")
         var summaries: [String] = []
-        let pattern = try NSRegularExpression(pattern: #"static let (?:summary: String\?|assistantSummary) = "([^"]+)""#)
+        let pattern = try NSRegularExpression(pattern: #"(?:static let (?:summary: String\?|assistantSummary) = |\.optional\(adds: )"([^"]+)""#)
         let sources = [Self.root.appendingPathComponent("Sources/HomeswiftMCP/HomeswiftCatalog.swift")]
             + (FileManager.default.enumerator(at: Self.root.appendingPathComponent("Plugins"), includingPropertiesForKeys: nil)?
                 .compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" && $0.path.contains("/Sources/") } ?? [])
@@ -76,8 +77,12 @@ import Testing
                                                       ("HomeswiftMatter", MatterConfiguration.schemaJSON)]
         let plugins = Self.root.appendingPathComponent("Plugins")
         for name in try FileManager.default.contentsOfDirectory(atPath: plugins.path).sorted() {
-            let file = plugins.appendingPathComponent(name).appendingPathComponent("config.schema.json")
-            if FileManager.default.fileExists(atPath: file.path) { schemas.append((name, try String(contentsOf: file, encoding: .utf8))) }
+            // A directory with two platforms has a second schema, `config.<platform>.schema.json`.
+            let directory = plugins.appendingPathComponent(name)
+            for file in try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted()
+            where file.hasPrefix("config.") && file.hasSuffix(".schema.json") {
+                schemas.append(("\(name)/\(file)", try String(contentsOf: directory.appendingPathComponent(file), encoding: .utf8)))
+            }
         }
         for (name, text) in schemas {
             let root = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any], "\(name): the schema is not a JSON object")
