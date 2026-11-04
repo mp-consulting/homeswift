@@ -294,9 +294,17 @@ actor CameraStreamer: CameraStreamingDelegate {
 
     /// Starts the two-way FFmpeg on each first packet of return audio, for as long as the stream runs.
     private func twoWayAudio(demuxer: RtpDemuxer, sdp: String, sessionID: String, token: Int) -> Task<Void, Never> {
-        Task { [weak self] in
-            while !Task.isCancelled {
-                guard await demuxer.rtpEvents.next() != nil, !Task.isCancelled, demuxer.isRunning,
+        // Listening starts here, before the task runs: a packet that came first would otherwise be missed, and with it the
+        // start of the talk. One packet is kept, so talking that goes on after the two-way FFmpeg ended starts another.
+        let (packets, arrived) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let listener = demuxer.rtpEvents.on { arrived.yield() }
+        return Task { [weak self] in
+            defer {
+                demuxer.rtpEvents.off(listener)
+                arrived.finish()
+            }
+            for await _ in packets {
+                guard !Task.isCancelled, demuxer.isRunning,
                       let process = await self?.startReturnAudio(sdp: sdp, sessionID: sessionID, token: token) else { return }
                 await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                     if !process.onceExit({ _ in continuation.resume() }) { continuation.resume() }
