@@ -49,8 +49,15 @@ types (`airPressureSensor`, `airPurifier`, `airQualitySensor`, `battery`, `carbo
   that broker without its own.
 - **A television** is published on a HAP server of its own (add it in the Home app like a second bridge).
 - **TLS.** `mqtts://`, `tls://` and `wss://` check the broker's certificate against the system's roots, or `cafile`
-  (or `ca`); `certfile`/`keyfile` give a client certificate. homebridge-mqttthing checks nothing by default; here,
-  `"rejectUnauthorized": false` or `"insecure": true` in `mqttOptions` turns the check off.
+  (or `ca`); `certfile`/`keyfile` give a client certificate.
+
+## Differences
+
+- **TLS certificates are checked by default.** homebridge-mqttthing checks none unless `rejectUnauthorized: true`;
+  here a broker with a self-signed certificate needs its `cafile`, or `"rejectUnauthorized": false` (or
+  `"insecure": true`) in `mqttOptions` to turn the check off.
+- **One MQTT connection per broker** rather than one per accessory block (above).
+- **A value that fails validation is not stored**, so a read answers the last valid one.
 
 ## What is left out
 
@@ -67,8 +74,7 @@ types (`airPressureSensor`, `airPurifier`, `airQualitySensor`, `battery`, `carbo
 Where homebridge-mqttthing has a bug the specification lists, this plugin does what was meant: On follows the
 brightness of HSV and RGB lights without `setOn`; `carbonMonoxideSensor` reads `getCarbonMonoxideLevel` and
 `getCarbonMonoxidePeakLevel`; `restrictDehumidifierState` restricts the target state; `fanv2` has CurrentFanState when
-`topics.getCurrentFanState` is set; an irrigation zone's StatusFault follows the zone's own topic. A value that fails
-validation is not stored, so a read answers the last valid one.
+`topics.getCurrentFanState` is set; an irrigation zone's StatusFault follows the zone's own topic.
 
 ## How it was tested
 

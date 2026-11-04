@@ -257,6 +257,9 @@ public final class PluginHost: @unchecked Sendable {
         aiConfigurationBox = NIOLockedValueBox(ai)
         assistantBox.withLockedValue { $0 = Self.makeAssistant(ai, storageDirectory: storageDirectory, transport: options.aiTransport, logger: logger) }
 
+        if configuration.ignoredAccessoryBlocks > 0 {
+            logger.warning("config.json has \(configuration.ignoredAccessoryBlocks) malformed \"accessories\" block(s) (no \"accessory\", or a bad \"_bridge\"); they are ignored")
+        }
         var instances: [Instance] = []
         for block in configuration.platforms where !options.systemPlatforms.contains(block.platform) {
             if configuration.disabledPlugins.contains(block.platform) {
@@ -648,6 +651,8 @@ public final class PluginHost: @unchecked Sendable {
         }
         if block.accessoryBlocks > 0, !entry.runsAccessoryBlocks {
             logger.warning("\(entry.name) runs platforms, not accessories: \(block.accessoryBlocks) \"accessories\" block(s) naming \"\(block.platform)\" are ignored")
+            // A block made only for them is not an instance of the platform plugin.
+            if block.isAdoptedOnly { return nil }
         }
         return entry
     }

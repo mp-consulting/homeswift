@@ -87,7 +87,10 @@ public actor MQTTThingPlugin: HomeswiftPlugin {
             }
             if config.flag("logMqtt") { logger.info("\(config.name): MQTT broker \(settings.displayURL)") }
             let thing = Thing(config: config, id: id, broker: broker, context: context, dependencies: dependencies.thing)
-            guard let accessory = await thing.build() else { continue }
+            guard let accessory = await thing.build() else {
+                await thing.stop()
+                continue
+            }
             do {
                 if config.type == "television" {
                     try await context.publishExternal(accessory)
@@ -103,6 +106,12 @@ public actor MQTTThingPlugin: HomeswiftPlugin {
         }
         let kept = Set(things.keys)
         await context.removeAccessories(keeping: kept)
+        // Only the brokers an accessory uses connect; the others (their blocks made no accessory) are dropped.
+        let used = Set(brokerOf.values)
+        for (settings, broker) in brokers where !used.contains(settings) {
+            await broker.stop()
+            brokers.removeValue(forKey: settings)
+        }
         for broker in brokers.values { await broker.start() }
         logger.info("Started \(things.count) accessories on \(brokers.count) MQTT broker connection(s)")
     }

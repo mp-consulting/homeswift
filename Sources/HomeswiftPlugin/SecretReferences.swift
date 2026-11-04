@@ -195,9 +195,9 @@ public enum ConfigurationSecrets {
             var found: [String: String] = [:]
             // Accessory blocks run in their platform's block (`HomeswiftConfiguration.adoptAccessoryBlocks`), their
             // references resolved with it: they count too.
-            let accessories = (config["accessories"]?.arrayValue ?? []).map { block -> (String, String, JSONValue) in
-                let platform = block["accessory"]?.stringValue.flatMap(HomeswiftConfiguration.accessoryPlatform) ?? ""
-                return ("accessory \(platform)", block["name"]?.stringValue ?? platform, block)
+            // By index, not name: names repeat, and a block put before another must not pass for it.
+            let accessories = (config["accessories"]?.arrayValue ?? []).enumerated().map { index, block -> (String, String, JSONValue) in
+                ("accessories", "\(index)", block)
             }
             let platforms = (config["platforms"]?.arrayValue ?? []).map { block -> (String, String, JSONValue) in
                 let platform = block["platform"]?.stringValue ?? ""

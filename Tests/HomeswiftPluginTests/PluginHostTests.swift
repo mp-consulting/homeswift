@@ -125,7 +125,7 @@ struct ConfigurationTests {
             }
             """.utf8))
         #expect(configuration.bridge == .init(name: "Test Bridge", username: "0e:11:22:33:44:55", port: 0, pin: "031-45-154"))
-        #expect(configuration.accessoryBlockCount == 1)
+        #expect(configuration.ignoredAccessoryBlocks == 0)
         #expect(configuration.disabledPlugins == ["Other"])
         #expect(configuration.platforms.map(\.name) == ["Lamps", "Recording", "Unknown", "Dummy"])
         #expect(configuration.platforms[3].accessoryBlocks == 1)
