@@ -8,6 +8,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- A plugin whose account Needs Authorization (never set up, or refused since) is no longer shown as running: its card
+  and its settings say **Needs sign-in**, **Needs pairing** or **Needs keys** in orange, and its card leads with
+  **Set up**; one whose every accessory shows No Response says **Not responding**. Plugins say an account was refused
+  with `context.accountRefused(_:)`, and one their devices work without with
+  `accountRequirement = .optional(adds:)`, whose settings say what it adds rather than "its devices show once it is".
+  `list_plugins` and `discover_devices` give `accountState`, `needsAuthorization`, `accountRequired` and
+  `noneResponding`.
 - The Assistant's Model is a menu of the models the chosen provider offers, read from its models list when the menu
   opens (Anthropic, OpenAI, Gemini, or the OpenAI-compatible server at the Base URL), with Default and Other… to type
   an id; `POST /api/assistant/models`. A saved key goes only to the saved provider, as for Test connection.
@@ -67,6 +74,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A plugin's Account and its devices that Need Authorization say **Set up** while nothing is set up, **Set up again**
+  only once it has been.
 - On a Synology NAS the vault's key, the vault, config.json, the pairings and the web UI's accounts and tokens are the
   bridge's alone again: the shared folder gave them its ACL (`-rwxrwxrwx+`), which DSM checks instead of their 0600, so
   other accounts with access to the share could read them. The package removes that ACL from them at each start, every
