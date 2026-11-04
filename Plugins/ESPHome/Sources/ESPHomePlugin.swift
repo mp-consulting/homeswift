@@ -187,11 +187,17 @@ public actor ESPHomePlugin: HomeswiftPlugin {
                 device = Configured(
                     endpoint: ESPHomeEndpoint(
                         host: announcement.hostName, port: ESPHomeEndpoint.defaultPort, encryptionKey: credentials?.encryptionKey?.nonEmpty,
-                        password: credentials?.password?.nonEmpty, expectedMAC: announcement.mac),
+                        // Never a password to an address only an announcement gave: anyone on the network can announce.
+                        password: nil, expectedMAC: announcement.mac),
                     retryAfter: Self.milliseconds(configuration.retryAfter, default: Self.defaultRetryAfter))
             }
-            if let address = announcement.preferredAddress { device.endpoint.host = address }
-            if announcement.port != ESPHomeEndpoint.defaultPort { device.endpoint.port = announcement.port }
+            // A device opened by a password alone (sent in the clear) stays where it is configured: an announcement does
+            // not move it to another address.
+            let pinned = device.endpoint.password != nil && device.endpoint.encryptionKey == nil
+            if !pinned {
+                if let address = announcement.preferredAddress { device.endpoint.host = address }
+                if announcement.port != ESPHomeEndpoint.defaultPort { device.endpoint.port = announcement.port }
+            }
             run(device.endpoint, retryAfter: device.retryAfter)
         }
         for device in remaining { run(device.endpoint, retryAfter: device.retryAfter) }

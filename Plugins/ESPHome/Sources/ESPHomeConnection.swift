@@ -174,9 +174,14 @@ enum ESPHomeSession {
         var entities: [EntityInfo] = []
         var unsupported: [String] = []
 
+        /// The password, sent in the clear: to a device whose MAC is known only once its DeviceInfo showed that MAC, so an
+        /// impostor at its address (a spoofed mDNS answer, a reused IP) never gets it.
+        let password = endpoint.password.flatMap { $0.isEmpty ? nil : $0 }
+        var passwordPending = password != nil && endpoint.expectedMAC != nil
+
         func sendHello() async throws {
             try await link.send(ESPHomeRequest.hello())
-            if let password = endpoint.password, !password.isEmpty {
+            if let password, !passwordPending {
                 // Not waited for: firmware since 2026.1 ignores it and never answers.
                 try await link.send(ESPHomeRequest.authentication(password: password))
             }
@@ -217,7 +222,15 @@ enum ESPHomeSession {
                 if let expected = endpoint.expectedMAC, let found = MACAddress.canonical(received.mac), found != expected {
                     throw ESPHomeError.wrongDevice(expected: expected, found: found)
                 }
-                if received.usesPassword, endpoint.password?.isEmpty ?? true { throw ESPHomeError.passwordRequired }
+                if received.usesPassword, password == nil { throw ESPHomeError.passwordRequired }
+                if passwordPending, let password, let expected = endpoint.expectedMAC {
+                    guard MACAddress.canonical(received.mac) == expected else {
+                        logger.warning("Not sending the password to \(endpoint.host): it did not show the MAC \(expected)")
+                        throw ESPHomeError.wrongDevice(expected: expected, found: "none")
+                    }
+                    passwordPending = false
+                    try await link.send(ESPHomeRequest.authentication(password: password))
+                }
                 info = received
                 phase = .listing
                 deadline = clock.now + timing.responseTimeout
@@ -309,7 +322,10 @@ enum ESPHomeSession {
                 case .tick:
                     let now = clock.now
                     if phase != .running {
-                        if now > deadline { throw ESPHomeError.timedOut(phase.rawValue) }
+                        if now > deadline {
+                            if passwordPending { logger.warning("Not sending the password to \(endpoint.host): it did not show its MAC first") }
+                            throw ESPHomeError.timedOut(phase.rawValue)
+                        }
                     } else {
                         if now - lastReceived > timing.liveness { throw ESPHomeError.connectionLost }
                         if now - lastPing >= timing.keepalive {

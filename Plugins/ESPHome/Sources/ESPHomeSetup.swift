@@ -66,7 +66,11 @@ extension ESPHomePlugin {
         let credentials = ESPHomeCredentials(encryptionKey: encryptionKey?.nonEmpty, password: password)
         let info: DeviceInfo
         do {
-            info = try await probe(ESPHomeEndpoint(host: host, port: port, encryptionKey: credentials.encryptionKey, password: credentials.password))
+            info = try await probe(ESPHomeEndpoint(
+                host: host, port: port, encryptionKey: credentials.encryptionKey, password: credentials.password,
+                expectedMAC: MACAddress.canonical(device.deviceID)))
+        } catch ESPHomeError.wrongDevice {
+            throw SetupError("Another device answered at \(address): find the device again")
         } catch ESPHomeError.requiresEncryption {
             return .ask(Self.keyPrompt)
         } catch ESPHomeError.passwordRequired {
@@ -78,12 +82,15 @@ extension ESPHomePlugin {
         } catch ESPHomeError.invalidPassword {
             throw SetupError("The device rejected that password")
         } catch ESPHomeError.usesPlaintext {
-            // The device has no encryption: it opens without the key.
-            return try await authorize(SetupRequest(target: request.target, answers: password.map { ["password": $0] } ?? [:], state: ["plaintext": true]))
+            // Never a quiet fall back to plaintext: what answers there may not be the device.
+            throw SetupError("The device answered without encryption: enable encryption on it, or check its address")
         } catch {
             throw SetupError("Could not reach the device at \(address): \(ESPHomeDevice.describe(error))")
         }
         guard let mac = MACAddress.canonical(info.mac) else { throw SetupError("The device did not give its MAC address") }
+        if let chosen = MACAddress.canonical(device.deviceID), chosen != mac {
+            throw SetupError("Another device answered at \(address) (\(mac)): find the device again")
+        }
         var settings: [String: JSONValue] = ["host": .string(host)]
         if port != ESPHomeEndpoint.defaultPort { settings["port"] = .number(Double(port)) }
         return .done(try SetupOutcome(encoding: credentials, settings: settings, deviceID: mac).keepingNone(if: credentials.isEmpty))

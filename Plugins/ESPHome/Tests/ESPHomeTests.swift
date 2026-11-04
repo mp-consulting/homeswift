@@ -457,6 +457,66 @@ struct ESPHomePluginTests {
         #expect(ESPHomePlugin.canonical(["devices": [["host": "x"]]], learned: [:]).0 == ["devices": [["host": "x"]]])
     }
 
+    @Test func thePasswordGoesOnlyToTheDeviceWithItsMAC() async throws {
+        let environment = ESPHomeTestEnvironment()
+        let impostor = FakeDevice(.init(mac: "11:22:33:44:55:66", password: "secret", entities: [switchEntity("Old Relay", key: 1)]))
+        environment.transport.add(impostor, at: "10.0.0.5")
+        let real = FakeDevice(.init(password: "secret", entities: [switchEntity("Real Relay", key: 2)]))
+        environment.transport.add(real, at: "10.0.0.6")
+        let setup = try await environment.start(settings: [:])
+        let context = try #require(setup.context(platform: ESPHomePlugin.platform, name: "ESPHome"))
+        try context.saveCredentials(ESPHomeCredentials(password: "secret"), for: "AC:BC:32:89:0E:A9")
+        try context.saveCredentials(ESPHomeCredentials(password: "secret"), for: "AC:BC:32:89:0E:AA")
+        await setup.stop()
+
+        real.config.mac = "AC:BC:32:89:0E:AA"
+        let host = try await environment.start(settings: [
+            "_accessories": ["AC:BC:32:89:0E:A9": ["host": "10.0.0.5"], "AC:BC:32:89:0E:AA": ["host": "10.0.0.6"]],
+        ])
+        defer { Task { await host.stop() } }
+        #expect(await eventually { host.accessory("esphome:Real Relay") != nil })
+        #expect(real.authentications >= 1)
+        #expect(await eventually { impostor.connections >= 1 && !impostor.isConnected })
+        #expect(impostor.authentications == 0)
+        #expect(host.accessory("esphome:Old Relay") == nil)
+    }
+
+    @Test func anAnnouncementDoesNotMoveAPasswordDevice() async throws {
+        let environment = ESPHomeTestEnvironment()
+        let device = FakeDevice(.init(password: "secret", entities: [switchEntity("Old Relay", key: 1)]))
+        environment.transport.add(device, at: "old.local")
+        let impostor = FakeDevice(.init(password: "secret"))
+        environment.transport.add(impostor, at: "10.0.0.66")
+        environment.announcements.withLockedValue {
+            $0 = [Announcement(name: "old", hostName: "old.local", port: 6053, addresses: ["10.0.0.66"], mac: "AC:BC:32:89:0E:A9", encrypted: false)]
+        }
+        let host = try await environment.start(settings: ["discover": true, "discoveryTimeout": 10, "devices": [["host": "old.local", "password": "secret"]]])
+        defer { Task { await host.stop() } }
+        #expect(await eventually { host.accessory("esphome:Old Relay") != nil })
+        #expect(impostor.connections == 0)
+    }
+
+    @Test func setupRefusesPlaintextWithAKeyAndAnotherDevice() async throws {
+        let environment = ESPHomeTestEnvironment()
+        environment.transport.add(FakeDevice(.init()), at: "192.168.1.43")
+        environment.transport.add(FakeDevice(.init(mac: "11:22:33:44:55:66")), at: "192.168.1.44")
+        let host = try await environment.start(settings: [:])
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        let plaintext = DiscoveredDevice(deviceID: "AC:BC:32:89:0E:A9", name: "kitchen", address: "192.168.1.43", authorization: .apiKey)
+        await #expect(throws: SetupError.self) {
+            try await plugin.authorize(SetupRequest(target: .device(plaintext), answers: ["encryptionKey": key], state: ["asked": true]))
+        }
+        let other = DiscoveredDevice(deviceID: "AC:BC:32:89:0E:A9", name: "kitchen", address: "192.168.1.44")
+        await #expect(throws: SetupError.self) { try await plugin.authorize(SetupRequest(target: .device(other))) }
+        let right = DiscoveredDevice(deviceID: "AC:BC:32:89:0E:A9", name: "kitchen", address: "192.168.1.43")
+        guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .device(right))) else {
+            Issue.record("not done")
+            return
+        }
+        #expect(outcome.credentials == nil && outcome.deviceID == "AC:BC:32:89:0E:A9")
+    }
+
     @Test func schemaIsCurrentAndDeclaresNoSecret() throws {
         let file = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("config.schema.json")
         #expect(try JSONValue(string: String(contentsOf: file, encoding: .utf8)) == JSONValue(string: try #require(ESPHomePlugin.configurationSchemaJSON)))

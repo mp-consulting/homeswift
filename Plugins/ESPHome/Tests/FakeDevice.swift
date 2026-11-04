@@ -69,6 +69,11 @@ final class FakeDevice: @unchecked Sendable {
         return connection
     }
 
+    private var _authentications = 0
+    /// The AuthenticationRequests received: each carried the password.
+    var authentications: Int { lock.withLock { _authentications } }
+    func authenticated() { lock.withLock { _authentications += 1 } }
+
     func record(_ command: ESPHomeFrame) {
         lock.withLock { _commands.append(command) }
     }
@@ -210,6 +215,7 @@ final class FakeConnection: ByteStream, @unchecked Sendable {
                 $0.string(4, configuration.name)
             })
         case MessageType.authenticationRequest:
+            device?.authenticated()
             if let password = configuration.password, message?.string(1) != password {
                 write(frame(MessageType.authenticationResponse) { $0.bool(1, true) })
             }
