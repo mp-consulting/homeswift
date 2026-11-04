@@ -63,7 +63,7 @@ are never polled.
 ### Webhook
 
 With `options.webhookURL`, the bridge listens on its port and registers the URL with SwitchBot's cloud, its path followed
-by a random segment kept in `webhook.json`: only the cloud learns it, and any other path or method is answered `403`.
+by a random segment kept in the vault (`webhook.json`): only the cloud learns it, and any other path or method is answered `403`.
 Bodies over 64 KB are refused. The URL must be reachable from the Internet (a port forward, a tunnel or a reverse proxy,
 which must pass on what is under the path). SwitchBot keeps one webhook URL per account: registering this one replaces
 another integration's. Events are shown on the devices with `webhook: true`, matched by `deviceMac`. The webhook is
@@ -76,7 +76,7 @@ switch; `type` (and an Others remote's) is compared without case; `bright` is `s
 scaled; `set_minlux` and `set_maxlux` are read; the Ceiling Light's power and Kelvin are right and it gets no colour; the
 Strip Light gets no colour temperature; CO₂ is abnormal from `co2AbnormalThreshold`; `up_and_down` sends positions
 within range; a webhook's Fahrenheit is converted; a jammed lock shows as jammed; the fan's speed is sent when it
-changes; the Blind Tilt's silent switches are two. The humidifier sends `turnOn` before a mode when it was off.
+changes; the Blind Tilt's silent switches are two. The humidifier sends `turnOn` before a mode when it was off (4.x never sends it). A robot vacuum is a Switch that stands for a cleaning robot (4.x showed a Lightbulb). A Bot or Relay shown as a door, a window or a window covering is a security control, confirmed before the bridge's own surfaces open it.
 Webhook events match `deviceMac` whatever its spelling.
 
 ## Gaps

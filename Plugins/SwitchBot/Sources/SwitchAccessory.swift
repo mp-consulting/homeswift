@@ -113,6 +113,8 @@ final class SwitchAccessory: DeviceAccessory, @unchecked Sendable {
         }
         kind.show(false, on: control)
         let kind = kind
+        // What opens a door, a window or a lock is confirmed on the bridge's own surfaces (garage doors and locks are by default).
+        if [.door, .window, .windowcovering].contains(kind) { control.characteristic(kind.written).securityControl() }
         control.characteristic(kind.written).onWrite { [weak self] value in
             try await self?.write { self?.record(kind.isOn(value)) }
         }

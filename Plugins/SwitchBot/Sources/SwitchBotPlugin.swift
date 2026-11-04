@@ -452,12 +452,13 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
 
     // MARK: Webhooks
 
-    /// The secret last segment of the webhook's path, made once and kept.
+    /// The secret last segment of the webhook's path, made once and kept in the vault.
     struct WebhookSecret: Codable { var segment: String }
 
     /// The URL registered with the cloud: `webhookURL` with the secret segment after its path.
     func webhookAddress(_ url: URL) -> (url: String, path: String) {
-        let file = context.jsonFile("webhook.json", as: WebhookSecret.self)
+        // In the vault; a plain webhook.json (an earlier build's) moves there the first time it is read.
+        let file = context.secretFile("webhook.json", as: WebhookSecret.self)
         let segment: String
         if let saved = file.load()?.segment, saved.count >= 32 {
             segment = saved

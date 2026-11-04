@@ -239,6 +239,35 @@ struct SwitchBotPluginTests {
     }
 }
 
+extension SwitchBotPluginTests {
+    @Test func aBotThatOpensIsASecurityControl() {
+        for (type, characteristic, secured) in [
+            ("door", CharacteristicType.targetPosition, true), ("window", .targetPosition, true), ("windowcovering", .targetPosition, true),
+            ("garagedoor", .targetDoorState, true), ("lock", .lockTargetState, true), ("switch", .on, false),
+        ] {
+            let info = DeviceInfo(id: "D1A2B3C4D5E6", deviceID: "D1A2B3C4D5E6-Bot", type: "Bot", name: "Bot", options: DeviceOptions(["type": .string(type)]), isRemote: false, firmware: "1")
+            let bot = SwitchAccessory(info: info, family: .bot, link: DeviceLink { _ in true }, debounce: .zero, logger: testLogger)
+            #expect(bot.control[characteristic]?.isSecurityControl == secured, "\(type)")
+        }
+    }
+
+    @Test func theWebhookSegmentMovesIntoTheVault() async throws {
+        // An earlier build's plain file, in the instance's storage directory.
+        let storage = environment.directory.appendingPathComponent("plugins/SwitchBot-SwitchBot")
+        try FileManager.default.createDirectory(at: storage, withIntermediateDirectories: true)
+        let segment = String(repeating: "a", count: 43)
+        try Data(#"{"segment":"\#(segment)"}"#.utf8).write(to: storage.appendingPathComponent("webhook.json"))
+        let host = try await environment.start()
+        let plugin = try #require(environment.plugin)
+        let path = await plugin.webhookAddress(URL(string: "http://h:1/switchbot/")!).path
+        #expect(path == "/switchbot/\(segment)")
+        #expect(!FileManager.default.fileExists(atPath: storage.appendingPathComponent("webhook.json").path))
+        let again = await plugin.webhookAddress(URL(string: "http://h:1/switchbot")!).path
+        #expect(again == path)
+        await host.stop()
+    }
+}
+
 /// The commands an accessory sent, for tests without a host.
 final class SentCommands: Sendable {
     private let box = NIOLockedValueBox<[Command]>([])
