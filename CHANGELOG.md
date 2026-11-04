@@ -39,6 +39,12 @@ All notable changes to this project are documented here. The format follows
 - `update_settings` asks first only for a change that Excludes an accessory, puts it Not in Home, changes its Parts, or
   changes Plugin Settings: a rename, a room, Hidden and a plugin's own Accessory Settings run at once. A tool that is not
   destructive can ask for some calls (`MCPTool.confirmsWhen`).
+- A settings write that changes only live Accessory Settings (a Name, a room, Hidden, Not in Home: a page's, a rename in
+  the Home app, a move Room Sync follows) keeps no config.json backup, and its answer has no `backup`: they no longer
+  push the restorable ones (Plugin Settings, an Exclude, Parts, a plugin's own Accessory Settings, Forget) out of the
+  last 20. The first write to a block in Homebridge's shape keeps one, of the block as it was; when the canonical shape
+  is all it changes of what the plugin reads, the plugin keeps running on it rather than reloading. Forget reloads the
+  plugin even for a device with live settings only.
 
 - An accessory's room, Hidden and Not in Home are Accessory Settings, in its plugin's block's `_accessories` beside its
   Name, Excluded and Parts (docs/adr/0003-room-and-visibility-in-accessory-settings.md); they apply without reloading

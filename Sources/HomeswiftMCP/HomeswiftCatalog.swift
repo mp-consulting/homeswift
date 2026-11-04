@@ -659,16 +659,18 @@ public struct HomeswiftCatalog: Sendable {
         ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []).filter { $0.hasPrefix("config-") && $0.hasSuffix(".json") }.sorted()
     }
 
-    /// Backs up the current file and writes the new one owner-only (`applyConfig` validated it). Returns the backup's
-    /// name. Every write holds `configWrites`, so the compare with `expecting` and the write cannot be split by another
-    /// save: a file that changed since the caller read it (`expecting`) throws `ConfigChanged`.
-    func writeConfig(_ config: JSONValue, expecting: JSONValue? = nil) throws -> String {
+    /// Backs up the current file (unless `backup` is false) and writes the new one owner-only (`applyConfig` validated
+    /// it). Returns the backup's name, nil when none was made. Every write holds `configWrites`, so the compare with
+    /// `expecting` and the write cannot be split by another save: a file that changed since the caller read it
+    /// (`expecting`) throws `ConfigChanged`.
+    @discardableResult
+    func writeConfig(_ config: JSONValue, expecting: JSONValue? = nil, backup: Bool = true) throws -> String? {
         try configWrites.withLock {
             if let expecting, try readConfig() != expecting { throw ConfigChanged() }
             // Once config.json names the vault, a plain secret a save brings (the editor, the MCP tools, a restored backup)
             // becomes an entry, and the file gets its reference.
             let config = VaultMigration.isMigrated(config) ? try movingNewSecretsToVault(config) : config
-            return try Self.writeConfigFile(config, to: configURL)
+            return try Self.writeConfigFile(config, to: configURL, backup: backup)
         }
     }
 
@@ -677,6 +679,12 @@ public struct HomeswiftCatalog: Sendable {
     /// plain text. The key is made on the first plain secret; a config without one never creates it. The CLI's
     /// `homeswift vault migrate` writes through it too.
     public static func writeConfigFile(_ config: JSONValue, to configURL: URL) throws -> String {
+        try writeConfigFile(config, to: configURL, backup: true)!
+    }
+
+    /// `writeConfigFile(_:to:)`, without the backup when `backup` is false (a write of live Accessory Settings only):
+    /// then nil.
+    static func writeConfigFile(_ config: JSONValue, to configURL: URL, backup makeBackup: Bool) throws -> String? {
         let storageDirectory = configURL.deletingLastPathComponent()
         let backupsDirectory = storageDirectory.appendingPathComponent("backups")
         var key: SecretBox?
@@ -686,6 +694,10 @@ public struct HomeswiftCatalog: Sendable {
             return try box.seal(text)
         }
         let manager = FileManager.default
+        guard makeBackup else {
+            try OwnerOnlyFile.write(stored.encoded(pretty: true), to: configURL)
+            return nil
+        }
         try manager.createDirectory(at: backupsDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let stamp = Timestamp.iso8601(Date()).replacingOccurrences(of: ":", with: "-")
         var backup = "config-\(stamp).json"
@@ -722,7 +734,7 @@ public struct HomeswiftCatalog: Sendable {
         root["platforms"] = .array(platforms)
         let next = JSONValue.object(root)
         let configuration = try HomeswiftConfiguration.decode(next.encoded())
-        _ = try writeConfig(next)
+        try writeConfig(next)
         return configuration
     }
 
@@ -752,10 +764,13 @@ public struct HomeswiftCatalog: Sendable {
     }
 
     /// `applyConfig` with the file as it was just read, so a caller that read it does not read it again. With
-    /// `opened`, the bridge runs that configuration and the file keeps `next` as written.
+    /// `opened`, the bridge runs that configuration and the file keeps `next` as written. `backup` false writes no backup
+    /// (a write of live Accessory Settings only), and the answer has no `backup`. `canonicalMoves`, by platform and
+    /// name, are blocks the write only put in their canonical shape as far as their plugin reads them: their running
+    /// instances keep running when they run the block `current` has (`PluginHost.CanonicalMove`).
     func applyConfig(
         _ next: JSONValue, dryRun: Bool, current: JSONValue, checkSchemas: Bool = true, opened: HomeswiftConfiguration? = nil, expecting: JSONValue? = nil,
-        by writer: ConfigWriter = .person, beforeWrite: (() async throws -> Void)? = nil
+        by writer: ConfigWriter = .person, backup: Bool = true, canonicalMoves: [(platform: String, name: String)] = [], beforeWrite: (() async throws -> Void)? = nil
     ) async throws -> JSONValue {
         let restored = Redaction.containsRedacted(next) ? try Redaction.restoreSecrets(next, from: current) : next
         if writer == .client {
@@ -778,22 +793,33 @@ public struct HomeswiftCatalog: Sendable {
         if dryRun {
             return ["dryRun": true, "changes": .array(changed.map(JSONValue.string)), "config": Redaction.redactSecrets(restored)]
         }
+        // The blocks the instances run now, as the runtime opened them: read before the plugins' effects change the vault.
+        let moves = canonicalMoves.isEmpty ? [] : runningBlocks(of: current, canonicalMoves)
         // What the plugins' canonical shapes asked to do once written (`SettingsWrite`): checked, about to be written.
         try await beforeWrite?()
-        let backup = try writeConfig(restored, expecting: expecting)
-        var answer = await run(configuration).objectValue ?? [:]
+        let made = try writeConfig(restored, expecting: expecting, backup: backup)
+        var answer = await run(configuration, keepingRunning: moves).objectValue ?? [:]
         answer["written"] = .string(configURL.path)
-        answer["backup"] = .string(backup)
+        if let made { answer["backup"] = .string(made) }
         answer["changes"] = .array(changed.map(JSONValue.string))
         return .object(answer)
+    }
+
+    /// The blocks `names` of `config` as the runtime runs them (secrets opened, references resolved: `Platform.json`),
+    /// for `PluginHost.CanonicalMove`; none when `config` does not open.
+    func runningBlocks(of config: JSONValue, _ names: [(platform: String, name: String)]) -> [PluginHost.CanonicalMove] {
+        guard let opened = try? ConfigurationSecrets.opening(HomeswiftConfiguration.decode(config.encoded()), storage: storageDirectory) else { return [] }
+        return names.compactMap { platform, name in
+            opened.platforms.first { $0.platform == platform && $0.name == name }.map { PluginHost.CanonicalMove(platform: platform, name: name, from: $0.json) }
+        }
     }
 
     /// Runs `configuration` on the bridge (`PluginHost.apply`): plugin blocks reload in place, the system blocks'
     /// services reload, and what needs a restart restarts the process, or raises the restart flag when it cannot.
     /// Answers what was reloaded, started, stopped and what still needs a restart. A save runs it after writing the
     /// file, a changed vault entry without one.
-    func run(_ configuration: HomeswiftConfiguration) async -> JSONValue {
-        let report = await host.apply(configuration)
+    func run(_ configuration: HomeswiftConfiguration, keepingRunning moves: [PluginHost.CanonicalMove] = []) async -> JSONValue {
+        let report = await host.apply(configuration, keepingRunning: moves)
         var pending = report.needsRestart
         let services = report.systemBlocksChanged.filter { $0 != AIConfiguration.platform || reloadServices != nil }
         if let reloadServices, !services.isEmpty {

@@ -171,7 +171,10 @@ public protocol HomeswiftPlugin: Sendable {
     /// in `_accessories` by Device Id and declared Plugin Settings, the legacy keys dropped. The bridge asks the running
     /// instance just before each settings write to the block (`update_settings`, Setup, Exclude and Include), and writes
     /// what it answers; it may use what the plugin knows now (its devices' names, to read a list of names). What it cannot
-    /// read it leaves as it is. Defaults to the block unchanged.
+    /// read it leaves as it is. The answer must mean what the block meant: when it is all a write changes of what the
+    /// plugin reads (a person renamed a device of a block in Homebridge's shape), the running instance keeps running on
+    /// it rather than reloading (`PluginHost.CanonicalMove`), and reads the moved Accessory Settings through its context.
+    /// Defaults to the block unchanged.
     func canonicalSettings(_ block: JSONValue) async -> JSONValue
 
     /// The automations the plugin's hub keeps (`PluginAutomation`), such as Apple Home's through Wingman. Defaults to

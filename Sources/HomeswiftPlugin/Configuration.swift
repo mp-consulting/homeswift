@@ -265,6 +265,14 @@ public struct HomeswiftConfiguration: Sendable {
         return entry
     }
 
+    /// What a block's plugin reads of it (`Platform.json`): the block without its live Accessory Settings and its
+    /// `_hiddenFromHomeKit`. Two blocks with the same answer run their plugin alike, so a write from one to the other
+    /// reloads nothing. nil when the block does not decode.
+    public static func pluginJSON(of block: JSONValue) -> Data? {
+        guard let object = try? JSONSerialization.jsonObject(with: block.encoded()) as? [String: Any] else { return nil }
+        return try? platform(from: object, index: 0).json
+    }
+
     public static func decode(_ data: Data) throws -> HomeswiftConfiguration {
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw ConfigurationError.notAnObject

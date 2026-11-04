@@ -429,7 +429,10 @@ Two hooks, both optional, help the settings editor and the writers:
   a dry run too, so it only answers: anything more, such as moving a legacy token into the vault before dropping it from
   the block, goes in `context.whenSettingsWritten { … }`, which runs once the write is checked, just before config.json
   is written, and never on a dry run or a refused write (an effect that throws stops the write, so make it idempotent).
-  Answer the block as it will be once the effects have run (the token dropped as if the vault had it).
+  Answer the block as it will be once the effects have run (the token dropped as if the vault had it). Answer a block
+  that means what it was given: when the canonical shape is all a write changes of what the plugin reads (a person
+  renaming a device of a block still in Homebridge's shape), the running instance is not reloaded; it takes the new
+  block, reads the moved Accessory Settings through its context, and loses the accessories they Exclude.
 
 ### Web pages
 

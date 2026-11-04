@@ -295,6 +295,35 @@ extension HomeswiftCatalog {
         return object
     }
 
+    /// What a settings write does to one block, as its plugin reads it (`HomeswiftConfiguration.pluginJSON`: the live
+    /// Accessory Settings left out). A write that changes what some plugin reads keeps a backup of config.json, which is
+    /// what a person restores after a change of Plugin Settings, an Exclude, Parts or the first canonical shape of a
+    /// block in Homebridge's shape; one that changes only live settings (a Name, a room, Hidden, Not in Home: a Home app
+    /// rename, Room Sync's move) keeps none, so those never push the restorable ones out of the last 20. A block whose
+    /// plugin would read only its canonical shape anew keeps its plugin running (`PluginHost.CanonicalMove`).
+    struct BlockWrite {
+        let platform: String
+        let name: String
+        /// What its plugin reads changes.
+        let changesPlugin: Bool
+        /// Only because the block was put in its canonical shape: what the write itself changes is live settings.
+        let canonicalOnly: Bool
+
+        init(original: JSONValue, canonical: JSONValue, written: JSONValue) {
+            platform = written["platform"]?.stringValue ?? ""
+            name = written["name"]?.stringValue ?? platform
+            let before = HomeswiftConfiguration.pluginJSON(of: original), shaped = HomeswiftConfiguration.pluginJSON(of: canonical)
+            let after = HomeswiftConfiguration.pluginJSON(of: written)
+            changesPlugin = before == nil || after == nil || before != after
+            canonicalOnly = changesPlugin && after != nil && shaped == after
+        }
+    }
+
+    /// `applyConfig`'s `backup` and `canonicalMoves` for a write of `blocks`.
+    static func backupAndMoves(_ blocks: [BlockWrite]) -> (backup: Bool, moves: [(platform: String, name: String)]) {
+        (blocks.contains(where: \.changesPlugin), blocks.filter(\.canonicalOnly).map { ($0.platform, $0.name) })
+    }
+
     /// What a settings write answers of `applyConfig`'s answer: what reloaded or restarts, the note and the backup.
     static let appliedKeys: Set<String> = ["dryRun", "reloaded", "started", "stopped", "restarting", "restartNeeded", "note", "backup"]
 
@@ -344,7 +373,9 @@ extension HomeswiftCatalog {
     /// display name goes when its Name is set. A new room is added to the layout's rooms. Name, room, Hidden and Not in
     /// Home apply live; Excluded, Parts and the plugin's own settings reload the plugin. An accessory that moved to a room
     /// moves on the hubs that keep it in rooms (`moveOnHubs`) when Room Sync is on, and a mirrored one (Wingman's) always;
-    /// its Name is read-only. Answers each accessory's settings and the keys that changed, and what the write reloaded.
+    /// its Name is read-only. A write that changes only live settings keeps no backup of config.json (`BlockWrite`), and
+    /// the block's canonical shape alone reloads nothing. Answers each accessory's settings and the keys that changed,
+    /// and what the write reloaded.
     @discardableResult
     public func updateAccessorySettings(
         _ changes: [(accessoryID: String, settings: [String: JSONValue])], instance: String? = nil, dryRun: Bool = false, moveOnHubs: Bool = true,
@@ -409,12 +440,14 @@ extension HomeswiftCatalog {
 
         // The blocks, each put in its canonical shape once, then every change merged in.
         var canonical: Set<Int> = []
+        var shaped: [Int: JSONValue] = [:]
         var before: [String: [String: JSONValue]] = [:]
         let effects = SettingsWrite.Effects()
         for (target, settings) in planned {
             guard let index = Self.blockIndex(of: target, in: platforms) else { continue }
             if canonical.insert(index).inserted {
                 platforms[index] = .object(await canonicalBlock(platforms[index], effects: effects))
+                shaped[index] = platforms[index]
             }
             before[target.accessoryID] = before[target.accessoryID] ?? storedSettings(target, block: platforms[index])
             var block = platforms[index].objectValue ?? [:]
@@ -469,7 +502,13 @@ extension HomeswiftCatalog {
             return .object(answer)
         }
         if next != current {
-            let applied = try await applyConfig(next, dryRun: false, current: current, checkSchemas: true, expecting: current, by: writer, beforeWrite: effects.run)
+            let originals = current["platforms"]?.arrayValue ?? []
+            let blocks = shaped.keys.sorted().compactMap { index in
+                originals.indices.contains(index) ? BlockWrite(original: originals[index], canonical: shaped[index]!, written: platforms[index]) : nil
+            }
+            let (backup, moves) = Self.backupAndMoves(blocks)
+            let applied = try await applyConfig(
+                next, dryRun: false, current: current, checkSchemas: true, expecting: current, by: writer, backup: backup, canonicalMoves: moves, beforeWrite: effects.run)
             Self.copyApplied(applied, into: &answer)
         } else {
             answer["note"] = "Nothing changed."
@@ -534,6 +573,7 @@ extension HomeswiftCatalog {
         let (index, found) = try Self.uniqueBlock(platform: platform, instance: instance, in: platforms)
         let effects = SettingsWrite.Effects()
         var block = await canonicalBlock(found, effects: effects)
+        let shaped = JSONValue.object(block)
         for (key, value) in settings {
             if let next = Self.merged(block[key], value) { block[key] = next } else { block.removeValue(forKey: key) }
         }
@@ -552,7 +592,9 @@ extension HomeswiftCatalog {
             answer["reloaded"] = []
             return .object(answer)
         }
-        let applied = try await applyConfig(next, dryRun: dryRun, current: current, checkSchemas: true, expecting: current, by: writer, beforeWrite: effects.run)
+        let (backup, moves) = Self.backupAndMoves([BlockWrite(original: found, canonical: shaped, written: .object(block))])
+        let applied = try await applyConfig(
+            next, dryRun: dryRun, current: current, checkSchemas: true, expecting: current, by: writer, backup: backup, canonicalMoves: moves, beforeWrite: effects.run)
         Self.copyApplied(applied, into: &answer)
         return .object(answer)
     }
@@ -649,12 +691,16 @@ extension HomeswiftCatalog {
             context?.removeCredentials(for: target.deviceKey)
             credentialsGone = true
         }
+        // Always a backup: what Forget drops comes back only by restoring one (its credentials do not).
         if next != current {
             let applied = try await applyConfig(next, dryRun: false, current: current, checkSchemas: true, expecting: current, by: writer, beforeWrite: effects.run)
             Self.copyApplied(applied, into: &answer)
-        } else {
+        }
+        // Its plugin reloads without it, even when what it reads did not change (a device with live settings only).
+        let restarted = ((answer["reloaded"]?.arrayValue ?? []) + (answer["started"]?.arrayValue ?? [])).contains(.string(target.instance))
+        if !restarted {
             await host.relaunch(platform: target.platform, name: target.instance)
-            answer["reloaded"] = [.string(target.instance)]
+            answer["reloaded"] = .array((answer["reloaded"]?.arrayValue ?? []) + [.string(target.instance)])
         }
         if !legacy.isEmpty {
             try home.layout.update { layout in

@@ -554,7 +554,8 @@ For administrators, after the Homebridge UI's settings, child bridges, backups a
     stages it in `.restore-pending/` and restarts; the new process puts the files in place before it reads anything,
     keeping this machine's bridge and web UI ports. Files the backup does not have stay.
   - **config.json backups**: the file before each of its last 20 saves, each compared with the file as it is (a diff)
-    or restored.
+    or restored. A settings write that changes only an accessory's Name, room, Hidden or Not in Home (a rename in the
+    Home app, a move Room Sync follows) keeps none.
 - **Vault** (docs/vault-design.md), for administrators:
 
   ![Settings › Vault: a secret still in config.json, and the entries](images/ui/vault.png)

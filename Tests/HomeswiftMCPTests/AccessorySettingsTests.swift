@@ -182,21 +182,89 @@ struct AccessorySettingsTests {
         await environment.stop()
     }
 
-    /// Each settings write puts the block in its plugin's canonical shape first (`canonicalSettings`).
+    /// Each settings write puts the block in its plugin's canonical shape first (`canonicalSettings`). When that is all
+    /// the write changes of what the plugin reads (here a room), the plugin keeps running on the new block: nothing
+    /// reloads, the moved settings apply (the Excluded lock leaves), and one backup keeps the Homebridge shape.
     @Test func writesTheCanonicalShape() async throws {
         let environment = try await environment(#", "legacyExcluded": ["lock"]"#)
         let context = try #require(environment.host.context(platform: "Devices", name: "Devices"))
+        let lamp = try #require(environment.catalog.find(id: "Devices:lamp")).accessory
         // A dry run, and a write the schema refuses, do none of what the canonical shape asked (`whenSettingsWritten`).
         _ = try await environment.catalog.updateAccessorySettings([("Devices:lamp", ["room": "Hall"])], dryRun: true, who: "test")
         await #expect(throws: (any Error).self) { try await update(environment, "Devices:lamp", ["offset": 99]) }
         #expect(context.credentials() == nil)
         #expect(try block(environment)?["legacyExcluded"] != nil)
-        _ = try await update(environment, "Devices:lamp", ["room": "Hall"])
+        let first = try await update(environment, "Devices:lamp", ["room": "Hall"])
         #expect(context.credentials() == ["legacyExcluded": ["lock"]])
         let written = try #require(try block(environment))
         #expect(written["legacyExcluded"] == nil)
         #expect(written["_accessories"]?["lock"] == ["excluded": true])
         #expect(await eventually { environment.catalog.find(id: "Devices:lock") == nil })
+        #expect(first["reloaded"] == [])
+        #expect(environment.catalog.find(id: "Devices:lamp")?.accessory === lamp)
+        // The backup holds the block as it was.
+        let backup = try #require(first["backup"]?.stringValue)
+        let saved = try JSONValue(data: Data(contentsOf: environment.catalog.backupsDirectory.appendingPathComponent(backup)))
+        #expect(saved["platforms"]?[0]?["legacyExcluded"] == ["lock"])
+
+        // The plugin runs the canonical block now: a live write reloads nothing and keeps no backup, its own settings reload it.
+        let live = try await update(environment, "Devices:lamp", ["name": "Desk"])
+        #expect(live["reloaded"] == [] && live["backup"] == nil)
+        let own = try await update(environment, "Devices:lamp", ["offset": 1])
+        #expect(own["reloaded"] == ["Devices"] && own["backup"] != nil)
+        await environment.stop()
+    }
+
+    /// A block config.json has in Homebridge's shape that the plugin does not run (the file was edited by hand since it
+    /// was applied): the canonical shape is not all that changes for it, so the write reloads it.
+    @Test func aCanonicalShapeOfAnotherBlockReloads() async throws {
+        let environment = try await environment()
+        var root = try config(environment).objectValue ?? [:]
+        var platforms = root["platforms"]?.arrayValue ?? []
+        var devices = platforms[0].objectValue ?? [:]
+        devices["legacyExcluded"] = ["lock"]
+        platforms[0] = .object(devices)
+        root["platforms"] = .array(platforms)
+        try JSONValue.object(root).encoded(pretty: true).write(to: environment.configURL)
+
+        let answer = try await update(environment, "Devices:lamp", ["room": "Hall"])
+        #expect(answer["reloaded"] == ["Devices"])
+        #expect(await eventually { environment.catalog.find(id: "Devices:lock") == nil })
+        await environment.stop()
+    }
+
+    /// A write of live settings only (Name, room, Hidden, Not in Home: a page's, a Home app rename, a move Room Sync
+    /// follows) keeps no backup of config.json, and its answer names none; what a person restores (Plugin Accessory
+    /// Settings, Exclude, Parts, Plugin Settings, Forget) keeps one each, named in the answer.
+    @Test func onlyRestorableWritesKeepABackup() async throws {
+        let environment = try await environment()
+        let catalog = environment.catalog
+        _ = try await catalog.updateLayout(["syncRoomNames": true], by: "test")
+        let before = Set(catalog.backups())
+
+        let live = try await update(environment, "Devices:lamp", ["name": "Desk", "room": "Office", "hidden": true, "notInHome": true])
+        #expect(live["reloaded"] == [] && live["backup"] == nil, "\(live)")
+        let lamp = try #require(catalog.find(id: "Devices:lamp")).accessory
+        try await #require(lamp[.lightbulb]?[.configuredName]).write(.string("Reading Lamp"))
+        #expect(await eventually { (try? block(environment)?["_accessories"]?["lamp"]?["name"]) == "Reading Lamp" })
+        let instance = try #require(await environment.host.pluginRooms().first?.instance)
+        await catalog.followHubRoomChange(on: instance, .moved(accessoryID: "Devices:lamp", room: "Kitchen"))
+        #expect(try block(environment)?["_accessories"]?["lamp"]?["room"] == "Kitchen")
+        #expect(Set(catalog.backups()) == before)
+
+        var kept = before
+        func expectBackup(_ answer: JSONValue, _ what: String) {
+            let name = answer["backup"]?.stringValue
+            #expect(name != nil, "\(what): \(answer)")
+            let made = Set(catalog.backups()).subtracting(kept)
+            #expect(made.count == 1 && name.map(made.contains) == true, "\(what)")
+            kept.formUnion(made)
+        }
+        expectBackup(try await update(environment, "Devices:lamp", ["offset": 1.5]), "a Plugin Accessory Setting")
+        expectBackup(try await update(environment, "Devices:lock", ["excluded": true]), "an Exclude")
+        expectBackup(try await update(environment, "Devices:lamp", ["parts": ["Light": false]]), "Parts")
+        expectBackup(try await catalog.updatePluginSettings(platform: "Devices", settings: ["pollingRate": 500]), "Plugin Settings")
+        expectBackup(try await catalog.forgetDevice(accessoryID: "Devices:lamp"), "a Forget")
         await environment.stop()
     }
 
@@ -482,6 +550,18 @@ struct AccessorySettingsTests {
         // Nothing left to forget.
         let again = try await environment.catalog.forgetDevice(accessoryID: "Devices:lamp")
         #expect(again["settingsDropped"] == [] && again["credentialsDropped"] == false)
+        await environment.stop()
+    }
+
+    /// A device with live settings only: what its plugin reads does not change, but Forget still reloads it (it may hold
+    /// the dropped credentials) and keeps a backup.
+    @Test func forgetReloadsADeviceWithLiveSettingsOnly() async throws {
+        let environment = try await environment(#", "_accessories": { "lock": { "name": "Back Door" } }"#)
+        let lock = try #require(environment.catalog.find(id: "Devices:lock")).accessory
+        let forgot = try await environment.catalog.forgetDevice(accessoryID: "Devices:lock")
+        #expect(forgot["settingsDropped"] == ["lock"] && forgot["reloaded"] == ["Devices"] && forgot["backup"] != nil, "\(forgot)")
+        #expect(await eventually { environment.catalog.find(id: "Devices:lock")?.accessory.name == "Front Door" })
+        _ = lock
         await environment.stop()
     }
 }
