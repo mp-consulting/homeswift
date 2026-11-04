@@ -4163,6 +4163,19 @@
     };
     dialog.append(el("div", { class: "sheet-grabber", "aria-hidden": "true" }), build(dismiss));
     dialog.addEventListener("cancel", (event) => { event.preventDefault(); dismiss(); });   // Escape
+    // A click on the dimmed page around it closes it as Escape does: pressed and let go there, so a selection dragged
+    // out of the sheet does not.
+    const outside = (event) => {
+      if (event.target !== dialog) return false;
+      const box = dialog.getBoundingClientRect();
+      return event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom;
+    };
+    let pressedOutside = false;
+    dialog.addEventListener("pointerdown", (event) => { pressedOutside = outside(event); });
+    dialog.addEventListener("click", (event) => {
+      if (pressedOutside && outside(event)) dismiss();
+      pressedOutside = false;
+    });
     dialog.addEventListener("close", () => {
       dialog.remove();
       if (onClose) onClose(result);

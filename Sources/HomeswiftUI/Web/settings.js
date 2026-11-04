@@ -106,6 +106,23 @@
     return [...Object.keys(properties).filter((key) => !placed.has(key)), ...groups];
   }
 
+  /// The rooms as a pop-up menu under `trigger`: No room, each room (`current` ticked), and New room…, which asks for a
+  /// name; `onChoose(name)` gets the one chosen, "" for none. The Settings sheet's Room and a card's Move to room.
+  function roomMenu(trigger, { current = "", rooms = [], maxLength = 64, keyboard = false, onChoose }) {
+    const names = current && !rooms.includes(current) ? [current, ...rooms] : rooms;
+    HomeswiftCommon.menu(trigger, [
+      { label: t("No room"), checked: !current, onSelect: () => onChoose("") },
+      names.length ? { separator: true } : null,
+      ...names.map((name) => ({ label: name, icon: "room", checked: name === current, onSelect: () => onChoose(name) })),
+      { separator: true },
+      { label: t("New room…"), icon: "plus", pinned: true, onSelect: async () => {
+        const text = (await HomeswiftCommon.promptDialog(t("The new room's name."), ""))?.trim().replace(/\s+/g, " ");
+        if (text) await onChoose(text.slice(0, maxLength));
+        trigger.focus();
+      } },
+    ], { keyboard, search: names.length > 8 ? t("Search rooms") : null });
+  }
+
   // ---- An accessory's settings ------------------------------------------------------------------------------
 
   /// The Accessory Settings editor of `accessoryID` (`instance`, its block's name, for a device not on the bridge),
@@ -205,20 +222,8 @@
         // None is "" for a mirrored accessory (not the room its controller suggests), else cleared.
         if (await save({ room: text || (mirrored ? "" : null) }, roomState, "room")) showRoom();
       };
-      room.addEventListener("click", (event) => {
-        const names = settings.room && !roomNames.includes(settings.room) ? [settings.room, ...roomNames] : roomNames;
-        HomeswiftCommon.menu(room, [
-          { label: t("No room"), checked: !settings.room, onSelect: () => chooseRoom("") },
-          names.length ? { separator: true } : null,
-          ...names.map((name) => ({ label: name, icon: "room", checked: name === settings.room, onSelect: () => chooseRoom(name) })),
-          { separator: true },
-          { label: t("New room…"), icon: "plus", pinned: true, onSelect: async () => {
-            const text = (await HomeswiftCommon.promptDialog(t("The new room's name."), ""))?.trim().replace(/\s+/g, " ");
-            if (text) await chooseRoom(text.slice(0, fields.room?.schema?.maxLength ?? 64));
-            room.focus();
-          } },
-        ], { keyboard: event.detail === 0, search: names.length > 8 ? t("Search rooms") : null });
-      });
+      room.addEventListener("click", (event) => roomMenu(room, { current: settings.room, rooms: roomNames, maxLength: fields.room?.schema?.maxLength,
+        keyboard: event.detail === 0, onChoose: chooseRoom }));
       showRoom();
       const roomTitle = el("span", { text: t("Room") });
       const roomHelp = el("span", { class: "help", text: mirrored ? t("Also moves it in {source}.", { source: mirrored })
@@ -574,5 +579,5 @@
       action ?? el("span", { class: "setup-spacer" }));
   }
 
-  window.HomeswiftSettings = { accessoryEditor, openAccessory, pluginPage };
+  window.HomeswiftSettings = { accessoryEditor, openAccessory, pluginPage, roomMenu };
 })();

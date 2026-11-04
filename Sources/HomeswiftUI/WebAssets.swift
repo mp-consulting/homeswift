@@ -6027,6 +6027,19 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     };
     dialog.append(el("div", { class: "sheet-grabber", "aria-hidden": "true" }), build(dismiss));
     dialog.addEventListener("cancel", (event) => { event.preventDefault(); dismiss(); });   // Escape
+    // A click on the dimmed page around it closes it as Escape does: pressed and let go there, so a selection dragged
+    // out of the sheet does not.
+    const outside = (event) => {
+      if (event.target !== dialog) return false;
+      const box = dialog.getBoundingClientRect();
+      return event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom;
+    };
+    let pressedOutside = false;
+    dialog.addEventListener("pointerdown", (event) => { pressedOutside = outside(event); });
+    dialog.addEventListener("click", (event) => {
+      if (pressedOutside && outside(event)) dismiss();
+      pressedOutside = false;
+    });
     dialog.addEventListener("close", () => {
       dialog.remove();
       if (onClose) onClose(result);
@@ -10936,13 +10949,24 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   /// A room for the settings: none is "" for a mirrored accessory (not the room its controller suggests), else cleared.
   const roomSetting = (accessory, room) => room || (accessory?.mirroredFrom ? "" : null);
 
-  /// What an accessory card's menu adds: the Quick Controls (the Arrangement). Its room, Name, Hidden and Not in Home are
-  /// Accessory Settings, in its Settings sheet (settings.js, the menu's Settings…).
+  /// What an accessory card's menu adds: Move to room (its room, an Accessory Setting, as the Settings sheet's Room
+  /// sets it) and the Quick Controls (the Arrangement). Its Name, Hidden and Not in Home are in its Settings sheet
+  /// (settings.js, the menu's Settings…).
   function layoutActions(accessory) {
     const done = (promise) => promise.then(() => app.route()).catch((e) => HomeswiftCommon.showAlert(e.message));
     return [
+      accessory.platform ? { label: t("Move to room…"), icon: "room", onSelect: async () => {
+        // The menu has given the focus back to its ⋯ button: the rooms open under it.
+        const trigger = document.activeElement;
+        let rooms = [];
+        try { rooms = (await app.api("/api/rooms")).rooms.map((room) => room.name); } catch {}
+        HomeswiftSettings.roomMenu(trigger, { current: accessory.room ?? "", rooms, onChoose: (name) => {
+          if (name === (accessory.room ?? "")) return;
+          return done(changeSettings({ [accessory.id]: { room: roomSetting(accessory, name) } }));
+        } });
+      } } : null,
       { label: accessory.favourite ? t("Remove from Quick Controls") : t("Add to Quick Controls"), icon: "star", onSelect: () => done(changeLayout({ accessories: { [accessory.id]: { favourite: !accessory.favourite } } })) },
-    ];
+    ].filter(Boolean);
   }
 
   async function chooseRoom(accessory, change, note = "") {
@@ -22958,6 +22982,23 @@ HomeswiftI18n.add("pt", {
     return [...Object.keys(properties).filter((key) => !placed.has(key)), ...groups];
   }
 
+  /// The rooms as a pop-up menu under `trigger`: No room, each room (`current` ticked), and New room…, which asks for a
+  /// name; `onChoose(name)` gets the one chosen, "" for none. The Settings sheet's Room and a card's Move to room.
+  function roomMenu(trigger, { current = "", rooms = [], maxLength = 64, keyboard = false, onChoose }) {
+    const names = current && !rooms.includes(current) ? [current, ...rooms] : rooms;
+    HomeswiftCommon.menu(trigger, [
+      { label: t("No room"), checked: !current, onSelect: () => onChoose("") },
+      names.length ? { separator: true } : null,
+      ...names.map((name) => ({ label: name, icon: "room", checked: name === current, onSelect: () => onChoose(name) })),
+      { separator: true },
+      { label: t("New room…"), icon: "plus", pinned: true, onSelect: async () => {
+        const text = (await HomeswiftCommon.promptDialog(t("The new room's name."), ""))?.trim().replace(/\s+/g, " ");
+        if (text) await onChoose(text.slice(0, maxLength));
+        trigger.focus();
+      } },
+    ], { keyboard, search: names.length > 8 ? t("Search rooms") : null });
+  }
+
   // ---- An accessory's settings ------------------------------------------------------------------------------
 
   /// The Accessory Settings editor of `accessoryID` (`instance`, its block's name, for a device not on the bridge),
@@ -23057,20 +23098,8 @@ HomeswiftI18n.add("pt", {
         // None is "" for a mirrored accessory (not the room its controller suggests), else cleared.
         if (await save({ room: text || (mirrored ? "" : null) }, roomState, "room")) showRoom();
       };
-      room.addEventListener("click", (event) => {
-        const names = settings.room && !roomNames.includes(settings.room) ? [settings.room, ...roomNames] : roomNames;
-        HomeswiftCommon.menu(room, [
-          { label: t("No room"), checked: !settings.room, onSelect: () => chooseRoom("") },
-          names.length ? { separator: true } : null,
-          ...names.map((name) => ({ label: name, icon: "room", checked: name === settings.room, onSelect: () => chooseRoom(name) })),
-          { separator: true },
-          { label: t("New room…"), icon: "plus", pinned: true, onSelect: async () => {
-            const text = (await HomeswiftCommon.promptDialog(t("The new room's name."), ""))?.trim().replace(/\s+/g, " ");
-            if (text) await chooseRoom(text.slice(0, fields.room?.schema?.maxLength ?? 64));
-            room.focus();
-          } },
-        ], { keyboard: event.detail === 0, search: names.length > 8 ? t("Search rooms") : null });
-      });
+      room.addEventListener("click", (event) => roomMenu(room, { current: settings.room, rooms: roomNames, maxLength: fields.room?.schema?.maxLength,
+        keyboard: event.detail === 0, onChoose: chooseRoom }));
       showRoom();
       const roomTitle = el("span", { text: t("Room") });
       const roomHelp = el("span", { class: "help", text: mirrored ? t("Also moves it in {source}.", { source: mirrored })
@@ -23426,7 +23455,7 @@ HomeswiftI18n.add("pt", {
       action ?? el("span", { class: "setup-spacer" }));
   }
 
-  window.HomeswiftSettings = { accessoryEditor, openAccessory, pluginPage };
+  window.HomeswiftSettings = { accessoryEditor, openAccessory, pluginPage, roomMenu };
 })();
 
 """#),

@@ -35,13 +35,24 @@
   /// A room for the settings: none is "" for a mirrored accessory (not the room its controller suggests), else cleared.
   const roomSetting = (accessory, room) => room || (accessory?.mirroredFrom ? "" : null);
 
-  /// What an accessory card's menu adds: the Quick Controls (the Arrangement). Its room, Name, Hidden and Not in Home are
-  /// Accessory Settings, in its Settings sheet (settings.js, the menu's Settings…).
+  /// What an accessory card's menu adds: Move to room (its room, an Accessory Setting, as the Settings sheet's Room
+  /// sets it) and the Quick Controls (the Arrangement). Its Name, Hidden and Not in Home are in its Settings sheet
+  /// (settings.js, the menu's Settings…).
   function layoutActions(accessory) {
     const done = (promise) => promise.then(() => app.route()).catch((e) => HomeswiftCommon.showAlert(e.message));
     return [
+      accessory.platform ? { label: t("Move to room…"), icon: "room", onSelect: async () => {
+        // The menu has given the focus back to its ⋯ button: the rooms open under it.
+        const trigger = document.activeElement;
+        let rooms = [];
+        try { rooms = (await app.api("/api/rooms")).rooms.map((room) => room.name); } catch {}
+        HomeswiftSettings.roomMenu(trigger, { current: accessory.room ?? "", rooms, onChoose: (name) => {
+          if (name === (accessory.room ?? "")) return;
+          return done(changeSettings({ [accessory.id]: { room: roomSetting(accessory, name) } }));
+        } });
+      } } : null,
       { label: accessory.favourite ? t("Remove from Quick Controls") : t("Add to Quick Controls"), icon: "star", onSelect: () => done(changeLayout({ accessories: { [accessory.id]: { favourite: !accessory.favourite } } })) },
-    ];
+    ].filter(Boolean);
   }
 
   async function chooseRoom(accessory, change, note = "") {
