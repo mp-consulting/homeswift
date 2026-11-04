@@ -60,7 +60,9 @@ try {
   const errors = [];
   socket.addEventListener("message", (event) => {
     const message = JSON.parse(event.data);
-    if (message.id) { pending.get(message.id)?.(message); pending.delete(message.id); }
+    // A reply to one of our requests (a numbered one still waiting), nothing else.
+    const done = typeof message.id === "number" && pending.has(message.id) ? pending.get(message.id) : null;
+    if (typeof done === "function") { pending.delete(message.id); done(message); }
     else if (message.method === "Runtime.exceptionThrown") errors.push(message.params.exceptionDetails);
   });
   const send = (method, params = {}) => new Promise((done) => {

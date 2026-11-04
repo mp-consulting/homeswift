@@ -293,7 +293,8 @@
 
   // The language picker: each option's value is that language's page (the footer links to them too, without a script).
   const picker = $('lang');
-  picker.addEventListener('change', () => { location.href = picker.value; });
+  const pages = { '/': '/', '/fr/': '/fr/', '/es/': '/es/', '/pt/': '/pt/' };
+  picker.addEventListener('change', () => { if (Object.hasOwn(pages, picker.value)) location.href = pages[picker.value]; });
 
   // The hero's order of arrival, and the blocks below it that rise into view.
   document.querySelectorAll('.hero-copy > *').forEach((el, i) => el.style.setProperty('--i', i));
