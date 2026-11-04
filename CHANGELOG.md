@@ -9,6 +9,9 @@ All notable changes to this project are documented here. The format follows
 ### Added
 
 - The Shelly plugin (experimental): Gen 2, 3 and 4 devices over their WebSocket RPC (`ShellyNG` block) and Gen 1 devices over CoIoT and HTTP (`Shelly` block), the two homebridge-shelly blocks unchanged, with lights, colour lights and energy meters beyond the originals; a CoAP codec in HomeswiftNetwork.
+- The Assistant's Model is a menu of the models the chosen provider offers, read from its models list when the menu
+  opens (Anthropic, OpenAI, Gemini, or the OpenAI-compatible server at the Base URL), with Default and Other… to type
+  an id; `POST /api/assistant/models`. A saved key goes only to the saved provider, as for Test connection.
 - `get_settings` and `update_settings`, MCP tools (and through `homeswift mcp`, the command line's) that read and change
   the settings of an accessory, by its Accessory Id, or of a plugin instance: the current values with what each field
   is (its schema, whether it is a Core Accessory Setting, its plugin-wide default), a merge where `null` clears a key,
