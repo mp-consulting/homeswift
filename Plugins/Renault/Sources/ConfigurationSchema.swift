@@ -60,11 +60,6 @@ extension RenaultPlugin {
         "type": "string",
         "description": "The MyRenault account's e-mail. Setup fills it in."
       },
-      "password": {
-        "title": "Password",
-        "type": "string",
-        "description": "Only for a block written by hand: Setup keeps the password in the vault instead."
-      },
       "kamereonAccountId": {
         "title": "Kamereon account",
         "type": "string",
@@ -105,7 +100,7 @@ extension RenaultPlugin {
       "title": "Advanced",
       "expandable": true,
       "expanded": false,
-      "items": ["climateTemperature", "maxCallsPerHour", "pollInterval", "kamereonAccountId", "password"]
+      "items": ["climateTemperature", "maxCallsPerHour", "pollInterval", "kamereonAccountId"]
     }
   ],
   "i18n": {
