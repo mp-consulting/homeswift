@@ -24,8 +24,8 @@ struct ESPHomeTiming: Sendable {
     var keepalive: Duration = .seconds(20)
     /// Nothing at all received for this long closes the connection.
     var liveness: Duration = .seconds(90)
-    /// How often the session checks its timers.
-    var tick: Duration = .seconds(1)
+    /// How often the session checks its timers: coarse, as the shortest is the 20 s keepalive.
+    var tick: Duration = .seconds(5)
     /// The wait before reconnecting to a device that said it disconnects (it is rebooting).
     var rebootDelay: Duration = .seconds(5)
     var retryInitial: Duration = .seconds(1)
@@ -66,7 +66,7 @@ actor ESPHomeLink {
     private let stream: any ByteStream
     private var cipher: NoiseCipherState?
     private var tail: Task<Void, any Error>?
-    private(set) var isClosed = false
+    private var isClosed = false
 
     init(stream: any ByteStream) {
         self.stream = stream
@@ -135,7 +135,7 @@ enum ESPHomeSession {
     /// Runs until the connection ends; throws why (`ESPHomeError`, a connection error, or `CancellationError`).
     static func run(
         endpoint: ESPHomeEndpoint, transport: any ESPHomeTransport, timing: ESPHomeTiming, logger: Logger,
-        onReady: @Sendable (Ready) async -> Void, onState: @Sendable (EntityKind, ProtobufMessage) async -> Void
+        onReady: @Sendable (Ready) async -> Void, onState: @Sendable (ProtobufMessage) async -> Void
     ) async throws {
         let psk = try endpoint.encryptionKey.map(ESPHomeNoise.psk(fromBase64:))
         let stream = try await transport.connect(host: endpoint.host, port: endpoint.port, timeout: timing.connectTimeout)
@@ -169,22 +169,17 @@ enum ESPHomeSession {
         var receive: NoiseCipherState?
         var noiseFramer = NoiseFramer()
         var plainFramer = PlaintextFramer()
-        var apiMinor: UInt32 = 0
         var info: DeviceInfo?
         var entities: [EntityInfo] = []
         var unsupported: [String] = []
 
-        /// The password, sent in the clear: to a device whose MAC is known only once its DeviceInfo showed that MAC, so an
-        /// impostor at its address (a spoofed mDNS answer, a reused IP) never gets it.
+        /// The password goes in the clear, so only once DeviceInfo (which firmware answers before it) showed the device's
+        /// MAC: the expected one when it is known, so an impostor at its address (a spoofed mDNS answer, a reused IP) never
+        /// gets it. Not waited for: firmware since 2026.1 ignores it and never answers.
         let password = endpoint.password.flatMap { $0.isEmpty ? nil : $0 }
-        var passwordPending = password != nil && endpoint.expectedMAC != nil
 
         func sendHello() async throws {
             try await link.send(ESPHomeRequest.hello())
-            if let password, !passwordPending {
-                // Not waited for: firmware since 2026.1 ignores it and never answers.
-                try await link.send(ESPHomeRequest.authentication(password: password))
-            }
         }
 
         func handle(_ frame: ESPHomeFrame) async throws {
@@ -213,22 +208,20 @@ enum ESPHomeSession {
             case (.hello, MessageType.helloResponse):
                 let major = message.uint32(1)
                 guard major <= 2 else { throw ESPHomeError.incompatibleAPI(major: major) }
-                apiMinor = message.uint32(2)
                 phase = .deviceInfo
                 deadline = clock.now + timing.responseTimeout
                 try await link.send(ESPHomeRequest.empty(MessageType.deviceInfoRequest))
             case (.deviceInfo, MessageType.deviceInfoResponse):
-                let received = DeviceInfo(message, apiMinor: apiMinor)
+                let received = DeviceInfo(message)
                 if let expected = endpoint.expectedMAC, let found = MACAddress.canonical(received.mac), found != expected {
                     throw ESPHomeError.wrongDevice(expected: expected, found: found)
                 }
                 if received.usesPassword, password == nil { throw ESPHomeError.passwordRequired }
-                if passwordPending, let password, let expected = endpoint.expectedMAC {
-                    guard MACAddress.canonical(received.mac) == expected else {
+                if let password {
+                    if let expected = endpoint.expectedMAC, MACAddress.canonical(received.mac) != expected {
                         logger.warning("Not sending the password to \(endpoint.host): it did not show the MAC \(expected)")
                         throw ESPHomeError.wrongDevice(expected: expected, found: "none")
                     }
-                    passwordPending = false
                     try await link.send(ESPHomeRequest.authentication(password: password))
                 }
                 info = received
@@ -248,7 +241,7 @@ enum ESPHomeSession {
                     unsupported.append(Sanitized.text(message.string(3)))
                 }
             case (.running, let type):
-                if let kind = EntityKind(stateType: type) { await onState(kind, message) }
+                if EntityKind(stateType: type) != nil { await onState(message) }
             default:
                 break
             }
@@ -323,7 +316,9 @@ enum ESPHomeSession {
                     let now = clock.now
                     if phase != .running {
                         if now > deadline {
-                            if passwordPending { logger.warning("Not sending the password to \(endpoint.host): it did not show its MAC first") }
+                            if password != nil, phase == .deviceInfo {
+                                logger.warning("Not sending the password to \(endpoint.host): it did not show its MAC first")
+                            }
                             throw ESPHomeError.timedOut(phase.rawValue)
                         }
                     } else {

@@ -245,7 +245,7 @@ public enum Redaction {
     private static let shapeHints: [Hints] = [.bearer, .openAI, .homebridge, .google, .jwt, .setupURI, .setupCode, .shortSetupCode]
 
     /// The keywords of `secretPair`'s key (password, passwd, passphrase and pass all start `pass`), lower case.
-    private static let keywords = ["pass", "pin", "setup", "secret", "token", "api", "private", "credential", "cookie", "session", "signature"].map { Array($0.utf8) }
+    private static let keywords = ["pass", "pin", "setup", "secret", "token", "api", "private", "encryption", "credential", "cookie", "session", "signature"].map { Array($0.utf8) }
 
     /// The shapes' fixed parts, case as written.
     private static let fixed = (
@@ -291,6 +291,7 @@ public enum Redaction {
                 case UInt8(ascii: "h"):
                     if at(index, fixed.homebridge, caseless: false) { hints.insert(.homebridge) }
                 case UInt8(ascii: "e"):
+                    if keywords.contains(where: { at(index, $0, caseless: true) }) { hints.insert(.keyword) }
                     if at(index, fixed.jwt, caseless: false) { hints.insert(.jwt) }
                 case UInt8(ascii: "x"):
                     if at(index, fixed.setupURI, caseless: false) { hints.insert(.setupURI) }

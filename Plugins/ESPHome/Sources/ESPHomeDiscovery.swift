@@ -16,7 +16,6 @@ struct Announcement: Sendable, Equatable {
     /// The canonical MAC of the TXT `mac`.
     var mac: String?
     var friendlyName: String?
-    var version: String?
     /// The TXT `api_encryption` names the Noise protocol: the device wants its key.
     var encrypted: Bool
 
@@ -54,6 +53,6 @@ extension Announcement {
         self.init(
             name: name, hostName: host.isEmpty ? (service.addresses.first ?? "\(name).local") : host, port: service.port, addresses: service.addresses,
             mac: service.txt["mac"].flatMap(MACAddress.canonical), friendlyName: service.txt["friendly_name"].map { Sanitized.text($0) },
-            version: service.txt["version"].map { Sanitized.text($0, limit: 32) }, encrypted: !(service.txt["api_encryption"] ?? "").isEmpty)
+            encrypted: !(service.txt["api_encryption"] ?? "").isEmpty)
     }
 }

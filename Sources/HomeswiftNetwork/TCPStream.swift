@@ -39,7 +39,8 @@ public final class TCPStream: ByteStream {
             return TCPStream(channel: channel, incoming: stream)
         } catch {
             continuation.finish()
-            throw HTTPClientError.cannotConnect(host: host, port: port, code: nil, reason: String(describing: error))
+            let (code, reason) = connectionFailure(error)
+            throw HTTPClientError.cannotConnect(host: host, port: port, code: code, reason: reason)
         }
     }
 

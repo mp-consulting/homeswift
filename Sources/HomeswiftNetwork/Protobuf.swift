@@ -3,7 +3,7 @@ import Foundation
 /// The protobuf wire format (https://protobuf.dev/programming-guides/encoding/) without a schema or a code generator:
 /// varints, tags, and the four wire types devices use. `ProtobufWriter` builds a message field by field and
 /// `ProtobufMessage` reads one by field number, so a plugin describes its messages by their numbers (ESPHome's native
-/// API, EcoFlow's property messages).
+/// API); EcoFlow's reader shares its varints.
 public enum Protobuf {
     public enum WireType: UInt8, Sendable {
         case varint = 0
@@ -102,9 +102,6 @@ public struct ProtobufWriter: Sendable, Equatable {
         if !value.isEmpty { bytes(number, Array(value.utf8)) }
     }
 
-    public mutating func message(_ number: Int, _ message: ProtobufWriter) {
-        bytes(number, message.bytes)
-    }
 }
 
 /// A message read by field number. Absent fields read as their defaults; for a field that comes more than once, the
@@ -218,13 +215,5 @@ public struct ProtobufMessage: Sendable, Equatable {
             }
         }
         return values
-    }
-
-    /// Every value of a repeated message field that is well formed.
-    public func messages(_ number: Int) -> [ProtobufMessage] {
-        fields.compactMap { field in
-            guard field.number == number, case .bytes(let bytes) = field.value else { return nil }
-            return ProtobufMessage(bytes)
-        }
     }
 }

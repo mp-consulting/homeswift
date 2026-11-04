@@ -92,11 +92,10 @@ struct DeviceInfo: Equatable, Sendable {
     var model: String
     var manufacturer: String
     var esphomeVersion: String
-    var apiMinor: UInt32
     /// `uses_password`: older firmware asks for the API password.
     var usesPassword: Bool
 
-    init(_ message: ProtobufMessage, apiMinor: UInt32) {
+    init(_ message: ProtobufMessage) {
         usesPassword = message.bool(1)
         name = Sanitized.text(message.string(2), limit: 31)
         mac = Sanitized.text(message.string(3), limit: 17)
@@ -104,7 +103,6 @@ struct DeviceInfo: Equatable, Sendable {
         model = Sanitized.text(message.string(6), limit: 64)
         manufacturer = Sanitized.text(message.string(12), limit: 64)
         friendlyName = Sanitized.text(message.string(13))
-        self.apiMinor = apiMinor
     }
 }
 
@@ -264,7 +262,7 @@ enum ESPHomeRequest {
         return ESPHomeFrame(type: MessageType.lockCommand, body: body.bytes)
     }
 
-    struct Light: Equatable {
+    struct Light {
         var key: UInt32
         var state: Bool?
         var brightness: Float?
@@ -273,11 +271,6 @@ enum ESPHomeRequest {
         var effect: String?
         /// Set with a colour or a temperature, so the light leaves its other mode.
         var colorMode: Int?
-
-        static func == (lhs: Light, rhs: Light) -> Bool {
-            lhs.key == rhs.key && lhs.state == rhs.state && lhs.colorMode == rhs.colorMode && lhs.brightness == rhs.brightness && lhs.colorTemperature == rhs.colorTemperature
-                && lhs.effect == rhs.effect && lhs.rgb?.red == rhs.rgb?.red && lhs.rgb?.green == rhs.rgb?.green && lhs.rgb?.blue == rhs.rgb?.blue
-        }
 
         var frame: ESPHomeFrame {
             var body = ProtobufWriter()
@@ -312,7 +305,7 @@ enum ESPHomeRequest {
         }
     }
 
-    struct Cover: Equatable {
+    struct Cover {
         var key: UInt32
         var position: Float?
         var tilt: Float?
@@ -334,7 +327,7 @@ enum ESPHomeRequest {
         }
     }
 
-    struct Fan: Equatable {
+    struct Fan {
         var key: UInt32
         var state: Bool?
         var oscillating: Bool?
@@ -364,7 +357,7 @@ enum ESPHomeRequest {
         }
     }
 
-    struct Climate: Equatable {
+    struct Climate {
         var key: UInt32
         var mode: Int?
         var targetTemperature: Float?

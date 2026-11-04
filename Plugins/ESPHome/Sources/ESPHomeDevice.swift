@@ -13,6 +13,7 @@ final class EntityDirectory: Sendable {
     /// Each id's suffix (after `esphome:`), with its owner `<MAC>/<key>`.
     private let claims: NIOLockedValueBox<[String: String]>
     private let warned = NIOLockedValueBox<Set<String>>([])
+    private let dirty = NIOLockedValueBox(false)
     private let file: JSONFile<[String: String]>?
 
     init(file: JSONFile<[String: String]>?) {
@@ -37,8 +38,14 @@ final class EntityDirectory: Sendable {
             claims[free] = owner
             return (free, true)
         }
-        if changed, let file { try? file.save(claims.withLockedValue { $0 }) }
+        if changed { dirty.withLockedValue { $0 = true } }
         return (suffix, suffix != name)
+    }
+
+    /// Writes the claims made since the last save.
+    func save() {
+        guard let file, dirty.withLockedValue({ dirty in defer { dirty = false }; return dirty }) else { return }
+        try? file.save(claims.withLockedValue { $0 })
     }
 
     /// Whether the warning about a shared name is still to give.
@@ -71,7 +78,7 @@ actor ESPHomeDevice {
         case connected
         case unreachable
         /// Stopped until its configuration changes: a rejected password or key.
-        case failed(String)
+        case failed
     }
 
     private(set) var endpoint: ESPHomeEndpoint
@@ -110,7 +117,7 @@ actor ESPHomeDevice {
             do {
                 try await ESPHomeSession.run(
                     endpoint: endpoint, transport: environment.transport, timing: environment.timing, logger: logger,
-                    onReady: { ready in await self.ready(ready) }, onState: { kind, state in await self.show(state) })
+                    onReady: { ready in await self.ready(ready) }, onState: { state in await self.show(state) })
             } catch is CancellationError {
                 break
             } catch {
@@ -118,7 +125,7 @@ actor ESPHomeDevice {
                 delay = handle(error, failures: &failures)
             }
             disconnected()
-            if case .failed = status { break }
+            if status == .failed { break }
             if delay > .zero {
                 do { try await Task.sleep(for: delay) } catch { break }
             }
@@ -131,7 +138,7 @@ actor ESPHomeDevice {
     private func handle(_ error: any Error, failures: inout Int) -> Duration {
         let espError = error as? ESPHomeError
         if let espError, espError.needsConfiguration {
-            status = .failed(espError.description)
+            status = .failed
             switch espError {
             case .invalidPassword, .passwordRequired:
                 logger.error("The device at \(label) rejected the password: check the configured password")
@@ -215,6 +222,7 @@ actor ESPHomeDevice {
             bindings.removeValue(forKey: key)
             accessories.removeValue(forKey: key)
         }
+        environment.directory.save()
         for accessory in accessories.values { accessory.isUnavailable = false }
     }
 
@@ -233,7 +241,7 @@ actor ESPHomeDevice {
         }, timing: timing)
         guard let binding = EntityBinding.make(entity, link: link, adaptiveLighting: { context.adaptiveLighting(for: $0, accessoryID: id) }) else {
             logger.info("\(entity.name) could not be mapped to HomeKit")
-            if context.accessories.contains(where: { $0.id == id }) { Task { try? await context.remove(id: id) } }
+            if context.accessory(id: id) != nil { Task { try? await context.remove(id: id) } }
             return
         }
         let name = entity.name.isEmpty ? (info.friendlyName.isEmpty ? info.name : info.friendlyName) : entity.name
@@ -241,7 +249,7 @@ actor ESPHomeDevice {
             id: id, name: name, manufacturer: info.manufacturer.isEmpty ? "ESPHome" : info.manufacturer,
             model: info.model.isEmpty ? "ESPHome" : info.model, serialNumber: mac, firmwareRevision: Self.firmwareRevision(info.esphomeVersion),
             category: binding.category, services: binding.services)
-        if let cached = context.accessories.first(where: { $0.id == id }) { accessory.takeValues(from: cached) }
+        if let cached = context.accessory(id: id) { accessory.takeValues(from: cached) }
         do {
             try context.add(accessory)
         } catch {
@@ -278,7 +286,4 @@ actor ESPHomeDevice {
         let ids = Set(environment.directory.suffixes(of: mac).map { "\(ESPHomePlugin.platform):\($0)" })
         for accessory in environment.context.accessories where ids.contains(accessory.id) { accessory.isUnavailable = true }
     }
-
-    /// The accessories this device shows, by entity key (tests).
-    var boundAccessories: [UInt32: Accessory] { accessories }
 }

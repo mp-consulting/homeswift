@@ -112,25 +112,24 @@ extension ESPHomePlugin {
         timing.connectTimeout = min(timing.connectTimeout, .seconds(10))
         timing.responseTimeout = min(timing.responseTimeout, .seconds(15))
         timing.handshakeTimeout = min(timing.handshakeTimeout, .seconds(45))
-        let result = ProbeResult()
+        let result = NIOLockedValueBox<DeviceInfo?>(nil)
         do {
             try await ESPHomeSession.run(
                 endpoint: endpoint, transport: transport, timing: timing, logger: log,
                 onReady: { ready in
-                    result.set(ready.info)
+                    result.withLockedValue { $0 = ready.info }
                     await ready.link.close()
-                }, onState: { _, _ in })
+                }, onState: { _ in })
         } catch {
-            if let info = result.get() { return info }
+            if let info = result.withLockedValue { $0 } { return info }
             throw error
         }
-        if let info = result.get() { return info }
+        if let info = result.withLockedValue { $0 } { return info }
         throw ESPHomeError.connectionLost
     }
 
     static func address(_ host: String, _ port: Int) -> String {
-        let host = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
-        return port == ESPHomeEndpoint.defaultPort ? host : "\(host):\(port)"
+        hostHeader(host: host, port: port, defaultPort: ESPHomeEndpoint.defaultPort)
     }
 
     /// `host`, `host:port`, `[v6]` or `[v6]:port`.
@@ -164,9 +163,3 @@ extension SetupOutcome {
     }
 }
 
-/// The device information a probe's session hands back from its callback.
-final class ProbeResult: Sendable {
-    private let box = NIOLockedValueBox<DeviceInfo?>(nil)
-    func set(_ info: DeviceInfo) { box.withLockedValue { $0 = info } }
-    func get() -> DeviceInfo? { box.withLockedValue { $0 } }
-}

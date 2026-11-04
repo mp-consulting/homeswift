@@ -43,8 +43,6 @@ public struct NoiseCipherState: Sendable {
         self.key = key.map { SymmetricKey(data: $0) }
     }
 
-    public var hasKey: Bool { key != nil }
-
     /// ChaCha20-Poly1305's nonce for a counter: four zero bytes, then the counter in little-endian order.
     public static func nonceBytes(_ counter: UInt64) -> [UInt8] {
         [0, 0, 0, 0] + withUnsafeBytes(of: counter.littleEndian, Array.init)
@@ -172,23 +170,16 @@ public struct NoiseHandshake: Sendable {
     /// The next message of the pattern, carrying `payload` (encrypted: both messages come after a key is mixed in).
     public mutating func writeMessage(payload: [UInt8] = []) throws -> [UInt8] {
         guard writesNext else { throw NoiseError.outOfOrder }
-        var message: [UInt8] = []
         let publicKey = Array(ephemeral.publicKey.rawRepresentation)
-        if step == 0 {
-            // psk, e
-            symmetric.mixKeyAndHash(psk)
-            message += publicKey
-            symmetric.mixHash(publicKey)
-            symmetric.mixKey(publicKey)
-        } else {
-            // e, ee
+        // -> psk, e   <- e, ee
+        if step == 0 { symmetric.mixKeyAndHash(psk) }
+        symmetric.mixHash(publicKey)
+        symmetric.mixKey(publicKey)
+        if step == 1 {
             guard let remoteEphemeral else { throw NoiseError.outOfOrder }
-            message += publicKey
-            symmetric.mixHash(publicKey)
-            symmetric.mixKey(publicKey)
             symmetric.mixKey(try Self.dh(ephemeral, remoteEphemeral))
         }
-        message += try symmetric.encryptAndHash(payload)
+        let message = publicKey + (try symmetric.encryptAndHash(payload))
         step += 1
         return message
     }
@@ -199,15 +190,10 @@ public struct NoiseHandshake: Sendable {
         guard message.count >= 32 + 16 else { throw NoiseError.malformedMessage }
         let publicKey = Array(message.prefix(32))
         guard let remote = try? Curve25519.KeyAgreement.PublicKey(rawRepresentation: publicKey) else { throw NoiseError.invalidKey }
-        if step == 0 {
-            symmetric.mixKeyAndHash(psk)
-            symmetric.mixHash(publicKey)
-            symmetric.mixKey(publicKey)
-        } else {
-            symmetric.mixHash(publicKey)
-            symmetric.mixKey(publicKey)
-            symmetric.mixKey(try Self.dh(ephemeral, remote))
-        }
+        if step == 0 { symmetric.mixKeyAndHash(psk) }
+        symmetric.mixHash(publicKey)
+        symmetric.mixKey(publicKey)
+        if step == 1 { symmetric.mixKey(try Self.dh(ephemeral, remote)) }
         remoteEphemeral = remote
         let payload = try symmetric.decryptAndHash(Array(message.dropFirst(32)))
         step += 1
