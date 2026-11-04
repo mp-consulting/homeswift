@@ -152,6 +152,16 @@ struct DummyTests {
         #expect(canonical["accessories"]?[0]?["notification"]?["token"] == nil)
         #expect(canonical["accessories"]?[0]?["notification"]?["id"] == nil)
         #expect(canonical["accessories"]?[0]?["notification"]?["text"] == "On")
+        // A token new in this write is the block's own, not the running instance's.
+        let added = try JSONValue(any: [
+            "platform": "HomebridgeDummy", "webhookConfig": ["token": "enc:v1:unknown"],
+            "accessories": [["id": "new", "name": "New", "type": "Switch", "notification": ["api": "PINGIE_NOTIFY", "token": "fresh", "id": "dev", "text": "On"]]],
+        ])
+        let next = await plugin.canonicalSettings(added)
+        #expect(next["accessories"]?[0]?["notification"]?["token"] == nil)
+        #expect(next["accessories"]?[0]?["notification"]?["id"] == "dev")
+        // The sealed token is the one the instance runs with, opened: it moves too.
+        #expect(next["webhookConfig"]?["token"] == nil)
         await host.stop()
     }
 

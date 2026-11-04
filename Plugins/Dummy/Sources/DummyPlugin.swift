@@ -209,7 +209,7 @@ public actor DummyPlugin: HomeswiftPlugin {
     /// Each configured accessory is a device of Setup with nothing to authorize; its Device Id is its `id`, or
     /// `<type>:<name without whitespace>` without one.
     public func discover() async throws -> [DiscoveredDevice] {
-        let configs = accessories.isEmpty ? readAccessories() : accessories
+        let configs = readAccessories()
         return configs.map { config in
             DiscoveredDevice(
                 deviceID: config.deviceID, name: context.accessorySettings(for: config.deviceID).name ?? config.name, model: config.type.rawValue,
@@ -220,27 +220,47 @@ public actor DummyPlugin: HomeswiftPlugin {
     /// The block with the deprecated keys the Homebridge plugin's settings page rewrites in their current form
     /// (spec 13), and the Matter accessories kept out of the Home app (their Accessory Settings' `notInHome`).
     public func canonicalSettings(_ block: JSONValue) async -> JSONValue {
-        // Secrets the block holds go to the vault once the block is written; the block is answered as if they had.
+        // Secrets the block holds go to the vault once the block is written; the block is answered as if they had. A
+        // value the block holds sealed or as a reference is the opened one the instance runs with, when it has it.
         let context = context
+        func plain(_ written: JSONValue?, running: JSONValue?) -> String? {
+            guard let text = written?.stringValue, !text.isEmpty else { return nil }
+            let opened = ["enc:", "vault:", "env:", "file:"].contains { text.hasPrefix($0) }
+            return opened ? running?.stringValue.flatMap { $0.isEmpty ? nil : $0 } : text
+        }
         var moves: [(String?, JSONValue)] = []
-        if block["webhookConfig"]?["token"] != nil, let token = configuration.webhookConfig?["token"]?.stringValue, !token.isEmpty {
+        var moved = SecretMoves()
+        if let token = plain(block["webhookConfig"]?["token"], running: configuration.webhookConfig?["token"]) {
             var account = context.credentials()?.objectValue ?? [:]
             account["webhookToken"] = .string(token)
             moves.append((nil, .object(account)))
+            moved.webhook = true
         }
-        for entry in configuration.accessories ?? [] {
+        let running = Dictionary(
+            (configuration.accessories ?? []).compactMap { entry in Self.deviceID(of: entry).map { ($0, entry) } }, uniquingKeysWith: { first, _ in first })
+        for entry in block["accessories"]?.arrayValue ?? [] {
             guard let notification = entry["notification"], let deviceID = Self.deviceID(of: entry) else { continue }
+            let opened = running[deviceID]?["notification"]
             var device = context.credentials(for: deviceID)?.objectValue ?? [:]
             let before = device
-            if let token = notification["token"]?.stringValue, !token.isEmpty { device["notificationToken"] = .string(token) }
-            if notification["api"]?.stringValue == "PUSHOVER", let id = notification["id"]?.stringValue, !id.isEmpty { device["notificationID"] = .string(id) }
+            let token = plain(notification["token"], running: opened?["token"])
+            if let token { device["notificationToken"] = .string(token) }
+            if notification["api"]?.stringValue == "PUSHOVER", let id = plain(notification["id"], running: opened?["id"]) { device["notificationID"] = .string(id) }
+            // Only what made it to the vault leaves the block.
+            if notification["token"] == nil || token != nil { moved.devices.insert(deviceID) }
             if device != before { moves.append((deviceID, .object(device))) }
         }
         if !moves.isEmpty {
             let pending = moves
             await context.whenSettingsWritten { for (deviceID, credentials) in pending { try context.saveCredentials(credentials, for: deviceID) } }
         }
-        return Self.canonical(block, movesSecrets: true)
+        return Self.canonical(block, moving: moved)
+    }
+
+    /// The secrets that go from the block to the vault: the webhook token, and the notifications of these Device Ids.
+    struct SecretMoves {
+        var webhook = false
+        var devices: Set<String> = []
     }
 
     /// An entry's Device Id: its `id`, or `<type>:<name without whitespace>`.
@@ -250,11 +270,10 @@ public actor DummyPlugin: HomeswiftPlugin {
         return "\(type):\(ConfigReader.stripWhitespace(name))"
     }
 
-    /// `movesSecrets`: the webhook token and the notifications' tokens (and Pushover's application token) leave the block,
-    /// for the vault.
-    static func canonical(_ block: JSONValue, movesSecrets: Bool = false) -> JSONValue {
+    /// `moving`: the secrets that leave the block for the vault (the notifications' tokens, Pushover's application token).
+    static func canonical(_ block: JSONValue, moving: SecretMoves = SecretMoves()) -> JSONValue {
         guard var fields = block.objectValue else { return block }
-        if movesSecrets, var webhook = fields["webhookConfig"]?.objectValue, webhook.removeValue(forKey: "token") != nil {
+        if moving.webhook, var webhook = fields["webhookConfig"]?.objectValue, webhook.removeValue(forKey: "token") != nil {
             fields["webhookConfig"] = .object(webhook)
         }
         if let port = fields["webhookPort"] {
@@ -291,7 +310,7 @@ public actor DummyPlugin: HomeswiftPlugin {
                     })
                     item["conditions"] = .object(conditions)
                 }
-                if movesSecrets, var notification = item["notification"]?.objectValue {
+                if let deviceID = Self.deviceID(of: .object(item)), moving.devices.contains(deviceID), var notification = item["notification"]?.objectValue {
                     notification.removeValue(forKey: "token")
                     if notification["api"]?.stringValue == "PUSHOVER" { notification.removeValue(forKey: "id") }
                     item["notification"] = .object(notification)

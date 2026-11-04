@@ -36,6 +36,8 @@ actor DummyEngine {
     var logPatterns: [(identifier: String, regex: NSRegularExpression?, literal: String)] = []
     var stopped = false
     var savePending = false
+    /// The accessories acting on their conditions now (`act(on:)`).
+    var acting: Set<String> = []
 
     init(logger: Logger, verbose: Bool, storeFile: JSONFile<[String: [String: JSONValue]]>?, tasks: TaskBag, dependencies: Dependencies) {
         self.logger = logger
@@ -202,13 +204,14 @@ actor DummyEngine {
             if changed, source != .restore { notify(device, trigger: false) }
             cancelFade(device)
         }
+        // A simulation starts before the values are shown, so the current position does not jump to the target first.
+        if changed { simulate(device, from: old) }
         publish(device)
         if changed {
             info(device, device.stateMessage)
             setStored(device.identifier, device.primaryKey, device.storedPrimary)
             recordHistory(device)
             if device.isOpen, device.config.family == .position || device.config.family == .garage { countOpening(device) }
-            simulate(device, from: old)
         }
         updateSensor(device, source: source, changed: changed)
         if source != .restore { report(device) }
@@ -482,10 +485,10 @@ actor DummyEngine {
             info(device, "\(device.name) will \(slot.verb) in \(TimeUnits.describe(milliseconds: delay))")
         case .cron(let expression):
             if first { info(device, "\(device.name) starting \(slot.label) cronjob") }
-            guard let next = expression.next(after: now, calendar: dependencies.calendar) else { return }
+            guard let next = expression.next(after: first ? now : now.addingTimeInterval(0.5), calendar: dependencies.calendar) else { return }
             delay = next.timeIntervalSince(now) * 1000
         case .sun(let event, let offset, let latitude, let longitude):
-            guard let next = SunTimes.next(event, offsetMinutes: offset, latitude: latitude, longitude: longitude, after: now) else {
+            guard let next = SunTimes.next(event, offsetMinutes: offset, latitude: latitude, longitude: longitude, after: first ? now : now.addingTimeInterval(1)) else {
                 logger.warning("\(device.name): the sun does not reach its \(event.rawValue.lowercased()) position here today; trying again tomorrow")
                 device.repeating[slot] = scheduler.after(milliseconds: 86_400_000) { [weak self] in await self?.rearm(id, slot) }
                 return

@@ -352,15 +352,8 @@ struct ConfigReader {
                 return nil
             }
         }
-        let deviceID: String
-        let identifier: String
-        if let id = json["id"]?.stringValue {
-            deviceID = id
-            identifier = id
-        } else {
-            identifier = Self.derivedIdentifier(type: typeName, name: name)
-            deviceID = String(identifier.dropFirst(DummyPlugin.platform.count + 1))
-        }
+        guard let deviceID = DummyPlugin.deviceID(of: json) else { return nil }
+        let identifier = json["id"]?.stringValue ?? "\(DummyPlugin.platform):\(deviceID)"
         let groupName = json["groupName"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         if isMatter, groupName != nil {
             logger.warning("\(name): groups are not supported for Matter accessories")
@@ -540,7 +533,7 @@ struct ConfigReader {
                 return nil
             }
             guard let units = units(json["units"]?.nonNull, name: name) else { return nil }
-            let ms = time * units.milliseconds
+            let ms = max(1, time) * units.milliseconds
             let random = json["random"]?.boolValue ?? false
             return ScheduleConfig(kind: typeName == "TIMEOUT" ? .timeout(milliseconds: ms, random: random) : .interval(milliseconds: ms, random: random))
         case "CRON":

@@ -491,7 +491,7 @@ public final class PluginContext: @unchecked Sendable {
 
     /// The bridge's log, from now on (`LogBuffer.observe`), when the host has one (`PluginHost.Options.logs`): for a plugin
     /// that acts on log lines. nil in a library or a test that gives none.
-    public var logs: LogBuffer? {
+    public internal(set) var logs: LogBuffer? {
         get { logsBox.withLockedValue { $0 } }
         set { logsBox.withLockedValue { $0 = newValue } }
     }

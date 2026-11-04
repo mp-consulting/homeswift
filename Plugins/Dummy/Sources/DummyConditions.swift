@@ -17,7 +17,9 @@ extension DummyEngine {
 
     /// Triggers the accessory when its conditions hold, resets it otherwise unless an auto-reset does that.
     func act(on device: DummyDevice) {
-        guard device.config.conditions != nil, !stopped else { return }
+        // Accessories whose conditions name each other would otherwise act on each other without end.
+        guard device.config.conditions != nil, !stopped, acting.insert(device.identifier).inserted else { return }
+        defer { acting.remove(device.identifier) }
         if evaluate(device, forLog: false) {
             info(device, "\(device.name) conditions have been satisfied. Triggering…")
             trigger(device, source: .condition)

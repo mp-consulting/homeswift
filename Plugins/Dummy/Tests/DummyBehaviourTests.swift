@@ -247,6 +247,16 @@ struct DummyFeatureTests {
         #expect(harness.value("alarm", .on) == .bool(false))
     }
 
+    @Test func accessoriesNamingEachOtherDoNotLoop() async {
+        let harness = await Harness([
+            ["id": "a", "name": "A", "type": "Switch", "conditions": ["operator": "or", "operands": [["type": "ACCESSORY", "accessoryId": "b", "accessoryState": "on"]]]],
+            ["id": "b", "name": "B", "type": "Switch", "conditions": ["operator": "or", "operands": [["type": "ACCESSORY", "accessoryId": "a", "accessoryState": "on"]]]],
+        ], now: parisDate(2026, 11, 4, 10))
+        _ = await harness.engine.write("b", .on(true))
+        #expect(harness.value("a", .on) == .bool(true))
+        #expect(harness.value("b", .on) == .bool(true))
+    }
+
     @Test func aConditionCannotReferenceItself() {
         let reader = ConfigReader(logger: testLogger)
         let config = reader.accessory(["id": "a", "name": "A", "type": "Switch", "conditions": ["operator": "or", "operands": [
