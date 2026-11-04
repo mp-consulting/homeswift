@@ -458,7 +458,7 @@ let package = Package(
         .target(
             name: "HomeswiftImou",
             dependencies: [
-                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftFFmpeg",
+                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftNetwork", "HomeswiftFFmpeg",
                 .product(name: "Crypto", package: "swift-crypto"),
                 .product(name: "Logging", package: "swift-log"),
             ],

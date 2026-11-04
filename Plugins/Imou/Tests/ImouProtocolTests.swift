@@ -119,7 +119,7 @@ struct ImouProtocolTests {
         let channel = try #require(device.cameraChannels.first)
         #expect(channel.id == "0" && channel.localChannel == 1)
         let features = ImouFeatures(abilities: device.abilities(of: channel))
-        #expect(features.motion && features.privacy && features.siren && features.whiteLight && features.motionDetectSwitch)
+        #expect(features.privacy && features.siren && features.whiteLight && features.motionDetectSwitch)
         #expect(!features.battery && !features.doorbell)
         // A channel of a multi-channel device has its own abilities only; an integer channel id is a string.
         let nvr = try #require(ImouDevice(json: ["deviceId": "NVR1", "channelNum": 4, "deviceAbility": "Siren",
@@ -179,6 +179,11 @@ struct ImouProtocolTests {
         var lengthless = DahuaMultipartParser(contentType: nil)
         let more = lengthless.feed(Array("--myboundary\r\n\r\nCode=AlarmLocal;action=Pulse;index=1\r\n--myboundary\r\nContent-Length: 999999\r\n\r\nxx".utf8))
         #expect(more.compactMap(DahuaEvent.init(text:)) == [DahuaEvent(code: "AlarmLocal", action: .pulse, index: 1)])
+        // A boundary line that never ends is dropped once it passes the bound, and the stream goes on.
+        var endless = DahuaMultipartParser(contentType: nil)
+        #expect(endless.feed(Array("--myboundary".utf8) + Array(repeating: 0x41, count: 70 * 1024)).isEmpty)
+        let after = endless.feed(Array("\n--myboundary\r\nContent-Length: 36\r\n\r\nCode=AlarmLocal;action=Pulse;index=2\r\n".utf8))
+        #expect(after.compactMap(DahuaEvent.init(text:)) == [DahuaEvent(code: "AlarmLocal", action: .pulse, index: 2)])
     }
 
     @Test func theCameraReadsItsSerialAndRefusesAWrongCode() async throws {

@@ -80,7 +80,7 @@ struct ImouChannel: Sendable, Equatable {
     }
 
     init?(json: JSONValue, device: String) {
-        guard let id = json["channelId"]?.stringValue ?? json["channelId"]?.saturatingIntValue.map(String.init), !id.isEmpty, id.count <= 8 else { return nil }
+        guard let id = json["channelId"].text, id.count <= 8 else { return nil }
         self.id = id
         name = json["channelName"]?.stringValue.flatMap { $0.isEmpty ? nil : String($0.prefix(128)) } ?? "\(device)-\((Int(id) ?? 0) + 1)"
         abilities = ImouDevice.abilities(json["channelAbility"])
@@ -106,25 +106,19 @@ enum ImouOnline: Sendable, Equatable {
 
 /// What a channel offers, from its abilities (section 1.3, [O]'s table).
 struct ImouFeatures: Sendable, Equatable {
-    var motion: Bool
     var motionDetectSwitch: Bool
     var privacy: Bool
     var whiteLight: Bool
     var siren: Bool
     var battery: Bool
-    var dormant: Bool
     var doorbell: Bool
 
-    static let motionAbilities: Set<String> = ["AlarmMD", "MobileDetect", "HeaderDetect", "AiHuman", "SMDH", "AlarmPIR", "AlarmPIRV2", "AlarmPIRV3", "AlarmPIRV4"]
-
     init(abilities: Set<String>) {
-        motion = !abilities.isDisjoint(with: Self.motionAbilities)
         motionDetectSwitch = abilities.contains("MobileDetect") || abilities.contains("AlarmMD")
         privacy = abilities.contains("CloseCamera")
         whiteLight = abilities.contains("WhiteLight") || abilities.contains("ChnWhiteLight")
         siren = abilities.contains("Siren")
         battery = abilities.contains("Electric")
-        dormant = abilities.contains("Dormant")
         doorbell = abilities.contains("CallAbility")
     }
 }
@@ -152,9 +146,9 @@ enum ImouEvents {
     }
 
     /// The Dahua event codes asked of a camera's event stream, and those that are motion.
-    static let localMotionCodes: Set<String> = ["VideoMotion", "SmartMotionHuman", "SmartMotionVehicle", "CrossLineDetection", "CrossRegionDetection", "AlarmLocal"]
-    static let localDoorbellCodes: Set<String> = ["CallNoAnswered", "BackKeyLight"]
     static let localCodes = ["VideoMotion", "SmartMotionHuman", "SmartMotionVehicle", "CrossLineDetection", "CrossRegionDetection", "AlarmLocal"]
+    static let localMotionCodes = Set(localCodes)
+    static let localDoorbellCodes: Set<String> = ["CallNoAnswered", "BackKeyLight"]
 }
 
 // MARK: The methods
@@ -177,10 +171,10 @@ extension ImouCloud {
         let data = try await call("deviceOnline", ["deviceId": .string(deviceID)], polling: polling)
         var channels: [String: ImouOnline] = [:]
         for channel in (data["channels"]?.arrayValue ?? []).prefix(64) {
-            guard let id = channel["channelId"]?.stringValue ?? channel["channelId"]?.saturatingIntValue.map(String.init) else { continue }
-            channels[id] = ImouOnline(channel["onLine"]?.stringValue ?? channel["onLine"]?.saturatingIntValue.map(String.init))
+            guard let id = channel["channelId"].text else { continue }
+            channels[id] = ImouOnline(channel["onLine"].text)
         }
-        return (ImouOnline(data["onLine"]?.stringValue ?? data["onLine"]?.saturatingIntValue.map(String.init)), channels)
+        return (ImouOnline(data["onLine"].text), channels)
     }
 
     /// `getDeviceCameraStatus`: on or off; nil for a status it does not say.
@@ -242,7 +236,7 @@ extension ImouCloud {
             "beginTime": .string(format.string(from: now.addingTimeInterval(-86_400))), "endTime": .string(format.string(from: now.addingTimeInterval(86_400))),
         ], polling: true)
         guard let alarm = data["alarms"]?[0] else { return nil }
-        let id = alarm["alarmId"]?.stringValue ?? alarm["alarmId"]?.saturatingIntValue.map(String.init) ?? ""
+        let id = alarm["alarmId"].text ?? ""
         let time = alarm["time"]?.saturatingIntValue ?? alarm["time"]?.stringValue.flatMap { Int($0) } ?? 0
         guard !id.isEmpty || time != 0 else { return nil }
         return ImouAlarm(id: id, messageType: alarm["msgType"]?.stringValue ?? "", time: time)

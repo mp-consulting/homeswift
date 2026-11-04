@@ -40,8 +40,7 @@ actor DahuaClient {
 
     init?(host: String, port: Int, username: String, password: String, transport: any DahuaTransport) {
         let trimmed = host.trimmingCharacters(in: .whitespaces)
-        let authority = trimmed.contains(":") && !trimmed.hasPrefix("[") ? "[\(trimmed)]" : trimmed
-        guard !trimmed.isEmpty, let base = URL(string: "http://\(authority):\(port)") else { return nil }
+        guard !trimmed.isEmpty, let base = URL(string: "http://\(hostHeader(host: trimmed, port: port, defaultPort: -1))") else { return nil }
         self.host = trimmed
         self.port = port
         self.base = base
@@ -49,9 +48,9 @@ actor DahuaClient {
         digest = DigestAuthentication(username: username, password: password)
     }
 
-    /// A request for `target` (a path and query, sent as written), its URL the same for the client's connection.
+    /// A request for `target` (a path and query, sent as written): the URL says only where to connect.
     private func request(_ target: String, timeout: Duration) -> HomeswiftNetwork.HTTPRequest {
-        var request = HomeswiftNetwork.HTTPRequest(method: "GET", url: base.appendingPathComponent(String(target.prefix { $0 != "?" }.dropFirst())), timeout: timeout)
+        var request = HomeswiftNetwork.HTTPRequest(method: "GET", url: base, timeout: timeout)
         request.target = target
         return request
     }
@@ -64,17 +63,28 @@ actor DahuaClient {
 
     /// A GET answered in full; a 401 is answered once with Digest.
     func get(_ target: String, timeout: Duration = .seconds(10)) async throws -> HomeswiftNetwork.HTTPResponse {
-        var response = try await transport.send(authorized(target, timeout: timeout))
-        if response.status == 401 {
-            guard let challenge = response.header("WWW-Authenticate"), digest.accept(challenge: challenge) else { throw DahuaError.wrongPassword }
-            // A challenge kept from before may have gone stale: one more try with the new one.
-            response = try await transport.send(authorized(target, timeout: timeout))
-            if response.status == 401 {
+        try await signed(target, timeout: timeout, status: \.status, challenge: { $0.header("WWW-Authenticate") }) { try await self.transport.send($0) }
+    }
+
+    /// Sends `target` with the Digest answer kept, and once more with the challenge of a 401 (one kept from before may have
+    /// gone stale); a second 401 is a wrong password.
+    private func signed<Response>(_ target: String, timeout: Duration, headers: [(String, String)] = [], status: (Response) -> Int,
+                                  challenge: (Response) -> String?, send: (HomeswiftNetwork.HTTPRequest) async throws -> Response) async throws -> Response {
+        func attempt() async throws -> Response {
+            var request = authorized(target, timeout: timeout)
+            for (name, value) in headers { request.setHeader(name, value) }
+            return try await send(request)
+        }
+        var response = try await attempt()
+        if status(response) == 401 {
+            guard let header = challenge(response), digest.accept(challenge: header) else { throw DahuaError.wrongPassword }
+            response = try await attempt()
+            if status(response) == 401 {
                 digest.clear()
                 throw DahuaError.wrongPassword
             }
         }
-        try Self.check(response.status)
+        try Self.check(status(response))
         return response
     }
 
@@ -99,8 +109,7 @@ actor DahuaClient {
         for line in text.split(whereSeparator: \.isNewline) {
             let parts = line.split(separator: "=", maxSplits: 1)
             guard parts.count == 2, parts[0].trimmingCharacters(in: .whitespaces).lowercased() == "sn" else { continue }
-            let serial = parts[1].trimmingCharacters(in: .whitespaces)
-            if !serial.isEmpty, serial.count <= 64, serial.allSatisfy({ $0.isLetter || $0.isNumber }) { return serial }
+            if let serial = validSerial(parts[1].trimmingCharacters(in: .whitespaces)) { return serial }
         }
         return nil
     }
@@ -109,8 +118,12 @@ actor DahuaClient {
     static func serial(realm: String) -> String? {
         let prefix = "Login to "
         guard realm.hasPrefix(prefix) else { return nil }
-        let serial = realm.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
-        return !serial.isEmpty && serial.count <= 64 && serial.allSatisfy({ $0.isLetter || $0.isNumber }) ? serial : nil
+        return validSerial(realm.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces))
+    }
+
+    /// A serial of 1 to 64 ASCII letters and digits.
+    private static func validSerial(_ serial: String) -> String? {
+        !serial.isEmpty && serial.count <= 64 && serial.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) ? serial : nil
     }
 
     /// The realm of the camera's challenge, asked without credentials; nil when it gives none.
@@ -130,22 +143,8 @@ actor DahuaClient {
     /// seconds. The codes go in brackets, sent as written.
     func events(codes: [String]) async throws -> HTTPStreamingResponse {
         let target = "/cgi-bin/eventManager.cgi?action=attach&codes=[\(codes.joined(separator: ","))]&heartbeat=5"
-        func open() async throws -> HTTPStreamingResponse {
-            var request = authorized(target, timeout: .seconds(10))
-            request.setHeader("Accept", "multipart/x-mixed-replace")
-            return try await transport.stream(request)
-        }
-        var response = try await open()
-        if response.status == 401 {
-            guard let challenge = response.header("WWW-Authenticate"), digest.accept(challenge: challenge) else { throw DahuaError.wrongPassword }
-            response = try await open()
-            if response.status == 401 {
-                digest.clear()
-                throw DahuaError.wrongPassword
-            }
-        }
-        try Self.check(response.status)
-        return response
+        return try await signed(target, timeout: .seconds(10), headers: [("Accept", "multipart/x-mixed-replace")], status: \.status,
+                                challenge: { $0.header("WWW-Authenticate") }) { try await self.transport.stream($0) }
     }
 }
 
@@ -195,6 +194,8 @@ struct DahuaMultipartParser {
 
     private let boundary: [UInt8]
     private var buffer: [UInt8] = []
+    /// Where the unread bytes of `buffer` start: what is read is dropped once a feed, not once a line.
+    private var start = 0
     private enum State { case boundary, headers(length: Int?), body(length: Int?) }
     private var state = State.boundary
 
@@ -203,7 +204,7 @@ struct DahuaMultipartParser {
         var name = "myboundary"
         if let contentType, let range = contentType.range(of: "boundary=", options: .caseInsensitive) {
             let value = contentType[range.upperBound...].prefix { $0 != ";" }.trimmingCharacters(in: CharacterSet(charactersIn: "\" "))
-            if !value.isEmpty { name = value.hasPrefix("--") ? String(value.dropFirst(2)) : value }
+            if !value.isEmpty { name = String((value.hasPrefix("--") ? String(value.dropFirst(2)) : value).prefix(70)) }
         }
         boundary = Array("--\(name)".utf8)
     }
@@ -212,28 +213,30 @@ struct DahuaMultipartParser {
     mutating func feed(_ bytes: [UInt8]) -> [String] {
         buffer += bytes
         var parts: [String] = []
+        defer { compact() }
         while true {
             switch state {
             case .boundary:
-                guard let start = Self.find(boundary, in: buffer) else {
+                guard let at = find(boundary) else {
                     // Keep what could be the start of a boundary.
-                    if buffer.count > boundary.count { buffer.removeFirst(buffer.count - boundary.count) }
+                    start = max(start, buffer.count - boundary.count)
                     return parts
                 }
-                guard let end = buffer[(start + boundary.count)...].firstIndex(of: 0x0A) else {
-                    if start > 0 { buffer.removeFirst(start) }
+                guard let end = buffer[(at + boundary.count)...].firstIndex(of: 0x0A) else {
+                    start = at
+                    if buffer.count - start > Self.maximumPart { reset() }
                     return parts
                 }
-                buffer.removeFirst(end + 1)
+                start = end + 1
                 state = .headers(length: nil)
             case .headers(let length):
-                guard let end = buffer.firstIndex(of: 0x0A) else {
-                    if buffer.count > Self.maximumPart { reset() }
+                guard let end = buffer[start...].firstIndex(of: 0x0A) else {
+                    if buffer.count - start > Self.maximumPart { reset() }
                     return parts
                 }
-                var line = buffer[..<end]
+                var line = buffer[start..<end]
                 if line.last == 0x0D { line = line.dropLast() }
-                buffer.removeFirst(end + 1)
+                start = end + 1
                 let text = String(decoding: line, as: UTF8.self)
                 if text.isEmpty {
                     state = .body(length: length)
@@ -249,33 +252,40 @@ struct DahuaMultipartParser {
                     continue
                 }
                 if let length {
-                    guard buffer.count >= length else { return parts }
-                    parts.append(String(decoding: buffer[..<length], as: UTF8.self))
-                    buffer.removeFirst(length)
+                    guard buffer.count - start >= length else { return parts }
+                    parts.append(String(decoding: buffer[start..<(start + length)], as: UTF8.self))
+                    start += length
                     state = .boundary
                 } else {
-                    guard let next = Self.find(boundary, in: buffer) else {
-                        if buffer.count > Self.maximumPart { reset() }
+                    guard let next = find(boundary) else {
+                        if buffer.count - start > Self.maximumPart { reset() }
                         return parts
                     }
-                    parts.append(String(decoding: buffer[..<next], as: UTF8.self))
-                    buffer.removeFirst(next)
+                    parts.append(String(decoding: buffer[start..<next], as: UTF8.self))
+                    start = next
                     state = .boundary
                 }
             }
         }
     }
 
+    private mutating func compact() {
+        if start > 0 { buffer.removeFirst(min(start, buffer.count)) }
+        start = 0
+    }
+
     private mutating func reset() {
         buffer.removeAll()
+        start = 0
         state = .boundary
     }
 
-    private static func find(_ needle: [UInt8], in haystack: [UInt8]) -> Int? {
-        guard needle.count <= haystack.count, let first = needle.first else { return nil }
-        var index = 0
-        while index <= haystack.count - needle.count {
-            if haystack[index] == first, haystack[index..<(index + needle.count)].elementsEqual(needle) { return index }
+    /// The first `needle` in the unread bytes.
+    private func find(_ needle: [UInt8]) -> Int? {
+        guard let first = needle.first, buffer.count - start >= needle.count else { return nil }
+        var index = start
+        while index <= buffer.count - needle.count {
+            if buffer[index] == first, buffer[index..<(index + needle.count)].elementsEqual(needle) { return index }
             index += 1
         }
         return nil
@@ -284,9 +294,5 @@ struct DahuaMultipartParser {
 
 /// The local RTSP address of a channel (section 5.4): Dahua's `cam/realmonitor`, the user and password percent-encoded.
 func dahuaRTSPURL(host: String, port: Int, username: String, password: String, channel: Int, subStream: Bool) -> String {
-    let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~"))
-    let user = username.addingPercentEncoding(withAllowedCharacters: allowed) ?? username
-    let pass = password.addingPercentEncoding(withAllowedCharacters: allowed) ?? password
-    let authority = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
-    return "rtsp://\(user):\(pass)@\(authority):\(port)/cam/realmonitor?channel=\(channel)&subtype=\(subStream ? 1 : 0)"
+    "rtsp://\(URLEncoding.rfc3986(username)):\(URLEncoding.rfc3986(password))@\(hostHeader(host: host, port: port, defaultPort: -1))/cam/realmonitor?channel=\(channel)&subtype=\(subStream ? 1 : 0)"
 }
