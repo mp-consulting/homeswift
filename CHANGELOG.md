@@ -76,6 +76,9 @@ All notable changes to this project are documented here. The format follows
 - A plugin's Settings page, `/plugins/<slug>/settings` (`/plugins/<slug>` for a plugin without a page of its own): its
   account with **Set up again**, its Plugin Settings saved in one write (the plugin reloads once), and every device it
   finds, each opening its Settings, included again or set up again.
+- The Accessories wall's Filters menu has the Graph's filters: bridges (`?bridge=<name>`) and device types
+  (`?type=<category>`), each chosen as often as wanted and kept in the address, with their counts. The Graph's Filters
+  menu has the wall's **Only from Apple Home** (the accessories Wingman brings in).
 
 ### Changed
 
