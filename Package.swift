@@ -28,6 +28,12 @@ let package = Package(
         .library(name: "HomeswiftPhilipsHue", targets: ["HomeswiftPhilipsHue"]),
         .library(name: "HomeswiftDirigera", targets: ["HomeswiftDirigera"]),
         .library(name: "HomeswiftEcoFlow", targets: ["HomeswiftEcoFlow"]),
+        .library(name: "HomeswiftZigbee2MQTT", targets: ["HomeswiftZigbee2MQTT"]),
+        .library(name: "HomeswiftTapo", targets: ["HomeswiftTapo"]),
+        .library(name: "HomeswiftHTTPWebhooks", targets: ["HomeswiftHTTPWebhooks"]),
+        .library(name: "HomeswiftTPLinkSmarthome", targets: ["HomeswiftTPLinkSmarthome"]),
+        .library(name: "HomeswiftShelly", targets: ["HomeswiftShelly"]),
+        .library(name: "HomeswiftESPHome", targets: ["HomeswiftESPHome"]),
         .library(name: "HomeswiftMQTTThing", targets: ["HomeswiftMQTTThing"]),
         .executable(name: "homeswift", targets: ["HomeswiftCLI"]),
         .executable(name: "homeswift-demo", targets: ["homeswift-demo"]),
@@ -284,6 +290,65 @@ let package = Package(
             path: "Plugins/EcoFlow/Sources"
         ),
         .target(
+            name: "HomeswiftZigbee2MQTT",
+            dependencies: ["Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", .product(name: "NIOConcurrencyHelpers", package: "swift-nio"), .product(name: "Logging", package: "swift-log")],
+            path: "Plugins/Zigbee2MQTT/Sources"
+        ),
+        .target(
+            name: "HomeswiftTapo",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftAI",
+                .product(name: "Crypto", package: "swift-crypto"),
+                // AES-CBC and RSA with PKCS#1 v1.5, which the devices' protocols use.
+                .product(name: "_CryptoExtras", package: "swift-crypto"),
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/Tapo/Sources"
+        ),
+        .target(
+            name: "HomeswiftHTTPWebhooks",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork",
+                .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOPosix", package: "swift-nio"),
+                .product(name: "NIOHTTP1", package: "swift-nio"),
+                .product(name: "NIOSSL", package: "swift-nio-ssl"),
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/HTTPWebhooks/Sources"
+        ),
+        .target(
+            name: "HomeswiftTPLinkSmarthome",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork",
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOPosix", package: "swift-nio"),
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/TPLinkSmarthome/Sources"
+        ),
+        .target(
+            name: "HomeswiftShelly",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftAI", .product(name: "Logging", package: "swift-log"),
+                .product(name: "Crypto", package: "swift-crypto"), .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+            ],
+            path: "Plugins/Shelly/Sources"
+        ),
+        .target(
+            name: "HomeswiftESPHome",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork",
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/ESPHome/Sources"
+        ),
+        .target(
             name: "HomeswiftMQTTThing",
             dependencies: ["Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", .product(name: "Logging", package: "swift-log")],
             path: "Plugins/MQTTThing/Sources"
@@ -293,7 +358,7 @@ let package = Package(
         .executableTarget(
             name: "HomeswiftCLI",
             dependencies: [
-                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftMCP", "HomeswiftUI", "HomeswiftMatter", "HomeswiftElgatoKeyLights", "HomeswiftPhilipsAmbilightTV", "HomeswiftDolphinPoolCleaner", "HomeswiftDysonPureCool", "HomeswiftUniFiAccess", "HomeswiftDaikinCloud", "HomeswiftEWeLink", "HomeswiftLGThinQ", "HomeswiftGovee", "HomeswiftUniFiProtect", "HomeswiftWingman", "HomeswiftPhilipsHue", "HomeswiftDirigera", "HomeswiftEcoFlow", "HomeswiftMQTTThing",
+                "Homeswift", "HomeswiftPlugin", "HomeswiftAI", "HomeswiftMCP", "HomeswiftUI", "HomeswiftMatter", "HomeswiftElgatoKeyLights", "HomeswiftPhilipsAmbilightTV", "HomeswiftDolphinPoolCleaner", "HomeswiftDysonPureCool", "HomeswiftUniFiAccess", "HomeswiftDaikinCloud", "HomeswiftEWeLink", "HomeswiftLGThinQ", "HomeswiftGovee", "HomeswiftUniFiProtect", "HomeswiftWingman", "HomeswiftPhilipsHue", "HomeswiftDirigera", "HomeswiftEcoFlow", "HomeswiftZigbee2MQTT", "HomeswiftTapo", "HomeswiftHTTPWebhooks", "HomeswiftTPLinkSmarthome", "HomeswiftShelly", "HomeswiftESPHome", "HomeswiftMQTTThing",
                 .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
             ],
@@ -521,6 +586,66 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
             ],
             path: "Plugins/EcoFlow/Tests"
+        ),
+        .testTarget(
+            name: "Zigbee2MQTTTests",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftNetworkTestSupport", "HomeswiftZigbee2MQTT",
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/Zigbee2MQTT/Tests"
+        ),
+        .testTarget(
+            name: "TapoTests",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftAI", "HomeswiftTapo",
+                .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "_CryptoExtras", package: "swift-crypto"),
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/Tapo/Tests"
+        ),
+        .testTarget(
+            name: "HTTPWebhooksTests",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftHTTPWebhooks",
+                .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "NIOPosix", package: "swift-nio"),
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/HTTPWebhooks/Tests"
+        ),
+        .testTarget(
+            name: "TPLinkSmarthomeTests",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftTPLinkSmarthome",
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOPosix", package: "swift-nio"),
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/TPLinkSmarthome/Tests"
+        ),
+        .testTarget(
+            name: "ShellyTests",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftNetworkTestSupport", "HomeswiftShelly", "HomeswiftAI",
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/Shelly/Tests"
+        ),
+        .testTarget(
+            name: "ESPHomeTests",
+            dependencies: [
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftNetworkTestSupport", "HomeswiftESPHome",
+                .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Plugins/ESPHome/Tests"
         ),
         .testTarget(
             name: "MQTTThingTests",
