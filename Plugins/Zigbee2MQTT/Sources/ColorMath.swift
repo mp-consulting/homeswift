@@ -106,15 +106,21 @@ enum ColorMath {
             t < 4000
             ? 57_520_658 / t + 11790 - 15_358_885_888 / (t * t) - 17_440_695_910_400 / (t * t * t)
             : 138_086_835_814 / (t * t) + 14_590_587 / t + 15754 - 198_301_902_438_400 / (t * t * t)
-        let x2 = X * X, x3 = X * X * X
-        var Y: Double
+        let x2: Double = X * X, x3: Double = X * X * X
+        let p48: Double = pow(2, 48), p32: Double = pow(2, 32)
+        // Each branch is c1·X/2^16 ± c3·X³/2^48 − c2·X²/2^32 − c0, evaluated left to right as JavaScript does
+        // (split into typed terms: the one-line form is too slow for the type checker).
+        let linear: Double, cubic: Double, square: Double, constant: Double
         if t < 2222 {
-            Y = 35808 * X / 65536 - 18126 * x3 / pow(2, 48) - 22087 * x2 / pow(2, 32) - 3312
+            linear = 35808 * X / 65536; cubic = -(18126 * x3 / p48); square = 22087 * x2 / p32; constant = 3312
         } else if t < 4000 {
-            Y = 34265 * X / 65536 - 15645 * x3 / pow(2, 48) - 22514 * x2 / pow(2, 32) - 2744
+            linear = 34265 * X / 65536; cubic = -(15645 * x3 / p48); square = 22514 * x2 / p32; constant = 2744
         } else {
-            Y = 61458 * X / 65536 + 50491 * x3 / pow(2, 48) - 96229 * x2 / pow(2, 32) - 6062
+            linear = 61458 * X / 65536; cubic = 50491 * x3 / p48; square = 96229 * x2 / p32; constant = 6062
         }
+        var Y: Double = linear + cubic
+        Y = Y - square
+        Y = Y - constant
         Y *= 4
         func round4(_ v: Double) -> Double { jsRound(v * 10_000) / 10_000 }
         return (round4(X / 65535), round4(Y / 65535))
