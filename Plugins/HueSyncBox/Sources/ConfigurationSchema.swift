@@ -23,11 +23,6 @@ extension HueSyncBoxPlugin {
         "placeholder": "192.168.1.50",
         "description": "The Sync Box's IP address or host name on the local network. Setup fills it in."
       },
-      "syncBoxApiAccessToken": {
-        "title": "Access Token",
-        "type": "string",
-        "description": "The token the Sync Box gives when its button is pressed. Setup keeps it in the vault; a Homebridge block's token is read as it is."
-      },
       "syncBoxUniqueId": {
         "title": "Sync Box ID",
         "type": "string",
