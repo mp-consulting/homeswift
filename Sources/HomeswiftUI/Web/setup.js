@@ -225,7 +225,7 @@
         rows.push(...settled.map((device) => deviceRow(block, plugin, device, load, known)));
         const excluded = settled.filter((device) => device.status === "excluded").length;
         if (!found.devices.length) rows.push(el("p", { class: "muted setup-none", text: needsAccount
-          ? t("Its devices show here once it is set up.") : plugin.addByAddress ? t("This plugin finds no devices by itself: add one by its address.")
+          ? t("Its devices show here once it is set up.") : plugin.addByAddress ? t("No devices found yet: add one by its address.")
           : t("This plugin finds no devices by itself: its settings name them.") }));
         // Under its devices, a way to add one the plugin does not find.
         if (plugin.addByAddress) rows.push(el("div", { class: "setup-add-address" },
@@ -366,7 +366,7 @@
   /// `adding`: Add by address, a device the plugin does not find, which the person names; its Setup asks the address and
   /// whatever else the plugin needs, then ends on the device's settings as any device's does.
   function open({ block, plugin = null, device = null, known = null, draft = false, firstTime = false, adding = false, resume = null, trigger = null, after }) {
-    let title = device?.name ?? (adding ? t("Add by address") : block.name);
+    const title = device?.name ?? (adding ? t("Add by address") : block.name);
     // Under the title, a device's Authorization, or the plugin when the instance's name does not say it (an account's
     // way to sign in may be the person's choice, asked in the sheet); for Add by address, the instance it goes to.
     const subtitle = device ? methods[device.authorization]?.[0]() ?? "" : adding ? block.name : plugin && bare(plugin.name) !== bare(block.name) ? plugin.name : "";
@@ -408,7 +408,6 @@
           : added?.length ? tn("One accessory added.", "{n} accessories added.", added.length) : t("The account is set up.") });
         const onTitle = (name) => {
           if (!adding || !name) return;
-          title = name;
           form.querySelector("#setup-title").textContent = name;
           named.textContent = t("{name} is added.", { name });
         };
@@ -601,13 +600,13 @@
 
   /// A Setup the Assistant started, opened in the sheet at the step it stands at (a password, a sign-in page, a button
   /// to press): the chat's card calls it. The page, when it is open, is drawn again once it is done.
-  async function resume({ session, platform, name }) {
+  async function resume({ session, platform, name, addByAddress = false }) {
     try {
       const plugins = await api("/api/plugins");
       const plugin = plugins.plugins.find((one) => one.platform === platform) ?? null;
       const block = plugins.blocks.find((one) => one.platform === platform && one.name === name) ?? { platform, name: name ?? platform };
       const isNew = !plugins.blocks.some((one) => one.platform === platform && one.name === name);
-      open({ block, plugin, resume: session, firstTime: isNew, after: () => { if (location.pathname === "/setup") app().route(); } });
+      open({ block, plugin, resume: session, firstTime: isNew, adding: addByAddress === true, after: () => { if (location.pathname === "/setup") app().route(); } });
     } catch (e) { HomeswiftCommon.showAlert(e.message); }
   }
 

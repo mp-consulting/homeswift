@@ -2653,7 +2653,7 @@ HomeswiftI18n.add("pt", {
   "{name} is set up.": "{name} está configurado.",
   "Add by address…": "Adicionar por endereço…",
   "Add by address": "Adicionar por endereço",
-  "This plugin finds no devices by itself: add one by its address.": "Este plugin não encontra dispositivos sozinho: adicione um pelo seu endereço.",
+  "No devices found yet: add one by its address.": "Ainda não foram encontrados dispositivos: adicione um pelo seu endereço.",
   "The device is added.": "O dispositivo foi adicionado.",
   "{name} is added.": "{name} foi adicionado.",
   "{platform} did not say which device it reached": "{platform} não indicou que dispositivo alcançou",

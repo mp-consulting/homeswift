@@ -15357,7 +15357,7 @@ HomeswiftI18n.add("es", {
   "{name} is set up.": "{name} está configurado.",
   "Add by address…": "Añadir por dirección…",
   "Add by address": "Añadir por dirección",
-  "This plugin finds no devices by itself: add one by its address.": "Este plugin no encuentra dispositivos por sí mismo: añade uno por su dirección.",
+  "No devices found yet: add one by its address.": "Aún no se encontraron dispositivos: añade uno por su dirección.",
   "The device is added.": "El dispositivo está añadido.",
   "{name} is added.": "{name} está añadido.",
   "{platform} did not say which device it reached": "{platform} no indicó qué dispositivo alcanzó",
@@ -18184,7 +18184,7 @@ HomeswiftI18n.add("fr", {
   "{name} is set up.": "{name} est configuré.",
   "Add by address…": "Ajouter par adresse…",
   "Add by address": "Ajouter par adresse",
-  "This plugin finds no devices by itself: add one by its address.": "Ce plugin ne trouve pas d’appareils par lui-même : ajoutez-en un par son adresse.",
+  "No devices found yet: add one by its address.": "Aucun appareil trouvé pour l’instant : ajoutez-en un par son adresse.",
   "The device is added.": "L’appareil est ajouté.",
   "{name} is added.": "{name} est ajouté.",
   "{platform} did not say which device it reached": "{platform} n’a pas dit quel appareil il a joint",
@@ -21011,7 +21011,7 @@ HomeswiftI18n.add("pt", {
   "{name} is set up.": "{name} está configurado.",
   "Add by address…": "Adicionar por endereço…",
   "Add by address": "Adicionar por endereço",
-  "This plugin finds no devices by itself: add one by its address.": "Este plugin não encontra dispositivos sozinho: adicione um pelo seu endereço.",
+  "No devices found yet: add one by its address.": "Ainda não foram encontrados dispositivos: adicione um pelo seu endereço.",
   "The device is added.": "O dispositivo foi adicionado.",
   "{name} is added.": "{name} foi adicionado.",
   "{platform} did not say which device it reached": "{platform} não indicou que dispositivo alcançou",
@@ -24035,7 +24035,7 @@ HomeswiftI18n.add("pt", {
         rows.push(...settled.map((device) => deviceRow(block, plugin, device, load, known)));
         const excluded = settled.filter((device) => device.status === "excluded").length;
         if (!found.devices.length) rows.push(el("p", { class: "muted setup-none", text: needsAccount
-          ? t("Its devices show here once it is set up.") : plugin.addByAddress ? t("This plugin finds no devices by itself: add one by its address.")
+          ? t("Its devices show here once it is set up.") : plugin.addByAddress ? t("No devices found yet: add one by its address.")
           : t("This plugin finds no devices by itself: its settings name them.") }));
         // Under its devices, a way to add one the plugin does not find.
         if (plugin.addByAddress) rows.push(el("div", { class: "setup-add-address" },
@@ -24176,7 +24176,7 @@ HomeswiftI18n.add("pt", {
   /// `adding`: Add by address, a device the plugin does not find, which the person names; its Setup asks the address and
   /// whatever else the plugin needs, then ends on the device's settings as any device's does.
   function open({ block, plugin = null, device = null, known = null, draft = false, firstTime = false, adding = false, resume = null, trigger = null, after }) {
-    let title = device?.name ?? (adding ? t("Add by address") : block.name);
+    const title = device?.name ?? (adding ? t("Add by address") : block.name);
     // Under the title, a device's Authorization, or the plugin when the instance's name does not say it (an account's
     // way to sign in may be the person's choice, asked in the sheet); for Add by address, the instance it goes to.
     const subtitle = device ? methods[device.authorization]?.[0]() ?? "" : adding ? block.name : plugin && bare(plugin.name) !== bare(block.name) ? plugin.name : "";
@@ -24218,7 +24218,6 @@ HomeswiftI18n.add("pt", {
           : added?.length ? tn("One accessory added.", "{n} accessories added.", added.length) : t("The account is set up.") });
         const onTitle = (name) => {
           if (!adding || !name) return;
-          title = name;
           form.querySelector("#setup-title").textContent = name;
           named.textContent = t("{name} is added.", { name });
         };
@@ -24411,13 +24410,13 @@ HomeswiftI18n.add("pt", {
 
   /// A Setup the Assistant started, opened in the sheet at the step it stands at (a password, a sign-in page, a button
   /// to press): the chat's card calls it. The page, when it is open, is drawn again once it is done.
-  async function resume({ session, platform, name }) {
+  async function resume({ session, platform, name, addByAddress = false }) {
     try {
       const plugins = await api("/api/plugins");
       const plugin = plugins.plugins.find((one) => one.platform === platform) ?? null;
       const block = plugins.blocks.find((one) => one.platform === platform && one.name === name) ?? { platform, name: name ?? platform };
       const isNew = !plugins.blocks.some((one) => one.platform === platform && one.name === name);
-      open({ block, plugin, resume: session, firstTime: isNew, after: () => { if (location.pathname === "/setup") app().route(); } });
+      open({ block, plugin, resume: session, firstTime: isNew, adding: addByAddress === true, after: () => { if (location.pathname === "/setup") app().route(); } });
     } catch (e) { HomeswiftCommon.showAlert(e.message); }
   }
 

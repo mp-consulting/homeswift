@@ -2653,7 +2653,7 @@ HomeswiftI18n.add("fr", {
   "{name} is set up.": "{name} est configuré.",
   "Add by address…": "Ajouter par adresse…",
   "Add by address": "Ajouter par adresse",
-  "This plugin finds no devices by itself: add one by its address.": "Ce plugin ne trouve pas d’appareils par lui-même : ajoutez-en un par son adresse.",
+  "No devices found yet: add one by its address.": "Aucun appareil trouvé pour l’instant : ajoutez-en un par son adresse.",
   "The device is added.": "L’appareil est ajouté.",
   "{name} is added.": "{name} est ajouté.",
   "{platform} did not say which device it reached": "{platform} n’a pas dit quel appareil il a joint",

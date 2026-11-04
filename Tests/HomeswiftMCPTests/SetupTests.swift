@@ -406,6 +406,8 @@ struct AddByAddressTests {
         try setup.catalog.vault.set("charger", VaultEntry(kind: .login, fields: ["password": "charger-pass"]))
         let client = DirectClient(server: MCPServer(options: .init(version: "test"), tools: setup.catalog.tools))
         try await client.initialize()
+        // Not a boolean: refused, never taken for the account's Setup.
+        #expect(try await client.tool("start_setup", ["platform": "Addressable", "name": "Chargers", "addByAddress": "true"])["isError"] == true)
         let first = try await client.tool("start_setup", ["platform": "Addressable", "name": "Chargers", "addByAddress": true])["structuredContent"]
         let session = try #require(first?["session"]?.stringValue)
         _ = try await client.tool("continue_setup", ["session": .string(session), "answers": ["host": "192.0.2.10"]])

@@ -32,22 +32,17 @@ extension ElgatoKeyLightsPlugin {
             powerOnTemperature: own.powerOnTemperature ?? legacy?.powerOnTemperature)
     }
 
-    /// Where a light added by address answers (Add by address writes them in its Accessory Settings).
-    struct LightAddress: Decodable, Sendable, Equatable {
-        var host: String?
-        var port: Int?
-    }
-
-    /// The lights reached at an address: `addresses`, then each light whose Accessory Settings give a `host` (Add by
-    /// address), keyed by its MAC; a light in both is reached at the one `addresses` gives.
+    /// The lights reached at an address: `addresses`, and each light whose Accessory Settings give a `host` (Add by
+    /// address), keyed by its MAC. A light in both is reached where Add by address last found it, its entry of `addresses`
+    /// left aside.
     var configuredAddresses: [Configuration.Address] {
-        let listed = configuration.addresses ?? []
-        let macs = Set(listed.compactMap { $0.mac.flatMap(MACAddress.canonical) })
         let added = context.allAccessorySettings.sorted { $0.key < $1.key }.compactMap { mac, settings -> Configuration.Address? in
-            guard let address = settings.decode(LightAddress.self), let host = address.host?.trimmingCharacters(in: .whitespaces), !host.isEmpty,
-                  let mac = MACAddress.canonical(mac), !macs.contains(mac) else { return nil }
+            guard let address = settings.decode(Configuration.Address.self), case let host = address.host.trimmingCharacters(in: .whitespaces), !host.isEmpty,
+                  let mac = MACAddress.canonical(mac) else { return nil }
             return Configuration.Address(host: host, port: address.port, mac: mac)
         }
+        let macs = Set(added.compactMap(\.mac))
+        let listed = (configuration.addresses ?? []).filter { $0.mac.flatMap(MACAddress.canonical).map { !macs.contains($0) } ?? true }
         return listed + added
     }
 
