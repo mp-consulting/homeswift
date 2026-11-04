@@ -603,6 +603,28 @@ Keep the platform name and the option names, and copy `config.schema.json` and t
 | `fakegato-history` | `EveHistory(kind, accessoryName:storageURL:)` in `HomeswiftPlugin`, its `service` on the accessory |
 | `dgram` | `HomeswiftNetwork.UDPSocket` |
 | `homebridge-ui/server.js`, `config.schema.json` | Keep the schema file; the settings page comes with the Homeswift UI |
+| `api.registerAccessory(name, Accessory)` | `static let runsAccessoryBlocks = true` with `platform = name`: see "Accessory plugins" below |
+
+### Accessory plugins
+
+A Homebridge accessory plugin's devices are top-level `accessories` blocks (`{"accessory": "mqttthing", …}`), one
+accessory each, rather than a platform's. Homeswift runs them in a plugin whose `platform` is the accessory's name and
+which says `static let runsAccessoryBlocks = true`:
+
+- `HomeswiftConfiguration.decode` appends each accessory block, as it is, to the `accessories` list of the platform
+  block of its name (the qualified `homebridge-mqttthing.mqttthing` names `mqttthing` too): the first one with the same
+  child bridge (`_bridge.username`, or none), else a block it makes, named after the platform or after the `_bridge`. So
+  every block of a bridge runs in one instance, which shares what the blocks share (MQTT Thing's connection per broker),
+  and a block with a `_bridge` gets its child bridge as a platform does. The plugin's `Configuration` reads
+  `accessories: [JSONValue]?`; a `{"platform": "mqttthing", "accessories": […]}` block written by hand works the same.
+- `Platform.accessoryBlocks` counts what a block took in. Secrets in accessory blocks are opened and resolved like a
+  platform block's, since they are part of it by the time the runtime reads them. The runtime warns about accessory blocks
+  that no plugin runs.
+- The Homebridge import (`HomebridgeImport`) turns a plugin's accessory blocks into such a platform block, its
+  secrets sealed, and skips the others with a warning. Declare `accessories` in the schema (an array of objects without
+  `properties`, so the import keeps every key).
+
+`Plugins/MQTTThing` is the example.
 
 Ten of the plugins under `Plugins/` are ported this way; between them they use every transport above, cameras
 (UniFi Protect) and external accessories (Philips TV). Three are Homeswift's own: Wingman mirrors the Home

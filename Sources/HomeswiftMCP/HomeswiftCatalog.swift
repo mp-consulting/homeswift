@@ -945,7 +945,7 @@ public struct HomeswiftCatalog: Sendable {
         try await retryingWhenConfigChanges {
             let current = try readConfig()
             var root = current.objectValue ?? [:]
-            var platforms = root["platforms"]?.arrayValue ?? []
+            var platforms = AccessoryAdoption.platformBlocks(of: current)
             let matching = platforms.indices.filter { platforms[$0]["platform"]?.stringValue == platform && (name == nil || (platforms[$0]["name"]?.stringValue ?? platform) == name) }
             guard matching.count <= 1 else { throw CatalogError("\(matching.count) blocks have platform \(platform); give the name") }
             guard create || !matching.isEmpty else { throw CatalogError("No block \(name ?? platform) of \(platform)") }
@@ -956,7 +956,7 @@ public struct HomeswiftCatalog: Sendable {
             }
             try edit(&block)
             if let index = matching.first { platforms[index] = .object(block) } else { platforms.append(.object(block)) }
-            root["platforms"] = .array(platforms)
+            root["platforms"] = .array(AccessoryAdoption.keepingEdited(platforms, of: current))
             return try await applyConfig(.object(root), dryRun: dryRun, current: current, checkSchemas: checkSchemas, expecting: current, by: writer, beforeWrite: effects.run)
         }
     }

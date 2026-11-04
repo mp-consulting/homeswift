@@ -9,6 +9,7 @@ import HomeswiftElgatoKeyLights
 import HomeswiftGovee
 import HomeswiftHTTPWebhooks
 import HomeswiftLGThinQ
+import HomeswiftMQTTThing
 import HomeswiftPhilipsAmbilightTV
 import HomeswiftPhilipsHue
 import HomeswiftPlugin
@@ -41,6 +42,7 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(PhilipsHuePlugin.self)
     registry.register(DirigeraPlugin.self)
     registry.register(EcoFlowPlugin.self)
+    registry.register(MQTTThingPlugin.self)
     registry.register(ESPHomePlugin.self)
     registry.register(ShellyNGPlugin.self)
     registry.register(ShellyPlugin.self)
