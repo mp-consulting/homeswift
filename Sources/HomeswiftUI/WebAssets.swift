@@ -1310,12 +1310,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
   }
 
   /// What the graph shows: the search's words (each in what the Accessories page searches, the accessory's type, maker,
-  /// platform or bridge) and the chosen bridges, device types and unavailable ones. Null when nothing narrows it.
-  function overviewFilter({ text = "", bridges = new Set(), categories = new Set(), unavailable = false }) {
+  /// platform or bridge) and the chosen controller mirrored from, bridges, device types and unavailable ones. Null when
+  /// nothing narrows it.
+  function overviewFilter({ text = "", from = null, bridges = new Set(), categories = new Set(), unavailable = false }) {
     const words = text.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    if (!words.length && !bridges.size && !categories.size && !unavailable) return null;
+    if (!words.length && !from && !bridges.size && !categories.size && !unavailable) return null;
     return {
       keeps(leaf) {
+        if (from && leaf.mirroredFrom !== from) return false;
         if (bridges.size && !bridges.has(leaf.bridge)) return false;
         if (categories.size && !categories.has(leaf.category)) return false;
         if (unavailable && !leaf.unavailable) return false;
@@ -1667,7 +1669,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
 
     // Search and filters, as on the Accessories page: the graph is drawn again from what they keep, faded across.
     const { status, plugins, accessories: all, matter } = model.source;
-    const chosen = { bridges: new Set(), categories: new Set(), unavailable: false };
+    const chosen = { from: null, bridges: new Set(), categories: new Set(), unavailable: false };
     const search = el("input", { type: "search", class: "search", placeholder: t("Search accessories"), "aria-label": t("Search accessories") });
     const filters = el("button", { type: "button", "aria-haspopup": "menu" });
     const count = el("span", { class: "overview-count muted", role: "status" });
@@ -1675,12 +1677,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("p", { class: "muted", text: t("No accessories match the current search.") }));
     frame.append(empty);
     const table = el("div");
-    const active = () => chosen.bridges.size + chosen.categories.size + Number(chosen.unavailable);
+    const active = () => Number(Boolean(chosen.from)) + chosen.bridges.size + chosen.categories.size + Number(chosen.unavailable);
     const filterOf = (except = {}) => overviewFilter({ text: search.value, ...chosen, ...except });
     // How many accessories a menu choice would show, with the search and the other choices as they are.
     const matching = (except) => { const filter = filterOf(except); return filter ? all.filter(filter.keeps).length : all.length; };
     const clear = HomeswiftCommon.clearFilters([[search, ""]], { active: () => active() > 0,
-      reset: () => { chosen.bridges.clear(); chosen.categories.clear(); chosen.unavailable = false; } });
+      reset: () => { chosen.from = null; chosen.bridges.clear(); chosen.categories.clear(); chosen.unavailable = false; } });
     // Every graph is built from the filter, the first too (a filtered build moves the accessories the builds share).
     const redraw = () => {
       const filter = filterOf();
@@ -1713,7 +1715,12 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       checkbox: true, toggle: true, onSelect: () => { if (!chosen[set].delete(value)) chosen[set].add(value); redraw(); } });
     const bridgeNames = (status.bridges ?? []).map((bridge) => bridge.name);
     const categories = [...new Set(all.map((one) => one.category))].sort((a, b) => categoryName(a).localeCompare(categoryName(b), locale));
+    // The controllers some accessories mirror (Apple Home, through Wingman), as on the wall.
+    const sources = [...new Set(all.map((one) => one.mirroredFrom).filter(Boolean))];
     filters.addEventListener("click", () => HomeswiftCommon.menu(filters, [
+      ...sources.map((source) => ({ label: t("Only from {source}", { source: t(source) }), count: matching({ from: source }), checked: chosen.from === source,
+        checkbox: true, toggle: true, icon: source === "Apple Home" ? el("img", { src: "/apple-home.png", width: 20, height: 20, alt: "" }) : null,
+        onSelect: () => { chosen.from = chosen.from === source ? null : source; redraw(); } })),
       { label: t("Unavailable"), icon: "warning", tone: "error", count: matching({ unavailable: true }), checked: chosen.unavailable, checkbox: true, toggle: true,
         onSelect: () => { chosen.unavailable = !chosen.unavailable; redraw(); } },
       ...(bridgeNames.length > 1 ? [{ separator: true }, ...bridgeNames.map((name) => choice("bridges", name, name, "bridge"))] : []),
@@ -1857,7 +1864,7 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       el("tbody", {}, rows)));
   }
 
-  window.HomeswiftAdmin = { view, graph: graphPage, history: showHistory, confirmAction };
+  window.HomeswiftAdmin = { view, graph: graphPage, history: showHistory, confirmAction, categoryName, deviceIcon };
 })();
 
 """#),
@@ -3811,7 +3818,16 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
     // The controllers some accessories mirror (Apple Home, through Wingman): each gets a filter.
     const sources = [...new Set(all.map((accessory) => accessory.mirroredFrom).filter(Boolean))];
     const from = sources.includes(params.get("from")) ? params.get("from") : null;
-    const accessories = all.filter((accessory) => (showHidden || !accessory.hidden) && (!from || accessory.mirroredFrom === from) && (!noResponse || accessory.unavailable || accessory.paused));
+    // The bridges and device types chosen (?bridge=…&type=…, each as often as chosen), as on the graph.
+    const bridgeNames = [...new Set(all.map((accessory) => accessory.bridge).filter(Boolean))];
+    const categories = [...new Set(all.map((accessory) => accessory.category).filter(Boolean))]
+      .sort((a, b) => HomeswiftAdmin.categoryName(a).localeCompare(HomeswiftAdmin.categoryName(b), HomeswiftI18n.locale));
+    const chosen = { bridge: new Set(params.getAll("bridge").filter((name) => bridgeNames.includes(name))),
+      type: new Set(params.getAll("type").filter((category) => categories.includes(category))) };
+    const keepsChosen = (accessory, except = null) => (except === "bridge" || !chosen.bridge.size || chosen.bridge.has(accessory.bridge))
+      && (except === "type" || !chosen.type.size || chosen.type.has(accessory.category));
+    const keepsShown = (accessory) => (showHidden || !accessory.hidden) && (!from || accessory.mirroredFrom === from) && (!noResponse || accessory.unavailable || accessory.paused);
+    const accessories = all.filter((accessory) => keepsShown(accessory) && keepsChosen(accessory));
     const hiddenCount = all.filter((accessory) => accessory.hidden).length;
     const rooms = home.rooms.map((room) => room.name);
     const servers = new Set(accessories.map((accessory) => accessory.bridge)).size;
@@ -4427,7 +4443,18 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
     };
     const searchCount = (predicate) => all.filter((accessory) => predicate(accessory) && HomeswiftWidgets.searchText(accessory).includes(search.value.trim().toLowerCase())).length;
-    const activeFilters = Number(Boolean(from)) + Number(showHidden) + Number(noResponse);
+    const activeFilters = Number(Boolean(from)) + Number(showHidden) + Number(noResponse) + chosen.bridge.size + chosen.type.size;
+    // A bridge or device type: a toggle in the address, counting what it would add with the other filters as they are.
+    const choice = (key, value, label, icon) => ({ label, icon, checked: chosen[key].has(value), checkbox: true, toggle: true,
+      count: searchCount((accessory) => keepsShown(accessory) && keepsChosen(accessory, key) && (key === "bridge" ? accessory.bridge : accessory.category) === value),
+      onSelect: () => {
+        const next = new URLSearchParams(location.search);
+        const values = new Set(chosen[key]);
+        if (!values.delete(value)) values.add(value);
+        next.delete(key);
+        for (const one of values) next.append(key, one);
+        navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
+      } });
     const filters = el("button", { type: "button", class: activeFilters ? "on" : "", "aria-haspopup": "menu" },
       HomeswiftCommon.icon("sliders"), el("span", { text: t("Filters") }), activeFilters ? el("span", { class: "toolbar-count", text: activeFilters }) : null);
     filters.addEventListener("click", () => HomeswiftCommon.menu(filters, [
@@ -4436,12 +4463,14 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
         onSelect: () => changeFilter("from", source, from !== source) })),
       { label: t("No Response"), icon: "warning", tone: "error", count: searchCount((accessory) => accessory.unavailable || accessory.paused), checked: noResponse, checkbox: true, toggle: true, onSelect: () => changeFilter("unavailable", "1", !noResponse) },
       ...(hiddenCount ? [{ label: t("Show hidden"), count: searchCount((accessory) => accessory.hidden), icon: "eye", tone: "warn", checked: showHidden, checkbox: true, toggle: true, onSelect: () => changeFilter("hidden", "1", !showHidden) }] : []),
+      ...(bridgeNames.length > 1 ? [{ separator: true }, ...bridgeNames.map((name) => choice("bridge", name, name, "bridge"))] : []),
+      ...(categories.length > 1 ? [{ separator: true }, ...categories.map((category) => choice("type", category, HomeswiftAdmin.categoryName(category), HomeswiftAdmin.deviceIcon(category)))] : []),
       { separator: true },
       { label: t("Clear filters"), clearFilters: true, icon: "restore", disabled: !search.value && activeFilters === 0, onSelect: () => {
         search.value = "";
         if (activeFilters) {
           const next = new URLSearchParams(location.search);
-          for (const key of ["from", "hidden", "unavailable"]) next.delete(key);
+          for (const key of ["from", "hidden", "unavailable", "bridge", "type"]) next.delete(key);
           navigate(`/accessories${next.size ? `?${next}` : ""}`, { replace: true });
         } else filter();
       } },
