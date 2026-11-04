@@ -97,9 +97,10 @@ struct MagicHomeTests {
         // Adaptive Lighting's white for a light that is off sends nothing.
         try await write(light[.colorTemperature], .int(300))
         #expect(environment.lan.commands(to: Self.stripHost).count == 1)
-        // On alone: the power frame.
+        // On: the power frame, and the white that waited.
         try await write(light[.on], .bool(true))
-        #expect(environment.lan.commands(to: Self.stripHost).map(hex).last == "71 23 0F A3")
+        #expect(environment.lan.commands(to: Self.stripHost).dropFirst().first.map(hex) == "71 23 0F A3")
+        #expect(environment.lan.commands(to: Self.stripHost).count == 3)
         await host.stop()
     }
 
@@ -112,7 +113,7 @@ struct MagicHomeTests {
         let host = try await environment.start(settings: ["advancedOptions": ["periodicDiscovery": false]])
         #expect(await eventually { host.accessory(Fixtures.stripMAC) != nil })
         let light = try #require(host.accessory(Fixtures.stripMAC)?.service(.lightbulb))
-        try await Task.sleep(for: .milliseconds(1000))
+        #expect(await eventually { environment.lan.queries(to: Self.stripHost) >= 4 })
         let elapsed = ContinuousClock.now - started
         // The query that added it, then one every 200 ms.
         let queries = environment.lan.queries(to: Self.stripHost)
@@ -307,6 +308,44 @@ struct MagicHomeTests {
         let host = try await environment.start()
         #expect(await eventually { host.accessory(Fixtures.socketMAC) != nil })
         #expect(host.accessory(Fixtures.stripMAC) == nil)
+        // The periodic scans hear it again, and do not ask it again (`retryRejected`).
+        #expect(await eventually { await (environment.plugin?.scans ?? 0) >= 4 })
+        #expect(environment.lan.queries(to: Self.stripHost) == 1)
+        // Heard, not set up.
+        let found = try await environment.plugin?.discover() ?? []
+        #expect(found.first { $0.deviceID == Fixtures.stripMAC }?.isSetUp == false)
+        await host.stop()
+    }
+
+    @Test func aWhitelistRemovesTheCachedAccessoriesItLeavesOut() async throws {
+        environment.lan.put(Fixtures.strip, at: Self.stripHost)
+        environment.lan.put(Fixtures.socket, at: Self.socketHost)
+        let first = try await environment.start()
+        #expect(await eventually { first.accessory(Fixtures.stripMAC) != nil && first.accessory(Fixtures.socketMAC) != nil })
+        await first.stop()
+        let second = try await environment.start(settings: ["deviceManagement": ["blacklistOrWhitelist": "whitelist", "blacklistedUniqueIDs": [Fixtures.socketMAC]]])
+        #expect(await eventually { second.accessory(Fixtures.socketMAC) != nil })
+        #expect(second.accessory(Fixtures.stripMAC) == nil)
+        await second.stop()
+    }
+
+    /// Adaptive Lighting's white while the light is off is not sent then, and goes with the power-on.
+    @Test func adaptiveLightingWhileOffWaitsForThePowerOn() async throws {
+        var bulb = Fixtures.bulb
+        bulb.state.isOn = false
+        environment.lan.put(bulb, at: Self.bulbHost)
+        let host = try await environment.start(settings: ["advancedOptions": ["periodicDiscovery": false]])
+        #expect(await eventually { host.accessory(Fixtures.bulbMAC)?.service(.lightbulb)?[.on]?.value == .bool(false) })
+        let light = try #require(host.accessory(Fixtures.bulbMAC)?.service(.lightbulb))
+        let controller = try #require(await environment.plugin?.adaptiveLighting[Fixtures.bulbMAC])
+        try controller.activateForTesting(mireds: 300)
+        #expect(await eventually { light[.colorTemperature]?.value.intValue.map { abs($0 - 300) <= 2 } == true })
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(environment.lan.commands(to: Self.bulbHost).isEmpty)
+        try await write(light[.on], .bool(true))
+        let shown = try #require(light[.colorTemperature]?.value.intValue)
+        let white = MagicHomeLevels.whiteFrames(mireds: shown, brightness: 100, profile: MagicHomeProfile.make(model: 0x35, version: 8, modeByte: 1)!)
+        #expect(environment.lan.commands(to: Self.bulbHost).map(hex) == ["71 23 0F A3"] + white.map { hex($0.bytes) })
         await host.stop()
     }
 
@@ -339,7 +378,7 @@ struct MagicHomeTests {
         await second.stop()
         let third = try await environment.start(settings: settings)
         #expect(third.accessory(Fixtures.socketMAC) == nil)
-        #expect(await environment.plugin?.records.isEmpty == true)
+        #expect(await environment.plugin?.records.values.isEmpty == true)
         await third.stop()
     }
 

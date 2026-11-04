@@ -858,7 +858,6 @@ let package = Package(
             name: "MagicHomeTests",
             dependencies: [
                 "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftMagicHome",
-                .product(name: "Crypto", package: "swift-crypto"),
                 .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
             ],

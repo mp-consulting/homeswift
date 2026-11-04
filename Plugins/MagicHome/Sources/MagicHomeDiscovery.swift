@@ -10,12 +10,11 @@ struct MagicHomeAnnouncement: Sendable, Equatable {
     var module: String
 }
 
-/// A reply to `AT+LVER\r`: `+ok=<model hex>_<version hex>_<YYYYMMDD>_<module info>` (section 10.6).
+/// A reply to `AT+LVER\r`: `+ok=<model hex>_<version hex>_<YYYYMMDD>_<module info>` (section 10.6), of which the plugin
+/// reads the model and version.
 struct MagicHomeVersionReply: Sendable, Equatable {
     var model: UInt8?
     var version: UInt8?
-    var date: String?
-    var moduleInfo: String?
 }
 
 /// A device a scan found: its announcement, and its model and version when it answered `AT+LVER`.
@@ -37,6 +36,8 @@ enum MagicHomeDiscovery {
     static let port = 48899
     static let probe = Data("HF-A11ASSISTHREAD".utf8)
     static let versionQuery = Data("AT+LVER\r".utf8)
+    /// The most devices one scan keeps: anyone on the network can answer.
+    static let maximumReplies = 256
 
     /// The 12 digits of a MAC address, uppercase, without `:` or `-`; nil for what is not one.
     static func bareMAC(_ text: String) -> String? {
@@ -44,13 +45,15 @@ enum MagicHomeDiscovery {
     }
 
     /// A discovery reply; nil for the socket's own probe heard back, a reply of fewer than 3 or more than 4 fields, or
-    /// one without a MAC. The address is the reply's first field, else the datagram's sender.
+    /// one without a MAC. The address is the datagram's sender, which the replies to `AT+LVER` are matched by and which
+    /// answered from the network (a reply's own first field is anyone's say), else the reply's first field.
     static func announcement(_ data: Data, from sender: String) -> MagicHomeAnnouncement? {
         guard data != probe, data != versionQuery, data.count <= 256 else { return nil }
         let text = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         let fields = text.split(separator: ",", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) }
         guard (3...4).contains(fields.count), let mac = bareMAC(fields[1]) else { return nil }
-        let address = IPv4Network.parse(fields[0]) != nil ? fields[0] : sender
+        let address = IPv4Network.parse(sender) != nil ? sender : fields[0]
+        guard IPv4Network.parse(address) != nil else { return nil }
         return MagicHomeAnnouncement(address: address, mac: mac, module: fields[2])
     }
 
@@ -63,9 +66,7 @@ enum MagicHomeDiscovery {
         guard let first = fields.first, !first.isEmpty else { return nil }
         // A single field is the version alone (old devices).
         if fields.count == 1 { return MagicHomeVersionReply(model: nil, version: UInt8(first, radix: 16)) }
-        return MagicHomeVersionReply(
-            model: UInt8(first, radix: 16), version: UInt8(fields[1], radix: 16), date: fields.count > 2 ? fields[2] : nil,
-            moduleInfo: fields.count > 3 ? fields[3...].joined(separator: "_") : nil)
+        return MagicHomeVersionReply(model: UInt8(first, radix: 16), version: UInt8(fields[1], radix: 16))
     }
 
     /// Where the probe goes: the directed broadcast of each IPv4 interface that is not loopback, then `extra` (broadcast
@@ -89,9 +90,10 @@ enum MagicHomeDiscovery {
             var announcements: [String: MagicHomeAnnouncement] = [:], versions: [String: MagicHomeVersionReply] = [:]
             for await datagram in socket.datagrams {
                 guard !ownAddresses.contains(datagram.address) else { continue }
-                if let version = versionReply(datagram.data) {
+                if let version = versionReply(datagram.data), versions[datagram.address] != nil || versions.count < maximumReplies {
                     versions[datagram.address] = version
-                } else if let announcement = announcement(datagram.data, from: datagram.address), announcements[announcement.mac] == nil {
+                } else if let announcement = announcement(datagram.data, from: datagram.address), announcements[announcement.mac] == nil,
+                          announcements.count < maximumReplies {
                     // The first reply of a MAC wins (section 4.1); the later ones are its echoes on other interfaces.
                     announcements[announcement.mac] = announcement
                 }

@@ -31,6 +31,8 @@ struct MagicHomeTiming: Sendable {
     var periodicDiscovery: Duration = .seconds(30)
     /// State queries of a device just found before it is given up until the next scan.
     var addAttempts = 3
+    /// Before a device found that did not answer, or that the plugin does not know, is asked again at the same address.
+    var retryRejected: Duration = .seconds(300)
 }
 
 /// The plugin's log, filtered by `advancedOptions.logLevel` (section 6): 1 errors, 2 warnings, 3 information (the
@@ -85,7 +87,6 @@ actor MagicHomeDevice {
     private(set) var profile: MagicHomeProfile
     private(set) var light = MagicHomeLight()
     private(set) var isReachable = true
-    private(set) var queries = 0
     private var services: MagicHomeServices?
     private var adaptiveLighting: AdaptiveLightingController?
     private var batcher: LightChangeBatcher?
@@ -93,6 +94,8 @@ actor MagicHomeDevice {
     private var failures = 0
     private var lastUpdate: ContinuousClock.Instant?
     private var lastWrite: ContinuousClock.Instant?
+    /// A white Adaptive Lighting set while the light was off: sent with the power-on.
+    private var levelsWaiting = false
     private var sleeper: Task<Void, Never>?
     private var identifying: Task<Void, Never>?
     /// The profile changed shape (a firmware update, another mode): the plugin builds the accessory again.
@@ -144,10 +147,10 @@ actor MagicHomeDevice {
 
     // MARK: Polling
 
-    /// Polls until cancelled: at once when `immediately`, then every `poll` (`pushPoll` for a device that sends its
+    /// Polls until cancelled: first after `first` (the interval when nil), then every `poll` (`pushPoll` for a device that sends its
     /// changes), sooner after a write, and less and less often while it does not answer.
-    func run(immediately: Bool) async {
-        var delay = immediately ? Duration.zero : interval
+    func run(first: Duration?) async {
+        var delay = first ?? interval
         while !Task.isCancelled {
             if delay > .zero {
                 let wait = delay
@@ -179,7 +182,6 @@ actor MagicHomeDevice {
         if let lastWrite, now - lastWrite < options.timing.settle { return options.timing.settle - (now - lastWrite) }
         if profile.family.pushes, await connection.isOpen, let lastUpdate, now - lastUpdate < interval { return interval - (now - lastUpdate) }
         do {
-            queries += 1
             let state = try await connection.query(wrapped: profile.family.wrapsRequests)
             await answered()
             await received(state)
@@ -259,8 +261,7 @@ actor MagicHomeDevice {
     private func show(_ reading: MagicHomeReading) {
         if reading.on, let adaptiveLighting, adaptiveLighting.isAdaptiveLightingActive {
             if reading.showsWhite, let mireds = reading.mireds {
-                // A percent of 3800 K is up to 5 mireds at the warm end.
-                adaptiveLighting.disableIfChangedElsewhere(mireds: mireds, tolerance: profile.writer == .percentCCT ? 7 : AdaptiveLightingController.changedElsewhereTolerance)
+                adaptiveLighting.disableIfChangedElsewhere(mireds: mireds, tolerance: Self.tolerance(reading, writer: profile.writer))
             } else if !reading.showsWhite, reading.hue != nil {
                 adaptiveLighting.disableIfChangedElsewhere(mireds: nil)
             }
@@ -286,6 +287,15 @@ actor MagicHomeDevice {
         if profile.hasTemperature, reading.mireds != nil || reading.hue != nil { light.showsWhite = reading.showsWhite }
     }
 
+    /// How far a white read back may be from the one sent: a percent of 3800 K is up to 5 mireds at the warm end; warm
+    /// and cool levels are whole bytes, which at a low brightness are a few steps from warm to cool.
+    static func tolerance(_ reading: MagicHomeReading, writer: MagicHomeProfile.Writer) -> Int {
+        if writer == .percentCCT { return 7 }
+        let span = Double(MagicHomeColour.miredRange.upperBound - MagicHomeColour.miredRange.lowerBound)
+        let levels = 2.55 * Double(max(reading.brightness ?? 100, 1))
+        return max(AdaptiveLightingController.changedElsewhereTolerance, Int((span / levels).rounded(.up)) + 1)
+    }
+
     private func set(_ characteristic: Characteristic?, _ value: HAPValue) {
         guard let characteristic, characteristic.value != value else { return }
         characteristic.value = value
@@ -296,13 +306,14 @@ actor MagicHomeDevice {
     /// A change from HomeKit: a slider's only when no later one came within `slider`, then gathered with the others of
     /// the moment into one command.
     func write(_ change: LightChangeBatcher.Change) async throws {
-        switch change {
-        case .brightness: guard await sliders("brightness") else { return }
-        case .hue: guard await sliders("hue") else { return }
-        case .saturation: guard await sliders("saturation") else { return }
-        case .mirek: guard await sliders("mirek") else { return }
-        case .on: break
+        let slider: String? = switch change {
+        case .brightness: "brightness"
+        case .hue: "hue"
+        case .saturation: "saturation"
+        case .mirek: "mirek"
+        case .on: nil
         }
+        if let slider, !(await sliders(slider)) { return }
         guard let batcher else { return }
         try await batcher.set(change)
     }
@@ -310,8 +321,6 @@ actor MagicHomeDevice {
     /// One command for a moment's changes (section 5.2): the power alone when no level changed or the light is off,
     /// else the levels, after `71 23 0F` on the devices that need it.
     func flush(_ changes: LightChangeBatcher.Changes) async throws {
-        identifying?.cancel()
-        identifying = nil
         if let on = changes.on { light.isOn = on }
         if let brightness = changes.brightness { light.brightness = min(max(brightness, 0), 100) }
         if let hue = changes.hue { light.hue = min(max(hue, 0), 360); light.showsWhite = false }
@@ -320,9 +329,16 @@ actor MagicHomeDevice {
             light.mireds = min(max(mireds, MagicHomeColour.miredRange.lowerBound), MagicHomeColour.miredRange.upperBound)
             light.showsWhite = true
         }
-        let levelsChanged = changes.brightness != nil || changes.hue != nil || changes.saturation != nil || changes.mirek != nil
+        let levelsChanged = levelsWaiting || changes.brightness != nil || changes.hue != nil || changes.saturation != nil || changes.mirek != nil
         // Adaptive Lighting's white for a light that is off waits for it to be on, rather than sending it off again.
-        if !light.isOn, changes.on == nil, changes.brightness == nil, changes.hue == nil, changes.saturation == nil { return }
+        if !light.isOn, changes.on == nil, changes.brightness == nil, changes.hue == nil, changes.saturation == nil {
+            levelsWaiting = true
+            return
+        }
+        if light.isOn { levelsWaiting = false }
+        // A command of HomeKit's ends the flash (which then leaves the light as it is).
+        identifying?.cancel()
+        identifying = nil
         var frames: [MagicHomeOutgoing]
         if !levelsChanged || !light.isOn || profile.writer == .powerOnly {
             frames = [power(light.isOn)]
@@ -369,6 +385,8 @@ actor MagicHomeDevice {
             if !saved.isOn { try await connection.send([power(true)]) }
             for tick in 0..<options.timing.identifyTicks {
                 try Task.checkCancellation()
+                // The flash is not a reading: polls and pushes meanwhile are not shown, nor end Adaptive Lighting.
+                lastWrite = .now
                 flashing.brightness = tick.isMultiple(of: 2) ? 0 : 100
                 try await connection.send(MagicHomeLevels.frames(for: flashing, profile: profile, effects: options.effects))
                 try await Task.sleep(for: options.timing.identifyStep)

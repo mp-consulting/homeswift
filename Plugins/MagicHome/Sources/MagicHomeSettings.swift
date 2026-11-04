@@ -42,7 +42,7 @@ extension MagicHomePlugin {
     public func discover() async throws -> [DiscoveredDevice] {
         if !isStarted || seen.isEmpty { await scan() }
         var found = seen
-        for (id, record) in records {
+        for (id, record) in records.values {
             let device = devices[id]
             let profile = await device?.profile
             var entry = found[id] ?? DiscoveredDevice(
@@ -51,6 +51,10 @@ extension MagicHomePlugin {
             entry.kind = profile?.deviceKind ?? entry.kind
             if let device { entry.isReachable = await device.isReachable }
             found[id] = entry
+        }
+        // Set up: on the bridge, not only heard (a device that did not answer, or of a model the plugin does not know, is not).
+        for (id, entry) in found where entry.isSetUp {
+            found[id]?.isSetUp = devices[id] != nil || context.accessory(id: MagicHomeAccessory.accessoryID(id)) != nil
         }
         return found.values.sorted { ($0.name, $0.deviceID) < ($1.name, $1.deviceID) }
     }

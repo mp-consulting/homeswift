@@ -56,20 +56,17 @@ enum MagicHomeLevels {
     /// The frames that show `light` (on): its colour temperature on a tunable white whose last change was one, its colour
     /// otherwise.
     static func frames(for light: MagicHomeLight, profile: MagicHomeProfile, effects: MagicHomeWhiteEffects) -> [MagicHomeOutgoing] {
+        if profile.hasTemperature, light.showsWhite, let mireds = light.mireds {
+            return whiteFrames(mireds: mireds, brightness: light.brightness, profile: profile)
+        }
         switch profile.writer {
         case .powerOnly:
             return []
         case .percentCCT, .remappedCCT:
             return whiteFrames(mireds: light.mireds ?? MagicHomeColour.miredRange.upperBound, brightness: light.brightness, profile: profile)
         case .original(let logic):
-            if profile.hasTemperature, light.showsWhite, let mireds = light.mireds {
-                return whiteFrames(mireds: mireds, brightness: light.brightness, profile: profile)
-            }
             return original(logic, light: light, effects: effects).map(MagicHomeOutgoing.plain)
         case .family:
-            if profile.hasTemperature, light.showsWhite, let mireds = light.mireds {
-                return whiteFrames(mireds: mireds, brightness: light.brightness, profile: profile)
-            }
             return family(profile: profile, request: request(for: light, profile: profile, effects: effects))
         }
     }
@@ -133,17 +130,11 @@ enum MagicHomeLevels {
                 return [MagicHomeFrame.levels(red: 0, green: 0, blue: 0, warm: warm, cool: cool, mask: 0x0F)]
             }
             return [MagicHomeFrame.levels(red: r, green: g, blue: b, warm: 0, cool: 0, mask: 0xF0)]
-        case .cctStrip:
-            // The Homebridge plugin's: the hue split clamped to 127. Kept for its vectors: the plugin drives 09 as section
-            // 10.7 says (`percentCCT`).
-            let whites = MagicHomeColour.hueSplit(light.hue)
-            let x = MagicHomeColour.scaled(min(whites.warm, 127), brightness: brightness)
-            let y = MagicHomeColour.scaled(min(whites.cold, 127), brightness: brightness)
-            return [MagicHomeFrame.levels(red: 0, green: 0, blue: 0, warm: x, cool: y, mask: 0xFF), MagicHomeFrame.temperature(x, brightness: y)]
         case .dimmerStrip:
             // Its intended write: the level in the red channel (section 5.2's recommendation).
             return [MagicHomeFrame.levels(red: MagicHomeColour.byte(2.55 * brightness), green: 0, blue: 0, white: 0, mask: 0xF0)]
-        case .switch:
+        case .switch, .cctStrip:
+            // 09, the Homebridge plugin's CCT strip, is driven as section 10.7 says (`percentCCT`).
             return []
         }
     }
@@ -153,14 +144,14 @@ enum MagicHomeLevels {
     /// A colour temperature at a brightness of 0-100, in the form the device takes.
     static func whiteFrames(mireds: Int, brightness: Double, profile: MagicHomeProfile) -> [MagicHomeOutgoing] {
         let t = MagicHomeColour.temperatureFraction(mireds: mireds)
-        let percent = UInt8(MagicHomeColour.round(100 * t))
+        let percent = MagicHomeColour.byte(100 * t)
         let level = min(max(brightness, 0), 100)
         if profile.writer == .percentCCT {
-            let frame = MagicHomeFrame.temperature(percent, brightness: UInt8(max(2, MagicHomeColour.round(level))))
+            let frame = MagicHomeFrame.temperature(percent, brightness: max(2, MagicHomeColour.byte(level)))
             return [MagicHomeOutgoing(bytes: frame, wrapVersion: profile.family.wrapsRequests ? 1 : nil)]
         }
         if profile.family == .twentyFiveByte || profile.family == .extendedCustom {
-            let frame = MagicHomeFrame.extendedLevels(mask: 0xB1, hue: 0, saturation: 0, value: 0, temperature: percent, brightness: UInt8(MagicHomeColour.round(level)))
+            let frame = MagicHomeFrame.extendedLevels(mask: 0xB1, hue: 0, saturation: 0, value: 0, temperature: percent, brightness: MagicHomeColour.byte(level))
             return [MagicHomeOutgoing(bytes: frame, wrapVersion: 2)]
         }
         let whites = MagicHomeColour.whiteLevels(fraction: t, brightness: level)

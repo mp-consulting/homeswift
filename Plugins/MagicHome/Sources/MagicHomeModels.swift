@@ -1,7 +1,7 @@
 import Foundation
 
 /// How a device takes its commands (section 10.1), chosen from its model and version bytes.
-enum MagicHomeFamily: String, Sendable, Codable {
+enum MagicHomeFamily: String, Sendable {
     case original, originalRGBW, originalCCT
     case eightByte, eightByteAutoOn, eightByteDimmableEffects
     case nineByte, nineByteAutoOn, nineByteDimmableEffects
@@ -41,7 +41,7 @@ enum MagicHomeFamily: String, Sendable, Codable {
 }
 
 /// What a light's channels can show at once (section 10.2's colour modes).
-enum MagicHomeColourMode: String, Sendable, Codable {
+enum MagicHomeColourMode: String, Sendable {
     /// Colour only.
     case rgb
     /// Colour and one white together.
@@ -186,7 +186,7 @@ struct MagicHomeModel: Sendable {
 }
 
 /// The Homebridge plugin's "controller logic types" (section 1): how it drove the models it knew.
-enum MagicHomeLogic: String, Sendable, Codable {
+enum MagicHomeLogic: String, Sendable {
     case rgbStrip = "RGBStrip"
     case grbStrip = "GRBStrip"
     case rgbwBulb = "RGBWBulb"
@@ -222,9 +222,9 @@ enum MagicHomeLogic: String, Sendable, Codable {
 
 /// What a device is to the plugin: its family, the HomeKit service and characteristics it gets, and how its levels are
 /// written. Made from its model, version and mode bytes; an accessory is rebuilt when a new state gives another one.
-struct MagicHomeProfile: Sendable, Equatable, Codable {
+struct MagicHomeProfile: Sendable, Equatable {
     /// How HomeKit's colour and brightness become levels.
-    enum Writer: Sendable, Equatable, Codable {
+    enum Writer: Sendable, Equatable {
         /// The Homebridge plugin's branches (section 5.2), for the models it drove well.
         case original(MagicHomeLogic)
         /// `35 B1` temperature and brightness (`09`, `1C`; section 10.7).
@@ -279,7 +279,7 @@ struct MagicHomeProfile: Sendable, Equatable, Codable {
         let writer: Writer
         switch (model, logic) {
         // Section 10's corrections of the Homebridge plugin's table.
-        case (0x09, _), (0x1C, _): writer = .percentCCT
+        case (_, _) where row?.remap == .percent: writer = .percentCCT
         case (_, _) where row?.remap == .warmRedCoolGreen: writer = .remappedCCT
         case (0x35, _) where family == .twentyFiveByte: writer = .family
         case (0xA1, _), (0xA2, _): writer = .family

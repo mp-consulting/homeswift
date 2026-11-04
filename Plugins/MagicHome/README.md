@@ -115,11 +115,14 @@ left out with Exclude in its settings.
 - **Discovery**: `HF-A11ASSISTHREAD` on UDP 48899 to the broadcast address of each interface (and `additionalSubnets`,
   `addresses`), from port 48899 (older modules answer only there; any port when it is taken), then `AT+LVER\r` for the
   model and version. The socket's own probe heard back, replies from this machine's addresses and replies of fewer than
-  three fields are ignored. Six scans at most at start while none answers. What the plugin learned of each device is kept
+  three fields are ignored. A device is reached at the address its reply came from. A device that does not answer, or
+  whose model the plugin does not know, is warned about once and not asked again at that address for five minutes. Six
+  scans at most at start while none answers. What the plugin learned of each device is kept
   in its `devices.json`, so a known device is controllable at the next launch before any scan.
 - **TCP 5577**: frames with an 8-bit sum checksum; the `B0 B1 B2 B3` wrapper with its counter where the family needs it;
   replies read by length across TCP segments (14-byte states with their head and checksum checked, wrapped replies,
-  the extended `EA 81` reply, 4-byte power replies). One command at a time per device.
+  the extended `EA 81` reply, 4-byte power replies). One command at a time per device. The devices known at launch have
+  their first polls spread over the 30 seconds, so many lights are not all read at once.
 
 The protocol carries no credentials. Addresses and MACs are logged at debug level.
 
@@ -147,12 +150,13 @@ Choices made where the spec leaves the decision open, or where it is silent:
 
 `swift test --filter MagicHomeTests` runs the plugin against fake devices on a fake LAN, with no network: every byte
 vector of the spec's sections 7 and 10.8 (fixed frames, the Homebridge plugin's level branches, the hue split and HSV
-maths, the state replies, discovery, the identity seed against the Homebridge UUIDs, each family's frames, the wrapper
+maths, the state replies, discovery, the accessory id, each family's frames, the wrapper
 and its counter, wrapped and extended replies, power replies, the CCT mapping), then end to end: each kind's services,
 the power-first write sequence, coalesced writes and slider drags, a count of the queries over several polls, a change
 on the device, No Response and recovery, Adaptive Lighting kept by its own white and turned off by a colour set
 elsewhere, a wrapped device's kept connection and pushes, a device that moves, the lists and Excluded, an unknown
-model, known devices at launch, pruning, Identify, Setup and the canonical settings.
+model not asked again, Adaptive Lighting's white held for the power-on, a whitelist removing cached accessories,
+known devices at launch, pruning, Identify, Setup and the canonical settings.
 
 ## Clean-room implementation
 

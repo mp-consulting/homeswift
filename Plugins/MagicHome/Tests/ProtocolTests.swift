@@ -1,4 +1,3 @@
-import Crypto
 import Foundation
 import HomeswiftNetwork
 import Testing
@@ -51,8 +50,6 @@ struct ProtocolTests {
         #expect(Self.original(.rgbwwStrip, 200, 30, 50) == ["31 00 AA FF 1C 7F FF 0F 83"])
         #expect(Self.original(.rgbwwStrip, 200, 3, 50) == ["31 00 00 00 1C 7F FF 0F DA"])
         #expect(Self.original(.rgbwwBulb, 45, 5, 100) == ["31 00 00 00 FF 80 0F 0F CE"])
-        #expect(Self.original(.cctStrip, 0, 0, 50) == ["31 00 00 00 40 00 FF 0F 7F", "35 B1 40 00 00 00 00 03 29"])
-        #expect(Self.original(.cctStrip, 135, 0, 100) == ["31 00 00 00 7F 7F FF 0F 3D", "35 B1 7F 7F 00 00 00 03 E7"])
         // A dimmer whose last read was red-only.
         #expect(Self.original(.dimmerStrip, 0, 100, 75) == ["31 BF 00 00 00 F0 0F EF"])
         #expect(Self.original(.switch, 0, 100, 75).isEmpty)
@@ -133,9 +130,11 @@ struct ProtocolTests {
         #expect(MagicHomeDiscovery.announcement(Data("192.168.1.50,hello,AK001".utf8), from: "192.168.1.50") == nil)
         // A lowercase MAC, and an address that is not one: the sender's.
         #expect(MagicHomeDiscovery.announcement(Data("x,accf23a1b2c3,AK001".utf8), from: "10.0.0.9") == MagicHomeAnnouncement(address: "10.0.0.9", mac: "ACCF23A1B2C3", module: "AK001"))
+        // A reply that names another address is reached where it came from.
+        #expect(MagicHomeDiscovery.announcement(Data("8.8.8.8,ACCF23A1B2C3,AK001".utf8), from: "192.168.1.50")?.address == "192.168.1.50")
 
         let version = try #require(MagicHomeDiscovery.versionReply(Data("+ok=35_0A_20220103_ZG-BL\r".utf8)))
-        #expect(version == MagicHomeVersionReply(model: 0x35, version: 10, date: "20220103", moduleInfo: "ZG-BL"))
+        #expect(version == MagicHomeVersionReply(model: 0x35, version: 10))
         #expect(MagicHomeProfile.make(model: 0x35, version: 10, modeByte: 0)?.family == .twentyFiveByte)
         #expect(MagicHomeDiscovery.versionReply(Data("+ok=03\r".utf8)) == MagicHomeVersionReply(model: nil, version: 3))
         #expect(MagicHomeDiscovery.versionReply(Data("HF-A11ASSISTHREAD".utf8)) == nil)
@@ -144,15 +143,8 @@ struct ProtocolTests {
         #expect(MagicHomeDiscovery.targets(networks: networks, extra: ["192.168.2.255", "192.168.1.255", "10.0.0.7", "not an address"]) == ["192.168.1.255", "192.168.2.255", "10.0.0.7"])
     }
 
-    /// The accessory's identity is the Homebridge plugin's: its UUID was SHA-1 of the MAC as discovered.
-    @Test func identitySeedMatchesTheHomebridgeUUID() {
-        func uuid(_ seed: String) -> String {
-            let hex = Insecure.SHA1.hash(data: Data(seed.utf8)).map { String(format: "%02x", $0) }.joined()
-            let digits = Array(hex.prefix(32))
-            return [0..<8, 8..<12, 12..<16, 16..<20, 20..<32].map { String(digits[$0]) }.joined(separator: "-")
-        }
-        #expect(uuid("ACCF23A1B2C3") == "90f6f8b9-3d5d-f625-9c68-0e82779f3f9f")
-        #expect(uuid("6001940EDC1F") == "4cb4622f-7322-6e03-b334-f7a135a4ca57")
+    /// The accessory's id carries the MAC as discovered, the Homebridge plugin's UUID seed.
+    @Test func accessoryID() {
         #expect(MagicHomeAccessory.accessoryID("ACCF23A1B2C3") == "homebridge-magichome-dynamic-platform:ACCF23A1B2C3")
     }
 
@@ -229,16 +221,13 @@ struct ProtocolTests {
         #expect(Self.family(Self.profile(0x44), MagicHomeLevelRequest(warm: 128)) == ["31 00 00 00 80 0F 0F CF"])
         #expect(Self.family(Self.profile(0x35), MagicHomeLevelRequest(colour: (255, 128, 0))) == ["31 FF 80 00 00 00 F0 0F AF"])
         #expect(Self.family(Self.profile(0x07, mode: 0x17), MagicHomeLevelRequest(colour: (255, 128, 0))) == ["31 FF 80 00 00 00 F0 0F AF"])
-        let neutral = MagicHomeColour.whiteLevels(kelvin: 4600, brightness: 255)
-        #expect(neutral.warm == 128 && neutral.cool == 128)
+        let neutral: (warm: UInt8, cool: UInt8) = (128, 128)
         #expect(Self.family(Self.profile(0x35), MagicHomeLevelRequest(warm: neutral.warm, cool: neutral.cool)) == ["31 00 00 00 80 80 0F 0F 4F"])
         #expect(Self.family(Self.profile(0x25), MagicHomeLevelRequest(colour: (255, 0, 0), warm: 64, cool: 32)) == ["31 FF 00 00 40 20 00 0F 9F"])
 
-        let warmest = MagicHomeColour.whiteLevels(kelvin: 2700, brightness: 255)
-        #expect(warmest.warm == 255 && warmest.cool == 0)
+        let warmest: (warm: UInt8, cool: UInt8) = (255, 0)
         #expect(Self.family(Self.profile(0x09), MagicHomeLevelRequest(warm: warmest.warm, cool: warmest.cool)) == ["35 B1 00 64 00 00 00 03 4D"])
-        let half = MagicHomeColour.whiteLevels(kelvin: 5000, brightness: 128)
-        #expect(half.warm == 50 && half.cool == 77)
+        let half: (warm: UInt8, cool: UInt8) = (50, 77)
         #expect(Self.family(Self.profile(0x09), MagicHomeLevelRequest(warm: half.warm, cool: half.cool)) == ["35 B1 3D 32 00 00 00 03 58"])
         #expect(Self.family(Self.profile(0x1C), MagicHomeLevelRequest(warm: half.warm, cool: half.cool)) == ["B0 B1 B2 B3 00 01 01 00 00 09 35 B1 3D 32 00 00 00 03 58 81"])
 
@@ -258,27 +247,15 @@ struct ProtocolTests {
         ])
 
         #expect(Self.family(Self.profile(0xA1), red) == ["31 FF 00 00 00 00 F0 0F 2F"])
-        #expect(hex(MagicHomeFrame.addressableV1Effect(5, speed: 50)) == "61 00 68 32 0F 0A")
         #expect(Self.family(Self.profile(0xA2), red) == ["41 01 FF 00 00 00 00 00 60 FF 00 00 A0"])
         #expect(Self.family(Self.profile(0xA2), MagicHomeLevelRequest(warm: 128)) == ["47 80 C7"])
         // Colour and white: the white a second later.
         #expect(MagicHomeLevels.family(profile: Self.profile(0xA2), request: MagicHomeLevelRequest(colour: (255, 0, 0), warm: 128)).map(\.delay) == [.zero, .seconds(1)])
-        #expect(hex(MagicHomeFrame.addressableEffect(12, speed: 50, brightness: 100)) == "42 0C 32 64 E4")
         #expect(Self.family(Self.profile(0xA3), red, counter: 1) == ["B0 B1 B2 B3 00 01 01 01 00 0D 41 01 FF 00 00 00 00 00 60 FF 00 00 A0 16"])
         #expect(hex(MagicHomeWrapper.wrap(MagicHomeFrame.power(true), version: 1, counter: 2)) == "B0 B1 B2 B3 00 01 01 02 00 04 71 23 0F A3 14")
         #expect(hex(MagicHomeWrapper.wrap(MagicHomeFrame.stateQuery, version: 1, counter: 12)) == "B0 B1 B2 B3 00 01 01 0C 00 04 81 8A 8B 96 04")
         #expect(Self.family(Self.profile(0x1A), red, counter: 5) == ["B0 B1 B2 B3 00 01 01 05 00 0D 3B A1 00 64 64 00 00 00 00 00 00 00 A4 22"])
 
-        #expect(MagicHomeFrame.delay(speed: 50) == 16)
-        #expect(MagicHomeFrame.speed(delay: 16) == 50)
-        #expect(hex(MagicHomeFrame.effect(0x25, delay: MagicHomeFrame.delay(speed: 50))) == "61 25 10 0F A5")
-        #expect(hex(MagicHomeFrame.dimmableEffect(0x25, delay: 16, brightness: 80)) == "38 25 10 50 BD")
-        #expect(hex(MagicHomeFrame.setTime(year: 2026, month: 11, day: 4, hour: 13, minute: 5, second: 9, weekday: 3)) == "10 14 1A 0B 04 0D 05 09 03 00 0F 7A")
-        #expect(hex(MagicHomeFrame.timeQuery) == "11 1A 1B 0F 55")
-        #expect(hex(MagicHomeFrame.powerRestoreQuery) == "32 3A 3B 0F B6")
-        #expect(hex(MagicHomeFrame.stripConfigurationQuery) == "63 12 21 0F A5")
-        #expect(hex(MagicHomeFrame.addressableV1ConfigurationQuery) == "63 12 21 36")
-        #expect(hex(MagicHomeWrapper.wrap(MagicHomeFrame.remoteConfigurationQuery, version: 1, counter: 0)) == "B0 B1 B2 B3 00 01 01 00 00 04 2B 2C 2D 84 D4")
     }
 
     @Test func theWrapperCounterSkips255() {
@@ -318,6 +295,9 @@ struct ProtocolTests {
         #expect((white.warm, white.cool) == (128, 128) && (white.red, white.green, white.blue) == (0, 0, 0))
         let whiteReading = MagicHomeReading.of(white, profile: Self.profile(0x35, version: 11), effects: Self.defaults)
         #expect(whiteReading.mireds == 217 && whiteReading.brightness == 100)
+
+        // A bare extended reply and a power push in one read: both arrive.
+        #expect(reader.add(extended + bytes("F0 71 24 85")) == [.state(colour), .power(false)])
 
         // Power replies (their checksum not checked), a state, garbage in between.
         #expect(reader.add(bytes("F0 71 23 84 0F 71 24 A4")) == [.power(true), .power(false)])

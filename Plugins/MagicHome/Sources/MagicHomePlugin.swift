@@ -93,15 +93,24 @@ public actor MagicHomePlugin: HomeswiftPlugin {
     /// Each light's Adaptive Lighting, kept here: the lightbulb holds it weakly.
     private(set) var adaptiveLighting: [String: AdaptiveLightingController] = [:]
     /// What the plugin keeps of each device (`devices.json`).
-    private(set) var records: [String: MagicHomeRecord] = [:]
+    let records: PersistedDictionary<MagicHomeRecord>
     /// Every device a scan heard, the ones left out included, for Setup.
     private(set) var seen: [String: DiscoveredDevice] = [:]
     /// Devices being added: a second reply meanwhile does not add them again.
     private var adding: Set<String> = []
+    /// Devices that did not answer or that the plugin does not know, by Device Id: not asked again at that address until
+    /// `retryRejected` has passed, and warned about once.
+    private var rejected: [String: (address: String, until: ContinuousClock.Instant)] = [:]
+    /// Devices the lists leave out that were warned about.
+    private var refusedWarned: Set<String> = []
+    /// The most devices kept from the scans' replies, which anyone on the network can send.
+    static let maximumSeen = 256
+    /// The most devices the plugin adds: a HomeKit bridge takes 150 accessories, and a reply can claim any MAC.
+    static let maximumDevices = 149
     /// The scan running, which a second asker waits for rather than binding the port again.
     private var scanning: Task<[MagicHomeFound], Never>?
     private(set) var scans = 0
-    private var started = false
+    private(set) var isStarted = false
 
     public init(configuration: Configuration, context: PluginContext) {
         self.init(configuration: configuration, context: context, dependencies: Dependencies())
@@ -111,23 +120,37 @@ public actor MagicHomePlugin: HomeswiftPlugin {
         self.configuration = configuration
         self.context = context
         self.dependencies = dependencies
-        let white = configuration.whiteEffects
-        effects = MagicHomeWhiteEffects(
-            simultaneous: white?.simultaniousDevicesColorWhite ?? true, colorWhiteThreshold: white?.colorWhiteThreshold ?? 10,
-            mixThreshold: white?.colorWhiteThresholdSimultaniousDevices ?? 50, offThreshold: white?.colorOffThresholdSimultaniousDevices ?? 5)
+        records = context.persistedDictionary("devices.json")
+        var effects = MagicHomeWhiteEffects()
+        if let white = configuration.whiteEffects {
+            effects.simultaneous = white.simultaniousDevicesColorWhite ?? effects.simultaneous
+            effects.colorWhiteThreshold = white.colorWhiteThreshold ?? effects.colorWhiteThreshold
+            effects.mixThreshold = white.colorWhiteThresholdSimultaniousDevices ?? effects.mixThreshold
+            effects.offThreshold = white.colorOffThresholdSimultaniousDevices ?? effects.offThreshold
+        }
+        self.effects = effects
         log = MagicHomeLog(logger: context.logger, level: min(max(configuration.advancedOptions?.logLevel ?? 3, 1), 5))
     }
 
-    var recordsFile: JSONFile<[String: MagicHomeRecord]> { context.jsonFile("devices.json", as: [String: MagicHomeRecord].self) }
-
     public func start() async throws {
-        started = true
-        records = recordsFile.load() ?? [:]
+        isStarted = true
         await prune()
-        // The devices kept from before are controllable at once, before a scan finds them (section 5.1, step 3).
-        for (id, record) in records.sorted(by: { $0.key < $1.key }) where isAllowed(id) && !context.isExcluded(id) {
+        // A cached accessory the lists now leave out (a whitelist without it) goes; Excluded ones the runtime keeps out.
+        let prefix = MagicHomeAccessory.accessoryID("")
+        for accessory in context.accessories where accessory.id.hasPrefix(prefix) {
+            let id = String(accessory.id.dropFirst(prefix.count))
+            guard !isAllowed(id) else { continue }
+            log.warning("Removing \(accessory.name): \(listMode == .whitelist ? "not whitelisted" : "blacklisted")")
+            try? await context.remove(id: accessory.id)
+            records[id] = nil
+        }
+        // The devices kept from before are controllable at once, before a scan finds them (section 5.1, step 3), their
+        // first polls spread over the interval, so twenty lights are not read in the same instant every time.
+        let kept = records.values.sorted(by: { $0.key < $1.key }).filter { isAllowed($0.key) && !context.isExcluded($0.key) }
+        for (index, (id, record)) in kept.enumerated() {
             guard let profile = MagicHomeProfile.make(model: record.model, version: record.version, modeByte: record.mode) else { continue }
-            await add(id: id, record: record, profile: profile, state: nil, pollNow: true)
+            let first = dependencies.timing.poll * (Double(index) / Double(kept.count))
+            _ = await add(id: id, record: record, profile: profile, state: nil, firstPoll: first)
         }
         tasks.add { [weak self] in await self?.runDiscovery() }
     }
@@ -139,6 +162,7 @@ public actor MagicHomePlugin: HomeswiftPlugin {
         for device in devices.values { await device.stop() }
         // Let go, not disabled: a running schedule stays saved and resumes at the next start.
         adaptiveLighting.removeAll()
+        do { try records.flush() } catch { log.error("Could not save devices.json: \(error)") }
     }
 
     // MARK: Pruning (section 5.1)
@@ -152,10 +176,10 @@ public actor MagicHomePlugin: HomeswiftPlugin {
                 log.warning("Pruning \(accessory.name): pruneAllAccessoriesNextRestart is on (turn it off again)")
                 try? await context.remove(id: accessory.id)
             }
-            records.removeAll()
+            for id in records.values.keys { records[id] = nil }
         } else {
             let limit = max(pruning?.restartsBeforeMissingAccessoriesPruned ?? 3, 1)
-            for (id, record) in records {
+            for (id, record) in records.values {
                 var record = record
                 record.restartsSinceSeen += 1
                 records[id] = record
@@ -166,11 +190,6 @@ public actor MagicHomePlugin: HomeswiftPlugin {
                 if context.accessory(id: accessoryID) != nil { try? await context.remove(id: accessoryID) }
             }
         }
-        saveRecords()
-    }
-
-    private func saveRecords() {
-        do { try recordsFile.save(records) } catch { log.error("Could not save devices.json: \(error)") }
     }
 
     // MARK: Discovery
@@ -183,11 +202,11 @@ public actor MagicHomePlugin: HomeswiftPlugin {
     /// The scans at start (again while none answers, six at most), then one every 30 seconds with `periodicDiscovery`.
     private func runDiscovery() async {
         var found = await scanAndHandle()
-        var scans = 1
-        while found == 0, scans < Self.startScans, !Task.isCancelled {
+        var attempts = 1
+        while found == 0, attempts < Self.startScans, !Task.isCancelled {
             log.debug("No device answered the scan: scanning again")
             found = await scanAndHandle()
-            scans += 1
+            attempts += 1
         }
         guard configuration.advancedOptions?.periodicDiscovery ?? true else { return }
         let interval = dependencies.timing.periodicDiscovery
@@ -202,7 +221,10 @@ public actor MagicHomePlugin: HomeswiftPlugin {
     @discardableResult
     func scanAndHandle() async -> Int {
         let found = await scan()
-        for device in found { await handle(device) }
+        // At once: a new device that does not answer takes seconds, which the others do not wait for.
+        await withTaskGroup(of: Void.self) { group in
+            for device in found { group.addTask { await self.handle(device) } }
+        }
         return found.count
     }
 
@@ -237,6 +259,7 @@ public actor MagicHomePlugin: HomeswiftPlugin {
     /// A device a scan heard, for Setup.
     private func remember(_ found: MagicHomeFound) {
         let id = found.announcement.mac
+        guard seen[id] != nil || seen.count < Self.maximumSeen else { return }
         let model = found.version?.model.flatMap { MagicHomeModel.table[$0]?.description } ?? found.announcement.module
         let refused = !isAllowed(id)
         var device = seen[id] ?? DiscoveredDevice(deviceID: id, name: id, kind: nil)
@@ -256,7 +279,9 @@ public actor MagicHomePlugin: HomeswiftPlugin {
         let announcement = found.announcement
         let id = announcement.mac
         guard isAllowed(id) else {
-            log.warning("\(id) is \(listMode == .whitelist ? "not whitelisted" : "blacklisted"): left out")
+            if refusedWarned.count < Self.maximumSeen, refusedWarned.insert(id).inserted {
+                log.warning("\(id) is \(listMode == .whitelist ? "not whitelisted" : "blacklisted"): left out")
+            }
             if devices[id] != nil { await forget(id) }
             return
         }
@@ -267,8 +292,19 @@ public actor MagicHomePlugin: HomeswiftPlugin {
         // An Excluded device is not reached (the runtime would not add it anyway); one being added is not added twice.
         guard !context.isExcluded(id), adding.insert(id).inserted else { return }
         defer { adding.remove(id) }
+        if let rejection = rejected[id], rejection.address == announcement.address, ContinuousClock.now < rejection.until { return }
+        guard devices.count < Self.maximumDevices else {
+            if refusedWarned.count < Self.maximumSeen, refusedWarned.insert(id).inserted {
+                log.warning("\(id) at \(announcement.address) is left out: the plugin has \(Self.maximumDevices) devices already")
+            }
+            return
+        }
+        let first = rejected[id] == nil
         guard let state = await firstState(of: announcement.address) else {
-            if announcement.module == "000-0000" {
+            reject(id, at: announcement.address)
+            if !first {
+                log.debug("\(id) at \(announcement.address) still does not answer")
+            } else if announcement.module == "000-0000" {
                 log.warning("\(id) at \(announcement.address) (\(announcement.module)) is not supported")
             } else {
                 log.warning("\(id) at \(announcement.address) did not answer: make sure it works in the Magic Home Pro app")
@@ -276,15 +312,28 @@ public actor MagicHomePlugin: HomeswiftPlugin {
             return
         }
         guard let profile = MagicHomeProfile.make(model: state.model, version: state.version, modeByte: state.mode) else {
-            log.warning(
-                "\(id) at \(announcement.address) is a device the plugin does not know (model \(String(format: "0x%02X", state.model)), version \(state.version)): please report it")
+            reject(id, at: announcement.address)
+            if first {
+                log.warning(
+                    "\(id) at \(announcement.address) is a device the plugin does not know (model \(String(format: "0x%02X", state.model)), version \(state.version)): please report it")
+            }
             return
         }
+        rejected[id] = nil
         let record = MagicHomeRecord(host: announcement.address, module: announcement.module, model: state.model, version: state.version, mode: state.mode)
-        records[id] = record
-        saveRecords()
         log.info("Registering new accessory: \(id), \(profile.description)")
-        await add(id: id, record: record, profile: profile, state: state, pollNow: false)
+        // Kept once it is on the bridge.
+        if await add(id: id, record: record, profile: profile, state: state, firstPoll: nil) { records[id] = record }
+    }
+
+    /// Not asked again at `address` for `retryRejected`; the oldest give way to a flood of replies.
+    private func reject(_ id: String, at address: String) {
+        let now = ContinuousClock.now
+        if rejected[id] == nil, rejected.count >= Self.maximumSeen {
+            rejected = rejected.filter { $0.value.until > now }
+            if rejected.count >= Self.maximumSeen { rejected.removeAll() }
+        }
+        rejected[id] = (address, now + dependencies.timing.retryRejected)
     }
 
     /// The state of a device just found, asked up to `addAttempts` times on a connection of its own.
@@ -303,16 +352,17 @@ public actor MagicHomePlugin: HomeswiftPlugin {
 
     // MARK: Accessories
 
-    private func add(id: String, record: MagicHomeRecord, profile: MagicHomeProfile, state: MagicHomeState?, pollNow: Bool) async {
+    private func add(id: String, record: MagicHomeRecord, profile: MagicHomeProfile, state: MagicHomeState?, firstPoll: Duration?) async -> Bool {
         let device = MagicHomeDevice(
             id: id, record: record, profile: profile, transport: dependencies.transport,
             options: MagicHomeDevice.Options(effects: effects, timing: dependencies.timing), log: log)
         await device.observe(
             reshape: { [weak self] _ in await self?.rebuild(id) },
             record: { [weak self] record in await self?.update(id, record) })
-        guard await build(device, state: state) else { return }
+        guard await build(device, state: state) else { return false }
         devices[id] = device
-        polls[id] = tasks.add { await device.run(immediately: pollNow) }
+        polls[id] = tasks.add { await device.run(first: firstPoll) }
+        return true
     }
 
     /// Builds the device's accessory and puts it on the bridge, with the cached accessory's last values meanwhile.
@@ -347,9 +397,7 @@ public actor MagicHomePlugin: HomeswiftPlugin {
     }
 
     private func update(_ id: String, _ record: MagicHomeRecord) {
-        guard records[id] != record else { return }
         records[id] = record
-        saveRecords()
     }
 
     /// Takes a device off the bridge: refused by the lists.
@@ -358,16 +406,7 @@ public actor MagicHomePlugin: HomeswiftPlugin {
         await devices.removeValue(forKey: id)?.stop()
         adaptiveLighting[id] = nil
         records[id] = nil
-        saveRecords()
         try? await context.remove(id: MagicHomeAccessory.accessoryID(id))
     }
 
-    /// The devices' state queries so far, for tests.
-    func queries() async -> Int {
-        var total = 0
-        for device in devices.values { total += await device.queries }
-        return total
-    }
-
-    var isStarted: Bool { started }
 }

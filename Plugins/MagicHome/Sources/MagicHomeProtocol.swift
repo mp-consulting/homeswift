@@ -53,50 +53,6 @@ enum MagicHomeFrame {
     static func extendedLevels(mask: UInt8, hue: UInt8, saturation: UInt8, value: UInt8, temperature: UInt8, brightness: UInt8) -> [UInt8] {
         [0xE0, 0x01, 0x00, mask, hue, saturation, value, temperature, brightness, 0x00, 0x00, 0x14, 0x00, 0x00]
     }
-
-    // Effects, the clock and the other queries (sections 10.3.8, 10.5): the plugin sends none of them (HomeKit has no
-    // effects, and the bridge does not use the device's timers); they are here so their layouts are tested with the rest.
-
-    /// A built-in pattern on the 8/9-byte families: `61 id delay 0F`.
-    static func effect(_ pattern: UInt8, delay: UInt8) -> [UInt8] { sealed([0x61, pattern, delay, 0x0F]) }
-
-    /// A built-in pattern on the dimmable-effects families: `38 id delay brightness%`.
-    static func dimmableEffect(_ pattern: UInt8, delay: UInt8, brightness: UInt8) -> [UInt8] { sealed([0x38, pattern, delay, brightness]) }
-
-    /// An addressable v1 effect, 1 to 300: `61 hi lo speed 0F`, `hi lo` the big-endian effect + 99.
-    static func addressableV1Effect(_ effect: Int, speed: UInt8) -> [UInt8] {
-        let code = UInt16(clamping: min(max(effect, 1), 300) + 99)
-        return sealed([0x61, UInt8(code >> 8), UInt8(code & 0xFF), speed, 0x0F])
-    }
-
-    /// An addressable v2/v3 effect, 1 to 100: `42 id speed brightness%`.
-    static func addressableEffect(_ effect: UInt8, speed: UInt8, brightness: UInt8) -> [UInt8] { sealed([0x42, effect, speed, brightness]) }
-
-    /// A pattern's delay (1 fast, 31 slow) for a speed of 0 to 100.
-    static func delay(speed: Int) -> UInt8 {
-        let speed = min(max(speed, 0), 100)
-        return UInt8((100 - speed) * 30 / 100 + 1)
-    }
-
-    /// The speed (0 to 100) of a delay of 1 to 31.
-    static func speed(delay: Int) -> Int {
-        let delay = min(max(delay, 1), 31)
-        return 100 - (delay - 1) * 100 / 30
-    }
-
-    /// Sets the device's clock: `10 14 YY MM DD hh mm ss dow 00 0F`, `dow` 1 for Monday to 7 for Sunday.
-    static func setTime(year: Int, month: Int, day: Int, hour: Int, minute: Int, second: Int, weekday: Int) -> [UInt8] {
-        let fields = [year - 2000, month, day, hour, minute, second, weekday].map { UInt8(clamping: $0) }
-        return sealed([0x10, 0x14] + fields + [0x00, 0x0F])
-    }
-
-    static let timeQuery = sealed([0x11, 0x1A, 0x1B, 0x0F])
-    static let powerRestoreQuery = sealed([0x32, 0x3A, 0x3B, 0x0F])
-    static let stripConfigurationQuery = sealed([0x63, 0x12, 0x21, 0x0F])
-    /// An addressable v1 strip's, four literal bytes.
-    static let addressableV1ConfigurationQuery: [UInt8] = [0x63, 0x12, 0x21, 0x36]
-    /// Models with 2.4 GHz remotes; wrapped.
-    static let remoteConfigurationQuery = sealed([0x2B, 0x2C, 0x2D])
 }
 
 /// The outer message some families need (section 10.3.6): `B0 B1 B2 B3 00 01`, a version, a counter, the inner length
@@ -132,7 +88,7 @@ struct MagicHomeWrapper: Sendable {
 }
 
 /// A state reply in the 14-byte layout (section 4.4, 10.4): the extended reply is converted to it.
-struct MagicHomeState: Sendable, Equatable, Codable {
+struct MagicHomeState: Sendable, Equatable {
     var model: UInt8
     var isOn: Bool
     /// Byte 3: `61` static, `60` custom, `62` music, the others effects.
@@ -152,22 +108,9 @@ struct MagicHomeState: Sendable, Equatable, Codable {
     /// Byte 12: `F0` colours were set last, `0F` whites, `00` both.
     var colourMode: UInt8 = 0
 
-    init(model: UInt8, isOn: Bool, pattern: UInt8 = 0x61, mode: UInt8 = 0, speed: UInt8 = 0, red: UInt8 = 0, green: UInt8 = 0, blue: UInt8 = 0,
-         warm: UInt8 = 0, version: UInt8 = 0, cool: UInt8 = 0, colourMode: UInt8 = 0) {
-        self.model = model
-        self.isOn = isOn
-        self.pattern = pattern
-        self.mode = mode
-        self.speed = speed
-        self.red = red
-        self.green = green
-        self.blue = blue
-        self.warm = warm
-        self.version = version
-        self.cool = cool
-        self.colourMode = colourMode
-    }
+}
 
+extension MagicHomeState {
     /// The standard reply: exactly 14 bytes, head `81`, a correct checksum.
     init?(standard bytes: [UInt8]) {
         guard bytes.count == 14, bytes[0] == 0x81, MagicHomeFrame.checksum(bytes.prefix(13)) == bytes[13] else { return nil }
@@ -223,13 +166,16 @@ struct MagicHomeReader: Sendable {
     mutating func add(_ bytes: [UInt8]) -> [MagicHomeMessage] {
         buffer += bytes
         if buffer.count > Self.limit { buffer.removeFirst(buffer.count - Self.limit) }
+        // A slice moved along the buffer, compacted once: garbage dropped byte by byte costs no copies.
+        var rest = buffer[...]
         var messages: [MagicHomeMessage] = []
-        while let step = next() {
+        defer { buffer = Array(rest) }
+        while let step = Self.next(rest) {
             switch step {
             case .wait: return messages
-            case .drop(let count): buffer.removeFirst(count)
+            case .drop(let count): rest = rest.dropFirst(count)
             case .message(let message, let length):
-                buffer.removeFirst(length)
+                rest = rest.dropFirst(length)
                 if let message { messages.append(message) }
             }
         }
@@ -242,41 +188,45 @@ struct MagicHomeReader: Sendable {
         case message(MagicHomeMessage?, length: Int)
     }
 
-    private func next() -> Step? {
-        guard let head = buffer.first else { return nil }
-        let count = buffer.count
+    private static func next(_ rest: ArraySlice<UInt8>) -> Step? {
+        guard let head = rest.first else { return nil }
+        let count = rest.count
+        /// The byte `offset` from the head; callers check `count` first.
+        func at(_ offset: Int) -> UInt8 { rest[rest.startIndex + offset] }
+        func first(_ length: Int) -> [UInt8] { Array(rest.prefix(length)) }
         switch head {
         case 0xB0:
-            guard Array(buffer.prefix(6)) == Array(MagicHomeWrapper.header.prefix(min(count, 6))) else { return .drop(1) }
+            guard first(6) == Array(MagicHomeWrapper.header.prefix(min(count, 6))) else { return .drop(1) }
             guard count >= 10 else { return .wait }
-            let length = Int(buffer[8]) << 8 | Int(buffer[9])
+            let length = Int(at(8)) << 8 | Int(at(9))
             guard length <= MagicHomeWrapper.maximumInnerLength else { return .drop(1) }
             let total = 10 + length + 1
             guard count >= total else { return .wait }
-            guard let inner = MagicHomeWrapper.unwrap(Array(buffer.prefix(total))) else { return .drop(1) }
+            guard let inner = MagicHomeWrapper.unwrap(first(total)) else { return .drop(1) }
             return .message(MagicHomeMessage.parse(inner) ?? .other(inner), length: total)
         case 0x81:
             guard count >= 14 else { return .wait }
-            guard let state = MagicHomeState(standard: Array(buffer.prefix(14))) else { return .drop(1) }
+            guard let state = MagicHomeState(standard: first(14)) else { return .drop(1) }
             return .message(.state(state), length: 14)
         case 0xEA:
             guard count >= 2 else { return .wait }
-            guard buffer[1] == 0x81 else { return .drop(1) }
-            // A bare extended reply has no length: the chunk is the message (section 10.4.3).
+            guard at(1) == 0x81 else { return .drop(1) }
+            // A bare extended reply has no length of its own (section 10.4.3): 20 bytes, 27 from 0xB6.
             guard count >= 20 else { return .wait }
-            let length = min(count, 64)
-            return .message(MagicHomeState(extended: Array(buffer.prefix(length))).map { .state($0) }, length: length)
+            let length = at(4) == 0xB6 ? 27 : 20
+            guard count >= length else { return .wait }
+            return .message(MagicHomeState(extended: first(length)).map { .state($0) }, length: length)
         case 0x2B:
-            return count >= 14 ? .message(.other(Array(buffer.prefix(14))), length: 14) : .wait
+            return count >= 14 ? .message(.other(first(14)), length: 14) : .wait
         case 0x72:
-            return count >= 13 ? .message(.other(Array(buffer.prefix(13))), length: 13) : .wait
+            return count >= 13 ? .message(.other(first(13)), length: 13) : .wait
         default:
             guard count >= 2 else { return .wait }
             let length: Int
-            switch buffer[1] {
+            switch at(1) {
             case 0x71:
                 guard count >= 3 else { return .wait }
-                guard buffer[2] == 0x23 || buffer[2] == 0x24 else { return .drop(1) }
+                guard at(2) == 0x23 || at(2) == 0x24 else { return .drop(1) }
                 length = 4
             case 0x11: length = 12
             case 0x32: length = 7
@@ -284,7 +234,7 @@ struct MagicHomeReader: Sendable {
             default: return .drop(1)
             }
             guard count >= length else { return .wait }
-            let message = Array(buffer.prefix(length))
+            let message = first(length)
             return .message(MagicHomeMessage.parse(message) ?? .other(message), length: length)
         }
     }

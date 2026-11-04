@@ -101,14 +101,6 @@ enum MagicHomeColour {
         return (byte(255 * (100 - t) / 100 * b), byte(255 * (b - warmShare)))
     }
 
-    /// Kelvin and a brightness of 0-255 to warm and cool levels (section 10.3.4), `minimum` the warmest Kelvin.
-    static func whiteLevels(kelvin: Double, brightness: Int, minimum: Double = 2700) -> (warm: UInt8, cool: UInt8) {
-        let k = min(max(kelvin, minimum), 6500)
-        let b = twoDecimals(Double(min(max(brightness, 0), 255)) / 255)
-        let warm = (6500 - k) / (6500 - minimum) * b
-        return (byte(255 * warm), byte(255 * (b - warm)))
-    }
-
     /// Warm and cool levels to the temperature and brightness in percent of the `35 B1` frame (section 10.3.5); the
     /// brightness is at least 2, below which the device turns from cool to warm.
     static func temperatureAndBrightness(warm: UInt8, cool: UInt8) -> (temperature: UInt8, brightness: UInt8) {

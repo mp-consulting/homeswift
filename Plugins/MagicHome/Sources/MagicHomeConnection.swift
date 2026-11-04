@@ -49,8 +49,6 @@ actor MagicHomeConnection {
     private var onPush: (@Sendable (MagicHomeMessage) async -> Void)?
     /// Which connection the reading task belongs to: one that ended late does not close the next.
     private var generation = 0
-    /// Connections opened, for tests.
-    private(set) var opened = 0
 
     init(host: String, persistent: Bool, transport: any MagicHomeTransport, timing: Timing) {
         self.host = host
@@ -116,7 +114,8 @@ actor MagicHomeConnection {
     private func runQuery(wrapped: Bool) async throws -> MagicHomeState {
         let id = nextWaiter
         nextWaiter += 1
-        let reply = timing.reply
+        // The reply's wait starts once the connection is open: a connection still to open has its own wait too.
+        let reply = stream == nil ? timing.connect + timing.reply : timing.reply
         return try await withTaskCancellationHandler {
             try await withThrowingTaskGroup(of: MagicHomeState?.self) { group in
                 group.addTask { try await self.awaitState(id: id, wrapped: wrapped) }
@@ -139,12 +138,16 @@ actor MagicHomeConnection {
 
     private func awaitState(id: Int, wrapped: Bool) async throws -> MagicHomeState {
         try await withCheckedThrowingContinuation { continuation in
+            // Timed out or cancelled before this ran: `fail` found no waiter to end, so nothing else would.
+            guard !Task.isCancelled else { return continuation.resume(throwing: CancellationError()) }
             waiter = (id, continuation)
             Task { await self.sendQuery(id: id, wrapped: wrapped) }
         }
     }
 
     private func sendQuery(id: Int, wrapped: Bool) async {
+        // Given up already: no connection is opened for it.
+        guard waiter?.id == id else { return }
         do {
             try await write(MagicHomeOutgoing(bytes: MagicHomeFrame.stateQuery, wrapVersion: wrapped ? 1 : nil))
         } catch {
@@ -174,7 +177,6 @@ actor MagicHomeConnection {
         if let stream { return stream }
         let stream = try await transport.connect(host: host, port: Self.port, timeout: timing.connect)
         self.stream = stream
-        opened += 1
         generation += 1
         let generation = generation
         wrapper = MagicHomeWrapper()

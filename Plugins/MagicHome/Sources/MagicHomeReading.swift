@@ -69,9 +69,7 @@ struct MagicHomeReading: Sendable, Equatable {
                     if on { reading.brightness = percent(Double(state.cool) / 2.55 + Double(state.warm) / 2.55) }
                     if profile.hasTemperature { white(warm: state.warm, cool: state.cool) }
                 }
-            case .cctStrip:
-                if on { reading.brightness = percent(Double(state.cool) / 1.27 + Double(state.warm) / 1.27) }
-            case .switch:
+            case .cctStrip, .switch:
                 break
             }
         case .family:
