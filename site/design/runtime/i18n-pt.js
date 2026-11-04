@@ -61,6 +61,7 @@ HomeswiftI18n.add("pt", {
   "Purifiers and fans: speed, oscillation, heat, humidity and air quality": "Purificadores e ventoinhas: velocidade, oscilação, aquecimento, humidade e qualidade do ar",
   "Sonoff and other eWeLink switches, outlets, lights, curtains and sensors": "Interruptores, tomadas, luzes, cortinas e sensores Sonoff e outros eWeLink",
   "Power stations and home batteries: charge, and their power live": "Estações de energia e baterias domésticas: carga, e a sua potência em direto",
+  "Bots, curtains, meters, locks, lights and IR remotes through the SwitchBot cloud": "Bots, cortinas, termómetros, fechaduras, luzes e comandos IV através da nuvem da SwitchBot",
   "Key Light and Ring Light: power, brightness and colour temperature": "Key Light e Ring Light: ligar, brilho e temperatura de cor",
   "Lights with scenes and effects, plugs and sensors": "Luzes com cenas e efeitos, tomadas e sensores",
   "Air conditioners, washers, fridges and other appliances through LG's cloud": "Ares condicionados, máquinas de lavar, frigoríficos e outros eletrodomésticos através da nuvem da LG",

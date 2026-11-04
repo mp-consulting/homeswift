@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- SwitchBot (experimental): Bots, Relay Switches, plugs, curtains, Blind Tilts, meters, hubs, sensors, locks, lights,
+  humidifiers, fans, vacuums, air purifiers and IR remotes through SwitchBot's OpenAPI, within the account's daily
+  requests, with its webhook; a clean-room implementation that reads `@switchbot/homebridge-switchbot`'s blocks.
 - The Assistant's Model is a menu of the models the chosen provider offers, read from its models list when the menu
   opens (Anthropic, OpenAI, Gemini, or the OpenAI-compatible server at the Base URL), with Default and Other… to type
   an id; `POST /api/assistant/models`. A saved key goes only to the saved provider, as for Test connection.
