@@ -1,4 +1,3 @@
-import HomeswiftIPCameras
 import HomeswiftDaikinCloud
 import HomeswiftDirigera
 import HomeswiftDolphinPoolCleaner
@@ -11,20 +10,22 @@ import HomeswiftElgatoKeyLights
 import HomeswiftGoogleNestSDM
 import HomeswiftGovee
 import HomeswiftHTTPWebhooks
+import HomeswiftIPCameras
+import HomeswiftImou
 import HomeswiftLGThinQ
 import HomeswiftMQTTThing
 import HomeswiftPhilipsAmbilightTV
 import HomeswiftPhilipsHue
 import HomeswiftPlugin
 import HomeswiftRing
-import HomeswiftSonos
-import HomeswiftTuya
-import HomeswiftSwitchBot
-import HomeswiftTado
 import HomeswiftRoborock
 import HomeswiftShelly
+import HomeswiftSonos
+import HomeswiftSwitchBot
 import HomeswiftTPLinkSmarthome
+import HomeswiftTado
 import HomeswiftTapo
+import HomeswiftTuya
 import HomeswiftUniFiAccess
 import HomeswiftUniFiProtect
 import HomeswiftWingman
@@ -68,5 +69,6 @@ func builtInPlugins() -> PluginRegistry {
     registry.register(TapoPlugin.self)
     registry.register(HTTPWebhooksPlugin.self)
     registry.register(RingPlugin.self)
+    registry.register(ImouPlugin.self)
     return registry
 }

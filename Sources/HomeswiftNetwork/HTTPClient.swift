@@ -14,6 +14,9 @@ public struct HTTPRequest: Sendable {
     public var body: Data?
     /// From the connection attempt to the last byte of the response.
     public var timeout: Duration
+    /// The request target sent on the request line as written, in place of the URL's path and query: for a device that
+    /// wants characters `URL` percent-encodes, such as a Dahua camera's `codes=[VideoMotion]`. nil sends the URL's.
+    public var target: String?
 
     public init(method: String = "GET", url: URL, headers: [(name: String, value: String)] = [], body: Data? = nil, timeout: Duration = .seconds(10)) {
         self.method = method
@@ -217,7 +220,7 @@ public final class HTTPClient: HTTPSending, Sendable {
     /// calls `failed` and closes the channel; the collector is in the pipeline from the start, so it fails the response
     /// with what it saw (`connectionClosed`, a TLS error), not NIO's "I/O on closed channel" for the write.
     func writeRequest(_ request: HTTPRequest, on channel: any Channel, host: String, port: Int, secure: Bool, failed: @escaping @Sendable (any Error) -> Void) {
-        var head = HTTPRequestHead(version: .http1_1, method: HTTPMethod(rawValue: request.method.uppercased()), uri: requestTarget(of: request.url))
+        var head = HTTPRequestHead(version: .http1_1, method: HTTPMethod(rawValue: request.method.uppercased()), uri: request.target ?? requestTarget(of: request.url))
         head.headers.add(name: "Host", value: hostHeader(host: host, port: port, defaultPort: secure ? 443 : 80))
         head.headers.add(name: "Connection", value: "close")
         if let body = request.body {
