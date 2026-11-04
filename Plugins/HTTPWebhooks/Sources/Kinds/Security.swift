@@ -17,7 +17,7 @@ struct StatePair: Sendable {
     /// Applies the parameter when it is given; logs the change.
     func apply(_ query: WebhookQuery, environment: KindEnvironment, name: String) {
         guard let text = query.nonEmpty(parameter) else { return }
-        guard let number = WebhookNumber.parse(text), characteristic.type.validValues?.contains(Int(saturating: number) ?? -1) ?? true else {
+        guard let number = WebhookNumber.parse(text).flatMap(characteristic.fitted) else {
             environment.logger.warning("\(name): ignoring \(parameter) \"\(text)\", which is not one of its values")
             return
         }

@@ -97,7 +97,7 @@ final class SensorAccessory: WebhookAccessory {
             return .success
         }
         guard let text = query["value"] else { return .success(["state": .number(environment.store.number(key, default: 0))]) }
-        guard let value = WebhookNumber.parse(text) else {
+        guard let value = WebhookNumber.parse(text).flatMap(characteristic.fitted) else {
             environment.logger.warning("\(name): ignoring value \"\(text)\", which is not a number")
             return .success
         }

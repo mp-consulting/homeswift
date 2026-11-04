@@ -139,21 +139,26 @@ struct KindEnvironment: Sendable {
 }
 
 extension Characteristic {
-    /// Shows a number from a webhook, kept within the characteristic's bounds as HAP-NodeJS clamps it: an integer format
-    /// takes its integer part, a value its valid values do not list is left out. Returns whether HomeKit was told of a
-    /// change.
-    @discardableResult
-    func show(_ number: Double) -> Bool {
+    /// A number from a webhook as the characteristic takes it, within its bounds as HAP-NodeJS clamps it (an integer
+    /// format its integer part); nil for a value its valid values do not list.
+    func fitted(_ number: Double) -> Double? {
         var number = number
         if let minimum = type.minValue { number = Swift.max(number, minimum) }
         if let maximum = type.maxValue { number = Swift.min(number, maximum) }
-        let value: HAPValue
-        switch type.format {
-        case .bool: value = .bool(number != 0)
-        case .float: value = .double(number)
-        default:
-            guard let integer = Int(saturating: number), type.validValues?.contains(integer) ?? true else { return false }
-            value = .int(integer)
+        guard type.format != .float, type.format != .bool else { return number }
+        guard let integer = Int(saturating: number), type.validValues?.contains(integer) ?? true else { return nil }
+        return Double(integer)
+    }
+
+    /// Shows a number, `fitted` to the characteristic; one that does not fit is left out. Returns whether HomeKit was told
+    /// of a change.
+    @discardableResult
+    func show(_ number: Double) -> Bool {
+        guard let number = fitted(number) else { return false }
+        let value: HAPValue = switch type.format {
+        case .bool: .bool(number != 0)
+        case .float: .double(number)
+        default: .int(Int(number))
         }
         let changed = self.value != value
         self.value = value

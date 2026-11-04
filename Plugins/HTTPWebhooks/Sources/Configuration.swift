@@ -49,8 +49,11 @@ extension HTTPWebhooksPlugin {
     struct Entry: Sendable {
         let json: JSONValue
 
-        /// The webhook's `accessoryId` and the state's storage key. A non-string `id` never matches a request.
-        var id: String? { json["id"]?.stringValue }
+        /// The webhook's `accessoryId` and the state's storage key; a number reads as its text.
+        var id: String? { json["id"].flatMap(Loose.string) }
+        /// Whether webhooks reach the entry: the Homebridge plugin compares `accessoryId` with a string `id` only, so an
+        /// entry with a number for its `id` is an accessory HomeKit drives, and no webhook's.
+        var takesWebhooks: Bool { json["id"]?.stringValue != nil }
         var name: String? { json["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } }
 
         /// TLS verification of the outgoing calls: on when absent, and when present only for the boolean `true`.

@@ -116,11 +116,12 @@ struct OutgoingCall: Sendable, Equatable {
         return url.addingPercentEncoding(withAllowedCharacters: allowed).flatMap(URLComponents.init(string:))
     }
 
-    /// The URL for a log line: its scheme, host, port and path, without the user, password or query (where tokens go).
+    /// The URL for a log line: its scheme, host and port only. The user, password, query and path stay out: webhook
+    /// services put their keys in them (IFTTT's `/with/key/<key>`, Home Assistant's `/api/webhook/<id>`).
     var logDescription: String {
         guard let components = URLComponents(string: url), let host = components.host else { return "(an invalid URL)" }
         let port = components.port.map { ":\($0)" } ?? ""
-        return "\(method) \(components.scheme ?? "http")://\(host)\(port)\(components.path)"
+        return "\(method) \(components.scheme ?? "http")://\(host)\(port)"
     }
 }
 
@@ -146,7 +147,7 @@ struct OutgoingCaller: Sendable {
             var redirects = 0
             while true {
                 let response = try await client.send(request)
-                if ["GET", "HEAD"].contains(request.method), [301, 302, 303, 307, 308].contains(response.status), redirects < Self.maximumRedirects,
+                if ["GET", "HEAD"].contains(request.method.uppercased()), [301, 302, 303, 307, 308].contains(response.status), redirects < Self.maximumRedirects,
                     let location = response.header("Location"), let next = URL(string: location, relativeTo: request.url)?.absoluteURL,
                     ["http", "https"].contains(next.scheme?.lowercased() ?? "")
                 {

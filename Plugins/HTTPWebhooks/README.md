@@ -64,7 +64,7 @@ lock), `open`, `open_20`, `open_40`, `open_60`, `open_80`, `close` (window cover
 covering), and HomeKit's write fails with it: the Home app shows No Response.
 
 `*_headers`, `*_url` and `*_body` are kept in config.json as written: a token there is not sealed or resolved from the
-vault. The log never shows headers, bodies, query strings or the user name and password of a URL. On a redirect to
+vault. The log shows only the scheme, host and port of a call: never its path, query, headers, body or credentials. On a redirect to
 another host, or from HTTPS to HTTP, a call drops its Authorization and every header the entry gives.
 
 ### Accessory ids
@@ -105,7 +105,7 @@ curl -u hook:s3cret "http://bridge.local:51828/?accessoryId=switch1"            
 Without `accessoryId` the server answers 404 `[ERROR Http WebHook Server] No accessoryId in request.`, and for an
 unknown one 404 `[ERROR Http WebHook Server] AccessoryId '<id>' not found.`; without the right credentials, 401 with
 `WWW-Authenticate: Basic realm="Auth required"`. A webhook never makes an outgoing call. Values that are not numbers
-are left out (and logged); numbers are kept within the characteristic's bounds.
+are left out (and logged); numbers are kept within the characteristic's bounds, and stored as HomeKit shows them. An entry whose `id` is a number is an accessory HomeKit drives, which no webhook reaches, as in Homebridge.
 
 The server listens on the LAN: give it a user name and a password through Setup (the bridge warns without them), and HTTPS when
 the network is not trusted. It takes a body of 64 KB at most, 64 connections at once, and closes a connection quiet for

@@ -70,6 +70,7 @@ HomeswiftI18n.add("fr", {
   "Cameras and doorbells with HomeKit Secure Video, sensors and lights": "Caméras et sonnettes avec HomeKit Secure Video, capteurs et éclairages",
   "Apple Home's accessories in Homeswift, through a Mac": "Les accessoires de l'app Maison dans Homeswift, via un Mac",
   "Virtual sensors, switches and locks driven by webhooks": "Capteurs, interrupteurs et serrures virtuels pilotés par webhooks",
+  "A user name cannot contain a colon (:)": "Un nom d'utilisateur ne peut pas contenir de deux-points (:)",
   "Choose the user name and the password every webhook must give (HTTP Basic authentication).": "Choisissez le nom d'utilisateur et le mot de passe que chaque webhook doit donner (authentification HTTP Basic).",
   "Webhook accessories are the block's entries: they need no setup of their own": "Les accessoires à webhooks sont les entrées du bloc : ils n'ont pas besoin de configuration propre",
   "Not started": "Non démarré",

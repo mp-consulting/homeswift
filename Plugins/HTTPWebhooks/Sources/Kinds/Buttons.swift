@@ -97,7 +97,7 @@ final class StatelessSwitchAccessory: WebhookAccessory {
 
     /// Every button of that name gets the event, unchecked against its flags, as the Homebridge plugin does.
     func handle(_ query: WebhookQuery) -> WebhookReply {
-        guard let text = query.nonEmpty("event"), let event = WebhookNumber.parse(text).flatMap({ Int(saturating: $0, in: 0...2) }) else { return .success }
+        guard let text = query.nonEmpty("event"), let event = WebhookNumber.parse(text).flatMap({ Int(exactly: $0) }), (0...2).contains(event) else { return .success }
         for button in buttons where button.name == query["buttonName"] {
             environment.logger.info("\(name): pressing \(button.name) with event \(event)")
             button.event.sendEvent(.int(event))

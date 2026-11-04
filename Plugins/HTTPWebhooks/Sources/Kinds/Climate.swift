@@ -29,7 +29,7 @@ final class CarbonDioxideAccessory: WebhookAccessory {
 
     func handle(_ query: WebhookQuery) -> WebhookReply {
         guard let text = query["value"] else { return .success(["state": .number(environment.store.number(levelKey, default: 0))]) }
-        guard let value = WebhookNumber.parse(text) else {
+        guard let value = WebhookNumber.parse(text).flatMap(level.fitted) else {
             environment.logger.warning("\(name): ignoring value \"\(text)\", which is not a number")
             return .success
         }

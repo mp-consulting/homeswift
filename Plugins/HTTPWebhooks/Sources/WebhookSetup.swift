@@ -33,11 +33,12 @@ extension HTTPWebhooksPlugin {
     /// The user name and the password the webhooks must give.
     public func authorize(_ request: SetupRequest) async throws -> SetupStep {
         try request.requireAccount("Webhook accessories are the block's entries: they need no setup of their own")
-        guard let user = request.answer("user"), let password = request.answer("password") else {
+        guard let user = request.answer("user"), let password = request.answers["password"], !password.isEmpty else {
             return .ask(SetupPrompt(
                 message: "Choose the user name and the password every webhook must give (HTTP Basic authentication).",
                 fields: [SetupField("user", label: "User name"), SetupField("password", label: "Password", kind: .secret)]))
         }
+        guard !user.contains(":") else { throw SetupError("A user name cannot contain a colon (:)") }
         return .done(SetupOutcome(
             credentials: ["user": .string(user), "password": .string(password)], settings: ["http_auth_user": .null, "http_auth_pass": .null]))
     }

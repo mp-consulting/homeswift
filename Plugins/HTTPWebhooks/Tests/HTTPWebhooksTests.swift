@@ -104,7 +104,9 @@ struct HTTPWebhooksTests {
             "switches": [["id": "z", "name": "Twin"], ["name": "No id"], ["id": 5, "name": "Number id"]],
         ])
         let ids = host.mainBridge.server.accessories.map(\.id).filter { $0.hasPrefix("HttpWebHooks:") }
-        #expect(ids == ["HttpWebHooks:Twin"])
+        // An `id` that is a number makes an accessory HomeKit drives, which no webhook reaches.
+        #expect(ids == ["HttpWebHooks:Twin", "HttpWebHooks:Number id"])
+        #expect(try await environment.call("/?accessoryId=5").status == 404)
         await host.stop()
     }
 
@@ -289,6 +291,9 @@ struct HTTPWebhooksTests {
         #expect(try await environment.call("/?accessoryId=remote&buttonName=Down&event=2").body == #"{"success":true}"#)   // 26
         // The accessory's own name presses nothing.
         _ = try await environment.call("/?accessoryId=remote&buttonName=Remote&event=0")
+        // An event outside 0–2 presses nothing.
+        _ = try await environment.call("/?accessoryId=remote&buttonName=Down&event=7")
+        _ = try await environment.call("/?accessoryId=remote&buttonName=Down&event=-1")
         #expect(events.withLockedValue { $0 } == ["Down 2"])
         await host.stop()
     }
@@ -308,6 +313,7 @@ struct HTTPWebhooksTests {
         // Positions over 100 are kept within HomeKit's bounds.
         _ = try await environment.call("/?accessoryId=blind&currentposition=150")
         #expect(service[.currentPosition]?.value == .int(100))
+        #expect(try await environment.json("/?accessoryId=blind")["CurrentPosition"] == 100)
         #expect(WindowCoveringAccessory.action(for: 25) == "open_20")
         #expect(WindowCoveringAccessory.action(for: 94) == "open_80")
         #expect(WindowCoveringAccessory.action(for: 95) == "close")
@@ -426,6 +432,10 @@ struct HTTPWebhooksTests {
         }
         #expect(outcome.credentials == ["user": "u", "password": "p"])
         #expect(outcome.settings["http_auth_pass"] == .null)
+        // Basic authentication cannot carry a colon in the user name.
+        await #expect(throws: SetupError.self) {
+            try await plugin.authorize(SetupRequest(target: .account, answers: ["user": "a:b", "password": "p"]))
+        }
         await host.stop()
     }
 

@@ -52,8 +52,8 @@ final class ThermostatAccessory: WebhookAccessory {
     func handle(_ query: WebhookQuery) -> WebhookReply {
         for value in values {
             guard let text = query.nonEmpty(value.parameter) else { continue }
-            guard let number = WebhookNumber.parse(text) else {
-                environment.logger.warning("\(name): ignoring \(value.parameter) \"\(text)\", which is not a number")
+            guard let number = WebhookNumber.parse(text).flatMap(value.characteristic.fitted) else {
+                environment.logger.warning("\(name): ignoring \(value.parameter) \"\(text)\", which is not one of its values")
                 continue
             }
             environment.store.set(value.key, number)

@@ -2,6 +2,7 @@ import Foundation
 import HomeswiftNetwork
 import HomeswiftPlugin
 import Logging
+import NIOPosix
 import Testing
 
 @testable import Homeswift
@@ -56,7 +57,7 @@ struct TransportTests {
         #expect(request.body == Data("a=1&b=x%20y&c=true".utf8))
         #expect(request.header("Content-Type") == "application/x-www-form-urlencoded")
         // No secrets in the log.
-        #expect(call.logDescription == "PUT http://10.0.0.5:8080/relay")
+        #expect(call.logDescription == "PUT http://10.0.0.5:8080")
 
         let basic = try OutgoingCall(url: "http://user:p%40ss@host/", method: "GET", body: "x", rejectUnauthorized: true).request(timeout: .seconds(1))
         #expect(basic.header("Authorization") == "Basic " + Data("user:p@ss".utf8).base64EncodedString())
@@ -138,6 +139,16 @@ struct TransportTests {
         large.setHeader("Authorization", TestEnvironment.authorization)
         #expect(try await Self.client().send(large).status == 413)
         await host.stop()
+    }
+
+    @Test func stopClosesTheOpenConnections() async throws {
+        let server = WebhookServer(logger: testLogger)
+        try await server.start(host: "127.0.0.1", port: 0, tls: nil) { _, _, _ in WebhookHTTPResponse(status: 200, contentType: nil, body: "") }
+        let port = try #require(server.port)
+        let socket = try await ClientBootstrap(group: MultiThreadedEventLoopGroup.singleton).connect(host: "127.0.0.1", port: port).get()
+        await server.stop()
+        // The connection made before the stop is closed by it, not left to the old instance.
+        try await socket.closeFuture.get()
     }
 
     @Test func theServerAnswersOverHTTPSWithASelfSignedCertificate() async throws {

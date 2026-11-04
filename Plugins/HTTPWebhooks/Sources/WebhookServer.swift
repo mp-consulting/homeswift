@@ -18,7 +18,8 @@ final class WebhookServer: Sendable {
     static let idleTimeout: TimeAmount = .seconds(30)
 
     private let channel: NIOLockedValueBox<(any Channel)?> = NIOLockedValueBox(nil)
-    private let connections = NIOLockedValueBox(0)
+    /// The open connections, by identity: counted against `maximumConnections`, closed by `stop()`.
+    private let connections = NIOLockedValueBox<(open: [ObjectIdentifier: any Channel], stopped: Bool)>(([:], false))
     private let logger: Logger
     private let group: any EventLoopGroup
 
@@ -36,13 +37,14 @@ final class WebhookServer: Sendable {
             .serverChannelOption(.backlog, value: 64)
             .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
             .childChannelInitializer { channel in
-                let admitted = connections.withLockedValue { count -> Bool in
-                    guard count < Self.maximumConnections else { return false }
-                    count += 1
+                let key = ObjectIdentifier(channel)
+                let admitted = connections.withLockedValue { state -> Bool in
+                    guard !state.stopped, state.open.count < Self.maximumConnections else { return false }
+                    state.open[key] = channel
                     return true
                 }
                 guard admitted else { return channel.close() }
-                channel.closeFuture.whenComplete { _ in connections.withLockedValue { $0 -= 1 } }
+                channel.closeFuture.whenComplete { _ in _ = connections.withLockedValue { $0.open.removeValue(forKey: key) } }
                 return channel.eventLoop.makeCompletedFuture {
                     let pipeline = channel.pipeline.syncOperations
                     try pipeline.addHandler(IdleStateHandler(allTimeout: Self.idleTimeout))
@@ -53,6 +55,7 @@ final class WebhookServer: Sendable {
                 }
             }
             .childChannelOption(.allowRemoteHalfClosure, value: false)
+        connections.withLockedValue { $0.stopped = false }
         let bound = try await bootstrap.bind(host: host, port: port).get()
         channel.withLockedValue { $0 = bound }
     }
@@ -63,6 +66,11 @@ final class WebhookServer: Sendable {
             return channel
         }
         try? await bound?.close()
+        let open = connections.withLockedValue { state in
+            state.stopped = true
+            return Array(state.open.values)
+        }
+        for connection in open { try? await connection.close() }
     }
 }
 

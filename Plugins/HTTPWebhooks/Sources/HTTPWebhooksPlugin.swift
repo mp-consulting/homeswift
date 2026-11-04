@@ -66,16 +66,19 @@ public actor HTTPWebhooksPlugin: HomeswiftPlugin {
         self.store = store
         let environment = KindEnvironment(
             store: store, caller: OutgoingCaller(client: dependencies.client, logger: logger), logger: logger, tasks: tasks, timing: dependencies.timing)
-        accessories = Self.build(configuration, environment: environment, logger: logger)
         var routes: [String: any WebhookAccessory] = [:]
-        for accessory in accessories where !context.isExcluded(accessory.name) {
+        accessories = []
+        for valid in Self.validEntries(configuration, logger: logger) {
+            guard let accessory = valid.make(valid.id, valid.name, valid.entry, environment) else { continue }
+            accessories.append(accessory)
+            guard !context.isExcluded(accessory.name) else { continue }
             do {
                 try context.add(accessory.accessory)
             } catch {
                 logger.error("Could not add \(accessory.name): \(error)")
                 continue
             }
-            if routes[accessory.id] == nil { routes[accessory.id] = accessory }
+            if valid.entry.takesWebhooks, routes[accessory.id] == nil { routes[accessory.id] = accessory }
         }
         await context.removeAccessories(keeping: Set(accessories.map(\.accessory.id)))
 
@@ -181,10 +184,5 @@ public actor HTTPWebhooksPlugin: HomeswiftPlugin {
             }
         }
         return valid
-    }
-
-    /// Every valid entry of the block as an accessory, in the block's order.
-    static func build(_ configuration: Configuration, environment: KindEnvironment, logger: Logger) -> [any WebhookAccessory] {
-        validEntries(configuration, logger: logger).compactMap { $0.make($0.id, $0.name, $0.entry, environment) }
     }
 }
