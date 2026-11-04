@@ -124,16 +124,9 @@ import _CryptoExtras
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("lg-csr-\(UUID().uuidString).pem")
         try Data(csr.utf8).write(to: file)
         defer { try? FileManager.default.removeItem(at: file) }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: openssl)
-        process.arguments = ["req", "-verify", "-noout", "-subject", "-in", file.path]
-        let output = Pipe()
-        process.standardOutput = output
-        process.standardError = output
-        try process.run()
-        process.waitUntilExit()
-        let text = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        #expect(process.terminationStatus == 0, "\(text)")
+        let run = try ChildProcess.run(openssl, arguments: ["req", "-verify", "-noout", "-subject", "-in", file.path])
+        let text = run.text + run.errorText
+        #expect(run.status == 0, "\(text)")
         #expect(text.contains("AWS IoT Certificate") && text.contains("Amazon"))
     }
 

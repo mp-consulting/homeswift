@@ -738,6 +738,57 @@ final class RecordingStreamingDelegate: HomebridgeStreamingDelegate {
 }
 
 @Suite struct SubprocessTests {
+    /// Foundation's `Process.run()` crashed on Linux (Swift 6.2) listing `/proc/self/fd`, more often the more descriptors
+    /// were open and the more processes started at once: a camera bridge runs several FFmpegs beside a busy NIO server.
+    @Test func startsManyAtOnceWithManyDescriptorsOpen() async throws {
+        // A thousand descriptors, within the limit (256 by default on macOS) and room for the pipes the test makes.
+        var limit = rlimit()
+        #if os(Linux)
+        getrlimit(__rlimit_resource_t(RLIMIT_NOFILE.rawValue), &limit)
+        #else
+        getrlimit(RLIMIT_NOFILE, &limit)
+        #endif
+        let spare = max(0, min(1000, Int(clamping: limit.rlim_cur) - 300))
+        var held: [Int32] = []
+        for _ in 0..<(spare / 2) {
+            var ends: [Int32] = [0, 0]
+            guard pipe(&ends) == 0 else { break }
+            held += ends
+        }
+        defer { for fd in held { close(fd) } }
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for _ in 0..<16 {
+                group.addTask {
+                    for _ in 0..<15 {
+                        let child = try Subprocess.launch("/bin/sh", arguments: ["-c", "echo hi"])
+                        let output = NIOLockedValueBox(Data())
+                        let status = NIOLockedValueBox<FfmpegExitStatus?>(nil)
+                        child.addStdoutHandler { data in output.withLockedValue { $0.append(data) } }
+                        child.addExitHandler { exit in status.withLockedValue { $0 = exit } }
+                        child.beginReading()
+                        #expect(await eventually { status.withLockedValue { $0 } != nil })
+                        #expect(status.withLockedValue { $0 } == FfmpegExitStatus(exitCode: 0, signal: nil))
+                        #expect(output.withLockedValue { $0 } == Data("hi\n".utf8))
+                    }
+                }
+            }
+            try await group.waitForAll()
+        }
+    }
+
+    /// The threads Swift's concurrency runs on block signals; a child started from one must still end on SIGTERM.
+    @Test func aChildStartedFromATaskEndsOnSIGTERM() async throws {
+        let child = try Subprocess.launch("/bin/sh", arguments: ["-c", "exec sleep 30"])
+        let status = NIOLockedValueBox<FfmpegExitStatus?>(nil)
+        child.addExitHandler { exit in status.withLockedValue { $0 = exit } }
+        child.beginReading()
+        #expect(child.kill())
+        #expect(await eventually { status.withLockedValue { $0 } != nil })
+        #expect(status.withLockedValue { $0 } == FfmpegExitStatus(exitCode: nil, signal: "SIGTERM"))
+        #expect(child.killed)
+        #expect(!child.kill())
+    }
+
     @Test func releasesThePipesWhenAGrandchildKeepsThemOpen() async throws {
         // The shell exits at once; its background child holds standard output and standard error open for a fifth of a second.
         let child = try Subprocess.launch("/bin/sh", arguments: ["-c", "(sleep 0.2) & echo hi; exit 0"])

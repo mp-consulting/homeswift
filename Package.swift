@@ -155,7 +155,7 @@ let package = Package(
         .target(
             name: "HomeswiftFFmpeg",
             dependencies: [
-                "Homeswift",
+                "Homeswift", "HomeswiftNetwork",
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),
                 .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
@@ -525,7 +525,7 @@ let package = Package(
         .testTarget(
             name: "HomeswiftPluginTests",
             dependencies: [
-                "Homeswift", "HomeswiftPlugin",
+                "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork",
                 .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
             ]

@@ -83,12 +83,8 @@ final class CannedDownload: HTTPStreaming, Sendable {
             if executable { try files.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path) }
         }
         func tar(_ arguments: [String]) throws {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: files.isExecutableFile(atPath: "/usr/bin/tar") ? "/usr/bin/tar" : "/bin/tar")
-            process.arguments = arguments
-            try process.run()
-            process.waitUntilExit()
-            #expect(process.terminationStatus == 0)
+            let run = try ChildProcess.run(files.isExecutableFile(atPath: "/usr/bin/tar") ? "/usr/bin/tar" : "/bin/tar", arguments: arguments)
+            #expect(run.status == 0, "\(run.errorText)")
         }
         /// An .spk whose binary says `says`.
         func package(says: String) throws -> Data {

@@ -57,14 +57,7 @@ struct HTTPSTests {
         guard let openssl = ["/usr/bin/openssl", "/opt/homebrew/bin/openssl"].first(where: FileManager.default.isExecutableFile(atPath:)) else { return }
         let file = directory.appendingPathComponent("check.pem")
         try Data(made.certificatePEM.utf8).write(to: file)
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: openssl)
-        process.arguments = ["x509", "-in", file.path, "-noout", "-text"]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        try process.run()
-        let text = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        process.waitUntilExit()
+        let text = try ChildProcess.run(openssl, arguments: ["x509", "-in", file.path, "-noout", "-text"]).text
         #expect(text.contains("DNS:bridge.local"))
         #expect(text.contains("DNS:localhost"))
         #expect(text.contains("CA:TRUE"))
@@ -73,16 +66,8 @@ struct HTTPSTests {
         // Limited to its own names, and still valid under that limit.
         #expect(text.contains("X509v3 Name Constraints: critical"))
         #expect(text.contains("DNS:bridge.local") && text.contains("Permitted:"))
-        let verify = Process()
-        verify.executableURL = URL(fileURLWithPath: openssl)
-        verify.arguments = ["verify", "-CAfile", file.path, file.path]
-        let verifyOutput = Pipe()
-        verify.standardOutput = verifyOutput
-        verify.standardError = verifyOutput
-        try verify.run()
-        let verified = String(decoding: verifyOutput.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        verify.waitUntilExit()
-        #expect(verify.terminationStatus == 0, "\(verified)")
+        let verify = try ChildProcess.run(openssl, arguments: ["verify", "-CAfile", file.path, file.path])
+        #expect(verify.status == 0, "\(verify.text)\(verify.errorText)")
     }
 
     /// A name that goes away (a VPN's address) keeps the certificate a phone trusts; a configured file keeps its chain.

@@ -61,9 +61,11 @@ final class TestEnvironment: Sendable {
         let runs = directory.appendingPathComponent("runs.txt")
         try """
             #!/bin/sh
+            # A stream stays open a moment, as a real one: FfmpegProcess's listeners are added after start(), and a tool
+            # gone within milliseconds (a loaded runner between the two) leaves them nothing to listen to.
             echo "$@" >> '\(runs.path)'
             case "$*" in
-              *"omit_tfhd_offset"*|*"-codec:v copy -f mp4"*) printf '\\000\\000\\000\\010ftyp\\000\\000\\000\\010moov\\000\\000\\000\\010free\\000\\000\\000\\010moof\\000\\000\\000\\014mdat1234' ;;
+              *"omit_tfhd_offset"*|*"-codec:v copy -f mp4"*) printf '\\000\\000\\000\\010ftyp\\000\\000\\000\\010moov\\000\\000\\000\\010free\\000\\000\\000\\010moof\\000\\000\\000\\014mdat1234'; sleep 0.3 ;;
               *"-i pipe: "*) cat ;;
               *"-frames:v 1"*) printf 'IMAGE' ;;
               *) echo "started" >&2; exec sleep 30 ;;
