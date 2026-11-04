@@ -467,3 +467,53 @@ quiet machine (load average 35), no warm-up log lines (`LOG_LINES=0`), CPU time 
 
 The HAP side (`hap-bench`): see "Found along the way" above for its request path.
 
+
+## Seventeen more plugins
+
+Did the plugins added for 0.20.0 (#56 to #83: Ring, IP Cameras, Sonos, Tuya, SwitchBot, tado°, Roborock, Google Nest,
+Dummy Accessories, MQTT Thing, ESPHome, Shelly, TP-Link Kasa and Tapo, Zigbee2MQTT, HTTP Webhooks) slow down the
+bridge? Apple M2 (8 cores), macOS 27.2, Swift 6.4.2, release builds, 2026-11-04. Before is `50e3caa`, the commit before
+the first of them; after is `654349c` (with the Tado fix that lets it build in release, below). Each pair ran
+interleaved twice while other sessions' builds kept the load average between 45 and 75: the better run of each, and CPU
+per request, the steadier figure.
+
+| The `homeswift` binary | before | after |
+|---|---:|---:|
+| Size | 74.7 MB | 90.3 MB |
+| Size, stripped | 48.3 MB | 57.1 MB |
+| Platforms compiled in (`homeswift plugins`) | 14 | 31 |
+| Empty config: start to web UI answering | 101 ms | 81 ms |
+| Empty config: idle footprint / RSS | 6.9 / 36 MB | 6.9 / 38 MB |
+| Empty config: idle CPU, threads | 0.1 %, 10 | 0.1 %, 10 |
+
+A plugin costs nothing until a block names it. With a block each, pointing at devices and brokers that are not there
+(an RTSP camera, an ESPHome device, an MQTT broker on a closed port; discovery on for Kasa, Shelly and Sonos), every
+plugin alone idles at 0.05 to 0.2 % CPU over its first 20 s, as the bridge does without one, and adds at most 1 MB of
+footprint, two threads and two sockets; all seventeen at once, 9.7 MB of footprint, 13 threads and 11 sockets. The exception was IP
+Cameras: 2.2 % over its first 20 s, 0.45 s of CPU parsing `ffmpeg -codecs` with a Swift `Regex` on each of its 550
+lines (shared with UniFi Protect, which pays it too). Checking for `(decoders: ` before the regex brings a start with
+one camera from 0.55 s of CPU to 0.07 s.
+
+| HAP, 30 accessories (`hap-bench`) | before | after |
+|---|---:|---:|
+| Pair setup, server round trips p50 | 11.36 ms | 10.89 ms |
+| Pair verify p50 | 0.42 ms | 0.41 ms |
+| `GET /accessories` p50 | 0.465 ms | 0.418 ms |
+| `GET /characteristics` ×10, 16 connections, CPU per request | 99 µs | 97 µs |
+| Event latency p50 | 51.35 ms | 51.29 ms |
+| Memory idle, footprint | 3.4 MB | 3.4 MB |
+
+| The whole bridge, 60 accessories (`bridge-bench`) | before | after |
+|---|---:|---:|
+| `GET /api/accessories`, 8 connections, CPU per request | 1 027 µs | 951 µs |
+| `GET /api/status`, one connection, CPU per request (three more runs alone: medians) | 255 µs | 255 µs |
+| MCP `list_accessories`, 4 connections, CPU per request | 1 396 µs | 1 460 µs |
+| `GET /api/scenes`, 4 connections, CPU per request | 7 180 µs | 8 276 µs |
+| a write → its event on `/api/events` p50 | 0.255 ms | 0.243 ms |
+| Idle footprint / CPU | 9.4 MB / 0.1 % | 9.3 MB / 0.1 % |
+
+Scenes moved by 15 % from run to run on either side (`8 801` and `7 180` µs before); nothing the plugins touch is on
+their path.
+
+Building it in release found what CI's debug builds do not: Swift 6.4.2's optimiser crashed on Tado's `homeSettings`
+(an `as?` cast of a typed-throws error in a closure), which would have failed the tagged release's image and packages.
