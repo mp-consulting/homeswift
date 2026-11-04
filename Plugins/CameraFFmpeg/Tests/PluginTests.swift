@@ -349,6 +349,42 @@ struct PluginTests {
         await host.stop()
     }
 
+    /// Found on real cameras: FFmpeg's RTP input gives up when HomeKit sends no return audio, which ended the whole stream
+    /// after ten seconds. The two-way FFmpeg now starts with HomeKit's first packet, and its end leaves the stream running.
+    @Test func twoWayAudioStartsWithTheFirstPacketAndLeavesTheStreamAlone() async throws {
+        let environment = TestEnvironment(timeScale: 1)
+        let ffmpeg = try environment.fakeFFmpeg()
+        let host = try await environment.start([
+            "videoProcessor": ffmpeg.path,
+            "cameras": [["name": "Front Door", "videoConfig": ["source": "-i rtsp://cam/s1", "returnAudioTarget": "-f adts udp://camera:5000"]]],
+        ])
+        #expect(await eventually { environment.accessory(host, named: "Front Door") != nil })
+        let streamer = try #require(await environment.plugin?.cameras["Front Door"]?.streamer)
+        let source = PrepareStreamRequest.Source(port: 50000, srtpCryptoSuite: .aesCM128HMACSHA1_80, srtpKey: Data(repeating: 1, count: 16),
+                                                 srtpSalt: Data(repeating: 2, count: 14))
+        let prepared = try await streamer.prepareStream(PrepareStreamRequest(
+            sessionID: "talk", sourceAddress: "127.0.0.1", targetAddress: "127.0.0.1", addressVersion: .ipv4, video: source, audio: source))
+        try await streamer.handleStreamRequest(.start(startRequest(sessionID: "talk")))
+        @Sendable func twoWayRuns() -> Int {
+            ((try? String(contentsOf: ffmpeg.runs, encoding: .utf8)) ?? "").split(separator: "\n").filter { $0.contains("-f sdp") }.count
+        }
+        #expect(twoWayRuns() == 0)
+
+        // HomeKit talks: an RTP packet (payload type 110) on the audio return port.
+        let talker = try await UDPSocket.bind(host: "127.0.0.1", port: 0)
+        let port = try #require(prepared.audio?.port)
+        try await talker.send(Data([0x80, 110, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1]), to: "127.0.0.1", port: port)
+        #expect(await eventually { twoWayRuns() == 1 })
+        // The fake two-way FFmpeg read its SDP and ended; the stream goes on, and talking again starts another.
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(await streamer.sessionCount == 1)
+        try await talker.send(Data([0x80, 110, 0, 2, 0, 0, 0, 0, 0, 0, 0, 1]), to: "127.0.0.1", port: port)
+        #expect(await eventually { twoWayRuns() == 2 })
+        await talker.close()
+        await host.stop()
+        #expect(await eventually { await streamer.sessionCount == 0 })
+    }
+
     @Test func streamsStartOnFFmpegsFirstLineAndStopWithThePlugin() async throws {
         // Real timings: a shortened inactivity timeout could end the stream before it is looked at, under load.
         let environment = TestEnvironment(timeScale: 1)

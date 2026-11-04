@@ -54,6 +54,12 @@ caps even when HomeKit asks for less), `vcodec` (`libx264`; `copy` sends the sou
 `recording` (HomeKit Secure Video) and `prebuffer` (with `recording`: FFmpeg keeps the last 15 seconds ready, so a
 recording starts before its event).
 
+An RTSPS camera with a self-signed certificate (UniFi Protect's `rtsps://<NVR>:7441/…`) needs it trusted: recent FFmpeg
+checks the certificate (`certificate verify failed`). Pin it in `source`: save it once (`openssl s_client -connect
+<NVR>:7441 -showcerts </dev/null | openssl x509 > nvr.pem`) and write
+`"-ca_file /path/nvr.pem -verifyhost unifi.local -rtsp_transport tcp -i rtsps://…"` (`unifi.local` is the name in
+Protect's certificate).
+
 Option strings are split on spaces, as the original does: a value cannot hold a space, and several options go in one
 string (`"encoderOptions": "-preset veryfast -tune zerolatency"`).
 
@@ -112,9 +118,8 @@ and a password, both optional). The Add accessories page lists the cameras of th
 
 ## Gaps
 
-- Not yet run against a real camera: the UniFi Protect feeds tried for this port were out of FFmpeg's reach on the test
-  Mac, where macOS's Local Network privacy refused Homebrew's FFmpeg ("No route to host") while curl reached the NVR.
-  The plugin's FFmpeg paths were run with real FFmpeg on camera-like H.264 sources instead (below).
+- Not yet tested with a home hub or the Home app: the real cameras below went through the plugin's delegates, without
+  HomeKit in front of them.
 - Credentials inside `source`, `stillImageSource` and `returnAudioTarget` are stored as written: those keys are not
   secret-named, so the bridge neither seals them nor resolves `vault:` references in them. The log masks them: the
   credentials and secret query values of every URL, and the whole path of an RTSP or RTSPS URL (UniFi Protect's stream
@@ -131,11 +136,18 @@ shell script standing in for FFmpeg, snapshots and their cache, stream start, st
 into fragments. Then a throwaway bridge with `check-on-bridge.sh`.
 
 With real FFmpeg (9.0.2, Homebrew, no `libfdk_aac`), `RealFeedTests` runs the plugin's delegates on each feed of a file
-given by `CAMERA_FFMPEG_FEEDS` (skipped otherwise; it prints no URL): on looped H.264 1080p with AAC and 7680×2160
-sources, the snapshot came back as a 1280×720 JPEG (1280×360 from the 7680×2160 one, its aspect kept) in under 0.4 s;
-a 1280×720 stream started on FFmpeg's first line in 0.04 s and sent SRTP for 20 s at about 870 kbit/s of video (802
-asked) and 32 kbit/s of AAC-ELD through AudioToolbox; and a HomeKit Secure Video recording from the prebuffer gave its
-initialization segment and 4 fragments of about 260 KB in under 2 s, the 7680×2160 source scaled to 1920×1080.
+given by `CAMERA_FFMPEG_FEEDS` (skipped otherwise; it prints no URL). On four UniFi Protect cameras over RTSPS (a G6 180,
+a G4 Doorbell Pro, a G6 Instant and a G6 Bullet, the NVR's certificate pinned):
+
+- Snapshots asked at 1280×720 came back in 1.1 to 5.7 s: 1280×360 from the G6 180's 7680×2160 stream (its aspect
+  kept), 960×720 from the doorbell's 1600×1200, 1280×720 from the 720p streams.
+- Live streams started on FFmpeg's first line in 0.04 to 0.07 s and sent SRTP for 20 s at 730 to 955 kbit/s of video
+  (802 asked, 1280×720) and 30 kbit/s of AAC-ELD through AudioToolbox, from each camera's own audio.
+- With `returnAudioTarget`, a return-audio packet started the two-way FFmpeg while the stream went on. Before the fix
+  this run found, the two-way FFmpeg gave up after 10 s without return audio and took the whole stream with it.
+- HomeKit Secure Video from the prebuffer, from the 7680×2160 and 1600×1200 streams: the initialization segment (with
+  an audio track) and 4 fragments of 220 to 340 KB, in 0.5 to 1.1 s.
+- An offline camera's snapshot failed in 11 s (FFmpeg's connection timeout): No Response, nothing left waiting.
 
 ## Clean-room implementation
 

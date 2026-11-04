@@ -34,9 +34,11 @@ struct RealFeedTests {
         }
     }
 
-    /// The `source` of a feed: an RTSP URL over TCP, or the options as given.
+    /// The `source` of a feed: an RTSP URL over TCP after `CAMERA_FFMPEG_INPUT_OPTIONS` (a pinned certificate for
+    /// RTSPS: `-ca_file <pem> -verifyhost <name>`), or the options as given.
     static func source(_ feed: Feed) -> String {
-        feed.url.hasPrefix("rtsp") ? "-rtsp_transport tcp -i \(feed.url)" : feed.url
+        let options = environment["CAMERA_FFMPEG_INPUT_OPTIONS"].map { $0 + " " } ?? ""
+        return feed.url.hasPrefix("rtsp") ? options + "-rtsp_transport tcp -i \(feed.url)" : feed.url
     }
 
     static let executable = environment["CAMERA_FFMPEG_EXECUTABLE"] ?? "ffmpeg"
@@ -64,13 +66,21 @@ struct RealFeedTests {
         report("AAC-ELD encoder: \(await capabilities.aacELDEncoder() ?? ["none"]), decoder: \(await capabilities.aacELDDecoder())")
         for (index, feed) in try Self.feeds().enumerated() {
             let video = try videoConfig(["source": Self.source(feed), "audio": !feed.name.contains("silent"), "recording": true, "prebuffer": true,
-                                         "maxWidth": 1280, "maxHeight": 720])
+                                         "maxWidth": 1280, "maxHeight": 720, "returnAudioTarget": "-f null -"])
             let (log, tools) = tools(feed.name, capabilities: capabilities)
             let streamer = CameraStreamer(video: video, log: log, tools: tools, ports: RtpPortAllocator())
 
             // (a) A snapshot through the delegate HomeKit calls.
             let started = ContinuousClock.now
-            let image = try await streamer.handleSnapshotRequest(SnapshotRequest(height: 720, width: 1280))
+            let image: Data
+            do {
+                image = try await streamer.handleSnapshotRequest(SnapshotRequest(height: 720, width: 1280))
+            } catch {
+                // An offline camera: the snapshot fails (HomeKit shows No Response), and nothing waits for it.
+                report("\(feed.name): snapshot failed in \(ContinuousClock.now - started): \(error)")
+                #expect(ContinuousClock.now - started < .seconds(30))
+                continue
+            }
             let file = output.appendingPathComponent("snapshot-\(index + 1).jpg")
             try image.write(to: file)
             report("\(feed.name): snapshot \(image.count) bytes in \(ContinuousClock.now - started), saved as \(file.lastPathComponent)")
@@ -89,13 +99,18 @@ struct RealFeedTests {
                                             srtpSalt: Data((0..<14).map { _ in UInt8.random(in: 0...255) }))
             }
             let session = "real-\(index)"
-            _ = try await streamer.prepareStream(PrepareStreamRequest(
+            let prepared = try await streamer.prepareStream(PrepareStreamRequest(
                 sessionID: session, sourceAddress: "127.0.0.1", targetAddress: "127.0.0.1", addressVersion: .ipv4,
                 video: source(try #require(videoSocket.localPort)), audio: source(try #require(audioSocket.localPort))))
             let streamStart = ContinuousClock.now
             try await streamer.handleStreamRequest(.start(startRequest(width: 1280, height: 720, fps: 30, bitrate: 802, rtcpInterval: 100, sessionID: session)))
             report("\(feed.name): stream started (first FFmpeg line) in \(ContinuousClock.now - streamStart)")
-            try await Task.sleep(for: .seconds(Self.seconds))
+            // HomeKit talks halfway: one RTP packet on the audio return port starts the two-way FFmpeg.
+            try await Task.sleep(for: .seconds(Self.seconds / 2))
+            let talker = try await UDPSocket.bind(host: "127.0.0.1", port: 0)
+            try await talker.send(Data([0x80, 110, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1]), to: "127.0.0.1", port: try #require(prepared.audio?.port))
+            await talker.close()
+            try await Task.sleep(for: .seconds(Self.seconds - Self.seconds / 2))
             let sent = counts.withLockedValue { $0 }
             #expect(await streamer.sessionCount == 1, "the stream ran for the whole time")
             try await streamer.handleStreamRequest(.stop(sessionID: session))
@@ -106,7 +121,11 @@ struct RealFeedTests {
                 + "audio \(sent.audio) packets, \(sent.audioBytes * 8 / Self.seconds / 1000) kbit/s")
             #expect(sent.video > Self.seconds * 10)
 
-            // (c) A HomeKit Secure Video recording from the prebuffer.
+            // (c) A HomeKit Secure Video recording from the prebuffer, from a camera's main stream.
+            guard feed.name.contains("High") || !feed.url.hasPrefix("rtsp") else {
+                await streamer.stopAll()
+                continue
+            }
             let prebuffer = Prebuffer(video: video, log: log, tools: tools)
             let recorder = CameraRecorder(video: video, log: log, tools: tools, prebuffer: prebuffer)
             try await prebuffer.start()

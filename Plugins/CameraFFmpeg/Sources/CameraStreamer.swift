@@ -33,6 +33,8 @@ actor CameraStreamer: CameraStreamingDelegate {
         var token: Int
         var main: FfmpegProcess
         var returnAudio: FfmpegProcess?
+        /// Splits HomeKit's return audio (RTP to FFmpeg, RTCP replayed to keep its input alive).
+        var demuxer: RtpDemuxer?
         var socket: UDPSocket?
         var tasks: [Task<Void, Never>]
         var ports: [Int]
@@ -202,13 +204,22 @@ actor CameraStreamer: CameraStreamingDelegate {
         }
 
         if video.returnAudioTarget != nil {
-            let decoder = await tools.capabilities.aacELDDecoder()
-            let returnAudio = FfmpegProcess(tools.returnOptions, commandLineArgs: FFmpegArguments.returnAudio(video, decoder: decoder))
-            returnAudio.start()
-            returnAudio.endStdin(Data(FFmpegArguments.returnAudioSDP(
-                address: entry.target.address, isIPv6: entry.target.isIPv6, port: entry.audioReturnPort, srtp: entry.target.audioSRTP).utf8))
-            watchExit(of: returnAudio, sessionID: sessionID, token: token, label: "Two-way ")
-            session.returnAudio = returnAudio
+            // FFmpeg's RTP input gives up after a few seconds without packets, and HomeKit sends return audio only while
+            // someone talks: the demuxer takes HomeKit's packets on the audio return port and forwards them to FFmpeg on
+            // the loopback, and the two-way FFmpeg starts with the first one (again after it ends). Its end leaves the
+            // video stream alone.
+            let family: IPAddressVersion = entry.target.isIPv6 ? .ipv6 : .ipv4
+            let rtpPort = await ports.reserve(ipFamily: family, portCount: 2)
+            if rtpPort > 0 {
+                session.ports += [rtpPort, rtpPort + 1]
+                let demuxer = await RtpDemuxer(ipFamily: family, inputPort: entry.audioReturnPort, rtcpPort: rtpPort + 1, rtpPort: rtpPort,
+                                               log: tools.returnOptions.log)
+                session.demuxer = demuxer
+                let sdp = FFmpegArguments.returnAudioSDP(address: entry.target.address, isIPv6: entry.target.isIPv6, port: rtpPort, srtp: entry.target.audioSRTP)
+                session.tasks.append(twoWayAudio(demuxer: demuxer, sdp: sdp, sessionID: sessionID, token: token))
+            } else {
+                log.error("No free UDP port for two-way audio.")
+            }
         }
 
         do {
@@ -223,7 +234,8 @@ actor CameraStreamer: CameraStreamingDelegate {
                 stopStream(sessionID)
             } else {
                 // A stop already ended it, and gave its ports back.
-                session.returnAudio?.stop()
+                session.tasks.forEach { $0.cancel() }
+                session.demuxer?.close()
             }
             throw HAPStatusError(.serviceCommunicationFailure)
         }
@@ -231,7 +243,7 @@ actor CameraStreamer: CameraStreamingDelegate {
         guard sessions[sessionID]?.token == token else {
             session.tasks.forEach { $0.cancel() }
             if let socket = session.socket { Task { await socket.close() } }
-            session.returnAudio?.stop()
+            session.demuxer?.close()
             return
         }
         sessions[sessionID] = session
@@ -280,6 +292,33 @@ actor CameraStreamer: CameraStreamingDelegate {
         stopStream(sessionID)
     }
 
+    /// Starts the two-way FFmpeg on each first packet of return audio, for as long as the stream runs.
+    private func twoWayAudio(demuxer: RtpDemuxer, sdp: String, sessionID: String, token: Int) -> Task<Void, Never> {
+        Task { [weak self] in
+            while !Task.isCancelled {
+                guard await demuxer.rtpEvents.next() != nil, !Task.isCancelled, demuxer.isRunning,
+                      let process = await self?.startReturnAudio(sdp: sdp, sessionID: sessionID, token: token) else { return }
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    if !process.onceExit({ _ in continuation.resume() }) { continuation.resume() }
+                }
+            }
+        }
+    }
+
+    private func startReturnAudio(sdp: String, sessionID: String, token: Int) async -> FfmpegProcess? {
+        guard sessions[sessionID]?.token == token else { return nil }
+        let decoder = await tools.capabilities.aacELDDecoder()
+        guard sessions[sessionID]?.token == token else { return nil }
+        let process = FfmpegProcess(tools.returnOptions, commandLineArgs: FFmpegArguments.returnAudio(video, decoder: decoder))
+        sessions[sessionID]?.returnAudio?.stop()
+        sessions[sessionID]?.returnAudio = process
+        log.info("Two-way audio started.")
+        process.start()
+        process.endStdin(Data(sdp.utf8))
+        _ = process.onceExit { [log] status in log.debug("Two-way audio ended (\(status)).") }
+        return process
+    }
+
     private func watchExit(of process: FfmpegProcess, sessionID: String, token: Int, label: String) {
         let watched = process.onceExit { [weak self] status in
             Task { await self?.exited(status, sessionID: sessionID, token: token, label: label) }
@@ -311,6 +350,7 @@ actor CameraStreamer: CameraStreamingDelegate {
             if let socket = session.socket { Task { await socket.close() } }
             session.main.stop()
             session.returnAudio?.stop()
+            session.demuxer?.close()
             for port in session.ports { ports.cancel(port) }
         }
         log.info("Stopped video stream.")
