@@ -11,7 +11,8 @@ extension RingPlugin {
     public static let accountAuthorization = AuthorizationMethod.accountLogin
 
     public func accountAuthorized() async -> Bool? {
-        context.credentials(as: RingAccount.self) != nil || configuration.refreshToken?.isEmpty == false
+        if let stored = context.credentials(as: RingAccount.self) { return stored.refused != true }
+        return configuration.refreshToken?.isEmpty == false
     }
 
     public func discover() async throws -> [DiscoveredDevice] {

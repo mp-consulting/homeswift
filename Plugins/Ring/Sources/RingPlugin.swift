@@ -150,7 +150,6 @@ public actor RingPlugin: HomeswiftPlugin {
             } catch is CancellationError {
                 return
             } catch RingError.notAuthorized {
-                logger.error("\(RingError.notAuthorized)")
                 return
             } catch {
                 if failures == 0 { logger.error("Could not reach Ring: \(error)") }

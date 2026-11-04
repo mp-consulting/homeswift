@@ -190,9 +190,19 @@ actor RingClient {
                     http: http, grant: .refresh(account.refreshToken), hardwareID: account.hardwareId, code: nil, timeout: timing.requestTimeout)
                 let previous = account
                 account.refreshToken = token.refreshToken
+                account.refused = nil
                 onAccountChange(previous, account)
                 accessToken = (token.accessToken, .now + .seconds(max(token.expiresIn - 60, 30)))
                 return token.accessToken
+            } catch RingError.notAuthorized {
+                // Kept, but marked: Setup shows the account as needing sign-in. Logged once.
+                if account.refused != true {
+                    let previous = account
+                    account.refused = true
+                    onAccountChange(previous, account)
+                    logger.error("\(RingError.notAuthorized)")
+                }
+                throw RingError.notAuthorized
             } catch let error as RingError {
                 throw error
             } catch is CancellationError {

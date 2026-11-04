@@ -91,6 +91,8 @@ struct RingAccount: Codable, Equatable, Sendable {
     var wrapper: [String: JSONValue]?
     /// SHA-256 of the block's `refreshToken` this was imported from: a different one pasted later wins.
     var importedFrom: String?
+    /// Ring refused this refresh token: the account needs signing in again (Setup), though it is kept.
+    var refused: Bool?
 
     var tokenWrapper: RingTokenWrapper { RingTokenWrapper(refreshToken: refreshToken, hardwareID: hardwareId, others: wrapper ?? [:]) }
 }

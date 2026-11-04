@@ -267,6 +267,36 @@ struct RingPluginTests {
         await host.stop()
     }
 
+    @Test func sirensAreSecurityControls() async throws {
+        let host = try await environment.start()
+        #expect(await eventually { host.accessory("1002camera") != nil && host.accessory("zid-security-panel") != nil })
+        #expect(host.accessory("zid-security-panel")?.service(.switch)?[.on]?.isSecurityControl == true)
+        #expect(host.accessory("1002camera")?.service(.switch, subtype: "Siren")?[.on]?.isSecurityControl == true)
+        await host.stop()
+    }
+
+    @Test func aRefusedTokenNeedsSigningInAgain() async throws {
+        environment.cloud.state.withLockedValue { $0.oauth = { _ in NetworkResponse(status: 401, body: Data(#"{"error":"invalid_grant"}"#.utf8)) } }
+        let host = try await environment.start()
+        let plugin = try #require(environment.plugin)
+        #expect(await eventually { await plugin.context.credentials(as: RingAccount.self)?.refused == true })
+        #expect(await plugin.context.credentials(as: RingAccount.self)?.refreshToken == "EXAMPLE-RT")
+        #expect(await plugin.accountAuthorized() == false)
+        await host.stop()
+    }
+
+    @Test func anOfflineCameraShowsThePlaceholder() async throws {
+        environment.cloud.state.withLockedValue { $0.devices = $0.devices.replacingOccurrences(of: #""alerts":{"connection":"online"},"battery_life":null"#, with: #""alerts":{"connection":"offline"},"battery_life":null"#) }
+        let host = try await environment.start()
+        #expect(await eventually { await environment.plugin?.cameraList.count == 3 })
+        let camera = try #require(await environment.plugin?.cameraList.first { $0.id == "1001" })
+        let image = try await camera.handleSnapshotRequest(SnapshotRequest(height: 720, width: 1280))
+        #expect(image == RingPlaceholder.jpeg)
+        #expect(image.starts(with: [0xFF, 0xD8]))
+        #expect(environment.cloud.count("snapshots/next/1001") == 0)
+        await host.stop()
+    }
+
     @Test func setupSignsInWithACode() async throws {
         let host = try await environment.start(settings: [:])
         let plugin = try #require(environment.plugin)

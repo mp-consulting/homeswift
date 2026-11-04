@@ -114,7 +114,7 @@ final class RingCamera: CameraStreamingDelegate, @unchecked Sendable {
                 self?.environment.requestRefresh()
                 return siren.characteristic(.on).value
             }
-            siren.characteristic(.on).onWrite { [weak self] value in self?.setSiren(value.boolValue ?? false) }
+            siren.characteristic(.on).securityControl().onWrite { [weak self] value in self?.setSiren(value.boolValue ?? false) }
             self.siren = siren
             services.append(siren)
         }
@@ -301,8 +301,7 @@ final class RingCamera: CameraStreamingDelegate, @unchecked Sendable {
     }
 
     func handleSnapshotRequest(_ request: SnapshotRequest) async throws -> Data {
-        if isOffline { throw RingError.unexpected("\(name) is offline") }
-        if snapshotsBlocked { throw RingError.unexpected("Motion detection is disabled for \(name), which prevents snapshots (Modes or Record Motion)") }
+        if isOffline || snapshotsBlocked { return RingPlaceholder.jpeg }
         if !isWithinLifetime {
             environment.tasks.add { [weak self] in _ = try? await self?.refreshSnapshot(uuid: nil) }
         }

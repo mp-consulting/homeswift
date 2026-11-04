@@ -68,7 +68,6 @@ Assistant change them only after you confirm.
 
 - Live video and two-way audio (WebRTC with trickle ICE, DTLS-SRTP, Opus): the cameras advertise streams so the Home app
   shows them, but a stream request is refused.
-- Offline and "snapshots blocked" placeholder pictures: a snapshot request for such a camera fails instead.
 - Hub devices that appear after start-up show at the next restart.
 
 ## How it was tested

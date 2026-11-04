@@ -378,7 +378,7 @@ enum RingHubAccessories {
                 }
             }
         }
-        siren?.characteristic(.on).onWrite { value in
+        siren?.characteristic(.on).securityControl().onWrite { value in
             let on = value.boolValue ?? false
             environment.background("\(on ? "Sounding" : "Silencing") the siren of \(name)") {
                 try await hub.command(zid, on ? "security-panel.sound-siren" : "security-panel.silence-siren")
