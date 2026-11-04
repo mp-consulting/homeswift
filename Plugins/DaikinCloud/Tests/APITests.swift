@@ -55,6 +55,18 @@ struct APITests {
         #expect(await oauth.refreshes == 1)
     }
 
+    /// The session decides on these: a refused refresh token or refused credentials keep their type.
+    @Test func aRefusedRefreshKeepsItsError() async throws {
+        let http = FakeHTTP { _, _ in .text("Unauthorized", status: 401) }
+        let oauth = FakeOAuth()
+        let refused = OAuthError(message: "Token refresh failed: invalid_grant (HTTP 400)", code: "invalid_grant")
+        await oauth.set(refreshError: refused)
+        await #expect(throws: refused) { try await api(http, oauth: oauth).devices() }
+        let rejected = CredentialsRejected(message: "Login failed (403042): Invalid LoginID", gigyaErrorCode: 403042)
+        await oauth.set(refreshError: rejected)
+        await #expect(throws: rejected) { try await api(http, oauth: oauth).devices() }
+    }
+
     @Test func givesUpAfterThreeRefreshes() async throws {
         let oauth = FakeOAuth()
         let http = FakeHTTP { _, _ in .text("Unauthorized", status: 401) }

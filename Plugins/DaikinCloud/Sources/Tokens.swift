@@ -67,13 +67,37 @@ struct TokenSet: Codable, Sendable, Equatable {
     }
 }
 
-/// An error a user can act on, with the Homebridge plugin's wording. The OAuth error code stays in the
-/// message (`invalid_grant`), which callers match on.
+/// An error a user can act on, with the Homebridge plugin's wording.
 struct DaikinError: Error, CustomStringConvertible, Equatable, Sendable {
     var message: String
     init(_ message: String) { self.message = message }
     var description: String { message }
 }
+
+/// A token endpoint answered with an OAuth error body (RFC 6749 §5.2): the readable message, and the error code
+/// (`invalid_grant`, ...) callers decide on.
+struct OAuthError: Error, CustomStringConvertible, Equatable, Sendable {
+    var message: String
+    var code: String
+    var description: String { message }
+
+    /// The refresh token itself was refused (expired, revoked): refreshing with it again cannot succeed.
+    var isInvalidGrant: Bool { code == "invalid_grant" }
+}
+
+/// Gigya refused the configured email and password (a wrong password, an unknown or locked account). Its codes
+/// from 400000 to 499999 are answers about the request itself, unlike the 5xxxxx server errors, so the same
+/// credentials cannot succeed and each new attempt counts towards an account lockout.
+struct CredentialsRejected: Error, CustomStringConvertible, Equatable, Sendable {
+    var message: String
+    var gigyaErrorCode: Int
+    var description: String { message }
+
+    static func isRequestError(_ gigyaErrorCode: Int) -> Bool { (400_000..<500_000).contains(gigyaErrorCode) }
+}
+
+/// Whether a token refresh failed because the refresh token was refused.
+func isInvalidGrant(_ error: any Error) -> Bool { (error as? OAuthError)?.isInvalidGrant ?? false }
 
 /// The message of any error, as the Homebridge plugin's `toMessage` gives it.
 func message(of error: any Error) -> String {
@@ -110,7 +134,8 @@ enum TokenResponse {
             default: description = nil
             }
             if object["error_description"] == nil || description != nil {
-                throw DaikinError("\(context): \(error)\(description.map { $0.isEmpty ? "" : " - \($0)" } ?? "") (HTTP \(response.status))")
+                throw OAuthError(
+                    message: "\(context): \(error)\(description.map { $0.isEmpty ? "" : " - \($0)" } ?? "") (HTTP \(response.status))", code: error)
             }
         }
         guard response.isSuccess else { throw DaikinError("\(context): \(url.host ?? "") returned HTTP \(response.status)") }

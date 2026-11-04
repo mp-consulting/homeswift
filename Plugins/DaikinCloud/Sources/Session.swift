@@ -27,6 +27,21 @@ actor DaikinSession {
         /// Overrides the configured intervals; for tests, where a minute is long.
         var pollInterval: Duration?
         var forceUpdateDelay: Duration?
+        /// The first wait before discovery is tried again after a failure, doubled each time up to the maximum.
+        var discoveryRetry: Duration = .seconds(60)
+        var discoveryRetryMax: Duration = .seconds(300)
+    }
+
+    /// What the start's login leads to: discovery, a later try, or waiting for the user.
+    private enum StartStep {
+        case ready, retry, stop
+    }
+
+    /// What discovery found, or whether trying again later can help.
+    private enum Discovery {
+        case devices([DaikinCloudDevice])
+        case retry
+        case stop
     }
 
     /// What moves the session, in order: the API's quota reports, the WebSocket's events, writes from HomeKit.
@@ -57,6 +72,9 @@ actor DaikinSession {
 
     private var pollTask: Task<Void, Never>?
     private var forceTask: Task<Void, Never>?
+    private var discoveryTask: Task<Void, Never>?
+    private var nextDiscoveryRetry: Duration
+    private var discoveryRetried = false
     private var inFlight: Task<Void, Never>?
     private(set) var pollingStarted = false
     private var shuttingDown = false
@@ -84,12 +102,14 @@ actor DaikinSession {
         self.context = context
         self.http = http
         self.timing = timing
+        nextDiscoveryRetry = timing.discoveryRetry
         connectWebSocket = webSocket
         (events, continuation) = AsyncStream.makeStream(of: Event.self)
         let file = context.secretFile(settings.authMode.tokenFileName, as: JSONValue.self)
         let onError: @Sendable (String) -> Void = { logger.error("[Error] \($0)") }
         if settings.authMode == .mobileApp {
-            tokens = MobileOAuth.client(file: file, http: http, log: { logger.info("\($0)") }, onError: onError)
+            tokens = MobileOAuth.client(
+                file: file, credentials: settings.mobileCredentials, http: http, log: { logger.info("\($0)") }, onError: onError, sleep: apiDependencies.sleep)
         } else {
             tokens = DeveloperPortalOAuth.client(file: file, clientID: settings.clientID ?? "", clientSecret: settings.clientSecret ?? "", http: http, onError: onError)
         }
@@ -109,38 +129,92 @@ actor DaikinSession {
 
     /// Logs in when needed, finds the devices and starts polling and the WebSocket. Answers whether the
     /// devices are in HomeKit now.
+    ///
+    /// A start that fails for a reason that may go away (the cloud unreachable or throttling at boot) is tried
+    /// again later, with a growing wait: discovery is the only place accessories are made, so without it they
+    /// would stay Not Responding until a restart. One that cannot succeed by itself (no tokens, a refresh token
+    /// or credentials Daikin refused) waits for a sign-in through Setup, which starts it again.
     @discardableResult
     func run() async -> Bool {
         guard !isRunning, !shuttingDown else { return isRunning }
         startEvents()
         defer { logger.info("--------------- End Daikin info for debugging reasons --------------------") }
-        if await !tokens.isAuthenticated() {
-            if mode == .mobileApp, let credentials = settings.mobileCredentials {
-                logger.info("[Auth] Authenticating with Daikin Cloud using mobile app credentials...")
-                do {
-                    let mobile = MobileOAuth(email: credentials.email, password: credentials.password, http: http, log: { [logger] in logger.info("\($0)") })
-                    let fresh = try await mobile.authenticate()
-                    guard !shuttingDown else { return false }
-                    await tokens.store(fresh)
-                    logger.info("[Auth] Authentication successful!")
-                } catch {
-                    logger.error("[Auth] Authentication failed: \(message(of: error))")
-                    return false
-                }
-            } else {
-                logger.warning("[Auth] Not authenticated. Please use the plugin's page in the Homeswift UI to authenticate with Daikin Cloud.")
-                return false
-            }
+        switch await authenticateAtStart() {
+        case .ready: break
+        case .retry:
+            scheduleDiscoveryRetry()
+            return false
+        case .stop: return false
         }
         guard !shuttingDown else { return false }
-        let found = await discover()
-        guard !found.isEmpty, !shuttingDown else { return false }
+        let found: [DaikinCloudDevice]
+        switch await discover() {
+        case .devices(let devices): found = devices
+        case .retry:
+            scheduleDiscoveryRetry()
+            return false
+        case .stop: return false
+        }
+        guard !shuttingDown else { return false }
+        if discoveryRetried { logger.info("[API Syncing] Device discovery succeeded after a retry") }
+        discoveryRetried = false
+        nextDiscoveryRetry = timing.discoveryRetry
+        // An account without devices is an answer, not a failure: trying again would only spend the quota.
+        guard !found.isEmpty else {
+            logger.warning("[API Syncing] No devices found in the Daikin Cloud account. Add them in the Onecta app, then restart Homeswift.")
+            return false
+        }
         createAccessories(found)
         isRunning = true
         pollingStarted = true
         schedulePoll()
         if settings.webSocketEnabled { await enableWebSocket() }
         return isRunning
+    }
+
+    /// Logs in with the Mobile App credentials when there are no tokens yet.
+    private func authenticateAtStart() async -> StartStep {
+        if await tokens.isAuthenticated() { return .ready }
+        guard mode == .mobileApp, let credentials = settings.mobileCredentials else {
+            logger.warning("[Auth] Not authenticated. Please use the plugin's page in the Homeswift UI to authenticate with Daikin Cloud.")
+            return .stop
+        }
+        logger.info("[Auth] Authenticating with Daikin Cloud using mobile app credentials...")
+        do {
+            let mobile = MobileOAuth(email: credentials.email, password: credentials.password, http: http, log: { [logger] in logger.info("\($0)") })
+            let fresh = try await mobile.authenticate()
+            guard !shuttingDown else { return .stop }
+            await tokens.store(fresh)
+            logger.info("[Auth] Authentication successful!")
+            return .ready
+        } catch let error as CredentialsRejected {
+            logger.error("[Auth] Authentication failed: \(error.message)")
+            // Sending them again would count towards an account lockout.
+            logger.error("[Auth] Daikin rejected the configured email or password. Correct them, or sign in again on Add accessories in the Homeswift UI.")
+            return .stop
+        } catch {
+            logger.error("[Auth] Authentication failed: \(message(of: error))")
+            return .retry
+        }
+    }
+
+    /// Tries the start again after the current wait, which doubles up to the maximum.
+    private func scheduleDiscoveryRetry() {
+        guard !shuttingDown else { return }
+        let delay = nextDiscoveryRetry
+        logger.warning("[API Syncing] Device discovery failed, retrying in \(Int((delay / .seconds(1)).rounded()))s")
+        nextDiscoveryRetry = min(delay * 2, timing.discoveryRetryMax)
+        discoveryRetried = true
+        discoveryTask?.cancel()
+        discoveryTask = Task { [weak self] in
+            guard (try? await Task.sleep(for: delay)) != nil, !Task.isCancelled else { return }
+            await self?.retryStart()
+        }
+    }
+
+    private func retryStart() async {
+        discoveryTask = nil
+        await run()
     }
 
     private func startEvents() {
@@ -162,15 +236,18 @@ actor DaikinSession {
         }
     }
 
-    /// The first read retries gateway errors: a transient failure here would cost the whole start.
-    private func discover() async -> [DaikinCloudDevice] {
+    /// The first read retries gateway errors: a transient failure here would cost the whole start. A refused
+    /// refresh token (Developer Portal) or refused credentials need the user, so they are not tried again.
+    private func discover() async -> Discovery {
         do {
-            return try await fetch(retryGatewayErrors: true)
+            return .devices(try await fetch(retryGatewayErrors: true))
         } catch {
-            let text = message(of: error)
-            logger.error("[API Syncing] Failed to get cloud devices from Daikin Cloud: \(text)")
-            if text.contains("invalid_grant") { invalidGrant() }
-            return []
+            logger.error("[API Syncing] Failed to get cloud devices from Daikin Cloud: \(message(of: error))")
+            if isInvalidGrant(error) {
+                invalidGrant()
+                return .stop
+            }
+            return error is CredentialsRejected ? .stop : .retry
         }
     }
 
@@ -316,9 +393,11 @@ actor DaikinSession {
 
     /// After a change from HomeKit: a poll `forceUpdateDelay` after the last change of a burst, so a few
     /// quick changes cost one request. Skipped while the WebSocket will push the change.
-    func forceUpdateDevices(delay: Duration? = nil) {
+    /// `evenWithWebSocket` for a push that changed nothing by itself (a group frame): otherwise a connected
+    /// WebSocket already patched the device, and a GET would only cost quota.
+    func forceUpdateDevices(delay: Duration? = nil, evenWithWebSocket: Bool = false) {
         guard !shuttingDown else { return }
-        if webSocketConnected {
+        if webSocketConnected, !evenWithWebSocket {
             logger.debug("[API Syncing] WebSocket connected, skipping forced update (waiting for push update)")
             return
         }
@@ -387,8 +466,10 @@ actor DaikinSession {
             device.apply(update)
             logger.debug("[WebSocket] Device update: \(update.deviceID) - \(update.characteristicName) \(update.data.text())")
             deviceChanged(update.deviceID)
-        case .groupUpdate:
-            break
+        case .groupUpdate(let groupID, _, let characteristicName):
+            // A group frame names no device, and nothing maps groups to devices: fetch them instead.
+            logger.debug("[WebSocket] Group update: \(groupID ?? "unknown group") - \(characteristicName), refreshing devices")
+            forceUpdateDevices(evenWithWebSocket: true)
         case .error(let text):
             logger.error("[Error] WebSocket error: \(text)")
         }
@@ -461,6 +542,8 @@ actor DaikinSession {
         logger.debug("[Platform] Shutting down, cleaning up resources...")
         shuttingDown = true
         stopPolling()
+        discoveryTask?.cancel()
+        discoveryTask = nil
         forceTask?.cancel()
         forceTask = nil
         rateLimitWriteTask?.cancel()
