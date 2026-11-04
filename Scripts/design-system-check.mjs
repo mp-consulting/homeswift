@@ -5,6 +5,10 @@ import { readFileSync, writeFileSync, mkdtempSync, mkdirSync, rmSync } from "nod
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolve, join, extname } from "node:path";
+
+/// A value as a JavaScript literal for code run in the page: JSON, with the characters that could end a script or a
+/// line early (<, >, /, U+2028, U+2029) escaped.
+const literal = (value) => JSON.stringify(value).replace(/[<>\/\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
 const root = fileURLToPath(new URL("..", import.meta.url));
 const out = resolve(process.argv[2] || "/tmp/homeswift-design-shots");
 mkdirSync(out,{recursive:true});
@@ -40,7 +44,9 @@ try{
   const errors = [];
   socket.addEventListener("message", (event) => {
     const message = JSON.parse(event.data);
-    if (message.id) { pending.get(message.id)?.(message); pending.delete(message.id); }
+    // A reply to one of our requests (a numbered one still waiting), nothing else.
+    const done = typeof message.id === "number" && pending.has(message.id) ? pending.get(message.id) : null;
+    if (typeof done === "function") { pending.delete(message.id); done(message); }
     else if (message.method === "Runtime.exceptionThrown") errors.push(message.params.exceptionDetails);
     else if(message.method === "Log.entryAdded" && message.params.entry.level === "error") errors.push(message.params.entry);
   });
@@ -64,14 +70,14 @@ try{
   const navigate = async (path, selector) => {
     await send("Page.navigate", { url: base + path });
     for (let i = 0; i < 50; i++) {
-      if (await evaluate(`!!document.querySelector(${JSON.stringify(selector)})`)) { await sleep(200); return; }
+      if (await evaluate(`!!document.querySelector(${literal(selector)})`)) { await sleep(200); return; }
       await sleep(100);
     }
     throw new Error(`Page did not render: ${path}`);
   };
   const shot = async (name, selector = "main") => {
     const clip = await evaluate(`(() => {
-      const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();
+      const r = document.querySelector(${literal(selector)}).getBoundingClientRect();
       return { x: Math.max(0, r.x + scrollX), y: Math.max(0, r.y + scrollY), width: r.width, height: r.height, scale: 1 };
     })()`);
     if (["explorer", "characteristic", "dark"].includes(name)) clip.height = Math.min(clip.height, 1100);
@@ -101,9 +107,9 @@ try{
   if(modes.join(',')!=="Auto (0),Heat (1),Cool (2)")throw Error("Mode names or raw values missing");
   const expected={gate:"garage-door",alarm:"security-system",switch:"toggle"};
   for(const story of await evaluate("HomeswiftDesignStories.widgets.map(w=>w.id)")){
-    await evaluate(`location.hash=${JSON.stringify(story)}`);await sleep(90);
+    await evaluate(`location.hash=${literal(story)}`);await sleep(90);
     if(!await canvas("!!f.document.querySelector('.widget')"))throw Error("Missing widget "+story);
-    const kind = await canvas(`f.HomeswiftWidgets.kindOf(f.HomeswiftDesignStories.widgets.find(w=>w.id===${JSON.stringify(story)}).build()).kind`);
+    const kind = await canvas(`f.HomeswiftWidgets.kindOf(f.HomeswiftDesignStories.widgets.find(w=>w.id===${literal(story)}).build()).kind`);
     const id = story.split("/")[1];
     if(kind!==(expected[id]||id))throw Error(`Wrong renderer ${story}: ${kind}`);
     for(const size of ["small","medium","large","xlarge"]){
@@ -117,7 +123,7 @@ try{
   await shot("characteristic", "body");
   const ids=await evaluate("HomeswiftDesignCatalog.characteristics.map(c=>c.id)");
   for(const id of ids){
-    await evaluate(`location.hash=${JSON.stringify("characteristic/"+id)}`);await sleep(125);
+    await evaluate(`location.hash=${literal("characteristic/"+id)}`);await sleep(125);
     await waitFor(`document.querySelector('#fixture').textContent.includes('Design:${id}')`);
     await waitFor(`document.querySelector('.characteristic-demo')!==null`);
   }
@@ -136,7 +142,7 @@ try{
   if(!await evaluate("document.querySelector('#fixture').textContent.includes('43')"))throw Error("Knob did not update");
   await evaluate("document.querySelector('#reset').click()");await sleep(70);
   if(await evaluate("document.querySelector('#knobs input[aria-label=Brightness]').value")!=="75")throw Error("Reset failed");
-  const state = async value => {await evaluate(`document.querySelector('#state').value=${JSON.stringify(value)};document.querySelector('#state').dispatchEvent(new Event('change'))`);await sleep(80);};
+  const state = async value => {await evaluate(`document.querySelector('#state').value=${literal(value)};document.querySelector('#state').dispatchEvent(new Event('change'))`);await sleep(80);};
   await state("readonly");
   if(await canvas("!!f.document.querySelector('.widget input[type=checkbox]')"))throw Error("Read-only power is writable");
   await state("paused");

@@ -21009,7 +21009,9 @@ HomeswiftI18n.add("pt", {
     const own = new URL(document.currentScript.src);
     const catalogURL = new URL(`i18n-${language}.js`, own);
     catalogURL.search = own.search;
-    document.write(`<script src="${catalogURL.pathname}${catalogURL.search}"><\/script>`);
+    // The URL as an attribute value: a URL encodes these already, and escaping says so.
+    const attribute = (text) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+    document.write(`<script src="${attribute(catalogURL.pathname + catalogURL.search)}"><\/script>`);
   }
   if (language !== "en") {
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => translate());
