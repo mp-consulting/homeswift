@@ -1,6 +1,7 @@
 import Foundation
 import HomeswiftNetwork
 import HomeswiftPlugin
+import NIOHTTP1
 import Testing
 
 @testable import Homeswift
@@ -434,24 +435,30 @@ struct DummyWebhookTests {
         #expect(await harness.webhook(["id": "b", "get": "ProgrammableSwitchEvent"]) == .json(200, [:]))
     }
 
-    @Test func requestsAreParsedAndThePassphraseChecked() throws {
+    @Test func requestsAreParsedAndTheTokenChecked() throws {
         let query = try #require(WebhookServer.parameters(uri: "/?id=a&set=On&value=true", contentType: nil, body: Data()))
         #expect(query == ["id": "a", "set": "On", "value": "true"])
         let json = try #require(WebhookServer.parameters(uri: "/?id=a", contentType: "application/json", body: Data(#"{"sync":"On","value":false}"#.utf8)))
         #expect(json == ["id": "a", "sync": "On", "value": false])
         #expect(WebhookServer.parameters(uri: "/", contentType: "application/json", body: Data("{oops".utf8)) == nil)
-        #expect(WebhookServer.authorized([:], authorization: nil, passphrase: nil))
-        #expect(!WebhookServer.authorized([:], authorization: nil, passphrase: "s3cret"))
-        #expect(WebhookServer.authorized(["passphrase": "s3cret"], authorization: nil, passphrase: "s3cret"))
-        #expect(WebhookServer.authorized([:], authorization: "Bearer s3cret", passphrase: "s3cret"))
-        #expect(!WebhookServer.authorized(["passphrase": "s3cre"], authorization: nil, passphrase: "s3cret"))
+        #expect(WebhookServer.authorized([:], authorization: nil, token: nil))
+        #expect(!WebhookServer.authorized([:], authorization: nil, token: "s3cret"))
+        #expect(WebhookServer.authorized(["token": "s3cret"], authorization: nil, token: "s3cret"))
+        #expect(WebhookServer.authorized([:], authorization: "Bearer s3cret", token: "s3cret"))
+        #expect(!WebhookServer.authorized(["token": "s3cre"], authorization: nil, token: "s3cret"))
+        #expect(WebhookServer.isCrossSite(["Sec-Fetch-Site": "cross-site"]))
+        #expect(WebhookServer.isCrossSite(["Sec-Fetch-Site": "same-site"]))
+        #expect(!WebhookServer.isCrossSite(["Sec-Fetch-Site": "same-origin", "Origin": "http://bridge.local:63743", "Host": "bridge.local:63743"]))
+        #expect(WebhookServer.isCrossSite(["Origin": "https://evil.example", "Host": "192.168.1.2:63743"]))
+        #expect(!WebhookServer.isCrossSite(["Host": "192.168.1.2:63743"]))
+        #expect(!WebhookServer.isLoopback("0.0.0.0"))
     }
 
     @Test func theServerAnswersOverHTTP() async throws {
         let harness = await Harness([lamp], now: parisDate(2026, 11, 4, 10))
         let server = WebhookServer(logger: testLogger)
         let engine = harness.engine
-        try await server.start(host: "127.0.0.1", port: 0, tls: nil, passphrase: "s3cret") { await engine.webhook($0) }
+        try await server.start(host: "127.0.0.1", port: 0, tls: nil, token: "s3cret") { await engine.webhook($0) }
         defer { Task { await server.stop() } }
         let port = try #require(server.port)
         let client = HTTPClient()
@@ -462,8 +469,13 @@ struct DummyWebhookTests {
             body: Data(#"{"id":"3f2c9a1e-8b7d-4c55-9e21-0a1b2c3d4e5f","set":"On","value":true}"#.utf8)))
         #expect(answer.status == 200)
         #expect(String(decoding: answer.body, as: UTF8.self) == #"{"success":"Desk Lamp is on, brightness is 100%"}"#)
-        let big = try await client.send(HTTPRequest(method: "POST", url: URL(string: "http://127.0.0.1:\(port)/?passphrase=s3cret")!, body: Data(count: 70_000)))
+        let big = try await client.send(HTTPRequest(method: "POST", url: URL(string: "http://127.0.0.1:\(port)/?token=s3cret")!, body: Data(count: 70_000)))
         #expect(big.status == 413)
+        let page = try await client.send(HTTPRequest(
+            url: URL(string: "http://127.0.0.1:\(port)/?token=s3cret&id=3f2c9a1e-8b7d-4c55-9e21-0a1b2c3d4e5f&set=On&value=false")!,
+            headers: [("Sec-Fetch-Site", "cross-site")]))
+        #expect(page.status == 403)
+        #expect(harness.value("3f2c9a1e-8b7d-4c55-9e21-0a1b2c3d4e5f", .on) == .bool(true))
         await server.stop()
     }
 }

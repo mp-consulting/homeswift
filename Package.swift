@@ -536,6 +536,7 @@ let package = Package(
             dependencies: [
                 "Homeswift", "HomeswiftPlugin", "HomeswiftNetwork", "HomeswiftNetworkTestSupport", "HomeswiftDummy",
                 .product(name: "NIOConcurrencyHelpers", package: "swift-nio"),
+                .product(name: "NIOHTTP1", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
             ],
             path: "Plugins/Dummy/Tests"

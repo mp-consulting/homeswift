@@ -65,7 +65,8 @@ public actor DummyPlugin: HomeswiftPlugin {
 
     /// The block's accessories as the Homebridge plugin reads them, the first of an identifier kept.
     func readAccessories() -> [AccessoryConfig] {
-        let reader = ConfigReader(logger: logger)
+        let context = context
+        let reader = ConfigReader(logger: logger, credentials: { context.credentials(for: $0) })
         var seen = Set<String>()
         var list: [AccessoryConfig] = []
         for entry in configuration.accessories ?? [] {
@@ -166,7 +167,7 @@ public actor DummyPlugin: HomeswiftPlugin {
         if let value = options["port"] ?? configuration.webhookPort {
             if let number = value.intValue, (0...65535).contains(number) { port = number } else { logger.error("webhookConfig.port must be a port number; \(port) is used") }
         }
-        for key in ["key", "cert", "pfx", "passphrase"] where options[key] != nil && options[key]?.stringValue == nil {
+        for key in ["key", "cert", "pfx", "passphrase", "token"] where options[key] != nil && options[key]?.stringValue == nil {
             logger.error("webhookConfig.\(key) must be text; it is ignored")
         }
         var tls: NIOSSLContext?
@@ -180,9 +181,13 @@ public actor DummyPlugin: HomeswiftPlugin {
             logger.warning("webhookConfig.pfx is not supported: give the key and the certificate as PEM files (key, cert)")
         }
         let host = options["bindAddress"]?.stringValue ?? "0.0.0.0"
+        let token = options["token"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? context.credentials()?["webhookToken"]?.stringValue
+        if token == nil, !WebhookServer.isLoopback(host) {
+            logger.warning("The webhook server listens on \(host) without a token: anyone who reaches port \(port) can change these accessories. Set webhookConfig.token, or bindAddress to 127.0.0.1")
+        }
         let server = WebhookServer(logger: logger)
         do {
-            try await server.start(host: host, port: port, tls: tls, passphrase: options["passphrase"]?.stringValue, handler: { parameters in
+            try await server.start(host: host, port: port, tls: tls, token: token, handler: { parameters in
                 await engine.webhook(parameters)
             })
             webhookServer = server
@@ -207,11 +212,43 @@ public actor DummyPlugin: HomeswiftPlugin {
     /// The block with the deprecated keys the Homebridge plugin's settings page rewrites in their current form
     /// (spec 13), and the Matter accessories kept out of the Home app (their Accessory Settings' `notInHome`).
     public func canonicalSettings(_ block: JSONValue) async -> JSONValue {
-        Self.canonical(block)
+        // Secrets the block holds go to the vault once the block is written; the block is answered as if they had.
+        let context = context
+        var moves: [(String?, JSONValue)] = []
+        if block["webhookConfig"]?["token"] != nil, let token = configuration.webhookConfig?["token"]?.stringValue, !token.isEmpty {
+            var account = context.credentials()?.objectValue ?? [:]
+            account["webhookToken"] = .string(token)
+            moves.append((nil, .object(account)))
+        }
+        for entry in configuration.accessories ?? [] {
+            guard let notification = entry["notification"], let deviceID = Self.deviceID(of: entry) else { continue }
+            var device = context.credentials(for: deviceID)?.objectValue ?? [:]
+            let before = device
+            if let token = notification["token"]?.stringValue, !token.isEmpty { device["notificationToken"] = .string(token) }
+            if notification["api"]?.stringValue == "PUSHOVER", let id = notification["id"]?.stringValue, !id.isEmpty { device["notificationID"] = .string(id) }
+            if device != before { moves.append((deviceID, .object(device))) }
+        }
+        if !moves.isEmpty {
+            let pending = moves
+            await context.whenSettingsWritten { for (deviceID, credentials) in pending { try context.saveCredentials(credentials, for: deviceID) } }
+        }
+        return Self.canonical(block, movesSecrets: true)
     }
 
-    static func canonical(_ block: JSONValue) -> JSONValue {
+    /// An entry's Device Id: its `id`, or `<type>:<name without whitespace>`.
+    static func deviceID(of entry: JSONValue) -> String? {
+        if let id = entry["id"]?.stringValue { return id }
+        guard let name = entry["name"]?.stringValue, let type = entry["type"]?.stringValue else { return nil }
+        return "\(type):\(ConfigReader.stripWhitespace(name))"
+    }
+
+    /// `movesSecrets`: the webhook token and the notifications' tokens (and Pushover's application token) leave the block,
+    /// for the vault.
+    static func canonical(_ block: JSONValue, movesSecrets: Bool = false) -> JSONValue {
         guard var fields = block.objectValue else { return block }
+        if movesSecrets, var webhook = fields["webhookConfig"]?.objectValue, webhook.removeValue(forKey: "token") != nil {
+            fields["webhookConfig"] = .object(webhook)
+        }
         if let port = fields["webhookPort"] {
             var webhook = fields["webhookConfig"]?.objectValue ?? [:]
             if webhook["port"] == nil { webhook["port"] = port }
@@ -246,8 +283,12 @@ public actor DummyPlugin: HomeswiftPlugin {
                     })
                     item["conditions"] = .object(conditions)
                 }
-                if item["protocol"]?.stringValue == "Matter", let name = item["name"]?.stringValue, let type = item["type"]?.stringValue {
-                    let deviceID = item["id"]?.stringValue ?? "\(type):\(ConfigReader.stripWhitespace(name))"
+                if movesSecrets, var notification = item["notification"]?.objectValue {
+                    notification.removeValue(forKey: "token")
+                    if notification["api"]?.stringValue == "PUSHOVER" { notification.removeValue(forKey: "id") }
+                    item["notification"] = .object(notification)
+                }
+                if item["protocol"]?.stringValue == "Matter", let deviceID = Self.deviceID(of: .object(item)) {
                     var entry = settings[deviceID]?.objectValue ?? [:]
                     if entry["notInHome"] == nil {
                         entry["notInHome"] = true

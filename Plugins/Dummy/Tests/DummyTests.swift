@@ -132,6 +132,26 @@ struct DummyTests {
         #expect(DummyPlugin.canonical(canonical) == canonical)
     }
 
+    @Test func secretsMoveToTheVault() async throws {
+        let host = try await environment.start(settings: [
+            "webhookConfig": ["token": "hook-token", "bindAddress": "127.0.0.1"],
+            "accessories": [["id": "n", "name": "N", "type": "Switch", "enableWebhook": true,
+                             "notification": ["api": "PUSHOVER", "token": "user-key", "id": "app-token", "text": "On"]]],
+        ])
+        defer { Task { await host.stop() } }
+        let plugin = try #require(environment.plugin)
+        let block = try JSONValue(any: [
+            "platform": "HomebridgeDummy", "webhookConfig": ["token": "hook-token"],
+            "accessories": [["id": "n", "name": "N", "type": "Switch", "notification": ["api": "PUSHOVER", "token": "user-key", "id": "app-token", "text": "On"]]],
+        ])
+        let canonical = await plugin.canonicalSettings(block)
+        #expect(canonical["webhookConfig"]?["token"] == nil)
+        #expect(canonical["accessories"]?[0]?["notification"]?["token"] == nil)
+        #expect(canonical["accessories"]?[0]?["notification"]?["id"] == nil)
+        #expect(canonical["accessories"]?[0]?["notification"]?["text"] == "On")
+        await host.stop()
+    }
+
     /// The plugin's directory, from this file's.
     static var root: URL { URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent() }
 

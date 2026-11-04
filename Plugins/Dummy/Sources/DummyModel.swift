@@ -295,6 +295,8 @@ struct AccessoryConfig: Sendable {
 /// the feature (or the accessory) it concerns is left out.
 struct ConfigReader {
     let logger: Logger
+    /// A device's credentials in the vault (`notificationToken`, `notificationID`), moved there by `canonicalSettings`.
+    var credentials: (String) -> JSONValue? = { _ in nil }
 
     static let commandKeys = [
         "commandOn", "commandOff", "commandLock", "commandUnlock", "commandOpen", "commandClose", "commandActive", "commandInactive",
@@ -377,7 +379,7 @@ struct ConfigReader {
         config.schedule = json["schedule"].flatMap { schedule($0, name: name) }
         config.autoReset = json["autoReset"].flatMap { schedule($0, name: name) }
         if json["commandSync"] != nil, json["syncSchedule"] == nil { missing(name, "syncSchedule") }
-        config.notification = json["notification"].flatMap { notification($0, name: name) }
+        config.notification = json["notification"].flatMap { notification($0, name: name, vault: credentials(deviceID)) }
         config.limiter = json["limiter"].flatMap { limiter($0, name: name) }
         config.conditions = json["conditions"].flatMap { conditions($0, name: name, identifier: identifier) }
         if [.door, .window, .windowCovering, .garageDoor].contains(type), let simulation = json["simulation"] {
@@ -577,7 +579,7 @@ struct ConfigReader {
         }
     }
 
-    func notification(_ json: JSONValue, name: String) -> NotificationConfig? {
+    func notification(_ json: JSONValue, name: String, vault: JSONValue? = nil) -> NotificationConfig? {
         guard let apiValue = json["api"] else {
             missing(name, "notification.api")
             return nil
@@ -592,9 +594,9 @@ struct ConfigReader {
             return nil
         }
         var ok = true
-        let token = json["token"]?.stringValue
+        let token = json["token"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? vault?["notificationToken"]?.stringValue
         if token?.isEmpty != false { missing(name, "notification.token"); ok = false }
-        let id = json["id"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        let id = json["id"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? vault?["notificationID"]?.stringValue
         // Notify! needs the device or group; Pushover the application token, which the bridge has none of its own for.
         if id == nil { missing(name, "notification.id"); ok = false }
         guard ok, let token else { return nil }

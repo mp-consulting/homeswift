@@ -10,8 +10,9 @@ import NIOPosix
 import NIOSSL
 
 /// The webhook server of a block (spec 9.1): GET and POST on `/`, the query and the body's fields (form or JSON) as
-/// parameters, HTTPS with the block's `key` and `cert` files. With a `passphrase`, every request carries it (the
-/// `passphrase` parameter, or `Authorization: Bearer <passphrase>`), compared in constant time.
+/// parameters, HTTPS with the block's `key` and `cert` files. With a `token`, every request carries it (the `token`
+/// parameter, or `Authorization: Bearer <token>`), compared in constant time. A browser page of another site is refused
+/// (`isCrossSite`), so a page the user opens cannot drive the accessories.
 final class WebhookServer: Sendable {
     typealias Handler = @Sendable ([String: JSONValue]) async -> WebhookReply
 
@@ -28,7 +29,7 @@ final class WebhookServer: Sendable {
 
     var port: Int? { channel.withLockedValue { $0?.localAddress?.port } }
 
-    func start(host: String, port: Int, tls: NIOSSLContext?, passphrase: String?, handler: @escaping Handler) async throws {
+    func start(host: String, port: Int, tls: NIOSSLContext?, token: String?, handler: @escaping Handler) async throws {
         let bootstrap = ServerBootstrap(group: MultiThreadedEventLoopGroup.singleton)
             .serverChannelOption(.backlog, value: 32)
             .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
@@ -38,7 +39,7 @@ final class WebhookServer: Sendable {
                     try channel.pipeline.syncOperations.addHandler(IdleCloser())
                     if let tls { try channel.pipeline.syncOperations.addHandler(NIOSSLServerHandler(context: tls)) }
                     try channel.pipeline.syncOperations.configureHTTPServerPipeline()
-                    try channel.pipeline.syncOperations.addHandler(WebhookHTTPHandler(passphrase: passphrase, handler: handler))
+                    try channel.pipeline.syncOperations.addHandler(WebhookHTTPHandler(token: token, handler: handler))
                 }
             }
         let bound = try await bootstrap.bind(host: host, port: port).get()
@@ -81,12 +82,27 @@ final class WebhookServer: Sendable {
         return parameters
     }
 
-    static func authorized(_ parameters: [String: JSONValue], authorization: String?, passphrase: String?) -> Bool {
-        guard let passphrase, !passphrase.isEmpty else { return true }
-        var given = parameters["passphrase"]?.stringValue
+    static func isLoopback(_ host: String) -> Bool {
+        host == "127.0.0.1" || host == "::1" || host == "localhost" || host.hasPrefix("127.")
+    }
+
+    /// A request a browser sends from another site's page: `Sec-Fetch-Site` says so, or its `Origin` is another host than
+    /// the one asked. Scripts, Shortcuts and curl send neither.
+    static func isCrossSite(_ headers: HTTPHeaders) -> Bool {
+        let site = headers.first(name: "sec-fetch-site")?.lowercased()
+        if site == "cross-site" || site == "same-site" { return true }
+        guard let origin = headers.first(name: "origin") else { return false }
+        guard let originHost = URLComponents(string: origin)?.host?.lowercased() else { return true }
+        let host = headers.first(name: "host").flatMap { URLComponents(string: "http://\($0)")?.host?.lowercased() }
+        return originHost != host
+    }
+
+    static func authorized(_ parameters: [String: JSONValue], authorization: String?, token: String?) -> Bool {
+        guard let token, !token.isEmpty else { return true }
+        var given = parameters["token"]?.stringValue
         if given == nil, let authorization, authorization.lowercased().hasPrefix("bearer ") { given = String(authorization.dropFirst(7)) }
         guard let given else { return false }
-        return Secrets.constantTimeEqual(Array(given.utf8), Array(passphrase.utf8))
+        return Secrets.constantTimeEqual(Array(given.utf8), Array(token.utf8))
     }
 }
 
@@ -103,14 +119,14 @@ private final class WebhookHTTPHandler: ChannelInboundHandler, @unchecked Sendab
     typealias InboundIn = HTTPServerRequestPart
     typealias OutboundOut = HTTPServerResponsePart
 
-    private let passphrase: String?
+    private let token: String?
     private let handler: WebhookServer.Handler
     private var head: HTTPRequestHead?
     private var body = Data()
     private var tooLarge = false
 
-    init(passphrase: String?, handler: @escaping WebhookServer.Handler) {
-        self.passphrase = passphrase
+    init(token: String?, handler: @escaping WebhookServer.Handler) {
+        self.token = token
         self.handler = handler
     }
 
@@ -136,16 +152,18 @@ private final class WebhookHTTPHandler: ChannelInboundHandler, @unchecked Sendab
                 reply = .json(413, ["error": "The request body is too large"])
             } else if head.method != .GET && head.method != .POST {
                 reply = .json(405, ["error": "Only GET and POST are supported"])
+            } else if WebhookServer.isCrossSite(head.headers) {
+                reply = .json(403, ["error": "Webhooks do not answer other sites' pages"])
             } else if path != "/" {
                 reply = .json(404, ["error": "Not found"])
             } else if let parsed = WebhookServer.parameters(uri: head.uri, contentType: head.headers.first(name: "content-type"), body: body) {
-                if WebhookServer.authorized(parsed, authorization: head.headers.first(name: "authorization"), passphrase: passphrase) {
-                    var parameters2 = parsed
-                    parameters2.removeValue(forKey: "passphrase")
-                    parameters = parameters2
+                if WebhookServer.authorized(parsed, authorization: head.headers.first(name: "authorization"), token: token) {
+                    var kept = parsed
+                    kept.removeValue(forKey: "token")
+                    parameters = kept
                     reply = nil
                 } else {
-                    reply = .json(401, ["error": "The request needs the webhook passphrase"])
+                    reply = .json(401, ["error": "The request needs the webhook token"])
                 }
             } else {
                 reply = .json(400, ["error": "The request body is not valid JSON"])

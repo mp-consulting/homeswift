@@ -60,23 +60,26 @@ With `enableWebhook` on an accessory, the server (`webhookConfig.port`, 63743 by
 sync) and the older `command=`, and `GET /` lists them. POST bodies may be a form or JSON. Values are checked strictly
 (`true`/`false` for On, numbers in a range elsewhere), and the answers are homebridge-dummy's, word for word.
 
-- **HTTPS** with `webhookConfig.key` and `cert`, paths of PEM files; `disableSSL` keeps plain HTTP. `pfx` is not
-  supported (give the key and the certificate instead), and outside Homebridge there is no Config UI X to take
-  certificates from.
-- **A passphrase.** homebridge-dummy's webhooks have no authentication. Here `webhookConfig.passphrase`, when set, is
-  required on every request, as a `passphrase` parameter or `Authorization: Bearer <passphrase>`, compared in constant
-  time. It is a secret-named key: the bridge seals it in config.json, or it can be a `vault:` reference. Set it, or
-  `bindAddress: "127.0.0.1"`, whenever the bridge's network is not yours alone: anyone who reaches the port can
-  otherwise switch the accessories, the locks and doors included.
+- **HTTPS** with `webhookConfig.key` and `cert`, paths of PEM files; `disableSSL` keeps plain HTTP. `pfx` (and its
+  `passphrase`) is not supported: give the key and the certificate instead. Outside Homebridge there is no Config UI X
+  to take certificates from.
+- **A token.** homebridge-dummy's webhooks have no authentication. Here `webhookConfig.token`, when set, is required
+  on every request, as a `token` parameter or `Authorization: Bearer <token>`, compared in constant time. It is a
+  secret: it moves into the vault with the next settings write (or can be a `vault:` reference), and it is not in the
+  settings form. Set it, or `bindAddress: "127.0.0.1"`, whenever the bridge's network is not yours alone: anyone who
+  reaches the port can otherwise switch the accessories, the locks and doors included. The bridge warns at launch
+  when the server listens beyond this machine without one.
+- **No browser pages.** A request a browser sends from another site's page (`Sec-Fetch-Site: cross-site` or
+  `same-site`, or an `Origin` other than the server's host) is refused, so a web page the user opens cannot drive the
+  accessories. Scripts, Shortcuts and curl send neither header.
 - Request bodies are limited to 64 KB and idle connections closed after 30 seconds.
 
 ### Secrets
 
-`notification.token` (the Notify! token, or the Pushover user key) and `webhookConfig.passphrase` sit under
-secret-named keys: the bridge seals them, resolves `vault:`, `env:` and `file:` references, and masks them in logs.
-They are not in the settings form: put them in config.json or the vault. Pushover's application token is
-`notification.id`, which is not a secret-named key and stays in plain text; Pushover needs your own application's
-token there, as the bridge has none of its own.
+`webhookConfig.token`, `notification.token` (the Notify! token, or the Pushover user key) and, for Pushover,
+`notification.id` (your application's token: the bridge has none of its own) move into the vault with the next
+settings write, the instance's for the token and each accessory's for its notification, and are read from there. Until
+then the bridge seals and masks the secret-named ones in config.json. They are not in the settings form.
 
 ## What differs from homebridge-dummy
 
@@ -88,8 +91,8 @@ token there, as the bridge has none of its own.
 - **Reachability conditions** check a host by opening a TCP connection to its web ports (80 and 443, or a URL's port):
   a host that accepts or refuses answers, so it is reachable. There is no ICMP ping (it needs privileges the bridge
   does not have) and no ARP scan, so a `pingHost` that is a MAC address is never checked and its condition never holds.
-- **Sun times** come from the configured `latitude` and `longitude` only, as in homebridge-dummy; a day without the
-  event (polar day or night) tries again the next day.
+- **Sun times** come from each schedule's `latitude` and `longitude` only, as in homebridge-dummy, not from a location
+  of the bridge's; a day without the event (polar day or night) tries again the next day.
 - **History** is kept for accessories on their own; group members keep none. History files are in the plugin's
   folder, not in Homebridge's `persist/`.
 - **State** is kept in the plugin's folder (`HomebridgeDummy.json`, the same pairs of identifier and property);
