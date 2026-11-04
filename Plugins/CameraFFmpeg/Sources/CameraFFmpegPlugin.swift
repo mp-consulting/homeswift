@@ -123,10 +123,15 @@ public actor CameraFFmpegPlugin: HomeswiftPlugin {
         return "\(digits(0..<8))-\(digits(8..<12))-4\(digits(12..<15))-\(variant)\(digits(16..<19))-\(digits(19..<31))"
     }
 
+    /// The block's cameras, each with its Accessory Settings (by its name) on top.
+    func configuredCameras() -> [Camera] {
+        configuration.cameras.map { camera in camera.name.map { camera.with(settings: context.accessorySettings(for: $0).plugin) } ?? camera }
+    }
+
     // MARK: Lifecycle
 
     public func start() async throws {
-        let accepted = Self.accept(configuration.cameras, logger: logger)
+        let accepted = Self.accept(configuredCameras(), logger: logger)
         var routes = MQTTRoutes()
         for entry in accepted where !context.isExcluded(entry.name) {
             do {

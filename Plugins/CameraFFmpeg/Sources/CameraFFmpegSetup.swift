@@ -23,7 +23,7 @@ extension CameraFFmpegPlugin {
     /// The cameras of the block, by name. FFmpeg reaches them only when HomeKit asks for a picture, so whether they answer
     /// is not known here.
     public func discover() async throws -> [DiscoveredDevice] {
-        Self.accept(configuration.cameras, logger: Logger(label: "homeswift.camera-ffmpeg.discover") { _ in SwiftLogNoOpLogHandler() }).map { entry in
+        Self.accept(configuredCameras(), logger: Logger(label: "homeswift.camera-ffmpeg.discover") { _ in SwiftLogNoOpLogHandler() }).map { entry in
             DiscoveredDevice(
                 deviceID: entry.name, name: context.accessorySettings(for: entry.name).name ?? entry.name, model: entry.camera.model,
                 isSetUp: true, kind: Self.cameraKind)
@@ -59,21 +59,33 @@ extension CameraFFmpegPlugin {
 
     // MARK: Settings
 
-    /// The block without Homebridge's `passmqtt`, which moves into the vault once the block is written, where the vault has
-    /// no password of its own.
+    /// The block without Homebridge's `passmqtt`, which moves into the vault once the block is written (the block's own,
+    /// which may be newer than the vault's).
     public func canonicalSettings(_ block: JSONValue) async -> JSONValue {
-        guard let password = configuration.mqttPassword ?? block["passmqtt"]?.stringValue, !password.isEmpty else { return block }
-        if context.credentials(as: BrokerCredentials.self)?.password == nil {
+        guard let password = block["passmqtt"]?.stringValue, !password.isEmpty else { return Self.canonical(block) }
+        if context.credentials(as: BrokerCredentials.self)?.password != password {
             let context = context
             await context.whenSettingsWritten { try context.saveCredentials(BrokerCredentials(password: password)) }
         }
         return Self.canonical(block)
     }
 
-    /// The block without `passmqtt`.
+    /// The block without `passmqtt`, and each named camera's motion, doorbell and switch options moved from its `cameras`
+    /// entry into its Accessory Settings (by its name, its Device Id), what those already hold winning.
     static func canonical(_ block: JSONValue) -> JSONValue {
-        guard var fields = block.objectValue, fields["passmqtt"] != nil else { return block }
+        guard var fields = block.objectValue else { return block }
         fields.removeValue(forKey: "passmqtt")
+        if let cameras = fields["cameras"]?.arrayValue {
+            var entries = AccessoryEntries(fields)
+            fields["cameras"] = .array(cameras.map { item in
+                guard var camera = item.objectValue, let name = item["name"].truthyString else { return item }
+                for key in Camera.accessorySettingKeys {
+                    if let value = camera.removeValue(forKey: key) { entries.setIfAbsent(key, value, on: name) }
+                }
+                return .object(camera)
+            })
+            entries.write(into: &fields)
+        }
         return .object(fields)
     }
 }

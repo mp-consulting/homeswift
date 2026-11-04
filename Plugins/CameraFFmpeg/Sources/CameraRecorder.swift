@@ -114,6 +114,8 @@ final class CameraRecorder: CameraRecordingDelegate, @unchecked Sendable {
                 for await data in feed {
                     do { try await process.writeStdin(data) } catch { break }
                 }
+                // The prebuffer ended: the recording reaches the end of its input, rather than waiting for more.
+                process.endStdin()
             }
         }
         defer {
@@ -137,6 +139,8 @@ final class CameraRecorder: CameraRecordingDelegate, @unchecked Sendable {
             }
             guard !Task.isCancelled else { return }
             log.info("Recording completed: \(fragments) fragments, \(bytes) bytes.")
+            // FFmpeg ended before the hub closed the stream (the camera went away): the hub is told it is over.
+            continuation.yield(RecordingPacket(data: Data(), isLast: true))
         } catch {
             log.error("Recording stream error: \(error)")
             continuation.yield(RecordingPacket(data: Data(), isLast: true))
@@ -287,7 +291,12 @@ final class Prebuffer: @unchecked Sendable {
             if drop > 0 { state.boxes.removeFirst(drop) }
             return (live, listeners, nil)
         }
-        if let failure { log.error("Prebuffer: \(failure)") }
+        if let failure {
+            // The stream cannot be followed from here on: the prebuffer stops, and the next recording starts it again.
+            log.error("Prebuffer: \(failure). Stopping it.")
+            stop()
+            return
+        }
         // Whole boxes only: a recording that joins mid-chunk still reads a well-formed stream.
         for listener in listeners {
             for box in live { listener.yield(box) }

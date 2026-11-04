@@ -211,8 +211,13 @@ actor CameraStreamer: CameraStreamingDelegate {
                                                sessionID: sessionID, token: token))
         } catch {
             log.error("Error on the stream's return socket: \(error)")
-            sessions[sessionID] = session
-            stopStream(sessionID)
+            if sessions[sessionID]?.token == token {
+                sessions[sessionID] = session
+                stopStream(sessionID)
+            } else {
+                // A stop already ended it, and gave its ports back.
+                session.returnAudio?.stop()
+            }
             throw HAPStatusError(.serviceCommunicationFailure)
         }
         // A stop that came while the socket bound already removed the session.

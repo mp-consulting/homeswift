@@ -79,6 +79,10 @@ enum FFmpegArguments {
         var audioSRTP: Data
         var audioSSRC: UInt32
         var isIPv6: Bool
+
+        /// The address as a URL's host: an IPv6 one in brackets (the original wrote none, which FFmpeg reads as a host
+        /// ending at the first colon).
+        var urlHost: String { isIPv6 ? "[\(address)]" : address }
     }
 
     /// The values a started stream runs with, after the caps.
@@ -125,7 +129,7 @@ enum FFmpegArguments {
         if let filter = values.filters.videoFilter { command += " -filter:v " + filter }
         if values.bitrate > 0 { command += " -b:v \(values.bitrate)k" }
         arguments += split(command) + ["-payload_type", "\(request.video.pt)"]
-            + srtpOutput(ssrc: target.videoSSRC, srtp: target.videoSRTP, address: target.address, port: target.videoPort, packetSize: values.mtu)
+            + srtpOutput(ssrc: target.videoSSRC, srtp: target.videoSRTP, host: target.urlHost, port: target.videoPort, packetSize: values.mtu)
         var unsupportedAudio = false
         if video.audio {
             let audio = request.audio
@@ -134,7 +138,7 @@ enum FFmpegArguments {
                 arguments += audio.codec == .opus ? ["-codec:a", "libopus", "-application", "lowdelay"] : ["-codec:a", "libfdk_aac", "-profile:a", "aac_eld"]
                 arguments += ["-flags", "+global_header", "-f", "null", "-ar", "\(audio.sampleRate)k", "-b:a", "\(audio.maxBitRate)k", "-ac", "\(audio.channel)",
                               "-payload_type", "\(audio.pt)"]
-                arguments += srtpOutput(ssrc: target.audioSSRC, srtp: target.audioSRTP, address: target.address, port: target.audioPort, packetSize: 188)
+                arguments += srtpOutput(ssrc: target.audioSSRC, srtp: target.audioSRTP, host: target.urlHost, port: target.audioPort, packetSize: 188)
             } else {
                 unsupportedAudio = true
             }
@@ -143,10 +147,10 @@ enum FFmpegArguments {
         return (arguments, unsupportedAudio)
     }
 
-    /// An SRTP output to the controller (the address in a URL without brackets, as the original writes IPv6 ones).
-    private static func srtpOutput(ssrc: UInt32, srtp: Data, address: String, port: Int, packetSize: Int) -> [String] {
+    /// An SRTP output to the controller.
+    private static func srtpOutput(ssrc: UInt32, srtp: Data, host: String, port: Int, packetSize: Int) -> [String] {
         ["-ssrc", "\(ssrc)", "-f", "rtp", "-srtp_out_suite", "AES_CM_128_HMAC_SHA1_80", "-srtp_out_params", srtp.base64EncodedString(),
-         "srtp://\(address):\(port)?rtcpport=\(port)&pkt_size=\(packetSize)"]
+         "srtp://\(host):\(port)?rtcpport=\(port)&pkt_size=\(packetSize)"]
     }
 
     // MARK: Two-way audio (7.7)
@@ -256,7 +260,7 @@ enum Masking {
             result = result.replacing(#/([a-zA-Z][a-zA-Z0-9+.\-]*:\/\/)[^\/?#\s]*@/#) { $0.output.1 + "***@" }
         }
         // Credentials some cameras take in the query (`?usr=admin&pwd=…`), as HomeswiftFFmpeg hides them in its own lines.
-        result = redactCommandLine([result])
+        result = redactURLPasswords(result)
         if result.contains("inline:") {
             result = result.replacing(#/inline:[A-Za-z0-9+\/=]+/#) { _ in "inline:***" }
         }

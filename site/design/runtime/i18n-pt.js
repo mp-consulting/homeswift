@@ -67,6 +67,7 @@ HomeswiftI18n.add("pt", {
   "Power, inputs, volume, the remote and Ambilight of Philips Android TVs": "Ligar, entradas, volume, comando e Ambilight dos televisores Philips Android",
   "Lights, scenes, effects and sensors from a Hue Bridge, locally": "Luzes, cenas, efeitos e sensores de uma ponte Hue, localmente",
   "Door locks, hubs and readers, followed in real time": "Fechaduras, hubs e leitores de porta, acompanhados em tempo real",
+  "Any camera FFmpeg can read, with HomeKit Secure Video, motion and doorbell": "Qualquer câmara que o FFmpeg consiga ler, com HomeKit Secure Video, movimento e campainha",
   "Cameras and doorbells with HomeKit Secure Video, sensors and lights": "Câmaras e campainhas com HomeKit Secure Video, sensores e luzes",
   "Apple Home's accessories in Homeswift, through a Mac": "Os acessórios da app Casa no Homeswift, através de um Mac",
   "Not started": "Não iniciado",

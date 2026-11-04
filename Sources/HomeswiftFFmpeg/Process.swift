@@ -36,7 +36,7 @@ public func redactCommandLine(_ commandLineArgs: [String]) -> String {
 /// `\b([a-z][a-z0-9+.-]*:\/\/[^:/?#@\s]*):[^/?#\s]*@` (case-insensitive) replaced by `$1:***@`. The password runs to the
 /// last `@` before the host, so one holding a raw `@` (cameras accept them unencoded) is hidden whole.
 /// Credentials in a URL's query (`?usr=admin&pwd=…`, `&token=…`), which many cameras take, are hidden too.
-func redactURLPasswords(_ text: String) -> String {
+public func redactURLPasswords(_ text: String) -> String {
     guard text.contains("://") else { return text }
     var result = text.replacing(#/\b([a-zA-Z][a-zA-Z0-9+.\-]*:\/\/[^:\/?#@\s]*):[^\/?#\s]*@/#) { match in
         match.output.1 + ":***@"

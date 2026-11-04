@@ -84,7 +84,9 @@ Each camera is an accessory (a camera, or a video doorbell with `doorbell`) with
 Management services, a Microphone, a Speaker with `returnAudioTarget`, the recording services with `recording`, and,
 as configured, a Motion Sensor, a Doorbell and the switches `<name> Motion Trigger` and `<name> Doorbell Trigger`.
 Its Device Id is its name: the accessory id is `Camera-ffmpeg:<name>`, and its Accessory Settings sit in the block's
-`_accessories` under its name. An Excluded camera is not published, and FFmpeg never reads it.
+`_accessories` under its name: `motion`, `doorbell`, `switches`, `motionTimeout` and `motionDoorbell` are its Accessory Settings (a
+Homebridge block's are read from its `cameras` entry, and move there at the next settings write). An Excluded camera is not
+published, and FFmpeg never reads it.
 
 Setup asks nothing of a camera: its credentials are in its `source`. The account is the MQTT broker's sign-in (a user name
 and a password, both optional). The Add accessories page lists the cameras of the block.

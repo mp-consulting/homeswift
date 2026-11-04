@@ -96,6 +96,12 @@ struct ArgumentTests {
         let arguments = FFmpegArguments.stream(video, values: FFmpegArguments.streamValues(video, request: request.video), request: request, target: target).arguments
         #expect(arguments.contains("srtp://1.2.3.4 -y /tmp/out.mp4:51000?rtcpport=51000&pkt_size=1316"))
         #expect(!arguments.contains("-y"))
+
+        // An IPv6 controller in brackets, so FFmpeg reads the whole address as the host.
+        target.address = "fe80::1"
+        target.isIPv6 = true
+        let v6 = FFmpegArguments.stream(video, values: FFmpegArguments.streamValues(video, request: request.video), request: request, target: target).arguments
+        #expect(v6.contains("srtp://[fe80::1]:51000?rtcpport=51000&pkt_size=1316"))
     }
 
     @Test func anUnsupportedAudioCodecSendsNoAudio() throws {

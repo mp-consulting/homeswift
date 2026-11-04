@@ -166,7 +166,13 @@ final class HTTPAutomationServer: Sendable {
     /// A connection quiet this long is closed.
     static let idleTimeout: TimeAmount = .seconds(30)
 
-    private let channels = NIOLockedValueBox<[any Channel]>([])
+    private struct State {
+        var listeners: [any Channel] = []
+        var connections: [ObjectIdentifier: any Channel] = [:]
+        var stopped = false
+    }
+
+    private let state = NIOLockedValueBox(State())
 
     /// Binds `port` on the loopback addresses (`localOnly`) or every interface; the port bound (port 0 picks one).
     @discardableResult
@@ -175,8 +181,11 @@ final class HTTPAutomationServer: Sendable {
         let bootstrap = ServerBootstrap(group: group)
             .serverChannelOption(.backlog, value: 32)
             .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
-            .childChannelInitializer { channel in
-                channel.eventLoop.makeCompletedFuture {
+            .childChannelInitializer { [state] channel in
+                let id = ObjectIdentifier(channel)
+                state.withLockedValue { $0.connections[id] = channel }
+                channel.closeFuture.whenComplete { _ in state.withLockedValue { _ = $0.connections.removeValue(forKey: id) } }
+                return channel.eventLoop.makeCompletedFuture {
                     try channel.pipeline.syncOperations.addHandler(IdleStateHandler(allTimeout: Self.idleTimeout))
                     try channel.pipeline.syncOperations.configureHTTPServerPipeline(withErrorHandling: true)
                     try channel.pipeline.syncOperations.addHandler(AutomationHandler(handler: handler))
@@ -184,25 +193,36 @@ final class HTTPAutomationServer: Sendable {
             }
         var bound: [any Channel] = []
         var boundPort = port
-        // Node's `localhost`: the IPv4 loopback, and the IPv6 one where there is one.
-        for host in localOnly ? ["127.0.0.1", "::1"] : ["0.0.0.0"] {
+        // Node's `localhost`: the IPv4 loopback, and the IPv6 one where there is one. Every interface: both stacks on `::`,
+        // or IPv4 alone on a host without IPv6.
+        let hosts = localOnly ? [("127.0.0.1", false), ("::1", true)] : [("::", true), ("0.0.0.0", false)]
+        for (host, optional) in hosts {
+            if !localOnly, !bound.isEmpty { break }
             do {
                 let channel = try await bootstrap.bind(host: host, port: boundPort).get()
                 boundPort = channel.localAddress?.port ?? boundPort
                 bound.append(channel)
-            } catch where host == "::1" {
-                // No IPv6 loopback on this host.
+            } catch where optional {
+                // No IPv6 on this host.
             }
         }
-        channels.withLockedValue { $0 += bound }
+        let stopped = state.withLockedValue { state -> Bool in
+            if !state.stopped { state.listeners += bound }
+            return state.stopped
+        }
+        // Stopped while binding: nothing may keep listening.
+        guard !stopped else {
+            for channel in bound { try? await channel.close() }
+            return boundPort
+        }
         logger.info("Starting HTTP server on port \(boundPort)\(localOnly ? " (localhost only)" : "").")
         return boundPort
     }
 
     func stop() async {
-        let channels = channels.withLockedValue { channels in
-            defer { channels = [] }
-            return channels
+        let channels = state.withLockedValue { state in
+            defer { state = State(stopped: true) }
+            return state.listeners + Array(state.connections.values)
         }
         for channel in channels { try? await channel.close() }
     }

@@ -56,8 +56,22 @@ extension CameraFFmpegPlugin {
         public var motionDoorbell: Bool
         public var videoConfig: VideoConfig?
         public var mqtt: CameraMQTT?
+        /// The entry as the block has it.
+        let json: JSONValue
+
+        /// The options a camera's Accessory Settings hold (`accessorySchema`), which `canonicalSettings` moves out of its
+        /// `cameras` entry.
+        static let accessorySettingKeys = ["motion", "doorbell", "switches", "motionTimeout", "motionDoorbell"]
+
+        /// The camera with its Accessory Settings on top of its entry's options.
+        func with(settings: [String: JSONValue]) -> Camera {
+            var fields = json.objectValue ?? [:]
+            for key in Self.accessorySettingKeys { if let value = settings[key] { fields[key] = value } }
+            return Camera(json: .object(fields))
+        }
 
         init(json: JSONValue) {
+            self.json = json
             name = json["name"].truthyString
             manufacturer = json["manufacturer"].truthyString ?? "Homebridge"
             model = json["model"].truthyString ?? "Camera FFmpeg"

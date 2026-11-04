@@ -276,7 +276,50 @@
     }
   },
   "accessorySchema": {
-    "properties": {}
+    "properties": {
+      "motion": {
+        "title": "Motion Sensor",
+        "type": "boolean",
+        "description": "Add a motion sensor, triggered over MQTT, HTTP or its switch.",
+        "x-kinds": [
+          "camera"
+        ]
+      },
+      "doorbell": {
+        "title": "Doorbell",
+        "type": "boolean",
+        "description": "Add a doorbell, rung over MQTT, HTTP or its switch.",
+        "x-kinds": [
+          "camera"
+        ]
+      },
+      "switches": {
+        "title": "Trigger Switches",
+        "type": "boolean",
+        "description": "Add switches in HomeKit that trigger the motion sensor and the doorbell.",
+        "x-kinds": [
+          "camera"
+        ]
+      },
+      "motionTimeout": {
+        "title": "Motion Timeout (seconds)",
+        "type": "integer",
+        "description": "How long motion stays detected after a trigger, and the doorbell switch stays on. 0 keeps motion on until it is reset. Empty uses 1.",
+        "placeholder": 1,
+        "minimum": 0,
+        "x-kinds": [
+          "camera"
+        ]
+      },
+      "motionDoorbell": {
+        "title": "Motion Rings the Doorbell",
+        "type": "boolean",
+        "description": "A motion trigger also rings the doorbell.",
+        "x-kinds": [
+          "camera"
+        ]
+      }
+    }
   },
   "i18n": {
     "fr": {

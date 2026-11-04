@@ -62,6 +62,24 @@ struct ConfigurationTests {
         #expect(CameraFFmpegPlugin.canonical(canonical) == canonical)
     }
 
+    @Test func cameraOptionsMoveIntoAccessorySettings() throws {
+        let block = try JSONValue(string: """
+            {"platform":"Camera-ffmpeg","_accessories":{"Front Door":{"motionTimeout":30}},
+             "cameras":[{"name":"Front Door","motion":true,"motionTimeout":15,"videoConfig":{"source":"-i x"}},{"videoConfig":{"source":"-i y"},"doorbell":true}]}
+            """)
+        let canonical = CameraFFmpegPlugin.canonical(block)
+        #expect(canonical["_accessories"]?["Front Door"]?["motion"] == true)
+        // What the Accessory Settings hold already wins.
+        #expect(canonical["_accessories"]?["Front Door"]?["motionTimeout"] == 30)
+        #expect(canonical["cameras"]?[0]?["motion"] == nil && canonical["cameras"]?[0]?["videoConfig"]?["source"] == "-i x")
+        // An unnamed camera has no Device Id yet: its options stay.
+        #expect(canonical["cameras"]?[1]?["doorbell"] == true)
+        #expect(CameraFFmpegPlugin.canonical(canonical) == canonical)
+        // Read back, the settings are the camera's.
+        let camera = CameraFFmpegPlugin.Camera(json: try #require(canonical["cameras"]?[0])).with(settings: try #require(canonical["_accessories"]?["Front Door"]?.objectValue))
+        #expect(camera.motion && camera.motionTimeout == 30)
+    }
+
     @Test func identityVectors() {
         #expect(CameraFFmpegPlugin.hapUUID("Front Door") == "4ffef822-6592-43bb-898a-028dd181bd69")
         #expect(CameraFFmpegPlugin.hapUUID("Camera Name") == "727c22f8-f330-4b78-9226-010e5d64a283")
@@ -332,7 +350,11 @@ struct PluginTests {
     }
 
     @Test func streamsStartOnFFmpegsFirstLineAndStopWithThePlugin() async throws {
-        let host = try await environment.start(try block([["name": "Front Door", "videoConfig": ["source": "-i rtsp://cam/s1"]]]))
+        // Real timings: a shortened inactivity timeout could end the stream before it is looked at, under load.
+        let environment = TestEnvironment(timeScale: 1)
+        let host = try await environment.start([
+            "videoProcessor": try environment.fakeFFmpeg().path, "cameras": [["name": "Front Door", "videoConfig": ["source": "-i rtsp://cam/s1"]]],
+        ])
         #expect(await eventually { environment.accessory(host, named: "Front Door") != nil })
         let streamer = try #require(await environment.plugin?.cameras["Front Door"]?.streamer)
         let source = PrepareStreamRequest.Source(port: 50000, srtpCryptoSuite: .aesCM128HMACSHA1_80, srtpKey: Data(repeating: 1, count: 16),
@@ -343,7 +365,7 @@ struct PluginTests {
         try await streamer.handleStreamRequest(.start(startRequest(sessionID: "s1")))
         #expect(await streamer.sessionCount == 1)
         await host.stop()
-        #expect(await streamer.sessionCount == 0)
+        #expect(await eventually { await streamer.sessionCount == 0 })
     }
 
     @Test func aStreamNobodyWatchesStops() async throws {
@@ -376,8 +398,9 @@ struct PluginTests {
         var packets: [RecordingPacket] = []
         for try await packet in recorder.handleRecordingStreamRequest(streamID: 2) { packets.append(packet) }
         func box(_ type: String, _ payload: String = "") -> Data { Data([0, 0, 0, UInt8(8 + payload.utf8.count)]) + Data((type + payload).utf8) }
-        #expect(packets.map(\.data) == [box("ftyp") + box("moov"), box("moof") + box("mdat", "1234")])
-        #expect(packets.allSatisfy { !$0.isLast })
+        #expect(packets.map(\.data) == [box("ftyp") + box("moov"), box("moof") + box("mdat", "1234"), Data()])
+        // FFmpeg ended before the hub closed the stream: the last packet says so.
+        #expect(packets.map(\.isLast) == [false, false, true])
         await host.stop()
     }
 
