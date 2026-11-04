@@ -297,19 +297,22 @@ actor Thing {
         _ characteristic: Characteristic, _ config: Config, _ kind: Kind, get: String?, set: String?, property: String, online: OnlineState,
         eventOnly: Bool = false, received: ((HAPValue, Bool) -> Void)? = nil, wrote: ((HAPValue) -> Void)? = nil
     ) {
+        // Boxed: the closures below capture it, and the compiler takes a closure parameter for something sent.
+        let received = Box(received)
+        let wrote = Box(wrote)
         if !eventOnly { serveReads(characteristic, online) }
         if let set, config.has(set) {
             onWrite(characteristic) { value in
                 self.publish(config, set, property: property, Self.encode(kind, value))
-                wrote?(value)
+                wrote.value?(value)
             }
-        } else if let wrote {
+        } else if let wrote = wrote.value {
             onWrite(characteristic, wrote)
         }
         guard let get, config.has(get) else { return }
         subscribe(config, get, property: property) { [weak characteristic] message in
             guard let characteristic, let value = self.decode(kind, message, for: characteristic, key: get) else { return }
-            self.apply(value, to: characteristic, config: config, eventOnly: eventOnly, received: received)
+            self.apply(value, to: characteristic, config: config, eventOnly: eventOnly, received: received.value)
         }
     }
 

@@ -30,13 +30,16 @@ struct AccessoryTests {
         #expect(accessory.information.characteristic(.manufacturer).value == .string("mqttthing"))
         #expect(accessory.information.characteristic(.serialNumber).value == .string("testhost.local-Desk Lamp"))
         await broker.send("desk/lamp/state", "true")
-        #expect(await eventually { host.value(id, .switch, .on) == .bool(true) })
+        let check1 = await eventually { host.value(id, .switch, .on) == .bool(true) }
+        #expect(check1)
         for ignored in ["1", "ON", "True"] { broker.receive("desk/lamp/state", string: ignored) }
         broker.receive("desk/lamp/state", string: "false")
-        #expect(await eventually { host.value(id, .switch, .on) == .bool(false) })
+        let check2 = await eventually { host.value(id, .switch, .on) == .bool(false) }
+        #expect(check2)
         try await write(host.service(id, .switch)?[.on], .bool(true))
         try await write(host.service(id, .switch)?[.on], .bool(false))
-        #expect(await broker.waitFor("desk/lamp/set", count: 2) == ["true", "false"])
+        let check3 = await broker.waitFor("desk/lamp/set", count: 2) == ["true", "false"]
+        #expect(check3)
     }
 
     @Test func blocksOnOneBrokerShareAConnection() async throws {
@@ -47,7 +50,8 @@ struct AccessoryTests {
         ])
         defer { Task { await host.stop() } }
         #expect(environment.connections.map(\.url).sorted() == ["mqtt://broker.local", "mqtt://other.local"])
-        #expect(await eventually { broker.subscriptions.keys.sorted() == ["one", "two"] })
+        let check4 = await eventually { broker.subscriptions.keys.sorted() == ["one", "two"] }
+        #expect(check4)
         #expect(broker.connectCount == 1)
     }
 
@@ -60,12 +64,15 @@ struct AccessoryTests {
         let id = "mqttthing:Heater Plug"
         _ = await eventually { broker.isConnected }
         try await write(host.service(id, .outlet)?[.on], .bool(true))
-        #expect(await broker.waitFor("plug/heater/cmnd", count: 3) == ["1", "1", "1"])
-        await #expect(throws: HAPStatusError.self) { try await read(host.service(id, .outlet)?[.on]) }
+        let check5 = await broker.waitFor("plug/heater/cmnd", count: 3) == ["1", "1", "1"]
+        #expect(check5)
+        let unanswered = (try? await read(host.service(id, .outlet)?[.on])) == nil
+        #expect(unanswered)
         try await Task.sleep(for: .milliseconds(50))
         #expect(broker.published(on: "plug/heater/cmnd").count == 3)
         broker.receive("plug/heater/stat", string: "1")
-        #expect(await eventually { (try? await read(host.service(id, .outlet)?[.on])) == .bool(true) })
+        let check6 = await eventually { (try? await read(host.service(id, .outlet)?[.on])) == .bool(true) }
+        #expect(check6)
     }
 
     /// 10.4
@@ -77,15 +84,21 @@ struct AccessoryTests {
         ])
         defer { Task { await host.stop() } }
         await broker.send("timed", "true")
-        #expect(await eventually { host.value("mqttthing:Timed", .switch, .on) == .bool(true) })
-        #expect(await broker.waitFor("timed/set") == ["false"])
+        let check7 = await eventually { host.value("mqttthing:Timed", .switch, .on) == .bool(true) }
+        #expect(check7)
+        let check8 = await broker.waitFor("timed/set") == ["false"]
+        #expect(check8)
         #expect(host.value("mqttthing:Timed", .switch, .on) == .bool(false))
         await broker.send("pir", "true")
-        #expect(await eventually { host.value("mqttthing:PIR", .motionSensor, .motionDetected) == .bool(true) })
-        #expect(await eventually { host.value("mqttthing:PIR", .motionSensor, .motionDetected) == .bool(false) })
+        let check9 = await eventually { host.value("mqttthing:PIR", .motionSensor, .motionDetected) == .bool(true) }
+        #expect(check9)
+        let check10 = await eventually { host.value("mqttthing:PIR", .motionSensor, .motionDetected) == .bool(false) }
+        #expect(check10)
         await broker.send("door", "true")
-        #expect(await eventually { host.value("mqttthing:Door", .contactSensor, .contactSensorState) == .int(1) })
-        #expect(await eventually { host.value("mqttthing:Door", .contactSensor, .contactSensorState) == .int(0) })
+        let check11 = await eventually { host.value("mqttthing:Door", .contactSensor, .contactSensorState) == .int(1) }
+        #expect(check11)
+        let check12 = await eventually { host.value("mqttthing:Door", .contactSensor, .contactSensorState) == .int(0) }
+        #expect(check12)
         #expect(broker.published(on: "pir").isEmpty)
     }
 
@@ -97,10 +110,12 @@ struct AccessoryTests {
         defer { Task { await host.stop() } }
         let id = "mqttthing:Garden Sensor"
         await broker.send("tele/garden/SENSOR", #"{"Time":"2026-01-01T00:00:00","AM2301":{"Temperature":-3.5,"Humidity":80}}"#)
-        #expect(await eventually { host.value(id, .temperatureSensor, .currentTemperature) == .double(-3.5) })
+        let check13 = await eventually { host.value(id, .temperatureSensor, .currentTemperature) == .double(-3.5) }
+        #expect(check13)
         broker.receive("tele/garden/SENSOR", string: #"{"AM2301":{}}"#)
         await broker.send("tele/garden/battery_low", "true")
-        #expect(await eventually { host.value(id, .temperatureSensor, .statusLowBattery) == .int(1) })
+        let check14 = await eventually { host.value(id, .temperatureSensor, .statusLowBattery) == .int(1) }
+        #expect(check14)
         #expect(host.value(id, .temperatureSensor, .currentTemperature) == .double(-3.5))
         #expect(host.service(id, .battery) == nil)
     }
@@ -111,16 +126,21 @@ struct AccessoryTests {
         defer { Task { await host.stop() } }
         let id = "mqttthing:Hall Light"
         await broker.send("hall/bri", "40")
-        #expect(await eventually { host.value(id, .lightbulb, .brightness) == .int(40) && host.value(id, .lightbulb, .on) == .bool(true) })
+        let check15 = await eventually { host.value(id, .lightbulb, .brightness) == .int(40) && host.value(id, .lightbulb, .on) == .bool(true) }
+        #expect(check15)
         broker.receive("hall/bri", string: "0")
-        #expect(await eventually { host.value(id, .lightbulb, .on) == .bool(false) })
+        let check16 = await eventually { host.value(id, .lightbulb, .on) == .bool(false) }
+        #expect(check16)
         #expect(host.value(id, .lightbulb, .brightness) == .int(40))
         try await write(host.service(id, .lightbulb)?[.on], .bool(true))
-        #expect(await broker.waitFor("hall/bri/set") == ["40"])
+        let check17 = await broker.waitFor("hall/bri/set") == ["40"]
+        #expect(check17)
         try await write(host.service(id, .lightbulb)?[.on], .bool(false))
-        #expect(await broker.waitFor("hall/bri/set", count: 2).last == "0")
+        let check18 = await broker.waitFor("hall/bri/set", count: 2).last == "0"
+        #expect(check18)
         try await write(host.service(id, .lightbulb)?[.brightness], .int(70))
-        #expect(await broker.waitFor("hall/bri/set", count: 3).last == "70")
+        let check19 = await broker.waitFor("hall/bri/set", count: 3).last == "70"
+        #expect(check19)
         #expect(host.value(id, .lightbulb, .on) == .bool(true))
     }
 
@@ -135,13 +155,17 @@ struct AccessoryTests {
         try await write(light[.hue], .int(120))
         try await write(light[.saturation], .int(100))
         try await write(light[.brightness], .int(50))
-        #expect(await broker.waitFor("strip/hsv/set") == ["120,100,50"])
+        let check20 = await broker.waitFor("strip/hsv/set") == ["120,100,50"]
+        #expect(check20)
         try await write(light[.on], .bool(false))
-        #expect(await broker.waitFor("strip/hsv/set", count: 2).last == "120,100,0")
+        let check21 = await broker.waitFor("strip/hsv/set", count: 2).last == "120,100,0"
+        #expect(check21)
         try await write(light[.on], .bool(true))
-        #expect(await broker.waitFor("strip/hsv/set", count: 3).last == "120,100,50")
+        let check22 = await broker.waitFor("strip/hsv/set", count: 3).last == "120,100,50"
+        #expect(check22)
         await broker.send("strip/hsv", "240,100,30")
-        #expect(await eventually { light[.hue]?.value.doubleValue == 240 && light[.brightness]?.value == .int(30) && light[.on]?.value == .bool(true) })
+        let check23 = await eventually { light[.hue]?.value.doubleValue == 240 && light[.brightness]?.value == .int(30) && light[.on]?.value == .bool(true) }
+        #expect(check23)
         broker.receive("strip/hsv", string: "240,100")
         try await Task.sleep(for: .milliseconds(20))
         #expect(broker.published(on: "strip/hsv/set").count == 3)
@@ -158,11 +182,14 @@ struct AccessoryTests {
         try await write(light[.on], .bool(true))
         try await write(light[.hue], .int(240))
         try await write(light[.saturation], .int(50))
-        #expect(await broker.waitFor("w/set").last == "0,0,127,128")
+        let check24 = await broker.waitFor("w/set").last == "0,0,127,128"
+        #expect(check24)
         await broker.send("hex", "#0000ff")
-        #expect(await eventually { host.value("mqttthing:Hex", .lightbulb, .hue)?.doubleValue == 240 })
+        let check25 = await eventually { host.value("mqttthing:Hex", .lightbulb, .hue)?.doubleValue == 240 }
+        #expect(check25)
         broker.receive("w", string: "127,0,0,128")
-        #expect(await eventually { light[.saturation]?.value.doubleValue == 49 && light[.hue]?.value.doubleValue == 0 })
+        let check26 = await eventually { light[.saturation]?.value.doubleValue == 49 && light[.hue]?.value.doubleValue == 0 }
+        #expect(check26)
     }
 
     /// 10.9
@@ -172,11 +199,14 @@ struct AccessoryTests {
         let id = "mqttthing:Shelf"
         _ = await eventually { broker.isConnected }
         try await write(host.service(id, .lightbulb)?[.brightness], .int(50))
-        #expect(await broker.waitFor("shelf/w/set") == ["#80"])
+        let check27 = await broker.waitFor("shelf/w/set") == ["#80"]
+        #expect(check27)
         try await write(host.service(id, .lightbulb)?[.on], .bool(false))
-        #expect(await broker.waitFor("shelf/w/set", count: 2).last == "#00")
+        let check28 = await broker.waitFor("shelf/w/set", count: 2).last == "#00"
+        #expect(check28)
         await broker.send("shelf/w", "#fe")
-        #expect(await eventually { host.value(id, .lightbulb, .brightness) == .int(99) && host.value(id, .lightbulb, .on) == .bool(true) })
+        let check29 = await eventually { host.value(id, .lightbulb, .brightness) == .int(99) && host.value(id, .lightbulb, .on) == .bool(true) }
+        #expect(check29)
     }
 
     /// 10.10, both ways of knowing the door's position.
@@ -192,20 +222,26 @@ struct AccessoryTests {
         let id = "mqttthing:Garage"
         #expect(host.value(id, .garageDoorOpener, .targetDoorState) == .int(0) && host.value(id, .garageDoorOpener, .currentDoorState) == .int(1))
         try await write(host.service(id, .garageDoorOpener)?[.targetDoorState], .int(1))
-        #expect(await broker.waitFor("garage/target/set") == ["C"])
+        let check30 = await broker.waitFor("garage/target/set") == ["C"]
+        #expect(check30)
         await broker.send("garage/current", "c")
-        #expect(await eventually { host.value(id, .garageDoorOpener, .currentDoorState) == .int(3) })
+        let check31 = await eventually { host.value(id, .garageDoorOpener, .currentDoorState) == .int(3) }
+        #expect(check31)
         broker.receive("garage/current", string: "X")
         broker.receive("garage/current", string: "C")
-        #expect(await eventually { host.value(id, .garageDoorOpener, .currentDoorState) == .int(1) })
+        let check32 = await eventually { host.value(id, .garageDoorOpener, .currentDoorState) == .int(1) }
+        #expect(check32)
 
         let moving = "mqttthing:Moving"
-        #expect(await eventually { host.value(moving, .garageDoorOpener, .currentDoorState) == .int(0) })
+        let check33 = await eventually { host.value(moving, .garageDoorOpener, .currentDoorState) == .int(0) }
+        #expect(check33)
         try await write(host.service(moving, .garageDoorOpener)?[.targetDoorState], .int(1))
         await broker.send("moving/moving", "true")
-        #expect(await eventually { host.value(moving, .garageDoorOpener, .currentDoorState) == .int(3) })
+        let check34 = await eventually { host.value(moving, .garageDoorOpener, .currentDoorState) == .int(3) }
+        #expect(check34)
         broker.receive("moving/moving", string: "false")
-        #expect(await eventually { host.value(moving, .garageDoorOpener, .currentDoorState) == .int(1) })
+        let check35 = await eventually { host.value(moving, .garageDoorOpener, .currentDoorState) == .int(1) }
+        #expect(check35)
     }
 
     /// 10.11 and 10.12
@@ -222,23 +258,29 @@ struct AccessoryTests {
         #expect(host.value(alarm, .securitySystem, .securitySystemTargetState) == .int(3))
         #expect(host.service(alarm, .securitySystem)?[.securitySystemTargetState]?.type.validValues == [1, 3])
         try await write(host.service(alarm, .securitySystem)?[.securitySystemTargetState], .int(1))
-        #expect(await broker.waitFor("alarm/set") == ["AA"])
+        let check36 = await broker.waitFor("alarm/set") == ["AA"]
+        #expect(check36)
         await broker.send("alarm/state", "T")
-        #expect(await eventually { host.value(alarm, .securitySystem, .securitySystemCurrentState) == .int(4) })
+        let check37 = await eventually { host.value(alarm, .securitySystem, .securitySystemCurrentState) == .int(4) }
+        #expect(check37)
 
         let thermostat = "mqttthing:Living Thermostat"
         let service = try #require(host.service(thermostat, .thermostat))
         #expect(service[.active] != nil && service[.temperatureDisplayUnits] != nil)
         try await write(service[.targetHeatingCoolingState], .int(1))
         try await write(service[.targetTemperature], .double(21.5))
-        #expect(await broker.waitFor("th/target/set") == ["HEAT"])
-        #expect(await broker.waitFor("th/setpoint/set") == ["21.5"])
+        let check38 = await broker.waitFor("th/target/set") == ["HEAT"]
+        #expect(check38)
+        let check39 = await broker.waitFor("th/setpoint/set") == ["21.5"]
+        #expect(check39)
         await broker.send("th/temp", "19.25")
         // Rounded to the characteristic's step of 0.1, as HAP-NodeJS does.
-        #expect(await eventually { service[.currentTemperature]?.value == .double(19.3) })
+        let check40 = await eventually { service[.currentTemperature]?.value == .double(19.3) }
+        #expect(check40)
         broker.receive("th/setpoint", string: "35")
         broker.receive("th/mode", string: "HEAT")
-        #expect(await eventually { service[.currentHeatingCoolingState]?.value == .int(1) })
+        let check41 = await eventually { service[.currentHeatingCoolingState]?.value == .int(1) }
+        #expect(check41)
         #expect(service[.targetTemperature]?.value == .double(21.5))
     }
 
@@ -259,7 +301,8 @@ struct AccessoryTests {
         await broker.send("remote/b2", "d")
         broker.receive("remote/b2", string: "d")
         broker.receive("remote/b1", string: "1")
-        #expect(await eventually { events.values == [.int(1), .int(1)] })
+        let check42 = await eventually { events.values == [.int(1), .int(1)] }
+        #expect(check42)
     }
 
     /// 10.14, on a server of its own.
@@ -270,24 +313,29 @@ struct AccessoryTests {
             ], ["inputs": [["name": "HDMI 1", "value": "hdmi1"], ["name": "Antenna"]]])])
         defer { Task { await host.stop() } }
         let id = "mqttthing:Lounge TV"
-        #expect(await eventually { host.accessory(id) != nil })
+        let check43 = await eventually { host.accessory(id) != nil }
+        #expect(check43)
         let tv = try #require(host.service(id, .television))
         #expect(tv[.displayOrder]?.value == .string("AQEBAQEC"))
         #expect(host.accessory(id)?.services.filter { $0.type.uuid == ServiceType.inputSource.uuid }.map(\.subtype) == ["1", "2"])
         _ = await eventually { broker.isConnected }
         try await write(tv[.activeIdentifier], .int(1))
         try await write(tv[.activeIdentifier], .int(2))
-        #expect(await broker.waitFor("tv/input/set", count: 2) == ["hdmi1", "2"])
+        let check44 = await broker.waitFor("tv/input/set", count: 2) == ["hdmi1", "2"]
+        #expect(check44)
         try await write(tv[.remoteKey], .int(4))
         try await write(tv[.remoteKey], .int(15))
         try await write(host.service(id, .televisionSpeaker)?[.volumeSelector], .int(1))
-        #expect(await broker.waitFor("tv/key", count: 3) == ["UP", "INFO", "VOLUME_DOWN"])
+        let check45 = await broker.waitFor("tv/key", count: 3) == ["UP", "INFO", "VOLUME_DOWN"]
+        #expect(check45)
         try await write(tv[.active], .int(1))
-        #expect(await broker.waitFor("tv/power/set") == ["true"])
+        let check46 = await broker.waitFor("tv/power/set") == ["true"]
+        #expect(check46)
         await broker.send("tv/input", "hdmi1")
         try await write(tv[.activeIdentifier], .int(0))
         broker.receive("tv/input", string: "hdmi1")
-        #expect(await eventually { tv[.activeIdentifier]?.value == .int(1) })
+        let check47 = await eventually { tv[.activeIdentifier]?.value == .int(1) }
+        #expect(check47)
     }
 
     /// 10.15
@@ -303,13 +351,17 @@ struct AccessoryTests {
         #expect(valve[.valveType]?.value == .int(1))
         _ = await eventually { broker.isConnected }
         try await write(valve[.active], .int(1))
-        #expect(await broker.waitFor("lawn/set") == ["true"])
+        let check48 = await broker.waitFor("lawn/set") == ["true"]
+        #expect(check48)
         await broker.send("lawn/inuse", "true")
-        #expect(await eventually { valve[.remainingDuration]?.value == .int(600) })
+        let check49 = await eventually { valve[.remainingDuration]?.value == .int(600) }
+        #expect(check49)
         environment.clock.advance(100)
-        #expect(try await read(valve[.remainingDuration]) == .int(500))
+        let check50 = try await read(valve[.remainingDuration]) == .int(500)
+        #expect(check50)
         // The 600 s timer, scaled down, turns it off.
-        #expect(await broker.waitFor("lawn/set", count: 2).last == "false")
+        let check51 = await broker.waitFor("lawn/set", count: 2).last == "false"
+        #expect(check51)
         #expect(valve[.active]?.value == .int(0))
     }
 
@@ -319,13 +371,16 @@ struct AccessoryTests {
         defer { Task { await host.stop() } }
         let service = try #require(host.service("mqttthing:Plug", .outlet))
         await broker.send("plug/power", "100")
-        #expect(await eventually { service[Eve.currentConsumption]?.value == .double(100) })
+        let check52 = await eventually { service[Eve.currentConsumption]?.value == .double(100) }
+        #expect(check52)
         environment.clock.advance(36)
         broker.receive("plug/power", string: "200")
-        #expect(await eventually { abs((service[Eve.totalConsumption]?.value.doubleValue ?? 0) - 0.001) < 1e-9 })
+        let check53 = await eventually { abs((service[Eve.totalConsumption]?.value.doubleValue ?? 0) - 0.001) < 1e-9 }
+        #expect(check53)
         environment.clock.advance(36)
         broker.receive("plug/power", string: "0")
-        #expect(await eventually { abs((service[Eve.totalConsumption]?.value.doubleValue ?? 0) - 0.003) < 1e-9 })
+        let check54 = await eventually { abs((service[Eve.totalConsumption]?.value.doubleValue ?? 0) - 0.003) < 1e-9 }
+        #expect(check54)
         let history = try #require(host.accessory("mqttthing:Plug").flatMap { EveHistory.histories(of: $0).first })
         #expect(history.kind == .energy)
     }
@@ -336,13 +391,16 @@ struct AccessoryTests {
             "switch", "Opt", topics: ["setOn": "opt/set"],
             ["optimizePublishing": true, "mqttPubOptions": ["retain": true], "startPub": [["topic": "dev/reset", "message": "1"], ["topic": "dev/hello"]]])])
         defer { Task { await host.stop() } }
-        #expect(await broker.waitFor("dev/reset") == ["1"])
-        #expect(await broker.waitFor("dev/hello") == [""])
+        let check55 = await broker.waitFor("dev/reset") == ["1"]
+        #expect(check55)
+        let check56 = await broker.waitFor("dev/hello") == [""]
+        #expect(check56)
         let on = host.service("mqttthing:Opt", .switch)?[.on]
         try await write(on, .bool(true))
         try await write(on, .bool(false))
         try await write(on, .bool(false))
-        #expect(await broker.waitFor("opt/set", count: 2) == ["true", "false"])
+        let check57 = await broker.waitFor("opt/set", count: 2) == ["true", "false"]
+        #expect(check57)
         try await Task.sleep(for: .milliseconds(20))
         #expect(broker.published(on: "opt/set").count == 2)
         let retained = broker.published.allSatisfy { $0.retain }
@@ -356,10 +414,12 @@ struct AccessoryTests {
         defer { Task { await host.stop() } }
         let on = host.service("mqttthing:Lwt", .switch)?[.on]
         await broker.send("dev/lwt", "Offline")
-        #expect(await eventually { (try? await read(on)) == nil })
+        let check58 = await eventually { (try? await read(on)) == nil }
+        #expect(check58)
         broker.receive("dev/lwt", string: "online")
         broker.receive("dev/lwt", string: "Online")
-        #expect(await eventually { (try? await read(on)) != nil })
+        let check59 = await eventually { (try? await read(on)) != nil }
+        #expect(check59)
     }
 
     /// 10.19
@@ -377,9 +437,11 @@ struct AccessoryTests {
         #expect(host.service("mqttthing:Porch", .switch)?.subtype == "Porch Light")
         #expect(host.service("mqttthing:Porch", .motionSensor)?.subtype == "Porch PIR")
         try await write(host.service("mqttthing:Porch", .switch)?[.on], .bool(true))
-        #expect(await broker.waitFor("porch/light/set") == ["1"])
+        let check60 = await broker.waitFor("porch/light/set") == ["1"]
+        #expect(check60)
         await broker.send("porch/pir", "1")
-        #expect(await eventually { host.value("mqttthing:Porch", .motionSensor, .motionDetected) == .bool(true) })
+        let check61 = await eventually { host.value("mqttthing:Porch", .motionSensor, .motionDetected) == .bool(true) }
+        #expect(check61)
     }
 
     /// 10.20: `apply` is JavaScript; its topic is left out, the others work.
@@ -394,7 +456,8 @@ struct AccessoryTests {
         _ = await eventually { broker.isConnected }
         try await write(light[.brightness], .int(50))
         try await write(light[.on], .bool(true))
-        #expect(await broker.waitFor("apply/on/set") == ["true"])
+        let check62 = await broker.waitFor("apply/on/set") == ["true"]
+        #expect(check62)
         #expect(broker.published(on: "apply/bri/set").isEmpty)
     }
 
@@ -410,9 +473,11 @@ struct AccessoryTests {
         try await write(light[.hue], .int(0))
         try await write(light[.saturation], .int(100))
         try await write(light[.brightness], .int(100))
-        #expect(await broker.waitFor("desk/rgb/cmd") == [#"{"v":2,"light":{"on":true,"colour":"255,0,0"}}"#])
+        let check63 = await broker.waitFor("desk/rgb/cmd") == [#"{"v":2,"light":{"on":true,"colour":"255,0,0"}}"#]
+        #expect(check63)
         await broker.send("desk/rgb/state", #"{"light":{"on":false,"colour":"0,0,255"}}"#)
-        #expect(await eventually { light[.on]?.value == .bool(false) && light[.hue]?.value.doubleValue == 240 })
+        let check64 = await eventually { light[.on]?.value == .bool(false) && light[.hue]?.value.doubleValue == 240 }
+        #expect(check64)
         broker.receive("desk/rgb/state", string: #"{"other":1}"#)
         try await Task.sleep(for: .milliseconds(20))
         #expect(light[.hue]?.value.doubleValue == 240)
@@ -429,7 +494,8 @@ struct AccessoryTests {
             return
         }
         #expect(outcome.credentials?["brokers"]?["mqtt://broker.local"]?["password"] == .string("pw"))
-        #expect(try await plugin.discover().map(\.deviceID) == ["Secret"])
+        let check65 = try await plugin.discover().map(\.deviceID) == ["Secret"]
+        #expect(check65)
         #expect(environment.connections.first?.username == "me")
     }
 }

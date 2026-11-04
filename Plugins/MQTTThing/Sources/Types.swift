@@ -97,12 +97,7 @@ extension Thing {
             services.append(temperature.build(name: config.serviceName("temperature", "\(config.name)-Temperature"), subtype: entry.subtype))
         }
         if config.has("getCurrentRelativeHumidity") {
-            let humidity = ServiceBuilder(.humiditySensor)
-            float(humidity, .currentRelativeHumidity, entry, get: "getCurrentRelativeHumidity", property: "currentRelativeHumidity") { value in
-                self.record(entry, EveHistory.Entry(time: self.dependencies.now(), humidity: value))
-            }
-            status(humidity, entry)
-            services.append(humidity.build(name: config.serviceName("humidity", "\(config.name)-Humidity"), subtype: entry.subtype))
+            services.append(secondaryHumidity(entry, name: config.serviceName("humidity", "\(config.name)-Humidity")))
         }
         return services
     }
@@ -136,6 +131,16 @@ extension Thing {
             break
         }
         return [primary(service, entry)]
+    }
+
+    /// The HumiditySensor beside another type's primary service (air quality, weather station).
+    func secondaryHumidity(_ entry: Entry, name: String) -> Service {
+        let humidity = ServiceBuilder(.humiditySensor)
+        float(humidity, .currentRelativeHumidity, entry, get: "getCurrentRelativeHumidity", property: "currentRelativeHumidity") { value in
+            self.record(entry, EveHistory.Entry(time: self.dependencies.now(), humidity: value))
+        }
+        status(humidity, entry)
+        return humidity.build(name: name, subtype: entry.subtype)
     }
 
     func humiditySensor(_ entry: Entry) -> [Service] {
@@ -231,12 +236,7 @@ extension Thing {
         let config = entry.config
         var services = temperatureSensor(entry, name: config.serviceName("temperature", "\(config.name) Temperature"))
         if config.has("getCurrentRelativeHumidity") {
-            let humidity = ServiceBuilder(.humiditySensor)
-            float(humidity, .currentRelativeHumidity, entry, get: "getCurrentRelativeHumidity", property: "currentRelativeHumidity") { value in
-                self.record(entry, EveHistory.Entry(time: self.dependencies.now(), humidity: value))
-            }
-            status(humidity, entry)
-            services.append(humidity.build(name: config.serviceName("humidity", "\(config.name) Humidity"), subtype: entry.subtype))
+            services.append(secondaryHumidity(entry, name: config.serviceName("humidity", "\(config.name) Humidity")))
         }
         if config.has("getAirPressure") {
             let pressure = ServiceBuilder(Eve.airPressureSensor)

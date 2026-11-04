@@ -75,6 +75,15 @@ struct AccessoryBlockTests {
         await host.stop()
     }
 
+    /// A client that may not add `env:` or `file:` references cannot add them in an accessory block either: those are
+    /// resolved as their platform's.
+    @Test func externalReferencesInAccessoryBlocksCount() throws {
+        let current = try JSONValue(string: #"{ "accessories": [ { "accessory": "mqttthing", "name": "A" } ] }"#)
+        let next = try JSONValue(string: #"{ "accessories": [ { "accessory": "mqttthing", "name": "A", "password": "file:/etc/secret" } ] }"#)
+        #expect(ConfigurationSecrets.newExternalReferences(in: next, comparedWith: current) == ["accessory mqttthing/A:password"])
+        #expect(ConfigurationSecrets.newExternalReferences(in: next, comparedWith: next).isEmpty)
+    }
+
     @Test func theImportKeepsTheBlocksOfAPluginThatRunsThem() throws {
         var registry = PluginRegistry()
         registry.register(

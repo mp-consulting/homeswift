@@ -45,6 +45,9 @@ extension Thing {
         _ service: ServiceBuilder, _ entry: Entry, suffix: String = "", wantsSetDuration: Bool, wantsRemaining: Bool,
         onActive: ((Bool) -> Void)? = nil, onInUse: ((Bool) -> Void)? = nil
     ) -> (active: Characteristic, inUse: Characteristic) {
+        // Boxed: the closures below capture it, and the compiler takes a closure parameter for something sent.
+        let onActive = Box(onActive)
+        let onInUse = Box(onInUse)
         let config = entry.config
         let now = dependencies.now
         let run = ValveRun(end: now())
@@ -60,7 +63,7 @@ extension Thing {
                 guard let active = parts.active else { return }
                 active.value = .int(0)
                 self.publish(config, "setActive", property: "active\(suffix)", Booleans(config).encode(false))
-                onActive?(false)
+                onActive.value?(false)
             }
         }
         let active = boolean(service, .active, entry, get: "getActive", set: "setActive", property: "active\(suffix)", autoOff: true) { on in
@@ -68,7 +71,7 @@ extension Thing {
                 run.end = now().addingTimeInterval((off / 1000).rounded(.down))
                 push()
             }
-            onActive?(on)
+            onActive.value?(on)
         }
         parts.active = active
         let inUse = boolean(service, .inUse, entry, get: "getInUse", property: "inUse\(suffix)") { using in
@@ -82,7 +85,7 @@ extension Thing {
                 }
             }
             push()
-            onInUse?(using)
+            onInUse.value?(using)
         }
         if wantsSetDuration {
             let minimum = config.integer("minDuration"), maximum = config.integer("maxDuration")

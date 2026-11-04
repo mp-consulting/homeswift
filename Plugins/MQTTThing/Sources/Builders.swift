@@ -60,7 +60,6 @@ enum Eve {
     static let totalConsumption = CharacteristicType(
         name: "Total Consumption", uuid: uuid("F10C"), format: .float, permissions: readEvents, minValue: 0, maxValue: 1_000_000, minStep: 0.001)
 
-    static func weather(_ short: String) -> HAPUUID { HAPUUID(short) }
     static let weatherService = ServiceType(name: "Weather", uuid: HAPUUID("D92D5391-92AF-4824-AF4A-356F25F25EA1"), required: [])
     static let condition = CharacteristicType(name: "Condition", uuid: HAPUUID("CD65A9AB-85AD-494A-B2BD-2F380084134D"), format: .string, permissions: readEvents)
     static let rain1h = CharacteristicType(name: "Rain Last Hour", uuid: HAPUUID("10C88F40-7EC4-478C-8D5A-BD0C3CCE14B7"), format: .uint16, permissions: readEvents, minValue: 0, maxValue: 200)
@@ -85,6 +84,8 @@ extension Thing {
         _ service: ServiceBuilder, _ type: CharacteristicType, _ entry: Entry, get: String?, set: String? = nil, property: String,
         initial: Bool = false, autoOff: Bool = false, reset: Duration? = nil, onChange: ((Bool) -> Void)? = nil
     ) -> Characteristic {
+        // Boxed: the closures below capture it, and the compiler takes a closure parameter for something sent.
+        let onChange = Box(onChange)
         let characteristic = service.add(type)
         if initial { characteristic.value = Self.hap(true, for: characteristic) }
         let config = entry.config
@@ -97,7 +98,7 @@ extension Thing {
                     guard let characteristic else { return }
                     characteristic.value = Self.hap(false, for: characteristic)
                     self.publish(config, set, property: property, booleans.encode(false))
-                    onChange?(false)
+                    onChange.value?(false)
                 }
             }
         }
@@ -105,19 +106,19 @@ extension Thing {
             characteristic, config, .bool(booleans), get: get, set: set, property: property, online: entry.online,
             received: { [weak characteristic] value, changed in
                 let on = value.boolValue == true
-                if changed { onChange?(on); turnedOn(on) }
+                if changed { onChange.value?(on); turnedOn(on) }
                 if on, let reset, let characteristic {
                     self.after("reset-\(property)-\(ObjectIdentifier(characteristic))", reset) { [weak characteristic] in
                         guard let characteristic else { return }
                         let wasOn = characteristic.value.boolValue == true
                         characteristic.value = Self.hap(false, for: characteristic)
-                        if wasOn { onChange?(false) }
+                        if wasOn { onChange.value?(false) }
                     }
                 }
             },
             wrote: { value in
                 let on = value.boolValue == true
-                onChange?(on)
+                onChange.value?(on)
                 turnedOn(on)
             })
         return characteristic
@@ -129,12 +130,14 @@ extension Thing {
         _ service: ServiceBuilder, _ type: CharacteristicType, _ entry: Entry, get: String?, set: String? = nil, property: String,
         initial: Int? = nil, minimum: Int? = nil, maximum: Int? = nil, onChange: ((Int) -> Void)? = nil
     ) -> Characteristic {
+        // Boxed: the closures below capture it, and the compiler takes a closure parameter for something sent.
+        let onChange = Box(onChange)
         let characteristic = service.add(type.with(minValue: minimum.map(Double.init), maxValue: maximum.map(Double.init)))
         if let initial { characteristic.value = .int(initial) }
         bind(
             characteristic, entry.config, .int, get: get, set: set, property: property, online: entry.online,
-            received: { value, changed in if changed, let number = value.intValue { onChange?(number) } },
-            wrote: { value in if let number = value.intValue { onChange?(number) } })
+            received: { value, changed in if changed, let number = value.intValue { onChange.value?(number) } },
+            wrote: { value in if let number = value.intValue { onChange.value?(number) } })
         return characteristic
     }
 
@@ -144,11 +147,13 @@ extension Thing {
         _ service: ServiceBuilder, _ type: CharacteristicType, _ entry: Entry, get: String?, set: String? = nil, property: String,
         initial: Double? = nil, minimum: Double? = nil, maximum: Double? = nil, onReceive: ((Double) -> Void)? = nil
     ) -> Characteristic {
+        // Boxed: the closures below capture it, and the compiler takes a closure parameter for something sent.
+        let onReceive = Box(onReceive)
         let characteristic = service.add(type.with(minValue: minimum, maxValue: maximum))
         if let initial { characteristic.value = .double(initial) }
         bind(
             characteristic, entry.config, .float, get: get, set: set, property: property, online: entry.online,
-            received: { value, _ in if let number = value.doubleValue { onReceive?(number) } })
+            received: { value, _ in if let number = value.doubleValue { onReceive.value?(number) } })
         return characteristic
     }
 
@@ -158,6 +163,8 @@ extension Thing {
         _ service: ServiceBuilder, _ type: CharacteristicType, _ entry: Entry, keys: [String], defaults: [String], get: String?, set: String? = nil,
         property: String, initial: Int? = nil, restrict: String? = nil, eventOnly: Bool = false, onChange: ((Int) -> Void)? = nil
     ) -> Characteristic {
+        // Boxed: the closures below capture it, and the compiler takes a closure parameter for something sent.
+        let onChange = Box(onChange)
         var characteristicType = type
         if let restrict, let allowed = entry.config[restrict]?.arrayValue?.compactMap(\.doubleValue).map({ Int($0) }), !allowed.isEmpty {
             characteristicType = type.with(validValues: allowed)
@@ -167,8 +174,8 @@ extension Thing {
         let enumeration = Enumeration(entry.config, keys: keys, default: defaults)
         bind(
             characteristic, entry.config, .enumeration(enumeration), get: get, set: set, property: property, online: entry.online, eventOnly: eventOnly,
-            received: { value, changed in if changed, let index = value.intValue { onChange?(index) } },
-            wrote: { value in if let index = value.intValue { onChange?(index) } })
+            received: { value, changed in if changed, let index = value.intValue { onChange.value?(index) } },
+            wrote: { value in if let index = value.intValue { onChange.value?(index) } })
         return characteristic
     }
 

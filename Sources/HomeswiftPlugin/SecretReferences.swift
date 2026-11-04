@@ -193,9 +193,17 @@ public enum ConfigurationSecrets {
     public static func newExternalReferences(in next: JSONValue, comparedWith current: JSONValue) -> [String] {
         func external(_ config: JSONValue) -> [String: String] {
             var found: [String: String] = [:]
-            for block in config["platforms"]?.arrayValue ?? [] {
+            // Accessory blocks run in their platform's block (`HomeswiftConfiguration.adoptAccessoryBlocks`), their
+            // references resolved with it: they count too.
+            let accessories = (config["accessories"]?.arrayValue ?? []).map { block -> (String, String, JSONValue) in
+                let platform = block["accessory"]?.stringValue.flatMap(HomeswiftConfiguration.accessoryPlatform) ?? ""
+                return ("accessory \(platform)", block["name"]?.stringValue ?? platform, block)
+            }
+            let platforms = (config["platforms"]?.arrayValue ?? []).map { block -> (String, String, JSONValue) in
                 let platform = block["platform"]?.stringValue ?? ""
-                let name = block["name"]?.stringValue ?? platform
+                return (platform, block["name"]?.stringValue ?? platform, block)
+            }
+            for (platform, name, block) in platforms + accessories {
                 SecretWalk.forEach(block) { path, _, value in
                     guard let text = value.stringValue, let reference = SecretReference(text) else { return }
                     if case .vault = reference { return }

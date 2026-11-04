@@ -28,6 +28,8 @@ extension Thing {
     /// On, published on `setOn` with confirmation, `turnOffAfterms` and `resetStateAfterms` (5.17.1, 6.1, 6.3).
     @discardableResult
     func on(_ service: ServiceBuilder, _ entry: Entry, onChange: ((Bool) -> Void)? = nil) -> Characteristic {
+        // Boxed: the closures below capture it, and the compiler takes a closure parameter for something sent.
+        let onChange = Box(onChange)
         let characteristic = service.add(.on)
         let config = entry.config
         let online = entry.online
@@ -72,7 +74,7 @@ extension Thing {
                 guard let characteristic else { return }
                 characteristic.value = .bool(false)
                 send(false)
-                onChange?(false)
+                onChange.value?(false)
             }
         }
 
@@ -81,11 +83,11 @@ extension Thing {
             onWrite(characteristic) { value in
                 let on = value.boolValue == true
                 send(on)
-                onChange?(on)
+                onChange.value?(on)
                 if on { turnedOn() }
             }
-        } else if let onChange {
-            onWrite(characteristic) { onChange($0.boolValue == true) }
+        } else if onChange.value != nil {
+            onWrite(characteristic) { onChange.value?($0.boolValue == true) }
         }
         subscribe(config, "getOn", property: "on") { [weak characteristic] message in
             guard let characteristic else { return }
@@ -107,14 +109,14 @@ extension Thing {
             let changed = characteristic.value.boolValue != flag
             if changed {
                 characteristic.value = .bool(flag)
-                onChange?(flag)
+                onChange.value?(flag)
                 if flag { turnedOn() }
             }
             if flag, let resetAfter {
                 self.after("reset-\(ObjectIdentifier(characteristic))", resetAfter) { [weak characteristic] in
                     guard let characteristic, characteristic.value.boolValue == true else { return }
                     characteristic.value = .bool(false)
-                    onChange?(false)
+                    onChange.value?(false)
                 }
             }
         }
