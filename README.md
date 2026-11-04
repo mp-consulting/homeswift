@@ -172,6 +172,7 @@ over Bluetooth; macOS asks once for Bluetooth access for the app that runs it (t
 | [Elgato Key Lights](Plugins/ElgatoKeyLights) | `ElgatoKeyLights` | Key Light, Key Light Air, Key Light Mini, Ring Light |
 | [Govee](Plugins/Govee) | `Govee` | Govee lights, plugs, heaters, purifiers, humidifiers and sensors (cloud, AWS IoT, LAN, Bluetooth) |
 | [EcoFlow](Plugins/EcoFlow) | `EcoFlow` | Experimental battery and power monitoring through the developer API or EcoFlow app sign-in, with energy history |
+| [ESPHome](Plugins/ESPHome) | `esphome` | Experimental ESPHome devices over the native API, plaintext or encrypted: switches, lights, sensors, covers, fans, climates, locks and buttons |
 | [HTTP Webhooks](Plugins/HTTPWebhooks) | `HttpWebHooks` | Experimental virtual sensors, switches, lights, locks, blinds, fans and more, set by webhooks and calling URLs on HomeKit writes (homebridge-http-webhooks' block) |
 | [IKEA DIRIGERA](Plugins/Dirigera) | `Dirigera` | IKEA lights, outlets, door and window sensors and scenes, through a DIRIGERA hub on the network (paired on Add accessories) |
 | [TP-Link Kasa](Plugins/TPLinkSmarthome) | `TplinkSmarthome` | Experimental: Kasa plugs, switches, dimmers, power strips and bulbs on the local network, with energy in Eve |

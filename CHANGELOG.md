@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- ESPHome, an experimental plugin (`esphome`, a clean-room implementation compatible with homebridge-esphome-ts's
+  block) for ESPHome devices over their native API, plaintext or Noise-encrypted with the device's key, with
+  `Noise` (Noise_NNpsk0_25519_ChaChaPoly_SHA256), `Protobuf` and `TCPStream` in `HomeswiftNetwork`.
 - The Shelly plugin (experimental): Gen 2, 3 and 4 devices over their WebSocket RPC (`ShellyNG` block) and Gen 1 devices over CoIoT and HTTP (`Shelly` block), the two homebridge-shelly blocks unchanged, with lights, colour lights and energy meters beyond the originals; a CoAP codec in HomeswiftNetwork.
 - TP-Link Kasa (`TplinkSmarthome`), experimental: Kasa plugs, switches, dimmers, power strips and bulbs on the local
   network, with Eve energy readings and Adaptive Lighting; a clean-room implementation that loads
@@ -85,6 +88,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Security: a configuration key named `encryptionKey` (or `encryption_key`) is a secret-named key, for every plugin:
+  the runtime seals it, resolves its references and masks it in logs, MCP replies and the Assistant's prompts.
 - A plugin's Account and its devices that Need Authorization say **Set up** while nothing is set up, **Set up again**
   only once it has been.
 - On a Synology NAS the vault's key, the vault, config.json, the pairings and the web UI's accounts and tokens are the
