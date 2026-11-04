@@ -9,8 +9,7 @@ All notable changes to this project are documented here. The format follows
 ### Added
 
 - TP-Link Tapo plugin (`TapoP100`, experimental): P100, P105 and P110 plugs and L510E, L520E and L530E bulbs on the local
-  network, with KLAP and the older securePassthrough, the P110's power on Eve's characteristics and the Status page's
-  Energy section, and Adaptive Lighting on the white and colour bulbs; a homebridge-tapo block works unchanged and keeps
+  network, with KLAP and the older securePassthrough, the P110's and L530's power on Eve's characteristics, and Adaptive Lighting on the white and colour bulbs; a homebridge-tapo block works unchanged and keeps
   its accessories. A `WhiteLight` (L520E), an Outlet in Homebridge, is a Lightbulb: its automations need doing again.
 
 ## [0.19.0] - 2026-11-02

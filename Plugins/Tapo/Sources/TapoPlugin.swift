@@ -3,6 +3,7 @@ import Homeswift
 import HomeswiftNetwork
 import HomeswiftPlugin
 import Logging
+import NIOConcurrencyHelpers
 
 /// TP-Link Tapo plugs and bulbs on the local network: P100/P105 and P110 plugs as Outlets (the P110 with its power on
 /// Eve's characteristics and the Status page's Energy section), L510E, L520E and L530E bulbs as Lightbulbs (the white and
@@ -40,6 +41,8 @@ public actor TapoPlugin: HomeswiftPlugin {
     private let tasks = TaskBag()
     /// The devices, by Device Id.
     private(set) var devices: [String: TapoDevice] = [:]
+    /// The devices that completed a KLAP handshake, which never fall back to securePassthrough.
+    let klapDevices: KLAPDevices
     var logger: Logger { context.logger }
 
     public init(configuration: Configuration, context: PluginContext) {
@@ -50,6 +53,7 @@ public actor TapoPlugin: HomeswiftPlugin {
         self.configuration = configuration
         self.context = context
         self.dependencies = dependencies
+        klapDevices = KLAPDevices(file: context.jsonFile("klap-devices.json", as: [String].self), logger: context.logger)
     }
 
     static func accessoryID(deviceID: String) -> String { "\(platform):\(deviceID)" }
@@ -110,15 +114,10 @@ public actor TapoPlugin: HomeswiftPlugin {
             backoff: Backoff(initial: scaled(interval), maximum: scaled(max(interval, Self.maximumBackoff)), jitter: .proportional(0.1)),
             writeDelay: scaled((configuration.waitTimeUpdate?.value.flatMap { $0 >= 0 ? $0 : nil } ?? Self.defaultWaitTimeUpdate) / 1000),
             bulbEnergyInterval: dependencies.bulbEnergyInterval)
-        let connection = TapoConnection(
-            host: host, http: dependencies.http, requestTimeout: scaled(device.timeout?.positive ?? Self.defaultTimeout),
-            handshakeTimeout: scaled(5), logger: logger) { [weak self] in self?.credentials }
-        let series = context.series("\(deviceID):power")
-        let energyTag = EnergyTag(role: .home, device: name)
-        let context = context
-        let tapo = TapoDevice(settings: settings, connection: connection, logger: logger) { watts in
-            context.recordValue(watts, series: series, energy: energyTag)
-        }
+        let connection = makeConnection(
+            deviceID: deviceID, host: host, requestTimeout: scaled(device.timeout?.positive ?? Self.defaultTimeout), handshakeTimeout: scaled(5)
+        ) { [weak self] in self?.credentials }
+        let tapo = TapoDevice(settings: settings, connection: connection, logger: logger)
         let historyURL = kind.measuresEnergy ? context.storageDirectory.appendingPathComponent("\(Self.fileName(deviceID))_persist.json") : nil
         let services = TapoServices.make(
             id: id, name: name, kind: kind, cached: context.accessories.first { $0.id == id }, historyURL: historyURL, context: context
@@ -132,8 +131,43 @@ public actor TapoPlugin: HomeswiftPlugin {
         tasks.add { await tapo.run() }
     }
 
+    /// A device's connection, which remembers in `klapDevices` that it spoke KLAP.
+    func makeConnection(
+        deviceID: String, host: String, requestTimeout: Duration, handshakeTimeout: Duration, credentials: @escaping @Sendable () -> TapoCredentials?
+    ) -> TapoConnection {
+        let known = klapDevices
+        return TapoConnection(
+            host: host, http: dependencies.http, requestTimeout: requestTimeout, handshakeTimeout: handshakeTimeout, logger: logger,
+            spokeKLAP: { known.contains(deviceID) }, rememberKLAP: { known.remember(deviceID) }, credentials: credentials)
+    }
+
     /// A Device Id as a file name: letters, digits, dots and dashes.
     static func fileName(_ deviceID: String) -> String {
         String(deviceID.map { $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" ? $0 : "_" })
+    }
+}
+
+/// The Device Ids of the devices that completed a KLAP handshake, in the plugin's `klap-devices.json` (not a secret).
+final class KLAPDevices: Sendable {
+    private let file: JSONFile<[String]>
+    private let known: NIOLockedValueBox<Set<String>>
+    private let logger: Logger
+
+    init(file: JSONFile<[String]>, logger: Logger) {
+        self.file = file
+        self.logger = logger
+        known = NIOLockedValueBox(Set(file.load() ?? []))
+    }
+
+    func contains(_ deviceID: String) -> Bool { known.withLockedValue { $0.contains(deviceID) } }
+
+    func remember(_ deviceID: String) {
+        let all = known.withLockedValue { known -> [String]? in known.insert(deviceID).inserted ? known.sorted() : nil }
+        guard let all else { return }
+        do {
+            try file.save(all)
+        } catch {
+            logger.warning("Could not keep which devices speak KLAP: \(error)")
+        }
     }
 }

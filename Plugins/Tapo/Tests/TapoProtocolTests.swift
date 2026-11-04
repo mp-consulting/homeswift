@@ -205,6 +205,38 @@ extension Data {
         #expect(network.device().handshakes == 2)
     }
 
+    /// -1501 on a request: one new handshake and the request again, then the credentials are reported.
+    @Test func refusedCredentialsSignInAgainOnce() async throws {
+        let network = FakeTapoNetwork()
+        let credentials = TapoCredentials(username: "user@example.com", password: "password123")
+        let connection = TapoConnection(host: "192.168.1.21", http: network, requestTimeout: .seconds(1), logger: testLogger) { credentials }
+        network.update { $0.refuseNext = 1 }
+        _ = try await connection.call("get_device_info")
+        #expect(network.device().handshakes == 2)
+        network.update { $0.refuseNext = 2 }
+        await #expect(throws: TapoError.invalidCredentials) { try await connection.call("get_device_info") }
+    }
+
+    /// Only a 404 from handshake1 tries securePassthrough; another error is reported as it is.
+    @Test func onlyA404FallsBack() async throws {
+        let network = FakeTapoNetwork(["192.168.1.21": FakeTapoNetwork.Device(mode: .passthrough, handshake1Status: 403)])
+        let credentials = TapoCredentials(username: "user@example.com", password: "password123")
+        let connection = TapoConnection(host: "192.168.1.21", http: network, requestTimeout: .seconds(1), logger: testLogger) { credentials }
+        await #expect(throws: TapoError.http(403)) { try await connection.call("get_device_info") }
+        #expect(network.device().handshakes == 0)
+    }
+
+    /// A device that spoke KLAP never falls back: whatever answers 404 at its address gets no login.
+    @Test func aKLAPDeviceNeverFallsBack() async throws {
+        let network = FakeTapoNetwork(["192.168.1.21": FakeTapoNetwork.Device(mode: .passthrough)])
+        let credentials = TapoCredentials(username: "user@example.com", password: "password123")
+        let connection = TapoConnection(
+            host: "192.168.1.21", http: network, requestTimeout: .seconds(1), logger: testLogger, spokeKLAP: { true }) { credentials }
+        await #expect(throws: TapoError.http(404)) { try await connection.call("get_device_info") }
+        #expect(network.device().handshakes == 0)
+        #expect(network.device().methods.isEmpty)
+    }
+
     @Test func passthroughFallback() async throws {
         let network = FakeTapoNetwork(["192.168.1.21": FakeTapoNetwork.Device(mode: .passthrough)])
         let credentials = TapoCredentials(username: "user@example.com", password: "password123")

@@ -14,17 +14,20 @@ struct TapoCredentials: Codable, Sendable, Equatable {
 ///
 /// Requests go one at a time (the session's sequence number and the device's session both want it), so a handshake
 /// happens once however many requests wait for it. A session ends when its cookie's `TIMEOUT` passes, the device
-/// answers 403 or 401, or the inner answer is a session timeout (9999): then one new handshake and one retry.
+/// answers 403 or 401, or the inner answer is a session timeout (9999) or refuses the credentials (-1501): then one new
+/// handshake and one retry. A device falls back to securePassthrough only when KLAP's handshake1 answers 404, and never
+/// once it has completed a KLAP handshake (`spokeKLAP`, kept across launches): an impostor at its address cannot have it
+/// send the account's password the older protocol carries.
 actor TapoConnection {
     enum Session {
         case klap(KLAP.Session, cookie: String?)
         case passthrough(SecurePassthrough.Cipher, cookie: String?, token: String)
     }
 
-    /// The session ended on the device: a new handshake, then the request again.
-    private struct SessionExpired: Error {}
-    /// KLAP's handshake1 is not there: the device speaks securePassthrough.
-    private struct NoKLAP: Error { let status: Int }
+    /// The session ended on the device: a new handshake, then the request again. `code` is the inner error, if any.
+    private struct SessionExpired: Error { var code: Int? }
+    /// KLAP's handshake1 answered 404: the device may speak securePassthrough.
+    private struct NoKLAP: Error {}
 
     let host: String
     private let http: any HTTPSending
@@ -34,6 +37,9 @@ actor TapoConnection {
     private let handshakeTimeout: Duration
     private let logger: Logger
     private let now: @Sendable () -> ContinuousClock.Instant
+    /// Whether this device completed a KLAP handshake before, and what to call when it does.
+    private let spokeKLAP: @Sendable () -> Bool
+    private let rememberKLAP: @Sendable () -> Void
 
     private var session: Session?
     /// When the session's cookie expires, from its `TIMEOUT`.
@@ -47,8 +53,11 @@ actor TapoConnection {
 
     init(
         host: String, http: any HTTPSending, requestTimeout: Duration, handshakeTimeout: Duration = .seconds(5), logger: Logger,
-        now: @escaping @Sendable () -> ContinuousClock.Instant = { .now }, credentials: @escaping @Sendable () -> TapoCredentials?
+        now: @escaping @Sendable () -> ContinuousClock.Instant = { .now }, spokeKLAP: @escaping @Sendable () -> Bool = { false },
+        rememberKLAP: @escaping @Sendable () -> Void = {}, credentials: @escaping @Sendable () -> TapoCredentials?
     ) {
+        self.spokeKLAP = spokeKLAP
+        self.rememberKLAP = rememberKLAP
         self.host = host
         self.http = http
         self.requestTimeout = requestTimeout
@@ -71,17 +80,10 @@ actor TapoConnection {
         }
         do {
             return try await exchange(body)
-        } catch is SessionExpired {
+        } catch let expired as SessionExpired {
             session = nil
-            throw TapoError.sessionRefused
+            throw expired.code == TapoMessage.invalidCredentials ? TapoError.invalidCredentials : TapoError.sessionRefused
         }
-    }
-
-    /// Forgets the session, so the next request starts with a handshake: after a request that never came back, the
-    /// device and the bridge may not agree on the sequence number.
-    func reset() {
-        session = nil
-        expiry = nil
     }
 
     // MARK: Serialising
@@ -138,7 +140,8 @@ actor TapoConnection {
     }
 
     private static func result(of response: JSONValue) throws -> JSONValue {
-        if TapoMessage.errorCode(of: response) == TapoMessage.sessionTimeout { throw SessionExpired() }
+        let code = TapoMessage.errorCode(of: response)
+        if code == TapoMessage.sessionTimeout || code == TapoMessage.invalidCredentials { throw SessionExpired(code: code) }
         return try TapoMessage.result(of: response)
     }
 
@@ -147,14 +150,19 @@ actor TapoConnection {
         if !usesPassthrough {
             do {
                 try await klapHandshake(credentials)
+                rememberKLAP()
                 return
-            } catch let error as NoKLAP {
-                logger.info("\(host) has no KLAP endpoint (HTTP \(error.status)), trying securePassthrough")
+            } catch is NoKLAP {
+                guard !spokeKLAP() else {
+                    logger.warning("\(host) answered KLAP's handshake with HTTP 404, but it spoke KLAP before: not falling back to securePassthrough")
+                    throw TapoError.http(404)
+                }
+                logger.info("\(host) has no KLAP endpoint (HTTP 404), trying securePassthrough")
                 do {
                     try await passthroughHandshake(credentials)
                     usesPassthrough = true
                 } catch TapoError.device(TapoMessage.wantsKLAP) {
-                    throw TapoError.http(error.status)
+                    throw TapoError.http(404)
                 }
                 return
             }
@@ -170,7 +178,8 @@ actor TapoConnection {
         for index in localSeed.indices { localSeed[index] = UInt8.random(in: .min ... .max) }
         // Without the old cookie: a new session.
         let first = try await post("/app/handshake1", body: localSeed, cookie: nil, timeout: handshakeTimeout)
-        guard first.status == 200 else { throw NoKLAP(status: first.status) }
+        guard first.status != 404 else { throw NoKLAP() }
+        guard first.status == 200 else { throw TapoError.http(first.status) }
         guard first.body.count == 48 else { throw TapoError.invalidResponse("handshake1 answered \(first.body.count) bytes") }
         let remoteSeed = Data(first.body.prefix(16))
         guard KLAP.serverHash(localSeed: localSeed, remoteSeed: remoteSeed, authHash: authHash) == first.body.suffix(32) else {
@@ -219,7 +228,7 @@ actor TapoConnection {
         let response = try await post(path, body: envelope, cookie: cookie, timeout: timeout, json: true)
         guard response.status == 200 else { throw TapoError.http(response.status) }
         let outer = try TapoMessage.parse(response.body)
-        if TapoMessage.errorCode(of: outer) == TapoMessage.sessionTimeout { throw SessionExpired() }
+        if TapoMessage.errorCode(of: outer) == TapoMessage.sessionTimeout { throw SessionExpired(code: TapoMessage.sessionTimeout) }
         let result = try TapoMessage.result(of: outer)
         guard let encrypted = result["response"]?.stringValue else { throw TapoError.invalidResponse("no securePassthrough response") }
         return try TapoMessage.parse(cipher.decrypt(encrypted))

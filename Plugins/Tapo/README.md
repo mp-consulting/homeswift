@@ -26,9 +26,8 @@ device's hardware id as the serial number and the version of its firmware.
 - **Total Consumption is today's**: the devices count from midnight, so it starts again every day.
 - **An L530's power is an average**: the bulb reports the watt-hours it used today and how long it has been on, so
   Current Consumption is the one divided by the other while it is on, and 0 while off. It is read every ten minutes.
-- **A P110's power** is read with each poll and goes to the Status page's **Energy** section as a home use, under the
-  plug's name, and to its graphs (`plugin:TapoP100:<Device Id>:power`). With a meter that already measures the whole home there, the
-  plug's watts count a second time.
+- **A P110's power** is read with each poll. It stays on Eve's characteristics and history: it is not added to the
+  Status page's Energy section, where a meter measuring the whole home would count it a second time.
 - **Brightness and colours of a bulb that is off** are not sent, as the Homebridge plugin does: the Home app's write is
   acknowledged and the bulb keeps its own. Turning it on and setting a brightness in one scene works: writes made within
   `waitTimeUpdate` go out together, on or off first. A Brightness of 0 is sent as 1, the lowest the bulbs take.
@@ -42,7 +41,8 @@ device's hardware id as the serial number and the version of its firmware.
 The block is homebridge-tapo's, so it can be pasted unchanged, and the accessories keep their identity: the Device Id is
 the device's `host` and `name` run together (`192.168.1.21Kitchen`, the host alone without a name), the seed the
 Homebridge plugin made its accessory's UUID from. As there, changing a device's address or name in `devices` makes a new
-accessory. A device no longer in `devices` leaves the bridge (the Homebridge plugin kept it until the cache was cleared).
+accessory. A device no longer in `devices` leaves the bridge, as with every Homeswift plugin (the Homebridge plugin kept it until
+the cache was cleared).
 
 **A `WhiteLight` device changes**: the Homebridge plugin meant it as a white lightbulb but compared the type in a way that
 never matched, so an L520E was an Outlet there. Here it is a Lightbulb with Brightness and Color Temperature; HomeKit
@@ -94,9 +94,12 @@ Plain HTTP to the device, one request at a time per device, with:
 - **KLAP**, current firmware: two handshakes prove both sides know the account (SHA-256 over random seeds and a hash of
   the email and password), then each request is AES-128-CBC with a key, an IV prefix and a sequence number derived from
   them, signed with SHA-256. The session cookie's `TIMEOUT` is honoured (a new handshake a minute before it ends), and an
-  HTTP 403 or 401, a response that does not decrypt, or a session timeout (9999) starts one new handshake and one retry.
+  HTTP 403 or 401, a response that does not decrypt, a session timeout (9999) or refused credentials (-1501) start one
+  new handshake and one retry; a second refusal is reported.
   The response's signature is not checked.
-- **securePassthrough**, older firmware, only when the device has no KLAP endpoint: an RSA-1024 key exchange gives an
+- **securePassthrough**, older firmware, only when KLAP's handshake1 answers 404, and never for a device that completed a
+  KLAP handshake before (kept in the plugin's `klap-devices.json`), so whatever answers at its address cannot have the
+  bridge send the login this protocol carries: an RSA-1024 key exchange gives an
   AES key and IV, `login_device` a token, and each request is wrapped in a `securePassthrough` envelope.
 
 Every answer's `error_code` is checked, writes included, and read leniently (`-0301` is -301). The account's email,

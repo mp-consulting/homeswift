@@ -38,10 +38,9 @@ extension TapoPlugin {
                 fields: [SetupField("username", label: "Email"), SetupField("password", label: "Password", kind: .secret)]))
         }
         let credentials = TapoCredentials(username: username, password: password)
-        if let (_, device) = configuredDevices().first, let host = device.trimmedHost {
-            let connection = TapoConnection(
-                host: host, http: dependencies.http, requestTimeout: dependencies.setupTimeout, handshakeTimeout: dependencies.setupTimeout,
-                logger: logger) { credentials }
+        if let (deviceID, device) = configuredDevices().first, let host = device.trimmedHost {
+            let connection = makeConnection(
+                deviceID: deviceID, host: host, requestTimeout: dependencies.setupTimeout, handshakeTimeout: dependencies.setupTimeout) { credentials }
             do {
                 _ = try await connection.call("get_device_info")
             } catch TapoError.invalidCredentials {

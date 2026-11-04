@@ -21,6 +21,10 @@ final class FakeTapoNetwork: HTTPSending, Sendable {
         var reachable = true
         /// The next requests answered 403, as when the session expired.
         var expireNext = 0
+        /// The next requests answered with `error_code` -1501.
+        var refuseNext = 0
+        /// What handshake1 answers instead of a handshake, when set.
+        var handshake1Status: Int?
         /// The next `set_device_info` answers this `error_code`.
         var setError: Int?
         /// Answers `error_code` with a leading zero, as some firmware does.
@@ -68,6 +72,8 @@ final class FakeTapoNetwork: HTTPSending, Sendable {
         let path = request.url.path
         let body = request.body ?? Data()
         switch (device.mode, path) {
+        case (_, "/app/handshake1") where device.handshake1Status != nil:
+            return HTTPResponse(status: device.handshake1Status ?? 500)
         case (.klap, "/app/handshake1"):
             device.handshakes += 1
             device.klap = nil
@@ -91,7 +97,11 @@ final class FakeTapoNetwork: HTTPSending, Sendable {
             let ciphertext = body.dropFirst(32)
             guard KLAP.sha256(session.signatureKey + sequence.bigEndianBytes + ciphertext) == body.prefix(32) else { return HTTPResponse(status: 403) }
             let plaintext = try session.decrypt(body, sequence: sequence)
-            let reply = handle(try JSONValue(data: plaintext), device: &device)
+            var reply = handle(try JSONValue(data: plaintext), device: &device)
+            if device.refuseNext > 0 {
+                device.refuseNext -= 1
+                reply = JSONValue.object(["error_code": -1501]).encoded()
+            }
             let encrypted = try AES._CBC.encrypt(reply, using: session.key, iv: AES._CBC.IV(ivBytes: session.iv(sequence: sequence)))
             return HTTPResponse(status: 200, body: KLAP.sha256(session.signatureKey + sequence.bigEndianBytes + encrypted) + encrypted)
         case (.passthrough, "/app"):

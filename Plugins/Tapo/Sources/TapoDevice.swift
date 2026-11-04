@@ -27,7 +27,6 @@ actor TapoDevice {
     let settings: Settings
     let connection: TapoConnection
     private let logger: Logger
-    private let record: @Sendable (Double) -> Void
     private(set) var services: TapoServices?
     private(set) var state: TapoState?
     private(set) var energy: TapoEnergy?
@@ -40,11 +39,10 @@ actor TapoDevice {
     /// `set_device_info`'s `terminalUUID` for on and off: one per device and run.
     private let terminalUUID = UUID().uuidString.uppercased()
 
-    init(settings: Settings, connection: TapoConnection, logger: Logger, record: @escaping @Sendable (Double) -> Void) {
+    init(settings: Settings, connection: TapoConnection, logger: Logger) {
         self.settings = settings
         self.connection = connection
         self.logger = logger
-        self.record = record
     }
 
     func attach(_ services: TapoServices) {
@@ -124,7 +122,6 @@ actor TapoDevice {
         energy = reading
         services?.show(reading, kind: settings.kind)
         services?.history?.add(EveHistory.Entry(power: reading.watts))
-        record(reading.watts)
     }
 
     // MARK: Writes

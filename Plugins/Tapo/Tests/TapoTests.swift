@@ -261,6 +261,20 @@ struct TapoTests {
         await host.stop()
     }
 
+    /// The plugin keeps which devices spoke KLAP across launches: one that answers 404 later gets no securePassthrough login.
+    @Test func aDeviceThatSpokeKLAPIsRememberedAcrossLaunches() async throws {
+        let first = try await environment.start(devices: [["name": "Kitchen", "host": "192.168.1.21"]])
+        #expect(await eventually { environment.network.device().methods.contains("get_device_info") })
+        await first.stop()
+        environment.network.update { $0 = FakeTapoNetwork.Device(mode: .passthrough) }
+        let second = try await environment.start(devices: [["name": "Kitchen", "host": "192.168.1.21"]])
+        let plug = try await accessory(second, kitchenID)
+        #expect(await eventually { plug.showsNoResponse })
+        #expect(environment.network.device().handshakes == 0)
+        #expect(environment.network.device().methods.isEmpty)
+        await second.stop()
+    }
+
     @Test func anExcludedDeviceIsNotPolled() async throws {
         let host = try await environment.start(
             devices: [["name": "Kitchen", "host": "192.168.1.21"]],

@@ -51,6 +51,9 @@ enum TapoError: Error, CustomStringConvertible, Equatable {
 enum TapoMessage {
     /// The session expired on the device: a new handshake, then the request once more.
     static let sessionTimeout = 9999
+    /// Invalid request or credentials: the session's credentials no longer hold, a new handshake, then the request once
+    /// more before it is reported.
+    static let invalidCredentials = -1501
     /// The answer of securePassthrough's handshake on a device that speaks KLAP.
     static let wantsKLAP = 1003
 
