@@ -19,13 +19,12 @@ enum ChangeSource: Sendable, Equatable {
 
 /// The three timers a schedule can drive.
 enum TimerSlot: String, Sendable, CaseIterable {
-    case schedule, autoReset, sync
+    case schedule, autoReset
 
     var storedKey: String {
         switch self {
         case .schedule: "Schedule"
         case .autoReset: "AutoReset"
-        case .sync: "SyncSchedule"
         }
     }
 
@@ -33,7 +32,6 @@ enum TimerSlot: String, Sendable, CaseIterable {
         switch self {
         case .schedule: "trigger"
         case .autoReset: "reset"
-        case .sync: "synchronize"
         }
     }
 
@@ -41,7 +39,6 @@ enum TimerSlot: String, Sendable, CaseIterable {
         switch self {
         case .schedule: "schedule"
         case .autoReset: "auto-reset"
-        case .sync: "sync"
         }
     }
 }
@@ -233,4 +230,7 @@ final class DummyDevice {
     }
 
     static let modeNames = ["Off", "Heat", "Cool", "Auto"]
+    static let pressNames = ["single", "double", "long"]
+
+    func pressMessage(_ value: Int) -> String { "\(name) was \(Self.pressNames[min(max(value, 0), 2)]) pressed" }
 }

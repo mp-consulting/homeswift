@@ -46,6 +46,7 @@ public actor DummyPlugin: HomeswiftPlugin {
     private(set) var engine: DummyEngine?
     private(set) var webhookServer: WebhookServer?
     private var logObservation: Observation?
+    private var logLines: AsyncStream<String>.Continuation?
     private(set) var accessories: [AccessoryConfig] = []
     private var logger: Logger { context.logger }
 
@@ -126,12 +127,17 @@ public actor DummyPlugin: HomeswiftPlugin {
         if await engine.registerLogPatterns() {
             if let logs = dependencies.logs ?? context.logs {
                 let label = context.logger.label
+                // One consumer, in order; a burst beyond the buffer drops its oldest lines.
+                let (lines, continuation) = AsyncStream.makeStream(of: String.self, bufferingPolicy: .bufferingNewest(1000))
                 logObservation = logs.observe { line in
                     // Its own lines are left out, so a pattern cannot trigger itself in a loop.
                     guard line.label != label else { return }
-                    let text = line.text
-                    Task { await engine.logLine(text) }
+                    continuation.yield(line.text)
                 }
+                tasks.add {
+                    for await text in lines { await engine.logLine(text) }
+                }
+                logLines = continuation
             } else {
                 logger.error("Log conditions need the bridge's log, which is not available")
             }
@@ -142,6 +148,8 @@ public actor DummyPlugin: HomeswiftPlugin {
     public func stop() async {
         logObservation?.cancel()
         logObservation = nil
+        logLines?.finish()
+        logLines = nil
         await engine?.stop()
         await webhookServer?.stop()
         webhookServer = nil

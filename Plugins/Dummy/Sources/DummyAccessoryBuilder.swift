@@ -78,6 +78,8 @@ struct DummyAccessoryBuilder {
                 Characteristic(.currentHeatingCoolingState.with(validValues: current.isEmpty ? [0] : current)),
                 Characteristic(.currentTemperature.with(minValue: low, maxValue: high)),
                 Characteristic(.targetTemperature.with(minValue: low, maxValue: high)),
+                // The unit is the block's: HomeKit may only write that one.
+                Characteristic(.temperatureDisplayUnits.with(validValues: [config.fahrenheit ? 1 : 0]), value: .int(config.fahrenheit ? 1 : 0)),
             ]
         default: break
         }
@@ -123,10 +125,6 @@ struct DummyAccessoryBuilder {
         case .thermostat:
             write(.targetHeatingCoolingState) { $0.intValue.map(DummyEngine.Write.targetMode) }
             write(.targetTemperature) { $0.doubleValue.map(DummyEngine.Write.targetTemperature) }
-            let units = HAPValue.int(config.fahrenheit ? 1 : 0)
-            service[.temperatureDisplayUnits]?.onWrite { [weak service] _ in
-                service?[.temperatureDisplayUnits]?.revert(to: units, after: .milliseconds(1))
-            }
         default: break
         }
         wireResetTotal(service, config)

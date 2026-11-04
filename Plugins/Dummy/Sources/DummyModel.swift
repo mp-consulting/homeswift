@@ -361,12 +361,11 @@ struct ConfigReader {
             identifier = Self.derivedIdentifier(type: typeName, name: name)
             deviceID = String(identifier.dropFirst(DummyPlugin.platform.count + 1))
         }
-        var groupName = json["groupName"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        let groupName = json["groupName"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         if isMatter, groupName != nil {
             logger.warning("\(name): groups are not supported for Matter accessories")
             return nil
         }
-        if isMatter { groupName = nil }
         var config = AccessoryConfig(
             identifier: identifier, deviceID: deviceID, name: name, type: type, isMatter: isMatter, groupName: groupName,
             resetOnRestart: json["resetOnRestart"]?.boolValue ?? false,

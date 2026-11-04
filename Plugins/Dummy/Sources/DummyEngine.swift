@@ -35,6 +35,7 @@ actor DummyEngine {
     var pingTimers: [String: DummyTimer] = [:]
     var logPatterns: [(identifier: String, regex: NSRegularExpression?, literal: String)] = []
     var stopped = false
+    var savePending = false
 
     init(logger: Logger, verbose: Bool, storeFile: JSONFile<[String: [String: JSONValue]]>?, tasks: TaskBag, dependencies: Dependencies) {
         self.logger = logger
@@ -68,10 +69,21 @@ actor DummyEngine {
             guard store[identifier]?[key] != nil else { return }
             store[identifier]?.removeValue(forKey: key)
         }
-        save()
+        scheduleSave()
+    }
+
+    /// A change is written a moment later, with the others of the same burst; `stop()` writes what is left.
+    func scheduleSave() {
+        guard !savePending else { return }
+        savePending = true
+        tasks.add { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            await self?.save()
+        }
     }
 
     func save() {
+        savePending = false
         guard let storeFile else { return }
         do { try storeFile.save(store) } catch { logger.error("Could not save the accessories' state: \(error)") }
     }
@@ -119,12 +131,13 @@ actor DummyEngine {
         }
         pingTimers.values.forEach { $0.cancel() }
         pingTimers = [:]
+        save()
     }
 
     /// The stored state, put back through the normal path for stateful accessories (spec 6.2).
     func restore(_ device: DummyDevice) {
         let id = device.identifier
-        device.resumable = Set(["Schedule", "AutoReset", "SyncSchedule", "Timer"].filter { stored(id, $0) != nil })
+        device.resumable = Set((TimerSlot.allCases.map(\.storedKey) + ["SyncSchedule", "Timer"]).filter { stored(id, $0) != nil })
         if device.config.type == .lightbulb, let brightness = stored(id, "Brightness")?.doubleValue {
             device.brightness = Int(saturating: brightness, in: 0...100) ?? 100
         }
@@ -223,8 +236,7 @@ actor DummyEngine {
 
     /// A button press (spec 7.12).
     func press(_ device: DummyDevice, _ value: Int) {
-        let words = ["single", "double", "long"]
-        info(device, "\(device.name) was \(words[min(max(value, 0), 2)]) pressed")
+        info(device, device.pressMessage(value))
         notify(device, trigger: true)
         notify(device, trigger: false)
         if device.config.schedule?.isTimeout == true { startTimeout(device, .schedule) }
@@ -446,6 +458,10 @@ actor DummyEngine {
         device.timeouts[slot] = nil
         device.expiries[slot] = nil
         setStored(identifier, slot.storedKey, nil)
+        fire(device, slot)
+    }
+
+    func fire(_ device: DummyDevice, _ slot: TimerSlot) {
         if slot == .schedule { trigger(device, source: .schedule) } else { reset(device, source: .autoReset) }
     }
 
@@ -491,7 +507,7 @@ actor DummyEngine {
 
     func repeatingFired(_ identifier: String, _ slot: TimerSlot) {
         guard let device = devices[identifier], !stopped else { return }
-        if slot == .schedule { trigger(device, source: .schedule) } else { reset(device, source: .autoReset) }
+        fire(device, slot)
         rearm(identifier, slot)
     }
 

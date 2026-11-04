@@ -1,4 +1,5 @@
 import Foundation
+import HomeswiftNetwork
 import NIOCore
 import NIOPosix
 
@@ -15,7 +16,7 @@ struct ReachabilityTarget: Sendable, Equatable {
 
     init?(_ text: String) {
         let text = text.trimmingCharacters(in: .whitespaces)
-        if text.range(of: #"^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$"#, options: .regularExpression) != nil { return nil }
+        if MACAddress.canonical(text) != nil { return nil }
         if text.contains("://"), let url = URL(string: text), let host = url.host, !host.isEmpty {
             self.host = host
             if let port = url.port { ports = [port] } else { ports = url.scheme?.lowercased() == "http" ? [80, 443] : [443, 80] }

@@ -206,7 +206,7 @@ extension DummyEngine {
         case "ProgrammableSwitchEvent":
             let press = Int(saturating: number) ?? 0
             self.press(device, press)
-            return "\(device.name) was \(["single", "double", "long"][min(max(press, 0), 2)]) pressed"
+            return device.pressMessage(press)
         default:
             setPrimary(device, number == 0 ? 0 : 1, source: source)
             return device.stateMessage
