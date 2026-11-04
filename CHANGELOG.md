@@ -127,6 +127,8 @@ All notable changes to this project are documented here. The format follows
   light's place after it on a device with several lights, such as a Dymera), rather than the bridge's resource id; a
   device without one keeps the id, as scene switches do. Wingman's mirrors show the serial number Apple Home has for
   the device, rather than its HomeKit id, when there is one.
+- A large widget's row of chips (a fan's Swing, Night Mode, Jet Focus) stops short of the ⋯ menu in its corner rather
+  than running under it.
 - Daikin Cloud no longer stays without its devices until a restart when the cloud is unreachable as it starts: the
   start is tried again after a minute, then up to every five minutes. An account without devices and a sign-in Daikin
   refuses are not tried again.
