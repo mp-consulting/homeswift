@@ -125,9 +125,10 @@ struct ConfigurationTests {
             }
             """.utf8))
         #expect(configuration.bridge == .init(name: "Test Bridge", username: "0e:11:22:33:44:55", port: 0, pin: "031-45-154"))
-        #expect(configuration.accessoryBlockCount == 1)
+        #expect(configuration.ignoredAccessoryBlocks == 0)
         #expect(configuration.disabledPlugins == ["Other"])
-        #expect(configuration.platforms.map(\.name) == ["Lamps", "Recording", "Unknown"])
+        #expect(configuration.platforms.map(\.name) == ["Lamps", "Recording", "Unknown", "Dummy"])
+        #expect(configuration.platforms[3].accessoryBlocks == 1)
         #expect(configuration.platforms[1].childBridge == .init(name: "Child", username: "0E:AA:BB:CC:DD:EE"))
         let settings = try JSONDecoder().decode(RecordingPlugin.Configuration.self, from: configuration.platforms[0].json)
         #expect(settings.lamps == ["a", "b"])

@@ -123,6 +123,8 @@ import Darwin
         #expect(redactURLPasswords("Input #0, rtsp, from 'rtsps://10.0.0.1:7441/alias?enableSrtp':") == "Input #0, rtsp, from 'rtsps://10.0.0.1:7441/<redacted>?enableSrtp':")
         #expect(redactURLPasswords("rtsp://cam:554") == "rtsp://cam:554")
         #expect(redactURLPasswords("http://cam/snapshot.jpg") == "http://cam/snapshot.jpg")
+        // A token in the query, as Google's Nest RTSP streams carry it (the path is masked like every RTSP path).
+        #expect(redactCommandLine(["-i", "rtsps://stream.example/v1/CjZ?auth=STREAM-TOKEN&x=1"]) == "-i rtsps://stream.example/<redacted>?auth=***&x=1")
     }
 
     @Test func logsTheCommandLineWithoutPasswords() async {

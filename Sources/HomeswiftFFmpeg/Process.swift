@@ -43,8 +43,9 @@ public func redactURLPasswords(_ text: String) -> String {
     var result = text.replacing(#/\b([a-zA-Z][a-zA-Z0-9+.\-]*:\/\/[^:\/?#@\s]*):[^\/?#\s]*@/#) { match in
         match.output.1 + ":***@"
     }
+    // A secret in the query (`rtsps://…?auth=<token>`, as Google's Nest streams carry theirs) is hidden too.
     if result.contains("=") {
-        result = result.replacing(#/(?i)([?&;](?:[^=&\s]*(?:pass|pwd|token|secret|key|auth|cred|sig)[^=&\s]*)=)[^&\s]*/#) { $0.output.1 + "***" }
+        result = result.replacing(#/(?i)([?&;](?:[^=&\s]*(?:pass|pwd|token|secret|key|auth|cred|sig)[^=&\s]*)=)[^&#\s'"]*/#) { $0.output.1 + "***" }
     }
     return redactRTSPPaths(result)
 }

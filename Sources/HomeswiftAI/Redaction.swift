@@ -39,7 +39,7 @@ public enum Redaction {
 
     /// Keys whose values are secrets: password, mqttPass, apiKey, clientSecret, bridge.pin.
     /// The key rule as a pattern: the server sends it to the page, so the page never keeps its own copy.
-    public static let secretKeyPattern = #"pass$|pass(word|wd|phrase|code)|^pwd$|^pw$|secret|token|api[-_]?key|private[-_]?key|credential|^pin$|authorization|^auth$|cookie|session[-_]?(id|key)$|^sid$|signature|^otp$"#
+    public static let secretKeyPattern = #"pass$|pass(word|wd|phrase|code)|^pwd$|^pw$|secret|token|api[-_]?key|private[-_]?key|encryption[-_]?key|credential|^pin$|authorization|^auth$|cookie|session[-_]?(id|key)$|^sid$|signature|^otp$"#
     public static let notSecretKeyPattern = #"^(max|min|context|input|output|total|daily|monthly)\w*tokens$|(high|low|touch)pass$"#
     private static let secretKey = try! NSRegularExpression(pattern: secretKeyPattern, options: [.caseInsensitive])
     /// Keys that look secret but are not: token counts (maxOutputTokens, contextTokens, a budget's dailyTokens), an audio
@@ -48,7 +48,7 @@ public enum Redaction {
     /// `key: value`, `key=value` and `"key": "value"` pairs whose key names a secret (including HomeKit's
     /// pin and setup code).
     private static let secretPair = try! NSRegularExpression(
-        pattern: #"(["']?)([\w.-]*(?:password|passwd|passphrase|pass|pin|setup[-_ ]?code|secret|token|api[-_]?key|private[-_]?key|credential|cookie|session[-_]?id|signature)[\w-]*)\1(\s*[:=]\s*)(["']?)([^\s"',;}&]+)\4"#,
+        pattern: #"(["']?)([\w.-]*(?:password|passwd|passphrase|pass|pin|setup[-_ ]?code|secret|token|api[-_]?key|private[-_]?key|encryption[-_]?key|credential|cookie|session[-_]?id|signature)[\w-]*)\1(\s*[:=]\s*)(["']?)([^\s"',;}&]+)\4"#,
         options: [.caseInsensitive])
     /// Well-known credential shapes that can appear anywhere in free text: API keys, JWTs, and HomeKit
     /// setup codes (`031-45-154`, `0314-5154`) and setup URIs, which the bridge prints at launch.
@@ -245,7 +245,7 @@ public enum Redaction {
     private static let shapeHints: [Hints] = [.bearer, .openAI, .homebridge, .google, .jwt, .setupURI, .setupCode, .shortSetupCode]
 
     /// The keywords of `secretPair`'s key (password, passwd, passphrase and pass all start `pass`), lower case.
-    private static let keywords = ["pass", "pin", "setup", "secret", "token", "api", "private", "credential", "cookie", "session", "signature"].map { Array($0.utf8) }
+    private static let keywords = ["pass", "pin", "setup", "secret", "token", "api", "private", "encryption", "credential", "cookie", "session", "signature"].map { Array($0.utf8) }
 
     /// The shapes' fixed parts, case as written.
     private static let fixed = (
@@ -291,6 +291,7 @@ public enum Redaction {
                 case UInt8(ascii: "h"):
                     if at(index, fixed.homebridge, caseless: false) { hints.insert(.homebridge) }
                 case UInt8(ascii: "e"):
+                    if keywords.contains(where: { at(index, $0, caseless: true) }) { hints.insert(.keyword) }
                     if at(index, fixed.jwt, caseless: false) { hints.insert(.jwt) }
                 case UInt8(ascii: "x"):
                     if at(index, fixed.setupURI, caseless: false) { hints.insert(.setupURI) }
