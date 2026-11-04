@@ -1,5 +1,6 @@
 import Crypto
 import Foundation
+import Homeswift
 import _CryptoExtras
 
 // The Roborock message layer (docs/clean-room/Roborock.md, section 4): the frame both the cloud's MQTT payloads and the
@@ -194,7 +195,7 @@ enum RoborockCipher {
 
     static func md5(_ text: String) -> Data { Data(Insecure.MD5.hash(data: Data(text.utf8))) }
     static func md5Hex(_ text: String) -> String { hex(md5(text)) }
-    static func hex(_ data: some Sequence<UInt8>) -> String { data.map { String(format: "%02x", $0) }.joined() }
+    static func hex(_ data: some Sequence<UInt8>) -> String { Secrets.hex(data) }
 
     /// The 1.0 frame key: MD5 of the encoded timestamp, the local key and the salt.
     static func v1Key(localKey: String, timestamp: UInt32) -> Data {

@@ -24,7 +24,7 @@ public final class TCPSocket: Sendable {
         let channel: any Channel
         do {
             channel = try await ClientBootstrap(group: group)
-                .connectTimeout(.milliseconds(Int64(timeout.components.seconds) * 1000 + timeout.components.attoseconds / 1_000_000_000_000_000))
+                .connectTimeout(TimeAmount(timeout))
                 .channelOption(.socketOption(.so_keepalive), value: 1)
                 .channelInitializer { channel in
                     channel.eventLoop.makeCompletedFuture {

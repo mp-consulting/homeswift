@@ -5,7 +5,7 @@ import HomeswiftPlugin
 /// What a robot's services do when HomeKit writes them; the plugin answers.
 struct VacuumActions: Sendable {
     var setActive: @Sendable (_ duid: String, _ active: Bool) async -> Void
-    var setDockWash: @Sendable (_ duid: String, _ on: Bool) async -> Void
+    var setDockWash: @Sendable (_ duid: String, _ on: Bool) async throws -> Void
     var runScene: @Sendable (_ sceneID: Int) async -> Void
 }
 
@@ -46,7 +46,9 @@ final class VacuumAccessory {
         accessory = Accessory(id: accessoryID, name: device.name, services: [])
     }
 
-    var name: String { device.name.isEmpty ? "Roborock Vacuum" : device.name }
+    static let defaultName = "Roborock Vacuum"
+
+    var name: String { device.name.isEmpty ? Self.defaultName : device.name }
 
     var features: RoborockFeatures { RoborockFeatures(featureSet: device.isShared ? nil : device.featureSet) }
 
@@ -113,7 +115,7 @@ final class VacuumAccessory {
         if shape.dockWash {
             let service = Self.switchService(subtype: "dock-wash", name: RoborockStrings.dockWashName(language), old: old)
             let duid = duid, actions = actions
-            service.characteristic(.on).onWrite { value in await actions.setDockWash(duid, value.boolValue ?? false) }
+            service.characteristic(.on).onWrite { value in try await actions.setDockWash(duid, value.boolValue ?? false) }
             dockWash = service
             linked.append(service)
         }
@@ -150,8 +152,8 @@ final class VacuumAccessory {
         if let previous = old.service(.fanv2) { fan.takeValues(from: previous) }
         if let previous = old.service(.battery) { battery.takeValues(from: previous) }
         let accessory = Accessory(
-            id: accessoryID, name: name, manufacturer: "Roborock", model: model ?? "Unknown", serialNumber: device.serialNumber.flatMap { $0.isEmpty ? nil : $0 } ?? "Unknown",
-            firmwareRevision: device.firmware.flatMap { $0.isEmpty ? nil : $0 } ?? "Unknown", category: .other,
+            id: accessoryID, name: name, manufacturer: "Roborock", model: model ?? "Unknown", serialNumber: device.serialNumber?.nonEmptyValue ?? "Unknown",
+            firmwareRevision: device.firmware?.nonEmptyValue ?? "Unknown", category: .other,
             services: [fan, battery] + linked.dropFirst())
         self.accessory = accessory
         self.fan = fan
@@ -187,7 +189,7 @@ final class VacuumAccessory {
     func showAll(home: RoborockHome?, online: Bool?) {
         show(fields: nil, home: home)
         fan.characteristic(.statusActive).value = .bool(connectedLocally || online != false)
-        accessory.information.characteristic(.firmwareRevision).value = .string(device.firmware.flatMap { $0.isEmpty ? nil : $0 } ?? "Unknown")
+        accessory.information.characteristic(.firmwareRevision).value = .string(device.firmware?.nonEmptyValue ?? "Unknown")
     }
 
     /// Shows what a device update carries (`fields`, the keys it has), or everything known (nil).

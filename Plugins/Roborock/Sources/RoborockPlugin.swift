@@ -97,7 +97,6 @@ public actor RoborockPlugin: HomeswiftPlugin {
     private var sceneRuns: [String: Task<Void, Never>] = [:]
     private var transientLogged: [String: (at: ContinuousClock.Instant, suppressed: Int)] = [:]
     private var warnedMatter = false
-    private(set) var started = false
     private lazy var udp = RoborockUDPDiscovery(logger: logger, duration: timings.udpListen)
 
     public init(configuration: Configuration, context: PluginContext) {
@@ -168,7 +167,7 @@ public actor RoborockPlugin: HomeswiftPlugin {
         var online = false
         if let session {
             if let fetched = await fetchHome(session: session, email: email) {
-                setHome(fetched)
+                home = fetched
                 online = true
             }
         }
@@ -178,7 +177,7 @@ public actor RoborockPlugin: HomeswiftPlugin {
                 return
             }
             homeID = storage.homeID.load()?.val
-            setHome(RoborockHome(cached))
+            home = RoborockHome(cached)
             logger.warning("Starting in local-only mode: the cloud did not answer")
         }
         guard !Task.isCancelled, let home else { return }
@@ -197,16 +196,13 @@ public actor RoborockPlugin: HomeswiftPlugin {
             }
         }
         await reconcileAccessories()
-        started = true
         logger.info(online ? "Started" : "Started in local-only mode")
         await connectDevices(home)
     }
 
     private func makeMessenger() -> RoborockMessenger {
-        let udp = udp
-        let discover = dependencies.discoverIPs ?? { known in await udp.discover(known: known) }
-        return RoborockMessenger(
-            timings: timings, dialer: dependencies.dialer, makeMQTT: dependencies.makeMQTT, logger: logger, discoverIPs: discover,
+        RoborockMessenger(
+            timings: timings, dialer: dependencies.dialer, makeMQTT: dependencies.makeMQTT, logger: logger, discoverIPs: discoverIPs,
             onUpdate: { [weak self] duid, payload in await self?.deviceUpdate(duid, payload) })
     }
 
@@ -218,36 +214,43 @@ public actor RoborockPlugin: HomeswiftPlugin {
                 logger.warning("A robot has no local key: it cannot be controlled (it has \(device.fieldNames.joined(separator: ", ")))", metadata: ["device": "\(RoborockMessenger.short(device.duid))"])
             }
             return RoborockMessenger.Device(
-                duid: device.duid, localKey: device.localKey, version: RoborockVersion(homeData: device.protocolVersion) ?? .v1,
-                isShared: device.isShared, online: device.online, model: home.model(of: device))
+                duid: device.duid, localKey: device.localKey, version: device.version, isShared: device.isShared, online: device.online)
         }
     }
 
-    private func setHome(_ home: RoborockHome) {
-        self.home = home
+    /// An owned robot of a supported model with a local key, not skipped: one the plugin dials and polls.
+    func isControlled(_ device: RoborockHome.Device, in home: RoborockHome) -> Bool {
+        !device.isShared && device.localKey != nil && !isSkipped(device.duid) && RoborockHome.isSupported(model: home.model(of: device))
+    }
+
+    /// UDP discovery, or the tests' fake.
+    var discoverIPs: @Sendable (Set<String>) async -> [String: String] {
+        let udp = udp
+        return dependencies.discoverIPs ?? { known in await udp.discover(known: known) }
     }
 
     /// Discovery, then the LAN, then polling (steps 6.7 to 6.12).
     private func connectDevices(_ home: RoborockHome) async {
         guard let messenger else { return }
-        let controlled = home.devices.filter { !$0.isShared && !isSkipped($0.duid) && $0.localKey != nil && RoborockHome.isSupported(model: home.model(of: $0)) }
-        let known = Set(controlled.map(\.duid))
-        let discover = dependencies.discoverIPs
-        let udp = udp
-        let discovered: [String: String]
-        if let discover { discovered = await discover(known) } else { discovered = await udp.discover(known: known) }
+        let known = Set(home.devices.filter { isControlled($0, in: home) }.map(\.duid))
         var ips = storage.localDevices.load()?.val.filter { known.contains($0.key) } ?? [:]
-        for (duid, ip) in discovered { ips[duid] = ip }
-        for device in controlled where await messenger.isMQTTUp {
-            if let ip = try? await messenger.networkInfo(device.duid) { ips[device.duid] = ip }
+        for (duid, ip) in await discoverIPs(known) { ips[duid] = ip }
+        if await messenger.isMQTTUp {
+            let reported = await withTaskGroup(of: (String, String?).self) { group in
+                for duid in known { group.addTask { (duid, try? await messenger.networkInfo(duid)) } }
+                var found: [String: String] = [:]
+                for await (duid, ip) in group { if let ip { found[duid] = ip } }
+                return found
+            }
+            ips.merge(reported) { _, new in new }
         }
         storage.saveIPs(ips)
-        for device in controlled {
-            await messenger.connectLocal(device.duid, ip: ips[device.duid])
+        await withTaskGroup(of: Void.self) { group in
+            for duid in known { group.addTask { [ip = ips[duid]] in await messenger.connectLocal(duid, ip: ip) } }
         }
         await updatePollers()
-        for device in controlled where pollers[device.duid] != nil {
-            _ = try? await messenger.request(device.duid, "get_fw_features")
+        for duid in known where pollers[duid] != nil {
+            _ = try? await messenger.request(duid, "get_fw_features")
         }
     }
 
@@ -357,7 +360,7 @@ public actor RoborockPlugin: HomeswiftPlugin {
         guard let session, let homeID, let email else { return }
         do {
             let list = try await hawk(session).scenes(homeID: homeID)
-            try? storage.scenes.save(StoredValue(["result": .array(list)], account: email))
+            if list != scenes.map(\.raw) { try? storage.scenes.save(StoredValue(["result": .array(list)], account: email)) }
             scenes = list.compactMap { json in
                 guard let scene = RoborockScene(json) else {
                     logger.warning("A scene cannot be read: skipping it")
@@ -395,14 +398,14 @@ public actor RoborockPlugin: HomeswiftPlugin {
                 logger.warning("The home data came back empty")
                 return
             }
-            try? storage.homeData.save(StoredValue(json, account: email))
+            if json != home?.raw { try? storage.homeData.save(StoredValue(json, account: email)) }
             if cloudFailing {
                 cloudFailing = false
                 logger.info("The Roborock cloud is reachable again")
             }
             await messenger?.setCloudUnreachable(false)
             let home = RoborockHome(json)
-            setHome(home)
+            self.home = home
             await refreshScenes()
             await messenger?.setDevices(messengerDevices(home))
             await reconcileAccessories()
@@ -471,17 +474,16 @@ public actor RoborockPlugin: HomeswiftPlugin {
             vacuum.language = language
             vacuum.connectedLocally = await messenger?.isConnectedLocally(device.duid) ?? false
             let shape = vacuum.desiredShape(home: home, sceneList: scenes)
-            if accessories[device.duid] == nil || shape != vacuum.shape {
-                let accessory = vacuum.build(shape)
-                vacuum.showAll(home: home, online: device.online)
+            let rebuilt = accessories[device.duid] == nil || shape != vacuum.shape
+            let accessory = rebuilt ? vacuum.build(shape) : nil
+            vacuum.showAll(home: home, online: device.online)
+            if let accessory {
                 do {
                     try context.add(accessory)
                 } catch {
                     logger.error("Could not add a robot: \(error)")
                 }
                 accessories[device.duid] = vacuum
-            } else {
-                vacuum.showAll(home: home, online: device.online)
             }
         }
         for duid in accessories.keys where !keep.contains(Self.accessoryID(duid: duid)) { accessories[duid] = nil }
@@ -491,7 +493,7 @@ public actor RoborockPlugin: HomeswiftPlugin {
     private func makeAccessory(_ device: RoborockHome.Device, home: RoborockHome) -> VacuumAccessory {
         let actions = VacuumActions(
             setActive: { [weak self] duid, active in await self?.setActive(duid, active) },
-            setDockWash: { [weak self] duid, on in await self?.setDockWash(duid, on) },
+            setDockWash: { [weak self] duid, on in try await self?.setDockWash(duid, on) },
             runScene: { [weak self] id in await self?.runScene(id) })
         return VacuumAccessory(
             device: device, model: home.model(of: device), language: language, timings: timings, actions: actions, accessoryID: Self.accessoryID(duid: device.duid))
@@ -509,6 +511,7 @@ public actor RoborockPlugin: HomeswiftPlugin {
         vacuum.record(fields)
         vacuum.show(fields: Set(fields.keys), home: home)
         // A consumable seen for the first time, or a dock type that washes, adds a service.
+        guard fields["dock_type"] != nil || RoborockConsumables.all.contains(where: { fields[$0.field] != nil }) else { return }
         let shape = vacuum.desiredShape(home: home, sceneList: scenes)
         if shape != vacuum.shape {
             try? context.add(vacuum.build(shape))
@@ -522,8 +525,7 @@ public actor RoborockPlugin: HomeswiftPlugin {
     func updatePollers() async {
         guard let home, let messenger else { return }
         for device in home.devices {
-            let controlled = !device.isShared && device.localKey != nil && !isSkipped(device.duid) && !isIgnored(device)
-                && RoborockHome.isSupported(model: home.model(of: device))
+            let controlled = isControlled(device, in: home) && !isIgnored(device)
             let reachable = await messenger.isReachable(device.duid)
             if controlled, reachable {
                 guard pollers[device.duid] == nil else { continue }
@@ -552,8 +554,7 @@ public actor RoborockPlugin: HomeswiftPlugin {
     /// are not sent.
     func fullPoll(_ duid: String) async {
         guard let messenger, let device = home?.device(duid) else { return }
-        let v1 = RoborockVersion(homeData: device.protocolVersion) ?? .v1 == .v1
-        if v1, await !messenger.isPaused(duid, "get_status") {
+        if device.version == .v1, await !messenger.isPaused(duid, "get_status") {
             await send(duid, "get_status")
         }
         if await !messenger.isPaused(duid, "get_consumable"), let answer = try? await messenger.request(duid, "get_consumable"),
@@ -567,7 +568,7 @@ public actor RoborockPlugin: HomeswiftPlugin {
     /// Every 15 seconds while cleaning or while the cloud is down: get_status on the LAN.
     func activePoll(_ duid: String) async {
         guard let messenger, let vacuum = accessories[duid], !activePollRunning.contains(duid) else { return }
-        guard RoborockVersion(homeData: vacuum.device.protocolVersion) ?? .v1 == .v1, await messenger.isConnectedLocally(duid) else { return }
+        guard vacuum.device.version == .v1, await messenger.isConnectedLocally(duid) else { return }
         let cleaning = RoborockStates.isCleaning(vacuum.value("state", home: home).map { Int($0) })
         guard await !messenger.isMQTTUp || cleaning, await !messenger.isPaused(duid, "get_status") else { return }
         activePollRunning.insert(duid)
@@ -580,26 +581,31 @@ public actor RoborockPlugin: HomeswiftPlugin {
     /// Sends a command, logging what fails (section 8.5's throttle for the transient errors); answers the result.
     @discardableResult
     func send(_ duid: String, _ method: String, _ params: JSONValue = [], localOnly: Bool = false) async -> JSONValue? {
+        try? await request(duid, method, params, localOnly: localOnly)
+    }
+
+    /// `send`, throwing what failed (logged already).
+    func request(_ duid: String, _ method: String, _ params: JSONValue = [], localOnly: Bool = false) async throws -> JSONValue {
         guard let messenger else {
             logger.warning("Not initialised yet: \(method) not sent")
-            return nil
+            throw RoborockRequestError.refused("not initialised")
         }
-        guard accessories[duid] != nil, home?.device(duid).map({ RoborockHome.isSupported(model: home?.model(of: $0)) }) == true else {
+        guard accessories[duid] != nil else {
             logger.warning("Unknown device: \(method) not sent")
-            return nil
+            throw RoborockRequestError.refused("unknown device")
         }
         do {
             return try await messenger.request(duid, method, params, localOnly: localOnly)
         } catch {
             logFailure(duid, method, error)
-            return nil
+            throw error
         }
     }
 
     private func logFailure(_ duid: String, _ method: String, _ error: any Error) {
         let text = "\(error)"
         let model = accessories[duid]?.model ?? "?"
-        if text.contains("retry") || text.contains("locating") || text.contains("timed out after 10 seconds") {
+        if (error as? RoborockRequestError)?.isTransient == true {
             let key = "\(duid)|\(method)"
             if let entry = transientLogged[key], ContinuousClock.now - entry.at < timings.transientLogInterval {
                 transientLogged[key] = (entry.at, entry.suppressed + 1)
@@ -627,16 +633,12 @@ public actor RoborockPlugin: HomeswiftPlugin {
         }
     }
 
-    /// The dock's mop wash; On goes back to what the robot does when the command fails (section 6.3).
-    func setDockWash(_ duid: String, _ on: Bool) async {
-        let result = await send(duid, on ? "app_start_wash" : "app_stop_wash")
-        guard result == nil, let vacuum = accessories[duid], let service = vacuum.dockWash else { return }
-        let state = vacuum.value("state", home: home).map { Int($0) }
-        let washing = state.map(RoborockStates.mopWashing.contains) ?? false
-        let characteristic = service.characteristic(.on)
-        Task {
-            try? await Task.sleep(for: .milliseconds(100))
-            characteristic.value = .bool(washing)
+    /// The dock's mop wash (section 6.3). A command that fails fails the write, so On keeps what the robot does.
+    func setDockWash(_ duid: String, _ on: Bool) async throws {
+        do {
+            _ = try await request(duid, on ? "app_start_wash" : "app_stop_wash")
+        } catch {
+            throw HAPStatusError(.serviceCommunicationFailure)
         }
     }
 
@@ -653,19 +655,18 @@ public actor RoborockPlugin: HomeswiftPlugin {
         var local = scene.isLocalCommands
         if local {
             for duid in targets {
-                guard let device = home?.device(duid), !device.isShared, device.localKey != nil, accessories[duid] != nil,
-                    RoborockVersion(homeData: device.protocolVersion) ?? .v1 == .v1, await messenger.isLocallyAvailable(duid)
+                guard let home, let device = home.device(duid), isControlled(device, in: home), accessories[duid] != nil,
+                    device.version == .v1, await messenger.isLocallyAvailable(duid)
                 else {
                     local = false
                     break
                 }
             }
         }
-        guard local, let first = scene.items.first?.entityID else { return await runSceneInCloud(scene) }
+        guard local else { return await runSceneInCloud(scene) }
         logger.info("Running a scene on the LAN: \(scene.name)")
         let run = Task { [weak self] () -> Void in await self?.runLocally(scene) }
         for duid in targets { sceneRuns[duid] = run }
-        _ = first
         await run.value
     }
 

@@ -32,6 +32,23 @@ enum RoborockRequestError: Error, CustomStringConvertible, Equatable {
     case sendFailed(String)
     case deviceError(String)
 
+    /// Worth one more try through the cloud: the LAN timed out or the write failed.
+    var allowsCloudFallback: Bool {
+        switch self {
+        case .timedOut, .sendFailed: true
+        case .refused, .deviceError: false
+        }
+    }
+
+    /// A failure that comes and goes (a timeout, a robot busy locating or asking to retry): logged once in a while.
+    var isTransient: Bool {
+        switch self {
+        case .timedOut: true
+        case .deviceError(let message): message.lowercased().contains("retry") || message.lowercased().contains("locating")
+        case .refused, .sendFailed: false
+        }
+    }
+
     var description: String {
         switch self {
         case .refused(let reason): reason
@@ -52,7 +69,6 @@ actor RoborockMessenger {
         var version: RoborockVersion
         var isShared: Bool
         var online: Bool?
-        var model: String?
     }
 
     /// What arrives for a device: an RPC answer or a status broadcast, to show on its accessory.
@@ -116,7 +132,7 @@ actor RoborockMessenger {
     private var subscription = ""
     private var publishPrefix = ""
     /// Set by the plugin while the cloud's API does not answer: cloud timeouts then do not count.
-    var cloudUnreachable = false
+    private var cloudUnreachable = false
     private var cloudTimeouts = 0
     private var restartsSinceTraffic = 0
     private var lastRestart: ContinuousClock.Instant?
@@ -136,11 +152,35 @@ actor RoborockMessenger {
     // MARK: Devices
 
     /// The devices of the latest home data; their online flags drive reachability.
-    func setDevices(_ list: [Device]) {
+    func setDevices(_ list: [Device]) async {
+        let kept = Set(list.map(\.duid))
+        for duid in devices.keys where !kept.contains(duid) { await forget(duid) }
         for device in list {
             devices[device.duid] = device
             if device.isShared { demoted.insert(device.duid) }
         }
+    }
+
+    /// A device no longer in the account: no reconnects, no connection, nothing kept about it.
+    private func forget(_ duid: String) async {
+        devices[duid] = nil
+        reconnects.removeValue(forKey: duid)?.cancel()
+        if let connection = connections.removeValue(forKey: duid) {
+            connection.reader?.cancel()
+            connection.keepalive?.cancel()
+            await connection.link.close()
+        }
+        ips[duid] = nil
+        localVersions[duid] = nil
+        reconnectAttempts[duid] = nil
+        lastNetworkInfo[duid] = nil
+        fallbackLogged[duid] = nil
+        localTimeouts[duid] = nil
+        cooldownUntil[duid] = nil
+        demoted.remove(duid)
+        warnedNoKey.remove(duid)
+        methodTimeouts = methodTimeouts.filter { !$0.key.hasPrefix("\(duid)|") }
+        methodPausedUntil = methodPausedUntil.filter { !$0.key.hasPrefix("\(duid)|") }
     }
 
     func setCloudUnreachable(_ value: Bool) { cloudUnreachable = value }
@@ -150,14 +190,12 @@ actor RoborockMessenger {
     func isConnectedLocally(_ duid: String) -> Bool { connections[duid] != nil }
 
     /// Reachable: connected locally, or online in the home data.
-    func isReachable(_ duid: String) -> Bool { connections[duid] != nil || devices[duid]?.online == true }
+    func isReachable(_ duid: String) -> Bool { isConnectedLocally(duid) || devices[duid]?.online == true }
 
     /// Can take a request on the LAN with nothing in the way: connected, not cooling down.
     func isLocallyAvailable(_ duid: String) -> Bool {
         connections[duid] != nil && !inCooldown(duid) && !demoted.contains(duid)
     }
-
-    func knownIPs() -> [String: String] { ips }
 
     /// The method is paused after timing out three times in a row.
     func isPaused(_ duid: String, _ method: String) -> Bool {
@@ -182,23 +220,23 @@ actor RoborockMessenger {
         guard !stopped else { throw RoborockRequestError.refused("stopping") }
         guard let device = devices[duid] else { throw RoborockRequestError.refused("unknown device") }
         guard isReachable(duid) else { throw RoborockRequestError.refused("the device is offline") }
-        let alwaysCloud = method == "get_network_info" || method == "service.get_net_info"
-        if !localOnly, demoted.contains(duid) || alwaysCloud { return try await cloudRequest(device, method, params) }
-        if !localOnly, mqttUp, connections[duid] == nil || inCooldown(duid) {
-            logFallback(duid, method)
-            return try await cloudRequest(device, method, params)
-        }
+        if !localOnly, demoted.contains(duid) || Self.cloudOnlyMethods.contains(method) { return try await cloudRequest(device, method, params) }
+        if !localOnly, mqttUp, connections[duid] == nil || inCooldown(duid) { return try await fallBack(device, method, params) }
         do {
             let result = try await localRequest(device, method, params)
             fallbackLogged[duid] = nil
             return result
-        } catch RoborockRequestError.timedOut where !localOnly && mqttUp {
-            logFallback(duid, method)
-            return try await cloudRequest(device, method, params)
-        } catch RoborockRequestError.sendFailed where !localOnly && mqttUp {
-            logFallback(duid, method)
-            return try await cloudRequest(device, method, params)
+        } catch let error as RoborockRequestError where error.allowsCloudFallback && !localOnly && mqttUp {
+            return try await fallBack(device, method, params)
         }
+    }
+
+    /// Methods that always go through the cloud.
+    static let cloudOnlyMethods: Set<String> = ["get_network_info", "service.get_net_info"]
+
+    private func fallBack(_ device: Device, _ method: String, _ params: JSONValue) async throws -> JSONValue {
+        logFallback(device.duid, method)
+        return try await cloudRequest(device, method, params)
     }
 
     private func logFallback(_ duid: String, _ method: String) {
@@ -333,6 +371,11 @@ actor RoborockMessenger {
             if let entry = pending[id], entry.duid == duid {
                 pending[id] = nil
                 entry.timeout.cancel()
+                if let error = result["error"], result.objectValue?.count == 1 {
+                    let message = error["message"]?.stringValue ?? error.stringValue ?? error.text()
+                    entry.continuation.resume(throwing: RoborockRequestError.deviceError(message))
+                    return
+                }
                 entry.continuation.resume(returning: result)
             }
             await onUpdate(duid, result)
@@ -348,9 +391,10 @@ actor RoborockMessenger {
         if let ip { ips[duid] = ip }
         guard !stopped, connections[duid] == nil, let device = devices[duid], device.localKey != nil, !device.isShared else { return }
         guard let host = ips[duid] else { return scheduleReconnect(duid) }
-        if device.version == .v1, localVersions[duid] == nil, await probeL01(host) {
-            localVersions[duid] = .l01
-            logger.info("The robot reports protocol 1.0 but answers L01 on the LAN", metadata: ["device": "\(Self.short(duid))"])
+        if device.version == .v1, localVersions[duid] == nil {
+            let l01 = await probeL01(host)
+            localVersions[duid] = l01 ? .l01 : .v1
+            if l01 { logger.info("The robot reports protocol 1.0 but answers L01 on the LAN", metadata: ["device": "\(Self.short(duid))"]) }
         }
         let link: any LocalLink
         do {
@@ -686,9 +730,8 @@ actor RoborockMessenger {
             else { return }
             await deliver(duid, incoming)
         case RoborockFrameProtocol.deviceEvent:
-            guard let payload = decrypt(frame, duid: duid, nonces: connections[duid]?.nonces, length: message.payload.count) ?? Optional(frame.payload),
-                let json = try? JSONValue(data: payload)
-            else { return }
+            // Plain JSON: not encrypted beyond the frame.
+            guard let json = try? JSONValue(data: frame.payload) else { return }
             if json["online"] == false {
                 logger.info("The robot is offline", metadata: ["device": "\(Self.short(duid))"])
             } else if json["online"] == true {

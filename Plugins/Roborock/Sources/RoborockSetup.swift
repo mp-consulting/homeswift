@@ -28,7 +28,7 @@ extension RoborockPlugin {
         guard let current else { return [] }
         return current.devices.filter { RoborockHome.isSupported(model: current.model(of: $0)) }.map { device in
             var found = DiscoveredDevice(
-                deviceID: device.duid, name: device.name.isEmpty ? "Roborock Vacuum" : device.name, model: current.model(of: device), isSetUp: true,
+                deviceID: device.duid, name: device.name.isEmpty ? VacuumAccessory.defaultName : device.name, model: current.model(of: device), isSetUp: true,
                 excludedBySettings: configuration.skipDevices?.values.contains(device.duid) == true, kind: Self.vacuumKind)
             found.isReachable = device.online != false
             return found

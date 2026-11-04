@@ -1,5 +1,6 @@
 import Crypto
 import Foundation
+import Homeswift
 import HomeswiftPlugin
 
 // The RPC bodies inside the frames (section 4.3) and what comes back (4.4, 4.5).
@@ -135,8 +136,5 @@ enum RoborockAuth {
         }
     }
 
-    static func randomBytes(_ count: Int) -> [UInt8] {
-        var generator = SystemRandomNumberGenerator()
-        return (0..<count).map { _ in UInt8.random(in: 0...255, using: &generator) }
-    }
+    static func randomBytes(_ count: Int) -> [UInt8] { Array(Secrets.randomBytes(count)) }
 }
