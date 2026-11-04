@@ -148,6 +148,8 @@ enum TadoAccessories {
                                  optional: [.currentTemperature.with(minValue: -100, maxValue: 100)])
         }
         if zone.separateHumidity { humiditySensor = sensor("Humidity", .humiditySensor, subtype: "zone-humidity", model: "zone-humidity") }
+        // Until the first poll (or the cache) says: 0 rather than the range's lowest.
+        for service in [primary, temperature?.0].compactMap({ $0 }) { service[.currentTemperature]?.value = .double(0) }
         let services = ZoneServices(
             zone: zone, kind: kind, deviceID: display, limits: limits, primary: primary, battery: battery, fanSwitch: fanSwitch, drySwitch: drySwitch,
             window: window?.0, windowBattery: window?.1, temperature: temperature?.0, temperatureBattery: temperature?.1,

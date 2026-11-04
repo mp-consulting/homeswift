@@ -144,6 +144,7 @@ actor TadoHome {
         if settings.weatherTemperature {
             let service = Service(.temperatureSensor, name: "\(home) Weather", subtype: "weather-temperature",
                                   optional: [.currentTemperature.with(minValue: -100, maxValue: 100)], isPrimary: true)
+            service.characteristic(.currentTemperature).value = .double(0)
             weather = service
             add(TadoAccessories.accessory("\(home) Weather", model: "Weather Temperature", category: .sensor, firmware: firmware, services: [service]))
         }
