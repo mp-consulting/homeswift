@@ -58,7 +58,8 @@ console.log('Passed: French, Spanish and Portuguese group-control labels and acc
 // Groups must follow their lights rather than jump to the first room/plugin wall.
 const { sectionIndex } = context.window.HomeswiftGroups;
 const kitchen = { id: 'kitchen', room: 'Kitchen' };
-const lights = [{ id: 'a', room: 'Living room' }, { id: 'b', room: 'Living room' }];
+// A plugin's accessories (`platform`): only they have Accessory Settings to move.
+const lights = [{ id: 'a', room: 'Living room', platform: 'Demo' }, { id: 'b', room: 'Living room', platform: 'Demo' }];
 const sections = [['Kitchen', [kitchen]], ['Living room', lights]];
 const group = { members: ['a', 'b'] };
 assert.equal(sectionIndex(group, sections), 1);
@@ -71,7 +72,7 @@ assert.equal(sectionIndex({ members: ['b', 'kitchen'] }, sections), 1);
 assert.deepEqual(lights.map(a => a.room), ['Living room', 'Living room']);
 console.log('Passed: group room/plugin placement, reordered walls, filtered and missing members.');
 
-// Exercise the production room action: one metadata request, never a device write.
+// Exercise the production room action: one Accessory Settings write for every member, never a device write.
 let answer = ' Bedroom ', prompted, routes = 0, failure = false;
 const roomRequests = [];
 const roomContext = { window: {},
@@ -91,15 +92,15 @@ assert.ok(prompted.message.includes('HomeKit rooms stay unchanged.'));
 assert.equal(routes, 1);
 assert.deepEqual(JSON.parse(JSON.stringify(roomRequests)), [
   { path: '/api/rooms' },
-  { path: '/api/rooms', options: { method: 'PUT', body: { accessories: { a: { room: 'Bedroom' }, b: { room: 'Bedroom' } } } } }
+  { path: '/api/settings/accessories', options: { method: 'PATCH', body: { a: { room: 'Bedroom' }, b: { room: 'Bedroom' } } } }
 ]);
 roomRequests.length = 0; answer = null;
 await moveGroup();
 assert.equal(roomRequests.length, 1);
 assert.equal(routes, 1);
 answer = ''; await moveGroup();
-assert.equal(roomRequests.at(-1).options.body.accessories.a.room, null);
-assert.equal(roomRequests.at(-1).options.body.accessories.b.room, null);
+assert.equal(roomRequests.at(-1).options.body.a.room, null);
+assert.equal(roomRequests.at(-1).options.body.b.room, null);
 failure = true; answer = 'Bedroom';
 await assert.rejects(moveGroup(), /Room update failed/);
 assert.equal(routes, 2);
