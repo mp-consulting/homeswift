@@ -25,7 +25,6 @@ struct KasaSysinfo: Sendable, Equatable {
     var relayState: Int?
     /// Dimmers (HS220) only.
     var brightness: Int?
-    var ledOff: Int?
     var children: [Child]?
     var lightState: KasaLightState?
     var isDimmable = false
@@ -54,7 +53,7 @@ struct KasaSysinfo: Sendable, Equatable {
         self.mac = mac
         let lowered = type.lowercased()
         if lowered.contains("plug") {
-            guard !type.isEmpty, json["mac"] != nil || json["ethernet_mac"] != nil, let feature = json["feature"]?.stringValue,
+            guard json["mac"] != nil || json["ethernet_mac"] != nil, let feature = json["feature"]?.stringValue,
                   json["relay_state"] != nil || json["children"] != nil
             else { return nil }
             // `children: null` is a reply to discard.
@@ -63,7 +62,6 @@ struct KasaSysinfo: Sendable, Equatable {
             self.feature = feature
             relayState = json["relay_state"]?.intValue
             brightness = json["brightness"]?.intValue
-            ledOff = json["led_off"]?.intValue
             if let list = json["children"]?.arrayValue, !list.isEmpty {
                 let parsed = list.compactMap { child -> Child? in
                     guard let id = child["id"]?.stringValue, !id.isEmpty, Self.isPlainID(id) else { return nil }
@@ -91,7 +89,12 @@ struct KasaSysinfo: Sendable, Equatable {
     /// Ids are hex digits (40, or 42 for an outlet): anything else in a reply, which any host on the network can send, is
     /// not taken as part of an accessory id or a file name.
     static func isPlainID(_ id: String) -> Bool {
-        id.count <= 64 && id.unicodeScalars.allSatisfy { $0.isASCII && ($0.properties.isAlphabetic || ("0"..."9").contains($0)) }
+        id.count <= 64 && id.unicodeScalars.allSatisfy(isLetterOrDigit)
+    }
+
+    /// An ASCII letter or digit: what ids and normalised MACs are made of.
+    static func isLetterOrDigit(_ scalar: Unicode.Scalar) -> Bool {
+        scalar.isASCII && (scalar.properties.isAlphabetic || ("0"..."9").contains(scalar))
     }
 
     /// A strip's outlet id: the device id and two digits, built when the firmware gave only the digits (section 4.2).

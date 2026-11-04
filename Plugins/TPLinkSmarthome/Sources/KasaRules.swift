@@ -53,7 +53,7 @@ struct KasaMACFilter: Sendable {
     }
 
     static func normalize(_ text: String, keeping extra: String) -> String {
-        String(text.unicodeScalars.filter { ($0.isASCII && ($0.properties.isAlphabetic || ("0"..."9").contains($0))) || extra.unicodeScalars.contains($0) }).uppercased()
+        String(String.UnicodeScalarView(text.unicodeScalars.filter { KasaSysinfo.isLetterOrDigit($0) || extra.unicodeScalars.contains($0) })).uppercased()
     }
 
     /// The whole of `text` against the pattern.

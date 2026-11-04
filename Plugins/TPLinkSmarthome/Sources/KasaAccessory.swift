@@ -9,11 +9,12 @@ enum KasaEve {
         CharacteristicType(name: name, uuid: eve(short), format: .float, permissions: [.pairedRead, .events], minValue: 0, maxValue: 65535, minStep: step)
     }
 
-    static let volts = reading("Volts", "F10A", step: 0.1)
-    static let amperes = reading("Amperes", "F126", step: 0.01)
+    static let volts = EveCharacteristic.voltage.with(maxValue: 65535, minStep: 0.1)
+    static let amperes = EveCharacteristic.electricCurrent.with(maxValue: 65535, minStep: 0.01)
+    static let kilowattHours = EveCharacteristic.totalConsumption.with(maxValue: 65535, minStep: 0.001)
+    /// Not `EveCharacteristic.currentConsumption`, a whole number of watts: a bulb's few watts need the decimal.
     static let watts = reading("Consumption", "F10D", step: 0.1)
     static let voltAmperes = reading("Apparent Power", "F110", step: 0.1)
-    static let kilowattHours = reading("Total Consumption", "F10C", step: 0.001)
 }
 
 /// Builds the accessory of a unit (sections 4.3 to 4.6): one primary service without a subtype, the Eve energy

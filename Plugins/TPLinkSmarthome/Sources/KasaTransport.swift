@@ -12,7 +12,8 @@ protocol KasaTransport: Sendable {
 
 /// The socket discovery broadcasts on and hears the replies on; tests use a fake.
 protocol KasaDiscoverySocket: Sendable {
-    var datagrams: AsyncStream<(data: Data, address: String)> { get }
+    /// The replies, with the address and port each came from.
+    var datagramsWithPorts: AsyncStream<UDPSocket.Datagram> { get }
     func send(_ data: Data, to host: String, port: Int) async throws
     func close() async
 }
@@ -22,7 +23,7 @@ extension UDPSocket: KasaDiscoverySocket {}
 struct KasaTimeout: Error, CustomStringConvertible {
     var transport: String
     var timeout: Duration
-    var description: String { "\(transport) timeout after \(timeout.components.seconds * 1000 + timeout.components.attoseconds / 1_000_000_000_000_000) ms" }
+    var description: String { "\(transport) timeout after \(Int(timeout / .milliseconds(1))) ms" }
 }
 
 struct KasaConnectionClosed: Error, CustomStringConvertible {
@@ -82,16 +83,19 @@ struct KasaNetworkTransport: KasaTransport {
 
     private func sendUDP(_ json: String, host: String, port: Int) async throws -> String {
         let socket = try await UDPSocket.bind(group: group)
-        return try await withTaskCancellationHandler {
-            defer { Task { await socket.close() } }
+        // The first datagram is the answer; a cancellation (the timeout) ends the wait with none.
+        let datagram: (data: Data, address: String)?
+        do {
             try await socket.send(Data(KasaCipher.encrypt(json)), to: host, port: port)
-            for await datagram in socket.datagrams {
-                return String(decoding: KasaCipher.decrypt(datagram.data), as: UTF8.self)
-            }
-            throw KasaConnectionClosed()
-        } onCancel: {
-            Task { await socket.close() }
+            var iterator = socket.datagrams.makeAsyncIterator()
+            datagram = await iterator.next()
+        } catch {
+            await socket.close()
+            throw error
         }
+        await socket.close()
+        guard let datagram else { throw KasaConnectionClosed() }
+        return String(decoding: KasaCipher.decrypt(datagram.data), as: UTF8.self)
     }
 
     /// Hands each segment over, and the close as the end.

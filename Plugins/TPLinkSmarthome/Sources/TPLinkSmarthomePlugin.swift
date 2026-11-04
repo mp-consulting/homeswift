@@ -70,7 +70,7 @@ public actor TPLinkSmarthomePlugin: HomeswiftPlugin {
         public var transport: String?
         /// Milliseconds HomeKit's writes are gathered for; 100 by default.
         public var waitTimeUpdate: Int?
-        /// Commands go to the port a device's discovery reply came from (a `devices` entry's `port`), not 9999.
+        /// Commands go to the port a device's discovery reply came from, not 9999.
         public var devicesUseDiscoveryPort: Bool?
     }
 
@@ -78,7 +78,7 @@ public actor TPLinkSmarthomePlugin: HomeswiftPlugin {
     struct Dependencies: Sendable {
         var transport: any KasaTransport = KasaNetworkTransport()
         var bindDiscovery: @Sendable (_ port: Int) async throws -> any KasaDiscoverySocket = { port in
-            try await UDPSocket.bind(port: port, reuseAddress: port != 0, broadcast: true)
+            try await UDPSocket.bind(port: port, reuseAddress: port != 0, broadcast: true, senderPorts: true)
         }
         /// Seconds become this (tests run the rounds in milliseconds).
         var second: Duration = .seconds(1)
@@ -99,7 +99,7 @@ public actor TPLinkSmarthomePlugin: HomeswiftPlugin {
     static let minimumPollingInterval = 1
     static let defaultEnergyInterval = 20
     static let defaultSwitchModels = ["HS200", "HS210"]
-    static let discoveryPayload = KasaRequest.sysinfo.json
+    static let discoveryPacket = Data(KasaCipher.encrypt(KasaRequest.sysinfo.json))
     /// Rounds without a reply before a device shows No Response.
     static let offlineRounds = 3
 
@@ -108,6 +108,11 @@ public actor TPLinkSmarthomePlugin: HomeswiftPlugin {
     let dependencies: Dependencies
     let link: KasaLink
     let filter: KasaMACFilter
+    let switchModels: [String]
+    /// Empty: every type.
+    let deviceTypes: Set<String>
+    /// `waitTimeUpdate`.
+    let window: Duration
     private let tasks = TaskBag()
     private var logger: Logger { context.logger }
 
@@ -115,7 +120,6 @@ public actor TPLinkSmarthomePlugin: HomeswiftPlugin {
     private(set) var units: [String: KasaUnit] = [:]
     /// Each light's Adaptive Lighting, kept here: the lightbulb holds it weakly.
     private(set) var adaptiveLighting: [String: AdaptiveLightingController] = [:]
-    private var histories: [String: EveHistory] = [:]
     /// Every device a reply named, the ones left out included, for Setup.
     private(set) var seen: [String: DiscoveredDevice] = [:]
     private var lastSeenRound: [String: Int] = [:]
@@ -138,6 +142,9 @@ public actor TPLinkSmarthomePlugin: HomeswiftPlugin {
             transport: dependencies.transport, queues: KasaHostQueues(), udp: configuration.transport?.lowercased() == "udp",
             timeout: timeout > 0 ? dependencies.second * timeout : nil)
         filter = KasaMACFilter(allow: configuration.macAddresses, deny: configuration.excludeMacAddresses)
+        switchModels = configuration.switchModels ?? Self.defaultSwitchModels
+        deviceTypes = Set((configuration.deviceTypes ?? ["bulb", "plug"]).map { $0.lowercased() })
+        window = .milliseconds(max(configuration.waitTimeUpdate ?? 100, 0))
     }
 
     var pollingInterval: Duration { dependencies.second * max(configuration.pollingInterval ?? Self.defaultPollingInterval, Self.minimumPollingInterval) }
@@ -145,9 +152,6 @@ public actor TPLinkSmarthomePlugin: HomeswiftPlugin {
         let seconds = configuration.emeterPollingInterval ?? Self.defaultEnergyInterval
         return seconds > 0 ? dependencies.second * seconds : nil
     }
-    var switchModels: [String] { configuration.switchModels ?? Self.defaultSwitchModels }
-    var deviceTypes: Set<String> { Set((configuration.deviceTypes ?? ["bulb", "plug"]).map { $0.lowercased() }) }
-    var window: Duration { .milliseconds(max(configuration.waitTimeUpdate ?? 100, 0)) }
 
     public func start() async throws {
         if let broadcast = configuration.broadcast, IPv4Network.parse(broadcast) == nil {
@@ -169,7 +173,6 @@ public actor TPLinkSmarthomePlugin: HomeswiftPlugin {
         for unit in units.values { await unit.cancel() }
         // Let go, not disabled: a running schedule stays saved and resumes at the next start.
         adaptiveLighting.removeAll()
-        histories.removeAll()
     }
 
     // MARK: Discovery
@@ -199,8 +202,8 @@ public actor TPLinkSmarthomePlugin: HomeswiftPlugin {
             let interval = pollingInterval
             await withTaskGroup(of: Void.self) { group in
                 group.addTask { [weak self] in
-                    for await datagram in socket.datagrams {
-                        await self?.handle(datagram.data, from: datagram.address)
+                    for await datagram in socket.datagramsWithPorts {
+                        await self?.handle(datagram.data, from: datagram.address, port: datagram.port)
                     }
                 }
                 group.addTask { [weak self] in
@@ -229,7 +232,7 @@ public actor TPLinkSmarthomePlugin: HomeswiftPlugin {
     /// address and to each of `devices`.
     func sendRound(on socket: any KasaDiscoverySocket) async {
         markOffline()
-        let payload = Data(KasaCipher.encrypt(Self.discoveryPayload))
+        let payload = Self.discoveryPacket
         do {
             try await socket.send(payload, to: broadcastAddress, port: Self.devicePort)
         } catch {
@@ -255,14 +258,14 @@ public actor TPLinkSmarthomePlugin: HomeswiftPlugin {
     }
 
     /// A discovery reply (section 5.4): checked, filtered, then each device or outlet created or updated.
-    func handle(_ data: Data, from address: String) async {
-        guard let (sysinfo, targets, rejection) = remember(data, from: address) else { return }
+    func handle(_ data: Data, from address: String, port sourcePort: Int) async {
+        guard let (sysinfo, presentation, targets, rejection) = remember(data, from: address) else { return }
         if let rejection {
             logger.debug("Filtered out", metadata: ["alias": "\(sysinfo.alias)", "id": "\(sysinfo.deviceID)", "mac": "\(sysinfo.mac)", "reason": "\(rejection)"])
             return
         }
-        let port = commandPort(for: address)
-        let presentation = KasaPresentation.of(sysinfo, switchModels: switchModels)
+        // `devicesUseDiscoveryPort`: commands go where the reply came from (port forwarding), else to 9999.
+        let port = configuration.devicesUseDiscoveryPort == true && sourcePort > 0 ? sourcePort : Self.devicePort
         for target in targets {
             lastSeenRound[target.id] = round
             if offline.remove(target.id) != nil {
@@ -286,13 +289,12 @@ public actor TPLinkSmarthomePlugin: HomeswiftPlugin {
     /// A reply's devices (each outlet of a strip, else the device), listed for Setup with why the MAC lists leave them
     /// out; nil for a reply that is not a device's or of a type `deviceTypes` leaves out.
     @discardableResult
-    private func remember(_ data: Data, from address: String) -> (KasaSysinfo, [(id: String, childID: String?, name: String)], String?)? {
+    private func remember(_ data: Data, from address: String) -> (KasaSysinfo, KasaPresentation, [Target], rejection: String?)? {
         guard let sysinfo = KasaSysinfo.discoveryReply(data) else {
             logger.debug("Invalid discovery reply", metadata: ["from": "\(address)"])
             return nil
         }
-        let types = deviceTypes
-        guard types.isEmpty || types.contains(sysinfo.kind.rawValue) else {
+        guard deviceTypes.isEmpty || deviceTypes.contains(sysinfo.kind.rawValue) else {
             logger.debug("Filtered out by deviceTypes", metadata: ["alias": "\(sysinfo.alias)", "kind": "\(sysinfo.kind.rawValue)"])
             return nil
         }
@@ -301,24 +303,25 @@ public actor TPLinkSmarthomePlugin: HomeswiftPlugin {
             return nil
         }
         let rejection = filter.rejection(of: sysinfo.mac)
-        let kind = KasaPresentation.of(sysinfo, switchModels: switchModels).deviceKind
-        let targets: [(id: String, childID: String?, name: String)] = sysinfo.children.map { children in
-            children.map { ($0.id, $0.id, $0.alias) }
-        } ?? [(sysinfo.deviceID, nil, sysinfo.alias)]
+        let presentation = KasaPresentation.of(sysinfo, switchModels: switchModels)
+        let targets = sysinfo.children.map { children in
+            children.map { Target(id: $0.id, childID: $0.id, name: $0.alias) }
+        } ?? [Target(id: sysinfo.deviceID, childID: nil, name: sysinfo.alias)]
         for target in targets {
             var device = DiscoveredDevice(
                 deviceID: target.id, name: target.name, model: sysinfo.model, address: address, isSetUp: rejection == nil,
-                excludedBySettings: rejection != nil, kind: kind)
+                excludedBySettings: rejection != nil, kind: presentation.deviceKind)
             device.isReachable = !offline.contains(target.id) || rejection != nil
             seen[target.id] = device
         }
-        return (sysinfo, targets, rejection)
+        return (sysinfo, presentation, targets, rejection)
     }
 
-    /// 9999, or with `devicesUseDiscoveryPort` the port of the `devices` entry at that address.
-    private func commandPort(for address: String) -> Int {
-        guard configuration.devicesUseDiscoveryPort == true else { return Self.devicePort }
-        return configuration.devices?.first { $0.host == address }?.port ?? Self.devicePort
+    /// An accessory a reply names: the device, or one outlet of a strip (`childID`, its full id, as `id`).
+    struct Target {
+        var id: String
+        var childID: String?
+        var name: String
     }
 
     private func add(id: String, childID: String?, presentation: KasaPresentation, sysinfo: KasaSysinfo, host: String, port: Int) async {
@@ -342,7 +345,6 @@ public actor TPLinkSmarthomePlugin: HomeswiftPlugin {
         }
         units[id] = unit
         adaptiveLighting[id] = lighting
-        histories[id] = built.history
         logger.info("Added accessory", metadata: ["alias": "\(built.accessory.name)", "kind": "\(presentation.rawValue)", "id": "\(id)"])
         if sysinfo.supportsEnergy, energyInterval != nil { tasks.add { await unit.refreshEnergy() } }
     }
@@ -364,7 +366,7 @@ public actor TPLinkSmarthomePlugin: HomeswiftPlugin {
         if !isDiscovering {
             let socket = try await dependencies.bindDiscovery(0)
             let listening = Task { [weak self] in
-                for await datagram in socket.datagrams { await self?.remember(datagram.data, from: datagram.address) }
+                for await datagram in socket.datagramsWithPorts { await self?.remember(datagram.data, from: datagram.address) }
             }
             await sendRound(on: socket)
             try? await Task.sleep(for: dependencies.discoveryWindow)

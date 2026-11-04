@@ -51,7 +51,7 @@ That is enough: every Kasa device the broadcast reaches is added. The block of
 | `devices` | none | Hosts that also get the discovery packet directly: `host` and `port` (9999; a number or a numeric string) |
 | `broadcast` | `255.255.255.255` | Where the discovery broadcast goes (a subnet's broadcast address) |
 | `discoveryPort` | `0` | The local UDP port discovery binds; 0 lets the system choose |
-| `devicesUseDiscoveryPort` | `false` | Commands to a device listed in `devices` go to its entry's `port` rather than 9999 (port forwarding) |
+| `devicesUseDiscoveryPort` | `false` | Commands go to the port a device's discovery reply came from rather than 9999 (port forwarding) |
 | `transport` | `tcp` | `tcp` or `udp` for commands; discovery is always UDP |
 | `timeout` | `15` | Seconds a command may take; `0` waits as long as the TCP connection lasts (a UDP reply 15 s) |
 | `waitTimeUpdate` | `100` | Milliseconds HomeKit's writes to a device are gathered for |
@@ -71,8 +71,6 @@ responding.
 - **KLAP and Tapo.** Newer Kasa hardware revisions and firmware that speak TP-Link's authenticated KLAP protocol over
   HTTP do not answer the port-9999 discovery, so they never appear; Tapo devices neither.
 - Light strip effects and segments (`lighting_effect_state`, `groups`) are not shown.
-- `devicesUseDiscoveryPort` takes the port from the matching `devices` entry (by its literal host), not from the reply's
-  source port, which the shared UDP socket does not give.
 - A HomeKit read answers the last reported value; the next discovery round refreshes it (the Homebridge plugin also
   asks the device in the background on each read).
 - A bulb's energy is asked for like a plug's; a bulb that answers it has no meter is not asked again.

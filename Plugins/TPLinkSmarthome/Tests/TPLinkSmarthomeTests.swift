@@ -147,7 +147,8 @@ struct TPLinkSmarthomeTests {
 
         // Adaptive Lighting: on, then a colour set in the Kasa app turns it off. Its writes answer what the bulb shows.
         environment.lan.reply("smartlife.iot.smartbulb.lightingservice.transition_light_state", #"{"on_off":1,"brightness":60,"err_code":0}"#)
-        let controller = try #require(await environment.plugin?.adaptiveLighting[Fixtures.lb130ID])
+        let lighting = await environment.plugin?.adaptiveLighting[Fixtures.lb130ID]
+        let controller = try #require(lighting)
         try controller.activateForTesting()
         #expect(controller.isAdaptiveLightingActive)
         environment.lan.put(Fixtures.lb130(light: #"{"on_off":1,"mode":"normal","hue":10,"saturation":90,"color_temp":0,"brightness":60}"#), at: "192.168.1.50")
@@ -202,6 +203,16 @@ struct TPLinkSmarthomeTests {
         await host.stop()
     }
 
+    @Test func commandsGoToTheReplysPortWhenAsked() async throws {
+        // A device behind a port forward: its reply comes from the outside port.
+        environment.lan.put(Fixtures.hs200, at: "203.0.113.9")
+        let host = try await environment.start(settings: ["devicesUseDiscoveryPort": true, "devices": [["host": "203.0.113.9", "port": 20002]]])
+        #expect(await eventually { host.accessory(Fixtures.hs200ID) != nil })
+        try await write(host.accessory(Fixtures.hs200ID)?.service(.switch)?[.on], .bool(true))
+        #expect(environment.lan.commands("set_relay_state").last.map { "\($0.host):\($0.port)" } == "203.0.113.9:20002")
+        await host.stop()
+    }
+
     @Test func filtersLeaveDevicesOut() async throws {
         environment.lan.put(Fixtures.hs110, at: "192.168.1.20")
         environment.lan.put(Fixtures.hs200, at: "192.168.1.21")
@@ -211,7 +222,7 @@ struct TPLinkSmarthomeTests {
         #expect(await eventually { await environment.plugin?.round ?? 0 >= 2 })
         #expect(host.accessory(Fixtures.hs200ID) == nil)
         #expect(host.accessory(Fixtures.lb120ID) == nil)
-        let found = try await #require(environment.plugin?.discover())
+        let found = try await environment.plugin?.discover() ?? []
         #expect(found.first { $0.deviceID == Fixtures.hs200ID }?.excludedBySettings == true)
         #expect(found.first { $0.deviceID == Fixtures.hs110ID }?.isSetUp == true)
         #expect(found.first { $0.deviceID == Fixtures.hs110ID }?.kind == "outlet")

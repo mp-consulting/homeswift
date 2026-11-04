@@ -1,4 +1,5 @@
 import Foundation
+import HomeswiftNetwork
 import HomeswiftPlugin
 import Logging
 import NIOConcurrencyHelpers
@@ -28,7 +29,7 @@ final class FakeLAN: Sendable {
         var replies: [String: String] = [:]
         var commands: [Sent] = []
         var packets: [Sent] = []
-        var continuation: AsyncStream<(data: Data, address: String)>.Continuation?
+        var continuation: AsyncStream<UDPSocket.Datagram>.Continuation?
     }
 
     private let state = NIOLockedValueBox(State())
@@ -47,25 +48,27 @@ final class FakeLAN: Sendable {
     func commands(_ method: String) -> [Sent] { commands.filter { $0.json.contains("\"\(method)\"") } }
 
     /// A datagram as from a device.
-    func deliver(_ text: String, from host: String) {
+    func deliver(_ text: String, from host: String, port: Int = 9999) {
         let continuation = state.withLockedValue { $0.continuation }
-        continuation?.yield((Data(KasaCipher.encrypt(text)), host))
+        continuation?.yield(UDPSocket.Datagram(data: Data(KasaCipher.encrypt(text)), address: host, port: port))
     }
 
     func socket() -> FakeSocket {
-        let (stream, continuation) = AsyncStream<(data: Data, address: String)>.makeStream()
+        let (stream, continuation) = AsyncStream<UDPSocket.Datagram>.makeStream()
         state.withLockedValue { $0.continuation = continuation }
         return FakeSocket(lan: self, datagrams: stream)
     }
 
     fileprivate func received(_ data: Data, host: String, port: Int) {
         let text = String(decoding: KasaCipher.decrypt(data), as: UTF8.self)
+        // A broadcast is answered from 9999; a packet to a host from the port it went to (a port forward).
+        let from = host.hasSuffix(".255") ? 9999 : port
         let answers: [(String, String)] = state.withLockedValue { state in
             state.packets.append(Sent(json: text, host: host, port: port))
             let hosts = host.hasSuffix(".255") ? Array(state.sysinfo.keys) : (state.sysinfo[host] != nil ? [host] : [])
             return hosts.filter { !state.silent.contains($0) }.map { ($0, #"{"system":{"get_sysinfo":\#(state.sysinfo[$0]!)}}"#) }
         }
-        for (from, reply) in answers { deliver(reply, from: from) }
+        for (address, reply) in answers { deliver(reply, from: address, port: from) }
     }
 
     fileprivate func command(_ json: String, host: String, port: Int) throws -> String {
@@ -86,11 +89,11 @@ final class FakeLAN: Sendable {
 
 final class FakeSocket: KasaDiscoverySocket {
     let lan: FakeLAN
-    let datagrams: AsyncStream<(data: Data, address: String)>
+    let datagramsWithPorts: AsyncStream<UDPSocket.Datagram>
 
-    init(lan: FakeLAN, datagrams: AsyncStream<(data: Data, address: String)>) {
+    init(lan: FakeLAN, datagrams: AsyncStream<UDPSocket.Datagram>) {
         self.lan = lan
-        self.datagrams = datagrams
+        self.datagramsWithPorts = datagrams
     }
 
     func send(_ data: Data, to host: String, port: Int) async throws { lan.received(data, host: host, port: port) }

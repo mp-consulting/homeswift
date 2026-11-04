@@ -138,7 +138,7 @@ extension TPLinkSmarthomePlugin {
         "title": "Commands to the Discovery Port",
         "type": "boolean",
         "default": false,
-        "description": "Send a device listed by address its commands at its entry's port rather than 9999, for port forwarding."
+        "description": "Send each device its commands at the port its discovery reply came from rather than 9999, for port forwarding."
       },
       "transport": {
         "title": "Transport",
@@ -257,7 +257,7 @@ extension TPLinkSmarthomePlugin {
       "Seconds a command may take. 0 waits as long as the connection lasts.": "Secondes que peut prendre une commande. 0 attend tant que dure la connexion.",
       "Seconds between discovery broadcasts. Each one is also the state poll: every reply updates its device.": "Secondes entre deux diffusions de découverte. Chacune sert aussi à relever l'état : chaque réponse met son appareil à jour.",
       "Seconds between energy readings of the devices that meter it. 0 reads only when HomeKit asks.": "Secondes entre deux lectures de l'énergie des appareils qui la mesurent. 0 ne lit que lorsque HomeKit la demande.",
-      "Send a device listed by address its commands at its entry's port rather than 9999, for port forwarding.": "Envoie ses commandes à un appareil listé par adresse sur le port de son entrée plutôt que 9999, pour une redirection de port.",
+      "Send each device its commands at the port its discovery reply came from rather than 9999, for port forwarding.": "Envoie ses commandes à chaque appareil sur le port d'où vient sa réponse de découverte plutôt que 9999, pour une redirection de port.",
       "Show volts, amperes, watts and kWh in the Eve app for the devices that meter energy.": "Affiche les volts, ampères, watts et kWh dans l'app Eve pour les appareils qui mesurent l'énergie.",
       "Switch Models": "Modèles d'interrupteur",
       "TCP": "TCP",
@@ -305,7 +305,7 @@ extension TPLinkSmarthomePlugin {
       "Seconds a command may take. 0 waits as long as the connection lasts.": "Segundos que puede tardar una orden. 0 espera mientras dure la conexión.",
       "Seconds between discovery broadcasts. Each one is also the state poll: every reply updates its device.": "Segundos entre dos difusiones de descubrimiento. Cada una sirve también para leer el estado: cada respuesta actualiza su dispositivo.",
       "Seconds between energy readings of the devices that meter it. 0 reads only when HomeKit asks.": "Segundos entre dos lecturas de energía de los dispositivos que la miden. 0 solo lee cuando HomeKit la pide.",
-      "Send a device listed by address its commands at its entry's port rather than 9999, for port forwarding.": "Envía sus órdenes a un dispositivo listado por dirección al puerto de su entrada en lugar del 9999, para una redirección de puertos.",
+      "Send each device its commands at the port its discovery reply came from rather than 9999, for port forwarding.": "Envía sus órdenes a cada dispositivo al puerto del que vino su respuesta de descubrimiento en lugar del 9999, para una redirección de puertos.",
       "Show volts, amperes, watts and kWh in the Eve app for the devices that meter energy.": "Muestra voltios, amperios, vatios y kWh en la app Eve para los dispositivos que miden la energía.",
       "Switch Models": "Modelos de interruptor",
       "TCP": "TCP",
@@ -353,7 +353,7 @@ extension TPLinkSmarthomePlugin {
       "Seconds a command may take. 0 waits as long as the connection lasts.": "Segundos que um comando pode demorar. 0 espera enquanto durar a ligação.",
       "Seconds between discovery broadcasts. Each one is also the state poll: every reply updates its device.": "Segundos entre duas difusões de descoberta. Cada uma serve também para ler o estado: cada resposta atualiza o seu dispositivo.",
       "Seconds between energy readings of the devices that meter it. 0 reads only when HomeKit asks.": "Segundos entre duas leituras de energia dos dispositivos que a medem. 0 só lê quando o HomeKit a pede.",
-      "Send a device listed by address its commands at its entry's port rather than 9999, for port forwarding.": "Envia os comandos a um dispositivo listado por endereço na porta da sua entrada em vez da 9999, para um reencaminhamento de portas.",
+      "Send each device its commands at the port its discovery reply came from rather than 9999, for port forwarding.": "Envia os comandos a cada dispositivo na porta de onde veio a sua resposta de descoberta em vez da 9999, para um reencaminhamento de portas.",
       "Show volts, amperes, watts and kWh in the Eve app for the devices that meter energy.": "Mostra volts, amperes, watts e kWh na app Eve para os dispositivos que medem a energia.",
       "Switch Models": "Modelos de interruptor",
       "TCP": "TCP",

@@ -148,16 +148,21 @@ actor KasaUnit {
     func update(_ sysinfo: KasaSysinfo, host: String, port: Int) async {
         self.host = host
         self.port = port
+        // Most rounds report what the last did: nothing to show.
+        let changed = sysinfo != self.sysinfo
         self.sysinfo = sysinfo
         guard let services else { return }
         if sysinfo.kind == .plug {
+            guard changed else { return }
             showRelay(on: services)
             if presentation == .dimmer, let brightness = sysinfo.brightness { services.brightness?.value = .int(brightness) }
         } else if let light = sysinfo.lightState {
-            show(light, on: services)
+            if changed { show(light, on: services) }
             // A white or a colour set elsewhere (the Kasa app, a schedule) turns Adaptive Lighting off; not what the
-            // bulb still reports of the time before the bridge's own write.
-            if light.onOff == 1, let adaptiveLighting, await !(batcher?.isSettling(within: options.settling) ?? false) {
+            // bulb still reports of the time before the bridge's own write, so a report that came while it settled is
+            // looked at again on the next round.
+            if light.onOff == 1, let adaptiveLighting, adaptiveLighting.isAdaptiveLightingActive,
+               await !(batcher?.isSettling(within: options.settling) ?? false) {
                 let mireds = (light.colorTemperature ?? 0) > 0 ? KasaColorTemperature.mireds(kelvin: light.colorTemperature ?? 0, within: services.miredRange) : nil
                 adaptiveLighting.disableIfChangedElsewhere(mireds: mireds)
             }
@@ -166,7 +171,7 @@ actor KasaUnit {
 
     /// The relay: the outlet's own state for a strip's outlet.
     var relayOn: Bool {
-        if let childID { return sysinfo.children?.first { $0.id == childID }?.state == 1 }
+        if childID != nil { return child?.state == 1 }
         return sysinfo.relayState == 1
     }
 
