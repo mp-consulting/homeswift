@@ -174,6 +174,7 @@ over Bluetooth; macOS asks once for Bluetooth access for the app that runs it (t
 | [tado°](Plugins/Tado) | `TadoPlatform` | Experimental tado° thermostats, radiator valves, hot water and air conditioners through tado's cloud, within its daily request limit |
 | [Google Nest](Plugins/GoogleNestSDM) | `homebridge-google-nest-sdm` | Experimental: Nest thermostats, cameras, doorbells and displays through Google's Device Access (SDM API, Pub/Sub events, RTSP live view, HomeKit Secure Video) |
 | [EcoFlow](Plugins/EcoFlow) | `EcoFlow` | Experimental battery and power monitoring through the developer API or EcoFlow app sign-in, with energy history |
+| [Tuya](Plugins/Tuya) | `TuyaPlatform` | Experimental Tuya and Smart Life devices through the Tuya Cloud OpenAPI (Smart Home or Custom project), with MQTT push, IR remotes and scenes |
 | [Dummy Accessories](Plugins/Dummy) | `HomebridgeDummy` | Experimental switches, sensors, locks, doors, thermostats and more that exist only in HomeKit, with schedules, conditions and webhooks |
 | [ESPHome](Plugins/ESPHome) | `esphome` | Experimental ESPHome devices over the native API, plaintext or encrypted: switches, lights, sensors, covers, fans, climates, locks and buttons |
 | [HTTP Webhooks](Plugins/HTTPWebhooks) | `HttpWebHooks` | Experimental virtual sensors, switches, lights, locks, blinds, fans and more, set by webhooks and calling URLs on HomeKit writes (homebridge-http-webhooks' block) |

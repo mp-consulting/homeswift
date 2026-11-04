@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Tuya: an experimental plugin for Tuya and Smart Life devices through the Tuya Cloud OpenAPI, compatible with
+  homebridge-tuya-platform's `TuyaPlatform` block: lights with Adaptive Lighting, switches and plugs with energy,
+  climate, covers, locks, sensors, cameras' events, IR remotes and scenes, kept current by Tuya's MQTT push.
 - SwitchBot (experimental): Bots, Relay Switches, plugs, curtains, Blind Tilts, meters, hubs, sensors, locks, lights,
   humidifiers, fans, vacuums, air purifiers and IR remotes through SwitchBot's OpenAPI, within the account's daily
   requests, with its webhook; a clean-room implementation that reads `@switchbot/homebridge-switchbot`'s blocks.
