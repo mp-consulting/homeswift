@@ -38,7 +38,7 @@ extension TapoPlugin {
                 fields: [SetupField("username", label: "Email"), SetupField("password", label: "Password", kind: .secret)]))
         }
         let credentials = TapoCredentials(username: username, password: password)
-        if let (deviceID, device) = configuredDevices().first, let host = device.trimmedHost {
+        if let (deviceID, device) = configuredDevices().first(where: { !context.isExcluded($0.deviceID) }), let host = device.trimmedHost {
             let connection = makeConnection(
                 deviceID: deviceID, host: host, requestTimeout: dependencies.setupTimeout, handshakeTimeout: dependencies.setupTimeout) { credentials }
             do {

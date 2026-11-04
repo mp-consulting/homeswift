@@ -6,7 +6,8 @@ import Logging
 import NIOConcurrencyHelpers
 
 /// TP-Link Tapo plugs and bulbs on the local network: P100/P105 and P110 plugs as Outlets (the P110 with its power on
-/// Eve's characteristics and the Status page's Energy section), L510E, L520E and L530E bulbs as Lightbulbs (the white and
+/// Eve's characteristics and history, not the Status page's Energy section, where a whole-home meter would count it
+/// twice), L510E, L520E and L530E bulbs as Lightbulbs (the white and
 /// colour ones with Adaptive Lighting). Each device is listed by address in `devices` and reached over HTTP with KLAP,
 /// or securePassthrough on older firmware, signed in with the Tapo account's email and password.
 ///
@@ -78,7 +79,7 @@ public actor TapoPlugin: HomeswiftPlugin {
         return TapoCredentials(username: username, password: password)
     }
 
-    /// The block's devices with an address, the first of each Device Id; an Excluded one is left out.
+    /// The block's devices with an address, the first of each Device Id, Excluded ones included (Setup lists them).
     func configuredDevices() -> [(deviceID: String, device: Configuration.Device)] {
         var seen = Set<String>()
         var devices: [(String, Configuration.Device)] = []
@@ -123,6 +124,7 @@ public actor TapoPlugin: HomeswiftPlugin {
         let settings = TapoDevice.Settings(
             name: name, host: host, kind: kind, interval: scaled(interval),
             backoff: Backoff(initial: scaled(interval), maximum: scaled(max(interval, Self.maximumBackoff)), jitter: .proportional(0.1)),
+            settleTime: scaled(2),
             writeDelay: scaled((configuration.waitTimeUpdate?.value.flatMap { $0 >= 0 ? $0 : nil } ?? Self.defaultWaitTimeUpdate) / 1000),
             bulbEnergyInterval: dependencies.bulbEnergyInterval)
         let connection = makeConnection(

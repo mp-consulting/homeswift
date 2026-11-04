@@ -279,7 +279,8 @@ struct TapoTests {
         let host = try await environment.start(
             devices: [["name": "Kitchen", "host": "192.168.1.21"]],
             settings: TestEnvironment.account.merging(["_accessories": ["192.168.1.21Kitchen": ["excluded": true]]]) { $1 })
-        try await Task.sleep(for: .milliseconds(100))
+        // The plugin has started (host.start waits for it) and runs no device.
+        #expect(await environment.plugin?.devices.isEmpty == true)
         #expect(!host.mainBridge.server.accessories.contains { $0.id == kitchenID })
         #expect(environment.network.device().methods.isEmpty)
         await host.stop()

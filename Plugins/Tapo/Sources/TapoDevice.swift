@@ -19,6 +19,8 @@ actor TapoDevice {
         var kind: TapoKind
         var interval: Duration
         var backoff: Backoff
+        /// How long after a write a poll leaves the values alone: it may still carry the old ones.
+        var settleTime: Duration
         var writeDelay: Duration
         var bulbEnergyInterval: Duration
     }
@@ -75,7 +77,7 @@ actor TapoDevice {
             isReachable = true
             services?.accessory.isUnreachable = false
         }
-        services?.show(fresh, previous: previous)
+        if await !writer.isSettling(within: settings.settleTime) { services?.show(fresh, previous: previous) }
         if !shownInformation {
             shownInformation = true
             services?.showInformation(fresh)

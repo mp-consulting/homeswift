@@ -150,7 +150,15 @@ actor TapoConnection {
         guard let credentials = credentials() else { throw TapoError.noCredentials }
         session = nil
         expiry = nil
-        if usesPassthrough { return try await passthroughHandshake(credentials) }
+        if usesPassthrough {
+            do {
+                return try await passthroughHandshake(credentials)
+            } catch TapoError.device(TapoMessage.wantsKLAP) {
+                // New firmware: KLAP from now on.
+                logger.info("\(host) now asks for KLAP")
+                usesPassthrough = false
+            }
+        }
         do {
             try await klapHandshake(credentials)
             rememberKLAP()
@@ -190,14 +198,19 @@ actor TapoConnection {
         }
         session = .klap(KLAP.Session(localSeed: localSeed, remoteSeed: remoteSeed, authHash: authHash), cookie: cookie?.cookie)
         // A minute early, so a request never goes out with a cookie about to expire.
-        expiry = cookie?.timeout.map { now() + .seconds(max(0, $0 - 60)) }
+        // A short one at half its time.
+        expiry = cookie?.timeout.map { now() + .seconds(max($0 / 2, $0 - 60)) }
         logger.debug("KLAP session with \(host) started")
     }
 
     private func passthroughHandshake(_ credentials: TapoCredentials) async throws {
         let keys = try keyPair ?? SecurePassthrough.KeyPair()
         keyPair = keys
-        let request = TapoMessage.request("handshake", params: ["key": .string(keys.publicKeyPEM)])
+        // The handshake carries `requestTimeMils` in its params, next to the key.
+        let request = JSONValue.object([
+            "method": "handshake",
+            "params": ["key": .string(keys.publicKeyPEM), "requestTimeMils": .number((Date().timeIntervalSince1970 * 1000).rounded() * 1000)],
+        ]).encoded()
         let response = try await post("/app", body: request, cookie: nil, timeout: handshakeTimeout, json: true)
         guard response.status == 200 else { throw TapoError.http(response.status) }
         let handshake = try TapoMessage.result(of: TapoMessage.parse(response.body))
