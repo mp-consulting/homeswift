@@ -147,6 +147,11 @@ if !FileManager.default.fileExists(atPath: configURL.path) {
     }
 }
 
+if command == "run", let warning = StoragePermissions.warning(StoragePermissions.secure(storage: storagePath)) {
+    // A shared folder's ACL (a NAS) or a wide mode: the vault's key, the pairings and config.json are not the bridge's alone.
+    logger.warning("\(warning)")
+}
+
 let configuration: HomeswiftConfiguration
 do {
     // Sealed secrets (`enc:v1:`) are opened and references (`vault:`, `env:`, `file:`) resolved here, so every
