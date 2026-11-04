@@ -76,7 +76,7 @@ public actor ImouPlugin: HomeswiftPlugin {
 
     static func accessoryID(deviceID: String, channel: String) -> String { "\(platform):\(deviceID):\(channel)" }
 
-    private func scaled(_ seconds: Double) -> Duration { .milliseconds(Int((seconds * 1000 * dependencies.timeScale).rounded())) }
+    private func scaled(_ seconds: Double) -> Duration { ImouCamera.Timing(scale: dependencies.timeScale).duration(seconds) }
 
     // MARK: Lifecycle
 
@@ -97,9 +97,13 @@ public actor ImouPlugin: HomeswiftPlugin {
     /// The cloud client, when the block has an App Id and a secret is known (Setup's in the vault, or the block's).
     func makeCloud() -> ImouCloud? {
         guard let appID = configuration.appID, let secret = appSecret else { return nil }
+        return makeCloud(appID: appID, appSecret: secret, region: configuration.cloudRegion)
+    }
+
+    func makeCloud(appID: String, appSecret: String, region: ImouRegion) -> ImouCloud {
         var environment = ImouCloud.Environment(transport: dependencies.cloudTransport, now: dependencies.now)
         if let nonce = dependencies.nonce { environment.nonce = nonce }
-        return ImouCloud(appID: appID, appSecret: secret, region: configuration.cloudRegion, apiURL: configuration.apiURL, environment: environment, logger: logger)
+        return ImouCloud(appID: appID, appSecret: appSecret, region: region, apiURL: configuration.apiURL, environment: environment, logger: logger)
     }
 
     var appSecret: String? {
@@ -119,6 +123,7 @@ public actor ImouPlugin: HomeswiftPlugin {
                     self.cloud = nil
                     break
                 } catch {
+                    if Task.isCancelled { return }
                     if attempt == 0 {
                         logger.warning("Cannot list the IMOU account's cameras: \(error). Trying again.")
                         // The cameras with a local address run meanwhile.
@@ -130,6 +135,7 @@ public actor ImouPlugin: HomeswiftPlugin {
                 }
             }
         }
+        guard !Task.isCancelled else { return }
         // Without a cloud account, the cameras of the LAN are all there is; a refused account keeps its cameras (No Response)
         // until it is set up again.
         await publishLocalCameras()
@@ -233,6 +239,7 @@ public actor ImouPlugin: HomeswiftPlugin {
 
     /// Builds a channel's camera accessory (section 6) and publishes it on its own server.
     private func publish(device: ImouDevice, channel: ImouChannel) async {
+        guard !tasks.isStopped else { return }
         let settings = cameraSettings(deviceID: device.deviceID)
         let features = ImouFeatures(abilities: device.abilities(of: channel))
         let name = channel.id == "0" || device.isIPC ? device.name : channel.name
@@ -314,6 +321,11 @@ public actor ImouPlugin: HomeswiftPlugin {
             entry.doorbell = entry.doorbell || camera.features.doorbell
             byHost[key] = entry
         }
+        // A camera gone, or moved to another address: its stream stops.
+        for (key, task) in eventStreams where byHost[key] == nil {
+            task.cancel()
+            eventStreams[key] = nil
+        }
         for (key, entry) in byHost where eventStreams[key] == nil {
             let codes = ImouEvents.localCodes + (entry.doorbell ? ImouEvents.localDoorbellCodes.sorted() : [])
             let silence = dependencies.eventSilence
@@ -322,7 +334,8 @@ public actor ImouPlugin: HomeswiftPlugin {
             let deviceID = entry.deviceID
             // The device's cameras as they are now: one published again (the cloud listed it) takes the old one's place.
             let lookup: @Sendable () async -> [String: ImouCamera] = { [weak self] in await self?.cameras(of: deviceID) ?? [:] }
-            eventStreams[key] = Task {
+            // In the bag, so `stop()` ends it even when it starts after (a listing still in flight then).
+            eventStreams[key] = tasks.add {
                 await Self.runEvents(client: entry.client, cameras: lookup, codes: codes, silence: silence, timeScale: scale, logger: logger)
             }
         }
@@ -336,22 +349,24 @@ public actor ImouPlugin: HomeswiftPlugin {
     }
 
     /// Reads a camera's event stream for as long as the plugin runs: reconnected with backoff (1 s to 60 s), logged once
-    /// per outage; a refused safety code or a camera without the CGI stops it, and the cloud's alarms stand in.
+    /// per outage; a refused safety code or a camera without the CGI stops it, and the cloud's alarms stand in. A
+    /// connection counts as back once it has stayed up for `silence`: one the camera drops at once keeps backing off,
+    /// unlogged.
     static func runEvents(client: DahuaClient, cameras: @escaping @Sendable () async -> [String: ImouCamera], codes: [String], silence: Duration,
                           timeScale: Double, logger: Logger) async {
         let backoff = Backoff(initial: .seconds(1), maximum: .seconds(60), jitter: .proportional(0.2))
-        var attempt = 0
+        let outage = EventStreamOutage()
         var everything = false
-        var down = false
-        func report(_ up: Bool) async { for camera in await cameras().values { await camera.localEvents(up: up) } }
+        let host = client.host
+        @Sendable func report(_ up: Bool) async { for camera in await cameras().values { await camera.localEvents(up: up) } }
         while !Task.isCancelled {
             do {
                 let response = try await client.events(codes: everything ? ["All"] : codes)
-                if down { logger.info("The event stream of \(client.host) is back") }
-                down = false
-                attempt = 0
-                await report(true)
-                try await read(response, cameras: cameras, silence: silence)
+                // Up once it has stayed up: a camera that drops the stream at once leaves the cloud's alarms standing in.
+                try await read(response, cameras: cameras, silence: silence) {
+                    if await outage.steady() { logger.info("The event stream of \(host) is back") }
+                    await report(true)
+                }
                 throw DahuaError.silent
             } catch is CancellationError {
                 return
@@ -369,18 +384,16 @@ public actor ImouPlugin: HomeswiftPlugin {
                 continue
             } catch {
                 if Task.isCancelled { return }
-                if !down { logger.warning("The event stream of \(client.host) stopped: \(error). Reconnecting.") }
-                down = true
+                if await outage.failed() { logger.warning("The event stream of \(host) stopped: \(error). Reconnecting.") }
                 await report(false)
             }
-            let delay = backoff.delay(attempt: attempt)
-            attempt += 1
-            try? await Task.sleep(for: delay * timeScale)
+            try? await Task.sleep(for: backoff.delay(attempt: await outage.nextAttempt()) * timeScale)
         }
     }
 
-    /// The parts of one connection, until it ends or goes silent.
-    static func read(_ response: HTTPStreamingResponse, cameras: @escaping @Sendable () async -> [String: ImouCamera], silence: Duration) async throws {
+    /// The parts of one connection, until it ends or goes silent; `steady` is called once it has been up for `silence`.
+    static func read(_ response: HTTPStreamingResponse, cameras: @escaping @Sendable () async -> [String: ImouCamera], silence: Duration,
+                     steady: @escaping @Sendable () async -> Void = {}) async throws {
         let last = LastActivity()
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask {
@@ -394,9 +407,15 @@ public actor ImouPlugin: HomeswiftPlugin {
                 }
             }
             group.addTask {
+                let opened = ContinuousClock.now
+                var announced = false
                 while !Task.isCancelled {
                     try await Task.sleep(for: silence / 3)
                     if await last.idle() > silence { throw DahuaError.silent }
+                    if !announced, ContinuousClock.now - opened >= silence {
+                        announced = true
+                        await steady()
+                    }
                 }
             }
             try await group.next()
@@ -428,9 +447,12 @@ public actor ImouPlugin: HomeswiftPlugin {
         for (deviceID, cameras) in camerasByDevice().sorted(by: { $0.key < $1.key }) where !context.isExcluded(deviceID) {
             do {
                 let state = try await cloud.online(deviceID, polling: true)
+                // The battery is the device's: read once for all its channels.
+                var battery: Int?
+                if state.device == .online, cameras.contains(where: { $0.services.battery != nil }) { battery = try? await cloud.batteryLevel(deviceID) }
                 for camera in cameras {
                     let channel = state.channels.isEmpty ? state.device : state.channels[camera.channel.id] ?? .offline
-                    await camera.refresh(channel)
+                    await camera.refresh(channel, battery: battery)
                 }
                 if cloudOutage { logger.info("The IMOU cloud answers again") }
                 cloudOutage = false
@@ -476,7 +498,7 @@ public actor ImouPlugin: HomeswiftPlugin {
         while !Task.isCancelled {
             try? await Task.sleep(for: scaled(Self.rediscoveryInterval))
             guard let cloud else { return }
-            if let devices = try? await cloud.listDevices() {
+            if let devices = try? await cloud.listDevices(), !Task.isCancelled {
                 await sync(devices)
                 startEventStreams()
             }
@@ -490,8 +512,9 @@ public actor ImouPlugin: HomeswiftPlugin {
             perPoll += 1
             for channel in device.cameraChannels {
                 let features = ImouFeatures(abilities: device.abilities(of: channel))
-                perPoll += (features.privacy ? 1 : 0) + (features.whiteLight ? 1 : 0) + (features.motionDetectSwitch ? 2 : 0) + (features.battery ? 1 : 0)
+                perPoll += (features.privacy ? 1 : 0) + (features.whiteLight ? 1 : 0) + (features.motionDetectSwitch ? 2 : 0)
             }
+            if device.cameraChannels.contains(where: { ImouFeatures(abilities: device.abilities(of: $0)).battery }) { perPoll += 1 }
         }
         var daily = perPoll * 86_400 / configuration.pollSeconds
         if let interval = configuration.alarmPollInterval, interval > 0 { daily += cameras.count * 86_400 / max(interval, 30) }
@@ -506,6 +529,30 @@ public actor ImouPlugin: HomeswiftPlugin {
     // MARK: For tests
 
     func camera(_ accessoryID: String) -> ImouCamera? { cameras[accessoryID] }
+}
+
+/// An event stream's outage: logged once, over when a connection stays up; the backoff's attempt.
+actor EventStreamOutage {
+    private var down = false
+    private var attempt = 0
+
+    /// A connection stayed up: true when an outage was logged and is over.
+    func steady() -> Bool {
+        attempt = 0
+        defer { down = false }
+        return down
+    }
+
+    /// A connection failed: true when this starts an outage to log.
+    func failed() -> Bool {
+        defer { down = true }
+        return !down
+    }
+
+    func nextAttempt() -> Int {
+        defer { attempt += 1 }
+        return attempt
+    }
 }
 
 /// When a stream last sent something.

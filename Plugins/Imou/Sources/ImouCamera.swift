@@ -68,8 +68,8 @@ actor ImouCamera {
     private let log: Logger
     private(set) var accessory: Accessory?
     private(set) var controller: CameraController?
-    var streamer: RTSPCameraStreamer?
-    var recorder: RTSPCameraRecorder?
+    private(set) var streamer: RTSPCameraStreamer?
+    private(set) var recorder: RTSPCameraRecorder?
 
     private(set) var online: ImouOnline = .online
     private(set) var privacyOn = false
@@ -81,8 +81,9 @@ actor ImouCamera {
     /// Whether the local event stream is connected: nil before it first tried, or when there is none.
     private(set) var localEventsUp: Bool?
     private var lastAlarm: String?
-    private var motionGeneration = 0
-    private var sirenGeneration = 0
+    /// The timers that turn motion and the siren back off: one each, replaced by the next event or write.
+    private var motionHold: Task<Void, Never>?
+    private var sirenHold: Task<Void, Never>?
     private var silentSensorLogged = false
 
     init(accessoryID: String, deviceID: String, channel: ImouChannel, name: String, features: ImouFeatures, settings: ImouPlugin.CameraSettings,
@@ -182,20 +183,21 @@ actor ImouCamera {
         privacyOn = on
     }
 
+    /// The siren's state cannot be read: it shows off again once it has had its time.
     private func sirenWritten(_ on: Bool) {
-        sirenGeneration += 1
+        sirenHold?.cancel()
+        sirenHold = nil
         guard on else { return }
-        let generation = sirenGeneration
         let hold = timing.duration(Self.sirenHold)
-        Task { [weak self] in
-            try? await Task.sleep(for: hold)
-            await self?.sirenOff(generation)
+        sirenHold = Task { [weak self] in
+            guard (try? await Task.sleep(for: hold)) != nil else { return }
+            await self?.sirenOff()
         }
     }
 
-    /// The siren's state cannot be read: it shows off again once it has had its time.
-    private func sirenOff(_ generation: Int) {
-        guard generation == sirenGeneration else { return }
+    /// Runs on the hold's task: a hold replaced meanwhile was cancelled and does nothing.
+    private func sirenOff() {
+        guard !Task.isCancelled else { return }
         services.siren?.characteristic(.on).value = false
     }
 
@@ -203,7 +205,7 @@ actor ImouCamera {
 
     /// What a poll found: whether the device answers, and the switches it reads (section 7.1). A sleeping or offline camera
     /// keeps its last state: it is never woken for a poll.
-    func refresh(_ state: ImouOnline) async {
+    func refresh(_ state: ImouOnline, battery level: Int? = nil) async {
         online = state
         let reachable = state == .online || state == .sleeping
         set(services.motion.characteristic(.statusActive), .bool(reachable || localEventsUp == true))
@@ -228,7 +230,7 @@ actor ImouCamera {
                 set(detection.characteristic(.on), false)
             }
         }
-        if let battery = services.battery, let level = try? await cloud.batteryLevel(deviceID) {
+        if let battery = services.battery, let level {
             set(battery.characteristic(.batteryLevel), .int(level))
             set(battery.characteristic(.statusLowBattery), .int(level < 20 ? 1 : 0))
         }
@@ -250,25 +252,25 @@ actor ImouCamera {
         let motion = services.motion.characteristic(.motionDetected)
         switch event {
         case .motionStart, .motionPulse:
-            motionGeneration += 1
+            motionHold?.cancel()
             set(motion, true)
             // A Start whose Stop never comes, or a pulse, ends after `motionTimeout`; each new one restarts it.
-            let generation = motionGeneration
             let hold = timing.duration(Double(settings.motionTimeout))
-            Task { [weak self] in
-                try? await Task.sleep(for: hold)
-                await self?.motionEnded(generation)
+            motionHold = Task { [weak self] in
+                guard (try? await Task.sleep(for: hold)) != nil else { return }
+                await self?.motionEnded()
             }
         case .motionStop:
-            motionGeneration += 1
+            motionHold?.cancel()
+            motionHold = nil
             set(motion, false)
         case .ring:
             (controller as? DoorbellController)?.ringDoorbell()
         }
     }
 
-    private func motionEnded(_ generation: Int) {
-        guard generation == motionGeneration else { return }
+    private func motionEnded() {
+        guard !Task.isCancelled else { return }
         set(services.motion.characteristic(.motionDetected), false)
     }
 
@@ -300,6 +302,8 @@ actor ImouCamera {
     }
 
     func localEvents(up: Bool) {
+        // The cloud's alarms seen before the stream came back are old news when it drops again: the first is only noted.
+        if up { lastAlarm = nil }
         localEventsUp = up
         if cloud == nil { set(services.motion.characteristic(.statusActive), .bool(up)) }
     }
@@ -425,7 +429,7 @@ actor ImouCamera {
         if privacyOn { throw SnapshotUnavailable(description: "privacy mode is on") }
         if online == .offline, local == nil { throw SnapshotUnavailable(description: "the camera is offline") }
         if usesLocal || purpose == .recording, let url = localURL(subStream: false) {
-            return RTSPSource(url: url, failed: { [weak self] in await self?.localFailed() })
+            return RTSPSource(url: url, failed: { [weak self] in await self?.localFailed() }, started: { [weak self] in await self?.localSucceeded() })
         }
         guard purpose == .live, let cloud else { throw SnapshotUnavailable(description: "the camera has no local stream") }
         try await wakeIfSleeping()
@@ -452,5 +456,7 @@ actor ImouCamera {
         recorder?.shutdown()
         controller?.destroy()
         fetching?.cancel()
+        motionHold?.cancel()
+        sirenHold?.cancel()
     }
 }

@@ -76,9 +76,7 @@ extension ImouPlugin {
                             value: configuration.cloudRegion.rawValue),
                 ]))
         }
-        var environment = ImouCloud.Environment(transport: dependencies.cloudTransport, now: dependencies.now)
-        if let nonce = dependencies.nonce { environment.nonce = nonce }
-        let cloud = ImouCloud(appID: appID, appSecret: secret, region: region, apiURL: configuration.apiURL, environment: environment, logger: logger)
+        let cloud = makeCloud(appID: appID, appSecret: secret, region: region)
         do {
             try await cloud.verify()
         } catch let error as ImouError where error.isAuthRefused {
@@ -96,7 +94,11 @@ extension ImouPlugin {
     /// be that camera. A camera of the account may go without an address: it then runs on the cloud alone.
     private func authorizeCamera(_ device: DiscoveredDevice, _ request: SetupRequest) async throws -> SetupStep {
         let byAddress = device.deviceID.hasPrefix("ip:")
-        let current = byAddress ? nil : cameraSettings(deviceID: device.deviceID)
+        // A camera by address may be a `devices` entry's: its options (its HTTP port among them) go with it.
+        let entry = byAddress ? configuration.devices.first { $0.deviceID == nil && $0.host != nil && $0.host == device.address } : nil
+        let current = byAddress
+            ? entry.map { CameraSettings(fields: $0.options, password: nil, defaults: configuration) }
+            : cameraSettings(deviceID: device.deviceID)
         let prompt = SetupPrompt(
             message: byAddress
                 ? "Enter the camera's safety code, printed on its label (or the password you gave it in IMOU Life)."
@@ -124,6 +126,10 @@ extension ImouPlugin {
             throw SetupError("The camera at \(host) refused this safety code.")
         } catch let error as DahuaError {
             logger.info("The camera at \(host) gave no serial number (\(error)): reading its realm")
+            if case .unsupported = error {
+                // Nothing checked the safety code yet: a snapshot asks for it.
+                do { _ = try await client.snapshot(channel: 1) } catch DahuaError.wrongPassword { throw SetupError("The camera at \(host) refused this safety code.") } catch {}
+            }
             serial = try? await client.realm().flatMap(DahuaClient.serial(realm:))
         } catch {
             throw SetupError("Cannot reach the camera at \(host): is it on, and on this network? (\(error))")
@@ -132,7 +138,8 @@ extension ImouPlugin {
             guard let serial else { throw SetupError("The camera at \(host) did not give its serial number.") }
             logger.info("Set up the camera \(serial) at \(host)")
             return .done(try SetupOutcome(encoding: ImouCameraCredentials(password: password),
-                                          settings: ["host": .string(host), "username": .string(username), "name": .string(device.name)], deviceID: serial))
+                                          settings: (entry?.options ?? [:]).merging(["host": .string(host), "username": .string(username), "name": .string(device.name)]) { $1 },
+                                          deviceID: serial))
         }
         if let serial, serial.caseInsensitiveCompare(device.deviceID) != .orderedSame {
             throw SetupError("The camera at \(host) is \(serial), not \(device.deviceID).")

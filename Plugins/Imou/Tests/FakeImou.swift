@@ -256,8 +256,8 @@ final class LogCollector: LogHandler, @unchecked Sendable {
         get { metadata[key] }
         set { metadata[key] = newValue }
     }
-    func log(level: Logger.Level, message: Logger.Message, metadata: Logger.Metadata?, source: String, file: String, function: String, line: UInt) {
-        lines.withLockedValue { $0.append("\(message) \(metadata ?? [:])") }
+    func log(event: LogEvent) {
+        lines.withLockedValue { $0.append("\(event.message) \(event.metadata ?? [:])") }
     }
 }
 

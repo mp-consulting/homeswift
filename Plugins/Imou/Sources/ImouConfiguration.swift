@@ -63,8 +63,8 @@ extension ImouPlugin {
         public var deviceID: String?
         public var name: String?
         public var host: String?
-        /// The safety code, under a secret-named key (`password`), or `safetyCode`, which the runtime does not seal: both
-        /// move into the vault with the next settings write.
+        /// The safety code, under `password` or `safetyCode` (both secret-named, sealed by the runtime): it moves into the
+        /// vault with the next settings write.
         public var password: String?
         public var options: [String: JSONValue]
 

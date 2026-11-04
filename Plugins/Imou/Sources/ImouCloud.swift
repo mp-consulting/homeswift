@@ -101,10 +101,7 @@ actor ImouCloud {
         var transport: any HTTPSending
         var now: @Sendable () -> Date = { Date() }
         /// A fresh nonce per request: 32 random bytes, URL-safe Base64 without padding (section 3.2).
-        var nonce: @Sendable () -> String = {
-            Data((0..<32).map { _ in UInt8.random(in: 0...255) }).base64EncodedString()
-                .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
-        }
+        var nonce: @Sendable () -> String = { Secrets.randomToken() }
         var requestID: @Sendable () -> String = { UUID().uuidString.lowercased() }
     }
 
@@ -144,7 +141,7 @@ actor ImouCloud {
 
     /// `sign`: the lowercase hex MD5 of `time:<time>,nonce:<nonce>,appSecret:<appSecret>` (section 3.2).
     static func sign(time: Int, nonce: String, appSecret: String) -> String {
-        Insecure.MD5.hash(data: Data("time:\(time),nonce:\(nonce),appSecret:\(appSecret)".utf8)).map { String(format: "%02x", $0) }.joined()
+        Secrets.hex(Insecure.MD5.hash(data: Data("time:\(time),nonce:\(nonce),appSecret:\(appSecret)".utf8)))
     }
 
     /// A request's body: `system` (signed), `params` with the token (except for `accessToken`) and `id`.
@@ -231,7 +228,10 @@ actor ImouCloud {
         let response: HomeswiftNetwork.HTTPResponse
         do {
             response = try await environment.transport.send(request)
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
+            if Task.isCancelled { throw CancellationError() }
             throw ImouError.unreachable("\(error)")
         }
         if response.status >= 500 { throw ImouError.unreachable("HTTP \(response.status)") }

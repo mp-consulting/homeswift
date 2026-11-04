@@ -80,8 +80,8 @@ Each camera's own settings (its Accessory Settings, in `_accessories` by Device 
 (554), `username` (`admin`), `localEvents` (on), `motionTimeout`, `privacySwitch`, `motionDetectSwitch`, `sirenSwitch`,
 `lightSwitch` (all on when the camera has the ability), `recording` (on) and `encoder`. Its safety code is in the vault.
 A hand-written `devices` entry may also carry its `deviceId`, these options and its safety code as `password` (or
-`safetyCode`); the next settings save moves it into `_accessories` and the code into the vault. `password` is
-secret-named and sealed by the bridge; `safetyCode` is not, so it stays in config.json in clear until then.
+`safetyCode`); the next settings save moves it into `_accessories` and the code into the vault. Both names are
+secret-named: the bridge seals them in config.json and masks them until then.
 
 **Setup.** On Add accessories, the account asks for the App Id, the App Secret and the region, and checks them by fetching
 a token; the App Secret goes in the vault. Its cameras are then listed, each asking for its address on your network and
@@ -130,8 +130,6 @@ What the spec leaves open, and what this version chose:
   Privacy; IoT devices (plugs, bulbs, sensors with a `productId`), which are skipped. A local-only camera is its channel 0
   only (an NVR's other channels come through the cloud's listing).
 - **The day's call count** is kept in memory: a restart starts it again.
-- **The safety code under `safetyCode`** is not a secret-named key, so the bridge does not seal it; use `password`, or
-  Setup.
 
 ## Tests
 

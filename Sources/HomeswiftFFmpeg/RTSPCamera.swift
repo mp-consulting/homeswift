@@ -16,11 +16,15 @@ public struct RTSPSource: Sendable {
     public var release: @Sendable () async -> Void
     /// Called when FFmpeg could not start on the URL or ended in an error: the plugin may try another source next time.
     public var failed: @Sendable () async -> Void
+    /// Called when a live stream started on the URL: the source works.
+    public var started: @Sendable () async -> Void
 
-    public init(url: String, release: @escaping @Sendable () async -> Void = {}, failed: @escaping @Sendable () async -> Void = {}) {
+    public init(url: String, release: @escaping @Sendable () async -> Void = {}, failed: @escaping @Sendable () async -> Void = {},
+                started: @escaping @Sendable () async -> Void = {}) {
         self.url = url
         self.release = release
         self.failed = failed
+        self.started = started
     }
 }
 
@@ -361,6 +365,7 @@ public actor RTSPCameraStreamer: CameraStreamingDelegate {
             throw HAPStatusError(.serviceCommunicationFailure, reason: "\(error)")
         }
         sessions[sessionID]?.started = true
+        await source.started()
     }
 
     /// HomeKit's RTCP on the video return port: once it has come, a silence of `timeout` ends the stream.

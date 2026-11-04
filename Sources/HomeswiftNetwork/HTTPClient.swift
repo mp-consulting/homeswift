@@ -15,8 +15,15 @@ public struct HTTPRequest: Sendable {
     /// From the connection attempt to the last byte of the response.
     public var timeout: Duration
     /// The request target sent on the request line as written, in place of the URL's path and query: for a device that
-    /// wants characters `URL` percent-encodes, such as a Dahua camera's `codes=[VideoMotion]`. nil sends the URL's.
+    /// wants characters `URL` percent-encodes, such as a Dahua camera's `codes=[VideoMotion]`. nil sends the URL's. It
+    /// must start with `/` and hold printable ASCII only (no space, CR or LF): another is refused as `invalidURL`.
     public var target: String?
+
+    /// `target`, when it is one the request line can carry as it is.
+    var validTarget: Bool {
+        guard let target else { return true }
+        return target.hasPrefix("/") && target.utf8.allSatisfy { $0 > 0x20 && $0 < 0x7F }
+    }
 
     public init(method: String = "GET", url: URL, headers: [(name: String, value: String)] = [], body: Data? = nil, timeout: Duration = .seconds(10)) {
         self.method = method
@@ -143,7 +150,7 @@ public final class HTTPClient: HTTPSending, Sendable {
     }
 
     public func send(_ request: HTTPRequest) async throws -> HTTPResponse {
-        guard let scheme = request.url.scheme?.lowercased(), scheme == "http" || scheme == "https", let host = request.url.host, !host.isEmpty else {
+        guard let scheme = request.url.scheme?.lowercased(), scheme == "http" || scheme == "https", let host = request.url.host, !host.isEmpty, request.validTarget else {
             throw HTTPClientError.invalidURL(redactingPassword(request.url))
         }
         let secure = scheme == "https"

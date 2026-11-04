@@ -146,7 +146,6 @@ struct ImouTests {
         // HomeKit Secure Video from the local stream.
         #expect(accessory.services.contains { $0.type == .cameraRecordingManagement })
         // Snapshots from the camera's CGI, not the cloud.
-        let plugin = try #require(environment.plugin)
         let image = try await runningCamera().snapshotImage()
         #expect(image == jpeg)
         #expect(environment.cloud.calls("setDeviceSnapEnhanced").isEmpty)
