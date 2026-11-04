@@ -4182,9 +4182,23 @@
       else if (returnFocus?.isConnected) returnFocus.focus();
     });
     HomeswiftCommon.dragToDismiss(dialog, { vertical, dismiss, handle: ".sheet-grabber, .account-form > h2" });
+    // A touch screen's keyboard would rise over a field focused as the sheet opens, the page scrolling under it: the
+    // sheet takes the focus itself there, and a field the person taps brings the keyboard.
+    const touch = matchMedia("(hover: none) and (pointer: coarse)").matches;
+    if (touch) dialog.autofocus = true;
+    // While a keyboard is up, the sheet keeps to what is still visible (the visual viewport) rather than the page
+    // scrolling to show the field.
+    const viewport = window.visualViewport;
+    const fit = () => {
+      dialog.style.setProperty("--viewport-top", `${Math.max(0, viewport.offsetTop)}px`);
+      dialog.style.setProperty("--keyboard", `${Math.max(0, innerHeight - viewport.height - viewport.offsetTop)}px`);
+    };
+    viewport?.addEventListener("resize", fit);
+    viewport?.addEventListener("scroll", fit);
+    dialog.addEventListener("close", () => { viewport?.removeEventListener("resize", fit); viewport?.removeEventListener("scroll", fit); });
     document.body.append(dialog);
     dialog.showModal();
-    $("input:not([type=hidden]):not([disabled]), select", dialog)?.focus();
+    if (!touch) $("input:not([type=hidden]):not([disabled]), select", dialog)?.focus();
     return dialog;
   }
 

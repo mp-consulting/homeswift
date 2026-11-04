@@ -6046,9 +6046,23 @@ el("p", { class: "muted", text: t("A backup made by Download a backup or kept be
       else if (returnFocus?.isConnected) returnFocus.focus();
     });
     HomeswiftCommon.dragToDismiss(dialog, { vertical, dismiss, handle: ".sheet-grabber, .account-form > h2" });
+    // A touch screen's keyboard would rise over a field focused as the sheet opens, the page scrolling under it: the
+    // sheet takes the focus itself there, and a field the person taps brings the keyboard.
+    const touch = matchMedia("(hover: none) and (pointer: coarse)").matches;
+    if (touch) dialog.autofocus = true;
+    // While a keyboard is up, the sheet keeps to what is still visible (the visual viewport) rather than the page
+    // scrolling to show the field.
+    const viewport = window.visualViewport;
+    const fit = () => {
+      dialog.style.setProperty("--viewport-top", `${Math.max(0, viewport.offsetTop)}px`);
+      dialog.style.setProperty("--keyboard", `${Math.max(0, innerHeight - viewport.height - viewport.offsetTop)}px`);
+    };
+    viewport?.addEventListener("resize", fit);
+    viewport?.addEventListener("scroll", fit);
+    dialog.addEventListener("close", () => { viewport?.removeEventListener("resize", fit); viewport?.removeEventListener("scroll", fit); });
     document.body.append(dialog);
     dialog.showModal();
-    $("input:not([type=hidden]):not([disabled]), select", dialog)?.focus();
+    if (!touch) $("input:not([type=hidden]):not([disabled]), select", dialog)?.focus();
     return dialog;
   }
 
@@ -24493,10 +24507,13 @@ button.busy::after {
    right with the drawer curve and leaves the same way, faster (the leaving motion is openSheet's, from wherever a
    drag left it). A phone gets a sheet from the bottom edge, with a grabber to swipe it down. Reduced motion: fades. */
 .admin-dialog.sheet {
-  margin: var(--space-12) var(--space-12) var(--space-12) auto; width: min(460px, calc(100% - 24px)); height: calc(100% - 24px); max-height: none;
+  margin: var(--space-12) var(--space-12) var(--space-12) auto; width: min(460px, calc(100% - 24px)); max-height: none;
+  /* From the top of what is visible to the keyboard's top (openSheet's --viewport-top and --keyboard; none, the window). */
+  inset: var(--viewport-top, 0px) 0 var(--keyboard, 0px); height: auto;
   padding: 22px var(--space-24) var(--space-20); border-radius: var(--radius); overscroll-behavior: contain; touch-action: pan-y;
 }
 .admin-dialog.sheet[open] { display: flex; flex-direction: column; animation: sheet-in 320ms cubic-bezier(0.32, 0.72, 0, 1); }
+.admin-dialog.sheet:focus { outline: none; }
 .admin-dialog.sheet[open]::backdrop { animation: sheet-dim 240ms var(--ease-out); }
 .admin-dialog.sheet.leaving::backdrop { animation: sheet-undim 220ms var(--ease-out) forwards; }
 .sheet-grabber { display: none; }
@@ -24511,7 +24528,8 @@ button.busy::after {
 @keyframes sheet-undim { to { opacity: 0; } }
 @media (max-width: 640px) {
   .admin-dialog.sheet {
-    margin: auto 0 0; width: 100%; max-width: 100%; height: calc(100% - 16px - env(safe-area-inset-top)); max-height: 100%;
+    margin: auto 0 0; width: 100%; max-width: 100%; max-height: 100%;
+    height: calc(100% - 16px - env(safe-area-inset-top) - var(--viewport-top, 0px) - var(--keyboard, 0px));
     border-radius: var(--radius) var(--radius) 0 0; border-bottom: 0;
     padding: 26px var(--space-18) calc(var(--space-18) + env(safe-area-inset-bottom));
   }
