@@ -500,6 +500,49 @@ struct ElgatoKeyLightsTests {
         await host.stop()
     }
 
+    /// Add by address: the light's host asked, the light there asked who it is, and its host kept in its Accessory
+    /// Settings under its MAC; nothing answering, or a bad port, is said and asked again.
+    @Test func addByAddressProbesTheLightAndKeepsItsHost() async throws {
+        #expect(ElgatoKeyLightsPlugin.addsDevicesByAddress)
+        await environment.light.set(macAddress: "3c:6a:9d:04:0a:0b")
+        await environment.light.set(unreachableHosts: ["192.0.2.50"])
+        let host = try environment.host(settings: [:])
+        let outcome = try await host.withSetupPlugin(platform: ElgatoKeyLightsPlugin.platform, name: "Elgato Key Lights") { plugin, _ in
+            guard case .ask(let prompt, _) = try await plugin.authorize(SetupRequest(target: .newDevice)) else { throw SetupError("expected a prompt") }
+            #expect(prompt.fields.map(\.key) == ["host", "port"] && prompt.fields[1].optional)
+            await #expect(throws: SetupError("No light answered at 192.0.2.50:9123")) {
+                try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["host": "192.0.2.50"]))
+            }
+            await #expect(throws: SetupError("The port must be between 1 and 65535")) {
+                try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["host": "192.168.1.60", "port": "0"]))
+            }
+            guard case .done(let outcome) = try await plugin.authorize(SetupRequest(target: .newDevice, answers: ["host": " 192.168.1.60 ", "port": "9123"])) else {
+                throw SetupError("expected done")
+            }
+            return outcome
+        }
+        #expect(outcome.deviceID == "3C:6A:9D:04:0A:0B" && outcome.credentials == nil)
+        #expect(outcome.settings == ["host": "192.168.1.60", "port": .null])
+    }
+
+    /// A light whose Accessory Settings give its host (Add by address) is reached there without Bonjour, pinned, and
+    /// listed by Setup at that address.
+    @Test func aLightAddedByAddressIsReachedAtItsHost() async throws {
+        let host = try await environment.start(settings: [
+            "_accessories": ["3C:6A:9D:04:0A:0B": ["host": "192.168.1.60", "port": 9124]],
+        ])
+        #expect(host.mainBridge.server.accessories.map(\.id) == ["bridge", lightID])
+        let device = try #require(await environment.plugin?.device(mac: "3C:6A:9D:04:0A:0B"))
+        #expect(await device.host == "192.168.1.60")
+        #expect(await device.port == 9124)
+        environment.discover.yield(.init(name: "Elgato Key Light", mac: "3C:6A:9D:04:0A:0B", host: "10.0.0.99", port: 9123))
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(await device.host == "192.168.1.60")
+        let devices = try await host.discover(platform: ElgatoKeyLightsPlugin.platform, name: "Elgato Key Lights").devices
+        #expect(devices.first { $0.deviceID == "3C:6A:9D:04:0A:0B" }.map { $0.isSetUp && $0.address == "192.168.1.60" } == true)
+        await host.stop()
+    }
+
     /// The name an Accessory Setting gives a light wins over the one it reports.
     @Test func theAccessorySettingsNameNamesTheLight() async throws {
         let host = try await environment.start(settings: [
@@ -593,8 +636,9 @@ struct ElgatoKeyLightsTests {
     @Test func theSchemaDeclaresTheAccessorySettings() throws {
         let schema = try JSONValue(string: try #require(ElgatoKeyLightsPlugin.configurationSchemaJSON))
         let fields = try #require(schema["accessorySchema"]?["properties"]?.objectValue)
-        #expect(Set(fields.keys) == ["powerOnBehavior", "powerOnBrightness", "powerOnTemperature"])
-        for (key, field) in fields { #expect(field["x-default"] == .string(key) && schema["schema"]?["properties"]?[key] != nil) }
+        #expect(Set(fields.keys) == ["powerOnBehavior", "powerOnBrightness", "powerOnTemperature", "host", "port"])
+        // The power-on settings default to the platform's; a light's address (Add by address) is its own.
+        for (key, field) in fields where !["host", "port"].contains(key) { #expect(field["x-default"] == .string(key) && schema["schema"]?["properties"]?[key] != nil) }
         #expect(schema["schema"]?["properties"]?["devices"] == nil && schema["schema"]?["properties"]?["addresses"] != nil)
     }
 

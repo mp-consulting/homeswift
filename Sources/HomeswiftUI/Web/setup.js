@@ -167,9 +167,12 @@
     // Where the account stands (`accountState`), and whether someone has to set it up (again) before its devices
     // work: an optional account left alone needs no one.
     let accountState = "notSetUp", needsAccount = false;
-    // Looking again, and the account's sign-in once it is set up, are in the menu: the row stays one line.
+    // Add by address (a device the plugin cannot find, named by its address): the sheet asks what the plugin needs.
+    const addByAddress = (trigger = null) => open({ block, plugin, adding: true, trigger, after: load });
+    // Looking again, adding by address and the account's sign-in once it is set up are in the menu: the row stays one line.
     const menu = menuButton(t("Actions for {name}", { name: block.name }), () => [
       { label: t("Find again"), icon: "search", onSelect: () => { setOpen(true); load(); } },
+      plugin.addByAddress ? { label: t("Add by address…"), icon: "plus", onSelect: () => addByAddress() } : null,
       action ? { label: action[accountState === "notSetUp" ? 0 : 1](), icon: action[2], onSelect: () => open({ block, plugin, firstTime: accountState === "notSetUp", after: load }) } : null,
     ].filter(Boolean));
     const bodyID = `setup-${block.slug}-devices`;
@@ -222,7 +225,11 @@
         rows.push(...settled.map((device) => deviceRow(block, plugin, device, load, known)));
         const excluded = settled.filter((device) => device.status === "excluded").length;
         if (!found.devices.length) rows.push(el("p", { class: "muted setup-none", text: needsAccount
-          ? t("Its devices show here once it is set up.") : t("This plugin finds no devices by itself: its settings name them.") }));
+          ? t("Its devices show here once it is set up.") : plugin.addByAddress ? t("This plugin finds no devices by itself: add one by its address.")
+          : t("This plugin finds no devices by itself: its settings name them.") }));
+        // Under its devices, a way to add one the plugin does not find.
+        if (plugin.addByAddress) rows.push(el("div", { class: "setup-add-address" },
+          el("button", { type: "button", actionIcon: "plus", text: t("Add by address…"), onclick: (event) => addByAddress(event.currentTarget) })));
         list.replaceChildren(...rows);
         const attention = waiting.length + (needsAccount ? 1 : 0);
         summary.textContent = attention ? tn("Needs you once", "Needs you {n} times", attention)
@@ -356,15 +363,17 @@
   /// The sheet of one Setup: it starts the session, then draws each prompt the plugin sends until it is done. An
   /// account set up for the first time then lists what the plugin finds, to pick those that go into the Home app (the
   /// others are excluded); then what was added. Its header names where it stands: signing in, the devices, done.
-  function open({ block, plugin = null, device = null, known = null, draft = false, firstTime = false, resume = null, trigger = null, after }) {
-    const title = device?.name ?? block.name;
+  /// `adding`: Add by address, a device the plugin does not find, which the person names; its Setup asks the address and
+  /// whatever else the plugin needs, then ends on the device's settings as any device's does.
+  function open({ block, plugin = null, device = null, known = null, draft = false, firstTime = false, adding = false, resume = null, trigger = null, after }) {
+    let title = device?.name ?? (adding ? t("Add by address") : block.name);
     // Under the title, a device's Authorization, or the plugin when the instance's name does not say it (an account's
-    // way to sign in may be the person's choice, asked in the sheet).
-    const subtitle = device ? methods[device.authorization]?.[0]() ?? "" : plugin && bare(plugin.name) !== bare(block.name) ? plugin.name : "";
+    // way to sign in may be the person's choice, asked in the sheet); for Add by address, the instance it goes to.
+    const subtitle = device ? methods[device.authorization]?.[0]() ?? "" : adding ? block.name : plugin && bare(plugin.name) !== bare(block.name) ? plugin.name : "";
     const glyph = device ? methods[device.authorization]?.[1] ?? "accessory" : block.icon ?? plugin?.icon ?? "plugin";
-    const picking = firstTime && !device;
+    const picking = firstTime && !device && !adding;
     const devicesStage = t("Devices");
-    const stages = [device ? t("Set up") : accountActions[plugin?.accountAuthorization]?.[0]() ?? t("Sign in"), picking ? devicesStage : null, t("Done")].filter(Boolean);
+    const stages = [device || adding ? t("Set up") : accountActions[plugin?.accountAuthorization]?.[0]() ?? t("Sign in"), picking ? devicesStage : null, t("Done")].filter(Boolean);
     let session = null, poll = 0, ticker = 0, done = false, closed = false;
     /// Counts what the sheet drew: a retry still under way when another answer is drawn leaves it alone.
     let drawn = 0;
@@ -394,11 +403,19 @@
         stage(stages.length - 1);
         // The Setup is over: Done (or Return) closes the sheet, and nothing is sent again.
         form.onsubmit = (event) => { event.preventDefault(); dismiss(); };
-        const editor = device && accessory ? HomeswiftSettings.accessoryEditor({ accessoryID: accessory, instance: block.name, device }) : null;
+        // A device added by address is named once its settings have loaded: the sheet's title and the line say it.
+        const named = el("strong", { text: device ? t("{name} is set up.", { name: title }) : adding ? t("The device is added.")
+          : added?.length ? tn("One accessory added.", "{n} accessories added.", added.length) : t("The account is set up.") });
+        const onTitle = (name) => {
+          if (!adding || !name) return;
+          title = name;
+          form.querySelector("#setup-title").textContent = name;
+          named.textContent = t("{name} is added.", { name });
+        };
+        const editor = (device || adding) && accessory ? HomeswiftSettings.accessoryEditor({ accessoryID: accessory, instance: block.name, device, onTitle }) : null;
         fill(
           el("div", { class: "setup-done" }, el("span", { class: "setup-check", "aria-hidden": "true" }, HomeswiftCommon.icon("check")),
-            el("p", {}, el("strong", { text: device ? t("{name} is set up.", { name: title })
-              : added?.length ? tn("One accessory added.", "{n} accessories added.", added.length) : t("The account is set up.") })),
+            el("p", {}, named),
             el("p", { class: "muted", text: added?.length ? t("They reach the Home app in a moment.") : t("Its accessories reach the Home app in a moment.") })),
           added?.length ? el("ul", { class: "setup-added" }, ...added.map((found, index) =>
             el("li", { style: `--index: ${Math.min(index, 8)}` }, tile(HomeswiftWidgets.deviceIcon(found) ?? glyph, "blue"), el("span", { text: found.name })))) : null,
@@ -564,7 +581,7 @@
       const step = (answers) => post(session, { answers });
       // A plugin added from the catalog: its block is saved once its Setup is done.
       // A Setup the Assistant started is taken over where it stands; the others start here.
-      (resume ? post(`${resume}/state`, {}) : post("start", { platform: block.platform, name: block.name, deviceID: device?.deviceID, block: draft ? block : undefined }))
+      (resume ? post(`${resume}/state`, {}) : post("start", { platform: block.platform, name: block.name, deviceID: device?.deviceID, addByAddress: adding || undefined, block: draft ? block : undefined }))
         .then(draw)
         .catch((e) => fill(el("p", { class: "error", role: "alert", text: e.message }),
           el("div", { class: "actions" }, el("button", { type: "button", actionIcon: "close", text: t("Close"), onclick: () => dismiss() }))));

@@ -40,7 +40,12 @@ Settings:
 Each light's Accessory Settings sit in the block's `_accessories`, by its MAC (the Device Id; the accessory id is
 `ElgatoKeyLights:<MAC>`): the Core ones (its Name, room, Excluded…) and `powerOnBehavior`, `powerOnBrightness` and
 `powerOnTemperature`, which overrule the Plugin Settings of the same names for that light (`powerOnTemperature: 0`
-keeps the light's own).
+keeps the light's own), and `host` and `port` for a light added by its address.
+
+**Add by address…** on the instance in the Add accessories page (or `start_setup` with `addByAddress`) asks for a
+light's IP address or host name and its port (9123 by default), asks the light there who it is, and keeps where it
+answers in its Accessory Settings under its MAC: the plugin reaches it there, as a light of `addresses`, without
+Bonjour. Nothing answering says so in the sheet ("No light answered at 192.0.2.50:9123"). `addresses` keeps working.
 
 ```json
 {

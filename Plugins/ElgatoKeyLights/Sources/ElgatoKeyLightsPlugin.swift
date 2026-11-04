@@ -258,7 +258,7 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
 
     /// Lights from config.json work without Bonjour, e.g. in containers without multicast.
     private func registerConfiguredDevices() {
-        for address in configuration.addresses ?? [] {
+        for address in configuredAddresses {
             let host = address.host.trimmingCharacters(in: .whitespaces)
             let port = address.port ?? KeyLightClient.defaultPort
             guard KeyLightClient.isValidHost(host), KeyLightClient.isValidPort(port) else {
@@ -300,7 +300,7 @@ public actor ElgatoKeyLightsPlugin: HomeswiftPlugin {
 
     /// The address config.json gives a light, for the ones registered from it.
     private func configuredLight(mac: String) -> DiscoveredLight? {
-        for address in configuration.addresses ?? [] {
+        for address in configuredAddresses {
             let host = address.host.trimmingCharacters(in: .whitespaces)
             let known = address.mac.flatMap(MACAddress.canonical) ?? learnedMACs[Self.addressKey(host: host, port: address.port)]
             if known == mac { return Self.addressedLight(host: host, port: address.port ?? KeyLightClient.defaultPort, mac: mac, name: attempts[mac]?.name ?? mac) }
