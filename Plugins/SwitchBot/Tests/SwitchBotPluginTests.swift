@@ -173,7 +173,7 @@ struct SwitchBotPluginTests {
         let host = try await environment.start(settings, timeScale: 1)
         let plugin = try #require(environment.plugin)
         #expect(await eventually { await plugin.webhookListeningPort != nil })
-        #expect(await eventually { environment.cloud.state.withLockedValue { $0.webhookActions.contains("updateWebhook") } })
+        #expect(await eventually { environment.cloud.state.withLockedValue { $0.webhookActions == ["setupWebhook"] } })
         let port = try #require(await plugin.webhookListeningPort)
         let path = await plugin.webhookAddress(URL(string: "http://192.168.1.10:8790/switchbot")!).path
         #expect(path.hasPrefix("/switchbot/") && path.count > 40)
@@ -194,7 +194,7 @@ struct SwitchBotPluginTests {
         #expect(try await post(path, String(repeating: "x", count: 70 * 1024)).status == 413)
         #expect(host.accessory(Self.plug)?.service(.outlet)?[.on]?.value == .bool(false))
         await host.stop()
-        #expect(environment.cloud.state.withLockedValue { $0.webhookActions.contains("deleteWebhook") })
+        #expect(environment.cloud.state.withLockedValue { $0.webhookActions } == ["setupWebhook", "deleteWebhook"])
     }
 
     @Test func sensorWebhookContexts() async throws {

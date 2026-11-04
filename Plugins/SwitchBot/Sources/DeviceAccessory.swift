@@ -145,7 +145,7 @@ class DeviceAccessory: @unchecked Sendable {
 func number(_ value: JSONValue) -> Double? {
     switch value {
     case .number(let number) where number.isFinite: number
-    case .string(let text): Double(text).flatMap { $0.isFinite ? $0 : nil }
+    case .string(let text): Double(text.trimmingCharacters(in: .whitespaces)).flatMap { $0.isFinite ? $0 : nil }
     case .bool(let flag): flag ? 1 : 0
     default: nil
     }

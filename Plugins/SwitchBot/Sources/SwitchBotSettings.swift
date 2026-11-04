@@ -10,7 +10,7 @@ import HomeswiftPlugin
 extension SwitchBotPlugin {
     public func deviceKind(of deviceID: String) async -> String? {
         guard let entry = entries[deviceID] else { return nil }
-        return entry.info.isRemote ? "remote" : Family(deviceType: entry.info.type)?.kind
+        return entry.info.isRemote ? RemoteFamily.kind : Family(deviceType: entry.info.type)?.kind
     }
 
     public func canonicalSettings(_ block: JSONValue) async -> JSONValue {

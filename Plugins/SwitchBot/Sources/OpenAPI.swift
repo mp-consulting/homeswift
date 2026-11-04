@@ -121,9 +121,7 @@ final class OpenAPIClient: Sendable {
         try await send("POST", "/v1.1/webhook/\(action)", body: body, attempts: attempts, retryDelay: retryDelay)
     }
 
-    static func escape(_ id: String) -> String {
-        id.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: "-_.~"))) ?? id
-    }
+    static func escape(_ id: String) -> String { URLEncoding.rfc3986(id) }
 
     func send(_ method: String, _ path: String, body: JSONValue? = nil, attempts: Int? = nil, retryDelay: Duration? = nil) async throws -> OpenAPI.Response {
         guard !token.isEmpty, !secret.isEmpty else { throw OpenAPI.NoCredentials() }

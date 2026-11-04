@@ -99,11 +99,8 @@ struct DeviceOptions: Sendable, Equatable {
 
     func number(_ keys: String...) -> Double? {
         for key in keys {
-            switch self[key] {
-            case .number(let number) where number.isFinite: return number
-            case .string(let text): if let number = Double(text.trimmingCharacters(in: .whitespaces)), number.isFinite { return number }
-            default: continue
-            }
+            if case .bool = self[key] { continue }
+            if let value = self[key].flatMap(HomeswiftSwitchBot.number) { return value }
         }
         return nil
     }

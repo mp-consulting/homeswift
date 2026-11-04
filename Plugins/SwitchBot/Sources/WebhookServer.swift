@@ -1,4 +1,5 @@
 import Foundation
+import Homeswift
 import HomeswiftPlugin
 import Logging
 import NIOConcurrencyHelpers
@@ -103,11 +104,7 @@ private final class WebhookHandler: ChannelInboundHandler, @unchecked Sendable {
     }
 
     /// The paths compared in constant time: the secret segment is not leaked by timing.
-    static func equal(_ lhs: String, _ rhs: String) -> Bool {
-        let a = Array(lhs.utf8), b = Array(rhs.utf8)
-        guard a.count == b.count else { return false }
-        return zip(a, b).reduce(0) { $0 | ($1.0 ^ $1.1) } == 0
-    }
+    static func equal(_ lhs: String, _ rhs: String) -> Bool { Secrets.constantTimeEqual(Array(lhs.utf8), Array(rhs.utf8)) }
 
     private func respond(context: ChannelHandlerContext, status: HTTPResponseStatus, text: String) {
         var headers = HTTPHeaders()

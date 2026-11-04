@@ -148,7 +148,6 @@ final class FanAccessory: DeviceAccessory, @unchecked Sendable {
 final class VacuumAccessory: DeviceAccessory, @unchecked Sendable {
     let control: Service
     let battery: Service
-    override var category: AccessoryCategory { .other }
 
     override init(info: DeviceInfo, link: DeviceLink, debounce: Duration, logger: Logger) {
         control = Service(.switch, name: info.name, isPrimary: true)

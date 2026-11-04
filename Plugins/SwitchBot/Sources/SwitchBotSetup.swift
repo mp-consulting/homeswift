@@ -30,12 +30,12 @@ extension SwitchBotPlugin {
             found.append(device)
         }
         for raw in list.remotes {
-            guard let cloudID = raw["deviceId"]?.stringValue, let type = raw["remoteType"]?.stringValue, let family = RemoteFamily(remoteType: type) else { continue }
+            guard let cloudID = raw["deviceId"]?.stringValue, let type = raw["remoteType"]?.stringValue, RemoteFamily(remoteType: type) != nil else { continue }
             let listed = listedEntry(cloudID, remote: true)
             let deviceID = deviceID(cloudID: cloudID, type: type, listed: listed)
             found.append(DiscoveredDevice(
                 deviceID: deviceID, name: listed?.string("configDeviceName") ?? raw["deviceName"]?.stringValue ?? cloudID, model: type, isSetUp: true,
-                excludedBySettings: leftOutByList(deviceID, listed: listed, remote: true) || listed?.flag("hide_device") == true, kind: family.kind))
+                excludedBySettings: leftOutByList(deviceID, listed: listed, remote: true) || listed?.flag("hide_device") == true, kind: RemoteFamily.kind))
         }
         return found
     }

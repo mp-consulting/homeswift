@@ -50,6 +50,8 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
         /// Whether its status is polled: a physical device the cloud serves.
         var polled: Bool
         var interval: Duration
+        /// The interval while it moves (`updateRate`) or a write waits.
+        var update: Duration
     }
 
     private(set) var entries: [String: Entry] = [:]
@@ -72,6 +74,8 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
         self.configuration = configuration
         self.context = context
         self.dependencies = dependencies
+        listedDevices = Self.index(configuration.deviceEntries)
+        listedRemotes = Self.index(configuration.remoteEntries)
         budget = RequestBudget(
             limit: configuration.dailyApiLimit ?? 10_000, reserve: configuration.dailyApiReserveForCommands ?? 1_000,
             localMidnight: configuration.dailyApiResetLocalMidnight ?? false, file: context.jsonFile("requests.json"), now: dependencies.now)
@@ -109,12 +113,12 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
         tasks.cancelAll()
         for task in pollTasks.values { task.cancel() }
         pollTasks.removeAll()
+        await webhook?.stop()
+        webhook = nil
         if let url = registeredWebhookURL, let client {
             _ = try? await client.webhook("deleteWebhook", ["action": "deleteWebhook", "url": .string(url)], attempts: 1)
             registeredWebhookURL = nil
         }
-        await webhook?.stop()
-        webhook = nil
         await budget.save()
         for entry in entries.values { (entry.accessory as? LightAccessory)?.adaptiveLighting = nil }
     }
@@ -202,9 +206,19 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
 
     /// The device's entry in the Homebridge-shaped list, by its id compared as 4.x compares it.
     func listedEntry(_ id: String, remote: Bool) -> DeviceOptions? {
-        let list = remote ? configuration.remoteEntries : configuration.deviceEntries
-        let key = normalizedID(id)
-        return list?.first { $0.deviceID.map(normalizedID) == key }
+        (remote ? listedRemotes : listedDevices)?[normalizedID(id)]
+    }
+
+    /// The Homebridge-shaped lists by normalised id, nil without a list: read once, the block does not change while
+    /// the instance runs.
+    let listedDevices: [String: DeviceOptions]?
+    let listedRemotes: [String: DeviceOptions]?
+
+    static func index(_ list: [DeviceOptions]?) -> [String: DeviceOptions]? {
+        guard let list, !list.isEmpty else { return nil }
+        var index: [String: DeviceOptions] = [:]
+        for entry in list { if let id = entry.deviceID { index[normalizedID(id)] = index[normalizedID(id)] ?? entry } }
+        return index
     }
 
     /// The Device Id of a device: the listed spelling of its id, or an `_accessories` key that spells it so, else the
@@ -221,7 +235,7 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
     /// Whether a Homebridge-shaped list leaves a device out: with a list, only the devices it names (and those whose
     /// Accessory Settings it was moved into) are exposed.
     func leftOutByList(_ deviceID: String, listed: DeviceOptions?, remote: Bool) -> Bool {
-        guard let list = remote ? configuration.remoteEntries : configuration.deviceEntries, !list.isEmpty else { return false }
+        guard (remote ? listedRemotes : listedDevices) != nil else { return false }
         return listed == nil && context.allAccessorySettings[deviceID] == nil
     }
 
@@ -285,9 +299,10 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
 
     private func add(_ info: DeviceInfo, family: Family?, remote: RemoteFamily?) async throws {
         let logger = deviceLogger(info.options)
-        let platform = configuration.platformOptions
         let debounce = scaled(info.options.number("pushRate") ?? configuration.debounceSeconds)
-        let link = makeLink(info)
+        let update = scaled(max(info.options.number("updateRate") ?? configuration.platformOptions.number("updateRate") ?? 5, 1))
+        let usable = isUsable(info)
+        let link = makeLink(info, usable: usable.usable)
         let accessory: DeviceAccessory
         if let remote {
             let meter = info.options.string("meterId").map(normalizedID)
@@ -299,10 +314,11 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
             accessory = RemoteAccessory(info: info, family: remote, link: link, settle: scaled(1.5), meterTemperature: lookup, logger: logger)
         } else {
             switch family! {
-            case .bot, .relay, .plug: accessory = SwitchAccessory(info: info, family: family!, link: link, debounce: debounce, logger: logger)
+            case .bot, .relay, .plug:
+                accessory = SwitchAccessory(
+                    info: info, family: family!, link: link, debounce: debounce, pressInterval: scaled(info.options.number("pushRatePress") ?? 15), logger: logger)
             case .curtain, .rollerShade, .blindTilt:
-                let update = info.options.number("updateRate") ?? platform.number("updateRate") ?? 5
-                accessory = CoveringAccessory(info: info, family: family!, link: link, debounce: debounce, updateRate: scaled(max(update, 1)), logger: logger)
+                accessory = CoveringAccessory(info: info, family: family!, link: link, debounce: debounce, updateRate: update, logger: logger)
             case .meter, .hub, .motion, .contact, .presence, .waterDetector:
                 accessory = SensorAccessory(
                     info: info, family: family!, co2Threshold: configuration.co2AbnormalThreshold ?? 1000, link: link, debounce: debounce, logger: logger)
@@ -324,7 +340,6 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
         hap.information.characteristic(adding: .hardwareRevision).value = .string(info.firmware)
         hap.information.characteristic(adding: .appMatchingIdentifier).value = .string("id1087374760")
         if let cached = context.accessory(id: id) { hap.takeValues(from: cached) }
-        let usable = isUsable(info)
         if !usable.usable {
             logger.debug("\(info.type) \(info.name): \(usable.reason); no requests are sent")
             if info.options.flag("offline") { accessory.showOffline() }
@@ -333,7 +348,7 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
         if external { try await context.publishExternal(hap) } else { try context.add(hap) }
         entries[info.deviceID] = Entry(
             info: info, accessory: accessory, hap: hap, polled: !info.isRemote && usable.usable,
-            interval: scaled(max(info.options.number("refreshRate") ?? configuration.refreshRate, Self.minimumRefreshRate)))
+            interval: scaled(max(info.options.number("refreshRate") ?? configuration.refreshRate, Self.minimumRefreshRate)), update: update)
         byCloudID[normalizedID(info.id)] = info.deviceID
     }
 
@@ -351,9 +366,8 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
     /// The last temperature of each meter, by normalised id, for linked air conditioners.
     nonisolated let meterTemperatures = NIOLockedValueBox<[String: (type: String, celsius: Double)]>([:])
 
-    private func makeLink(_ info: DeviceInfo) -> DeviceLink {
-        let usable = isUsable(info).usable
-        return DeviceLink { [weak self] commands in
+    private func makeLink(_ info: DeviceInfo, usable: Bool) -> DeviceLink {
+        DeviceLink { [weak self] commands in
             guard let self, usable else { throw HAPStatusError(.serviceCommunicationFailure) }
             return try await self.send(commands, to: info)
         }
@@ -361,8 +375,8 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
 
     /// Sends commands in turn; a refusal is logged and stops the rest. The cloud's silence throws, as No Response.
     func send(_ commands: [Command], to info: DeviceInfo) async throws -> Bool {
-        guard let client else { throw HAPStatusError(.serviceCommunicationFailure) }
-        let logger = deviceLogger(info.options)
+        guard let client, let entry = entries[info.deviceID] else { throw HAPStatusError(.serviceCommunicationFailure) }
+        let logger = entry.accessory.logger
         var accepted = true
         for command in commands {
             let response: OpenAPI.Response
@@ -383,11 +397,7 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
             }
         }
         // A refresh shortly after, to show what the device did (sooner while a curtain moves).
-        if let entry = entries[info.deviceID], entry.polled {
-            let moving = entry.accessory.isMoving
-            let update = info.options.number("updateRate") ?? configuration.platformOptions.number("updateRate") ?? 5
-            startPolling(info.deviceID, after: moving ? scaled(max(update, 1)) : scaled(15))
-        }
+        if entry.polled { startPolling(info.deviceID, after: entry.accessory.isMoving ? entry.update : scaled(15)) }
         return accepted
     }
 
@@ -414,9 +424,8 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
     func poll(_ deviceID: String) async -> Duration? {
         guard let entry = entries[deviceID], let client else { return nil }
         let info = entry.info
-        let logger = deviceLogger(info.options)
-        let update = info.options.number("updateRate") ?? configuration.platformOptions.number("updateRate") ?? 5
-        if entry.accessory.isWriting { return scaled(max(update, 1)) }
+        let logger = entry.accessory.logger
+        if entry.accessory.isWriting { return entry.update }
         let allowed = await budget.allowsPoll { used in
             logger.warning("\(used) SwitchBot requests made today: polls stop until midnight, keeping the rest for commands")
         }
@@ -436,7 +445,7 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
             if failing.insert(deviceID).inserted { logger.error("\(info.type) \(info.name): \(error)") }
             markUnreachable(deviceID, true)
         }
-        return entry.accessory.isMoving ? scaled(max(update, 1)) : entry.interval
+        return entry.accessory.isMoving ? entry.update : entry.interval
     }
 
     private func show(_ status: [String: JSONValue], on entry: Entry, webhook: Bool) {
@@ -494,16 +503,19 @@ public actor SwitchBotPlugin: HomeswiftPlugin {
         let retry = scaled(1)
         let setup = try? await client.webhook("setupWebhook", ["action": "setupWebhook", "url": .string(address), "deviceList": "ALL"], attempts: 3, retryDelay: retry)
         if let setup, !setup.succeeded { logger.debug("setupWebhook: \(setup.failure) (a URL is registered already: it is replaced)") }
-        let update = try? await client.webhook("updateWebhook", ["action": "updateWebhook", "config": ["url": .string(address), "enable": true]], attempts: 3, retryDelay: retry)
+        var update: OpenAPI.Response?
+        if setup?.succeeded != true {
+            update = try? await client.webhook("updateWebhook", ["action": "updateWebhook", "config": ["url": .string(address), "enable": true]], attempts: 3, retryDelay: retry)
+        }
         if update?.succeeded == true || setup?.succeeded == true {
             registeredWebhookURL = address
             logger.info("SwitchBot's webhook is registered")
         } else {
             logger.error("Could not register SwitchBot's webhook: \(update?.failure ?? setup?.failure ?? "no answer")")
-        }
-        if let query = try? await client.webhook("queryWebhook", ["action": "queryUrl"], attempts: 1),
-           let registered = query.body["urls"]?[0]?.stringValue, registered != address {
-            logger.warning("SwitchBot's cloud has another webhook URL registered for the account")
+            if let query = try? await client.webhook("queryWebhook", ["action": "queryUrl"], attempts: 1),
+               let registered = query.body["urls"]?[0]?.stringValue, registered != address {
+                logger.warning("SwitchBot's cloud has another webhook URL registered for the account")
+            }
         }
     }
 

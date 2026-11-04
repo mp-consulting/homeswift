@@ -1,7 +1,7 @@
 import Foundation
 
 /// The OpenAPI device types the plugin exposes, by family (§3.1 of docs/clean-room/SwitchBot.md).
-enum Family: String, Sendable, CaseIterable {
+enum Family: Sendable {
     case bot, relay, plug, curtain, rollerShade, blindTilt, meter, hub, motion, contact, presence, waterDetector, lock
     case light, humidifier, fan, vacuum, airPurifier
 
@@ -53,8 +53,9 @@ enum Family: String, Sendable, CaseIterable {
 }
 
 /// The model codes 4.x shows in Accessory Information.
-func modelCode(_ deviceType: String) -> String {
-    let codes: [String: String] = [
+func modelCode(_ deviceType: String) -> String { modelCodes[deviceType] ?? "Unknown" }
+
+private let modelCodes: [String: String] = [
         "Humidifier": "W0801800", "Humidifier2": "WXXXXXXX", "Hub 2": "W3202100", "Hub Mini 2": "W3202100", "Hub 3": "W3302100",
         "Bot": "SwitchBot S1", "Relay Switch 1": "W5502300", "Relay Switch 1PM": "W5502310", "Meter": "SwitchBot MeterTH S1",
         "MeterPlus": "W2301500", "Meter Plus (JP)": "W2201500", "Meter Pro": "W4900000", "MeterPro(CO2)": "W4900010", "WoIOSensor": "W3400010",
@@ -67,12 +68,10 @@ func modelCode(_ deviceType: String) -> String {
         "Ceiling Light": "W2612230/W2612240", "Ceiling Light Pro": "W2612210/W2612220", "Strip Light": "W1701100",
         "Battery Circulator Fan": "W3800510", "Air Purifier": "W5302300", "Air Purifier VOC": "W5302300", "Air Purifier PM2.5": "W5302300",
         "Air Purifier Table": "W5302310", "Air Purifier Table VOC": "W5302310", "Air Purifier Table PM2.5": "W5302310",
-    ]
-    return codes[deviceType] ?? "Unknown"
-}
+]
 
 /// The IR remote types (§3.3), a `DIY` one as its plain type.
-enum RemoteFamily: String, Sendable {
+enum RemoteFamily: Sendable {
     case television, fan, airConditioner, light, airPurifier, waterHeater, vacuumCleaner, camera, others
 
     init?(remoteType: String) {
@@ -91,7 +90,8 @@ enum RemoteFamily: String, Sendable {
         }
     }
 
-    var kind: String { "remote" }
+    /// The Device Kind of every remote.
+    static let kind = "remote"
 }
 
 /// A firmware version as 4.x shows it (§4.7): no leading `V`, nothing from the first `-`, and a dot between each

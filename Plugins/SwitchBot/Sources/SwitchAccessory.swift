@@ -96,11 +96,14 @@ final class SwitchAccessory: DeviceAccessory, @unchecked Sendable {
     private var target = false
     private var reported: Bool?
     private var presses = 0
+    /// Between the repeats of `doublePress` (`pushRatePress`).
+    private let pressInterval: Duration
 
     override var category: AccessoryCategory { kind.category }
 
-    init(info: DeviceInfo, family: Family, link: DeviceLink, debounce: Duration, logger: Logger) {
+    init(info: DeviceInfo, family: Family, link: DeviceLink, debounce: Duration, pressInterval: Duration = .seconds(15), logger: Logger) {
         self.family = family
+        self.pressInterval = pressInterval
         kind = family == .plug ? .outlet : ControlKind(type: info.options.string("type"))
         mode = family == .bot ? (info.options.string("mode")?.lowercased() ?? "switch") : "switch"
         control = Service(kind.serviceType, name: info.name, isPrimary: true)
@@ -171,12 +174,12 @@ final class SwitchAccessory: DeviceAccessory, @unchecked Sendable {
         if try await repeated([Command(command: on ? "turnOn" : "turnOff")]) { lock.withLock { reported = on } }
     }
 
-    /// The commands, sent `doublePress` times `pushRatePress` seconds apart (a Bot's options).
+    /// The commands, sent `doublePress` times `pressInterval` apart (a Bot's options).
     private func repeated(_ commands: [Command]) async throws -> Bool {
         let times = family == .bot ? max(Int(saturating: options.number("doublePress") ?? 1) ?? 1, 1) : 1
         var accepted = true
         for time in 0..<min(times, 10) {
-            if time > 0 { try await Task.sleep(for: .seconds(max(options.number("pushRatePress") ?? 15, 0))) }
+            if time > 0 { try await Task.sleep(for: pressInterval) }
             accepted = try await send(commands) && accepted
         }
         return accepted

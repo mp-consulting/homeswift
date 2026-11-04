@@ -36,7 +36,7 @@ final class RemoteAccessory: DeviceAccessory, @unchecked Sendable {
     /// with `external` otherwise.
     var isExternal: Bool { family == .television || info.options.bool("external") ?? info.type.hasPrefix("DIY ") }
 
-    init(info: DeviceInfo, family: RemoteFamily, link: DeviceLink, settle: Duration = .milliseconds(1500), meterTemperature: @escaping @Sendable () -> Double?, logger: Logger) {
+    init(info: DeviceInfo, family: RemoteFamily, link: DeviceLink, settle: Duration, meterTemperature: @escaping @Sendable () -> Double?, logger: Logger) {
         self.family = family
         self.settle = settle
         self.meterTemperature = meterTemperature
