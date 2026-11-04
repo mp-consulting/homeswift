@@ -305,7 +305,8 @@ struct SomfyOAuthTests {
         #expect(server.tokenBodies.last == "grant_type=refresh_token&client_id=\(SomfyOAuth.clientID)&client_secret=\(SomfyOAuth.clientSecret)&refresh_token=rt-7f3c2a10-0000-4000-8000-000000000001")
         #expect(server.requests.last?.header("Authorization") == "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0MiJ9.c2lnbmF0dXJlMg")
         #expect(stored.withLockedValue { $0 } == "rt-7f3c2a10-0000-4000-8000-000000000002")
-        #expect(await client.sessionGeneration == 1)
+        // The sign-in and the refresh: each a new session.
+        #expect(await client.sessionGeneration == 2)
     }
 
     @Test func anExpiredBearerIsANewPasswordGrant() async throws {

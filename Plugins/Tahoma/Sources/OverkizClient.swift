@@ -2,6 +2,7 @@ import Foundation
 import HomeswiftAI
 import HomeswiftNetwork
 import Logging
+import NIOConcurrencyHelpers
 
 /// An error from Overkiz, flattened as the Homebridge plugin's client does (3.6): `Error <status> <error>(<errorCode>)`.
 struct OverkizError: Error, CustomStringConvertible, Equatable {
@@ -15,7 +16,9 @@ struct OverkizError: Error, CustomStringConvertible, Equatable {
         self.message = message
     }
 
+    /// As the log shows it: a gateway's PIN in the server's message (`… on gateway: #1234-5678-9012`) masked.
     var description: String {
+        let message = OverkizClient.redacted(message)
         guard let status else { return message }
         return "Error \(status) \(message)" + (errorCode.map { "(\($0))" } ?? "")
     }
@@ -26,6 +29,10 @@ struct OverkizError: Error, CustomStringConvertible, Equatable {
         return text.contains("bad credentials") || text.contains("no such user") || text.contains("invalid credentials")
             || text.contains("invalid_grant") || text.contains("invalid.grant") || errorCode == "invalid_grant" || (status == 401 && errorCode == nil && text.contains("not authenticated"))
     }
+
+    /// The credentials themselves were refused: bad credentials, or a 401 from a gateway, whose only credential is
+    /// its token.
+    func refusesCredentials(local: Bool) -> Bool { isBadCredentials || (local && status == 401) }
 
     /// A limit the server sets for a while (4.5): too many executions, a full queue, concurrent requests.
     var isBusy: Bool {
@@ -64,6 +71,41 @@ struct RefreshTokenStore: Sendable {
     var save: @Sendable (String?) -> Void
 }
 
+/// The pause after the server refused a sign-in (3.1): 60 s, then four times longer each time, at most 4 h. Shared by the
+/// clients a plugin makes one after another, so a retry does not start the pause over.
+final class SignInLockout: Sendable {
+    static let backoff = Backoff(initial: .seconds(60), factor: 4, maximum: .seconds(4 * 3600))
+
+    private struct State {
+        var until: ContinuousClock.Instant?
+        var refusals = 0
+    }
+
+    private let state = NIOLockedValueBox(State())
+
+    /// How long sign-in stays paused from `now`, or nil.
+    func remaining(at now: ContinuousClock.Instant) -> Duration? {
+        state.withLockedValue { state in
+            guard let until = state.until else { return nil }
+            if until > now { return until - now }
+            state.until = nil
+            return nil
+        }
+    }
+
+    /// A refusal at `now`: answers the pause it starts.
+    func refused(at now: ContinuousClock.Instant) -> Duration {
+        state.withLockedValue { state in
+            let pause = Self.backoff.delay(attempt: state.refusals)
+            state.refusals += 1
+            state.until = now + pause
+            return pause
+        }
+    }
+
+    func accepted() { state.withLockedValue { $0 = State() } }
+}
+
 /// How the client reaches the setup: a cloud with its sign-in, or a gateway's local API with a token.
 enum OverkizEndpoint: Sendable, Equatable {
     case cloud(OverkizService, user: String, password: String)
@@ -74,8 +116,8 @@ enum OverkizEndpoint: Sendable, Equatable {
 }
 
 /// Talks to Overkiz (sections 3 and 4): signs in lazily before the first request, signs in again once on a 401, and keeps
-/// itself from signing in again for a while after the server refused it (the lockout of 3.1, which avoids Overkiz's ban
-/// for repeated bad logins: 60 s, then four times longer each time, at most `maximumLockout`).
+/// itself from signing in again for a while after the server refused it (the `SignInLockout` of 3.1, which avoids
+/// Overkiz's ban for repeated bad logins).
 actor OverkizClient {
     /// What answers HTTP: one client for the clouds, one for the gateway (its certificate checked against the Overkiz
     /// Root CA); tests give a fake.
@@ -84,7 +126,6 @@ actor OverkizClient {
         var timeout: Duration = .seconds(15)
     }
 
-    static let maximumLockout: Duration = .seconds(4 * 3600)
     static let cozytouchBasic = "Q3RfMUpWeVRtSUxYOEllZkE3YVVOQmpGblpVYToyRWNORHpfZHkzNDJVSnFvMlo3cFNKTnZVdjBh"
 
     let endpoint: OverkizEndpoint
@@ -103,14 +144,17 @@ actor OverkizClient {
     private let tokenStore: RefreshTokenStore?
     /// Changes when the session does (a refreshed token): an event listener belongs to the session it was made in.
     private(set) var sessionGeneration = 0
-    private var lockedUntil: ContinuousClock.Instant?
-    private var lockout: Duration = .seconds(60)
+    private let lockout: SignInLockout
+    /// The sign-in or token refresh under way: requests that arrive meanwhile wait for it rather than sending their
+    /// own (a refused password counted three times, a rotated refresh token spent twice).
+    private var signingIn: Task<Void, Error>?
+    private var refreshing: Task<Void, Error>?
     /// Called with the error when the account refuses the credentials, and with nil once it accepts them.
     private let onAccount: @Sendable (OverkizError?) -> Void
 
     init(
         endpoint: OverkizEndpoint, transport: Transport, proxy: String? = nil, logger: Logger, tokenStore: RefreshTokenStore? = nil,
-        now: @escaping @Sendable () -> ContinuousClock.Instant = { .now }, onAccount: @escaping @Sendable (OverkizError?) -> Void = { _ in }
+        lockout: SignInLockout = SignInLockout(), now: @escaping @Sendable () -> ContinuousClock.Instant = { .now }, onAccount: @escaping @Sendable (OverkizError?) -> Void = { _ in }
     ) {
         self.endpoint = endpoint
         self.transport = transport
@@ -119,6 +163,7 @@ actor OverkizClient {
         self.now = now
         self.onAccount = onAccount
         self.tokenStore = tokenStore
+        self.lockout = lockout
     }
 
     /// Whether this client signs in with Somfy's OAuth: Somfy Europe (11.1). Oceania and North America keep the session
@@ -195,6 +240,8 @@ actor OverkizClient {
             return try await transport.http.send(HomeswiftNetwork.HTTPRequest(method: method, url: target, headers: headers, body: body, timeout: transport.timeout))
         } catch let error as OverkizError {
             throw error
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw OverkizError(message: "\(error)")
         }
@@ -207,15 +254,19 @@ actor OverkizClient {
 
     // MARK: Signing in
 
-    /// Signs in unless signed in already (3.1–3.4). Throws at once while locked out.
+    /// Signs in unless signed in already (3.1–3.4), once for every request waiting. Throws at once while locked out.
     func signIn() async throws {
         guard !signedIn else { return }
-        if let lockedUntil {
-            let remaining = lockedUntil - now()
-            if remaining > .zero {
-                throw OverkizError(message: "Sign-in is paused for \(Self.describe(remaining)) after the server refused it: check the credentials, or wait to be unbanned")
-            }
-            self.lockedUntil = nil
+        if let signingIn { return try await signingIn.value }
+        let task = Task { try await self.performSignIn() }
+        signingIn = task
+        defer { signingIn = nil }
+        try await task.value
+    }
+
+    private func performSignIn() async throws {
+        if let remaining = lockout.remaining(at: now()) {
+            throw OverkizError(message: "Sign-in is paused for \(Self.describe(remaining)) after the server refused it: check the credentials, or wait to be unbanned")
         }
         do {
             switch endpoint {
@@ -234,14 +285,15 @@ actor OverkizClient {
                 }
             }
             signedIn = true
-            lockout = .seconds(60)
+            // A new session: the event listener of the previous one is gone (11.4).
+            sessionGeneration += 1
+            lockout.accepted()
             onAccount(nil)
         } catch let error as OverkizError {
             if let status = error.status, (400..<500).contains(status) {
-                lockedUntil = now() + lockout
-                logger.warning("The server refused to sign in (\(error)): trying again in \(Self.describe(lockout)) at the earliest")
-                lockout = min(lockout * 4, Self.maximumLockout)
-                if error.isBadCredentials || (endpoint.isLocal && status == 401) { onAccount(error) }
+                let pause = lockout.refused(at: now())
+                logger.warning("The server refused to sign in (\(error)): trying again in \(Self.describe(pause)) at the earliest")
+                if error.refusesCredentials(local: endpoint.isLocal) { onAccount(error) }
             }
             throw error
         }
@@ -254,12 +306,11 @@ actor OverkizClient {
         cookie = nil
         if !passwordGrantNext, let kept = refreshToken ?? tokenStore?.load() {
             do {
-                try await grant([("grant_type", "refresh_token"), ("client_id", SomfyOAuth.clientID), ("client_secret", SomfyOAuth.clientSecret), ("refresh_token", kept)])
+                try await grant(Self.refreshGrant(kept))
                 return
             } catch let error as OverkizError where error.isBadCredentials {
                 logger.debug("Somfy refused the kept refresh token: signing in with the password")
-                refreshToken = nil
-                tokenStore?.save(nil)
+                forgetRefreshToken()
             }
         }
         passwordGrantNext = false
@@ -269,27 +320,47 @@ actor OverkizClient {
         ])
     }
 
-    /// Refreshes a token that expires within 5 s, before a request (11.4); a refused refresh signs in with the password.
+    /// Refreshes a token that expires within 5 s, before a request (11.4), once for every request waiting; a refused
+    /// refresh signs in with the password.
     private func refreshIfDue() async throws {
-        guard usesOAuth, signedIn, let expiresAt, let refreshToken, now() >= expiresAt - SomfyOAuth.refreshMargin else { return }
+        guard usesOAuth, signedIn, let expiresAt, refreshToken != nil, now() >= expiresAt - SomfyOAuth.refreshMargin else { return }
+        if let refreshing { return try await refreshing.value }
+        let task = Task { try await self.performRefresh() }
+        refreshing = task
+        defer { refreshing = nil }
+        try await task.value
+    }
+
+    private func performRefresh() async throws {
+        guard let refreshToken else { return }
         do {
-            try await grant([("grant_type", "refresh_token"), ("client_id", SomfyOAuth.clientID), ("client_secret", SomfyOAuth.clientSecret), ("refresh_token", refreshToken)])
+            try await grant(Self.refreshGrant(refreshToken))
             sessionGeneration += 1
         } catch let error as OverkizError where error.isBadCredentials {
-            self.refreshToken = nil
-            tokenStore?.save(nil)
+            forgetRefreshToken()
             signedIn = false
             passwordGrantNext = true
             try await signIn()
-            sessionGeneration += 1
         }
+    }
+
+    private static func refreshGrant(_ token: String) -> [(String, String)] {
+        [("grant_type", "refresh_token"), ("client_id", SomfyOAuth.clientID), ("client_secret", SomfyOAuth.clientSecret), ("refresh_token", token)]
+    }
+
+    private func forgetRefreshToken() {
+        refreshToken = nil
+        tokenStore?.save(nil)
+    }
+
+    /// A form `POST` outside the API (a sign-in), answered as it is.
+    private func postForm(_ url: String, _ form: [(String, String)], headers: [(name: String, value: String)] = [("Accept", "application/json")]) async throws -> HomeswiftNetwork.HTTPResponse {
+        try await http("POST", url, headers: [("Content-Type", "application/x-www-form-urlencoded")] + headers, body: Data(URLEncoding.form(form).utf8))
     }
 
     /// One request to Somfy's token endpoint; keeps the access token, its expiry, and a new refresh token.
     private func grant(_ form: [(String, String)]) async throws {
-        let response = try await http(
-            "POST", SomfyOAuth.tokenURL, headers: [("Content-Type", "application/x-www-form-urlencoded"), ("Accept", "application/json")],
-            body: Data(URLEncoding.form(form).utf8))
+        let response = try await postForm(SomfyOAuth.tokenURL, form)
         let body = (try? JSONValue(data: response.body)) ?? .null
         // A refused password or refresh token, whatever the status (Somfy may answer it with 200).
         if body["message"]?.stringValue == "error.invalid.grant" || body["error"]?.stringValue == "invalid_grant" {
@@ -313,9 +384,7 @@ actor OverkizClient {
     /// `POST /login` with a form (3.1), keeping the `JSESSIONID` cookie.
     private func sessionLogin(form: [(String, String)]) async throws {
         cookie = nil
-        let response = try await http(
-            "POST", baseURL + "/login", headers: [("Content-Type", "application/x-www-form-urlencoded"), ("Accept", "application/json")],
-            body: Data(URLEncoding.form(form).utf8))
+        let response = try await postForm(baseURL + "/login", form)
         guard response.isSuccess else { throw OverkizError(response: response) }
         if let body = try? JSONValue(data: response.body), body["success"]?.boolValue == false {
             throw OverkizError(status: 401, errorCode: "AUTHENTICATION_ERROR", message: "Bad credentials")
@@ -336,10 +405,9 @@ actor OverkizClient {
 
     /// Atlantic's token and JWT (3.2), for Cozytouch's `/login`.
     private func cozytouchJWT(user: String, password: String) async throws -> String {
-        let token = try await http(
-            "POST", "https://apis.groupe-atlantic.com/token",
-            headers: [("Authorization", "Basic \(Self.cozytouchBasic)"), ("Content-Type", "application/x-www-form-urlencoded")],
-            body: Data(URLEncoding.form([("grant_type", "password"), ("username", "GA-PRIVATEPERSON/\(user)"), ("password", password)]).utf8))
+        let token = try await postForm(
+            "https://apis.groupe-atlantic.com/token", [("grant_type", "password"), ("username", "GA-PRIVATEPERSON/\(user)"), ("password", password)],
+            headers: [("Authorization", "Basic \(Self.cozytouchBasic)")])
         guard token.isSuccess else { throw OverkizError(response: token) }
         guard let access = (try? JSONValue(data: token.body))?["access_token"]?.stringValue, !access.isEmpty else {
             throw OverkizError(status: 401, errorCode: "invalid_grant", message: "Invalid credentials")
@@ -391,16 +459,15 @@ actor OverkizClient {
     /// Posts an execution (4.4): `apply/highPriority` when asked, never on the local API, which refuses modes.
     func apply(label: String, actions: [JSONValue], highPriority: Bool) async throws -> String {
         let path = highPriority && !endpoint.isLocal ? "/exec/apply/highPriority" : "/exec/apply"
-        let body: JSONValue = ["label": .string(label), "actions": .array(actions), "metadata": nil]
-        guard let id = try await request("POST", path, json: body)["execId"]?.stringValue else {
-            throw OverkizError(message: "the server gave no execution id")
-        }
-        return id
+        return try await postExecution(path, ["label": .string(label), "actions": .array(actions), "metadata": nil])
     }
 
     func runScenario(oid: String) async throws -> String {
-        let body: JSONValue = ["label": "", "actions": [], "metadata": nil]
-        guard let id = try await request("POST", "/exec/\(Self.component(oid))", json: body)["execId"]?.stringValue else {
+        try await postExecution("/exec/\(Self.component(oid))", ["label": "", "actions": [], "metadata": nil])
+    }
+
+    private func postExecution(_ path: String, _ body: JSONValue) async throws -> String {
+        guard let id = try await request("POST", path, json: body)["execId"]?.stringValue else {
             throw OverkizError(message: "the server gave no execution id")
         }
         return id
@@ -418,9 +485,11 @@ actor OverkizClient {
         try await request("POST", "/setup/devices/\(Self.component(deviceURL))/states/refresh")
     }
 
-    /// Mints a Developer Mode token for a gateway and activates it (3.5, 11.7); answers the token. Developer Mode is
-    /// switched on first when the gateway says it is off; a gateway that does not answer that check is tried anyway.
-    func mintLocalToken(pin: String, label: String) async throws -> String {
+    /// Mints a Developer Mode token for a gateway and activates it (3.5, 11.7); answers the token and, when the
+    /// gateway's list shows it, its uuid, by which `revokeLocalToken` takes it back. Developer Mode is switched on
+    /// first when the gateway says it is off; a gateway that does not answer that check is tried anyway.
+    func mintLocalToken(pin: String, label: String) async throws -> (token: String, uuid: String?) {
+        let before = Set(await localTokens(pin: pin).compactMap { $0["uuid"]?.stringValue })
         let mode = "/setup/gateways/\(Self.component(pin))/developerMode"
         if let active = (try? await request("GET", mode))?["active"]?.boolValue, !active {
             try await request("POST", mode)
@@ -432,7 +501,24 @@ actor OverkizClient {
         try await request(
             "POST", "/config/\(Self.component(pin))/local/tokens",
             json: ["label": .string(label), "token": .string(token), "scope": "devmode"])
-        return token
+        let added = await localTokens(pin: pin).filter { $0["label"]?.stringValue == label }.compactMap { $0["uuid"]?.stringValue }
+            .filter { !$0.isEmpty && !before.contains($0) }
+        return (token, added.count == 1 ? added[0] : nil)
+    }
+
+    /// The gateway's Developer Mode tokens, empty when the server does not list them.
+    private func localTokens(pin: String) async -> [JSONValue] {
+        (try? await request("GET", "/config/\(Self.component(pin))/local/tokens/devmode"))?.arrayValue ?? []
+    }
+
+    /// Revokes a token the plugin minted, as far as the server lets it (a failure only leaves the token there).
+    func revokeLocalToken(pin: String, uuid: String) async {
+        do {
+            try await request("DELETE", "/config/\(Self.component(pin))/local/tokens/\(Self.component(uuid))")
+            logger.debug("Revoked the gateway's previous Developer Mode token")
+        } catch {
+            logger.debug("Could not revoke the gateway's previous Developer Mode token: \(error)")
+        }
     }
 
     /// A path component, everything but unreserved characters percent-encoded (`io%3A%2F%2F1234…`).

@@ -39,7 +39,9 @@ in its settings, accept the terms, then generate a token). The account is kept i
 
 With a Somfy cloud account whose setup has a single gateway, the plugin mints a Developer Mode token for that gateway
 itself, over the cloud session (Developer Mode turned on when the gateway says it is off, a token generated, then
-activated with the label "Homeswift" and the scope `devmode`; kept in the vault), and talks to the gateway on the local network from then on, falling
+activated with the label "Homeswift" and the scope `devmode`; kept in the vault with the account it belongs to). The
+token is minted once: only one the gateway refused is replaced, and that one is revoked on the gateway (another bridge's
+token stays). It talks to the gateway on the local network from then on, falling
 back to the cloud at start when the gateway does not answer. `preferLocalAPI: false` keeps it on the cloud. The
 accessories are the same either way: their Device Id is the deviceURL, which the cloud and the gateway share.
 
@@ -85,7 +87,7 @@ or a scenario, move there with the block's next settings write; entries for a ki
   pauses sign-ins for 60 s, then four times longer each time up to 4 hours, so a wrong password does not get the account
   banned; the plugin's card then says it Needs Authorization.
 - **Local API:** `https://<gateway>:8443/enduser-mobile-web/1/enduserAPI` with the token as a Bearer. The gateway is found
-  by browsing `_kizboxdev._tcp` for 10 s and matching its `gateway_pin` TXT record (its name without one), else
+  by browsing `_kizboxdev._tcp` for at most 10 s (it stops at the gateway of the PIN) and matching its `gateway_pin` TXT record (its name without one), else
   `gateway-<PIN>.local`. Its certificate must be signed by the **Overkiz Root CA**, bundled from Somfy's own developer
   documentation (`https://ca.overkiz.com/overkiz-root-ca-2048.crt`, fingerprint checked by the tests), and name
   `gateway-<PIN>.local` when the PIN is known; reached by IP address alone, any certificate that CA signed is accepted.
@@ -96,7 +98,7 @@ or a scenario, move there with the block's next settings write; entries for a ki
   name), sliders after 500 ms of quiet; each is followed until it completes, fails or 2 minutes pass. A full execution
   queue is tried again with a backoff.
 
-Passwords, the OAuth client secret and tokens, the session cookie and the JWT are never logged, and the gateway's PIN is masked in request logs.
+Passwords, the OAuth client secret and tokens, the session cookie and the JWT are never logged, and the gateway's PIN is masked in request logs and in the server's error messages.
 
 ## Gaps
 

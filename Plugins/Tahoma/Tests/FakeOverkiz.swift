@@ -41,6 +41,8 @@ final class FakeOverkiz: HTTPSending, Sendable {
         var listener = "a70f6d96-0000-4000-8000-0000000000bb"
         var sessionValid = true
         var mintedTokens: [String] = []
+        /// The gateway's activated tokens: uuid and label.
+        var activeTokens: [(uuid: String, label: String)] = []
         var applyFailures: [Int] = []
         var countryCode = "GB"
         var accessTokens: Set<String> = []
@@ -63,6 +65,11 @@ final class FakeOverkiz: HTTPSending, Sendable {
     }
     var applies: [Recorded] { requests.filter { $0.path.contains("/exec/apply") } }
     var mintedTokens: [String] { state.withLockedValue { $0.mintedTokens } }
+    var activeTokenLabels: [String] { state.withLockedValue { $0.activeTokens.map(\.label) } }
+    /// A token activated earlier, by another bridge or app.
+    func addActiveToken(label: String) { state.withLockedValue { $0.activeTokens.append(("old-\($0.activeTokens.count)", label)) } }
+    /// The gateway refuses the token it has accepted so far (Developer Mode reset).
+    func refuseLocalToken() { state.withLockedValue { $0.token = "refused" } }
 
     func setDevices(_ devices: JSONValue) { state.withLockedValue { $0.devices = devices } }
     func setScenarios(_ scenarios: JSONValue) { state.withLockedValue { $0.scenarios = scenarios } }
@@ -169,7 +176,15 @@ final class FakeOverkiz: HTTPSending, Sendable {
             state.token = "minted-token-\(state.mintedTokens.count + 1)"
             state.mintedTokens.append(state.token)
             return json(["token": .string(state.token)])
-        case ("POST", let p) where p.hasSuffix("/local/tokens"): return json(["requestId": "r1"])
+        case ("POST", let p) where p.hasSuffix("/local/tokens"):
+            state.activeTokens.append(("uuid-\(state.mintedTokens.count)", request.body?["label"]?.stringValue ?? ""))
+            return json(["requestId": "r1"])
+        case ("GET", let p) where p.hasSuffix("/local/tokens/devmode"):
+            return json(.array(state.activeTokens.map { ["label": .string($0.label), "uuid": .string($0.uuid), "scope": "devmode"] }))
+        case ("DELETE", let p) where p.contains("/local/tokens/"):
+            let uuid = String(p.split(separator: "/").last ?? "")
+            state.activeTokens.removeAll { $0.uuid == uuid }
+            return json(.null, status: 204)
         case ("POST", let p) where p.hasPrefix("/events/") && p.hasSuffix("/fetch"):
             guard p.contains(state.listener) else { return json(["errorCode": "UNSPECIFIED_ERROR", "error": "Invalid event listener id"], status: 400) }
             defer { state.events = [] }
@@ -273,7 +288,7 @@ final class TestEnvironment: Sendable {
                 pins.withLockedValue { $0.append(pin) }
                 return server
             },
-            browseGateways: { _ in gateways.browse() }, timeScale: timeScale, now: { Date() })
+            browseGateways: { _, _ in gateways.browse() }, timeScale: timeScale, now: { Date() })
     }
 
     nonisolated(unsafe) static let account: [String: Any] = ["user": "user@example.com", "password": "secret", "preferLocalAPI": false, "pollingPeriod": 10]

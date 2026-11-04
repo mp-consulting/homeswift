@@ -20,14 +20,13 @@ extension TahomaPlugin {
     public func discover() async throws -> [DiscoveredDevice] {
         var listed = devices
         if listed.isEmpty, account != nil, client == nil {
-            listed = (try? await withTimeout(scaled(8)) { [self] in try await connect(minting: false).devices() }) ?? []
+            listed = (try? await withTimeout(scaled(20)) { [self] in try await connect(minting: false).devices() }) ?? []
         }
-        let exclusions = DeviceGrouping.builtInExclusions.union(configuration.exclude ?? [])
+        let exclusions = exclusions
         var found: [DiscoveredDevice] = []
         for group in DeviceGrouping.group(listed) {
             let device = group.device
-            guard !DeviceGrouping.builtInExclusions.contains(where: { [device.uiClass, device.widgetName, device.controllableName].contains($0) }),
-                  let type = MapperTable.mapper(for: device) else { continue }
+            guard !DeviceGrouping.isExcluded(device, by: DeviceGrouping.builtInExclusions), let type = MapperTable.mapper(for: device) else { continue }
             var discovered = DiscoveredDevice(
                 deviceID: device.deviceURL, name: device.label, model: "\(device.uiClass) \(device.widgetName)", isSetUp: true,
                 excludedBySettings: DeviceGrouping.isExcluded(device, by: exclusions), kind: type.kind)
@@ -42,7 +41,7 @@ extension TahomaPlugin {
 
     public func deviceKind(of deviceID: String) async -> String? {
         if deviceID.hasPrefix("scene:") { return "scenario" }
-        return devices.first { $0.deviceURL == deviceID }.flatMap(MapperTable.mapper(for:))?.kind
+        return deviceIndex[deviceID].flatMap(MapperTable.mapper(for:))?.kind
     }
 
     /// Asks which service and the account's user and password, and signs in with them: a refusal is an answer to
@@ -73,12 +72,12 @@ extension TahomaPlugin {
         do {
             try await client.signIn()
         } catch let error as OverkizError {
-            if error.isBadCredentials || error.status == 401 || error.status == 400 {
+            if error.refusesCredentials(local: service == .local) {
                 logger.info("The Overkiz account refused the credentials given through Setup")
                 throw SetupError(service == .local ? "The gateway refused this token." : "The account refused this user and password.")
             }
             logger.info("Could not check the Overkiz account: \(error)")
-            throw SetupError("Could not reach \(service == .local ? "the gateway" : "Overkiz"): \(error.message)")
+            throw SetupError("Could not reach \(service == .local ? "the gateway" : "Overkiz"): \(OverkizClient.redacted(error.message))")
         }
         logger.info("Signed in to the Overkiz account through Setup")
         let outcome = try SetupOutcome(

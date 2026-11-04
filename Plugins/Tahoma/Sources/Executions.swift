@@ -44,6 +44,16 @@ actor Executions {
     private var pending: [Pending] = []
     private var flush: Task<Void, Never>?
     private var tracked: [String: Tracked] = [:]
+    /// Events of executions not tracked yet: a fetch can bring one's first states while its post is still answered.
+    /// The last few only, replayed when it is tracked.
+    private var early: [(execID: String, event: Event)] = []
+
+    private struct Event {
+        var newState: ExecutionState
+        var final: Bool
+        var failureType: String?
+        var failedDevices: Set<String>?
+    }
 
     init(
         timings: Timings = Timings(), logger: Logger, client: @escaping @Sendable () async -> OverkizClient?,
@@ -138,8 +148,8 @@ actor Executions {
     }
 
     /// Follows an execution started elsewhere (a scenario's).
-    func track(_ execID: String, deviceURL: String = "", observer: @escaping ExecutionObserver) {
-        track(execID, actions: [(deviceURL, [observer])])
+    func track(_ execID: String, observer: @escaping ExecutionObserver) {
+        track(execID, actions: [("", [observer])])
     }
 
     private func track(_ execID: String, actions: [(deviceURL: String, observers: [ExecutionObserver])]) {
@@ -150,6 +160,11 @@ actor Executions {
         }
         tracked[execID] = Tracked(actions: actions, timeout: task)
         started()
+        let replayed = early.filter { $0.execID == execID }
+        early.removeAll { $0.execID == execID }
+        for (_, event) in replayed {
+            handle(execID: execID, newState: event.newState, final: event.final, failureType: event.failureType, failedDevices: event.failedDevices)
+        }
     }
 
     private func timedOut(_ execID: String) {
@@ -160,7 +175,11 @@ actor Executions {
 
     /// An `ExecutionStateChangedEvent`: passed to every action of a tracked execution.
     func handle(execID: String, newState: ExecutionState, final: Bool, failureType: String?, failedDevices: Set<String>?) {
-        guard let execution = tracked[execID] else { return }
+        guard let execution = tracked[execID] else {
+            early.append((execID, Event(newState: newState, final: final, failureType: failureType, failedDevices: failedDevices)))
+            if early.count > 32 { early.removeFirst(early.count - 32) }
+            return
+        }
         let ends = final || newState.isFinal
         if ends {
             execution.timeout?.cancel()
@@ -177,8 +196,6 @@ actor Executions {
             action.observers.forEach { $0(update) }
         }
     }
-
-    func isTracked(_ execID: String) -> Bool { tracked[execID] != nil }
 
     func cancel(_ execID: String) async throws {
         guard let client = await client() else { throw OverkizError(message: "not connected") }
@@ -197,6 +214,7 @@ actor Executions {
             for action in execution.actions { action.observers.forEach { $0(update) } }
         }
         tracked = [:]
+        early = []
     }
 
     /// A command's label in the execution's (6.4): `setClosure` named in English or French, the rest as the raw

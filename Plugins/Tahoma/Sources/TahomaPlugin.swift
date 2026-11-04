@@ -23,9 +23,9 @@ public actor TahomaPlugin: HomeswiftPlugin {
         var localHTTP: @Sendable (_ pin: String?) -> any HTTPSending = { pin in
             HTTPClient(tls: .authority(pem: OverkizRootCA.pem, serverName: pin.map(TahomaPlugin.gatewayHostName)), maximumBodySize: 16 * 1024 * 1024)
         }
-        /// The gateways announcing `_kizboxdev._tcp`, browsed for `duration`.
-        var browseGateways: @Sendable (_ duration: Duration) async -> [GatewayAnnouncement] = { duration in
-            await GatewayAnnouncement.browse(for: duration)
+        /// The gateways announcing `_kizboxdev._tcp`, browsed for `duration` or until the one of `pin` answers.
+        var browseGateways: @Sendable (_ duration: Duration, _ pin: String?) async -> [GatewayAnnouncement] = { duration, pin in
+            await GatewayAnnouncement.browse(for: duration, pin: pin)
         }
         /// Multiplies every interval, timeout and delay: 1 for real devices.
         var timeScale: Double = 1
@@ -50,9 +50,13 @@ public actor TahomaPlugin: HomeswiftPlugin {
     private(set) var mappers: [String: Mapper] = [:]
     private var owners: [String: String] = [:]
     private(set) var devices: [OverkizDevice] = []
+    /// The listing's devices by deviceURL, for the event path.
+    private(set) var deviceIndex: [String: OverkizDevice] = [:]
     private(set) var scenarios: [OverkizScenario] = []
     private var refreshWaiter: CheckedContinuation<Void, Never>?
     let localToken: SecretFile<LocalToken>
+    /// The account's sign-in pause, kept across the clients `run()` makes one after another.
+    let signInLockout = SignInLockout()
     var logger: Logger { context.logger }
 
     public init(configuration: Configuration, context: PluginContext) {
@@ -76,7 +80,7 @@ public actor TahomaPlugin: HomeswiftPlugin {
         return parts.count == 4 && parts.allSatisfy { UInt8($0) != nil }
     }
 
-    func scaled(_ seconds: Double) -> Duration { .milliseconds(Int((seconds * 1000 * dependencies.timeScale).rounded())) }
+    func scaled(_ seconds: Double) -> Duration { scaledDuration(seconds, by: dependencies.timeScale) }
 
     var debugLogging: Bool { configuration.debug == true }
 
@@ -86,7 +90,7 @@ public actor TahomaPlugin: HomeswiftPlugin {
 
     /// `pollingPeriod` in seconds, with the cloud's floor; 0 polls only while something runs.
     func pollingPeriod(log: Bool = false) -> Double {
-        let configured = configuration.pollingPeriod?.value ?? 60
+        let configured = min(configuration.pollingPeriod?.value ?? 60, 86400)
         guard service != .local else { return max(0, configured) }
         if configured != 0, configured < 10 {
             if log { logger.error("pollingPeriod \(configured) is below 10 seconds: 60 is used") }
@@ -97,10 +101,10 @@ public actor TahomaPlugin: HomeswiftPlugin {
         return max(0, configured)
     }
 
-    var execPollingPeriod: Double { max(1, configuration.execPollingPeriod?.value ?? 5) }
+    var execPollingPeriod: Double { min(max(1, configuration.execPollingPeriod?.value ?? 5), 3600) }
 
     func refreshPeriod(log: Bool = false) -> Double {
-        let minutes = configuration.refreshPeriod?.value.flatMap { $0 > 0 ? $0 : nil } ?? 30
+        let minutes = min(configuration.refreshPeriod?.value.flatMap { $0 > 0 ? $0 : nil } ?? 30, 7 * 1440)
         if log, minutes < 30 { logger.warning("A refreshPeriod below 30 minutes is discouraged") }
         return minutes
     }
@@ -137,8 +141,7 @@ public actor TahomaPlugin: HomeswiftPlugin {
         tasks.cancelAll()
         await executions?.stop()
         for mapper in mappers.values { mapper.stop() }
-        refreshWaiter?.resume()
-        refreshWaiter = nil
+        endRefreshWait()
     }
 
     /// Connects and lists the setup, again after a failure (60 s, doubling, at most an hour), then follows its events
@@ -147,15 +150,18 @@ public actor TahomaPlugin: HomeswiftPlugin {
         var attempt = 0
         while !Task.isCancelled {
             do {
-                client = try await connect()
-                try await discover(using: client!)
+                let client = try await connect()
+                self.client = client
+                try await discover(using: client)
                 break
             } catch is CancellationError {
                 return
             } catch {
                 let delay = Backoff(initial: scaled(60), maximum: scaled(3600)).delay(attempt: attempt)
-                logger.error("\(error)")
-                logger.error("Retry in \(Int(delay.components.seconds)) sec...")
+                // Once per outage at error, the retries after at debug.
+                let level: Logger.Level = attempt == 0 ? .error : .debug
+                logger.log(level: level, "\(error)")
+                logger.log(level: level, "Retry in \(Int(delay.components.seconds)) sec...")
                 attempt += 1
                 do { try await Task.sleep(for: delay) } catch { return }
             }
@@ -166,26 +172,29 @@ public actor TahomaPlugin: HomeswiftPlugin {
 
     // MARK: Discovery (6.1)
 
-    /// Lists the setup and builds an accessory per exposed device, then the scenarios; removes the others.
-    func discover(using client: OverkizClient) async throws {
-        let listed = try await client.devices()
-        var scenarios: [OverkizScenario] = []
-        if configuration.exposeScenarios?.exposesAny == true { scenarios = try await client.scenarios() }
-        if let country = try? await client.countryCode() { await executions.setLanguage(country == "fr" ? "fr" : "en") }
+    /// Lists the setup (or takes the listing given) and builds an accessory per exposed device, then the scenarios;
+    /// removes the others.
+    func discover(using client: OverkizClient, listed given: [OverkizDevice]? = nil) async throws {
+        let exposesScenarios = configuration.exposeScenarios?.exposesAny == true
+        async let listing = given == nil ? client.devices() : given!
+        async let scenarioListing = exposesScenarios ? client.scenarios() : []
+        async let country = given == nil ? (try? await client.countryCode()) : nil
+        let listed = try await listing, scenarios = try await scenarioListing
+        if let country = await country { await executions.setLanguage(country == "fr" ? "fr" : "en") }
         build(listed, scenarios: scenarios)
         var kept = Set(mappers.keys.map(Self.accessoryID(deviceID:)))
         kept.formUnion(self.scenarios.map { Self.accessoryID(deviceID: Self.scenarioDeviceID(oid: $0.oid)) })
         _ = await context.removeAccessories(keeping: kept)
     }
 
-    private var exclusions: Set<String> { DeviceGrouping.builtInExclusions.union(configuration.exclude ?? []) }
+    var exclusions: Set<String> { DeviceGrouping.builtInExclusions.union(configuration.exclude ?? []) }
 
     /// The accessories of a listing, replacing those there are.
     private func build(_ listed: [OverkizDevice], scenarios listedScenarios: [OverkizScenario]) {
         for mapper in mappers.values { mapper.stop() }
         mappers = [:]
         owners = [:]
-        devices = listed
+        setDevices(listed)
         store.replaceAll(listed)
         let exclusions = exclusions
         let environment = mapperEnvironment
@@ -229,6 +238,18 @@ public actor TahomaPlugin: HomeswiftPlugin {
             showAvailability(of: device.deviceURL, available: device.available)
         }
         buildScenarios(listedScenarios)
+    }
+
+    private func setDevices(_ listed: [OverkizDevice]) {
+        devices = listed
+        deviceIndex = Dictionary(listed.map { ($0.deviceURL, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// Changed states of a device to the mapper that shows it, and its availability.
+    private func deliver(_ deviceURL: String, _ states: [String: JSONValue], available: Bool?) {
+        let changed = store.apply(deviceURL, states)
+        if !changed.isEmpty, let owner = owners[deviceURL], let mapper = mappers[owner] { mapper.receive(changed, from: deviceURL, log: true) }
+        if let available, mappers[deviceURL] != nil { showAvailability(of: deviceURL, available: available) }
     }
 
     var mapperEnvironment: MapperEnvironment {
@@ -315,7 +336,8 @@ public actor TahomaPlugin: HomeswiftPlugin {
         if polling == 0 { logger.debug("Disable event polling") } else { logger.debug("Enable event polling period every \(Int(polling)) sec") }
         while !Task.isCancelled {
             let running = await executions.inFlight > 0
-            let period = running ? execPollingPeriod : polling
+            // A refresh waiting for its completion event is fetched as an execution is, even when polling is off.
+            let period = running || (polling == 0 && refreshWaiter != nil) ? execPollingPeriod : polling
             if period == 0 {
                 listener = nil
                 await wakeup.wait(for: nil)
@@ -339,10 +361,9 @@ public actor TahomaPlugin: HomeswiftPlugin {
             } catch is CancellationError {
                 return
             } catch {
-                let text = "\(error)"
-                let message = registering ? "Registration error - \(text)" : "Polling error - \(text)"
+                let message = registering ? "Registration error - \(error)" : "Polling error - \(error)"
                 if failures == 0 { logger.error("\(message)") } else { logger.debug("\(message)") }
-                if ["400", "401", "404"].contains(where: text.contains) { listener = nil }
+                if let status = (error as? OverkizError)?.status, [400, 401, 404].contains(status) { listener = nil }
                 let delay = backoff.delay(attempt: failures)
                 failures += 1
                 do { try await Task.sleep(for: delay) } catch { return }
@@ -355,18 +376,14 @@ public actor TahomaPlugin: HomeswiftPlugin {
         for event in events {
             switch event {
             case .deviceStateChanged(let url, let states):
-                let changed = store.apply(url, states)
-                guard !changed.isEmpty else { continue }
-                if let owner = owners[url], let mapper = mappers[owner] { mapper.receive(changed, from: url, log: true) }
-                if changed["core:StatusState"] != nil, mappers[url] != nil {
-                    showAvailability(of: url, available: devices.first { $0.deviceURL == url }?.available ?? true)
-                }
+                // Availability only when the status changed (the listing's flag stands otherwise).
+                let available = states["core:StatusState"] != nil && store.value(url, "core:StatusState") != states["core:StatusState"]
+                deliver(url, states, available: available ? (deviceIndex[url]?.available ?? true) : nil)
             case .executionStateChanged(let execID, let state, let final, let failureType, let failed):
                 await executions.handle(execID: execID, newState: state, final: final, failureType: failureType, failedDevices: failed)
             case .refreshAllCompleted:
                 logger.debug("Refresh all states completed")
-                refreshWaiter?.resume()
-                refreshWaiter = nil
+                endRefreshWait()
             }
         }
     }
@@ -388,19 +405,13 @@ public actor TahomaPlugin: HomeswiftPlugin {
         await waitForRefresh(timeout: scaled(30))
         do {
             let listed = try await client.devices()
-            if Set(listed.map(\.deviceURL)) != Set(devices.map(\.deviceURL)) {
+            if Set(listed.map(\.deviceURL)) != Set(deviceIndex.keys) {
                 logger.info("The setup's devices changed: building its accessories again")
-                try await discover(using: client)
+                try await discover(using: client, listed: listed)
                 return
             }
-            devices = listed
-            for device in listed {
-                let changed = store.apply(device.deviceURL, device.states)
-                if !changed.isEmpty, let owner = owners[device.deviceURL], let mapper = mappers[owner] {
-                    mapper.receive(changed, from: device.deviceURL, log: true)
-                }
-                if mappers[device.deviceURL] != nil { showAvailability(of: device.deviceURL, available: device.available) }
-            }
+            setDevices(listed)
+            for device in listed { deliver(device.deviceURL, device.states, available: device.available) }
         } catch {
             logger.error("Refresh error - \(error)")
         }

@@ -327,6 +327,24 @@ struct TahomaPluginTests {
         await again.stop()
     }
 
+    @Test func aRefusedTokenIsRevokedAndOnlyThatOne() async throws {
+        let environment = TestEnvironment(gateways: [GatewayAnnouncement(name: "TaHoma", pin: "1234-5678-9012", address: "192.168.1.50")])
+        // Another bridge's token on the same gateway.
+        environment.server.addActiveToken(label: "Homeswift")
+        var settings = TestEnvironment.account
+        settings["preferLocalAPI"] = true
+        let host = try await environment.start(settings: settings)
+        #expect(await eventually { host.accessory(shutter) != nil })
+        #expect(environment.server.activeTokenLabels == ["Homeswift", "Homeswift"])
+        await host.stop()
+
+        environment.server.refuseLocalToken()
+        let again = try await environment.start(settings: settings)
+        #expect(await eventually { environment.server.activeTokenLabels.count == 1 })
+        #expect(environment.server.mintedTokens.count == 1)
+        await again.stop()
+    }
+
     @Test func theRefreshTokenIsKeptBetweenRuns() async throws {
         let environment = TestEnvironment()
         let host = try await environment.start()
